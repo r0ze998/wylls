@@ -9,6 +9,8 @@ import { toBase64 } from '../../../../permutation-gateway/client/src/bytes.mjs';
 import { commandBytes } from '../../../../permutation-gateway/src/frontier/agent/owner-auth.mjs';
 import { linkStatement, ownerQueryStatement, revokeStatement, OAuthError, SCOPE_TEXT, SCOPES, TTL } from './auth.mjs';
 import { PROTOCOL_VERSIONS } from './server.mjs';
+import { hostChecker, originChecker } from './exposure.mjs';
+import { audited, clientAddress } from './audit.mjs';
 
 const MAX_BODY = 64 * 1024;
 
@@ -95,19 +97,22 @@ document.getElementById('deny').onclick=async()=>{const j=await post('/oauth/con
  * @param {object} o.mcp            createWyllsMcp(...)
  * @param {string[]} [o.origins]    Origins allowed on /mcp and the consent posts (besides the issuer's own)
  */
-export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLimit = { burst: 20, everySecs: 2 }, allowedHosts = null }) {
+/**
+ * (2026-11-20, ③ public exposure; all OFF by default, so a caller that passes none of them gets the handler as before)
+ * @param {object|null} [o.audit]       src/audit.mjs createAudit(): one line per request (who, tool, outcome; no secret)
+ * @param {boolean} [o.trustProxy]      the client address is the right-most X-Forwarded-For entry (the operator's own
+ *                                      reverse proxy appends it); off: the socket's peer, as before
+ * @param {object|null} [o.linkQuota]   src/rate-limit.mjs DailyQuota: tools/call units per owner link per UTC day, on top
+ *                                      of server.mjs's per-link burst limit (30, then 1 a second)
+ */
+export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLimit = { burst: 20, everySecs: 2 }, allowedHosts = null, audit = null, trustProxy = false, linkQuota = null }) {
   const allowed = new Set([new URL(auth.issuer).origin, 'https://chatgpt.com', ...origins]);
   // (2026-11-18) DNS rebinding: a page whose name was re-pointed at this machine reaches the server with its own name in
   // Host, and a same-origin GET carries no Origin. With `allowedHosts` (host names, port-agnostic, as the MCP SDK's
   // hostHeaderValidation; bin/mcp-settings.mjs gives loopback + the issuer's), any other or missing Host is 403 before
   // anything is read. Null (the default for a caller that builds its own handler, e.g. the tests): not checked, as before.
-  const hostSet = allowedHosts ? new Set(allowedHosts.map(h => String(h).toLowerCase())) : null;
-  const hostOk = req => {
-    if (!hostSet) return true;
-    const h = req.headers.host;
-    if (!h) return false;
-    try { return hostSet.has(new URL(`http://${h}`).hostname.toLowerCase()); } catch { return false; }
-  };
+  // (2026-11-20) The check itself is src/exposure.mjs (shared with the public endpoint, src/public-mcp.mjs).
+  const hostOk = hostChecker(allowedHosts);
   const send = (res, status, obj, headers = {}) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
     res.end(obj === null ? '' : JSON.stringify(obj));
@@ -116,11 +121,11 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
     if (e.redirect) return send(res, 200, { redirect: e.redirect, error: e.error });
     send(res, e.status ?? 400, e.body?.() ?? { error: 'server_error' }, e.status === 401 ? { 'www-authenticate': auth.wwwAuthenticate(`error="${e.error}"`) } : {});
   };
-  const originOk = req => !req.headers.origin || allowed.has(req.headers.origin);
+  const originOk = originChecker(allowed);
   // Unauthenticated routes that make the server keep something: `rateLimit.burst`, then 1 every `everySecs`, per address.
   const buckets = new Map();
   const limited = req => {
-    const k = req.socket?.remoteAddress ?? 'unknown';
+    const k = clientAddress(req, trustProxy);
     const t = auth.now() / 1000;
     const b = buckets.get(k) ?? { tokens: rateLimit.burst, t };
     b.tokens = Math.min(rateLimit.burst, b.tokens + (t - b.t) / rateLimit.everySecs);
@@ -133,7 +138,12 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
   };
   const KEEPING = new Set(['POST /oauth/register', 'GET /oauth/authorize', 'POST /oauth/statement', 'POST /oauth/consent', 'POST /owner/statement', 'POST /owner/operations', 'POST /link/revoke/statement', 'POST /link/revoke']);
 
-  return async function handler(req, res) {
+  const note = (req, o) => { if (req.wyllsAudit) Object.assign(req.wyllsAudit, o); };
+  return audited(handler, audit, { addressOf: req => clientAddress(req, trustProxy) });
+
+  // (2026-11-20) Before: `return async function handler(req, res) {…}`; now the same function, wrapped by `audited`
+  // (src/audit.mjs: the identity when no audit log is configured).
+  async function handler(req, res) {
     // (2026-11-17) The request target is parsed before the try below, and this handler's promise is not awaited by
     // node:http. If node:http delivers a target the URL parser refuses (an absolute form with a bad host or port, `//[`,
     // …; whether its HTTP parser lets such a target through was not tried), the parse used to reject the promise outside
@@ -239,6 +249,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
         case 'POST /mcp': {
           let principal;
           try { principal = auth.principal(req.headers.authorization); } catch (e) {
+            note(req, { outcome: 'Unauthenticated' });
             return send(res, 401, { jsonrpc: '2.0', id: null, error: { code: -32001, message: e.message } }, { 'www-authenticate': auth.wwwAuthenticate(`error="${e.error ?? 'invalid_token'}", error_description="${String(e.message).replace(/"/g, '')}"`) });
           }
           const v = req.headers['mcp-protocol-version'];
@@ -254,8 +265,16 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
           }
           if (!msg || typeof msg !== 'object') return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'a JSON-RPC message is required' } });
           if (Array.isArray(msg)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batches are not supported' } });
+          note(req, { who: { kind: 'link', linkId: principal.linkId }, rpc: typeof msg.method === 'string' ? msg.method : undefined, tool: msg.method === 'tools/call' && typeof msg.params?.name === 'string' ? msg.params.name : undefined });
+          // (2026-11-20) The optional daily quota per owner link (off unless configured): a tools/call over it is refused
+          // with HTTP 429 before the tool runs; nothing is sent or spent.
+          if (linkQuota && msg.method === 'tools/call') {
+            const q = linkQuota.take(principal.linkId, 1);
+            if (!q.ok) { note(req, { outcome: 'QuotaExceeded' }); return send(res, 429, { jsonrpc: '2.0', id: msg.id ?? null, error: { code: -32000, message: 'daily quota for this connection is used up', data: { reason: 'quota', resetAt: q.resetAt } } }, { 'retry-after': String(q.retryAfterSecs) }); }
+          }
           const out = await mcp.handle(msg, principal);
           if (out === null) { res.writeHead(202); return res.end(); }
+          note(req, { outcome: out.result?.isError ? String(out.result.structuredContent?.error?.code ?? 'Error') : out.error ? `rpc${-out.error.code}` : 'ok' });
           // (2026-11-17) MCP 2025-06-18 transports, session management: a session id is assigned at initialization, on
           // the HTTP response that contains the InitializeResult. So only a successful initialize gets one, never an
           // error response (and a notification got 202 above).
@@ -270,7 +289,7 @@ export function createHandler({ auth, mcp, origins = [], log = () => {}, rateLim
       log(`mcp-http: ${route} failed: ${String(e?.message ?? e).slice(0, 200)}`);
       return send(res, 500, { error: 'server_error' });
     }
-  };
+  }
 }
 
 // Starting the server (resolves when listening, rejects with a start-up error): src/listen.mjs.

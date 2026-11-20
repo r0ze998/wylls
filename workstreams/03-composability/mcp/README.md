@@ -26,6 +26,8 @@ The design and the facts are in [../07-mcp.ja.md](../07-mcp.ja.md) (Japanese). T
 | `e2e/local-stack.mjs` | The play end to end on a real local stack (frontier-stack). |
 | `src/local-play-game.mjs`, `bin/wylls-mcp-local-play.mjs` | (⑤ B, 2026-11-18) The **read-only** observation server of one local-play TEST world: `wylls.read` only, read tools only, a link is the resident's own (agentId = owner). |
 | `examples/external-resident/` | (⑤ B) A reference external AI resident with its own TEST key: discovers its world like a page, observes over this server, acts on the page's own route. [README](examples/external-resident/README.md) — how to plug in your own AI. |
+| `PUBLIC-EXPOSURE.md` | (2026-11-20) The public-exposure policy for a devnet season and r0ze's open questions. |
+| `bin/wylls-mcp-public.mjs`, `src/public-mcp.mjs`, `src/public-tools.mjs` | (2026-11-20) The **public read-only** server: `POST /public/mcp`, public herald data only, per-agent API keys (`src/api-keys.mjs`, `bin/wylls-mcp-key.mjs`), rate limits and quotas (`src/rate-limit.mjs`), audit log (`src/audit.mjs`). Off unless started; loopback only. |
 | `e2e/external-resident-probes.mjs` | (⑤ B) What an external resident cannot do, checked against a running local world. |
 
 ## Test
@@ -50,6 +52,22 @@ issuer its codes and tokens would cross the network in plaintext. A tunnel (an `
 `127.0.0.1` and needs no opt-in. The `Host` header is checked against the loopback names, the issuer's host name and
 `WYLLS_MCP_ALLOWED_HOSTS` (DNS rebinding, as the MCP SDKs' `hostHeaderValidation` / `TransportSecuritySettings` do);
 any other `Host` is answered 403 before a route runs. See `test/exposure.test.mjs`.
+
+### Public read-only server and audit (2026-11-20)
+
+Not started by anything; loopback only (`WYLLS_MCP_PUBLIC_ALLOW_REMOTE_BIND=1` is a decision for r0ze). Settings:
+`bin/public-settings.mjs`. Policy, defaults and open questions: [PUBLIC-EXPOSURE.md](PUBLIC-EXPOSURE.md).
+
+```sh
+node bin/wylls-mcp-key.mjs add --file /tmp/keys.json --label "my-agent"     # prints the token once; the file holds its hash
+WYLLS_MCP_PUBLIC_PORT=41961 WYLLS_MCP_PUBLIC_HERALD=http://127.0.0.1:41940 WYLLS_MCP_PUBLIC_KEYS=/tmp/keys.json node bin/wylls-mcp-public.mjs
+node e2e/public-verify.mjs --public http://127.0.0.1:41961 --keys /tmp/keys.json --token-file <file> --key-id <id> --out /tmp/p.jsonl
+```
+
+The owner server takes, all off when unset: `WYLLS_MCP_AUDIT=<file>` (one JSON line per request: who, tool, outcome;
+no token, argument, wallet or raw address), `WYLLS_MCP_TRUST_PROXY=1` (right-most `X-Forwarded-For`),
+`WYLLS_MCP_LINK_PER_DAY=<n>` (tools/call per link per UTC day, on top of the per-link 30-then-1/s limit in
+`src/server.mjs`).
 
 ### Over real HTTP
 
