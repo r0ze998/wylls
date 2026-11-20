@@ -29,6 +29,8 @@ import { compileMessage } from '../../../permutation-server/web/sdk/solana-tx.mj
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { WIDE_HOST_ACTS, wideHostIntent, wideHostMessage } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
 import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs';
+import { COEXIST_ACTS, RIGHTS_ACTS, RIGHTS_WALLET_ONLY, rightsIntent, rightsMessage, grantOfIntent, decodeGrant } from '../../../permutation-server/web/frontier/flocalplay-rights.mjs';
+import { COEXIST_LANE } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 
 // (TEST-ONLY wide play, owner t379u: the seventh, the wide claim 0xD9, built by the page's own flocalplay-wide.mjs)
 // (and FileTicket, one site: a first village on the rim of a local wide world, where PlaceHome cannot reach)
@@ -62,6 +64,12 @@ const ERRORS = Object.freeze({
   // (one action per resident per bell, local-play-turns.mjs: only on a relay started with --resident-turns)
   ResidentAlreadyActed: [409, 'this resident already acted in this bell'],
   ResidentTurnUnavailable: [503, 'the resident turn lease cannot be recorded'],
+  // (TEST-ONLY, the coexist lane, ② rights: IssueGrant and RevokeGrant are the wallet's own and never delegated — a
+  //  resident's relay (--resident-turns: an operator or external AI resident) never sends them)
+  LocalActWalletOnly: [403, 'this command is the wallet\'s own and is never sent by a delegated resident'],
+  // (…and the Grant read with the Citizen is not one this command may use: absent, another program's or Season's, or
+  //  naming another grantee, issuer, facility or Vault)
+  LocalActGrant: [409, 'the Grant is not there, or is not one this wallet\'s Citizen may use this way'],
 });
 export class LocalActError extends Error {
   constructor(code, detail) { const known = Object.hasOwn(ERRORS, code) ? code : 'LocalActInvalid'; super(ERRORS[known][1]); this.code = known; this.status = ERRORS[known][0]; if (detail !== undefined) this.detail = detail; }
@@ -74,7 +82,10 @@ export class LocalActError extends Error {
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
-  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant']);
+
+/** (TEST-ONLY) Whether the relay's pins are a coexist world's (flocalplay-lane.mjs COEXIST_LANE): only then are ② rights and the S1 Vault and caravan served. */
+export const coexistPins = pins => pins?.rulesetHash === COEXIST_LANE.rulesetHash;
 
 /**
  * (2026-11-19, fix-march-held) The runner's own "not taken" answers to `sendTransaction`: the send WAS called, and the
@@ -129,8 +140,13 @@ function village(h) {
  *   Muster     subject {holding}            fields {unit, troops, tile}
  * `wallet`: the relay's one wallet (the Join's session key must be it: no other key is ever registered here).
  */
-export function localActIntent(value, { wallet }) {
+export function localActIntent(value, { wallet, coexist = false }) {
   check(exact(value, ['name', 'subject', 'fields']) && typeof value.name === 'string');
+  // (TEST-ONLY, the coexist lane only — `coexist` is the relay's own pins, never the request's word: ② rights' six and
+  //  the S1 Vault and caravan, flocalplay-rights.mjs. Every other relay refuses them as before: not one local play sends)
+  if (coexist && COEXIST_ACTS.includes(value.name)) {
+    try { return rightsIntent(value.name, value.subject, value.fields, 'LocalActInvalid'); } catch (e) { fail(e?.code === 'LocalActWideHolding' ? 'LocalActWideHolding' : 'LocalActInvalid'); }
+  }
   check(LOCAL_ACT_COMMANDS.includes(value.name) && (value.name === WIDE_CLAIM || WIDE_HOST_ACTS.includes(value.name) || Object.hasOwn(SIGNED_BY, value.name)), 'LocalActNotAllowed');
   const { name, subject: s, fields: f } = value;
   check(s !== null && typeof s === 'object' && !Array.isArray(s) && f !== null && typeof f === 'object' && !Array.isArray(f));
@@ -161,7 +177,8 @@ export function localActIntent(value, { wallet }) {
   check(exact(s, ['holding']));
   const h = village(s.holding), subject = Object.freeze({ holding: h });
   if (name === 'Harvest') { check(exact(f, [])); return Object.freeze({ name, subject, fields: Object.freeze({}) }); }
-  if (name === 'Build') { check(exact(f, ['item']) && int(f.item, 0, 7)); return Object.freeze({ name, subject, fields: Object.freeze({ item: f.item }) }); }
+  // (TEST-ONLY coexist lane: also the S1 workshop, item 8 — ② rights' facility is a workshop village; elsewhere 0-7 as before)
+  if (name === 'Build') { check(exact(f, ['item']) && int(f.item, 0, coexist ? 8 : 7)); return Object.freeze({ name, subject, fields: Object.freeze({ item: f.item }) }); }
   // (the ABI's own widths: unit 1 byte; n and troops 4 bytes; tile 1 byte, 0-60 on the province's map)
   if (name === 'Train') { check(exact(f, ['unit', 'n']) && int(f.unit, 0, 255) && int(f.n, 1, 0xffffffff)); return Object.freeze({ name, subject, fields: Object.freeze({ unit: f.unit, n: f.n }) }); }
   check(name === 'Muster' && exact(f, ['unit', 'troops', 'tile']) && int(f.unit, 0, 255) && int(f.troops, 1, 0xffffffff) && int(f.tile, 0, 60));
@@ -185,6 +202,10 @@ export function localActMessage(intent, pins, blockhash) {
   if (WIDE_HOST_ACTS.includes(intent.name)) {
     try { return { message: wideHostMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, world: worldIdOf(A.season, pins.program), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
   }
+  if (COEXIST_ACTS.includes(intent.name)) {
+    check(coexistPins(pins), 'LocalActNotAllowed');
+    try { return { message: rightsMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT, profile: profileForHash(pins.rulesetHash) ?? 3 }), name: intent.name }; } catch { fail('LocalActInvalid'); }
+  }
   const profile = profileForHash(pins.rulesetHash);
   const v = { addresses: A, wallet: pins.wallet, actor: pins.wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(intent.fields.session)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };
@@ -205,7 +226,7 @@ export function localActMessage(intent, pins, blockhash) {
 export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA } = {}) {
   check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === schema
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
-  const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet });
+  const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet, coexist: coexistPins(pins) });
   const wire = Buffer.from(body.transaction_b64, 'base64');
   check(wire.toString('base64') === body.transaction_b64 && wire.length <= 1232);
   let tx; try { tx = parseTransaction(wire); } catch { fail('LocalActInvalid'); }
@@ -337,6 +358,9 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
   // (a wide village's own act: the Citizen above is this relay's check; the program authenticates the wide holding,
   //  its owner and its provinces — a legacy Holding cannot stand at a wide address)
   if (WIDE_HOST_ACTS.includes(intent.name)) return;
+  // (TEST-ONLY, the coexist lane: a use of a Grant is checked against the Grant itself, `localActGrantCheck`; a caravan
+  //  names places the program authenticates — the Citizen above is this relay's check)
+  if (COEXIST_ACTS.includes(intent.name) && intent.name !== 'IssueGrant' && intent.name !== 'BuildVault') return;
   if (intent.name === 'PlaceHome') {
     // (the command makes or claims the village: it may be absent; what must not be there is another family's account)
     if (holding !== null) { check(holding.owner === pins.program, 'LocalActHolding'); check(magicOf(holding.bytes) !== WIDE_HOLDING_MAGIC, 'LocalActWideHolding'); }
@@ -348,11 +372,33 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
   // (the game's own account decoder: the account must itself say it is THIS village — this Season, these coordinates,
   //  this site — and not merely sit at the address; then whose it is)
   let d; try { d = decodePrefix('Holding', holding.bytes, { profile: profileForHash(pins.rulesetHash) }); } catch { fail('LocalActHolding'); }
-  const h = intent.subject.holding;
+  // (IssueGrant: the facility is the village checked — the issuer's own)
+  const h = intent.name === 'IssueGrant' ? intent.subject.facility : intent.subject.holding;
   check(String(d.seasonId) === String(pins.seasonId) && d.p === h.p && d.q === h.q && d.site === h.site, 'LocalActHolding');
   const owner = d.ownerCitizen;
   check(owner instanceof Uint8Array && owner.length === 32 && encode(owner) === citizenAt, 'LocalActNotYourVillage');
   void holdingAt;
+}
+
+/**
+ * (TEST-ONLY, the coexist lane) The Grant a rights command names, as read in the same `getMultipleAccounts` as the
+ * Citizen: IssueGrant — no account at the new Grant's address; every other — the program's Grant of this Season at
+ * its address, and by its own bytes one this Citizen may use this way (ReserveSwap/ExecuteSwap/ReleaseSwap: its
+ * grantee, with the facility and Vault the command names; RevokeGrant: its issuer, the same places; CloseGrant: its
+ * issuer, and the rent goes back to this wallet). The program checks it all again; this refuses before any send.
+ */
+export function localActGrantCheck(intent, pins, { citizenAt }, grant) {
+  if (!RIGHTS_ACTS.includes(intent.name)) return;
+  if (intent.name === 'IssueGrant') { check(grant === null, 'LocalActGrant'); return; }
+  check(grant !== null && grant.owner === pins.program, 'LocalActGrant');
+  const g = decodeGrant(grant.bytes);
+  check(g !== null && g.seasonId === String(pins.seasonId), 'LocalActGrant');
+  const s = intent.subject;
+  check(g.issuerTag === s.grant.issuer_tag && g.nonce === s.grant.nonce, 'LocalActGrant');
+  if (intent.name === 'CloseGrant') { check(g.issuerCitizen === citizenAt && g.rentTo === pins.wallet, 'LocalActGrant'); return; }
+  const A = seasonAddresses(pins.program, String(pins.seasonId));
+  check(g.facility === A.of('Holding', s.facility) && g.station === A.of('Vault', s.station) && g.p === s.facility.p && g.q === s.facility.q, 'LocalActGrant');
+  check(intent.name === 'RevokeGrant' ? g.issuerCitizen === citizenAt : g.granteeCitizen === citizenAt, 'LocalActGrant');
 }
 
 /**
@@ -420,16 +466,21 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
     async submit(body) {
       open();
       const ok = localActSubmit(body, pins), digest = sha(ok.message);
+      // (TEST-ONLY, the coexist lane: the wallet's own Grant commands are never sent by a resident's relay — refused
+      //  before anything is read, the history retirement below included)
+      if (turns !== null && RIGHTS_WALLET_ONLY.includes(ok.intent.name)) fail('LocalActWalletOnly');
       check(!seen.has(digest), 'LocalActMessageUsed');
       if (!seen.room()) { await seen.retire(ask); open(); }
       check(seen.room(), 'LocalActBusy');
-      const { intent } = ok, holdingAt = intent.subject.holding ? A.of('Holding', intent.subject.holding) : null;
-      const asked = holdingAt === null ? [citizenAt] : [citizenAt, holdingAt];
+      const { intent } = ok, holdingAt = intent.subject.holding ? A.of('Holding', intent.subject.holding) : intent.name === 'IssueGrant' ? A.of('Holding', intent.subject.facility) : null;
+      const grantAt = RIGHTS_ACTS.includes(intent.name) ? grantOfIntent(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet }) : null;
+      const asked = [citizenAt, ...(holdingAt === null ? [] : [holdingAt]), ...(grantAt === null ? [] : [grantAt])];
       const got = await ask('getMultipleAccounts', [asked, { encoding: 'base64', commitment: 'confirmed' }]);
       open();   // (the listener began to stop while the accounts were read: nothing further, nothing sent, the bytes not consumed)
       const slot = got.result?.context?.slot, rows = got.result?.value;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== asked.length) fail('LocalActRpcUnavailable');
       localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [accountOf(rows[0]), holdingAt === null ? undefined : accountOf(rows[1])]);
+      if (grantAt !== null) localActGrantCheck(intent, pins, { citizenAt }, accountOf(rows[rows.length - 1]));
       // With a pinned runner: the LAST thing asked before the send is the runner's own word on this very signature.
       // The answer must be the pinned instance's (the status context is where the runner states its instance), and the
       // signature must not be known to it yet. Another instance, no instance, or a malformed answer: nothing is sent

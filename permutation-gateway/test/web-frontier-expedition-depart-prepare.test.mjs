@@ -479,7 +479,7 @@ test('the relay read: one bounded POST to the one path; an oversized, unreadable
 test('the module is pure web SDK: no wallet, signer, seal maker, key or send API, and it changes no existing file\'s exports', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/fexpedition-depart-prepare.mjs', import.meta.url), 'utf8');
   const code = src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../sdk/base58.mjs', '../sdk/bytes.mjs', '../sdk/sha256.mjs', '../sdk/solana-tx.mjs', './faddr.mjs', './fexpedition-compose.mjs', './fexpedition-depart.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../sdk/base58.mjs', '../sdk/bytes.mjs', '../sdk/sha256.mjs', '../sdk/solana-tx.mjs', './faddr.mjs', './fexpedition-compose.mjs', './fexpedition-depart.mjs', './flocalplay-lane.mjs']);
   assert.doesNotMatch(code, /signTransaction|signMessage|sendTransaction|sendRawTransaction|secretKey|privateKey|keyFromSeed|localStorage|sealMarch|new Worker|crypto\.subtle|wallet\.connect/);
   assert.deepEqual(Object.keys(DP).sort(), ['DEPART_HEAP_FRAME', 'DEPART_NOT_PROVEN', 'DEPART_PREPARE_CLOSED', 'DEPART_PREPARE_MAX_REPORT_BYTES', 'DEPART_PREPARE_MAX_REQUEST_BYTES', 'DEPART_PREPARE_PATH', 'DEPART_PREPARE_PROGRAM_VERSION',
     'DEPART_PREPARE_REPORT_SCHEMA', 'DEPART_PREPARE_REQUEST_SCHEMA', 'DEPART_PREPARE_TIMEOUT_MS', 'DEPART_SEAL_BYTES', 'canonicalDepartProposal', 'clearDepartPreparation', 'departPreparationOf',

@@ -7,6 +7,7 @@
 // a request are opaque bytes that are already public, carried and never made,
 // opened or checked (`seal_verified` is always false).
 import { spawn as nodeSpawn } from 'node:child_process';
+import { onLocalLane } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { decode, encode } from '../../client/src/base58.mjs';
@@ -23,7 +24,9 @@ export const DEPART_PREPARE_MAX_OUTPUT_BYTES = 64 * 1024;
 export const DEPART_PREPARE_TIMEOUT_MS = 30_000;
 export const DEPART_PREPARE_MAX_CONCURRENT = 2;
 /** expedition_dispatch_ix::PROGRAM_VERSION: S1 (4) | wide 0x4000 | host-only dispatch 0x0800. */
-export const DEPART_PREPARE_PROGRAM_VERSION = '18436';
+export let DEPART_PREPARE_PROGRAM_VERSION = '18436';
+// (the coexist lane, TEST-ONLY: follows the process's local lane, flocalplay-lane.mjs; plain: unchanged)
+onLocalLane(l => { DEPART_PREPARE_PROGRAM_VERSION = l.programVersionText; });
 /** experimental_expedition_depart_prepare::DIGEST_DOMAIN. */
 export const DEPART_DIGEST_DOMAIN = 'PSF-ORIGINAL-DEPART-DRAFT-v1';
 /** world_index::seal::WIDE_SEAL_LEN. */
