@@ -258,10 +258,16 @@ pub fn verify(input: &Input) -> Report {
     // creation with no finding (every program-owned final state exact).
     #[allow(unused_mut)]
     let mut vg_exact = false;
+    // ⑰ Q-P2: VG's FAIL findings (known-bad), counted only when VG ran.
+    #[allow(unused_mut)]
+    let mut vg_fails = 0usize;
     #[cfg(feature = "playable-lane")]
     let r = if !cfg!(feature = "mutate-vg") && genesis::applies(input) {
         let d = genesis::derive(input);
         vg_exact = d.ran && d.findings.is_empty();
+        if d.ran {
+            vg_fails = d.findings.iter().filter(|f| f.fail()).count();
+        }
         let mut r = verify_one(d.input.as_ref().unwrap_or(input));
         if d.ran {
             r.checks_run.insert(0, "VG:genesis-replay");
@@ -289,6 +295,7 @@ pub fn verify(input: &Input) -> Report {
         r,
         &history::Lift {
             vg_exact,
+            vg_fails,
             witness: outcome,
         },
     )

@@ -16,6 +16,7 @@
 //! | per-program local-feed archives | numbers restored when consistent, but same-run rollback freshness remains unproven | never PASS |
 //! | public RPC (findex `RpcPoll`, live or as a findex archive), in **any** coverage state, `cross_checked` included | `unproven` | never PASS: `UNVERIFIABLE` with [`HISTORY_UNPROVEN`], or FAIL only on a [self-contained](self_contained) FAIL |
 //! | public RPC, coverage neither `gap` nor `not_fetched`, when (a) VG re-executed it from the Season's creation with no finding AND (b) every witness RPC agreed item by item (VS, `crate::witness`, no finding) — ⑰ Q-P1 = (a)+(b), 2026-11-19 | `witnessed` | judged as a whole history: PASS, or FAIL on any FAIL; `complete` stays `null` (the witnesses' independence is assumed: [`crate::witness::RESIDUAL`]) |
+//! | public RPC, coverage neither `gap` nor `not_fetched`, when VG ran over the whole archive and has a FAIL finding (known-bad: an archived success the pinned program refuses, a log or final state the re-executions do not leave) AND (b) every witness RPC agreed item by item — ⑰ Q-P2 = FAIL, 2026-11-20 | `unproven` (lifted for FAIL only) | FAIL, `failBasis` names `vg_witnessed`; never a PASS (witness agreement alone never lifts to PASS) |
 //! | an archive or fixture whose source is not recorded or not readable | `unproven` | the same |
 //!
 //! `cross_checked` records that the node and a witness agreed on the
@@ -28,7 +29,15 @@
 //! decided inside transactions that were fetched whatever else is missing,
 //! makes the verdict FAIL; any other (a chain that does not reach its head,
 //! a replay that depends on earlier state) can be the missing range, and the
-//! verdict is UNVERIFIABLE. The list is the check owners' (⑪ for V0, V27 and
+//! verdict is UNVERIFIABLE. The one exception (⑰ Q-P2 = FAIL, owner
+//! 2026-11-20): when every witness agrees on the season item by item (VS,
+//! no finding), a VG FAIL is a known-bad season (both sources serve the
+//! history that VG shows the pinned program does not produce), and the
+//! verdict is FAIL with `failBasis` `vg_witnessed`. That lifts `unproven`
+//! for FAIL purposes only: the history is still not shown whole, and a
+//! witness disagreement, an unreachable or partial witness, or a VG that
+//! is only UNVERIFIABLE (an op it does not model) leaves the verdict as
+//! before. The list is the check owners' (⑪ for V0, V27 and
 //! ⑳'s V9 resident joins, 2026-11-06); the other checks are ④'s to add.
 //!
 //! `report.json` carries `history` ([`History::report`]) for readers of the
@@ -448,7 +457,7 @@ impl History {
             detail.push_str(&format!(" ({})", self.detail));
         }
         detail.push_str(
-            ". No source showed this to be the whole history: the verdict is never PASS, and is FAIL only on a FAIL decided inside fetched transactions; other FAIL findings may stem from a missing range",
+            ". No source showed this to be the whole history: the verdict is never PASS, and is FAIL only on a FAIL decided inside fetched transactions or (⑰ Q-P2) on VG's FAIL over a history every witness agreed on; other FAIL findings may stem from a missing range",
         );
         Some(Finding {
             code: HISTORY_UNPROVEN.into(),
@@ -469,13 +478,24 @@ pub struct Lift {
     /// (a) VG re-executed the whole archive from the Season's creation and
     /// had no finding: every program-owned final state reproduced exactly.
     pub vg_exact: bool,
+    /// VG's FAIL findings when it ran over the whole archive (⑰ Q-P2: with
+    /// (b), they make the verdict FAIL; never a PASS).
+    pub vg_fails: usize,
     /// (b) VS's outcome (`None`: no witness was asked).
     pub witness: Option<crate::witness::Outcome>,
 }
 
 impl Lift {
+    fn agrees(&self) -> bool {
+        self.witness.as_ref().is_some_and(|w| w.agrees)
+    }
     fn holds(&self) -> bool {
-        self.vg_exact && self.witness.as_ref().is_some_and(|w| w.agrees)
+        self.vg_exact && self.agrees()
+    }
+    /// ⑰ Q-P2 (owner 2026-11-20, FAIL): the witnesses agree and VG found
+    /// the season known-bad. Lifts `unproven` for FAIL only.
+    fn fails(&self) -> bool {
+        self.vg_fails > 0 && self.agrees()
     }
     /// Why it does not hold (report text).
     fn why_not(&self) -> Vec<String> {
@@ -510,6 +530,13 @@ pub fn apply(history: &History, r: Report) -> Report {
 /// `witnessed` instead: no [`HISTORY_UNPROVEN`], the verdict the findings
 /// give (PASS, or FAIL on any FAIL). `history.witness` reports VS's outcome
 /// whenever a witness was asked.
+///
+/// ⑰ Q-P2 (owner 2026-11-20 = FAIL): a liftable history whose witnesses
+/// all agree while VG ran and FAILs stays `unproven` (never PASS) but is
+/// FAIL. `history.failBasis` lists what the FAIL rests on:
+/// `self_contained` (a FAIL decided inside fetched transactions) and/or
+/// `vg_witnessed` (VG's FAIL over agreeing witnesses); empty when the
+/// verdict is UNVERIFIABLE. `history.vgFails` counts VG's FAIL findings.
 pub fn apply_with(history: &History, mut r: Report, lift: &Lift) -> Report {
     let mut h = history.report();
     if let Some(w) = &lift.witness {
@@ -532,11 +559,27 @@ pub fn apply_with(history: &History, mut r: Report, lift: &Lift) -> Report {
         }
         let own = r.findings.iter().filter(|x| self_contained(x)).count();
         let other = r.findings.iter().filter(|x| x.fail()).count() - own;
+        // ⑰ Q-P2: VG's known-bad over a history every witness agreed on.
+        let vg_witnessed = history.liftable() && lift.fails();
+        let mut basis = vec![];
+        if own > 0 {
+            basis.push("self_contained");
+        }
+        if vg_witnessed {
+            basis.push("vg_witnessed");
+            f.detail.push_str(&format!(
+                ". FAIL nonetheless (⑰ Q-P2): VG re-executed the archive from the Season's creation and has {} FAIL finding(s), over a history {} witness RPC(s) served identically item by item (VS); agreement lifts the history for FAIL only, never for PASS",
+                lift.vg_fails,
+                lift.witness.as_ref().map_or(0, |w| w.witnesses.len())
+            ));
+        }
         h["selfContainedFails"] = json!(own);
         h["otherFails"] = json!(other);
+        h["vgFails"] = json!(lift.vg_fails);
+        h["failBasis"] = json!(basis);
         r.findings.push(f);
         r.findings.sort_by_key(|x| std::cmp::Reverse(x.severity));
-        r.verdict = if own > 0 {
+        r.verdict = if !basis.is_empty() {
             Verdict::Fail
         } else {
             Verdict::Unverifiable
