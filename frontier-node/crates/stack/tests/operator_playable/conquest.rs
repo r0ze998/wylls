@@ -238,7 +238,13 @@ async fn resolve_next(
     } else {
         format!("WideResolve bell {b} (catch-up)")
     };
-    let v = r.try_send(&name, &[ix], &[who], "third party (stranger)");
+    let v = r.try_send_budget(
+        &name,
+        &[ix],
+        &[who],
+        "third party (stranger)",
+        heap_budget(),
+    );
     // (someone else resolved the bell first: no error of ours)
     assert!(v["ok"] == true || resolved_next(r, s) > b, "{name}: {v:#}");
     Some(v)
@@ -284,7 +290,7 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
     }
 
     // 1. the destination resolved to one bell behind the clock (plain wide Resolves), then the DeclareSiege
-    let declared = loop {
+    let declared = {
         // (a bell resolves only after THE anchor's reveal window closes, which is in the bell after next: the cursor
         //  always lags the clock by one bell, so the declaration is a RESERVATION — as in every recording of the
         //  pinned `.so` — applied when ResolveWithConquest reaches its bell)
@@ -327,11 +333,9 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
             "the host's own wallet (third party to keeper A)",
             heap_budget(),
         );
-        if v["ok"] == true {
-            break (entry, v);
-        }
         // (fail fast: a refusal is a program answer, never retried in a loop)
-        panic!("DeclareSiege refused: {v:#}");
+        assert_eq!(v["ok"], true, "DeclareSiege refused: {v:#}");
+        (entry, v)
     };
     let (entry, v) = declared;
     steps.push(row_of(&v, "DeclareSiege (12)"));
@@ -398,7 +402,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                         .collect(),
                     data: dx::encode(dx::Kind::Dissolve, &d.proposed_bytes()).unwrap(),
                 };
-                let v = r.send(
+                let v = send_heap(
+                    r,
                     "Dissolve while the siege runs (the host leaves)",
                     &[ix],
                     &[s.player],
@@ -451,7 +456,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                 AccountMeta::new_readonly(fclient::addr::system_program(), false),
             ],
         };
-        let v = r.send(
+        let v = send_heap(
+            r,
             "SettleCapture",
             &[ix],
             &[&stranger],
@@ -481,7 +487,13 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
             .unwrap(),
             accounts: m,
         };
-        let v = r.send("SettleSiege", &[ix], &[&stranger], "third party (stranger)");
+        let v = send_heap(
+            r,
+            "SettleSiege",
+            &[ix],
+            &[&stranger],
+            "third party (stranger)",
+        );
         steps.push(row_of(&v, "SettleSiege (15)"));
         "CONQUEST_SETTLED"
     };
@@ -583,7 +595,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                     AccountMeta::new(source, false),
                 ],
             };
-            let v = r.send(
+            let v = send_heap(
+                r,
                 &format!("SettleReservation seq {}", res.seq),
                 &[ix],
                 &[&stranger],
@@ -626,7 +639,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                     .collect(),
                 data: dx::encode(dx::Kind::Return, &rt.proposed_bytes()).unwrap(),
             };
-            let v = r.try_send(
+            let v = try_send_heap(
+                r,
                 "Return (the host home)",
                 &[ix],
                 &[&stranger],
@@ -644,7 +658,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
     let end = genesis_ts + 600 * end_bell as i64;
     let jump_wall = Instant::now();
     r.advance_exact(end + 1);
-    let v = r.send(
+    let v = send_heap(
+        r,
         "EndSeason",
         &[ix::end_season(&a, stranger.pubkey())],
         &[&stranger],
@@ -676,7 +691,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
             )
             .unwrap(),
         };
-        let v = r.send(
+        let v = send_heap(
+            r,
             "CloseCaptureEscrow",
             &[ix],
             &[&stranger],
@@ -704,7 +720,8 @@ pub(super) async fn flow(r: &mut Run<'_>, beacon: &mut Beacon, s: Siege<'_>) -> 
                 AccountMeta::new(adr(t.rent_payer()), false),
             ],
         };
-        let v = r.send(
+        let v = send_heap(
+            r,
             "CloseConquest",
             &[ix],
             &[&stranger],
@@ -737,4 +754,27 @@ fn shard_of(r: &Run<'_>, citizen: &Address) -> u8 {
     fclient::decode::Citizen::decode(&d)
         .map(|c| c.join_shard)
         .unwrap_or(0)
+}
+
+/// [`Run::send`] with the 256 KiB heap frame (the conquest bodies — ResolveWithConquest's included — and the
+/// wrapper's resident steps fault in the default 32 KiB heap on the pinned `.so`).
+fn send_heap(
+    r: &mut Run<'_>,
+    what: &str,
+    ixs: &[Instruction],
+    signers: &[&Keypair],
+    who: &str,
+) -> Value {
+    let v = try_send_heap(r, what, ixs, signers, who);
+    assert_eq!(v["ok"], true, "{what}: {v:#}");
+    v
+}
+fn try_send_heap(
+    r: &mut Run<'_>,
+    what: &str,
+    ixs: &[Instruction],
+    signers: &[&Keypair],
+    who: &str,
+) -> Value {
+    r.try_send_budget(what, ixs, signers, who, heap_budget())
 }
