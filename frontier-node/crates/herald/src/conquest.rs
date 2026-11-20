@@ -156,6 +156,9 @@ pub struct Cq {
     /// S1 stage 1e: the nations' stances, proposals and the expelled
     /// (`h/nations.json`, [`crate::nation`]).
     pub nations: crate::nation::Nations,
+    /// ② rights (feature `rights-records`): the Grants (`/h/grants`, [`crate::grants`]).
+    #[cfg(feature = "rights-records")]
+    pub grants: crate::grants::Grants,
     /// The S1 feeds were written once for an S1 season, records or not
     /// (not checkpointed: a restart writes the same files again).
     pub s1_seeded: bool,
@@ -484,6 +487,12 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
         CqKind::MARCH_FOLD => Scope::None,
         // ⑳: a Citizen's start has no Province (its key is a resident ID).
         CqKind::RESIDENT_JOINED => Scope::None,
+        // ② (feature `rights-records`): a Grant's key is its issuer and nonce; its Province is in the payload.
+        #[cfg(feature = "rights-records")]
+        k if frontier_abi::v2::rights::record::is_rights(k) => {
+            crate::grants::province_of(k, r.payload)
+                .map_or(Scope::None, |(p, q)| Scope::Province(p, q))
+        }
         CqKind::RETIRE => rd_u64(r.key, 0)
             .and_then(frontier_abi::addr::split_host_id)
             .map_or(Scope::None, |h| Scope::Province(h.province.p, h.province.q)),
@@ -501,6 +510,18 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
     });
     if let Some(e) = &s1 {
         cq.structures.sight(r.bell, e);
+    }
+    #[cfg(feature = "rights-records")]
+    if frontier_abi::v2::rights::record::is_rights(kind) {
+        let ctx = &f.ctx;
+        cq.grants
+            .fold(&r, kind, tx.slot, tx.block_time, &sig, |tag, nonce| {
+                let at = frontier_abi::v2::rights::grant(ctx, tag, nonce);
+                tx.post
+                    .iter()
+                    .find(|(a, _)| a.to_bytes() == at)
+                    .map(|(_, acc)| acc.as_ref().map(|x| x.data.clone()))
+            });
     }
     match &s1 {
         Some(e) if cq.caravans.fold(e) || cq.structures.fold(e) || cq.nations.fold(r.bell, e) => {}
@@ -2740,6 +2761,10 @@ impl Cq {
             "structures": self.structures.to_json(),
             "nations": self.nations.to_json(),
         });
+        #[cfg(feature = "rights-records")]
+        {
+            out["grants"] = self.grants.to_json();
+        }
         if self.on {
             out["scoreVersion"] = json!(3);
         }
@@ -2769,6 +2794,11 @@ impl Cq {
         // S1: absent in a checkpoint written before stage 1e.
         if let Some(nv) = v.get("nations").filter(|x| !x.is_null()) {
             c.nations = crate::nation::Nations::from_json(nv)?;
+        }
+        // ② (feature `rights-records`): absent in a checkpoint written without it (empty then).
+        #[cfg(feature = "rights-records")]
+        if let Some(gv) = v.get("grants").filter(|x| !x.is_null()) {
+            c.grants = crate::grants::Grants::from_json(gv)?;
         }
         let a: Vec<u64> = v["alarms"]
             .as_array()?

@@ -43,7 +43,10 @@
 use fclient::decode::{Citizen, Holding, Province, Season};
 use fclient::Address;
 use frontier_abi::v2::layout::AccountKind;
-use frontier_abi::v2::presets::RULESET_HASH_V3;
+#[cfg(not(feature = "coexist-lane"))]
+use frontier_abi::v2::presets::RULESET_HASH_V3 as LANE_RULESET_HASH;
+#[cfg(feature = "coexist-lane")]
+use frontier_abi::v2::presets::RULESET_HASH_V4 as LANE_RULESET_HASH;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
@@ -53,7 +56,12 @@ use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 
 pub const METADATA_SCHEMA: &str = "frontier-localnet-expedition-play-v1";
 pub const PROGRAM: [u8; 32] = [0x45; 32];
+/// The plain lane's 0x4804; with the TEST-ONLY `coexist-lane` feature the ②+⑨+⑩ coexist lane's 0x7805 and its
+/// ruleset `RULESET_HASH_V4` (frontier-abi `expedition_dispatch_ix::PROGRAM_VERSION`, one constant for every binary).
+#[cfg(not(feature = "coexist-lane"))]
 pub const PROGRAM_VERSION: u16 = 0x4804;
+#[cfg(feature = "coexist-lane")]
+pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
 /// The usual stack's port: never used by a local-play herald.
 pub const REFUSED_PORT: u16 = 41970;
 /// LoaderV3 ProgramData header bytes before the ELF.
@@ -171,7 +179,9 @@ pub fn expected(
         return Err("metadata: rpc_url is not --rpc (another runner?)".into());
     }
     if v["program_version"] != format!("0x{PROGRAM_VERSION:04x}") {
-        return Err("metadata: program_version is not 0x4804".into());
+        return Err(format!(
+            "metadata: program_version is not 0x{PROGRAM_VERSION:04x}"
+        ));
     }
     Ok(e)
 }
@@ -376,7 +386,7 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
     let season = Season::decode(sd).map_err(|_| "Season: does not decode")?;
     if season.bump != bump
         || season.program_version != PROGRAM_VERSION
-        || season.ruleset_hash != RULESET_HASH_V3
+        || season.ruleset_hash != LANE_RULESET_HASH
     {
         return Err("Season: another bump, program version or ruleset".into());
     }
@@ -490,7 +500,7 @@ pub fn seed(fold: &mut Fold, e: &Expected, s: &Snapshot) -> Result<Value, String
         "accounts": s.accounts.iter().map(|(k, _)| k.to_string()).collect::<Vec<_>>(),
         "program": e.program.to_string(),
         "programVersion": format!("0x{PROGRAM_VERSION:04x}"),
-        "rulesetHash": hex::encode(RULESET_HASH_V3),
+        "rulesetHash": hex::encode(LANE_RULESET_HASH),
         "cluster": "localnet",
         "artifact": {"sha256": e.artifact_sha256, "bytes": e.artifact_len,
             "verified": "the deployed ProgramData's ELF bytes hash to this digest (zero padding after)"},

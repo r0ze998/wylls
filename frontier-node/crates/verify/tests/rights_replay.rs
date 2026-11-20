@@ -1335,3 +1335,367 @@ fn post_states_short_of_the_writes_are_never_a_pass() {
         }
     }
 }
+
+// ---------------------------------------------------------------- coexist (base 5)
+//
+// rights-play (2026-11-20, D-feature-coexist-4): the same Grant flow in a
+// season of a ②+⑨+⑩ coexist build — program version 0x3005 (S1 alone) or
+// 0x7805 (the playable lane, `localnet-coexist-sbf`), both on custody's
+// base 5 with the S1-with-custody ruleset `RULESET_HASH_V4`. The Grant
+// handlers are the same code, so VR judges them exactly as in the base-4
+// rights build: the honest flow adds no finding; every mutation still adds
+// VR's (or V7's) FAIL or an UNVERIFIABLE. The coexist versions themselves
+// stay unknown to the verifier (⑨ capacity, ⑩ custody and the lane's wide
+// rules are not modelled), so the season is never a PASS by itself
+// (`UnknownProgramVersion`, UNVERIFIABLE). Unsigned placeholders only.
+
+const COEXIST: [u16; 2] = [0x3005, 0x7805];
+
+/// The season as the coexist build `pv` leaves it: its version, and the
+/// ruleset the program writes into its Season (`RULESET_HASH_V4`).
+fn as_coexist(inp: &mut Input, pv: u16) {
+    inp.cfg.ruleset_hash = frontier_abi::v2::presets::RULESET_HASH_V4;
+    as_rights_build(inp, pv);
+}
+
+/// Findings the (already mutated) flow `fl` adds to the base, both as the
+/// coexist build `pv` leaves them.
+fn coexist_findings(b: &Base, fl: &Flow, pv: u16) -> Vec<(String, verify_core::Severity)> {
+    let (mut b0, mut f) = (b.inp.clone(), fl.inp.clone());
+    as_coexist(&mut b0, pv);
+    as_coexist(&mut f, pv);
+    new_findings(&b0, &f)
+}
+
+#[test]
+fn coexist_the_honest_flow_adds_no_finding_and_vr_judges_it() {
+    use verify_core::Severity::Unverifiable;
+    for pv in COEXIST {
+        let b = base();
+        let (fl, _) = honest(&b);
+        let found = coexist_findings(&b, &fl, pv);
+        let other: Vec<_> = found
+            .iter()
+            .filter(|(l, _)| !l.starts_with("CQ2 SeasonIdentity Season"))
+            .collect();
+        assert!(
+            other.is_empty(),
+            "{pv:#06x}: an honest Grant flow added findings: {other:#?}"
+        );
+        let mut f = fl.inp.clone();
+        as_coexist(&mut f, pv);
+        let r = verify_core::verify(&f);
+        assert!(r.checks_run.contains(&"VR:rights"), "{pv:#06x}");
+        // VR has nothing to say, and V0 leaves the Grant tags to it.
+        assert!(
+            r.findings.iter().all(|x| x.check != "VR"),
+            "{pv:#06x}: {:#?}",
+            r.findings
+        );
+        assert!(
+            !r.findings.iter().any(|x| x.check == "V0"
+                && (x.detail.contains("Grant instruction")
+                    || x.detail.contains("workstream 2 (Grant)"))),
+            "{pv:#06x}: V0 judged a Grant tag: {:#?}",
+            r.findings
+        );
+        // … and the season itself is never a PASS: the version is unknown.
+        let upv: Vec<_> = r
+            .findings
+            .iter()
+            .filter(|x| x.code == UNKNOWN_PROGRAM_VERSION)
+            .collect();
+        assert!(
+            upv.len() == 1 && upv[0].severity == Unverifiable && upv[0].detail.contains("coexist"),
+            "{pv:#06x}: {upv:#?}"
+        );
+        assert_ne!(r.verdict, Verdict::Pass);
+    }
+}
+
+#[test]
+fn coexist_a_tampered_grant_or_station_vault_fails() {
+    for pv in COEXIST {
+        // Swap units: the Grant claims 11 units open after the reserve, not 10.
+        let b = base();
+        let (mut fl, grant) = honest(&b);
+        let t = fl.inp.txs.len() - 6;
+        let g = Address::new_from_array(grant);
+        for (k, a) in fl.inp.txs[t].post.iter_mut() {
+            if *k == g {
+                set_u(&mut a.as_mut().unwrap().data, G::OPEN_UNITS, 4, 11);
+            }
+        }
+        let found = coexist_findings(&b, &fl, pv);
+        assert!(has(&found, RIGHTS_STATE_MISMATCH), "{pv:#06x}: {found:#?}");
+        // The station Vault gains one arm more than the execute's record says.
+        let (mut fl, _) = honest(&b);
+        let t = fl.inp.txs.len() - 5;
+        let station = Address::new_from_array(b.station);
+        for (k, a) in fl.inp.txs[t].post.iter_mut() {
+            if *k == station {
+                let d = &mut a.as_mut().unwrap().data;
+                let o = VA::store(ARMS_SLOT);
+                let v = le(&d[o..o + 8]) as i64 + MILLI;
+                d[o..o + 8].copy_from_slice(&v.to_le_bytes());
+            }
+        }
+        let found = coexist_findings(&b, &fl, pv);
+        assert!(has(&found, RIGHTS_STATE_MISMATCH), "{pv:#06x}: {found:#?}");
+        // The reserve's record removed: missing (with whole logs, a FAIL).
+        let (mut fl, _) = honest(&b);
+        let n = fl.inp.txs.len();
+        let program = fl.inp.cfg.program;
+        fl.inp.txs[n - 6].logs = fclient::log::in_frame(&program, Vec::<String>::new());
+        let found = coexist_findings(&b, &fl, pv);
+        assert!(has(&found, RIGHTS_RECORD_MISSING), "{pv:#06x}: {found:#?}");
+    }
+}
+
+#[test]
+fn coexist_an_injected_grant_record_fails() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, _) = honest(&b);
+        // The close's record copied into a Harvest-shaped transaction.
+        let t_close = fl.inp.txs.len() - 1;
+        let bodies = verify_core::tamper::bodies(&fl.inp, t_close);
+        let t = fl.time();
+        let ix = Instruction {
+            program_id: fl.inp.cfg.program,
+            accounts: vec![meta(b.grantee_w, true, true)],
+            data: vec![frontier_abi::tags::Ix::Harvest.tag()],
+        };
+        fl.push(b.grantee_w, ix, bodies, &[], t);
+        let found = coexist_findings(&b, &fl, pv);
+        assert!(has(&found, RIGHTS_RECORD_ORPHAN), "{pv:#06x}: {found:#?}");
+    }
+}
+
+#[test]
+fn coexist_missing_evidence_is_unverifiable_never_a_pass() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, grant) = honest(&b);
+        let t = fl.inp.txs.len() - 6;
+        let g = Address::new_from_array(grant);
+        fl.inp.txs[t].post.retain(|(k, _)| *k != g);
+        let found = coexist_findings(&b, &fl, pv);
+        assert!(
+            found
+                .iter()
+                .any(|(l, s)| l.contains(MISSING_DATA) && *s == verify_core::Severity::Unverifiable),
+            "{pv:#06x}: {found:#?}"
+        );
+        assert!(not_a_pass_by_itself(&found), "{pv:#06x}: {found:#?}");
+    }
+}
+
+/// A Season of a version next to the coexist ones (base 4 with every
+/// coexist bit 0x7804; base 6 0x7806; rights + capacity on base 4 0x3004):
+/// no build runs Grants under it that this verifier models, so V0 leaves
+/// none of the 7 Grant instructions to VR and calls none a forgery: each
+/// is UNVERIFIABLE (`UnverifiedInstruction`), beside `UnknownProgramVersion`.
+#[test]
+fn coexist_a_wrong_version_season_is_unverifiable_never_left_to_vr() {
+    use verify_core::Severity::{Fail, Unverifiable};
+    for pv in [0x7804u16, 0x7806, 0x3004] {
+        let b = base();
+        let (fl, _) = honest(&b);
+        let found = coexist_findings(&b, &fl, pv);
+        assert!(of(&found, "V0", Fail).is_empty(), "{pv:#06x}: {found:#?}");
+        let v0 = of(&found, "V0", Unverifiable);
+        assert_eq!(
+            v0.iter()
+                .filter(|l| l.contains(UNVERIFIED_INSTRUCTION))
+                .count(),
+            7,
+            "{pv:#06x}: {found:#?}"
+        );
+        let mut f = fl.inp.clone();
+        as_coexist(&mut f, pv);
+        assert!(
+            verify_core::verify(&f)
+                .findings
+                .iter()
+                .any(|x| x.code == UNKNOWN_PROGRAM_VERSION),
+            "{pv:#06x}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------- verify-pr119 (independent mutations, coexist)
+//
+// The four mutations the verify-pr119 brief names, each under both coexist
+// versions: the mutated flow must ADD a FAIL or an UNVERIFIABLE finding to
+// what the honest flow leaves (the coexist season itself is never a PASS).
+
+/// Set the Grant account's bytes at `o` (`n` bytes) in every post state and the finals.
+fn v119_grant_all(fl: &mut Flow, grant: Key, f: &dyn Fn(&mut Vec<u8>)) {
+    let g = Address::new_from_array(grant);
+    for tx in fl.inp.txs.iter_mut() {
+        for (k, a) in tx.post.iter_mut() {
+            if *k == g {
+                if let Some(a) = a.as_mut() {
+                    f(&mut a.data);
+                }
+            }
+        }
+    }
+    if let Some(Some(a)) = fl.inp.finals.get_mut(&grant) {
+        f(&mut a.data);
+    }
+}
+
+fn v119_judged(found: &[(String, verify_core::Severity)]) -> bool {
+    use verify_core::Severity::{Fail, Unverifiable};
+    found.iter().any(|(_, s)| *s == Fail || *s == Unverifiable)
+}
+
+#[test]
+fn v119_forged_grant_without_issue_is_judged() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, _) = honest(&b);
+        // The IssueGrant transaction removed: the Grant is used, revoked
+        // and closed but was never issued.
+        let n0 = b.inp.txs.len();
+        fl.inp.txs.remove(n0);
+        let found = coexist_findings(&b, &fl, pv);
+        eprintln!("forged {pv:#06x}: {found:#?}");
+        assert!(v119_judged(&found), "{pv:#06x}: {found:#?}");
+    }
+}
+
+#[test]
+fn v119_swap_beyond_quota_is_judged() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, grant) = honest(&b);
+        // The quota is 5 arms (record and account agree), the swap is 10.
+        let n0 = b.inp.txs.len();
+        let mut bodies = verify_core::tamper::bodies(&fl.inp, n0);
+        let o = 6 + 12 + 22;
+        bodies[0][o..o + 4].copy_from_slice(&5u32.to_le_bytes());
+        verify_core::tamper::set_bodies(&mut fl.inp, n0, &bodies);
+        v119_grant_all(&mut fl, grant, &|d| set_u(d, G::MAX_UNITS, 4, 5));
+        let found = coexist_findings(&b, &fl, pv);
+        eprintln!("quota {pv:#06x}: {found:#?}");
+        assert!(v119_judged(&found), "{pv:#06x}: {found:#?}");
+    }
+}
+
+#[test]
+fn v119_revoked_grant_used_is_judged() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, _) = honest(&b);
+        // A second ExecuteSwap replayed after the revoke, before the close.
+        let n = fl.inp.txs.len();
+        let exec = fl.inp.txs[n - 5].clone();
+        fl.inp.txs.insert(n - 1, exec);
+        let found = coexist_findings(&b, &fl, pv);
+        eprintln!("revoked {pv:#06x}: {found:#?}");
+        assert!(v119_judged(&found), "{pv:#06x}: {found:#?}");
+    }
+}
+
+#[test]
+fn v119_wrong_vault_is_judged() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, grant) = honest(&b);
+        // The Grant names another station Vault than the one every swap moves.
+        let other = b.facility;
+        v119_grant_all(&mut fl, grant, &|d| {
+            d[G::STATION..G::STATION + 32].copy_from_slice(&other)
+        });
+        let found = coexist_findings(&b, &fl, pv);
+        eprintln!("vault {pv:#06x}: {found:#?}");
+        assert!(v119_judged(&found), "{pv:#06x}: {found:#?}");
+    }
+}
+
+/// A fresh (not replayed) ReserveSwap after the revoke: the close dropped,
+/// the revoked Grant left standing, then the grantee reserves 4 more.
+#[test]
+fn v119_a_fresh_reserve_on_a_revoked_grant_is_a_rule_fail() {
+    for pv in COEXIST {
+        let b = base();
+        let (mut fl, grant) = honest(&b);
+        fl.inp.txs.pop();
+        let g = Address::new_from_array(grant);
+        let revoked = fl
+            .inp
+            .txs
+            .last()
+            .unwrap()
+            .post
+            .iter()
+            .find(|(k, _)| *k == g)
+            .unwrap()
+            .1
+            .clone();
+        fl.state.insert(grant, revoked.clone());
+        fl.inp.finals.insert(grant, revoked);
+        let t = fl.time();
+        let bell = permutation_rules::frontier::beacon::bell_at(b.genesis, t).unwrap_or(0);
+        let key = rec::key(rec::tag8(&b.issuer_c), 0);
+        let s = rec::Swap {
+            grantee_tag: rec::tag8(&b.grantee_c),
+            p: 1,
+            q: 2,
+            facility_site: 0,
+            station_site: ST_TILE,
+            seq: 1,
+            units: 4,
+            ore: 8 * MILLI,
+            wood: 4 * MILLI,
+            arms: 4 * MILLI,
+        };
+        {
+            let d = &mut fl.state.get_mut(&grant).unwrap().as_mut().unwrap().data;
+            set_u(d, G::OPEN_UNITS, 4, 4);
+            set_u(d, G::OPEN_TS, 8, t as u64);
+            set_u(d, G::OPEN_ORE, 8, s.ore as u64);
+            set_u(d, G::OPEN_WOOD, 8, s.wood as u64);
+            set_u(d, G::OPEN_ARMS, 8, s.arms as u64);
+        }
+        let body = fl.record(
+            rec::RESERVED,
+            bell,
+            &key,
+            &s.to_bytes(),
+            &[
+                (E2::Citizen, b.grantee_c),
+                (E2::Holding, b.facility),
+                (E2::Vault, b.station),
+            ],
+        );
+        let season = b.ctx.season;
+        let ix = Instruction {
+            program_id: fl.inp.cfg.program,
+            accounts: vec![
+                meta(b.grantee_w, true, false),
+                meta(b.grantee_w, true, true),
+                meta(season, false, false),
+                meta(b.grantee_c, false, true),
+                meta(grant, false, true),
+                meta(b.facility, false, true),
+                meta(b.station, false, true),
+                meta(b.province, false, false),
+            ],
+            data: rt::ReserveSwap { units: 4, seq: 1 }.to_bytes().to_vec(),
+        };
+        fl.push(
+            b.grantee_w,
+            ix,
+            vec![body],
+            &[b.grantee_c, grant, b.facility, b.station],
+            t,
+        );
+        let found = coexist_findings(&b, &fl, pv);
+        eprintln!("fresh-revoked {pv:#06x}: {found:#?}");
+        assert!(has(&found, RIGHTS_RULE), "{pv:#06x}: {found:#?}");
+    }
+}

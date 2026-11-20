@@ -36,6 +36,7 @@
 // villages. The directory or a key file that another user may use, or a symbolic link, is refused (exit 64); nothing
 // is repaired. The key bytes are never printed.
 import { generateKeyPairSync, createPrivateKey, createPublicKey, sign as edSign } from 'node:crypto';
+import { selectLocalLane, COEXIST_LANE, COEXIST_LANE_WORD } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -157,10 +158,12 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide', 'lane'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
+  // (TEST-ONLY coexist lane, the launcher's `--coexist`: `--lane coexist`, exactly; the residents' process then plays it)
+  if (o.lane !== undefined && o.lane !== COEXIST_LANE_WORD) throw new Error(`--lane must be exactly ${COEXIST_LANE_WORD}`);
   const war = o.war === OPERATOR_WAR_MODE;
   const count = Number(o.count);
   // (`--nations`: one named nation per resident, up to six; without it the fixed nations of residents 0-3)
@@ -183,7 +186,7 @@ export function parseArgs(argv) {
     if (!Array.isArray(wide) || !wide.length || wide.length > 4096 || !wide.every(t => t && /^-?[0-9]{1,19}$/.test(String(t.p)) && /^-?[0-9]{1,19}$/.test(String(t.q)))) throw new Error('--wide');
     wide = Object.freeze(wide.map(t => Object.freeze({ p: String(t.p), q: String(t.q) })));
   }
-  return { count, ports, herald: o.herald, homes, war, ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
+  return { count, ports, herald: o.herald, homes, war, ...(o.lane !== undefined ? { lane: o.lane } : {}), ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
@@ -393,6 +396,7 @@ export function createQuietLog() {
 export async function main(argv = process.argv.slice(2), { print = s => process.stdout.write(`${s}\n`) } = {}) {
   let o;
   try { o = parseArgs(argv); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
+  if (o.lane === COEXIST_LANE_WORD) selectLocalLane(COEXIST_LANE);
   const stop = new AbortController();
   let residents = [], turns = 0, summarised = false;
   const summary = why => { if (summarised) return; summarised = true; print(JSON.stringify({ step: 'stopped', why, turns, residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, budget: r.budget.state() })) })); };

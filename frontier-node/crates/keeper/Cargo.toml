@@ -84,6 +84,9 @@ playable-lane = ["frontier-abi/world-index-experimental"]
 # The wrapped DeclareSiege (kind 12) of the conquest lane. Without it the conquest prepare CLI
 # still reads and checks, and answers the closed blocker DispatchKindUnavailable.
 conquest-dispatch-experimental = ["expedition-dispatch-experimental", "fclient/conquest-dispatch-experimental"]
+# TEST-ONLY (2026-11-20, rights-play): the keeper tools of a `play-local.sh --coexist` world (depart / preview /
+# resident prepare) pin the coexist Season (0x7805, RULESET_HASH_V4) through frontier-abi's `coexist-lane`. Off by default.
+coexist-lane = ["frontier-abi/coexist-lane"]
 
 [dev-dependencies]
 localnet.workspace = true

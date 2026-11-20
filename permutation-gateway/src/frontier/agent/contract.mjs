@@ -44,7 +44,9 @@ export const AGENT_ACTIONS = Object.freeze(Object.values(ACTION_GROUPS).flat());
  * conquest declarations. Ownership, payout and policy changes are not game
  * actions at all: they are owner commands (owner-auth.mjs).
  */
-export const NEVER_DELEGATED = Object.freeze(['Join', 'SetSession', 'PlaceHome', 'FileTicket', 'FileOutpost', 'DeclareSiege', 'RetireHost']);
+// (② rights, owner decision ② A: issuing and revoking a Grant are the wallet's own — workstreams/02-rights/03-CONTRACT
+//  §MCP. An agent never issues or revokes; it may at most use a Grant it was given, once such an action exists.)
+export const NEVER_DELEGATED = Object.freeze(['Join', 'SetSession', 'PlaceHome', 'FileTicket', 'FileOutpost', 'DeclareSiege', 'RetireHost', 'IssueGrant', 'RevokeGrant']);
 
 /** Machine-readable refusals (stable: callers, MCP tools and tests match on them). */
 export const ERR = Object.freeze({

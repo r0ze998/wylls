@@ -27,6 +27,8 @@ import { budgetPrefix } from '../sdk/frontier/budgets.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 import { toBase64, toHex } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
+import { COEXIST_ACTS, rightsIntentOf, rightsMessage } from './flocalplay-rights.mjs';
+import { COEXIST_LANE, laneOfRuleset, localLane } from './flocalplay-lane.mjs';
 
 // (TEST-ONLY wide play, local wide-land worlds: FileTicket — a one-site first village on the rim, which PlaceHome cannot
 //  name — and the wide claim, flocalplay-wide.mjs. The relay takes both only as these exact shapes.)
@@ -55,6 +57,15 @@ export const DEVNET_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', '
 export const LOCAL_LANE = Object.freeze({ kind: 'local', cluster: 'localnet', seasonId: LOCAL_ACT_SEASON_ID, names: LOCAL_ACT_NAMES,
   paths: Object.freeze({ context: LOCAL_ACT_CONTEXT_PATH, submit: LOCAL_ACT_SUBMIT_PATH, status: LOCAL_ACT_STATUS_PATH }),
   schemas: Object.freeze({ context: LOCAL_ACT_CONTEXT_SCHEMA, submit: LOCAL_ACT_SUBMIT_SCHEMA, status: LOCAL_ACT_STATUS_SCHEMA }) });
+/**
+ * (TEST-ONLY, rights-play) A COEXIST local world's transport (flocalplay-lane.mjs COEXIST_LANE, the ②+⑨+⑩ build): local
+ * play's own routes, schemas and Season, and its commands PLUS ② rights' six and the S1 Vault and caravan the swap
+ * needs (flocalplay-rights.mjs COEXIST_ACTS). Chosen only by the Season's ruleset hash (`localLaneFor`): a plain world's
+ * page keeps LOCAL_LANE exactly as it was.
+ */
+export const COEXIST_LOCAL_LANE = Object.freeze({ ...LOCAL_LANE, names: Object.freeze([...LOCAL_ACT_NAMES, ...COEXIST_ACTS]), coexist: true });
+/** The local transport of a world of ruleset `hash`: the coexist one for the coexist hash, LOCAL_LANE for every other. */
+export const localLaneFor = hash => (laneOfRuleset(hash) === COEXIST_LANE ? COEXIST_LOCAL_LANE : LOCAL_LANE);
 export function devnetLane(seasonId) {
   if (typeof seasonId !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(seasonId)) throw Object.assign(new Error('DevnetPlaySeason'), { code: 'DevnetPlaySeason' });
   return Object.freeze({ kind: 'devnet', cluster: 'devnet', seasonId, names: DEVNET_ACT_NAMES,
@@ -70,7 +81,7 @@ const ACT_PATHS = [LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STAT
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
-  'ResidentAlreadyActed', 'ResidentTurnUnavailable']);
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant']);
 /**
  * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the transaction (gateway
  * local-play-act.mjs `runnerRejection`: its preflight failed, its blockhash was unknown, its signature did not verify):
@@ -265,8 +276,11 @@ function village(h) {
  * page's own value.
  */
 export function localActIntentOf(name, v, fields, wallet) {
-  check(LOCAL_ACT_NAMES.includes(name), 'LocalActNotAllowed'); check(object(v) && object(fields ?? {}), 'LocalActShape');
+  check(LOCAL_ACT_NAMES.includes(name) || COEXIST_ACTS.includes(name), 'LocalActNotAllowed'); check(object(v) && object(fields ?? {}), 'LocalActShape');
   const f = fields ?? {};
+  // (TEST-ONLY, the coexist lane: ② rights and the S1 Vault and caravan, flocalplay-rights.mjs; `submitLocalAct` has
+  //  already refused them on any lane that does not carry them)
+  if (COEXIST_ACTS.includes(name)) return rightsIntentOf(name, v, f);
   if (name === 'Join') {
     check(int(v.faction, 0, 5) && f.faction === v.faction && !v.joinGate && !v.invite, 'LocalActShape');
     const expiry = typeof f.session_expiry === 'bigint' ? f.session_expiry.toString() : f.session_expiry;
@@ -288,7 +302,8 @@ export function localActIntentOf(name, v, fields, wallet) {
     return { name, subject: { holding: h, faction: v.faction }, fields: { p: h.p, q: h.q, site: h.site } };
   }
   if (name === 'Harvest') { check(exact(f, []), 'LocalActShape'); return { name, subject: { holding: h }, fields: {} }; }
-  if (name === 'Build') { check(exact(f, ['item']) && int(f.item, 0, 7), 'LocalActShape'); return { name, subject: { holding: h }, fields: { item: f.item } }; }
+  // (TEST-ONLY coexist lane: also the S1 workshop, item 8 — the relay takes it only on its coexist pins; elsewhere 0-7 as before)
+  if (name === 'Build') { check(exact(f, ['item']) && int(f.item, 0, localLane() === COEXIST_LANE ? 8 : 7), 'LocalActShape'); return { name, subject: { holding: h }, fields: { item: f.item } }; }
   // (the ABI's own widths: unit 1 byte; n and troops 4 bytes; tile 1 byte, 0-60 on the province's map)
   if (name === 'Train') { check(exact(f, ['unit', 'n']) && int(f.unit, 0, 255) && int(f.n, 1, 0xffffffff), 'LocalActShape'); return { name, subject: { holding: h }, fields: { unit: f.unit, n: f.n } }; }
   check(exact(f, ['unit', 'troops', 'tile']) && int(f.unit, 0, 255) && int(f.troops, 1, 0xffffffff) && int(f.tile, 0, 60), 'LocalActShape');
@@ -312,6 +327,12 @@ export function localActMessage(intent, identity, rulesetHash, blockhash, lane =
   if (intent.name === WIDE_CLAIM) return wideClaimMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   check(lane.names.includes(intent.name), 'LocalActNotAllowed');
   if (WIDE_HOST_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
+  // (TEST-ONLY, the coexist lane: the one builder the relay rebuilds with too)
+  if (COEXIST_ACTS.includes(intent.name)) {
+    const profile = profileForHash(rulesetHash) ?? (laneOfRuleset(rulesetHash) === COEXIST_LANE ? 3 : null);
+    check(profile === 3, 'LocalActIdentity');
+    return rightsMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT, profile });
+  }
   const profile = profileForHash(rulesetHash), wallet = identity.address;
   const v = { addresses: A, wallet, actor: wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(wallet)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };
@@ -363,7 +384,7 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     wallet = i.address;
     const hash = rulesetHash(); check(typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash), 'LocalActIdentity');
     const intent = localActIntentOf(name, v, fields, wallet);
-    const ctx = await post(origin, lane.paths.context, lane === LOCAL_LANE ? { schema: LOCAL_ACT_CONTEXT_SCHEMA } : { schema: lane.schemas.context, wallet });
+    const ctx = await post(origin, lane.paths.context, lane.kind === 'local' ? { schema: LOCAL_ACT_CONTEXT_SCHEMA } : { schema: lane.schemas.context, wallet });
     check(exact(ctx, ['wallet', 'blockhash']) && ctx.wallet === wallet && exact(ctx.blockhash, ['hash', 'last_valid_block_height', 'context_slot'])
       && address(ctx.blockhash.hash) && uintText(ctx.blockhash.last_valid_block_height) && uintText(ctx.blockhash.context_slot), 'BadLocalActContext');
     message = localActMessage(intent, i, hash, ctx.blockhash.hash, lane); height = Number(ctx.blockhash.last_valid_block_height);

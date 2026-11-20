@@ -45,7 +45,7 @@ test('the demo reaches the runner, the start answer and the page address only fr
   assert.match(src, /\.\.\.\(demo !== null \? \['--capture-demo', CAPTURE_DEMO_MODE, '--demo-scale', String\(demo\.scale\)\] : \[\]\)/, 'the runner gets both words only for a demo world');
   assert.match(src, /\.\.\.\(demo !== null \? \{ captureDemo: \{ scale: demo\.scale \} \} : \{\}\)/, 'the start answer states it');
   assert.match(src, /demoWord = c\.captureDemo \? 'capture' : ''/, 'the address word comes from the launcher\'s config, never from a request');
-  assert.match(src, /\(url\.searchParams\.get\('demo'\) \?\? ''\) !== demoWord\)\) \{/, 'a page address whose demo word disagrees is redirected');
+  assert.match(src, /\(url\.searchParams\.get\('demo'\) \?\? ''\) !== demoWord \|\| \(url\.searchParams\.get\('lane'\) \?\? ''\) !== laneWord\)\) \{/, 'a page address whose demo word disagrees is redirected');
   assert.match(src, /if \(demoWord\) query\.set\('demo', demoWord\); else query\.delete\('demo'\);/, 'and the redirect drops a demo word the launcher was not started with');
   assert.ok(!/searchParams\.get\('demo'\)[^\n]*captureDemo/.test(src), 'no request turns the demo on');
 });

@@ -24,7 +24,7 @@ pub const VERSION: u8 = 2;
 /// Provisional host-only revision bit, separate from 0x1000/2000/4000/8000.
 pub const VERSION_BIT: u16 = 0x0800;
 pub const PROGRAM_VERSION: u16 =
-    crate::v2::presets::PROGRAM_VERSION_S1 | wide::WIDE_EXPERIMENTAL_VERSION_BIT | VERSION_BIT;
+    crate::v2::presets::PROGRAM_VERSION_S1 | wide::WIDE_EXPERIMENTAL_VERSION_BIT | LANE_BITS;
 /// ⑳ (owner decision 2026-11-18 18:26 JST, local and devnet only): the
 /// isolated localnet lane WITH the NFT resident instructions
 /// (`permutation-frontier` feature `localnet-nft-sbf`) carries the resident
@@ -429,5 +429,58 @@ mod conquest_kind_tests {
         )
         .is_err());
         assert!(encode(Kind::SettleSiege, &inner).is_err());
+    }
+}
+
+// ------------------------------------------------------------ the coexist lane's clients (appended: line-neutral above)
+
+/// The bits [`PROGRAM_VERSION`] adds to S1 | wide: the expedition bit [`VERSION_BIT`] (0x4804), and — only with the
+/// TEST-ONLY client feature `coexist-lane` — the ②+⑨+⑩ coexist lane's on top (0x7805 = base 5, S1 with custody,
+/// | wide 0x4000 | expedition 0x0800 | rights 0x2000 | capacity 0x1000; `feature_registry::COEXIST_LANE_VERSION`).
+/// The feature is for the off-chain local-play binaries of a `play-local.sh --coexist` world (runner, herald, keeper
+/// tools) so every one of them pins the coexist Season's version through this one constant. No program build enables
+/// it: the coexist program has its own `PROGRAM_VERSION` (`permutation-frontier` `localnet-coexist-sbf`).
+#[cfg(not(feature = "coexist-lane"))]
+const LANE_BITS: u16 = VERSION_BIT;
+#[cfg(feature = "coexist-lane")]
+const LANE_BITS: u16 = VERSION_BIT | 0x2000 | 0x1000 | 0x0001;
+
+/// The ruleset hash and rules version a Season of [`PROGRAM_VERSION`] carries: S1's (`RULESET_HASH_V3`, 12), or with
+/// `coexist-lane` S1-with-custody's (`RULESET_HASH_V4`, 13), which the coexist program embeds.
+#[cfg(not(feature = "coexist-lane"))]
+pub const LANE_RULESET_HASH: [u8; 32] = crate::v2::presets::RULESET_HASH_V3;
+#[cfg(not(feature = "coexist-lane"))]
+pub const LANE_RULES_VERSION: u16 = crate::v2::presets::RULES_VERSION_S1;
+#[cfg(feature = "coexist-lane")]
+pub const LANE_RULESET_HASH: [u8; 32] = crate::v2::presets::RULESET_HASH_V4;
+#[cfg(feature = "coexist-lane")]
+pub const LANE_RULES_VERSION: u16 = crate::v2::presets::RULES_VERSION_CUSTODY;
+
+#[cfg(test)]
+mod lane_tests {
+    #[test]
+    fn the_lane_version_is_one_of_the_two() {
+        #[cfg(not(feature = "coexist-lane"))]
+        assert_eq!(
+            (super::PROGRAM_VERSION, super::RESIDENT_PROGRAM_VERSION),
+            (0x4804, 0xC804)
+        );
+        #[cfg(feature = "coexist-lane")]
+        assert_eq!(super::PROGRAM_VERSION, 0x7805);
+        #[cfg(all(feature = "coexist-lane", feature = "feature-coexist"))]
+        assert_eq!(
+            super::PROGRAM_VERSION,
+            crate::feature_registry::COEXIST_LANE_VERSION
+        );
+        #[cfg(feature = "coexist-lane")]
+        assert_eq!(
+            super::LANE_RULESET_HASH,
+            crate::v2::presets::RULESET_HASH_V4
+        );
+        #[cfg(not(feature = "coexist-lane"))]
+        assert_eq!(
+            super::LANE_RULESET_HASH,
+            crate::v2::presets::RULESET_HASH_V3
+        );
     }
 }

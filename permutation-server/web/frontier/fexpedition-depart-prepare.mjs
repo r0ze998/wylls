@@ -8,6 +8,7 @@
 // already holds in public form; none is made, derived or checked here, and without them this module refuses
 // (DepartSealUnavailable). `seal_verified` and every other closed flag stay false.
 import { OUTBOUND_POP, reconcileOutbound, inspectOutboundContext, outboundArrivalCandidate } from './fexpedition-compose.mjs';
+import { onLocalLane } from './flocalplay-lane.mjs';
 import { canonicalOutboundRoles } from './fexpedition-depart.mjs';
 import { withSeed, seedOf } from './faddr.mjs';
 import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../sdk/solana-tx.mjs';
@@ -22,7 +23,9 @@ export const DEPART_PREPARE_MAX_REQUEST_BYTES = 16 * 1024;
 export const DEPART_PREPARE_MAX_REPORT_BYTES = 64 * 1024;
 export const DEPART_PREPARE_TIMEOUT_MS = 30_000;
 /** expedition_dispatch_ix::PROGRAM_VERSION (S1 | wide 0x4000 | host-only dispatch 0x0800). */
-export const DEPART_PREPARE_PROGRAM_VERSION = '18436';
+export let DEPART_PREPARE_PROGRAM_VERSION = '18436';
+// (the coexist lane, TEST-ONLY: follows the process's local lane, flocalplay-lane.mjs; plain: unchanged)
+onLocalLane(l => { DEPART_PREPARE_PROGRAM_VERSION = l.programVersionText; });
 export const DEPART_SEAL_BYTES = 264;
 /** fclient DEPART_HEAP_FRAME: the one fixed heap frame of a Depart (256 KiB); the real SBF program does not complete a
  * Depart in the default 32 KiB heap. Exactly this value, in exactly one place of the message. */
