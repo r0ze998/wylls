@@ -178,6 +178,17 @@ pub const PLAY_ROLES: [&str; 8] = [
 ];
 
 /// The role a land write key belongs to (for "the program lacks it").
+/// Appends what a later step of the same tick reported (the contested
+/// follow-up's polls and sends) to the tick's report.
+fn merge_step(into: &mut crate::engine::StepReport, from: crate::engine::StepReport) {
+    into.outcomes.extend(from.outcomes);
+    into.cancelled_landed.extend(from.cancelled_landed);
+    into.sent += from.sent;
+    into.contested.extend(from.contested);
+    into.ladder.extend(from.ladder);
+    into.send_errors.extend(from.send_errors);
+}
+
 fn role_of_key(key: &str) -> Option<&'static str> {
     match key.split(':').next()? {
         "fold" => Some("fold"),
@@ -201,6 +212,22 @@ fn role_of_key(key: &str) -> Option<&'static str> {
 /// The beacon duty's latency-critical write kinds: sent as soon as they
 /// are planned, and on the idle ticks of a slot (W6T-2).
 const BEACON_KINDS: [&str; 3] = ["anchor", "anchor-multi", "seed"];
+
+/// The write kinds of the tick's contested follow-up
+/// ([`PlayDuty::contested_round`]).
+const CONTESTED_KINDS: [&str; 2] = ["gather", "resolve"];
+/// Most rounds of the contested follow-up in one tick: each round plans
+/// at most the next write of each contested province (a gather or a
+/// resolve), so `n` rounds move a lagging contested province up to about
+/// `n / 2` bells besides the tick's own write.
+pub const CONTESTED_FOLLOWUP_ROUNDS: u32 = 12;
+/// Wall-time budget of the contested follow-up in one tick.
+pub const CONTESTED_FOLLOWUP_BUDGET: std::time::Duration = std::time::Duration::from_secs(6);
+/// Pause between two polls while a contested write is in flight.
+const CONTESTED_FOLLOWUP_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
+/// The follow-up stops once nothing landed, was planned or was sent for
+/// this long (a chain that does not move: the next tick takes over).
+const CONTESTED_FOLLOWUP_IDLE: std::time::Duration = std::time::Duration::from_millis(1_200);
 
 /// P_def = 2.0, P_delay = 0.5 (milli-units, §8.2).
 pub const P_DEF_MILLI: u64 = 2_000;
@@ -1089,35 +1116,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .engine
             .poll(&self.port, self.journal.as_ref(), slot)
             .await;
-        for (k, o) in &r.outcomes {
-            // A retry window ending without a definitive chain status is
-            // not a program refusal. Do not trigger duty failure handlers.
-            if matches!(o, Outcome::Unresolved { .. }) {
-                continue;
-            }
-            if let Outcome::Landed { .. } = o {
-                self.archive.on_landed(k, &mut self.beacon.anchors);
-                self.fold.on_landed(k);
-            }
-            if k.starts_with("ticket:") {
-                self.tickets.on_outcome(k, o);
-            }
-            #[cfg(feature = "playable-lane")]
-            if k.starts_with("wide-") {
-                self.wide_tickets.on_outcome(k, o);
-            }
-            let now_bell = bell.unwrap_or(0);
-            self.play
-                .conquest
-                .on_outcome(k, o, now_bell, self.journal.as_ref());
-            let tracks = self.play.on_outcome(k, o);
-            if !tracks.is_empty() {
-                let mut s = self.shared.lock().unwrap_or_else(|p| p.into_inner());
-                for (id, v) in tracks {
-                    s.tracks.insert(id, v);
-                }
-            }
-        }
+        self.take_outcomes(&r.outcomes, bell.unwrap_or(0));
         phase(&mut rep, "poll", 0);
         // Duties.
         if let Some(season) = self.season.clone() {
@@ -1467,6 +1466,15 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             rep.chain_at_send = self.engine.last_send_chain_slot;
         }
         phase(&mut rep, "send", 0);
+        // The contested follow-up (keep-capture-progress): a contested
+        // province's gather landed in this send → its resolve now, not a
+        // tick later (and so on, bounded).
+        if play_on {
+            let rounds = self.contested_followup(&mut r).await?;
+            if rounds > 0 {
+                phase(&mut rep, "contested", rounds);
+            }
+        }
         // Housekeeping after the send (W6T-2): closes (class N) and claims
         // plan once the latency-critical versions of this slot are out, and
         // go out in a second send.
@@ -1521,6 +1529,138 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         rep.contested = r.contested;
         self.publish(slot, now, bell);
         Ok(rep)
+    }
+
+    /// The duties' reactions to the outcomes a poll reported.
+    fn take_outcomes(&mut self, outcomes: &[(String, Outcome)], now_bell: u32) {
+        for (k, o) in outcomes {
+            // A retry window ending without a definitive chain status is
+            // not a program refusal. Do not trigger duty failure handlers.
+            if matches!(o, Outcome::Unresolved { .. }) {
+                continue;
+            }
+            if let Outcome::Landed { .. } = o {
+                self.archive.on_landed(k, &mut self.beacon.anchors);
+                self.fold.on_landed(k);
+            }
+            if k.starts_with("ticket:") {
+                self.tickets.on_outcome(k, o);
+            }
+            #[cfg(feature = "playable-lane")]
+            if k.starts_with("wide-") {
+                self.wide_tickets.on_outcome(k, o);
+            }
+            self.play
+                .conquest
+                .on_outcome(k, o, now_bell, self.journal.as_ref());
+            let tracks = self.play.on_outcome(k, o);
+            if !tracks.is_empty() {
+                let mut s = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+                for (id, v) in tracks {
+                    s.tracks.insert(id, v);
+                }
+            }
+        }
+    }
+
+    /// The tick's **contested follow-up** (keep-capture-progress; MC §8.2
+    /// "Contested bells" and criterion 3's close → resolve latency). The
+    /// tick plans one write per province, and a contested bell needs two
+    /// in order (GatherClash, then ResolveFromInputs), so a contested
+    /// province moved one bell per two ticks: in devnet-page-war's P9 (≈ 80
+    /// provinces at the RPC pace, ≈ 42 s a tick, a ×40 clock) its keep
+    /// went 1 → 9 of 72 in 48 bells. After the tick's send, while a
+    /// contested province has a write in flight or a bell ready, this
+    /// polls, and plans and sends only the contested provinces' next
+    /// gather or resolve
+    /// ([`PlayDuty::contested_round`]), at most
+    /// [`CONTESTED_FOLLOWUP_ROUNDS`] rounds within
+    /// [`CONTESTED_FOLLOWUP_BUDGET`]. Nothing else is planned or sent here;
+    /// outcomes go to the duties as the tick's own poll's do. Returns the
+    /// rounds that planned or sent something.
+    async fn contested_followup(
+        &mut self,
+        r: &mut crate::engine::StepReport,
+    ) -> Result<u64, String> {
+        let Some(season) = self.season.clone() else {
+            return Ok(0);
+        };
+        let sclock = SeasonClock::from_season(&season);
+        let mut cfg_eff = self.cfg.clone();
+        cfg_eff
+            .roles
+            .retain(|x| !self.unsupported_roles.contains(x.as_str()));
+        let addrs = self.addrs.clone();
+        let start = std::time::Instant::now();
+        let mut progress_at = start;
+        let mut rounds = 0u64;
+        let mut tried = 0u32;
+        while tried < CONTESTED_FOLLOWUP_ROUNDS && start.elapsed() < CONTESTED_FOLLOWUP_BUDGET {
+            let clock = self.port.clock().await.map_err(|e| e.to_string())?;
+            let (slot, now) = (clock.slot, clock.unix_timestamp);
+            let t = Tick {
+                slot,
+                now,
+                season: &season,
+                clock: sclock,
+                addrs: &addrs,
+                cfg: &cfg_eff,
+            };
+            if !self.play.contested_in_flight(&self.engine)
+                && self.play.contested_ready(&t, &self.engine).is_empty()
+            {
+                break;
+            }
+            tried += 1;
+            let polled = self
+                .engine
+                .poll(&self.port, self.journal.as_ref(), slot)
+                .await;
+            let landed = polled.outcomes.len();
+            self.take_outcomes(&polled.outcomes, sclock.bell_at(now).unwrap_or(0));
+            merge_step(r, polled);
+            let planned = self
+                .play
+                .contested_round(
+                    &t,
+                    &self.port,
+                    &mut self.engine,
+                    &self.beacon.anchors,
+                    &mut self.seeds,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            let mut s = crate::engine::StepReport::default();
+            self.engine
+                .send_kinds(
+                    &self.port,
+                    &mut self.payers,
+                    self.journal.as_ref(),
+                    slot,
+                    &mut s,
+                    Some(&CONTESTED_KINDS),
+                )
+                .await;
+            let sent = s.sent;
+            merge_step(r, s);
+            if planned > 0 || sent > 0 {
+                rounds += 1;
+            }
+            if planned > 0 || sent > 0 || landed > 0 {
+                progress_at = std::time::Instant::now();
+                continue;
+            }
+            // Nothing landed, nothing to plan: a write still in flight
+            // gets a short wait (the chain's next slot), then the next
+            // tick takes over.
+            if !self.play.contested_in_flight(&self.engine)
+                || progress_at.elapsed() >= CONTESTED_FOLLOWUP_IDLE
+            {
+                break;
+            }
+            tokio::time::sleep(CONTESTED_FOLLOWUP_WAIT).await;
+        }
+        Ok(rounds)
     }
 
     /// Alerts and duty reactions for what a step reported: dead and
