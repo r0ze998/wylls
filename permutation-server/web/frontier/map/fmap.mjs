@@ -67,7 +67,7 @@ import { paintWaitCharacter } from '../people/onboard.mjs';
 import { leaderWords, paintCandidateLabels, paintHomeTag, paintSiteMarks, paintSurveyLines, paintWaitStandard, standardBox, waitLine, waitSpotAt, wedgeSites } from './waitview.mjs';
 import { TILT, armUpright, disarmUpright, groundBox, groundView, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
 import { marchShare, watchOf } from './board.mjs';
-import { paintHostRing, MARKER_PX, awayText, awaitKeyText, exploreFlagText, formingText, marchTagText, paintBellTag, paintMarkerDisc, paintSealedMarch, paintSurveyFlag, paintWatch, paintWatchTop, watchTop, LAND_WORDS } from './hostmarks.mjs';
+import { paintHostRing, MARKER_PX, awayText, markerTagText, exploreFlagText, formingText, marchTagText, paintBellTag, paintMarkerDisc, paintSealedMarch, paintSurveyFlag, paintWatch, paintWatchTop, watchTop, LAND_WORDS } from './hostmarks.mjs';
 import { PICK_KINDS, pickModel, pickPalette, pickStep } from './picktile.mjs';
 import { createSurveyor, packMemory } from './survey.mjs';
 import { promotionAt } from './villagework.mjs';
@@ -3186,7 +3186,7 @@ export class FrontierMap {
     }
     for (const k of B.markers ?? []) {
       // (the marker stands `top` world px over the ribbon on a flat board; the tag hangs under it, clear of the face)
-      paintBellTag(ctx, k.at.x, k.at.y - k.top * (F.up ? 1.1 : 1), k.m.arrived ? awaitKeyText() : marchTagText(k.m.arriveBell), { zoom: z, place: 'above', gap: 5, accent: col, anchor: k.at, pass, size: 12, hud: true });
+      paintBellTag(ctx, k.at.x, k.at.y - k.top * (F.up ? 1.1 : 1), markerTagText(k.m), { zoom: z, place: 'above', gap: 5, accent: col, anchor: k.at, pass, size: 12, hud: true });
     }
     // (under the leader's feet and clear of the village's bottom row: centred on the leader, its left half lay over the houses;
     // not while the village itself is selected: its card says it, and the lens's own words stand there)

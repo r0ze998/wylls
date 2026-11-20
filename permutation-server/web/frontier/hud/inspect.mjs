@@ -20,7 +20,7 @@ import { s1Marks, S1_WORDS } from '../map/s1marks.mjs';
 import { leaderHex } from '../people/leaders.mjs';
 import { identityOf, displayName } from '../people/identity.mjs';
 import { hostParts } from '../faddr.mjs';
-import { fogNow, viewOverviews } from '../map/fog.mjs';
+import { fogNow, viewOverviews, viewClash } from '../map/fog.mjs';
 import { activityText } from '../people/activity.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
@@ -50,6 +50,10 @@ const overviewRec = (FS, p, q) => {
   }
   return null;
 };
+
+/** Whether a clash of (p, q) at `bell` is the viewer's own: a village of theirs there, or a march of theirs arriving then. */
+export const ownClashPlace = (FS, p, q, bell) => !!FS.citizen && ((FS.holdings ?? []).some(h => h.p === p && h.q === q)
+  || (FS.marches ?? []).some(m => m.dest && m.dest.p === p && m.dest.q === q && (m.entry?.arriveBell ?? m.transit?.arriveBell) === bell));
 
 /** Whether factions a and b are not hostile in a province (RELATIONS bit a*8+b). */
 export const friendly = (relations, a, b) => a === b || (relations !== undefined && relations !== null && ((BigInt(relations) >> BigInt(a * 8 + b)) & 1n) === 1n);
@@ -82,7 +86,8 @@ export function inspectModel(FS, terrainOf) {
   const ringRead = !!rec || !FS.world || !ringSeeded(FS.world, ringOf(s.p, s.q)) || !!FS.overviews?.has?.(ringOf(s.p, s.q));
   const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, read, ringRead, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
     relation: Number.isInteger(viewer) && prov ? owners.filter(f => f !== viewer).map(f => ({ faction: f, friendly: friendly(prov.relations, viewer, f) })) : [],
-    reportBell: top === 3 ? prov?.resolveSummary?.bell || null : null, tile: null };
+    // (fix-loop5, L5-6: under the fog a clash is offered only where its place is in sight now, or when it is the viewer's)
+    reportBell: top === 3 && viewClash({ p: s.p, q: s.q, keepTile: rec?.keepTile ?? null, mine: ownClashPlace(FS, s.p, s.q, prov?.resolveSummary?.bell) }) ? prov?.resolveSummary?.bell || null : null, tile: null };
   if (!Number.isInteger(s.idx)) return out;
   const here = out.level;
   const j = t ? t.sites.indexOf(s.idx) : prov ? Array.from(prov.sites ?? []).indexOf(s.idx) : -1;

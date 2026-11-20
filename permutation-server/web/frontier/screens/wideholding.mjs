@@ -67,6 +67,20 @@ const queueLabel = q => (q.item === 7 ? L`村の昇格` : q.item !== null && q.i
 /** The read-only notice every wide card stands under. */
 export const noExecutionNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`読み取り専用：この村には命令を送れません（収穫・建設・訓練・編成・進軍・隊商・追いつかせる のどれも）。表示は捕捉された村の記録から読んだもので、現在の状態でも所有の証明でもありません。`}</p>`;
 
+/**
+ * (fix-loop5, L5-1) What the wide host card is waiting for (controller `wideHostWait`): the page sends nothing while it
+ * waits and asks again by itself about once a turn, so the player does not press again and again.
+ */
+export function wideHostWaitLine(w) {
+  if (!w) return '';
+  const why = w.reason === 'lag' && Number.isFinite(Number(w.lag))
+    ? L`この村の州の決着が ${fmtNum(Number(w.lag))} ターン遅れています。追いつくまでは、どの命令も通りません。`
+    : w.reason === 'host' ? L`軍勢が整列中か休んでいます。進軍できるようになるまで待ちます。`
+    : w.reason === 'village' ? L`広い土地の村がまだ確定していません。`
+    : L`送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。`;
+  return html`<p class="wide-host-wait" role="status" data-wide-host-wait="${w.reason}">${icon('hourglass')}${why} ${L`このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。`}</p>`;
+}
+
 export function render(FS) {
   const m = wideModel(FS);
   if (m.kind === 'none') return '';
@@ -92,7 +106,10 @@ export function render(FS) {
     ${cardHead({ id: 'wide-host-h', ic: 'flag', title: L`広い土地の軍勢（テスト）`, side: stamp(L`ローカル専用`, 'warn') })}
     <p>${L`押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。`}</p>
     ${FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
-    <div class="actions"><button type="button" class="btn" data-act="wide-host-step">${L`次の一手（広い土地）`}</button></div></section>` : '';
+    ${wideHostWaitLine(FS.ui?.wideHost?.waiting)}
+    <div class="actions">${FS.ui?.wideHost?.waiting
+      ? html`<button type="button" class="btn" data-act="wide-host-step" disabled aria-disabled="true">${L`待っています…（押す必要はありません）`}</button><button type="button" class="btn ghost" data-act="wide-host-stop">${L`待つのをやめる`}</button>`
+      : html`<button type="button" class="btn" data-act="wide-host-step">${L`次の一手（広い土地）`}</button>`}</div></section>` : '';
   const head = html`<section class="vcard village-head wide-village" aria-labelledby="wide-v-title">
     ${cardHead({ id: 'wide-v-title', ic: 'home', title: m.title, sub: `${coordText(h.p, h.q)} · ${L`村の場所 ${fmtNum(h.site)} · 世代 ${fmtNum(h.generation)}`}`, side: stamp(L`捕捉・未検証`, 'warn') })}
     <ul class="fact-chips">
