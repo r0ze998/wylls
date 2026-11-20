@@ -17,7 +17,10 @@ test('U1 the premise: targets a client can send that the URL parser refuses, eve
 });
 
 test('U2 the handler parses the target inside its own try and answers 400 without echoing it', () => {
-  const h = http.slice(http.indexOf('return async function handler(req, res) {'));
+  // (2026-11-20) the handler is wrapped by `audited` (src/audit.mjs) since the public-exposure change: same function
+  const at = http.indexOf('  async function handler(req, res) {');
+  assert.ok(at > 0, 'the handler function is found');
+  const h = http.slice(at);
   assert.match(h, /let url;\n\s+try \{ url = new URL\(req\.url, auth\.issuer\); \} catch \{ return send\(res, 400, \{ error: 'invalid_request', error_description: 'the request target could not be parsed' \}\); \}/);
   const parse = h.indexOf('url = new URL(req.url, auth.issuer)');
   const route = h.indexOf('const route = `${req.method} ${url.pathname}`;');
