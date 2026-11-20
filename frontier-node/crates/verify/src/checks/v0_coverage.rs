@@ -251,6 +251,33 @@ pub fn vwl_judged(data: &[u8]) -> bool {
     }
 }
 
+/// The ②+⑨+⑩ coexist builds (#113, workstream 4's allocation rev 8,
+/// provisional; `frontier_abi::feature_registry`): custody's base 5 (S1
+/// with custody, `RULESET_HASH_V4`, rules version 13) with the rights bit
+/// 0x2000 and the capacity bit 0x1000 — on S1 alone (`COEXIST_S1_VERSION`,
+/// host builds) and on the playable lane (`COEXIST_LANE_VERSION`, wide
+/// 0x4000 | expedition 0x0800; `localnet-coexist-sbf`, LOCAL only).
+pub const PROGRAM_VERSION_COEXIST_S1: u16 = 0x3005;
+pub const PROGRAM_VERSION_COEXIST_LANE: u16 = 0x7805;
+
+/// Whether VR models the Grant instructions of a season of version `pv`
+/// (rights-play, 2026-11-20; D-feature-coexist-4): exactly the
+/// `rights-experimental` build alone (`PROGRAM_VERSION_RIGHTS_S1`, base 4)
+/// and the two coexist versions (base 5). Their Grant handlers are the
+/// same code (`proc/rights.rs`), and VR judges the Grant's records,
+/// account and station Vault, none of which custody or capacity changes.
+/// The coexist versions stay UNKNOWN to [`known_version`]: their ⑨
+/// capacity tags (0xF0–0xFD, no check), ⑩ custody (V26: never better than
+/// UNVERIFIABLE) and, on the lane, the wide tags (`WideUnmodelled`) are
+/// never a PASS, and a coexist season's verdict is at best UNVERIFIABLE
+/// (`UnknownProgramVersion`). Any other combination of the rights bit
+/// (0xA004, 0x6004, 0x7804, …) stays UNVERIFIABLE, never left to VR (r7).
+pub fn grants_modelled(pv: Option<u16>) -> bool {
+    pv == Some(frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1)
+        || pv == Some(PROGRAM_VERSION_COEXIST_S1)
+        || pv == Some(PROGRAM_VERSION_COEXIST_LANE)
+}
+
 /// Whether this verifier implements `pv`'s rules.
 pub fn known_version(pv: u16) -> bool {
     KNOWN_PROGRAM_VERSIONS.contains(&pv)
@@ -359,9 +386,9 @@ pub fn judge_outside_v2(
     // its Grant tags fall to the band rule below: `Unverifiable` under that
     // unknown version, never left to VR (r7). Under a known version that
     // does not run Grants (M1, production S1) the band rule is `Fail`.
-    if frontier_abi::v2::rights::is_rights_tag(tag)
-        && pv == Some(frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1)
-    {
+    // rights-play (2026-11-20): and the two coexist versions' Grant tags
+    // ([`grants_modelled`]), the same handlers on custody's base 5.
+    if frontier_abi::v2::rights::is_rights_tag(tag) && grants_modelled(pv) {
         return if s1 {
             None
         } else {
@@ -531,8 +558,12 @@ pub fn run(cx: &mut Ctx) {
                         "; the playable lane is judged only by a build with the `playable-lane` feature".into()
                     } else {
                         String::new()
-                    }
-                ),
+                    },
+                ) + if pv == PROGRAM_VERSION_COEXIST_S1 || pv == PROGRAM_VERSION_COEXIST_LANE {
+                    "; a ②+⑨+⑩ coexist build: VR judges its Grants, but its capacity (⑨), custody (⑩, V26) and wide rules are not modelled"
+                } else {
+                    ""
+                },
             );
         }
     }
@@ -833,8 +864,14 @@ mod tests {
         use crate::Severity::{Fail, Unverifiable};
         use frontier_abi::v2::rights::{is_rights_tag, PROGRAM_VERSION_RIGHTS_S1 as RIGHTS};
         const S1: u16 = PROGRAM_VERSION_S1;
-        let versions: [Option<u16>; 9] = [
+        let versions: [Option<u16>; 13] = [
             None,
+            // rights-play: the coexist versions (Grants VR's), and two
+            // near misses (base 4 with every coexist bit; base 6).
+            Some(PROGRAM_VERSION_COEXIST_S1),
+            Some(PROGRAM_VERSION_COEXIST_LANE),
+            Some(PROGRAM_VERSION_COEXIST_LANE - 1),
+            Some(PROGRAM_VERSION_COEXIST_LANE + 1),
             Some(1),
             Some(S1),
             Some(RIGHTS),
@@ -846,7 +883,7 @@ mod tests {
         ];
         // A Grant tag, a wide draft tag, WideReveal, another band (custody),
         // ⑪'s band, and two tags no band holds.
-        let tags = [0xD0u8, 0xD5, 0xD6, 0xEE, 0xC2, 0xE8, 0xFE, 0xD9];
+        let tags = [0xD0u8, 0xD5, 0xD6, 0xEE, 0xC2, 0xE8, 0xFE, 0xD9, 0xF0, 0xFD];
         for pv in versions {
             for s1 in [true, false] {
                 for tag in tags {
@@ -854,7 +891,7 @@ mod tests {
                     let sev = got.as_ref().map(|g| g.0);
                     let at = format!("tag {tag:#04x}, pv {pv:?}, s1 {s1}: {got:?}");
                     let known = pv.is_some_and(known_version);
-                    if pv == Some(RIGHTS) && is_rights_tag(tag) {
+                    if grants_modelled(pv) && is_rights_tag(tag) {
                         // VR's, where it runs; never left unjudged.
                         if s1 {
                             assert!(got.is_none(), "{at}");
@@ -883,6 +920,31 @@ mod tests {
         // The combined builds are not versions this verifier implements.
         for v in [RIGHTS | WIDE_EXPERIMENTAL_VERSION_BIT, RIGHTS | 0x8000] {
             assert!(!known_version(v), "{v:#06x}");
+        }
+        // rights-play: the coexist versions are the registry's arithmetic
+        // (base 5 = PROGRAM_VERSION_CUSTODY | rights 0x2000 | capacity
+        // 0x1000 [| wide 0x4000 | expedition 0x0800]); their Grants are VR's
+        // but the versions are not known (⑨/⑩/wide unmodelled).
+        let custody = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
+        let rights_bit = frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT;
+        assert_eq!(PROGRAM_VERSION_COEXIST_S1, custody | rights_bit | 0x1000);
+        assert_eq!(
+            PROGRAM_VERSION_COEXIST_LANE,
+            PROGRAM_VERSION_COEXIST_S1 | WIDE_EXPERIMENTAL_VERSION_BIT | 0x0800
+        );
+        for v in [PROGRAM_VERSION_COEXIST_S1, PROGRAM_VERSION_COEXIST_LANE] {
+            assert!(!known_version(v), "{v:#06x}");
+            assert!(grants_modelled(Some(v)), "{v:#06x}");
+        }
+        for v in [
+            None,
+            Some(PROGRAM_VERSION_S1),
+            Some(RIGHTS | 0x8000),
+            Some(0x7804),
+            Some(0x7806),
+            Some(0x3004),
+        ] {
+            assert!(!grants_modelled(v), "{v:?}");
         }
     }
 }

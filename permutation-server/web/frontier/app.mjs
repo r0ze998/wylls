@@ -167,6 +167,7 @@ import { FLAG, withFlag, restoreFlags } from './onboarding.mjs';
 import { useHerald, refresh as refreshPlay, onReread, adoptPinnedWorld, askSeason, takeSeason, seasonStale } from './controller.mjs';
 import { createPollLoop } from './poll-loop.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
+import { kernelRulesetFor } from './flocalplay-lane.mjs';
 import { createRouteCache } from './map/routecache.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
@@ -4232,8 +4233,9 @@ const setFlag = (flag, add = true) => setFlags(withFlag(FS.ui?.dismissed ?? [], 
 
 /** The page's kernel, with the season's ruleset required (practice and verify refuse another). */
 async function seasonKernel() {
-  const k = await loadKernel(FS.season ? { ruleset: toHex(FS.season.rulesetHash), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) } : undefined);
-  if (FS.season && k.rulesetHash() !== toHex(FS.season.rulesetHash)) { const e = new Error('ruleset'); e.code = 'RulesetMismatch'; throw e; }
+  // (TEST-ONLY coexist lane: its Season's kernel is the S1 one under flocalplay-lane.mjs's one alias; every other hash: itself)
+  const k = await loadKernel(FS.season ? { ruleset: kernelRulesetFor(FS.season.rulesetHash), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) } : undefined);
+  if (FS.season && k.rulesetHash() !== kernelRulesetFor(FS.season.rulesetHash)) { const e = new Error('ruleset'); e.code = 'RulesetMismatch'; throw e; }
   return k;
 }
 

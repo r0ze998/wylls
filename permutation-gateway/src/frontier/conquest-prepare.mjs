@@ -9,6 +9,7 @@
 //
 // No relay pool, wallet, key store, cosigner, simulation or send path is used. Nothing here signs or submits.
 import { spawn as nodeSpawn } from 'node:child_process';
+import { onLocalLane } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { decode, encode } from '../../client/src/base58.mjs';
@@ -37,7 +38,9 @@ export const CONQUEST_ACTIONS = Object.freeze(['DeclareSiege']);
 export const CONQUEST_DISPATCH_PINS = Object.freeze({ DeclareSiege: DECLARE_SIEGE_DISPATCH });
 /** DECLARE_SIEGE (wide_ix.rs): name, signer, writable, in order (fconquest-identity.mjs). */
 export const DECLARE_SIEGE_ROLES = DECLARE_SIEGE_SHAPE;
-const VERSION = '18436';
+let VERSION = '18436';
+// (the coexist lane, TEST-ONLY: follows the process's local lane, flocalplay-lane.mjs; plain: unchanged)
+onLocalLane(l => { VERSION = l.programVersionText; });
 
 const ERRORS = Object.freeze({
   ConquestPrepareDisabled: [503, 'unsigned conquest preparation is not configured'],

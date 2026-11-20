@@ -27,10 +27,13 @@ import { decode, encode } from '../../client/src/base58.mjs';
 import { seasonPda, seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { localPlayTurnGate } from './local-play-turns.mjs';
 import { createExpeditionDepartPrepare, ExpeditionDepartPrepareError, DEPART_PREPARE_PROGRAM_VERSION } from './expedition-depart-prepare.mjs';
+import { onLocalLane } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 
 export const LOCAL_PLAY_PROGRAM = encode(new Uint8Array(32).fill(0x45));
 export const LOCAL_PLAY_SEASON_ID = 11;
-export const LOCAL_PLAY_RULESET_HASH = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
+export let LOCAL_PLAY_RULESET_HASH = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
+// (TEST-ONLY coexist lane: a relay started with `--coexist` pins the coexist ruleset RULESET_HASH_V4 instead; plain: unchanged)
+onLocalLane(l => { LOCAL_PLAY_RULESET_HASH = l.rulesetHash; });
 export const LOCAL_PLAY_REFUSED_PORT = 41970;
 export const LOCAL_PLAY_CLUSTER = 'localnet';
 export const SUBMIT_SCHEMA = 'frontier-local-play-depart-submit-v1';

@@ -53,6 +53,14 @@ expedition-records-experimental = ["findex/expedition-records-experimental"]
 # captures and served inside the province envelope as `land`. Off by default:
 # the default build drops them like any unknown account. No new dependency.
 land-preview = ["frontier-abi/land-preview"]
+# Opt-in, TEST-ONLY (② rights, the coexist lane): the Grants folded from
+# their PS2 records (kinds 114-119) and served as `/h/grants`
+# (src/grants.rs). Off by default: the default build folds and serves
+# nothing new (`/h/grants` answers 503 GrantsUnavailable). No new dependency.
+rights-records = []
+# TEST-ONLY (2026-11-20, rights-play): the herald of a `play-local.sh --coexist` world: `--local-play-metadata`
+# pins the coexist Season (0x7805, RULESET_HASH_V4) instead of the plain lane's. Off by default.
+coexist-lane = ["frontier-abi/coexist-lane"]
 
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the

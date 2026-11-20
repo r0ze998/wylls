@@ -18,7 +18,6 @@ use frontier_abi::v2::layout::{
     world::season as S,
 };
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
-use frontier_abi::v2::presets::RULESET_HASH_V3;
 use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 
 const SID: u64 = 11;
@@ -57,7 +56,7 @@ fn world() -> World {
     s[S::STATUS] = S::STATUS_RUNNING;
     s[S::BUMP] = bump;
     assert!(wr_u16(&mut s, S::PROGRAM_VERSION, PROGRAM_VERSION));
-    assert!(wr_arr(&mut s, S::RULESET_HASH, &RULESET_HASH_V3));
+    assert!(wr_arr(&mut s, S::RULESET_HASH, &LANE_RULESET_HASH));
     s[S::NETWORK] = S::NETWORK_QUICKNET;
     assert!(wr_arr(
         &mut s,
@@ -173,7 +172,7 @@ fn world() -> World {
     }
 }
 fn metadata(w: &World) -> Value {
-    json!({"schema": METADATA_SCHEMA, "rpc_url": RPC, "program": w.e.program.to_string(), "program_version": "0x4804",
+    json!({"schema": METADATA_SCHEMA, "rpc_url": RPC, "program": w.e.program.to_string(), "program_version": format!("0x{PROGRAM_VERSION:04x}"),
         "season": w.e.season.to_string(), "season_id": SID, "player_wallet": w.e.wallet.to_string(),
         "artifact": {"sha256": w.e.artifact_sha256, "bytes": w.e.artifact_len},
         "accounts": {"citizen": w.e.citizen.to_string(), "holding": w.e.holding.to_string(), "home_province": w.e.home.to_string(),

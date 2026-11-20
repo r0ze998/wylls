@@ -114,3 +114,47 @@ async fn route_handler_feature_off_is_unavailable_without_listener() {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(value["code"], "WideWorldUnavailable");
 }
+
+#[cfg(feature = "rights-records")]
+async fn grants_get(app: &Shared, query: &str) -> (StatusCode, Value) {
+    let uri: Uri = format!("/h/grants{query}").parse().unwrap();
+    let query = Query::<Vec<(String, String)>>::try_from_uri(&uri).unwrap();
+    answer(grants(State(app.clone()), query).await).await
+}
+
+#[cfg(feature = "rights-records")]
+#[tokio::test]
+async fn grants_handler_answers_the_schema_and_refuses_bad_queries() {
+    let app = app("localnet");
+    let (status, value) = grants_get(&app, "").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["schema"], "frontier-herald-grants-v1");
+    assert_eq!(value["season"], 7);
+    assert_eq!(value["grants"], json!([]));
+    let me = Address::new_from_array([7; 32]).to_string();
+    let (status, value) = grants_get(&app, &format!("?citizen={me}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["grants"], json!([]));
+    for query in [
+        "?citizen=nope",
+        "?citizen=",
+        "?other=1",
+        &format!("?citizen={me}&citizen={me}"),
+    ] {
+        let (status, value) = grants_get(&app, query).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}");
+        assert!(
+            value["code"] == "BadCitizen" || value["code"] == "BadQuery",
+            "{query}"
+        );
+    }
+}
+
+#[cfg(not(feature = "rights-records"))]
+#[tokio::test]
+async fn grants_are_unavailable_without_the_feature() {
+    let res = grants(State(app("localnet"))).await;
+    let (status, value) = answer(res).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(value["code"], "GrantsUnavailable");
+}

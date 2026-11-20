@@ -313,3 +313,26 @@ training are the same rules as devnet.
   - the launcher command is in `command.txt` in the same folder.
 - "ports in use": choose another `--port` (e.g. `--port 41450`), or stop the earlier world.
 - Report through a GitHub Issue (r0ze998/wylls), with a screenshot and the folder above.
+
+## 10. ② rights in a coexist world (`--coexist`, TEST-only, 2026-11-20)
+
+`scripts/play-local.sh --coexist` runs the usual kept world (or `--demo --speed N`) on the ②+⑨+⑩ **coexist lane**
+(program version 0x7805, `RULESET_HASH_V4`; `scripts/build-frontier-localnet-coexist-sbf.sh`). Its runners, herald and
+tools are built with their `coexist-lane` feature into `.local/play-local/coexist-bin/`; the default world's binaries
+are untouched. It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. `--coexist-node` is the
+old page-less node.
+
+The village screen gets a **Rights (stock swap)** card (owner decision ② A):
+1. A workshop village (Build → Workshop) is the *facility*. Another player builds a storehouse (Vault) on a free tile
+   of the **same Province** (map tile card → build a storehouse), and brings ore and wood into it by caravan.
+2. The facility's owner issues a right (wallet only, 25 gold from the facility): number of swaps, most arms, days.
+3. The grantee reserves units (2 ore + 1 wood per arm leave its Vault, arms leave the facility), then executes: the
+   arms land in its Vault and leave it **only by caravan** (raidable).
+4. The issuer may revoke (an open reservation is undone) and then close the right (its rent comes back).
+5. Local play has no keeper delivering caravans: once your caravan has arrived, press **Deliver the caravan** in the
+   same card (SettleCaravan; the fee comes back to you).
+
+Fog rule: the card lists only rights you issued or received; rights between others and others' storehouse contents are
+never drawn. At the natural clock a Vault takes most of a day of production; `--coexist --demo --speed 60` plays the
+whole loop in about 10 minutes. The caravan path limit (32 tiles / 4 provinces) means both players should be close:
+with `--two`, both join the same nation.
