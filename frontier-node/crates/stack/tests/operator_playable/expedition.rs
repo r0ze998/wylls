@@ -443,6 +443,13 @@ pub(super) async fn flow(
     let resident_at_dest = dest_bytes
         .windows(host_bytes.len())
         .any(|w| w == host_bytes);
+    // (the host's entry at the destination: its roster names the full host reference)
+    let roster = adr(frontier_abi::world_index::roster::roster_address(
+        &ctx, dest,
+    ));
+    let in_roster = r
+        .data(&roster)
+        .is_some_and(|d| d.windows(host_bytes.len()).any(|w| w == host_bytes));
     let expedition_wall = depart_wall.elapsed().as_secs_f64();
     let after_settle_slot = r.lock().slot();
     let keeper_steps = program_rows(r, since);
@@ -508,7 +515,7 @@ pub(super) async fn flow(
                  "route": {"start_tile": start, "dirs": route.dirs, "dest_tile": route.dest_tile, "travel_upper_secs": upper},
                  "depart_bell": depart_bell, "arrive_bell": ARRIVE_BELL, "external": external.to_string()},
         "muster": muster, "depart": depart_row, "keeper_steps_after_depart": keeper_steps,
-        "outcome": {"fate": row.fate, "stays": row.fate == wide_arrival::FATE_STAYS, "host_in_destination_province": resident_at_dest,
+        "outcome": {"fate": row.fate, "stays": row.fate == wide_arrival::FATE_STAYS, "host_in_destination_province": resident_at_dest, "host_in_destination_roster": in_roster,
                     "destination_resolved_next": rn_dest(r), "wall_secs_depart_to_settle": expedition_wall},
         "after": {"bells": 3, "keeper_rows": after_rows.len(), "keeper_ok": keeper_ok_after.len(),
                   "feed": {"land": status["discovery"]["land"], "play": status["discovery"]["play"]},
@@ -521,7 +528,7 @@ pub(super) async fn flow(
         );
     }
     assert_eq!(
-        out["verifier"]["fail"], 0,
+        out["verifier"]["fails"], 0,
         "the verifier FAILs the season (see p10-flow.json `verifier.not_warn`)"
     );
     out
