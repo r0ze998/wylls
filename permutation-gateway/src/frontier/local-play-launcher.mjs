@@ -1340,7 +1340,8 @@ export const USAGE = `local-play launcher (this machine only)
        Not with --persist]
     [--operator-max-acts <1-9999>: TEST-ONLY, only with --operator-residents or --operator-nations: each resident's
        send cap for the whole world (without it: none; still one action per bell, Q16-2); the cadence and the refusal limit stay the residents' own]
-    [--operator-war operator-war-v1: TEST-ONLY, only with --operator-residents and --capture-demo: the operator residents
+    [--operator-war operator-war-v1: TEST-ONLY, only with --operator-residents and --march-trial (any natural world: kept,
+       plain, --fresh-map, --wide-land or --capture-demo; scripts/play-local.sh turns it on with --ai): the operator residents
        also march (the page's own Depart through their own relays), aimed at reachable keeps of other nations and at
        their own nation's contested keeps, one action per resident per turn; up to 12 residents (two per nation, every
        nation from six on; 5-12 only with this option, their relays then take that many ports per world). The world's
@@ -1374,9 +1375,11 @@ export async function parseConfig(args) {
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
   if (out['natural-runner'] !== undefined && !path.isAbsolute(out['natural-runner'])) throw fault('AbsolutePathRequired');
   // (TEST-ONLY operator residents: their relays take OPERATOR_RESIDENTS_MAX ports per world after the worlds' own)
-  // (TEST-ONLY war world: exactly its one word, only with operator residents and the capture demo)
+  // (TEST-ONLY war world: exactly its one word, only with operator residents and the march trial (their marches are the
+  //  page's own trial sends). Any natural world — kept, plain, fresh-map, wide or the capture demo (loop-play4 B-6: it was
+  //  the demo's only, so `scripts/play-local.sh` could never show the AI nations at war))
   if (out['operator-war'] !== undefined && out['operator-war'] !== OPERATOR_WAR_MODE) throw fault('InvalidOperatorWar');
-  if (out['operator-war'] !== undefined && (out['operator-residents'] === undefined || out['capture-demo'] === undefined)) throw fault('OperatorWarNeedsResidentsDemo');
+  if (out['operator-war'] !== undefined && (out['operator-residents'] === undefined || out['march-trial'] === undefined)) throw fault('OperatorWarNeedsResidentsTrial');
   // (`--operator-nations <csv>`, TEST-ONLY: one resident per named nation, up to six, OPERATOR_NATIONS_MAX ports per world;
   //  never with `--operator-residents`: one of the two says who the residents are)
   const operatorNations = out['operator-nations'] === undefined ? undefined : parseOperatorNations(out['operator-nations']);

@@ -48,7 +48,9 @@ test('a pending send: sent only when every check passes; otherwise it waits only
   const ok = { intent, problems: [], nowBell: 30, open: true, held: false, busy: false, sameCard: true };
   assert.deepEqual(P.pendingStep(p, ok), { act: 'send' });
   assert.deepEqual(P.pendingStep(p, { ...ok, problems: ['NotResident'] }), { act: 'wait' });
-  assert.deepEqual(P.pendingStep(p, { ...ok, problems: ['NotFinal'], nowBell: 32 }), { act: 'wait' });
+  // (loop-play4 B-2: at its last turn while only the settling blocks it, the limit moves on — the keeper behind under load)
+  assert.deepEqual(P.pendingStep(p, { ...ok, problems: ['NotFinal'], nowBell: 31 }), { act: 'wait' });
+  assert.deepEqual(P.pendingStep(p, { ...ok, problems: ['NotFinal'], nowBell: 32 }), { act: 'wait', pending: P.extendPending(p, { nowBell: 32 }) });
   assert.deepEqual(P.pendingStep(p, { ...ok, busy: true }), { act: 'wait' }, 'a send in flight: wait, never a second');
   // withdrawn
   assert.deepEqual(P.pendingStep(p, { ...ok, problems: ['ArrivalBell'] }), { act: 'withdraw', why: 'problem' }, 'the arrival window is not waited through');
@@ -86,7 +88,7 @@ test('the controller: armed only on local play\'s test march with a known world 
   const app = src('app.mjs');
   assert.deepEqual([...app.matchAll(/\buseHerald\(/g)].length, 1, 'the only other caller is spectate mode, which has no local march');
   assert.match(app, /function startSpectate\(herald\) \{\n  useHerald\(herald\);/);
-  assert.match(c, /send: card => \{ card\.pending = null; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');
+  assert.match(c, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/, 'the send is the ordinary single send');
   assert.match(c, /keyAlive: !!FS\.wallet\?\.address && FS\.wallet\.destroyed !== true, endsAt: localPlay\?\.worldEndsAt \?\? NaN/);
   assert.match(c, /onPageHide: f => \{ globalThis\.addEventListener\?\.\('pagehide', f\);/);
   assert.match(c, /const m = composerMarch\(FS, composerArrival\(FS\)\);\n  const problems = checkMarch\(m\)\.filter\(p => p !== 'NoDestination'\);/);
@@ -95,10 +97,12 @@ test('the controller: armed only on local play\'s test march with a known world 
   assert.match(c, /'march-wait-cancel': \(\) => pendingDriver\.cancel\('cancel'\),/);
   assert.match(c, /'compose-close': \(\) => \{ pendingDriver\.cancel\('cancel'\); FS\.compose = null;/);
   assert.match(c, /const r = localPlay \? await sendMarch\(m, \{/, 'local play: one attempt, no resend (unchanged)');
-  // the gate gives the world's end only for a capture-demo start, from its checked expiry statement
+  // the gate gives the world's end for EVERY launcher start (kept, plain, wide, demo — loop-play4 B-3: only the demo had
+  // it, so every other world's pending send was withdrawn as 'closed' at once), from its checked expiry statement
   const gate = src('flocalplay.mjs');
-  assert.match(gate, /const endAt = launcher && claimedDemo !== null \? worldEndOf\(claimedEnd, claimedMarch\?\.instance \?\? null\) : null;/);
-  assert.match(gate, /\.\.\.\(endAt !== null \? \{ worldEndsAt: endAt \} : \{\}\)/);
+  assert.match(gate, /const endAt = launcher \? worldEndOf\(claimedEnd, claimedMarch\?\.instance \?\? null\) : null;/);
+  assert.match(gate, /const playedEnd = endAt !== null \? Object\.freeze\(\{ \.\.\.played, worldEndsAt: endAt \}\) : played;/);
+  assert.doesNotMatch(gate, /claimedDemo !== null \? worldEndOf/);
 });
 
 // ---- the driver, with counted calls: fake timers, a clock the test moves, refreshes the test resolves
@@ -215,4 +219,98 @@ test('the world\'s end the page holds: only from a well-formed expiry statement 
   assert.equal(worldEndOf(e, inst, 5000), 2701000);
   assert.equal(worldEndOf(e, inst, 9e12), 2701000, 'already past: still that end (the driver withdraws at once)');
   for (const [x, i, why] of [[null, inst, 'absent'], [{ ...e, expiresAt: 2701001 }, inst, 'inconsistent'], [e, 'cd'.repeat(32), 'another instance'], [e, null, 'no instance'], [{ ...e, extra: 1 }, inst, 'more keys']]) assert.equal(worldEndOf(x, i, 5000), null, why);
+});
+
+// ---- loop-play4 B-2: the keeper behind under machine load (the province 2–21 turns behind): the wait goes on, and says why
+test('B-2: provinceLag is the province\'s turns behind the chain (0 when caught up, null when unknown)', () => {
+  assert.equal(P.PENDING_LAG_TURNS, 2);
+  assert.equal(P.provinceLag({ resolvedNext: 29 }, 30), 0, 'resolved through the previous turn: caught up');
+  assert.equal(P.provinceLag({ resolvedNext: 40 }, 30), 0);
+  assert.equal(P.provinceLag({ resolvedNext: 28 }, 30), 1, 'one behind: the turn\'s ordinary settling');
+  assert.equal(P.provinceLag({ resolvedNext: 9 }, 30), 20);
+  for (const [pr, b] of [[null, 30], [{}, 30], [{ resolvedNext: 1.5 }, 30], [{ resolvedNext: 3 }, null]]) assert.equal(P.provinceLag(pr, b), null);
+});
+
+test('B-2: only-settling at the turn limit extends (fresh limit, counted); anything else still withdraws as before', () => {
+  const intent = P.intentOf(base()), p = P.armPending({ intent, nowBell: 30 });
+  const ok = { intent, problems: ['NotResident'], nowBell: 32, open: true, held: false, busy: false, sameCard: true };
+  const s1 = P.pendingStep(p, ok);
+  assert.equal(s1.act, 'wait'); assert.deepEqual({ ...s1.pending }, { intent, armedBell: 30, untilBell: 34, extended: 1 });
+  // twenty turns behind: extended again and again, never 'expired' while only the settling blocks it
+  let q = s1.pending;
+  for (let b = 34; b <= 52; b += 2) { const s = P.pendingStep(q, { ...ok, nowBell: b }); assert.equal(s.act, 'wait', `turn ${b}`); if (s.pending) q = s.pending; }
+  assert.equal(q.untilBell, 54); assert.equal(q.extended, 11);
+  // caught up: sent once, for the same order
+  assert.deepEqual(P.pendingStep(q, { ...ok, problems: [], nowBell: 53 }), { act: 'send' });
+  // never extended for anything else
+  assert.deepEqual(P.pendingStep(p, { ...ok, problems: [], nowBell: 33 }), { act: 'withdraw', why: 'expired' }, 'past the limit and not settling: expired, as before');
+  assert.deepEqual(P.pendingStep(p, { ...ok, problems: ['NotResident', 'Cooldown'] }), { act: 'withdraw', why: 'problem' });
+  assert.deepEqual(P.pendingStep(p, { ...ok, open: false }), { act: 'withdraw', why: 'closed' });
+  assert.deepEqual(P.pendingStep(p, { ...ok, held: true }), { act: 'withdraw', why: 'unknown' });
+  assert.deepEqual(P.pendingStep(p, { ...ok, sameCard: false }), { act: 'withdraw', why: 'changed' });
+  assert.deepEqual(P.pendingStep(p, { ...ok, nowBell: null }), { act: 'withdraw', why: 'expired' });
+});
+
+test('B-2: the driver keeps the arming past its limit, tells the lag when it changes (≥ 2 turns), and still sends exactly once', () => {
+  let timer = null; const told = [], sent = [], gone = [];
+  const state = { intent: 'I', problems: ['NotResident'], nowBell: 10, open: true, held: false, busy: false, sameCard: true, keyAlive: true, endsAt: 1e15, lag: 1 };
+  const d = P.createPendingDriver({ look: () => ({ ...state }), refresh: () => Promise.resolve(), send: c => sent.push(c), withdrawn: (c, w) => gone.push(w),
+    lagging: (c, p, lag) => told.push([p.untilBell, lag]), now: () => 0, setTimer: f => { timer = f; return 1; }, clearTimer: () => { timer = null; } });
+  d.arm({ id: 1 }, P.armPending({ intent: 'I', nowBell: 10 }));
+  timer(); assert.deepEqual(told, [], 'one turn behind: the ordinary settling, nothing said');
+  state.lag = 3; timer(); timer(); assert.deepEqual(told, [[12, 3]], 'three behind: said once');
+  state.nowBell = 12; state.lag = 3; timer(); assert.deepEqual(told.at(-1), [14, 3], 'the limit moved on: said with the new limit');
+  for (let b = 13; b <= 40; b++) { state.nowBell = b; state.lag = 20; timer(); }
+  assert.deepEqual(gone, [], 'never withdrawn while only the settling blocks it');
+  assert.ok(d.armed);
+  state.problems = []; state.lag = 0; timer(); timer?.();
+  assert.equal(sent.length, 1, 'caught up: sent once'); assert.equal(d.armed, null);
+});
+
+test('B-2: the page says the load (JA/EN) on the waiting notices and on the Form a host card', async () => {
+  const c = src('controller.mjs');
+  assert.match(c, /lag: provinceLag\(FS\.provinces\.get\(`\$\{card\.origin\?\.p\},\$\{card\.origin\?\.q\}`\)\?\.province, nowBell\(\)\) \};/);
+  assert.match(c, /lag: provinceLag\(FS\.provinces\.get\(`\$\{card\.holding\.p\},\$\{card\.holding\.q\}`\)\?\.province, nowBell\(\)\) \};/);
+  assert.match(c, /lagging: \(card, p, lag\) => \{ card\.pending = p; setNotice\(\{ busy: false, waiting: true, text: lagWaitText\(lag, p\.untilBell, 'march'\) \}\); \},/);
+  assert.match(c, /lagging: \(card, p, lag\) => \{ FS\.musterWait = \{ untilBell: p\.untilBell, lag \}; setNotice\(\{ busy: false, waiting: true, text: lagWaitText\(lag, p\.untilBell, 'muster'\) \}\); \},/);
+  const hand = src('hud/hand.mjs');
+  assert.match(hand, /const lag = local \? provinceLag\(FS\.provinces\?\.get\(`\$\{h\.p\},\$\{h\.q\}`\)\?\.province, FS\.nowBell\) : null;/);
+  const ja = [L`この州の決着が ${20} ターン遅れています。このマシンの負荷が高く、世界の進行（ターンの決着）が追いついていないためです。送信待ちはそのまま続け、州が追いつき次第${L`この編成`}を1回だけ送ります。押し直す必要はありません（取り消せます）。`,
+    L`送信待ちを続けています。州のターンの決着がまだつかないため、待つ期限をターン ${14} まで延ばしました。決着がつき次第${L`この命令`}を1回だけ送ります（取り消せます）。`,
+    L`この州の決着が ${3} ターン遅れています。このマシンの負荷が高く、世界の進行が追いついていないためです。`, L`決着が追いつくまで、送信待ちは自動で延ばします。`];
+  for (const s of ja) assert.match(s, CJK);
+  setLang('en');
+  const en = [L`この州の決着が ${20} ターン遅れています。このマシンの負荷が高く、世界の進行（ターンの決着）が追いついていないためです。送信待ちはそのまま続け、州が追いつき次第${L`この編成`}を1回だけ送ります。押し直す必要はありません（取り消せます）。`,
+    L`送信待ちを続けています。州のターンの決着がまだつかないため、待つ期限をターン ${14} まで延ばしました。決着がつき次第${L`この命令`}を1回だけ送ります（取り消せます）。`,
+    L`この州の決着が ${3} ターン遅れています。このマシンの負荷が高く、世界の進行が追いついていないためです。`, L`決着が追いつくまで、送信待ちは自動で延ばします。`];
+  for (const s of en) { assert.doesNotMatch(s, CJK, s); assert.doesNotMatch(s, BANNED_EN, s); }
+  assert.match(en[0], /20 behind: this machine is under heavy load.*this order to form a host is sent once/);
+});
+
+test('verify-pr98 BREAK-1: the settling is judged at the chain\'s turn now, so a turn change never sends into a refusal', () => {
+  // the program's rule (fland.mjs actionBlocks): NotResident while resolvedNext + 1 < nowBell
+  assert.deepEqual(P.settleNow([], { resolvedNext: 218 }, 220), ['NotResident'], 'the page\'s model still on turn 219: the province has not settled 219');
+  assert.deepEqual(P.settleNow([], { resolvedNext: 219 }, 220), [], 'settled through the previous turn: nothing added');
+  assert.deepEqual(P.settleNow(['NotFinal'], { resolvedNext: 200 }, 220), ['NotFinal', 'NotResident']);
+  assert.deepEqual(P.settleNow(['NotResident'], { resolvedNext: 200 }, 220), ['NotResident'], 'never twice');
+  assert.deepEqual(P.settleNow(['Cooldown'], { resolvedNext: 200 }, 220), ['Cooldown', 'NotResident'], 'another problem stays: still withdrawn');
+  for (const [pr, b] of [[null, 220], [{}, 220], [{ resolvedNext: 1.5 }, 220], [{ resolvedNext: 3 }, null]]) assert.deepEqual(P.settleNow([], pr, b), [], 'unknown: unchanged');
+  assert.equal(P.settleNow(null, { resolvedNext: 1 }, 220), null);
+  // so the step waits (and extends at its limit) instead of sending
+  const intent = P.intentOf(base()), p = P.armPending({ intent, nowBell: 219 });
+  const look = { intent, nowBell: 220, open: true, held: false, busy: false, sameCard: true };
+  assert.deepEqual(P.pendingStep(p, { ...look, problems: [] }), { act: 'send' }, 'the model\'s stale view alone would send');
+  assert.equal(P.pendingStep(p, { ...look, problems: P.settleNow([], { resolvedNext: 218 }, 220) }).act, 'wait');
+  assert.deepEqual(P.pendingStep(p, { ...look, problems: P.settleNow([], { resolvedNext: 219 }, 220) }), { act: 'send' });
+});
+
+test('verify-pr98 BREAK-1: both drivers look with settleNow, and their send names its own order for a refusal and its "try again"', () => {
+  const c = src('controller.mjs');
+  assert.match(c, /return \{ \.\.\.now, problems: settleNow\(now\.problems, origin, nowBell\(\)\), nowBell: nowBell\(\),/);
+  assert.match(c, /return \{ intent: n\.intent, problems: settleNow\(n\.problems, province, nowBell\(\)\), nowBell: nowBell\(\),/);
+  assert.match(c, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/);
+  assert.match(c, /FS\.lastAct = \{ kind: 'act', name: 'muster', data: \{ unit: String\(card\.draft\.unit\), troops: String\(card\.draft\.troops\), tile: String\(card\.draft\.tile\) \} \};\n    invalidate\('panel'\);\n    return musterOrder\(/);
+  // (the retry runs ACTIONS[FS.lastAct.name](data): both names are the page's own direct sends)
+  assert.match(c, /  muster: d => musterOrder\(num\(d\.unit\), num\(d\.troops\), d\.tile === undefined \|\| d\.tile === '' \? null : num\(d\.tile\)\),/);
+  assert.match(c, /  'march-send': \(\) => sendTheMarch\(\),/);
 });

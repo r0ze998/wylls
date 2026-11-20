@@ -1,6 +1,7 @@
-//! **TEST-ONLY operator AI war world** (natural runner `--operator-villages <abs path>/operators.json`, accepted only
-//! together with the capture demo; the launcher passes it for a capture-demo world opened with `--operator-residents`
-//! and `--operator-war operator-war-v1`). Two things, both off-chain and both with the program's own instructions only:
+//! **TEST-ONLY operator AI war world** (natural runner `--operator-villages <abs path>/operators.json`, accepted on any
+//! natural world; the launcher passes it for a world opened with `--operator-residents` and `--operator-war
+//! operator-war-v1`, and for a wide world with operator residents). Two things, both off-chain and both with the
+//! program's own instructions only (the second, the ring opening, only in the capture demo):
 //!
 //! 1. **the keeper serves the operator residents' villages too.** The keeper loop reveals and settles the marches of
 //!    the villages it watches (the player's, and the contest pair's second); an operator resident's march would be
@@ -323,9 +324,12 @@ mod tests {
     }
 
     #[test]
-    fn the_runner_wires_it_only_with_the_demo_and_writes_nothing_directly() {
+    fn the_runner_wires_it_on_any_natural_world_opens_rings_only_in_the_demo_and_writes_nothing_directly(
+    ) {
         let bin = include_str!("bin/localnet_natural_play.rs");
-        assert!(bin.contains("--operator-villages is accepted only together with --capture-demo"));
+        // (loop-play4 B-6: no longer refused outside the demo; the ring opening stays the demo's own)
+        assert!(!bin.contains("--operator-villages is accepted only together with"));
+        assert!(bin.contains("if demo.is_some() { tokio::spawn(async move {\n                        if let Err(e) = itest::operator_villages::open_rest("));
         assert!(bin.contains("itest::operator_villages::watch("));
         assert!(bin.contains("itest::operator_villages::open_rest("));
         let src = include_str!("operator_villages.rs");

@@ -56,8 +56,8 @@ const KEYS = {
     // round 33 (427c4963): the march card's ready-again estimate
     '見込み（今出発し、軍勢が残り、ほかの戦いがない場合）：次はターン {0} から。到着で戦った場合は遅くともターン {1} から',
     // round 40 (701a7608): "by itself" and the keeper off the play screen
-    '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。',
-    '自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。',
+    '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（開始後に終了時刻を表示します）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。',
+    '自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります。',
     'この世界は {0} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。',
     '世界の進行役は動いています（ターン {0} まで処理済み）。',
     '世界の進行役は動いています。',
@@ -300,9 +300,9 @@ proposed('D-2', 'テスト用ウォレットは、この端末で開いたペー
 proposed('D-3', '戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。',
   'They come back when the siege\'s result is collected; until then they are shown as “waiting to be returned”.',
   '「返却待ち」 is the label "waiting to be returned", quoted');
-proposed('D-4', '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。',
-  'At most two worlds at once. Each ends on its own once the time set by the start service has passed (two hours from its start by default), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
-  '既定 is "by default"; the Japanese names no operator');
+proposed('D-4', '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（開始後に終了時刻を表示します）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。',
+  'At most two worlds at once. Each ends on its own once the time set by the start service has passed (its end time is shown once it starts), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
+  'the end time is shown, never a default the launcher may not use (loop-play4 B-12); the Japanese names no operator');
 proposed('D-5', '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。',
   'Territory trial (test world): the tiles hosts claimed by standing in this village\'s province, and the production they add.',
   'the Japanese does not say whose hosts (or the Japanese adds あなたの国の: the owner\'s call)');
