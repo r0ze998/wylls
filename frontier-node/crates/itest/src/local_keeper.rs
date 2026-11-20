@@ -167,6 +167,68 @@ pub fn season_clock(c: &Chain, a: &Addresses) -> Result<fclient::clock::SeasonCl
     Ok(fclient::clock::SeasonClock::from_season(&season_of(c, a)?))
 }
 
+/// runner-throughput: the verified rounds this process already fetched, by round number (a drand round never changes,
+/// and only a round whose signature verified against the pinned key is kept). Every fetch here asked the public API
+/// again through a new curl process — the keepers, drivers and the world phase each for the same anchor and seed rounds
+/// — which cost a TLS round trip per transaction under load. Bounded: the oldest rounds are dropped past
+/// [`ROUND_CACHE_MAX`]. Nothing unverified is ever cached, so a hit is exactly what a fresh fetch would accept.
+pub const ROUND_CACHE_MAX: usize = 4096;
+static ROUND_CACHE: std::sync::Mutex<std::collections::BTreeMap<u64, [u8; 48]>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+fn cached_round(round: u64) -> Option<[u8; 48]> {
+    let hit = ROUND_CACHE.lock().ok()?.get(&round).copied();
+    if hit.is_some() {
+        crate::prof::DRAND_CACHED.hit();
+    }
+    hit
+}
+fn keep_round(round: u64, sig48: [u8; 48]) {
+    if let Ok(mut c) = ROUND_CACHE.lock() {
+        c.insert(round, sig48);
+        while c.len() > ROUND_CACHE_MAX {
+            let k = *c.keys().next().expect("non-empty");
+            c.remove(&k);
+        }
+    }
+}
+/// Whether `round` is already verified and cached (no network; runner-throughput: a batch fetches the rounds it is
+/// missing all at once, then plans again from the cache).
+pub fn round_is_cached(round: u64) -> bool {
+    ROUND_CACHE.lock().is_ok_and(|c| c.contains_key(&round))
+}
+/// Fetches (and caches, verified) every round of `rounds` not cached yet, at most 8 at a time in parallel. A round that
+/// cannot be fetched is simply not cached (its plan then waits, as one fetch would).
+pub async fn prefetch_rounds(rounds: &[u64]) {
+    let need: Vec<u64> = rounds
+        .iter()
+        .copied()
+        .filter(|r| !round_is_cached(*r))
+        .collect();
+    for chunk in need.chunks(8) {
+        let mut set = tokio::task::JoinSet::new();
+        for &r in chunk {
+            set.spawn(async move { fetch_round_at(r).await });
+        }
+        while set.join_next().await.is_some() {}
+    }
+}
+/// One verified round: from the cache, else fetched, verified ([`accept_round`]) and kept.
+async fn verified_round(drand: &HttpDrand, pk: &[u8; 96], round: u64) -> Result<[u8; 48], String> {
+    if let Some(s) = cached_round(round) {
+        return Ok(s);
+    }
+    let began = std::time::Instant::now();
+    let b = drand
+        .round(round)
+        .await
+        .map_err(|e| format!("drand round {round}: {e:?}"))?
+        .ok_or(format!("drand round {round} is not published yet"))?;
+    let sig48 = accept_round(round, &b, pk)?;
+    crate::prof::DRAND.add(began);
+    keep_round(round, sig48);
+    Ok(sig48)
+}
+
 /// Fetches and verifies T(b) for each bell from the public drand API.
 pub async fn fetch_rounds(
     clock: &fclient::clock::SeasonClock,
@@ -180,13 +242,8 @@ pub async fn fetch_rounds(
     let mut out = Vec::with_capacity(bells.len());
     for bell in bells {
         let round = clock.tlock_round(bell);
-        let b = drand
-            .round(round)
-            .await
-            .map_err(|e| format!("drand round {round}: {e:?}"))?
-            .ok_or(format!("drand round {round} is not published yet"))?;
-        // (HttpDrand::round already refused anything that does not verify; re-check)
-        let sig48 = accept_round(round, &b, &info.public_key)?;
+        // (HttpDrand::round already refused anything that does not verify; re-checked by accept_round; cached once verified)
+        let sig48 = verified_round(&drand, &info.public_key, round).await?;
         out.push(RoundProvenance {
             bell,
             round,
@@ -206,12 +263,7 @@ pub async fn fetch_rounds(
 pub async fn fetch_round_at(round: u64) -> Result<[u8; 48], String> {
     let info = quicknet_info();
     let drand = HttpDrand::new(vec![DRAND_URL.into()], info.clone());
-    let b = drand
-        .round(round)
-        .await
-        .map_err(|e| format!("drand round {round}: {e:?}"))?
-        .ok_or(format!("drand round {round} is not published yet"))?;
-    accept_round(round, &b, &info.public_key)
+    verified_round(&drand, &info.public_key, round).await
 }
 
 fn send(c: &mut Chain, payer: &Keypair, ixs: &[Instruction], what: &str) -> Result<String, String> {
@@ -522,10 +574,14 @@ pub fn simulate_ix(
     payer: &Keypair,
     ix: &Instruction,
 ) -> Result<fclient::ports::SimResult, String> {
+    let began = std::time::Instant::now();
     let (blockhash, _) = c.latest_blockhash();
     let t = tx::build(std::slice::from_ref(ix), &budget(), &[payer], &blockhash)?;
-    c.simulate(&tx::wire(&t), false)
-        .map_err(|e| format!("simulation refused: {e}"))
+    let r = c
+        .simulate(&tx::wire(&t), false)
+        .map_err(|e| format!("simulation refused: {e}"));
+    crate::prof::SIM.add(began);
+    r
 }
 
 /// The program's NotQuiet code (a bell with a pending clash, arrival or departure).
