@@ -1,266 +1,282 @@
-# Play-check locally (TEST only, one command)
+# Play it locally and check it yourself (TEST only, one command)
 
-How to try the playable lane (expedition, wide land, taking a keep) on your own Mac before anything goes to devnet.
-Only the `--wide` world shows the wide land (rings 129 and out, §6); every other local world's map ends at ring 16.
-It uses a local chain on this Mac and test keys only. No real key, SOL, devnet or paid API is used.
-Japanese version: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md). The longer reference is [LOCAL-PLAY-START.md](LOCAL-PLAY-START.md).
+How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
+It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
+Matches main as of 2026-11-20 (through #102). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
-The script installs nothing. If something is missing, it prints its name and how to install it, then stops.
+The script installs nothing. If something is missing it prints the name and how to get it, and stops.
 
 | What | Version | Example |
 |---|---|---|
 | Rust (rustup) | 1.89.0 and 1.95.0 | `rustup toolchain install 1.89.0 1.95.0 --profile minimal` |
 | cargo-build-sbf and platform-tools | 3.1.9 / v1.52 | `sh -c "$(curl -sSfL https://release.anza.xyz/v3.1.9/install)"` |
-| Node.js | 20 or later | `brew install node` (keep what you have if `node -v` is v20 or later) |
-| git, python3 | built into macOS | `xcode-select --install` if missing |
-| Free disk | 20 GiB or more the first time | |
+| Node.js | 20 or newer | `brew install node` (fine as is when `node -v` says v20 or more) |
+| git, python3 | macOS standard | `xcode-select --install` if absent |
+| Free disk | 20 GiB or more for the first build | |
 
-The first build fetches crates over the network. During play, the keeper reads public drand rounds over HTTPS.
+The first build fetches crates over the network. While you play, the keeper reads public drand randomness over HTTPS.
 
-## 2. The one command
+## 2. One command
 
-From the repository root:
+Run it at the top of the repository. It checks the tools, builds (skipped when nothing changed), starts a world and
+opens `http://localhost:41920/` in the browser. The first build takes about 3 minutes; later starts take seconds.
 
 ```bash
-scripts/play-local.sh
+scripts/play-local.sh                 # a kept world (a turn is 10 min; stop it and continue with --resume)
+scripts/play-local.sh --demo          # the 15-minute capture demo (×60, a turn is 10 s; not kept)
+scripts/play-local.sh --wide          # the wide version (the rim and the wide land; ×60; not kept) → §4
 ```
 
-- It checks the tools, builds (skipped when nothing changed since the last build), starts a world and opens
-  `http://localhost:41920/` in the browser.
-- The first build took about 3 minutes (2026-11-18, a Mac with the crates already cached). Later starts take seconds.
-- There are three kinds of world:
-  - **A kept world (the default):** the natural clock (a turn is 10 minutes), and the world never ends by the rules.
-    Stop it any time and continue later with `--resume`, from the same village. The chain is kept in
-    `.local/play-local/kept/`, and the page's test key is kept in this browser.
-  - **The 15-minute capture demo (`--demo`):** a ×60 clock (a turn is 10 s), so you can try up to taking a keep in about
-    15 minutes. It is not kept: a stop ends that world.
-  - **The wide version (`--wide`):** during its setup the map is grown to ring 128 and the wide land beyond it (rings
-    129–131) is opened. It is not kept. See §6.
-- Useful options:
-  - `--resume`: continue the last kept world
-  - `--fresh`: start a new kept world (the same as leaving out `--resume`)
-  - `--random-map`: give the new world its own map. Without it **every local world has the same map** (the local chain
-    always starts at one fixed clock origin, so every world draws the same genesis seed: the same terrain, village
-    sites and Free City). With it the world starts at a randomly picked earlier origin and the program derives another
-    seed by its unchanged rules. What stays the same by rule: the six-fold symmetry of the terrain, and (until the
-    centre-free rules of PR #69) each nation's homes in its own wedge. Not with `--resume`: a kept world keeps its map.
-  - `--demo`: the 15-minute capture demo (`--speed 30` makes it ×30)
-  - `--wide`: the wide version (§6)
-  - `--ai 0`: no AI residents (default 2). The AI residents are **at war by default** (fix-loop4): besides building and
-    training they muster hosts and march on other nations' reachable keeps (siege, capture), one action per turn, in
-    every world (kept, `--random-map`, `--wide`, `--demo`)
-  - `--ai-peaceful`: the AI residents do not go to war (build, harvest, train and muster only)
-  - `--two`: two people in one world (§3.1; a kept world or `--demo`)
-  - `--port 41930`: other ports
-  - `--lang ja`: the script's messages in Japanese
-  - `--check-only`: only the checks
-  - `--help`: every option
-- The page follows the browser's language; its top-right button switches 日本語 ⇄ English.
+There are three worlds. All of them have fog of war (§5), and the AI residents are at war by default.
 
-## 3. What to try
+| World | Clock | Kept | Good for checking |
+|---|---|---|---|
+| Kept world (default) | natural (a turn is 10 min) | yes (`.local/play-local/kept/`, the test key in the browser) | join, village, build, train, muster; stop and continue |
+| `--demo` | ×60 (`--speed` 10–60) | no | march on a keep, clash, capture in 15 minutes |
+| `--wide` | ×60 (`--speed` 10–60) | no | rim village → wide village → expedition → march inside the wide land |
 
-In a kept world, try 1–5 (join, home, build, train, muster), then stop and come back as in §4. A new host can move only
-once its turn has resolved (about 17 minutes at the natural clock). Try 6–8 (keep, clash, capture) with `--demo`, in about
-15 minutes.
+Options:
 
-**In a kept world (1×) no keep of another nation is in reach of a first village.** This is the rules and the clock, not a bug:
-- At the start only rings 2–3 have provinces, and every one of them is some nation's heartland. A heartland keep is never
-  contested (`fkeepreach.mjs` `contestableKeeps`, the rules' `heartland_safe`), so the page says 「この軍勢がいま届く他国の砦は
-  ありません」 [No keep of another nation is within this host's reach now].
-- Contestable keeps come with ring 4, which opens once 65% of a wedge's open village sites are settled (OpenRing's crowding
-  rule). Two AI residents and one or two people will not get there.
-- Even then, at 1× a march to a keep takes several turns (a turn is 10 minutes: an hour or more), longer than the
-  15-minute checklist.
-- `--demo` opens ring 4 with test participants and runs a ×60 clock, so a keep can be tried in about 15 minutes.
-- A tuning of the TEST preset cannot change this (heartland protection is the same rule as on devnet). In a kept world,
-  check 1–5 and §4; check keeps with `--demo`.
+| Option | Meaning | Not together with |
+|---|---|---|
+| `--resume` | continue the kept world started last (same browser, same port, same number of AI residents) | `--fresh` `--demo` `--wide` `--random-map`, another `--port` / `--ai` |
+| `--fresh` | start a new kept world (the same as giving nothing) | `--resume` `--wide` |
+| `--demo` | the 15-minute capture demo | `--resume` `--wide` |
+| `--wide` | the wide version (§4) | `--demo` `--resume` `--fresh` `--two` |
+| `--random-map` | give the new world its own map. Without it **every local world has the same map** | `--resume` |
+| `--ai N` | AI residents, 0–4 (default 2). **At war by default**: they march on other nations' reachable keeps and siege them (one action per resident per turn) | |
+| `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
+| `--two` | two people in one world (§3.1) | `--wide` |
+| `--speed N` | the clock of `--demo` / `--wide`, 10–60 (default 60) | a kept world |
+| `--minutes N` | minutes until the world's processes stop, 15–240 (default 90) | |
+| `--port BASE` | the page's port (default 41920). It uses 22 ports from BASE (14 with `--ai 0`), all within 41000–41999 and clear of 41904–41907 and 41970 | |
+| `--lang ja\|en` | the language of the script's messages (the page: its top-right button) | |
+| `--no-open` `--no-build` `--rebuild` `--check-only` `--print-plan` | do not open / never build / always build / check only / print the settings and the launcher command, and exit | |
 
-**The centre (rings 0–1)**: the seven provinces at the map's centre have no province in this world, because the season's
-rules do not make the centre ordinary land yet (the ⑭ R2 switch `CENTRE_PLAYABLE` stays off until the page's terrain and
-route modules support it). The inspector says 「第1輪（中央・州なし）」 [Ring 1 (centre, no province)]; no village can be
-placed there, and no march can end there or pass through (fixed 2026-11-19, fix-b14-b16: it said 「生まれるところです」 [being
-made], a march there could be sent, and the host never came back). If such a march reaches the chain anyway, once its
-arrival turn's window has closed the host comes home routed (half its troops).
+- The AI residents' nations are fixed: the first joins Borealis, the second Ember, the third Cinder, the fourth Fjordal.
+  Pick **a nation without an AI** (with `--ai 4`: Aster or Dunmar) and you never compete with one for a village site.
+- `--random-map` starts the world at a randomly picked earlier time, and the program derives another genesis seed by its
+  unchanged rules.
+- Stop it with **Ctrl-C** in the terminal (§6).
 
-1. **Join**: 「世界を開始（保存された世界は続きから）」 [Start the world (a kept world continues)] (with `--demo`:
-   「新しい世界を開始」 [Start a new world]) → 「国を選ぶ」 [Choose a nation] → pick a banner → the button below becomes
-   「(the nation's name)で始める」 [Begin as …]: press it.
-   The first village is placed for you. The AI residents join Borealis and Ember; pick another nation to stay clear of them.
-2. **Home**: 「ここが、あなたの村です。」 [This is your village] means it worked. Look for "ore +2" marks on the map.
-   A village with 「地形の鉱石なし」 [no ore on the terrain] can grow to only about 600 troops.
-3. **Build**: 「最初の建設を選ぶ」 → the farm's 「建てる」 [Build]. It completes in about a minute (game time).
-4. **Train**: the bar's 「訓練」 [Train] → 「最大 500」 → 「槍兵 500 を訓練する」. Training is immediate.
-5. **Muster**: the village panel's 兵 section → 「全部（500）」 → 「編成する」 [Form a host].
-   While it says 「この州はまだ前のターンの決着が済んでいません」 [the province has not resolved the last turn yet], the button
-   is disabled: wait a few seconds and press it once the line is gone. 「立っている 1」 [1 standing] means it can move.
-6. **March on a keep**: when the guide (top right) says 「届く砦を見る」 [See the keeps you can reach], press it (if it stays on
-   「軍勢の準備を確かめる」, open the bar's 「国と領土」 [Realm] once and it switches), pick the keep's row
-   and press 「確認した命令で出発」 [Depart with this order]. Press it while the red "not resolved yet" line is NOT shown.
-   「最初の出陣」 [First sortie] means it left.
-7. **Verify the clash**: on arrival, 「… 衝突が決着しました」 [the clash was resolved] appears (once the notice is gone, its
-   「報告」 button stays in the list under the bar's 「その他」 [More]). Press 「報告」 [Report] →
-   「このブラウザで確かめる」 [Check in this browser]; 「一致：…」 [Match] means the browser recomputed the chain's record.
-8. **Capture**: hold the keep's tile for 72 turns (12 minutes or more at ×60). The map shows 「砦を保持中」 [Holding the keep]
-   with a round counter over the keep, and the clash report says 「奪取まで N/72 ターン」 [N/72 turns to capture].
+## 3. The 15-minute check
+
+`--demo` takes you through 1–8. In a kept world do 1–5, then stop and continue as in §6 (at 1× a mustered host can
+move only once its turn is settled: about 17 minutes later).
+
+1. **Join**: 「世界を開始（保存された世界は続きから）」 (with `--demo`: 「新しい世界を開始」) → 「国を選ぶ」 → pick a flag, then
+   press 「（nation）で始める」. The first village is placed for you. No key card and no wallet prompt appears.
+2. **Village**: 「ここが、あなたの村です。」 means it worked. Look at 「鉱石 +2」 above the map. A village with
+   「地形の鉱石なし」 can only grow to about 600 troops.
+3. **Build**: 「最初の建設を選ぶ」 → the farm's 「建てる」. It finishes in about one (in-game) minute.
+4. **Train**: 「訓練」 in the bottom bar → 「最大 500」 → 「槍兵 500 を訓練する」. It finishes at once.
+5. **Muster**: 「編成」 in the bottom bar (or the guide at the top right when it says 「軍勢を編成する」) → 「全部」 →
+   「槍兵 N をここに集める」. When it says 「この州はまだ前のターンの決着が済んでいません」 you **may press anyway**: the
+   muster waits and is sent once, as soon as the province is ready (no need to press again; it is withdrawn if the
+   unit or the number changes). The village screen's 「兵」 → 「編成する」 cannot be pressed while the province settles
+   (only the bottom bar's 「編成」 waits and sends). When the guide at the top right says 「軍勢の準備を確かめる」 or
+   「届く砦を見る」, the host is mustered.
+6. **March on a keep**: press the guide at the top right when it says 「届く砦を見る」 (if it stays on
+   「軍勢の準備を確かめる」, open 「国と領土」 in the bottom bar once). Pick a keep's row and press 「確認した命令で出発」.
+   While the province is settling, the same order is sent once, as soon as it can be. 「最初の出陣」 means it left.
+7. **Check the clash**: on the arrival turn 「戦闘 … 衝突が決着しました」 appears. 「報告」 → 「このブラウザで確かめる」;
+   「一致：このブラウザで計算し直した結果はチェーンの記録と同じです」 means it was recomputed and agrees.
+   After the notice is gone, the 「報告」 button stays in the list under 「その他」 in the bottom bar.
+8. **Capture**: hold the keep's tile for 72 turns (about 12 minutes or more at ×60; about 12 hours at 1×). 「砦を保持中」
+   and the round number on the keep, or 「奪取まで N/72 ターン」 in the clash report, show the progress.
+
+Good to know:
+
+- **There is no centre (a rule of local worlds only, #88).** The six ring-1 provinces are ordinary land, each starting
+  with a keep held by some nation (on the usual map: one per nation). Heartland keeps (rings 2–3) are protected and
+  cannot be taken, but **ring-1 keeps can be contested**. In a kept world too the AI residents march there (in the #98
+  check: departures on turn 8, clashes on turns 12–13); when your own nation's keep is attacked, 「国と領土」 says
+  「他国が占拠を進めている、あなたの国の砦 … 守りに向かう」. Only the middle province (0,0) is 「第0輪（中央・州なし）」: never
+  a destination or a road. A first village can only stand in ring 2 or further out.
+- **Because of the fog, the keep list shows only the other nations' keeps you can see** (§5). 「見えている他国の砦で、
+  この軍勢がいま届くものはありません。」 is not a defect.
+- In a 1× kept world you can see sieges but hardly a capture (72 turns = 12 hours). Check captures with `--demo` or
+  `--wide`.
 
 ### 3.1 Two people in one world (`--two`)
 
-Normally every browser gets its own world (the launcher runs one world per browser and address, two at most). To put two
-people in the same world, add `--two`:
+Normally every browser (address) gets its own world (two at once at most). `--two` puts two people in one world.
 
 ```bash
 scripts/play-local.sh --two            # a kept world for two
 scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
 ```
 
-1. The first person opens `http://localhost:41920/` as usual and presses the start button. It says 「もう一人のプレイヤーを
-   待っています」 [Waiting for the other player] and waits (about 4 minutes; after that, press again).
-2. The second person opens the same address in **another browser** (or another profile), or **`http://127.0.0.1:41920/`**
-   in the same browser, and presses the same button. A kept world's test key is one per browser and address, so another
-   tab of the same browser would be the same player.
-3. Once both have pressed, one world starts; each chooses a nation and gets a village. Marches and clashes happen in the
-   same world.
-- `--resume` reopens the same two-person world (with or without `--two`). Whoever presses first, the world opens for both
-  without waiting. Each person uses the same browser and address as before.
+1. The first person presses 「世界を開始」 at `http://localhost:41920/`. It says 「もう一人のプレイヤーを待っています」 and
+   waits (about 4 minutes; after that, press again).
+2. The second person opens the same address in **another browser** (or profile), or in the same browser
+   **`http://127.0.0.1:41920/`**, and presses the same button (one test key per browser and address).
+3. With both there, one world starts; each picks a nation and places a village.
+- `--resume` brings the same two back (`--two` is not needed). Open it in the same browser at the same address as before.
 - A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
-- Either person's 「世界を終了」 [End this world] stops it for both (a kept world can be resumed with `--resume`). A third person cannot join.
+- When either presses 「世界を終了」 it stops for both. A third person cannot join. `--wide` is for one person.
 
+## 4. Check the wide land (`--wide`, about 60–90 minutes)
 
-## 4. Stop, and come back tomorrow
+```bash
+scripts/play-local.sh --wide --ai 4 --minutes 180
+```
 
-1. To stop, press **Ctrl-C** in the script's terminal. It closes every world first, then prints where the logs are and
-   "This world is kept. To continue it later, in the same browser: scripts/play-local.sh --resume".
-2. You can close the browser tab. In a kept world, the page's test key stays in this browser.
-3. The next day, on the same Mac and in the same browser, run:
+During the world's setup (about 20 seconds) the program's own instructions grow the map to ring 128 (the rim) and open
+the wide land beyond it (rings 129–131, 108 provinces). The game starts around turn 140, at ×60 (a turn is 10 s).
+The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
+
+1. **A rim village**: at 「国を選ぶ」 pick a nation without an AI (with `--ai 4`: Aster or Dunmar) and press
+   「（国の名前）で始める」. You do not pick the place: the page files a village on a **rim (ring 128) province**
+   (「辺境の村を申し込んでいます…」 → 「辺境の村を申し込みました。ターンの終わりに決まります。」), and a few turns later
+   「（名前）の集落ができました」 appears. While the village name carries 「仮」 (provisional), press 「収穫する」 on the
+   village screen once to confirm it (「…が確定しました」). A rim village has no 「初めての建設」 (one-minute first
+   build): the farm takes 1 h 30 min (about 1.5 minutes at ×60).
+2. **A wide village (about 30 minutes at ×60)**: the village screen's 「広い土地に村を出す（テスト）」 shows the cost
+   (1,200 wood and more) and the candidate provinces. Once the stores hold it, press 「ここに村を出す」. The claim is
+   decided at the end of the turn and the village is drawn on the map with your nation's sigil. The easiest way to
+   open it is the 「W2」 button under the village plate at the bottom left (it opens 「遠方の村 第129輪（枠 2）」);
+   inspecting that province on the map → 「あなたの村（広い土地）」 → 「この村を開く」 works too.
+   - Training (§3 step 4) spends the stores' food and gold. Claim the wide village first, then train: the wait is
+     shorter.
+3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host in the
+   bottom bar (e.g. 「槍兵 500」) and press 「境界への道を準備」.
+   1. Draw the road one step at a time with the direction buttons (東・北東・北西・西・南西・南東) or the dashed tiles
+      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more).
+   2. 「地形・時間を確認」. 「山や水のマスには進めません (N)」 means step N is impassable: 「一歩戻す」 or 「道を消す」
+      and draw another road (the card draws roads without looking at terrain). A passable road shows
+      「到着候補：ターン A〜B」.
+   3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
+      bottom of the card).
+   4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
+      「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
+      only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than
+      10 presses, about 2 minutes. A turn change clears the check's result; press again then too.
+   5. 「出発が確定しました（ターン N に到着予定・移動枠 0）」 means it departed.
+   - **On the arrival turn this page can open the seal.** Normally the world's keeper opens it, but at ×60 on a
+     loaded machine it can miss the window of about 10 s (in this check the first expedition was missed, §8). On the
+     arrival turn press 「封を開けるか確認する」 at the top right → 「封を開く（ローカルプレイ）」 (this check did not
+     get to press it inside the window). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition
+     will never settle.
+   - Before sending the next host, press 「結果を照合する」 under the card's 「送信しました。確定はまだ確認できていません」
+     once (until then 「出発する」 is not shown).
+   - The bar button says 「送信しません」 (does not send), but in local play the card's last button really departs.
+4. **A march inside the wide land (wide → wide)**: open the village of step 2; it has the card
+   「広い土地の軍勢（テスト）」. Pressing 「次の一手（広い土地）」 goes one step at a time: train spearmen → muster a
+   host → march on the next province's keep (the card states the next step in English, e.g. `a host of 100 Spearmen
+   at the wide village …` = muster, `the host (100 troops) marches wide -> wide … arriving turn N` = march).
+   - A new village's province starts far behind the chain (in this check 77 turns behind after the village was made;
+     about 15 minutes to catch up). Meanwhile, and at ×60 often after it too, a press answers 「送られていません」 (the
+     muster's NotResident): wait a few seconds and press again. In this check about 30 presses at one per turn were
+     all refused; pressing every 2 s got the muster through within a few presses, and the march two turns later.
+   - The world's keeper opens the march's seal and catches the target province up even when it is far behind (in this
+     check: reveal, clash and settlement within minutes of the arrival). The bottom bar's 「進軍」 list does not show
+     marches inside the wide land. Staying on a keep for 72 turns takes it.
+- **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
+  have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
+- **The AI residents** also take rim villages, save up, claim wide land, send expeditions and wage war. Their battles
+  are on other nations' rims, so the fog hides almost all of it; only an attack on your own nation's keep shows in
+  「国と領土」.
+- **To watch an AI capture**, `--wide --speed 15` (a turn is 40 s) is the steady choice (the #102 check: standings kept
+  up, and a capture reached them about 90 turns after the start). A wide village's cost then takes about 2 hours to save.
+- The faster the clock, the further this machine's load makes the world trail (§8). Stop other heavy work while you test.
+
+## 5. Fog of war (every local test world, #93)
+
+A player's view, as in Civ. It is display only: the local chain's records stay public and nothing changes for devnet.
+
+| | What you see |
+|---|---|
+| In sight now | around your villages and hosts, around your nation's villages and the provinces your nation holds. Allies do not share sight |
+| Seen before | stays as last seen, dimmed (villages, keeps and their holders). Kept in this browser |
+| Never seen | blank on the map and on 「全体図」: no terrain, village, keep or nation colour |
+| Other nations' hosts, marches, clashes, contests | only where you see now; no afterimage |
+| An enemy marching on your village | announced (「来襲」) when it leaves from a place in sight, or from 3 turns before arrival |
+
+- The keep list, the inspector, the chronicle, the notices and the minimap follow the same rule.
+- In a fog world the map's 「記録」 view (every recorded province) and the link to the spectator page are **not shown**.
+- One switch: `LOCAL_FOG` in `permutation-server/web/frontier/map/fog.mjs` (`false` = no fog). The radii and the like
+  are `FOG_RULES` in the same file. Devnet, the spectator page and the practice page have no fog.
+
+## 6. Stop it, continue tomorrow
+
+1. To stop, press **Ctrl-C** in the terminal that runs the script. It closes the world, then prints where the logs are.
+2. A kept world continues the next day on the same Mac in the same browser. Its clock stands still while stopped.
 
    ```bash
    scripts/play-local.sh --resume
    ```
 
-   The same address (`http://localhost:41920/`) opens. Press 「世界を開始（保存された世界は続きから）」 and you are back in your
-   village. The world's clock stood still while it was stopped.
-- `--resume` opens with the same port and number of AI residents as before (another `--port` or `--ai` is refused),
-  because the browser keeps the test key per address.
-- If the program changes (after a `git pull`, for example), the old world cannot continue. The script says so and stops;
-  start a new world with `--fresh`.
-- `--resume` opens only the kept world that was started last. After a `--fresh`, the earlier world's folder stays, but
-  `--resume` opens the newer one. To go back to the earlier world, write its folder's path
+   The same address opens; press 「世界を開始（保存された世界は続きから）」 and you are back in your village.
+- `--demo` and `--wide` worlds are not kept. Close the browser tab after a stop. **Do not reload the page** while
+  playing them (the test key lives in memory only; you could not get back into that world).
+- After a `git pull` that changes the program, the old world cannot continue. The script says so; start again with `--fresh`.
+- `--resume` opens only the kept world started last. To go back to an older one, write its folder
   (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
-- A world's processes stop after 90 minutes by default (`--minutes`). A kept world can still be resumed after that.
-- To delete the test key, press the page panel's 「このブラウザに保存した試験用の鍵を消す」 [Delete the test key kept in this
-  browser]. The world's folder (`.local/play-local/kept/<date-time>/`) stays until you delete it yourself.
-- A `--demo` world is not kept. After stopping it, close that browser tab (its memory-only test key goes with it).
+- A world's processes stop after 90 minutes by default (`--minutes`). A kept world still continues with `--resume`.
+- To delete the test key, press 「このブラウザに保存した試験用の鍵を消す」 in the page's panel. A world's folder stays until
+  you delete it.
 
-## 5. Problems and where to report them
+## 7. Local only, and the same as devnet
 
-- Logs:
-  - a kept world: `.local/play-local/kept/<date-time>/` (`launcher-<date-time>.log`; runner, herald, relay and operators
-    logs in `persist/<address>/starts/<n>/`);
-  - `--demo` and `--wide`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world;
-    with `--wide` the world folder's `wide-land.json` lists the rings grown and the provinces opened).
-- Report on GitHub Issues (r0ze998/wylls) with a screenshot and the folder's path.
-- Known problems (2026-11-18):
-  - (Fixed 2026-11-19, fix-b14-b16) A march to a ring-1 tile could be sent, and the host stayed 「封を開ける鍵を待って
-    います」 [Waiting for the key that opens the seal] for good. The page no longer uses the centre (rings 0–1) as a
-    destination or road, and the runner brings such a march home routed.
-  - (Fixed 2026-11-19, fix-march-held) A march the chain's node did not take (sent as the turn changed, for example) now
-    says 「進軍は送られていません」 [The march was not sent] with the reason, and its order card stays: the host can move;
-    check the card and press again. A march sent whose outcome is not known yet is checked again by the page for about
-    two minutes and released once it has expired.
-  - The title's "a turn every 10 minutes" and the start screen's "two hours by default" do not hold for this test world
-    (at ×60 a turn is 10 s; the world lasts 90 minutes).
-  - (Fixed 2026-11-19, fix-march-held) At ×60 the land preview's FoldLand no longer runs out of compute units: it
-    folds as many turns as fit (a `fold_fit` line in runner.out is a fold that asked for fewer turns).
+| | Local (this script) | The devnet playable version (not deployed yet) |
+|---|---|---|
+| Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
+| Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
+| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
+| First village on the rim | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); no keeper role settles wide claims yet |
+| Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it |
+| March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
+| Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
+| AI residents at war, the keeper opening seals | the launcher's TEST machinery | none of this launcher's machinery |
+| Fog | yes (display only) | no |
 
-## 6. The wide version (`--wide`, TEST only)
+Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
+training are the same rules as devnet.
 
-```bash
-scripts/play-local.sh --wide
-```
+## 8. Known problems (2026-11-20, main)
 
-- The Season uses the devnet playable preset `S1_DEVNET_WIDE_7D` (PR #70: centre-free nation placement, map ceiling
-  ring 128, θ 1 bp, a 36 SOL province fund).
-- During the world's setup (before 「国を選ぶ」 [Choose a nation]) the program's own instructions grow the map **one ring
-  per turn** to ring 128; only during that setup the local chain's clock is moved a turn at a time (the setup took about
-  11 s on 2026-11-19). Then the clock runs at `--speed` (default ×60, a turn is 10 s) and the game starts at about turn 130.
-  - One test resident per nation places a village near the centre (the growth rule needs "a settler in some wedge").
-    One centre province is opened first and the rest after the growth, so every province is resolved up to the turn
-    the game starts at.
-  - The wide land on rings 129–131 is opened (WideRequestRingSeed / WideConsumeRingSeed / WideSetRules /
-    WideOpenProvince): 6 provinces in the middle of each wedge, 108 in all, plus the 42 ring-128 provinces just inside.
-  - Provinces on rings 5–127 are not opened (as the devnet keeper's `lazy_provinces`); the map shows their terrain only.
-- To see the wide land:
-  - The ordinary map and 「全体図」 [World chart]: the recorded provinces of rings 129–131 are drawn outside the
-    heartland in their terrain and their keep nation's colour (a 「広い土地／第129–131輪・記録」 [Wide land / Rings
-    129–131 · recorded] tag in each of the six directions). From far a mosaic of the nations' colours, nearer the
-    terrain under the nation's colour, closest the 61 tiles and their sites. A place the record does not list stays
-    cloud (read-only: nothing here lets a village be placed there).
-  - (Under the fog of war, §7, the wide land is drawn only as far as you have seen it, and the 「記録」 view below is not
-    offered.)
-  - 「記録」 [Records] at the map's bottom right → 「記録された世界（読み取り専用・実験中）」 [The recorded world]. Pick a
-    「第129輪」 [ring 129] province in the list, press 「ここを原点にする」 [Make this the origin] and zoom in: ring 128
-    (gold) and rings 129–131 (the six nations' colours) side by side.
-  - 「全体図」 [World chart] shows your village in the middle and the wide land just outside the six corners.
-  - A village on the wide land (yours or an AI resident's) is drawn as its nation's sigil: on its own site when zoomed in,
-    and as one mark on its province from farther and on 「全体図」, once the herald has recorded it.
-- Playing on the wide land (TEST-only rules, 2026-11-19; the devnet settings and the program are unchanged):
-  - **This world's own Season bytes**: the centre free (⑭ R2, `centre` = 1: rings 0–1 are ordinary land; ring 1's six
-    provinces are opened; (0,0) is not, because the page's terrain kernel still draws the Concord there) and
-    `outpost_tier_min` = 0 (a Hamlet first village may claim wide land; `S1_LOCAL_7D` says 1 = Town, and since owner
-    decision Q-W1 of 2026-11-20 the devnet wide preset `S1_DEVNET_WIDE_7D` says 0 as well). The presets are not
-    changed by this world.
-  - In the setup, test residents take real first villages on two ring-128 provinces per nation (beside the wide land,
-    in different wedges) by the legacy request (FileTicket → the bell's beacon anchor and seed → SettleTicket).
-  - After 「国を選ぶ」 the page offers **rim (ring 128) provinces first** as the first village. A rim village is a
-    one-site request (FileTicket) the runner settles at the turn's end (PlaceHome cannot name a province past the
-    Season's base r_max of 16).
-  - The village screen's 「広い土地に村を出す（テスト）」 [Found a village on the wide land] claims a site of a wide
-    province within range 3 as the 2nd or 3rd village (0xD9 WideClaimSite; the cost comes from the village's stores,
-    1,200 wood etc.; the runner settles it with WideSettleTicket / WideFinalize).
-  - The clock runs at `--speed` (default 60, 10–60). A Hamlet saves the cost in about 30 game hours: ~30 min at ×60.
-  - AI residents (`--ai N`) request rim villages too, save, claim wide land and send expeditions into it; by default
-    they also go to war (marches on reachable keeps of other nations). One action per turn.
-  - The setup brings every opened province up to the turn the world opens at, and until your first village lands a
-    TEST-only warm keeper keeps every province's turns current (wide-herald-lag; before it, the rim started tens of turns
-    behind and took ~10 min at ×60 to catch up). If a province still falls behind (a loaded machine), a muster or a
-    departure becomes a waiting send: the page says "This province's turns are N behind: this machine is under heavy
-    load …" and sends it once as soon as it catches up (no need to press again).
-  - 「支配する州」 [Provinces held] and the standings count the rim (ring 128) and the wide land's keeps too (counts
-    only; the herald's per-turn control map still covers rings 0–127, and its 州・時間 score counts no wide province).
-- Not possible yet (2026-11-19):
-  - a march into the wide land works only as the rim village's expedition (「境界への道を準備」, the 0x4804 wrapper,
-    #92), and wide → wide only in the TEST-only local build (`localnet-wide-depart`, #94); devnet's SBF WideDepart is
-    still closed;
-  - the 「記録」 view at its smallest zoom fits one arc of ring 129 at a time;
-  - a wide-land EXPEDITION whose reveal window closed unrevealed keeps its host held for good (the program has no
-    settlement for a never-revealed bridge transit, §−2.4f (d), blocked on r0ze). The keeper loop reveals every due
-    expedition and every due ordinary march at the start of each pass and again before each village's pass (#96,
-    reveal-under-load), so this needs a pass longer than the ×60 window AND an anchor posted in between.
-- An ORDINARY march (heartland or rim, the AI war's too) whose window is missed anyway is settled the way the program
-  settles an unrevealed march: its destination's turns are resolved without it and the host is routed home
-  (reveal-under-load). The province keeps resolving; the keeper loop says `reveal-missed` on stderr. A village's march
-  driver that stops on a refusal reads the chain again after a while (6 passes, doubling to 96) instead of stopping for
-  good, and the provinces where its hosts stand go back to the world sweep meanwhile. The map's tag of a host whose
-  arrival turn is more than 2 turns past says "Host's arrival turn N was M turns ago · waiting for its result".
-- Not with `--demo`, `--resume`, `--fresh` or `--two` (the wide version is for one player). A stop ends the world.
+- **Contested provinces trail the chain under load.** At ×60, minutes after you join, every province can fall 10–24
+  turns behind (the #102 check, a loaded Mac). Meanwhile a muster or a departure waits; the page says 「この州の決着が N
+  ターン遅れています。このマシンの負荷が高く…」 and sends it once when the province has caught up. No need to press again.
+- **An ordinary march whose reveal window (about 10 s at ×60) is missed no longer stops its province** (#105). The
+  keeper loop reveals every due march at the start of each pass and again before each village's pass; a march that
+  still misses it (seen: a 3-turn march under heavy load) is settled the way the program settles an unrevealed march —
+  its destination's turns are resolved without it, then SettleTransit (the program decides: routed home, or bounced) —
+  and the runner says `reveal-missed` on stderr. A village's march driver stopped by a refusal reads the chain again
+  after 6 steps (doubling to 96; one step per pass outside `--demo`), and the provinces where its hosts stand go back to
+  the world sweep meanwhile. A host whose arrival turn is more than 2 turns past shows "Host's arrival turn N was M
+  turns ago · waiting for its result". A missed wide-land expedition still has no settlement in the program; that
+  waits on r0ze (§−2.4f (d)).
+- **At ×60 your own province is usually a few turns behind** (median 4, the #105 check), so a waiting muster or march
+  can be withdrawn when its arrival turn moves (「送信待ちを取り消しました…」). Press it again; it sends once the
+  province catches up (the #105 check: sent on the 4th press).
+- **A wide-land expedition whose reveal window was missed never settles.** The march screen stays on 「到着しました。
+  封が開けられるのを待っています」. Worse, that rim village cannot send another expedition (the page finds no free
+  transit slot: 「出発できませんでした（DepartRolesUnavailable）」). In this check, on a loaded Mac at ×60, the first
+  expedition was missed (`runner.out`: `never revealed: transit 0: the reveal window of bell 262 closed unrevealed`;
+  3 of the 4 AI residents' villages also logged missed reveal windows). On the arrival turn press 「封を開く」 yourself
+  (§4 step 3).
+- **A sieged province advances only about one turn a minute** (1–2 turns a minute, a third to a sixth of the chain at ×60; the #105 checks). After a
+  capture it catches up quickly. The standings' 「第 N ターンまでの確定した得点」 is the slowest province's turn.
+- **A rim village that stays 「仮の村」** is confirmed by one action of your own (e.g. 「収穫する」), not at the
+  「遅くとも…」 time the screen states.
+- **The AI residents spend many turns on refused sends** (e.g. training the stores cannot pay). They look slow; it is
+  by the rules. In a ×60 `--wide --ai 4` world an AI stops after 256 sends (about 45–60 minutes in).
+- A wide claim offers free sites only. The third village's cost (2,400) does not fit a Hamlet's stores (cap 2,000).
+- The expedition card draws roads without looking at terrain (「地形・時間を確認」 then says 「山や水のマスには進めません (N)」).
+- The 「記録」 view is not shown in a fog world (it is with `LOCAL_FOG` set to `false`).
 
-## 7. Fog of war (every local test world)
+## 9. Trouble, and where to report
 
-Local test worlds show a player's view, as in Civ: the page draws only what your people can see. It is presentation only
-(cosmetic fog): every account on the local chain stays public and unchanged, and nothing on devnet changes. A page that is
-not a local test world (devnet, the spectator page, practice) looks exactly as before.
-
-- **What you see now:** the land around your own villages and hosts, and around your own nation's villages and the
-  provinces your nation holds. Alliances share nothing.
-- **What you saw before:** stays on the map as you last saw it (muted): villages, keeps and their holders as they were
-  then. It is kept in this browser per world and player (`localStorage` key `ps-ffog:v1:…`).
-- **Never seen:** plain paper, on the map and on 「全体図」 [World chart]; no terrain, village, keep or nation colour.
-- **Other nations' hosts, marches, clashes and contests:** only inside what you see now (no ghosts). An enemy column
-  coming at your village is told once it sets out from a place you see, or once it is 3 turns from arriving.
-- The keep lists, the inspector, the chronicle, alarms and the minimap follow the same rule. The 「記録」 [Records] view
-  (every recorded province) and the map legend's link to the spectator page are not offered under the fog.
-- The one switch: `LOCAL_FOG` in `permutation-server/web/frontier/map/fog.mjs` (`false` = local worlds as before). The
-  radii and the other choices are in `FOG_RULES` there.
-
+- Where the logs are:
+  - a kept world: `.local/play-local/kept/<date-time>/` (`launcher-<date-time>.log`;
+    `persist/<address>/starts/<n>/` has the runner, herald, relay and operators logs)
+  - `--demo` and `--wide`: `.local/play-local/worlds/<date-time>/` (`launcher-<date-time>.log` and one folder per world.
+    With `--wide`, `wide-land.json` lists the grown rings and opened provinces, and the first line of `runner.out`
+    states under `local_rules` which bytes differ from the preset)
+  - the launcher command is in `command.txt` in the same folder.
+- "ports in use": choose another `--port` (e.g. `--port 41450`), or stop the earlier world.
+- Report through a GitHub Issue (r0ze998/wylls), with a screenshot and the folder above.
