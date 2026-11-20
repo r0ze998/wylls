@@ -31,7 +31,11 @@
 //!    only): the same blockhash, previous blockhash, parent slot and height
 //!    on both sources, and the transaction among the block's signatures on
 //!    both (inclusion in the block store, a different index than the
-//!    signature list of 2.);
+//!    signature list of 2.), and the archive's order of the slot's
+//!    transactions the block's on both (verify-pr103: VG re-executes in the
+//!    archive's order, and the archive's slots never go back either; an
+//!    order no witness serves is a `WitnessMismatch`, so ⑰ Q-P2 cannot make
+//!    a misordered honest season FAIL);
 //! 5. the program's account set of the season (`getProgramAccounts`, the
 //!    season id at offset 8) and the final state of every program-owned
 //!    account (data, owner, lamports, executable);
@@ -52,6 +56,10 @@
 //! program-owned final state reproduced exactly), AND (b) at least one
 //! witness was read and VS has no finding for any witness. Then the season
 //! is judged as a whole history: PASS, or FAIL on any FAIL finding.
+//! **⑰ Q-P2 = FAIL** (owner 2026-11-20): when (b) holds and VG ran with a
+//! FAIL finding, both sources serve a season the pinned program does not
+//! produce: the verdict is FAIL (`history.failBasis` `vg_witnessed`), the
+//! history stays `unproven`, and agreement never lifts it to a PASS.
 //!
 //! **What stays trusted** (the residual, stated in every report): the
 //! witnesses are independent of the primary. Two RPCs that collude, or that
@@ -512,6 +520,25 @@ pub fn judge(input: &Input) -> (Vec<Finding>, Option<Outcome>) {
             format!("the primary RPC ({}): {e}", p.url),
         );
     }
+    // verify-pr103: the archive's order is the order VG re-executes, and ⑰
+    // Q-P2 turns VG's FAIL over agreeing witnesses into the verdict FAIL;
+    // an order the chain does not have (slots going back here, a
+    // same-slot order its blocks do not have in 4.) is the primary's word
+    // that no witness confirms.
+    for (i, t) in input.txs.iter().enumerate().skip(1) {
+        let before = input.txs[i - 1].slot;
+        if t.slot < before {
+            push(
+                WITNESS_MISMATCH,
+                format!("tx#{i}"),
+                t.signature.to_string(),
+                format!(
+                    "the primary's history puts it (slot {}) after a transaction of slot {before}: not the chain's order, which no witness serves",
+                    t.slot
+                ),
+            );
+        }
+    }
     let slots: BTreeSet<u64> = input.txs.iter().map(|t| t.slot).collect();
     let last_slot = input.txs.iter().map(|t| t.slot).max().unwrap_or(0);
     let mut blocks_checked = 0;
@@ -729,6 +756,19 @@ pub fn judge(input: &Input) -> (Vec<Finding>, Option<Outcome>) {
                     "the witness's parent slot {} is not before it",
                     wb.parent_slot
                 ));
+            }
+            // The archive's order inside the slot is each block's (the
+            // block lists its transactions in execution order).
+            for (side, blk) in [("primary's own", &pb), ("witness's", &wb)] {
+                let pos: Vec<usize> = at
+                    .iter()
+                    .filter_map(|s| blk.signatures.iter().position(|x| x == s))
+                    .collect();
+                if pos.windows(2).any(|w| w[0] > w[1]) {
+                    d.push(format!(
+                        "the primary's history orders the slot's transactions otherwise than the {side} block"
+                    ));
+                }
             }
             for s in &at {
                 if !pb.signatures.contains(s) {
