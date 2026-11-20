@@ -545,12 +545,14 @@ test('THE RELAY GOING AWAY, as the page is told it: stopping or not answering be
   // the routes not served at all (404): "not served" — the controller says "reads only", as before
   r = await submitLocalAct({ name: 'Harvest', ...ORDERS.Harvest }, h.deps({ post: refusal('NotFound', 404) })); assert.deepEqual([r.ok, r.code, r.httpStatus], [false, 'LocalActNotServed', undefined]);
   assert.equal(h.sends(), 0);
-  // what the page's EXISTING notice texts make of those results (no new sentence): unavailable for 5xx, busy for 429
+  // what the page's notice texts make of those results: unavailable for 5xx; the relay's Busy (429) has its OWN sentence
+  // (fix-loop5, L5-1: it was read as the daily quota — "you can send more when the game day rolls over" — which was false)
   setLang('en');
   try {
-    const unavailable = failureText({ code: 'HTTP503' }), busy = failureText({ code: 'HTTP429' });
+    const unavailable = failureText({ code: 'HTTP503' }), quota = failureText({ code: 'HTTP429' }), busy = failureText({ ok: false, code: 'LocalActBusy', httpStatus: 429 });
     assert.equal(failureText({ ok: false, code: 'LocalActClosed', httpStatus: 503 }), unavailable); assert.equal(failureText({ ok: false, code: 'LocalActNoAnswer', httpStatus: 503 }), unavailable);
-    assert.equal(failureText({ ok: false, code: 'LocalActBusy', httpStatus: 429 }), busy); assert.notEqual(unavailable, busy);
+    assert.notEqual(busy, quota); assert.notEqual(unavailable, busy); assert.match(busy, /not settled yet.*not sent.*Wait about a minute/); assert.doesNotMatch(busy, /today|game day/i);
+    assert.match(failureText({ ok: false, code: 'LocalMarchBusy', httpStatus: 429 }), /marches you just sent have not settled yet/);
     assert.doesNotMatch(unavailable, /LocalAct|\?/); assert.match(failureText({ ok: false, code: 'LocalActWideHolding', httpStatus: 409 }), /LocalActWideHolding/, 'a refusal with no sentence of its own still names its code');
   } finally { setLang('ja'); }
   // the relay stops AFTER it sent (the answer never comes): the order keeps its signature — never "not sent", never "unavailable"

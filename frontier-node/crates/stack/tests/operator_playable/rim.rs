@@ -133,7 +133,8 @@ struct Run<'a> {
     c: Ctx<'a>,
     rows: Vec<Value>,
     patches: Vec<String>,
-    /// P10: every patch as the verifier's `declared` list (in force from before the `at`-th program transaction).
+    /// (verify-pr118) Every [`Run::patch`] as the verifier reads a declared state: in force from before the program
+    /// transaction `at` of the whole feed.
     declared: Vec<verify_core::input::Declared>,
     /// While recording the wide claim's witnessed segment (as `verify/tests/playable_wide_claims.rs`): the state of
     /// every account a segment instruction names, read before its first use; the accounts the segment wrote; its
@@ -390,15 +391,91 @@ impl<'a> Run<'a> {
     /// A declared fixture patch (not an instruction).
     fn patch(&mut self, k: Address, a: Account, what: &str) {
         let program = self.c.program;
-        let at = self.lock().feed(0, usize::MAX, Some(&program)).len();
+        let at = {
+            let mut c = self.lock();
+            let at = c.feed(0, usize::MAX, Some(&program)).len();
+            c.set_account(k, a.clone()).expect("patch");
+            at
+        };
         self.declared.push(verify_core::input::Declared {
             at,
             key: k.to_bytes(),
-            account: Some(a.clone()),
+            account: Some(a),
             what: what.to_string(),
         });
-        self.lock().set_account(k, a).expect("patch");
         self.patches.push(format!("PATCH (set_account): {what}"));
+    }
+    /// (verify-pr118) The verifier's judgement of the WHOLE season as the chain recorded it: every program transaction
+    /// from CreateSeason on (failed ones too), the final state of every written account, the exact devnet `.so` for
+    /// re-execution, and every patch of this run as a declared state. Saved as `{tag}-season.json.gz` under
+    /// `OPERATOR_EVIDENCE_DIR` when set. → `{verdict, counts by (severity, check, code), the non-WARN findings}`.
+    fn judge_season(&self, tag: &str) -> Value {
+        let so = super::devnet_so();
+        let so_hash: [u8; 32] = hex::decode(super::DEVNET_SO_SHA256)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let program = self.c.program;
+        let (txs, finals, final_slot) = {
+            let c = self.lock();
+            let txs: Vec<fclient::ports::TxRecord> = c
+                .feed(0, usize::MAX, Some(&program))
+                .into_iter()
+                .map(|l| l.record())
+                .collect();
+            let finals: std::collections::BTreeMap<[u8; 32], Option<Account>> =
+                verify_core::input::written_keys(&txs)
+                    .into_iter()
+                    .map(|k| (k.to_bytes(), c.account(&k)))
+                    .collect();
+            (txs, finals, c.slot())
+        };
+        let input = verify_core::input::Input {
+            cfg: verify_core::input::Config {
+                program,
+                season_id: SEASON_ID,
+                quicknet_pk: fb::quicknet_info().public_key,
+                ruleset_hash: frontier_abi::v2::presets::RULESET_HASH_V3,
+                program_hash: Some(so_hash),
+            },
+            txs,
+            finals,
+            final_slot,
+            program_hashes: vec![(0, so_hash)],
+            provenance: format!(
+                "stack/tests/operator_playable.rs {tag} (verify-pr118): the whole season on the devnet .so (sha256 {}), keeper A's play roles; {}",
+                super::DEVNET_SO_SHA256,
+                self.patches.join("; ")
+            ),
+            scenarios: vec![format!("{tag}-legacy-war")],
+            history: Default::default(),
+            resident_feed: None,
+            program_so: Some(Arc::new(so)),
+            declared: self.declared.clone(),
+            chain: Default::default(),
+        };
+        if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
+            let out = std::path::Path::new(&d).join(format!("{tag}-season.json.gz"));
+            input.save(&out).expect("save the season archive");
+        }
+        let rep = verify_core::verify(&input);
+        let mut counts: std::collections::BTreeMap<String, u64> = Default::default();
+        for f in &rep.findings {
+            *counts
+                .entry(format!("{:?} {} {}", f.severity, f.check, f.code))
+                .or_default() += 1;
+        }
+        let bad: Vec<Value> = rep
+            .findings
+            .iter()
+            .filter(|f| f.severity != verify_core::Severity::Warn)
+            .take(200)
+            .map(|f| json!({"severity": format!("{:?}", f.severity), "check": f.check, "code": f.code, "entity": f.entity,
+                "bell": f.bell, "signature": f.signature, "detail": f.detail}))
+            .collect();
+        json!({"verdict": format!("{:?}", rep.verdict), "transactions": input.txs.len(), "declared": input.declared.len(),
+            "fails": rep.findings.iter().filter(|f| f.fail()).count(), "counts": counts, "not_warn": bad,
+            "checks_run": rep.checks_run})
     }
     /// THE anchor and the SeedCache (nonce 0) of `(bell, region)` in the shapes PostAnchor / PostSeed leave, with a
     /// literal seed; the anchor's `A` is 100 s after the bell's end (`playable_wide_claims.rs` `stage_seed`).

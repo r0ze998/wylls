@@ -1458,7 +1458,7 @@ fn owner_actions(cx: &mut Ctx) {
                 bad.push((n, format!("{} logged for a {:?}", r.kind.name(), action)));
                 continue;
             }
-            let before = match hstate.get(&hk) {
+            let mut before = match hstate.get(&hk) {
                 Some(d) => d.clone(),
                 None => match w.state_before(&hk, t) {
                     Some(d) => d.to_vec(),
@@ -1475,6 +1475,41 @@ fn owner_actions(cx: &mut Ctx) {
                     }
                 },
             };
+            // (verify-pr118) The program's step 5 before the action
+            // (`proc/holding.rs` `finality`, I-29, I-47): the lazy
+            // provisional -> final flip, which the program logs as
+            // HOLDING_FINAL. The replay takes it only when this transaction
+            // logs it for this Holding AND the rules make it due: still
+            // provisional, `final_ts` passed, the ticket cohort closed in
+            // its own Province (the state before this transaction). A flip
+            // without its record, or a record the rules do not allow, is
+            // the mismatch below (the Citizen's flags are V11's).
+            let logged_final = tx.recs.iter().any(|&m| {
+                let x = &w.recs[m];
+                x.kind == Kind::HOLDING_FINAL && {
+                    let (a, b, c) = x.pqs();
+                    f.ctx.holding(a, b, c) == hk
+                }
+            });
+            if logged_final
+                && before.get(H::STATE) == Some(&H::STATE_PROVISIONAL)
+                && before.len() >= H::FINAL_TS + 8
+            {
+                let final_ts = le(&before[H::FINAL_TS..H::FINAL_TS + 8]) as i64;
+                let ticket_bell = le(&before[H::TICKET_BELL..H::TICKET_BELL + 4]) as u32;
+                let pk = f.ctx.province(p, q);
+                let prov = match pstate.get(&pk) {
+                    Some((d, _)) => Some(d.clone()),
+                    None => w.state_before(&pk, t).map(|d| d.to_vec()),
+                };
+                if tx.time >= final_ts
+                    && prov.is_some_and(|d| {
+                        frontier_abi::prologue::cohort_closed(&d, ticket_bell, r.bell)
+                    })
+                {
+                    before[H::STATE] = H::STATE_FINAL;
+                }
+            }
             match hr::replay(&before, &action, tx.time, f.genesis_ts, rules) {
                 Ok(x) => {
                     if x.payload[..] != r.payload[..] {

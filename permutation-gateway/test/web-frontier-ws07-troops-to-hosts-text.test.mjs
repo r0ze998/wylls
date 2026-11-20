@@ -39,7 +39,8 @@ test('M1 the chain that was already there', () => {
   assert.ok(ctl.includes("  muster: f => musterOrder(formNum(f, 'unit'), formNum(f, 'troops'), null),"));
   order(card, 'const musterFirst = musterable >= 100;', '${musterFirst ? musterForm : trainForm}');
   assert.ok(host.includes('data-act="compose" data-host="${String(r.id)}"'), 'the hosts drawer\'s march');
-  assert.ok(app.includes("else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));"));
+  // (fix-loop5 L5-10: the exploration card only where there is a scout or an exploration to speak of)
+  assert.ok(app.includes("else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.exploreRelevant(FS, hostScreen.hostRows(FS)) ? exploreScreen.render(FS) : '');"));
 });
 
 test('M2 this village\'s hosts, by their own id; partial said as partial', () => {

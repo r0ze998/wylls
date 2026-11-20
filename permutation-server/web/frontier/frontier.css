@@ -2630,7 +2630,10 @@ body:has(#wide-world:not([hidden])) :is(.hud-tl, .map-tools, .minimap, .rail, .p
 /* Boundary editing needs the original canvas and its next-step tiles in view. */
 body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
   width: min(600px, calc(100vw - 2 * var(--edge)));
-  max-height: min(300px, calc(var(--vvh) * .35));
+  /* (fix-loop5, L5-3: 300px hid the result, 「最も早い候補」 and 「出発する」 below the fold at 1280×800; the newest result
+     is also scrolled into view by app.mjs scrollOutboundResult) */
+  max-height: min(480px, calc(var(--vvh) * .55));
+  overflow-y: auto;
 }
 .hand-pop[data-pop="expedition-compose"] .outbound-help { font-size: var(--t1); }
 .hand-pop[data-pop="expedition-compose"] .pop-foot { flex-wrap: wrap; }

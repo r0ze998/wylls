@@ -41,7 +41,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -94,7 +94,7 @@ import * as pm from './proto/hand-model.mjs';
 import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports, setClockPace } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
 import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows, releaseRows } from './hud/drawer.mjs';
-import { icon, iconizeMapTools } from './hud/icons.mjs';
+import { icon, iconizeMapTools, watchArtIcons } from './hud/icons.mjs';
 import { hudInsets, noGoRects, CARDS_OVER_BOARD } from './hud/insets.mjs';
 import { mountTextures } from './hud/textures.mjs';
 import { createTerrain } from './map/terrain.mjs';
@@ -121,6 +121,8 @@ function artClashOf(p, q) {
   if (!env || !heraldRef) return null;
   const key = `${p},${q}`;
   const rb = env.province?.resolveSummary?.bell;
+  // (fix-loop5, L5-6: under the fog, the marks of a clash out of sight now are not drawn, nor its inputs read)
+  if (!viewClash({ p, q, keepTile: keepTileOf(p, q), mine: inspect.ownClashPlace(FS, p, q, rb) })) return null;
   // (kept per province and resolved bell: once loaded, the report of an earlier clash stayed for good, so the marks of
   // a clash that resolved while the page was open never showed; seen on the live fixture's turn)
   const have = artClash.get(key);
@@ -460,7 +462,8 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   // a dock tab keeps one line of the selection (the inspector itself opens from the map)
   if (FS.selected) parts.push(inspect.renderBrief(FS, terrainRef));
   if (d.kind === 'holding') parts.push(holdingScreen.render(FS));
-  else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.render(FS));
+  // (fix-loop5, L5-10: the exploration card only where there is a scout or an exploration to speak of)
+  else if (d.kind === 'hosts') parts.push(hostScreen.render(FS), exploreScreen.exploreRelevant(FS, hostScreen.hostRows(FS)) ? exploreScreen.render(FS) : '');
   else if (d.kind === 'marches') {
     // a warning of arrivals stands first; with none, its quiet line closes the screen
     const warned = (FS.incoming ?? []).length > 0;
@@ -1548,9 +1551,23 @@ function renderHand() {
   // (round 20: right after the card is written, the forts card's wait slot takes the tallest height it has had for this
   //  host at this width — keephand.steadySlot; it does nothing on any other card)
   if (pop !== handLast.pop && !handPopPress.hold(() => renderHand())) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); keephand.steadySlot(handPopEl, `${model.key}|${globalThis.innerWidth ?? 0}`); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
+  if (model.pop === OUTBOUND_POP) scrollOutboundResult();
   placeHandPop(model);
   measureHand();
   publishNoGo();
+}
+/**
+ * (fix-loop5, L5-3) The boundary card's newest answer — a route or departure read, its result, a dropped read — is
+ * brought into view inside the card once, when it appears (the card scrolls; the page does not).
+ */
+let outboundSeen = null;
+function scrollOutboundResult() {
+  const s = FS.expeditionCompose;
+  const now = s?.contextCheck ?? s?.routeCheck ?? (s?.dropped ? { dropped: s.dropped } : null);
+  if (!now || now === outboundSeen || now.status === 'loading') { if (!now) outboundSeen = null; return; }
+  outboundSeen = now;
+  const el = handPopEl?.querySelector?.('.outbound-context-report, .outbound-route-report, .outbound-read-dropped');
+  try { el?.scrollIntoView?.({ block: 'nearest', behavior: calm() ? 'auto' : 'smooth' }); } catch { /* an old engine: the card still scrolls by hand */ }
 }
 /** Where the bar stands, told to the stylesheet (`--hand-h`, `--hand-l`, `--hand-t` on the body): the cards stand above it, and the dock tucks behind its top left corner. */
 function measureHand() {
@@ -2559,7 +2576,12 @@ function checkMoments() {
     const key = `${m.p},${m.q},${m.site}`, village = m.kind === 'village';
     const lost = village && ownSitesSeen.has(key) && !mineNow.has(key);
     const taken = village && mineNow.has(key) && !ownSitesSeen.has(key) && Number.isInteger(m.from) && m.from < 6 && m.from !== FS.citizen?.faction;
-    fxEmit('moment', { ...m, lost, taken, own: lost || (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q)) });
+    const own = lost || (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q && (h.site === m.site || h.tile === m.tile)) || (m.faction !== undefined && m.faction === FS.citizen?.faction && ['muster', 'depart'].includes(m.kind) && (FS.holdings ?? []).some(h => h.p === m.p && h.q === m.q));
+    // (verify-pr117: under the local fog, another's moment — 「シンダーの新しい村」, a host setting out, an arrival, a camp
+    //  gone — plays only where its tile is in sight now. The page reads whole provinces it cannot see: AI villages' were
+    //  announced over blank, never-seen land)
+    if (!own && !taken && !viewTile(m.p, m.q, m.tile)) continue;
+    fxEmit('moment', { ...m, lost, taken, own });
   }
   if (FS.holdings) ownSitesSeen = mineNow;
 }
@@ -3354,6 +3376,8 @@ function autoBattles() {
     // a clash the notifications announce (the viewer's own province, or where a march of theirs arrived) is one of
     // the turn's own results: it plays once, in its place after the toll (tickFeed, mountTurnStrip), not here as well
     if (FS.mode === 'play' && feedAnnounces(env.province.p, env.province.q, b)) continue;
+    // (fix-loop5, L5-6: under the fog, a clash out of sight now does not play by itself either)
+    if (!clashHere(env.province.p, env.province.q, b)) continue;
     playBattle(env.province.p, env.province.q, b, { auto: true });
   }
 }
@@ -3537,6 +3561,8 @@ function leaveReport() { if (FS.report) { FS.report = null; invalidate('panel');
  */
 let playAskSeq = 0;
 async function playAsked(p, q, bell) {
+  // (fix-loop5, L5-6: the scene of another nation's clash out of sight now is not played)
+  if (!clashHere(p, q, bell)) return;
   const req = ++playAskSeq;
   const rep = FS.report ?? null, world = reportWorld();
   closeDialPop();
@@ -4218,8 +4244,18 @@ async function seasonKernel() {
  */
 // (with the pin's generation: a report read under the first A is not shown under the A pinned again after B)
 const reportWorld = () => (FS.pin?.programId && FS.pin?.addresses?.season ? `${FS.pin.gen ?? 0}|${FS.pin.cluster ?? ''}|${FS.pin.programId}|${FS.pin.addresses.season}` : null);
+/** The keep tile of (p, q) as the overviews carry it (null: none, or the province not in an overview read). */
+const keepTileOf = (p, q) => { for (const o of FS.overviews?.values?.() ?? []) { const r = o.provinces?.find(x => x.p === p && x.q === q); if (r) return r.keepTile ?? null; } return null; };
+/**
+ * (fix-loop5, L5-6) Whether the clash of (p, q) at `bell` may be read, offered or played under the fog of a local test
+ * world (map/fog.mjs clashSeen): the viewer's own, or its place in sight now. Without fog: always.
+ */
+export const clashHere = (p, q, bell) => viewClash({ p, q, keepTile: keepTileOf(p, q),
+  mine: inspect.ownClashPlace(FS, p, q, bell) || myReports(FS).some(r => r.p === p && r.q === q && r.bell === bell) });
 export async function openReport(p, q, bell) {
   if (!heraldRef || ![p, q, bell].every(Number.isInteger)) return;
+  // (fix-loop5, L5-6: another nation's clash out of sight now is not read — not even asked of the herald)
+  if (!clashHere(p, q, bell)) { FS.report = { p, q, bell, world: reportWorld(), hidden: true }; FS.practice = null; invalidate('panel'); return; }
   // (2026-11-17: the herald may start serving another season or world while a report is read — loadSeason re-pins every
   // poll. A report read under one world is never shown, or added to, under another: it is dropped, not told as read)
   const world = reportWorld();
@@ -4984,6 +5020,8 @@ export async function boot() {
     }, true);
     // the map buttons take their icons from the sprite (hud/icons.mjs)
     iconizeMapTools(globalThis.document);
+    // (fix-loop5, B-13: an illustrated icon that failed to load — the server out of reach for a moment — is asked again)
+    watchArtIcons(globalThis.document);
     startFx({ map, canvas, effects: () => FS.ui?.effects });   // the effects layer and, with ?fx=, its demo switch (fx/index.mjs)
     // `?fx=hand-…`: the conquest panels alone, from records of finished runs, under the demo tag (hud/handdemo.mjs; loaded on demand)
     try { const q = new URLSearchParams(globalThis.location?.search ?? ''); if (/(^|,)\s*hand-/.test(q.get('fx') ?? '')) import('./hud/handdemo.mjs').then(m => m.startHandDemo({ params: q })).catch(e => console.warn('hand demo:', e)); } catch { /* no address */ }

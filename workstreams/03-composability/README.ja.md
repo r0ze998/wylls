@@ -1,6 +1,6 @@
 # ③ 外部接続とコンポーザビリティ：別の作者のプログラムが WYLLS に作用できるか
 
-> **状況 2026-11-19（main `1d6c0039`、コードが正）：** MCP サーバーは実際の HTTP で確認済み。待受は既定で loopback だけ、Host の許可リストあり（`mcp/bin/mcp-settings.mjs:16-27`、PR #28）。成果物は main にある（下の「コアは一行も変えていない」は 10-29 の記録）。未マージの PR は無い。次：公開の devnet の世界での公開範囲の方針。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
+> **状況 2026-11-19（main `1d6c0039`、コードが正）：** MCP サーバーは実際の HTTP で確認済み。待受は既定で loopback だけ、Host の許可リストあり（`mcp/bin/mcp-settings.mjs:16-27`、PR #28）。成果物は main にある（下の「コアは一行も変えていない」は 10-29 の記録）。未マージの PR は無い。次：公開の devnet の世界での公開範囲の方針。（2026-11-20 追記：方針と、決定の要らない部分の実装（公開用の読取専用サーバー、API キーとスコープ、レート制限、監査ログ。既定は無効・loopback）は [mcp/PUBLIC-EXPOSURE.md](mcp/PUBLIC-EXPOSURE.md)。r0ze の判断待ちの問いは同 §9。）全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
 作業日 2026-10-29。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（PR #22 の統合候補。`main` 統合済みでも CI 全成功でもない）。この担当の成果物はすべてこのディレクトリにあり、コア（`permutation-frontier`、`frontier-abi`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
 

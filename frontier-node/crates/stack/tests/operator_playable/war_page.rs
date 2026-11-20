@@ -344,7 +344,13 @@ pub(super) async fn flow(
             .any(|x| x["tag"] == format!("0x{:02X}", fclient::abi::tag::DEPART) && x["ok"] == true),
         "the page's Depart: {page_txs:#?}"
     );
-    json!({"p9_page_war": "the web page's legacy war on the devnet .so: rim village, Muster, ONE sealed Depart onto a keep (wallet-signed, wallet-paid), its encrypted book across a reload; keeper A reveals, resolves, settles",
+    // (verify-pr118) the verifier judges the whole season: no FAIL
+    let verifier = r.judge_season("p9");
+    assert_eq!(
+        verifier["fails"], 0,
+        "the verifier FAILs the season: {verifier:#}"
+    );
+    json!({"verifier_season": verifier, "p9_page_war": "the web page's legacy war on the devnet .so: rim village, Muster, ONE sealed Depart onto a keep (wallet-signed, wallet-paid), its encrypted book across a reload; keeper A reveals, resolves, settles",
         "participant": {"wallet": w.to_string(), "nation": joined_nation},
         "village": {"p": hp, "q": hq, "site": site, "ticket_bell": ticket_bell, "final_ts": final_ts},
         "target": {"p": tp, "q": tq, "keep": format!("{keep0:?}"), "start_tile": start, "dirs": dirs},
