@@ -144,6 +144,8 @@ workstreams/03-composability/mcp/test/lost-answer.test.mjs
 workstreams/03-composability/mcp/test/owner.test.mjs
 workstreams/03-composability/mcp/test/play.test.mjs
 workstreams/03-composability/mcp/test/protocol-auth.test.mjs
+workstreams/03-composability/mcp/test/public-adversarial.test.mjs
+workstreams/03-composability/mcp/test/public-exposure.test.mjs
 workstreams/03-composability/mcp/test/receipt-port.test.mjs
 workstreams/03-composability/mcp/test/rekey-delegation-replace.test.mjs
 workstreams/03-composability/mcp/test/sdk-client.test.mjs

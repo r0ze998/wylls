@@ -20,6 +20,9 @@
 //   WYLLS_MCP_COOP_PUBLIC_BOARD=1               opt in to get_cooperation_status (off when unset), with:
 //   WYLLS_MCP_COOP_BOARD=<url>                  the public cooperation board's base; WYLLS_MCP_COOP_CLUSTER=<cluster>
 //                                              the cluster it must report (bin/coop-read-settings.mjs; COOP-READ-ADAPTER.md)
+//   WYLLS_MCP_AUDIT=<file>, WYLLS_MCP_AUDIT_IP, WYLLS_MCP_AUDIT_SALT, WYLLS_MCP_TRUST_PROXY=1, WYLLS_MCP_LINK_PER_DAY=<n>
+//                                              (2026-11-20) opt-in audit log, proxy address, daily quota per link; all off
+//                                              when unset (bin/owner-exposure-settings.mjs; PUBLIC-EXPOSURE.md)
 import { JsonStore } from '../src/store.mjs';
 import { Sealer } from '../src/seal.mjs';
 import { Game } from '../src/game.mjs';
@@ -32,6 +35,9 @@ import { ws04ActsSettingsError } from './ws04-acts-settings.mjs';
 import { mcpSettings, connectLine } from './mcp-settings.mjs';
 import { coopReadSettings } from './coop-read-settings.mjs';
 import { createCoopReadAdapter } from '../src/coop-read-adapter.mjs';
+import { ownerExposureSettings } from './owner-exposure-settings.mjs';
+import { createAudit } from '../src/audit.mjs';
+import { DailyQuota } from '../src/rate-limit.mjs';
 
 const env = process.env;
 if (env.WYLLS_MCP_TEST_AS !== '1') { console.error('set WYLLS_MCP_TEST_AS=1: only the local test authorization server is implemented'); process.exit(2); }
@@ -44,6 +50,13 @@ if (ws04SettingsError) { console.error(ws04SettingsError); process.exit(2); }
 const settings = mcpSettings(env);
 if (settings.error) { console.error(settings.error); process.exit(2); }
 const { port, host, issuer, resource, remoteBind, allowedHosts } = settings;
+// The opt-in audit log, proxy address and daily quota per link (2026-11-20): checked here, before anything is opened.
+const exposure = ownerExposureSettings(env);
+if (exposure.error) { console.error(exposure.error); process.exit(2); }
+let audit = null;
+try { audit = createAudit({ file: exposure.audit, ip: exposure.auditIp, salt: exposure.auditSalt, server: 'owner' }); } catch { console.error('WYLLS_MCP_AUDIT: the audit log could not be set up'); process.exit(2); }
+const trustProxy = exposure.trustProxy;
+const linkQuota = exposure.linkPerDay ? new DailyQuota({ perDay: exposure.linkPerDay }) : null;
 // The opt-in cooperation board read: checked here too, before anything is opened. Off unless all three are set.
 const coopSettings = coopReadSettings(env);
 if (coopSettings.error) { console.error(coopSettings.error); process.exit(2); }
@@ -79,7 +92,8 @@ log(`receipt port: ${receipts.contract}${receipts.real ? '' : ' (MOCK: this serv
 const seal = auth.sealCheck();
 if (seal.unopenable) log(`warning: ${seal.unopenable} of ${seal.sealed} connection capabilities cannot be opened with this WYLLS_MCP_SEAL_KEY; their sends are held (CapabilityUnavailable) until the key is restored or the owner revokes the connection`);
 if (remoteBind) log(`warning: listening on ${host}, not loopback (WYLLS_MCP_ALLOW_REMOTE_BIND=1) with the local TEST authorization server${issuer.startsWith('http:') ? '; the issuer is http, so codes and tokens cross the network in plaintext' : ''}`);
-await listen(createHandler({ auth, mcp, log, allowedHosts }), { port, host });
+log(`audit: ${audit ? 'on' : 'off'}; trust proxy: ${trustProxy ? 'on' : 'off'}; daily quota per link: ${linkQuota ? exposure.linkPerDay : 'off'}`);
+await listen(createHandler({ auth, mcp, log, allowedHosts, audit, trustProxy, linkQuota }), { port, host });
 log(`listening on http://${host}:${port}/mcp (issuer ${issuer})`);
 // The one URL a client is given (the resource, exactly), and on loopback the Claude Code preflight for it.
 log(connectLine(resource));
