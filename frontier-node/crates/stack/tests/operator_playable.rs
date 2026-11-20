@@ -446,6 +446,17 @@ fn ix_name(wire: &[u8], program: &Address) -> String {
     for i in &m.instructions {
         if m.account_keys.get(i.program_id_index as usize) == Some(program) {
             let tag = i.data.first().copied().unwrap_or(0);
+            // (P10: the expedition wrapper's dispatch kind, e.g. `ExpeditionSettleOrigin`)
+            if let Ok(c) =
+                frontier_abi::world_index::expedition_dispatch_ix::Command::decode(&i.data)
+            {
+                return format!("Expedition{:?}", c.kind());
+            }
+            if let Ok(frontier_abi::world_index::wide_ix::WideCommand::Resolve(_)) =
+                frontier_abi::world_index::wide_ix::WideCommand::decode(&i.data)
+            {
+                return "WideResolve".into();
+            }
             return match tag {
                 0xD6..=0xDF => format!("wide 0x{tag:02x}"),
                 _ => frontier_abi::v2::Ix::from_tag(tag)
