@@ -487,7 +487,7 @@ pub(super) async fn flow(
     }
 
     // the verifier judges the whole season (the pinned .so given for VX's re-execution)
-    let verdict = judge_season(r);
+    let verdict = r.judge_season("p10");
 
     let wanted = [
         "ExpeditionSettleOrigin",
@@ -522,75 +522,7 @@ pub(super) async fn flow(
     }
     assert_eq!(
         out["verifier"]["fail"], 0,
-        "the verifier FAILs the season (see p10-verifier-findings.json)"
+        "the verifier FAILs the season (see p10-flow.json `verifier.not_warn`)"
     );
     out
-}
-
-/// The verifier over the whole season (every program transaction from AnnounceSeason on, the UNFILTERED feed with
-/// post-states, every declared patch), VX given the pinned `.so`: no FAIL; what is UNVERIFIABLE is listed.
-fn judge_season(r: &Run<'_>) -> Value {
-    let program = r.c.program;
-    let (txs, mut finals) = {
-        let c = r.lock();
-        let txs: Vec<fclient::ports::TxRecord> = c
-            .feed(0, usize::MAX, Some(&program))
-            .into_iter()
-            .map(|l| l.record())
-            .collect();
-        let finals: std::collections::BTreeMap<[u8; 32], Option<Account>> =
-            verify_core::input::written_keys(&txs)
-                .into_iter()
-                .map(|k| (k.to_bytes(), c.account(&k)))
-                .collect();
-        (txs, finals)
-    };
-    for d in &r.declared {
-        finals
-            .entry(d.key)
-            .or_insert_with(|| r.lock().account(&adr(d.key)).filter(|a| a.lamports > 0));
-    }
-    let so = super::super::devnet_so();
-    let sha: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(&so).into();
-    let sd = r.season();
-    let ruleset: [u8; 32] = fclient::decode::Season::decode(&sd).unwrap().ruleset_hash;
-    let inp = verify_core::input::Input {
-        cfg: verify_core::input::Config {
-            program,
-            season_id: SEASON_ID,
-            quicknet_pk: fclient::beacon::quicknet_info().public_key,
-            ruleset_hash: ruleset,
-            program_hash: Some(sha),
-        },
-        final_slot: r.lock().slot(),
-        txs,
-        finals,
-        program_hashes: vec![(0, sha)],
-        provenance: "stack operator_playable P10 (devnet-expedition-keeper)".into(),
-        scenarios: vec!["p10-expedition".into()],
-        history: Default::default(),
-        resident_feed: None,
-        program_so: Some(std::sync::Arc::new(so)),
-        declared: r.declared.clone(),
-        chain: Default::default(),
-    };
-    let rep = verify_core::verify(&inp);
-    let findings: Vec<Value> = rep
-        .findings
-        .iter()
-        .map(|f| json!({"severity": format!("{:?}", f.severity), "check": f.check, "code": f.code, "entity": f.entity,
-                         "detail": f.detail.chars().take(300).collect::<String>()}))
-        .collect();
-    let fails: Vec<&Value> = findings
-        .iter()
-        .filter(|f| f["severity"] == "Fail")
-        .collect();
-    if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
-        let _ = std::fs::write(
-            std::path::Path::new(&d).join("p10-verifier-findings.json"),
-            serde_json::to_string_pretty(&findings).unwrap(),
-        );
-    }
-    json!({"verdict": format!("{:?}", rep.verdict), "checks_run": rep.checks_run, "findings": findings.len(),
-           "fail": fails.len(), "transactions": inp.txs.len()})
 }
