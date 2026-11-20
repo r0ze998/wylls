@@ -65,7 +65,7 @@
 
 ## 5. ④ への依頼（番号と統合の判断）
 
-1. **記録の kind**：⑨ の記録は 20 種、帯 120–129 は 10 枠。決まるまで capacity の build は ⑨ の PS2 記録を出さない（検証器から見て UNVERIFIABLE）。
+1. **記録の kind**（**rev 8、2026-11-20 で解決：⑨ に 150–169 の 20 枠**、`frontier_abi::feature_registry`。120–129 は空きに戻った。下の §7 の 10 枠案は不要）：⑨ の記録は 20 種、帯 120–129 は 10 枠。決まるまで capacity の build は ⑨ の PS2 記録を出さない（検証器から見て UNVERIFIABLE）。
 2. **口座**：AccountKind 25・26 を `v2::layout::AccountKind` に入れるか（今は ABI の外、命令の処理が持ち主・住所・magic を検査）。magic の提案 `PSF1CPOL`・`PSF1CJOB`。
 3. **版**：capacity の build の版の印は **`0x1000`**（④ の仮の割当て、2026-11-08。② の rights の build が `0x2000` を使うため）。custody と一緒なら `5 | 0x1000`。NFT・wide との組み合わせは `compile_error`。
 4. **ルールの hash**：⑨ の規則は `KERNEL_VERSIONS` に入れていない。規則の束ね方の試験（`frontier_shared.rs`）は、⑨ の module を「feature の内側の未結合の preview」と名指しで除外した（隠していない）。
@@ -80,6 +80,8 @@
 3. ⑨ は ⑩ のファイルを変えていない。⑩ の custody の読み書き（倉の見え方、区画の住所、拒否の番号）は ⑨ の `proc/capacity.rs` に写した（`proc::custody` の関数は非公開のため）。公開してもらえれば写しをやめる。
 
 ## 7. 記録の kind（④ の求め：一覧と、帯 120–129 の 10 枠に収める案）
+
+> **2026-11-20 追記：** ABI-ALLOCATION rev 8 が ⑨ に 150–169（20 枠）を割り当てたので、この節の副種別の案は使わない（記録として残す）。
 
 **案であって決定ではない**（④ が ⑪ とあわせて決める）。⑨ の記録は 20 種（`kernel/src/event.rs`、規則の `capacity::Event` も同じ）。kind に 1 バイトの副種別（sub-kind）を足し、意味の近いものを同じ kind にまとめると 10 枠に収まる。
 

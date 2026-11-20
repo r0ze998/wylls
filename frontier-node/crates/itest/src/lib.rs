@@ -33,6 +33,9 @@
 
 #[cfg(feature = "localnet-expedition-play")]
 pub mod expedition_play;
+// ②+⑨+⑩ in one local world on the coexist lane artefact (TEST-ONLY, workstream 4 rev 8).
+#[cfg(feature = "localnet-coexist-harness")]
+pub mod coexist_play;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod keeper_loop;
 // TEST-ONLY runner throughput measurement (counters of landing waits, simulations, drand fetches; per-pass phases)

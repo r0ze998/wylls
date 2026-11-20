@@ -165,6 +165,17 @@ localnet-wide-depart = ["localnet-expedition-sbf"]
 # (EXPEDITION_ENABLED, CONQUEST_LIFECYCLE_ENABLED, the Depart debit) are
 # unchanged; tags and version stay provisional.
 devnet-playable-sbf = ["conquest-dispatch-experimental", "land-preview"]
+# ②+⑨+⑩ COEXIST in one LOCAL build (2026-11-20, owner t412u/t413u; workstream 4's allocation rev 8,
+# `frontier_abi::feature_registry`, provisional): rights (0xD0-0xD5), capacity (0xF0-0xFD) and custody (0xC2-0xCC)
+# together. One exact version: 0x3005 on S1 (host) / 0x7805 on the playable lane; custody's RULESET_HASH_V4.
+# Host-testable alone or with the playable lane's features; on SBF only through localnet-coexist-sbf. Never with
+# nft-experimental or devnet-playable-sbf (lib.rs guards). Not deployable.
+coexist-experimental = ["rights-experimental", "capacity-preview", "custody-preview", "frontier-abi/feature-coexist"]
+# The localnet land lane (localnet-land-sbf: expedition, conquest kinds, wide land, land preview, wide->wide) PLUS
+# coexist-experimental, version 0x7805, program id [0x45; 32]. Markers: the land lane's two plus
+# PSF_LOCALNET_COEXIST_SBF_BUILD (and PSF_RIGHTS_EXPERIMENTAL_BUILD, PSF_CUSTODY_PREVIEW_BUILD). Built only by
+# scripts/build-frontier-localnet-coexist-sbf.sh; `scripts/play-local.sh --coexist` starts a world with it.
+localnet-coexist-sbf = ["localnet-land-sbf", "coexist-experimental"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

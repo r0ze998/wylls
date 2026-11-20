@@ -45,6 +45,12 @@ land-preview = ["permutation-rules/land-preview"]
 # only): `resident_terms::ACTIVE.transfer` becomes `Refused` (soulbound: only
 # the first holder acts). Off by default (transfers allowed, option B).
 resident-transfer-refused = []
+# ②+⑨+⑩ in one LOCAL build (2026-11-20, ABI-ALLOCATION rev 8, provisional):
+# `feature_registry`, the one table of tags, errors, record kinds, account
+# kinds and version bits (`permutation-frontier` feature
+# `coexist-experimental` reads its combined versions). Off by default: no
+# vector, hash or default-build change; no new dependency.
+feature-coexist = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

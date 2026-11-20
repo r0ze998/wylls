@@ -50,7 +50,7 @@ if [ "$wide_depart" = 1 ]; then
 else
   [ "$(count PSF_LOCALNET_WIDE_DEPART_BUILD "$so")" -eq 0 ] || { echo "$so: carries PSF_LOCALNET_WIDE_DEPART_BUILD but the switch is off" >&2; bad=1; }
 fi
-for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_DEVNET_PLAYABLE_BUILD; do
+for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_DEVNET_PLAYABLE_BUILD PSF_LOCALNET_COEXIST_SBF_BUILD PSF_RIGHTS_EXPERIMENTAL_BUILD; do
   [ "$(count "$m" "$so")" -eq 0 ] || { echo "$so: carries $m (a test build); refused" >&2; bad=1; }
 done
 [ "$bad" = 0 ] || exit 3
