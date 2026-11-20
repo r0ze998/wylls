@@ -66,3 +66,18 @@ fn the_three_bands_reach_their_handlers() {
     }
     assert_eq!(routed, 11 + 6 + 14);
 }
+
+/// The account numbers the combined build really writes lie in their
+/// owners' bands of the registry (⑨'s Pool and Job headers, ⑩'s Lot).
+#[test]
+fn the_account_kinds_written_are_their_bands() {
+    use permutation_rules::frontier::capacity::layout::{job, pool};
+    let owner = |k: u8| fr::owner_of(fr::ACCOUNT_KIND_BANDS, k as u32);
+    assert_eq!(owner(pool::ACCOUNT_KIND), Some(fr::Owner::Capacity));
+    assert_eq!(owner(job::ACCOUNT_KIND), Some(fr::Owner::Capacity));
+    assert_ne!(pool::ACCOUNT_KIND, job::ACCOUNT_KIND);
+    assert_eq!(
+        owner(frontier_abi::v2::layout::AccountKind::Lot as u8),
+        Some(fr::Owner::Custody)
+    );
+}

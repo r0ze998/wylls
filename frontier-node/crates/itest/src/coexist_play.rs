@@ -562,6 +562,17 @@ pub fn demo(w: &mut World) -> Demo {
     w.send(&[i], &[&kb, &payer], "⑩ OpenLot(A's ore, 50)")
         .expect("OpenLot");
     assert!(!w.data(&lot).is_empty(), "the lot exists");
+    let lot_quota = |w: &World| {
+        use frontier_abi::v2::layout::s1::lot as LT;
+        let d = w.data(&lot);
+        assert_eq!(&d[..8], b"PSF1CLOT", "the lot's magic");
+        i64::from_le_bytes(d[LT::QUOTA..LT::QUOTA + 8].try_into().unwrap())
+    };
+    let quota_open = lot_quota(w);
+    assert!(
+        quota_open > 0,
+        "the lot's quota after OpenLot: {quota_open}"
+    );
     let mut m = pro(&kb, cb);
     m.extend([AccountMeta::new(v, false), AccountMeta::new(lot, false)]);
     let i = Instruction {
@@ -573,6 +584,12 @@ pub fn demo(w: &mut World) -> Demo {
     };
     w.send(&[i], &[&kb, &payer], "⑩ SetLotQuota(40)")
         .expect("SetLotQuota");
+    let quota_set = lot_quota(w);
+    assert_eq!(
+        quota_set * 50,
+        quota_open * 40,
+        "SetLotQuota(40) after OpenLot(50): {quota_open} -> {quota_set}"
+    );
 
     // ② again on the same Vault, beside the lot: the second StockSwap lands.
     swap(w, 1, "(StockSwap 2, beside the lot)");

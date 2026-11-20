@@ -109,13 +109,6 @@ fn a_stock_swap_a_capacity_loan_and_a_custody_lot_land_in_one_world() {
     }
     let max = w.cu.iter().map(|x| x.1).max().unwrap();
     assert!(max < 1_400_000, "every step under the transaction limit");
-
-    println!("--- compute units (tx total, coexist lane 0x7805)");
-    for (what, cu) in &w.cu {
-        println!("{what:<44} {cu:>7}");
-    }
-    let max = w.cu.iter().map(|x| x.1).max().unwrap();
-    assert!(max < 1_400_000, "every step under the transaction limit");
 }
 
 /// The coexist artefact never plays a Season of the plain lane (0x4804, the S1 ruleset `RULESET_HASH_V3`, as
