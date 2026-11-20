@@ -1503,6 +1503,80 @@ mod tests {
         );
     }
 
+    /// verify-pr120: the contested follow-up re-reads its provinces, and one
+    /// the read finds no longer contested (here the hostile host left the
+    /// keep hex while its gather was out) waits for the next tick: the
+    /// follow-up plans neither a skip nor a rest for it.
+    #[tokio::test]
+    async fn cq_contested_round_never_skips_a_province_that_calmed_down() {
+        let mut e = env(&["gather", "resolve", "skip"], 1_008);
+        let mut d = PlayDuty::default();
+        let (p, q) = (3i16, 0i16);
+        let rg = fclient::ix::region_of(3, 0);
+        let b0 = 200u32;
+        let lag = 4u32;
+        let mut pd = testkit::province_v2(p, q, b0);
+        let keep_bells = e.season.conquest.unwrap().keep_bells as u8;
+        testkit::set_keep(&mut pd, 30, 2, keep_bells);
+        let host = fclient::addr::host_id(2, 0, 4, 0, 1).unwrap();
+        testkit::set_entry(&mut pd, 0, host, 4, 0, 30, 2_000_000);
+        e.put(e.addrs.province(3, 0), pd.clone());
+        for b in b0..b0 + lag {
+            e.anchor(b, rg);
+            if let Some(a) = e.beacon.get_mut(&(b, rg)) {
+                a.cache = Some(crate::beacon::CacheInfo {
+                    nonce: 0,
+                    rent_to: Address::new_from_array([1; 32]),
+                    slot: 1,
+                });
+            }
+            e.put(e.addrs.seed_cache(b, rg, 0), testkit::seed_cache());
+        }
+        let now = after_close(b0 + lag - 1);
+        let mut slot = 20u64;
+        e.play(&mut d, slot, now, &[(3, 0)]).await;
+        let gather = format!("gather:{p},{q}:{b0}:all");
+        assert!(e.engine.is_pending(&gather), "contested: gathered");
+        assert!(d.provinces[&(p, q)].contested);
+        // The gather ended; meanwhile the province calmed down (no keep
+        // contest, nobody on it): the chain now holds a peaceful Province.
+        e.engine
+            .cancel(&gather, crate::engine::CancelReason::ChainStateObserved);
+        e.put(e.addrs.province(3, 0), testkit::province_v2(p, q, b0));
+        let landed = Outcome::Landed {
+            slot,
+            sig: Default::default(),
+            payer: Address::default(),
+            versions: 1,
+            first_slot: slot,
+            already_done: false,
+        };
+        d.on_outcome(&gather, &landed);
+        slot += 1;
+        e.port.set_clock(slot, now);
+        let t = Tick {
+            slot,
+            now,
+            season: &e.season,
+            clock: SeasonClock::from_season(&e.season),
+            addrs: &e.addrs,
+            cfg: &e.cfg,
+        };
+        let n = d
+            .contested_round(&t, &e.port, &mut e.engine, &e.beacon, &mut e.seeds)
+            .await
+            .unwrap();
+        assert!(!d.provinces[&(p, q)].contested, "the read saw it calm");
+        assert_eq!(n, 0, "nothing planned for a calmed province");
+        assert!(e.keys("skip:").is_empty(), "no skip: {:?}", e.keys("skip:"));
+        assert!(e.keys("ff:").is_empty() && e.keys("rest:").is_empty());
+        assert!(
+            e.engine.pending_keys().is_empty(),
+            "{:?}",
+            e.engine.pending_keys()
+        );
+    }
+
     /// The anchors of `from..to` and a play tick after the last one closed.
     async fn play_through(e: &mut Env, d: &mut PlayDuty, slot: &mut u64, from: u32, to: u32) {
         for b in from..to {
