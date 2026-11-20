@@ -76,8 +76,9 @@ move only once its turn is settled: about 17 minutes later).
    「槍兵 N をここに集める」. When it says 「この州はまだ前のターンの決着が済んでいません」 you **may press anyway**: the
    muster waits and is sent once, as soon as the province is ready (no need to press again; it is withdrawn if the
    unit or the number changes). The village screen's 「兵」 → 「編成する」 cannot be pressed while the province settles
-   (only the bottom bar's 「編成」 waits and sends). When the guide at the top right says 「軍勢の準備を確かめる」 or
-   「届く砦を見る」, the host is mustered.
+   (only the bottom bar's 「編成」 waits and sends). While the host forms, the guide at the top right says
+   「ガイド 3/7 軍勢の整列を待つ」 (with something to do meanwhile added as 「待つ間に：建設をひらく」 or the like). When it
+   says 「軍勢の準備を確かめる」 or 「届く砦を見る」, the host is mustered.
 6. **March on a keep**: press the guide at the top right when it says 「届く砦を見る」 (if it stays on
    「軍勢の準備を確かめる」, open 「国と領土」 in the bottom bar once). Pick a keep's row and press 「確認した命令で出発」.
    While the province is settling, the same order is sent once, as soon as it can be. 「最初の出陣」 means it left.
@@ -144,10 +145,14 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
 3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host in the
    bottom bar (e.g. 「槍兵 500」) and press 「境界への道を準備」.
    1. Draw the road one step at a time with the direction buttons (東・北東・北西・西・南西・南東) or the dashed tiles
-      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more).
+      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more). Only the provinces of rings
+      129–131 that the map draws are open. When the road ends on an unopened one, the card says at once 「終点の州 P,Q は、
+      この世界ではまだ開いていません… いちばん近い開いた州は …（N 州先）です。」.
    2. 「地形・時間を確認」. 「山や水のマスには進めません (N)」 means step N is impassable: 「一歩戻す」 or 「道を消す」
       and draw another road (the card draws roads without looking at terrain). A passable road shows
-      「到着候補：ターン A〜B」.
+      「到着候補：ターン A〜B」. The card scrolls its newest result into view by itself. A read that is still running
+      when the world's clock moves cannot be used; the page reads again by itself up to 2 times, and if that still
+      fails it says 「読み取りの途中で世界の時計が進んだため… もう一度押してください。」: press again.
    3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
       bottom of the card).
    4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
@@ -157,7 +162,7 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    5. 「出発が確定しました（ターン N に到着予定・移動枠 0）」 means it departed.
    - **On the arrival turn this page can open the seal.** Normally the world's keeper opens it, but at ×60 on a
      loaded machine it can miss the window of about 10 s (in this check the first expedition was missed, §8). On the
-     arrival turn press 「封を開けるか確認する」 at the top right → 「封を開く（ローカルプレイ）」 (this check did not
+     arrival turn press 「封を開けるか確認する」 inside the boundary card → 「封を開く（ローカルプレイ）」 (this check did not
      get to press it inside the window). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition
      will never settle.
    - Before sending the next host, press 「結果を照合する」 under the card's 「送信しました。確定はまだ確認できていません」
@@ -167,10 +172,12 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    「広い土地の軍勢（テスト）」. Pressing 「次の一手（広い土地）」 goes one step at a time: train spearmen → muster a
    host → march on the next province's keep (the card states the next step in English, e.g. `a host of 100 Spearmen
    at the wide village …` = muster, `the host (100 troops) marches wide -> wide … arriving turn N` = march).
-   - A new village's province starts far behind the chain (in this check 77 turns behind after the village was made;
-     about 15 minutes to catch up). Meanwhile, and at ×60 often after it too, a press answers 「送られていません」 (the
-     muster's NotResident): wait a few seconds and press again. In this check about 30 presses at one per turn were
-     all refused; pressing every 2 s got the muster through within a few presses, and the march two turns later.
+   - A new village's province starts far behind the chain (loop-play4: 77 turns after the village was made;
+     loop-play5: up to about 180 turns). **Do not keep pressing while the province is behind.** The card says
+     「この村の州の決着が N ターン遅れています。…このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を
+     送ります。」 and waits by itself (the button reads 「待っています…（押す必要はありません）」; 「待つのをやめる」 stops
+     it). A step refused because the turn changed while it was being sent (NotResident) is sent again next turn by
+     itself.
    - The world's keeper opens the march's seal and catches the target province up even when it is far behind (in this
      check: reveal, clash and settlement within minutes of the arrival). The bottom bar's 「進軍」 list does not show
      marches inside the wide land. Staying on a keep for 72 turns takes it.
@@ -197,6 +204,10 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
 | An enemy marching on your village | announced (「来襲」) when it leaves from a place in sight, or from 3 turns before arrival |
 
 - The keep list, the inspector, the chronicle, the notices and the minimap follow the same rule.
+- **Other nations' clash reports and 「戦いを再生」** are offered only while the province's keep tile (the whole
+  province when it has no keep) is in sight now; a few rim tiles in sight are not enough. Your village's province and
+  the clashes your own marches arrived at are always yours to see. Opening a report out of sight says
+  「この場所はいま見えていません。…」 and reads nothing.
 - In a fog world the map's 「記録」 view (every recorded province) and the link to the spectator page are **not shown**.
 - One switch: `LOCAL_FOG` in `permutation-server/web/frontier/map/fog.mjs` (`false` = no fog). The radii and the like
   are `FOG_RULES` in the same file. Devnet, the spectator page and the practice page have no fog.
@@ -273,7 +284,15 @@ training are the same rules as devnet.
 - **A rim village that stays 「仮の村」** is confirmed by one action of your own (e.g. 「収穫する」), not at the
   「遅くとも…」 time the screen states.
 - **The AI residents spend many turns on refused sends** (e.g. training the stores cannot pay). They look slow; it is
-  by the rules. In a ×60 `--wide --ai 4` world an AI stops after 256 sends (about 45–60 minutes in).
+  by the rules. (Before fix-loop5 an AI stopped after 256 sends in a ×60 `--wide --ai 4` world; see the next item.)
+- **The relay's send limit (changed by fix-loop5)**: the launcher's relay remembers at most 256 commands per world that
+  have **not settled yet**; a sent command stops counting once its transaction's validity (about 1 minute on the local
+  chain) has passed. Before, every command ever sent counted, so after 256 sends that world could never send again, with
+  the false text 「今日送れる操作の回数を使い切りました…」 (loop-play5). Now a full limit clears within about a minute and
+  says 「送ったばかりの命令がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。」.
+  The march relay (limit 64) works the same way.
+- **An expedition's result**: once its seal is open, the map tag changes to 「到着 · 封は開きました · 結果の確定を
+  待っています」. The result (「留まる：…」 and so on) shows once the target province has caught up.
 - A wide claim offers free sites only. The third village's cost (2,400) does not fit a Hamlet's stores (cap 2,000).
 - The expedition card draws roads without looking at terrain (「地形・時間を確認」 then says 「山や水のマスには進めません (N)」).
 - The 「記録」 view is not shown in a fog world (it is with `LOCAL_FOG` set to `false`).
