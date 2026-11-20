@@ -248,7 +248,8 @@ jobs:
         run: scripts/ci/node-keyfree.sh workstreams/15-coop-outcomes 'test/*.test.mjs'
 
   # Workstream 06 (creation): its node test files that the scan does not list (scripts/ci/node-key-tests.txt lists the
-  # other 21) through the same runner and guard. No npm install (06 has no dependencies). Node 20 and 22, as 06's
+  # other 12, which sign with fixed demo seeds; 14 of the 15 run are cleared by scripts/ci/node-key-reviewed.txt)
+  # through the same runner and guard. No npm install (06 has no dependencies). Node 20 and 22, as 06's
   # tests run locally on both (the journal lock reads /proc on Linux, injectable in the tests). The ③/④ integration
   # tests skip without WS03_ROOT, WS04_ROOT and RUNEXEC_BIN, as on a fresh checkout.
   creation06:
