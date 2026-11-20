@@ -1,5 +1,5 @@
 // Workstream 12: a growing continuing world for the long-run test and tools/longrun.mjs.
-import { PLACE_A, newMemory, promise, caravanFacts, allocate, coverage } from './scenario.mjs';
+import { PLACE_A, newMemory, promise, caravanFacts, allocate, coverage } from './scenario-core.mjs';
 
 /** n partitions of 200 world bells; in each, B promises A 100 wood and delivers it (every 10th: not sent, proven). */
 export function growWorld(n, { path = null, decisionsEvery = 0 } = {}) {

@@ -11,7 +11,7 @@ import { canonical, sha256hex } from '../src/records.mjs';
 import { clockFromGenesis, worldConfig } from '../adapters/ws08-world.mjs';
 import { ingestReceipts, parseJsonU64, parseSubject, receiptToFacts, tagHexOf } from '../adapters/ws04-receipts.mjs';
 import { counterpartyOf, mirrorMemoryPort } from '../adapters/ws13-resident.mjs';
-import { dm, keysFor, signedAllocation } from '../fixtures/scenario.mjs';
+import { dm, keysFor, signedAllocation } from '../fixtures/presigned.mjs';
 
 // ---- the synthetic world: 8's shape (one continuous world account), wallet principals (13's naming)
 const PROGRAM = 'FronT1erProgramXXXXXXXXXXXXXXXXXXXXXXXXXXXX'.replace(/[0OIl]/g, 'x');
