@@ -833,9 +833,12 @@ impl ExpeditionDuty {
                     Ok(x) => x,
                     Err(er) => return Ok(Err(er)),
                 };
+                // (the probe's payer is a plain address: the keeper's pool payer is never executable, and the
+                //  program's own address there would be — P10 run 4 refused its own probe)
+                let probe_payer = solana_signer::Signer::pubkey(&size_signer());
                 let probe = steps::settle_member_ix(
                     a,
-                    &a.program,
+                    &probe_payer,
                     arr,
                     &e.holding,
                     &home,
@@ -855,7 +858,9 @@ impl ExpeditionDuty {
                     .iter()
                     .zip(&got)
                     .enumerate()
-                    .find(|(_, (_, x))| x.as_ref().is_some_and(|x| x.executable))
+                    .find(|(_, (k, x))| {
+                        **k != probe_payer && x.as_ref().is_some_and(|x| x.executable)
+                    })
                     .map(|(i, (k, _))| (i, *k))
                 {
                     return Ok(Err(format!(

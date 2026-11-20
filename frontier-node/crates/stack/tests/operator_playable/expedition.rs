@@ -503,7 +503,7 @@ pub(super) async fn flow(
             "keeper A landed {k}: {keeper_steps:#?}"
         );
     }
-    json!({"p10_expedition": "a test participant's rim → wide expedition on the devnet .so: ONE ExpeditionDepart; keeper A sends every later step",
+    let out = json!({"p10_expedition": "a test participant's rim → wide expedition on the devnet .so: ONE ExpeditionDepart; keeper A sends every later step",
         "plan": {"home": [hp, hq], "site": site, "nation": nation, "target": [target.p(), target.q()], "dest_region": dest_region,
                  "route": {"start_tile": start, "dirs": route.dirs, "dest_tile": route.dest_tile, "travel_upper_secs": upper},
                  "depart_bell": depart_bell, "arrive_bell": ARRIVE_BELL, "external": external.to_string()},
@@ -512,8 +512,19 @@ pub(super) async fn flow(
                     "destination_resolved_next": rn_dest(r), "wall_secs_depart_to_settle": expedition_wall},
         "after": {"bells": 3, "keeper_rows": after_rows.len(), "keeper_ok": keeper_ok_after.len(),
                   "feed": {"land": status["discovery"]["land"], "play": status["discovery"]["play"]},
-                  "expeditions_role": status["expeditions"]},
-        "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra})
+                  "expeditions_role": status["duties"]["expeditions"]},
+        "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra});
+    if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
+        let _ = std::fs::write(
+            std::path::Path::new(&d).join("p10-flow.json"),
+            serde_json::to_string_pretty(&out).unwrap(),
+        );
+    }
+    assert_eq!(
+        out["verifier"]["fail"], 0,
+        "the verifier FAILs the season (see p10-verifier-findings.json)"
+    );
+    out
 }
 
 /// The verifier over the whole season (every program transaction from AnnounceSeason on, the UNFILTERED feed with
@@ -580,10 +591,6 @@ fn judge_season(r: &Run<'_>) -> Value {
             serde_json::to_string_pretty(&findings).unwrap(),
         );
     }
-    assert!(
-        fails.is_empty(),
-        "the verifier FAILs the season: {fails:#?}"
-    );
     json!({"verdict": format!("{:?}", rep.verdict), "checks_run": rep.checks_run, "findings": findings.len(),
            "fail": fails.len(), "transactions": inp.txs.len()})
 }
