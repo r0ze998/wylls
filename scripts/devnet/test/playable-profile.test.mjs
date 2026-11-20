@@ -201,6 +201,10 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   // devnet-page-war: keeper A also plays the legacy war of the page's sealed marches (the S1 playtest keeper A's play
   // roles, keeper/src/play.rs): reveal, settle the departure and the transit, gather, resolve and skip the bells, close
   for (const r of ['reveal', 'settle-departure', 'gather', 'resolve', 'skip', 'settle', 'close', 'claims']) assert.ok(playable().services.keeperA.roles.includes(r), r);
+  // devnet-expedition-keeper (P13 + P10): keeper A sends every step of a rim -> wide expedition after the Depart
+  // (role expeditions, a playable-lane keeper build; it needs beacon, gather and resolve)
+  assert.ok(playable().services.keeperA.roles.includes('expeditions'));
+  assert.match(playable().services.keeperA.rolesWhy, /expeditions \(devnet-expedition-keeper/);
   for (const rate of [5080, 6960]) {
     // after the genesis rings (≤ 7 provinces a wedge, the Concord's included), the rim (≤ 8) and wide rings 129-130
     // (6 each), every fund still clears ring 131's balance check

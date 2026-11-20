@@ -5,6 +5,8 @@
 //! `playable-cov-*.json.gz` (`verify/tests/playable_expedition.rs`), whose
 //! `logs` are the program's own. Literal bytes only: no key, no signing, no
 //! execution, no network.
+// (the helpers below serve the `playable-lane` module too)
+#![cfg_attr(not(feature = "playable-lane"), allow(unused_imports, dead_code))]
 use std::collections::BTreeMap;
 use std::io::Read as _;
 

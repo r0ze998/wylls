@@ -51,6 +51,9 @@ const P8_PORT_BASE: u16 = 41_950;
 /// P9's (`OPERATOR_PAGE_WAR_PORT_BASE` moves them): the legacy war with the page as the participant; as P7 (+6/+7
 /// gateway, +8 inspection). Never 41970: the gateway's offline RPC refuses it.
 const P9_PORT_BASE: u16 = 41_960;
+/// P10's (`OPERATOR_EXPEDITION_PORT_BASE` moves them): the rim → wide expedition with a test participant
+/// (devnet-expedition-keeper; devnet gaps P10 + P13).
+const P10_PORT_BASE: u16 = 41_500;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -527,6 +530,23 @@ async fn p8_keeper_a_plays_a_legacy_war_on_the_devnet_so_offline() {
     playable_season(ports("OPERATOR_WAR_PORT_BASE", P8_PORT_BASE), Mode::War).await;
 }
 
+/// P10 (devnet-expedition-keeper; devnet runbook gaps P10 + P13): a RIM → WIDE EXPEDITION on the devnet `.so`,
+/// offline. Keeper A as the devnet profile now says: P8's play roles, the wide ring 129 (`wide_rings`), and the new
+/// **`expeditions`** role. A test participant founds its rim village (as P4/P8), musters 400 and sends ONE
+/// ExpeditionDepart (the 0x4804 wrapper, 「境界への道を準備」 in the page) into a ring-129 province, sealed to the real
+/// round T(21); keeper A sends every later step (the origin bell's gather and resolve, SettleOrigin, THE anchor of
+/// bell 21 from the real round, the wide ExpeditionReveal opened from that public round, the destination's catch-up
+/// Resolves, ExpeditionGather, the arrival's Resolve, SettleMember). The host STAYS on ring 129; keeper A's feed guard
+/// never latches and it keeps every duty afterwards; the verifier judges the whole season ([`rim::expedition`]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p10_keeper_a_drives_a_rim_to_wide_expedition_on_the_devnet_so_offline() {
+    playable_season(
+        ports("OPERATOR_EXPEDITION_PORT_BASE", P10_PORT_BASE),
+        Mode::Expedition,
+    )
+    .await;
+}
+
 /// P9 (devnet-page-war): P8 with the WEB PAGE as the participant (as P7: the herald's `--web`, the gateway's devnet
 /// play routes, a Wallet Standard TEST wallet): it musters, composes and seals the march, its wallet signs the Depart
 /// (`/gw/f/devnet-play/march/submit`), its encrypted march book survives a reload, it hands the reveal material to
@@ -561,6 +581,9 @@ enum Mode {
     War,
     /// P9 (devnet-page-war): P8 with the web page as the participant.
     PageWar,
+    /// P10 (devnet-expedition-keeper): the rim world, keeper A with the play roles, the wide ring 129 and the
+    /// `expeditions` role, and a rim → wide expedition by a test participant.
+    Expedition,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -574,10 +597,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Page => "p7",
         Mode::War => "p8",
         Mode::PageWar => "p9",
+        Mode::Expedition => "p10",
     };
     let war = matches!(mode, Mode::War | Mode::PageWar);
     let page_mode = matches!(mode, Mode::Page | Mode::PageWar);
-    let genesis_round = if war {
+    let expedition = mode == Mode::Expedition;
+    // (P10 too: T(21) is the expedition's arrival round)
+    let genesis_round = if war || expedition {
         WAR_GENESIS_ROUND
     } else {
         GENESIS_ROUND
@@ -759,7 +785,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     // drand-replay serving the committed real quicknet rounds (gated by this chain's clock).
     let fixtures = repo_root().join("frontier-node/crates/fclient/fixtures");
     // (P8/P9: the shipped rounds plus T(ARRIVE_BELL), the real round of the S-TLOCK q4 vector, in a copy of the archive)
-    let drand_archive = if war {
+    let drand_archive = if war || expedition {
         let d = dir.join("quicknet-archive");
         std::fs::create_dir_all(&d).unwrap();
         for e in std::fs::read_dir(fixtures.join("quicknet")).unwrap() {
@@ -826,6 +852,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::War | Mode::PageWar => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
+            // (P10: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
+            Mode::Expedition => {
+                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\""
+            }
         },
         rim = match mode {
             Mode::Setup => String::new(),
@@ -834,6 +864,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
+            ),
+            // (P10: ring 129 only, the expedition's destination ring)
+            Mode::Expedition => format!(
+                "rim_per_wedge = {n}\nwide_rings = 1\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
+                n = rim::PER_WEDGE
             ),
         },
     );
@@ -1220,9 +1255,14 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let rim_summary = if rim_run {
         Some(
             rim::run(rim::Ctx {
-                keeper_wide: matches!(mode, Mode::KeeperWide | Mode::AfterWide | Mode::Page),
+                keeper_wide: matches!(
+                    mode,
+                    Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::Expedition
+                ),
+                wide_rings: if expedition { 1 } else { rim::WIDE_RINGS },
+                expedition,
                 page: page.clone(),
-                war: war.then(|| rim::War {
+                war: (war || expedition).then(|| rim::War {
                     keeper_api: pt.keeper_api,
                     token: "test-token-operator-playable".into(),
                 }),

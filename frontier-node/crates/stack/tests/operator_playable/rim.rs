@@ -94,6 +94,9 @@ pub struct Page {
     pub out: std::path::PathBuf,
 }
 
+/// P10 (devnet-expedition-keeper): the rim → wide expedition.
+#[path = "expedition.rs"]
+pub mod expedition;
 /// P8/P9 (devnet-page-war): the legacy war after the rim opened ([`war`]).
 #[path = "war.rs"]
 pub mod war;
@@ -108,6 +111,10 @@ pub struct War {
 pub struct Ctx<'a> {
     /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
     pub keeper_wide: bool,
+    /// P5: the wide rings keeper A opens ([`WIDE_RINGS`]; P10: 1).
+    pub wide_rings: u64,
+    /// P10: the rim → wide expedition ([`expedition`]).
+    pub expedition: bool,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,
     /// P7: the page is the participant.
@@ -126,6 +133,8 @@ struct Run<'a> {
     c: Ctx<'a>,
     rows: Vec<Value>,
     patches: Vec<String>,
+    /// P10: every patch as the verifier's `declared` list (in force from before the `at`-th program transaction).
+    declared: Vec<verify_core::input::Declared>,
     /// While recording the wide claim's witnessed segment (as `verify/tests/playable_wide_claims.rs`): the state of
     /// every account a segment instruction names, read before its first use; the accounts the segment wrote; its
     /// transactions.
@@ -380,6 +389,14 @@ impl<'a> Run<'a> {
     }
     /// A declared fixture patch (not an instruction).
     fn patch(&mut self, k: Address, a: Account, what: &str) {
+        let program = self.c.program;
+        let at = self.lock().feed(0, usize::MAX, Some(&program)).len();
+        self.declared.push(verify_core::input::Declared {
+            at,
+            key: k.to_bytes(),
+            account: Some(a.clone()),
+            what: what.to_string(),
+        });
         self.lock().set_account(k, a).expect("patch");
         self.patches.push(format!("PATCH (set_account): {what}"));
     }
@@ -511,6 +528,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
         c,
         rows: vec![],
         patches: vec![],
+        declared: vec![],
         witness: None,
     };
     let a = r.c.a.clone();
@@ -648,7 +666,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
         assert_eq!(r.bell(), rim_bell, "the rim opened within ring 128's bell");
         r.lock().set_paused(true);
         r.witness = Some(Witness::default());
-        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_RINGS {
+        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + r.c.wide_rings {
             let since = r.lock().slot();
             let prev = if ring == FIRST_WIDE_RING {
                 rim_bell
@@ -757,6 +775,15 @@ pub async fn run(c: Ctx<'_>) -> Value {
         .find(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
         .expect("the rim province borders ring 129 (P5: a province keeper A opened)");
 
+    // P10: the rim → wide expedition into `target` (keeper A drives every step after the Depart).
+    if r.c.expedition {
+        let extra = json!({
+            "rim_plan": {"per_wedge": PER_WEDGE, "provinces": plan.len(), "opened_by": "keeper A rings duty (rim_per_wedge)",
+                         "wall_secs": rim_secs, "open_province_txs": rim_open},
+            "wide_rings": ring_rounds, "wide_ring_txs": wide_ring_txs.len(), "verifier_vwl_rings_segment": vwl_rings,
+        });
+        return expedition::flow(&mut r, (rp, rq, rsite, nation), target, extra).await;
+    }
     // P8/P9: the legacy war from the rim (P9: the page is the participant).
     if r.c.war.is_some() {
         let extra = json!({

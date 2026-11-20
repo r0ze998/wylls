@@ -1001,3 +1001,157 @@ pub fn settle_origin_ix(
         data,
     })
 }
+
+// ------------------------------------------------------------ the route (a participant's planning)
+
+use frontier_abi::world_index::{tiles::WideTile, TileAddress};
+
+/// A derived route (pure over the generated province masks): the hex
+/// directions, the destination tile, the provinces in `path_tiles` order
+/// (destination first, then each first-entered other province) and the
+/// stepped tiles.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Route {
+    pub dirs: Vec<u8>,
+    pub dest_tile: u8,
+    pub keys: Vec<ProvinceKey>,
+    pub steps: Vec<TileAddress>,
+}
+
+/// The program's masks of one province (`PASSABLE`, `ROUGH`, `ROAD`).
+#[derive(Clone, Copy, Debug)]
+pub struct Masks {
+    pub key: ProvinceKey,
+    pub passable: u64,
+    pub rough: u64,
+    pub road: u64,
+}
+
+pub fn masks_of(key: ProvinceKey, data: &[u8]) -> Masks {
+    use frontier_abi::v2::layout::province::province as PV;
+    let u = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
+    Masks {
+        key,
+        passable: u(PV::PASSABLE_MASK),
+        rough: u(PV::ROUGH_MASK),
+        road: u(PV::ROAD_MASK),
+    }
+}
+
+/// The shortest route from `origin` into any passable tile of `dest`, stepping
+/// only on passable tiles of the provinces in `lands` (the program's
+/// `path_tiles` geometry: `WideTile::neighbors` in `DIRECTIONS` order), at
+/// most `MAX_PATH_STEPS` steps and `MAX_PATH_PROVINCES` provinces. Watch
+/// blocks of structures are not modelled here (the Reveal checks them).
+pub fn derive_route(origin: TileAddress, dest: ProvinceKey, lands: &[Masks]) -> Option<Route> {
+    derive_route_to(origin, dest, lands, None)
+}
+
+/// As [`derive_route`], ending on `tile` of `dest` when given (e.g. the Free
+/// City's tile the program placed), else on any passable tile of `dest`.
+pub fn derive_route_to(
+    origin: TileAddress,
+    dest: ProvinceKey,
+    lands: &[Masks],
+    tile: Option<u8>,
+) -> Option<Route> {
+    use permutation_rules::frontier::travel::{MAX_PATH_PROVINCES, MAX_PATH_STEPS};
+    let passable = |t: &WideTile| {
+        lands
+            .iter()
+            .any(|l| l.key == t.province() && l.passable & (1u64 << t.local()) != 0)
+    };
+    let start = WideTile::of(origin);
+    let mut prev: std::collections::HashMap<WideTile, (WideTile, u8)> = Default::default();
+    let mut frontier = std::collections::VecDeque::from([(start, 0usize)]);
+    let mut goal = None;
+    while let Some((t, depth)) = frontier.pop_front() {
+        if t != start && t.province() == dest && tile.is_none_or(|x| x == t.local()) {
+            goal = Some(t);
+            break;
+        }
+        if depth == MAX_PATH_STEPS {
+            continue;
+        }
+        for (dir, n) in t.neighbors().iter().enumerate() {
+            let Some(n) = n else { continue };
+            if *n == start || prev.contains_key(n) || !passable(n) {
+                continue;
+            }
+            prev.insert(*n, (t, dir as u8));
+            frontier.push_back((*n, depth + 1));
+        }
+    }
+    let mut t = goal?;
+    let mut dirs = vec![];
+    let mut tiles = vec![];
+    while t != start {
+        let (p, d) = prev[&t];
+        dirs.push(d);
+        tiles.push(t);
+        t = p;
+    }
+    dirs.reverse();
+    tiles.reverse();
+    let mut keys = vec![dest];
+    for s in &tiles {
+        if !keys.contains(&s.province()) {
+            keys.push(s.province());
+        }
+    }
+    if keys.len() > MAX_PATH_PROVINCES {
+        return None;
+    }
+    Some(Route {
+        dest_tile: tiles.last()?.local(),
+        dirs,
+        keys,
+        steps: tiles.iter().map(|s| s.address()).collect(),
+    })
+}
+
+/// The program's raw walking seconds of `steps` (`walk`: rough 180 / flat
+/// 120, halved for cavalry and again on a road).
+pub fn raw_secs(steps: &[TileAddress], lands: &[Masks], cavalry: bool) -> u32 {
+    use permutation_rules::frontier::travel::{FLAT_HEX_SECS, ROUGH_HEX_SECS};
+    steps
+        .iter()
+        .map(|s| {
+            let l = lands
+                .iter()
+                .find(|l| l.key == s.key())
+                .expect("a stepped province");
+            let bit = 1u64 << s.local();
+            let base = if l.rough & bit != 0 {
+                ROUGH_HEX_SECS
+            } else {
+                FLAT_HEX_SECS
+            };
+            base >> (cavalry as u32 + (l.road & bit != 0) as u32)
+        })
+        .sum()
+}
+
+/// An upper bound of the travel seconds for any faction and unit (slowest:
+/// no cavalry, no road), so the chosen arrival bell is never too early.
+pub fn travel_upper(steps: &[TileAddress], lands: &[Masks]) -> u32 {
+    let flat_or_rough: u32 = steps
+        .iter()
+        .map(|s| {
+            let l = lands
+                .iter()
+                .find(|l| l.key == s.key())
+                .expect("a stepped province");
+            if l.rough & (1u64 << s.local()) != 0 {
+                permutation_rules::frontier::travel::ROUGH_HEX_SECS
+            } else {
+                permutation_rules::frontier::travel::FLAT_HEX_SECS
+            }
+        })
+        .sum();
+    (0..6u8)
+        .filter_map(permutation_rules::frontier::doctrine::of_faction_v3)
+        .map(|d| d.travel_secs(flat_or_rough as u64) as u32)
+        .max()
+        .expect("a doctrine")
+}

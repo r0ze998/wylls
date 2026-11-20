@@ -849,8 +849,37 @@ mod tests {
             );
             assert!(KeeperConfig::from_toml(&no_rings).is_err());
         }
-        // (the wide role is never part of an all-roles keeper)
+        // (the wide roles are never part of an all-roles keeper)
         assert!(!ROLES.contains(&WIDE_ROLES[0]));
+        assert!(!ROLES.contains(&WIDE_ROLES[1]));
+        // P13: `expeditions` only in a `playable-lane` build, and with `beacon`, `gather` and `resolve`
+        let exp = |roles: &str| text.replace("[\"beacon\", \"archive\", \"rings\"]", roles);
+        let full =
+            exp("[\"beacon\", \"archive\", \"rings\", \"gather\", \"resolve\", \"expeditions\"]");
+        match (KeeperConfig::from_toml(&full), PLAYABLE_LANE) {
+            (Ok(c), true) => assert!(c.has_role("expeditions")),
+            (Err(e), false) => assert!(e.contains("playable-lane"), "{e}"),
+            (r, lane) => panic!("playable-lane build {lane}: {:?}", r.err()),
+        }
+        if PLAYABLE_LANE {
+            for missing in ["gather", "resolve", "beacon"] {
+                let roles = [
+                    "beacon",
+                    "archive",
+                    "rings",
+                    "gather",
+                    "resolve",
+                    "expeditions",
+                ]
+                .iter()
+                .filter(|r| **r != missing)
+                .map(|r| format!("\"{r}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+                let e = KeeperConfig::from_toml(&exp(&format!("[{roles}]"))).unwrap_err();
+                assert!(e.contains(missing), "{missing}: {e}");
+            }
+        }
     }
 
     #[test]

@@ -104,7 +104,7 @@ pub fn route(
 }
 
 impl Run<'_> {
-    fn province_of(&self, p: i32, q: i32) -> Option<Province> {
+    pub(super) fn province_of(&self, p: i32, q: i32) -> Option<Province> {
         self.data(&self.c.a.province(p, q))
             .and_then(|d| Province::decode(&d).ok())
     }

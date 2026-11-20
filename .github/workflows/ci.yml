@@ -449,7 +449,10 @@ jobs:
       # (plans, builders, config, order) generate, derive and sign nothing;
       # the end-to-end run (P5) is in key-tests. Gap P8: the feed guard's
       # accounting of wide-land PSW1 records (`wide_feed_guard`, literal bytes);
-      # its end-to-end run (P6) is in key-tests too.
+      # its end-to-end run (P6) is in key-tests too. Gaps P10 + P13: the feed
+      # guard's reading of the expedition's records over the committed real
+      # recordings (`expedition_feed_guard`, literal bytes) and the
+      # `expeditions` role's config; its end-to-end run (P10) is in key-tests.
       - name: Keeper playable lane (lints, unit tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -457,6 +460,7 @@ jobs:
           cargo clippy --locked -p keeper --features playable-lane --all-targets -- -D warnings
           cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: config::
           cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
+          cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -656,7 +660,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war); P7 and P9 need a browser and skip)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P10, the rim to wide expedition); P7 and P9 need a browser and skip)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
