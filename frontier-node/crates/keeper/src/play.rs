@@ -1181,18 +1181,17 @@ impl PlayDuty {
 
     /// The contested provinces (MC §8.2 "Contested bells") with a bell to
     /// work now: behind the clock and the season's end, and no gather,
-    /// resolve, skip or fast-forward of theirs pending in `engine`.
+    /// resolve, skip or fast-forward of theirs pending in `engine`. A
+    /// province whose write just ended has `read_slot` 0 ([`Self::on_outcome`]
+    /// asks for a fresh read): it is named all the same, and
+    /// [`Self::contested_round`] reads it first.
     pub fn contested_ready(&self, t: &Tick<'_>, engine: &Engine) -> BTreeSet<(i16, i16)> {
         let now_bell = t.clock.bell_at(t.now).unwrap_or(0);
         let busy = in_flight_provinces(engine);
         self.provinces
             .iter()
             .filter(|(pq, s)| {
-                s.contested
-                    && s.read_slot != 0
-                    && s.rn < now_bell
-                    && s.rn < t.season.end_bell
-                    && !busy.contains(pq)
+                s.contested && s.rn < now_bell && s.rn < t.season.end_bell && !busy.contains(pq)
             })
             .map(|(pq, _)| *pq)
             .collect()

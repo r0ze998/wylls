@@ -1427,6 +1427,14 @@ mod tests {
             assert_eq!(n, 0, "the gather is still in flight");
             assert!(d.contested_in_flight(&e.engine));
         }
+        let landed = |slot: u64| Outcome::Landed {
+            slot,
+            sig: Default::default(),
+            payer: Address::default(),
+            versions: 1,
+            first_slot: slot,
+            already_done: false,
+        };
         let start_progress = cm::read_keep(&pd).unwrap().unwrap().progress;
         let mut progress0 = start_progress;
         for b in b0..b0 + lag {
@@ -1439,6 +1447,11 @@ mod tests {
                 e.addrs.clash_inputs(3, 0, b),
                 testkit::clash_inputs_gathered(),
             );
+            // As the keeper's poll delivers it: the landed write asks for a
+            // fresh read of its province (`read_slot` 0; the follow-up must
+            // still take it).
+            d.on_outcome(&gather, &landed(slot));
+            assert_eq!(d.provinces[&(p, q)].read_slot, 0);
             slot += 1;
             e.port.set_clock(slot, now);
             let t = tick!(slot);
@@ -1456,6 +1469,7 @@ mod tests {
             cm::step(&mut pd, b, &rep, &prm).unwrap();
             testkit::set_resolved_next(&mut pd, b + 1);
             e.put(e.addrs.province(3, 0), pd.clone());
+            d.on_outcome(&resolve, &landed(slot));
             let progress = cm::read_keep(&pd).unwrap().unwrap().progress;
             assert_eq!(progress, progress0 + 1, "bell {b}: one held bell counted");
             progress0 = progress;
