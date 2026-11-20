@@ -14,8 +14,9 @@
 #               world. By default a KEPT world (launcher --continuous + --persist, PR #38): the natural 1x clock, a
 #               world that does not end by the rules, its chain kept on disk under .local/play-local/kept/, the page's
 #               test key kept in this browser (non-extractable), so --resume reopens the same village after a stop.
-#               With --demo instead: the capture demo (compressed clock, memory-only, not resumable). Optional
-#               operator AI residents (TEST keys). Nothing here touches devnet, mainnet, a wallet or a real key.
+#               With --demo instead: the capture demo (compressed clock, memory-only, not resumable). With --wide
+#               instead: the wide world (map grown to ring 128, wide land open, compressed clock, memory-only).
+#               Optional operator AI residents (TEST keys), at war by default (--ai-peaceful). Nothing here touches devnet, mainnet, a wallet or a real key.
 #   4. open   — prints the page address and opens it in the default browser (unless --no-open).
 #   5. stop   — Ctrl-C ends every world of the launcher (the launcher's own close path), then prints where the logs are.
 #               (Started as a background job from a script, SIGINT is ignored by bash itself: stop it with kill -TERM.)
@@ -46,15 +47,16 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   They are AT WAR by default (TEST-only launcher option --operator-war): besides building and
                   training they muster hosts and march on other nations' reachable keeps (siege, capture), one
                   action per resident per turn, in every world (kept, --random-map, --wide, --demo)
-  --ai-peaceful   the AI residents only build, harvest, train and muster (no marches on keeps)
+  --ai-peaceful   the AI residents do not march on keeps: they build, harvest, train and muster (in a --wide world
+                  they still take rim and wide-land villages and send expeditions)
   --two           TWO people in ONE world (TEST-ONLY launcher option --contest-pair): the second person opens the
                   same page in another browser (or this browser at http://127.0.0.1:<port>/ instead of localhost)
                   and presses the same start button; the first start waits for the second (about 4 minutes, then
                   press again). Kept worlds and --demo alike; --resume brings the same two back (either may press)
   --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
                   (a stop ends it for good; not resumable)
-  --speed N       with --demo: the compressed clock, 10-60 (default 60: a turn is 10 s; the land preview's
-                  FoldLand folds as many turns as fit its compute at every speed since fix-march-held)
+  --speed N       with --demo or --wide: the compressed TEST clock, 10-60 (default 60: a turn is 10 s; the faster
+                  the clock, the further a loaded machine's provinces trail the chain: try 15 to watch a war)
   --minutes N     the world's life in minutes, 15-240 (default 90)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999).
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.
@@ -68,9 +70,11 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
                   nation gets real homes on the rim: the page offers a rim village first, and from it the village
                   screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
-                  ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. The ordinary map,
-                  「全体図」 and the 「記録」 (recorded world) view show the wide land. Memory-only: a stop ends it (not with
-                  --demo/--resume)
+                  ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
+                  marches into the wide land by 「境界への道を準備」; a wide village's 「次の一手（広い土地）」 marches
+                  wide to wide (local-only feature). The ordinary map and 「全体図」 draw the wide land as far as you have
+                  seen it (fog of war: no 「記録」 view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
+                  or --two)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
@@ -503,7 +507,7 @@ if [ "$WIDE" = 1 ]; then
       "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock runs at ×$SPEED (a turn is $((600 / SPEED)) s). Test keys only. No real key, SOL or devnet. A stop ends this world."
   say "   最初の村は辺境 (リング 128、広い土地のとなり) に置けます。村の画面の「広い土地に村を出す」で広い土地に 2 つめの村を出せます (費用が貯まったら)。" \
       "   Your first village can stand on the rim (ring 128, beside the wide land). The village screen's 「広い土地に村を出す」 claims a second village on the wide land (once the cost is saved)."
-  say "   広い土地は普通の地図と「全体図」の六つの角の外側に、見えたところまで描かれます (霧の世界: 「記録」の画面は出ません。docs/frontier/PLAY-LOCAL.ja.md §7)。" "   The wide land is drawn on the ordinary map and 「全体図」 outside its six corners, as far as you have seen it (fog of war: no 「記録」 view; docs/frontier/PLAY-LOCAL.md §7)."
+  say "   広い土地は普通の地図と「全体図」の六つの角の外側に、見えたところまで描かれます (霧の世界: 「記録」の画面は出ません。docs/frontier/PLAY-LOCAL.ja.md §5)。" "   The wide land is drawn on the ordinary map and 「全体図」 outside its six corners, as far as you have seen it (fog of war: no 「記録」 view; docs/frontier/PLAY-LOCAL.md §5)."
 elif [ "$DEMO" = 1 ]; then
   say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet. A stop ends this world."
