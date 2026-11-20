@@ -33,6 +33,7 @@ import { swatch } from './shell.mjs';
 import { renderCoopSlot } from '../hud/coopentry.mjs';
 import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
 import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussources.mjs';
+import { renderRights } from './rights.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -696,7 +697,7 @@ export function renderS1Village(FS) {
     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send, { open: !!pl && !pl.lost && pl.fort === null })}
     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort, { open: !!pl && pl.fort !== null }) : ''}
     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
-    ${renderCoopSlot(FS)}</section>`;
+    ${renderCoopSlot(FS)}</section>${renderRights(FS)}`;
 }
 
 /** A proposal in words. */

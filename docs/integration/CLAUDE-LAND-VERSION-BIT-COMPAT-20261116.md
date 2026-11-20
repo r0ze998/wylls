@@ -32,3 +32,12 @@ plus a rebuilt and re-pinned program. Until the land preview leaves local TEST-O
 smaller risk; the launcher already tells land worlds apart by the runner's own `land_preview` statement
 (`runnerLandAgrees`). `frontier-abi-land-allocation.test.mjs` keeps this list honest: it fails if any exact gate named here
 moves or disappears, or if the bit appears in the program before this list is revisited.
+
+## Addendum 2026-11-20 (rights-play): the coexist lane's clients
+
+The plain lane's version bits now sit in one client constant, `frontier-abi/src/world_index/expedition_dispatch_ix.rs`
+(`LANE_BITS`, appended at the end of the file, line-neutral above). The TEST-ONLY client feature `coexist-lane`
+(local-play runner, herald and keeper tools of a `play-local.sh --coexist` world) moves it to the coexist lane's 0x7805
+(`RULESET_HASH_V4`); no program build enables it. `itest/src/expedition_play.rs` pins `wire::PROGRAM_VERSION`. On the
+JS side the gates above are live bindings of `flocalplay-lane.mjs` (one-shot process lane): unchanged in every process
+that does not select the coexist lane.

@@ -45,6 +45,11 @@ import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
 import { applySeasonRecord, contiguousRings, worldOf, ringSeeded } from './map/world.mjs';
 import { readOverviews, overviewRefused } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
+import { kernelRulesetFor } from './flocalplay-lane.mjs';
+// (TEST-ONLY, a coexist local world only: ② rights — flocalplay-rights.mjs, screens/rights.mjs)
+import { localLane, COEXIST_LANE } from './flocalplay-lane.mjs';
+import { decodeGrant, grantAddress, issuerTagOf, partyGrants, HERALD_GRANTS_SCHEMA, KIND_STOCK_SWAP } from './flocalplay-rights.mjs';
+import { fromBase64 as rightsB64 } from '../sdk/bytes.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
 import { LOCAL_PLAY_WALLET_NAMES, currentEphemeralWallet } from './fephemeral-wallet.mjs';
@@ -515,6 +520,9 @@ const wideHomes = () => !!localPlay?.wideLand || devnetWideNow();
  * lane does not carry does — refused in local play (reads only), the ordinary path on devnet.
  */
 function playLane() {
+  // (TEST-ONLY: a coexist world's page — its lane selected once its gate verified a coexist Season — carries ② rights and
+  //  the S1 Vault and caravan as well; every other local world keeps LOCAL_LANE exactly)
+  if (localPlay && rightsLaneOn()) return { lane: localAct.COEXIST_LOCAL_LANE, identity: localPlay, gate: localDepartGate, deps: { ...localActDeps(), lane: localAct.COEXIST_LOCAL_LANE }, otherwise: 'refuse' };
   if (localPlay) return { lane: localAct.LOCAL_LANE, identity: localPlay, gate: localDepartGate, deps: localActDeps(), otherwise: 'refuse' };
   const own = devnetOwn();
   if (!own) return null;
@@ -2183,6 +2191,8 @@ async function refreshS1(current, world, { caravanProvinces = true } = {}) {
   // the Provinces the viewer's own caravans stand in: their slots say whether a raid holds one (map/s1marks heldByRaids)
   // (not from the person's own re-read — rereadS1 —, which reads the three feeds and nothing more: these province reads
   //  are the regular load's, with the map's own waits and places)
+  // (TEST-ONLY, a coexist world: the ② Grants this viewer is party to, beside the S1 feeds; not awaited)
+  if (rightsLaneOn()) refreshRights(current).catch(e => console.error('frontier rights:', e));
   if (!caravanProvinces) return;
   const me = ownTag(FS);
   for (const c of s1.caravans?.moving ?? []) {
@@ -2763,7 +2773,7 @@ function refreshOverviews(b) {
 // ------------------------------------------------------------------ the composer
 async function kernelOrNull() {
   if (FS.kernel) return FS.kernel;
-  try { FS.kernel = await loadKernel({ ruleset: Buffer2hex(FS.season.rulesetHash), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) }); FS.kernelError = null; } catch (e) { FS.kernelError = e.code ?? 'NoWasm'; FS.kernel = null; }
+  try { FS.kernel = await loadKernel({ ruleset: kernelRulesetFor(Buffer2hex(FS.season.rulesetHash)), url: new URL(`./wasm/${kernelFile(FS.season)}`, import.meta.url) }); FS.kernelError = null; } catch (e) { FS.kernelError = e.code ?? 'NoWasm'; FS.kernel = null; }
   return FS.kernel;
 }
 
@@ -3519,6 +3529,66 @@ async function setSession({ replace = null } = {}) {
     ...(handed ? { say: () => takenBackNote(handed) } : {}), after: landed });
 }
 
+// ------------------------------------------------------------------ ② rights (TEST-ONLY, a coexist local world only)
+/** Whether this page plays a coexist local world (flocalplay-lane.mjs: selected once the gate verified its Season). */
+const rightsLaneOn = () => !!localPlay && localLane() === COEXIST_LANE;
+const RIGHTS_WIDE_READ = 'frontier-local-play-act-wide-read-v1';
+/**
+ * The Grants this viewer is a party to (FOG RULE, flocalplay-rights.mjs): the herald's `/h/grants?citizen=` rows (kept
+ * to the viewer's own again by `partyGrants`) and the Grants this page issued itself; their live state from the relay's
+ * read-only account read (at most 16). Nothing is sent. `FS.rights` (screens/rights.mjs rightsModel).
+ */
+async function refreshRights(current = () => true) {
+  if (!rightsLaneOn() || !FS.wallet || !io.pinned()) { FS.rights = undefined; return; }
+  const viewer = viewerCitizen();
+  if (!FS.rights || FS.rights.viewer !== viewer) FS.rights = { on: true, viewer, read: 'unread', rows: null, live: new Map(), issued: [] };
+  const r = FS.rights;
+  if (r.rows === null) r.read = 'loading';
+  const got = herald?.grants ? await herald.grants(viewer).catch(() => ({ ok: false })) : { ok: false };
+  if (!current() || FS.rights !== r) return;
+  if (got.ok && got.grants?.schema === HERALD_GRANTS_SCHEMA) { r.rows = got.grants; r.read = 'ok'; } else if (r.rows === null) r.read = 'unavailable';
+  const addrs = [...new Set([...(partyGrants(r.rows, viewer) ?? []).map(x => x.address), ...r.issued.map(x => x.address)])].slice(0, 16);
+  const g = localDepartGate();
+  if (addrs.length && g?.ok) {
+    try {
+      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: RIGHTS_WIDE_READ, addresses: addrs });
+      if (!current() || FS.rights !== r) return;
+      // (an account the chain no longer holds — a closed Grant — is remembered as gone, never shown with its last bytes' offers)
+      r.gone ??= new Set();
+      (j?.accounts ?? []).forEach((a, i) => { const d = a ? decodeGrant(rightsB64(a.data_b64)) : null; if (d) { r.live.set(addrs[i], d); r.gone.delete(addrs[i]); } else if (a === null) r.gone.add(addrs[i]); });
+    } catch (e) { console.error('frontier rights read:', e); }
+  }
+  invalidate('panel');
+}
+const dnum = (d, k) => Math.trunc(Number(d?.[k]));
+/** A use of a Grant from a list row's data (screens/rights.mjs): the Grant, its facility village and its station Vault. */
+function rightsUse(name, d, fields = {}) {
+  if (!rightsLaneOn()) return failed({ code: 'LocalActNotAllowed' });
+  const grant = { issuer_tag: String(d.tag), nonce: dnum(d, 'nonce') };
+  const v = name === 'CloseGrant' ? { grant } : { grant, facility: { p: dnum(d, 'fp'), q: dnum(d, 'fq'), site: dnum(d, 'site') }, station: { p: dnum(d, 'fp'), q: dnum(d, 'fq'), tile: dnum(d, 'tile') } };
+  const say = { ReserveSwap: () => L`交換を予約しました`, ExecuteSwap: () => L`交換しました。兵器はあなたの貯蔵庫に入りました`, ReleaseSwap: () => L`予約を戻しました`,
+    RevokeGrant: () => L`権利を取り消しました`, CloseGrant: () => L`権利を閉じました` }[name];
+  return act(name, { v, fields, say, after: () => refreshRights() });
+}
+/** Deliver the viewer's own arrived caravan (screens/rights.mjs: local play has no keeper delivering S1 caravans). */
+function rightsDeliver(d) {
+  if (!rightsLaneOn()) return failed({ code: 'LocalActNotAllowed' });
+  const dst = d.kind === 'vault' ? { kind: 'vault', p: dnum(d, 'dp'), q: dnum(d, 'dq'), tile: dnum(d, 'at'), gen: dnum(d, 'gen') } : { kind: 'holding', p: dnum(d, 'dp'), q: dnum(d, 'dq'), site: dnum(d, 'at'), gen: dnum(d, 'gen') };
+  const provinces = String(d.path ?? '').split('.').filter(Boolean).map(x => { const [p, q] = x.split('_').map(Number); return { p, q }; });
+  return act('SettleCaravan', { v: { seq: dnum(d, 'seq'), dst, provinces }, fields: {}, say: () => L`隊商が届きました`, after: () => refreshRights() });
+}
+function rightsIssueFromForm(f) {
+  if (!rightsLaneOn()) return failed({ code: 'LocalActNotAllowed' });
+  const o = f?.elements?.pair?.selectedOptions?.[0]?.dataset;
+  if (!o) return failed({ code: 'S1Refused', text: L`工房の村と相手の貯蔵庫を選んでください` });
+  const nonce = Math.trunc(Number(f.dataset.nonce)), days = Math.trunc(formNum(f, 'days'));
+  const facility = { p: dnum(o, 'fp'), q: dnum(o, 'fq'), site: dnum(o, 'site') }, station = { p: facility.p, q: facility.q, tile: dnum(o, 'tile') };
+  const fields = { nonce, kind: KIND_STOCK_SWAP, max_swaps: Math.trunc(formNum(f, 'max_swaps')), max_units: Math.trunc(formNum(f, 'max_units')), expires_ts: String(Math.floor(now()) + days * 86_400) };
+  const pin = io.pinned(), me = viewerCitizen();
+  return act('IssueGrant', { v: { facility, grantee: o.grantee, station }, fields, say: () => L`権利を出しました`,
+    after: x => { if (x?.ok !== false && FS.rights) { FS.rights.issued.push({ address: grantAddress(pin.addresses.season, pin.programId, issuerTagOf(me), nonce), issuerTag: issuerTagOf(me), nonce }); } return refreshRights(); } });
+}
+
 async function wideHostStep(e, mem) {
     const g = localDepartGate();
     if (!g?.ok) return failed({ code: g?.code ?? 'LocalActNotAllowed' });
@@ -3568,6 +3638,13 @@ function wideHostWait(mem, { reason, lag }) {
 function wideHostStopWait(mem) { clearTimeout(mem.timer); mem.timer = null; mem.waiting = null; }
 
 export const ACTIONS = {
+  // ② rights (TEST-ONLY, a coexist local world only: screens/rights.mjs)
+  'rights-read': () => refreshRights(),
+  'rights-execute': d => rightsUse('ExecuteSwap', d, { seq: dnum(d, 'seq') }),
+  'rights-release': d => rightsUse('ReleaseSwap', d),
+  'rights-revoke': d => rightsUse('RevokeGrant', d),
+  'rights-close': d => rightsUse('CloseGrant', d),
+  'rights-deliver': d => rightsDeliver(d),
   'cq-refresh': () => refreshConquest(),
   // (the stale banner on local play: a read of the latest state — never a reload, never a send)
   'state-reread': () => rereadState(),
@@ -3966,6 +4043,9 @@ function garrisonOrder(n) {
 
 /** Form submissions (data-form). */
 export const FORMS = {
+  // ② rights (TEST-ONLY, a coexist local world only: screens/rights.mjs)
+  'rights-issue': f => rightsIssueFromForm(f),
+  'rights-reserve': f => rightsUse('ReserveSwap', f.dataset, { units: Math.trunc(formNum(f, 'units')), seq: dnum(f.dataset, 'seq') }),
   // S1 (screens/s1.mjs)
   // (the form's own indexes and amounts, as before; an accepted caravan lets go of the plan it began with — s1CaravanFromForm)
   's1-caravan': f => s1CaravanFromForm(f),

@@ -204,7 +204,7 @@ test('the hooks: the page boots once, after the gate, only for local play; the c
   const code = lp.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
   assert.doesNotMatch(code, /localStorage|sessionStorage|console\.|innerHTML|insertAdjacentHTML|\.style\b|signTransaction|signMessage|keyFromSeed|fsession|sendTransaction|fetch\(/);
   // (the launcher world's standing notice and the read that confirms its end: web-frontier-local-play-session / -world-instance tests)
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-keystore.mjs', './flocalplay-march.mjs', './flocalplay-session.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-keystore.mjs', './flocalplay-lane.mjs', './flocalplay-march.mjs', './flocalplay-session.mjs']);
   // the panel's own stylesheet: every rule scoped to the panel, nothing of the game's styles named
   const css = read('flocalplay.css').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const rule of css.split('}').map(r => r.split('{')[0].trim()).filter(r => r && !r.startsWith('@'))) for (const sel of rule.split(',')) assert.match(sel.trim(), /^#local-play-(gate|session)\b/, `scoped to the panel or the standing notice: ${sel.trim()}`);
