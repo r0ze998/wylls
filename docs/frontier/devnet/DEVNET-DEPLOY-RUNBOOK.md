@@ -397,6 +397,9 @@ legacy ring within 3 provinces of a settled one (`keeper::rings::demand_plan`), 
 scan and `provinces_max` (600) a run, never below a wedge fund's floor (`demand_fund_floor`: the largest balance check
 still ahead plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080) and never while the feed guard holds
 automatic writes. Rent from the wedge funds (24,709,120 lamports a province at 5,080), fees from keeper A's payer.
+The floor, not `provinces_max`, is the real bound (verify-pr138): at 5,080 at most 413 provinces on demand before the
+wide rings open and 305 after them (69 / 51 a wedge); at 6,960 at most 23 before and none after. `provinces_max` counts
+per keeper run.
 OpenProvince stays permissionless: anyone may also send it. **Rim first villages (Q-W1):** once ring 128 is opened and seeded, the
 same duty's `rim_per_wedge = 6` opens the 42 ring-128 provinces beside the middle six ring-129 provinces of each wedge
 (`keeper::rings::rim_plan`, the local wide world's rim; 1.04 SOL of province rent at 5,080, 1.42 SOL at 6,960, out of
@@ -539,7 +542,7 @@ list; the table after it keeps each item's detail.
 | G1, G2, G5 | Rust services over `https`; keeper `feed = "rpc"`; payer listing | #44 | loopback; the read path also ran read-only against the real devnet RPC on 2026-11-21 (#123: fclient over real TLS, the keeper's cluster feed, 1,568 read requests, nothing sent) |
 | G4 (B3), K1 | `frontier-operator --preset S1_DEVNET_WIDE_7D` (10 transactions); the lane's 64 MiB loaded-data budgets | #101 | `operator_playable` P1–P3 |
 | P2 (Q-W1) | Rim first villages: preset `outpost_tier_min` 0, keeper `rim_per_wedge`, `tickets` role | #104 | P4 |
-| P16 | Provinces on demand: keeper A's rings duty `provinces_reach` opens the provinces next to the settled land, so a nation can found second villages past the genesis rings (D-devnet-rim-homes-2) | this PR (draft) | PPROV |
+| P16 | Provinces on demand: keeper A's rings duty `provinces_reach` opens the provinces next to the settled land, so a nation can found second villages past the genesis rings (D-devnet-rim-homes-2) | #138 | PPROV |
 | P6, P7 | Keeper A opens the wide rings 129–131 and settles / finalizes wide claims (`wide-tickets`) | #107 | P5 |
 | P8 | Keeper A's feed guard accounts for wide-land records (PSW1 kinds 1–17) instead of latching | #108 | P6 |
 | P1 | The page on devnet, wallet-paid: Join, PlaceHome / rim FileTicket, Harvest, Build, Train, Muster, WideClaimSite | #110 | P7 (browser) |

@@ -1088,12 +1088,18 @@ mod tests {
         c.wide_per_wedge = 6;
         let wide = frontier_abi::layout::rent(WIDE_PROVINCE_BYTES);
         assert_eq!(wide, 25_359_360);
+        // (verify-pr138: the pin the constant's doc promises)
+        #[cfg(feature = "playable-lane")]
+        assert_eq!(
+            WIDE_PROVINCE_BYTES,
+            frontier_abi::world_index::land::province::SIZE
+        );
         assert_eq!(rim_plan(6).len(), 42);
         assert_eq!(
             demand_fund_floor(&c),
             131 * wide + 7 * 24_709_120 + 18 * wide
         );
-        // 3,951,477,120 lamports: below a 6 SOL wedge fund less its genesis provinces
+        // 3,951,508,480 lamports: below a 6 SOL wedge fund less its genesis provinces
         assert!(demand_fund_floor(&c) < 5_500_000_000);
     }
 
