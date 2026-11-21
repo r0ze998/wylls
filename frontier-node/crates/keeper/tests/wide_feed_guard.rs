@@ -667,7 +667,9 @@ mod p8 {
         unknown_kind[1] = 99;
         let mut retired = record(WideKind::Economy, None);
         retired[0] = 0x81;
-        // the provisional conquest kinds 18..=24: canonical bodies, decodable, not accounted for
+        // the provisional conquest kinds 18..=24: canonical bodies, decodable, never merely accounted for. Since P14
+        // (option a) a complete conquest TARGET alone is read by the paired conquest reader (`expedition_feed_guard`
+        // `p14`); one that needs its source (Declared) and a source part alone (Debited, Credited) still latch here.
         let conquest: Vec<Vec<u8>> = {
             use wev::conquest as c;
             [
@@ -758,8 +760,21 @@ mod p8 {
         ];
         let mut cases = cases;
         for b in &conquest {
-            let name = wev::WideRecord::decode(b).unwrap().kind.name();
-            cases.push((name, psw1(2, std::slice::from_ref(b))));
+            let kind = wev::WideRecord::decode(b).unwrap().kind;
+            let t = psw1(2, std::slice::from_ref(b));
+            let scope = keeper_core::feedguard::WideScope::of(&addrs()).unwrap();
+            match kind {
+                WideKind::ConquestDeclared
+                | WideKind::ConquestDebited
+                | WideKind::ConquestCredited => cases.push((kind.name(), t)),
+                // (P14: read, one conquest fact, nothing accounted as a wide-land action)
+                _ => {
+                    let got =
+                        keeper_core::feedguard::bodies_scoped(&t, &addrs().program, Some(&scope))
+                            .unwrap_or_else(|e| panic!("{}: {e}", kind.name()));
+                    assert_eq!(got.conquest.len(), 1, "{}", kind.name());
+                }
+            }
         }
         for (what, bad) in cases {
             let page = vec![legacy(1), bad, legacy(3)];
@@ -773,7 +788,9 @@ mod p8 {
             let b = land.feed.blocked().unwrap();
             assert_eq!(b.seq, 2, "{what}");
             assert!(
-                b.reason.contains("PSW1") || b.reason.contains("PS2"),
+                b.reason.contains("PSW1")
+                    || b.reason.contains("PS2")
+                    || b.reason.contains("CONQUEST"),
                 "{what}: {}",
                 b.reason
             );

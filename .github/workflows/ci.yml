@@ -514,6 +514,8 @@ jobs:
       # guard's reading of the expedition's records over the committed real
       # recordings (`expedition_feed_guard`, literal bytes) and the
       # `expeditions` role's config; its end-to-end run (operator_playable P11) is in key-tests.
+      # Gap P14 option (a): the same test reads the wide Free City conquest's
+      # records (kinds 12-18) and its mutations; its end-to-end run (operator_playable P14) too.
       - name: Keeper playable lane (lints, unit tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -523,6 +525,7 @@ jobs:
           cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
           cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
           cargo test --locked -p keeper --features playable-lane --test verify_pr121_guard_mutations
+          cargo test --locked -p keeper --features playable-lane --test verify_pr124_conquest_mutations
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -776,7 +779,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P11, the rim to wide expedition); P7, P9 and P10 need a browser and skip)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P11, the rim to wide expedition), 41670-41675 (P14, a third party's wide Free City conquest); P7, P9 and P10 need a browser and skip)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
