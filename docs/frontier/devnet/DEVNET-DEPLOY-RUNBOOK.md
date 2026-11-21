@@ -243,8 +243,8 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | Season setup, 10 transactions from the upgrade authority | 57.14 | 57.19 | 57 float (1 bond returned, 36 wedge funds, 20 DefencePool returned if unspent) + rent | §6b, #101 |
 | Keeper A's pools: reveal 150 payers × up to 0.016, delay 32 × up to 0.1, beneficiary 0.1 | 5.7 | 5.7 | float | profile `season.lamports`, halved (it models keepers A and B) |
 | Keeper A `beacon` / `archive`: AnchorArchives, BellAnchors, SeedCaches | 20.89 | 28.62 | float [model] | §4a's season lines |
-| Keeper A `rings`: RingSeeds 0–128 and three wide ring seeds | 0.17 | 0.24 | float | §4a; P5: 1,632,371 lamports per wide ring |
-| Keeper A opening the 42 rim and 108 wide provinces: its own fees | 0.014 | 0.015 | spent | P4 (26,332 each), P5 (12,517,785 for the three wide rings) |
+| Keeper A `rings`: RingSeeds 0–128 and the wide ring seeds (§4a's model counts four, rings 129–132; the profile's `wide_rings` = 3 opens three) | 0.17 | 0.24 | float | §4a; P5: 1,632,371 lamports per wide ring request (1,625,600 of it rent) |
+| Keeper A opening the 42 rim and 108 wide provinces: what its own payers send | 0.014 | 0.015 | 0.009 of fees spent; the rest (0.005 at 5,080) is the three wide ring seeds' rent, already in the line above | P4 (26,332 per rim province), P5 (12,517,785 for the three wide rings: 3 requests with their rent, 3 consumes, 108 opens) |
 | — their rent: 1.04 + 2.74 SOL, **out of the 36 SOL of wedge funds, not new money** | (3.78) | (5.17) | float | #104, #107 |
 | Keeper A per rim first village (SettleTicket) / per wide claim (settle + finalize) | 0.000008 / 0.000015 | same | spent | P4 8,361; P5 14,663 lamports |
 | Keeper A per sealed march: Reveal, SettleDeparture, SettleTransit, CloseArrivalSlot | 0.0027 | — | mostly the ArrivalSlot's rent, closed later | P9 |
