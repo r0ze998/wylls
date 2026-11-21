@@ -5162,8 +5162,6 @@ export async function startPage({ loc = globalThis.location, load = () => import
   }
   return start();
 }
-if (globalThis.document && !globalThis.process?.versions?.node) startPage().catch(e => console.error('frontier boot:', e));
-
 /** (fix-loop6, LP6-11) Bring node `keep` up to `next`'s markup in place (attributes and content): the same element stays. */
 function morphStable(keep, next) {
   if (keep.tagName !== next.tagName) return;
@@ -5185,3 +5183,5 @@ export function capCaravanAmounts(select) {
     if (Number(input.value) > max) input.value = String(max);
   }
 }
+
+if (globalThis.document && !globalThis.process?.versions?.node) startPage().catch(e => console.error('frontier boot:', e));

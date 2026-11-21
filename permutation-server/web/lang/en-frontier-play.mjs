@@ -2078,8 +2078,8 @@ export default {
   '占拠 {0} ターン': 'held {0} turns',
   'いまのあなたの軍勢では届きません。': 'None of your hosts can reach it now.',
   // fix-loop6 LP6-9: the rim village's ticket wait, said with its turn
-  '辺境の村の申し込みを送りました。世界の進行役がターンの終わりに決めます。': 'The rim village request was sent. The world\'s keeper decides it at the end of a turn.',
-  '辺境の村の申し込みを送りました（ターン {0}、{1} ターン前）。世界の進行役がターンの終わりに決めます。マシンの負荷が高いと数十ターン（×60 で数分）かかることがあります。このページは待ち続けます。押し直す必要はありません。': 'The rim village request was sent (turn {0}, {1} turns ago). The world\'s keeper decides it at the end of a turn. On a busy machine this can take tens of turns (a few minutes at ×60). This page keeps waiting; no need to press again.',
+  '辺境の村の申し込みを送りました。世界の進行役がターンの終わりに決めます。': 'The rim village request was sent. The world decides it at the end of a turn.',
+  '辺境の村の申し込みを送りました（ターン {0}、{1} ターン前）。世界の進行役がターンの終わりに決めます。マシンの負荷が高いと数十ターン（×60 で数分）かかることがあります。このページは待ち続けます。押し直す必要はありません。': 'The rim village request was sent (turn {0}, {1} turns ago). The world decides it at the end of a turn. On a busy machine this can take tens of turns (a few minutes at ×60). This page keeps waiting; no need to press again.',
   // fix-loop5 L5-6: a clash out of sight under the fog
   'この場所はいま見えていません。ほかの国どうしの衝突の報告は、その場所が見えているあいだだけ開けます。': "This place is out of sight now. A clash between other nations can be opened only while its place is in sight.",
   // fix-loop5 L5-3/L5-5: the boundary card's dropped read
