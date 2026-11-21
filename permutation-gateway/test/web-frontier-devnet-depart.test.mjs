@@ -303,3 +303,57 @@ test('the card: on a wide devnet page the devnet buttons and the preview lines, 
     assert.match(card(), /Keeper A does the rest/);
   } finally { setLang('ja'); }
 });
+
+// ------------------------------------------------------------------ verify-pr129: the preview IS the signed transaction
+// (independent of the page's own decoders: the signed wire is parsed with the SDK's message parser, the Depart's inner
+// bytes at the program's offsets — DEPART_INNER_HEAD 4, host 56, transit slot u8, arrive bell u32 LE, tip u64 LE, commit
+// 32, seal 264 — and the march fee / seal bond read raw from the Season bytes at frontier-abi layout/world.rs MARCH_FEE
+// @280, SEAL_BOND @288, which proc/wide_expedition_exec.rs escrows with the tip; the transit rent is the gateway's
+// getMinimumBalanceForRentExemption(OWNED_BRIDGE_LEN = 304 + 32 = 336), which the program charges via init::rent.)
+test('verify-pr129: every amount and identity in the preview equals the transaction the wallet signs and the gateway sends', async () => {
+  const { parseMessage, COMPUTE_BUDGET_PROGRAM } = await import('../../permutation-server/web/sdk/solana-tx.mjs');
+  const { createHash } = await import('node:crypto');
+  const p = await page(), g = gateway();
+  const s1 = await DD.prepareDevnetDepart(p.fs, deps(p, g));
+  assert.equal(s1.status, 'preview', s1.error);
+  const pv = s1.preview;
+  let shown = null;
+  const s2 = await DD.sendDevnetDepart(p.fs, deps(p, g, { sign: async w => { shown = parseTransaction(Uint8Array.from(w)).message; return signWith(W)(w); } }));
+  assert.equal(s2.status, 'confirmed', s2.error);
+  assert.equal(g.sent.length, 1);
+  const tx = parseTransaction(Buffer.from(g.sent[0], 'base64'));
+  // the wallet was asked to sign exactly the message the gateway sent, and that message is the previewed one
+  assert.equal(Buffer.from(shown).toString('hex'), Buffer.from(tx.message).toString('hex'));
+  assert.equal(createHash('sha256').update(tx.message).digest('hex'), pv.digest);
+  const m = parseMessage(tx.message);
+  assert.equal(m.recentBlockhash, pv.blockhash);
+  assert.equal(m.accountKeys.length, pv.accounts);
+  // one signer = the fee payer = the previewed payer and signer
+  assert.deepEqual(m.signers, [pv.payer]); assert.equal(pv.payer, pv.signer); assert.equal(m.accountKeys[0], pv.payer);
+  assert.equal(tx.signatures.length, 1);
+  // the fee: one signature × 5,000 and a compute-unit price of 0 (no priority fee); no other instruction
+  const budget = m.instructions.filter(ix => ix.programId === COMPUTE_BUDGET_PROGRAM);
+  const price = budget.find(ix => ix.data[0] === 3);
+  assert.ok(price && Buffer.from(price.data).readBigUInt64LE(1) === 0n, 'cu price 0');
+  assert.equal(BigInt(pv.fee), 5000n * BigInt(m.header.numRequiredSignatures));
+  const program = m.instructions.filter(ix => ix.programId !== COMPUTE_BUDGET_PROGRAM);
+  assert.equal(program.length, 1, 'one program instruction (no transfer, nothing else that moves lamports)');
+  assert.equal(program[0].programId, PROGRAM);
+  assert.equal(m.instructions.length, 5);
+  // the Depart's own bytes: tip, arrival bell, transit slot, commit as previewed
+  const d = Buffer.from(program[0].data);
+  assert.deepEqual([...d.subarray(0, 4)], [0xda, 0xff, 2, 0]);
+  const inner = d.subarray(4);
+  assert.equal(inner.length, 369);
+  assert.deepEqual([...inner.subarray(0, 4)], [0xda, 0xff, 1, 6]);
+  assert.equal(inner[60], pv.transitSlot);
+  assert.equal(inner.readUInt32LE(61), pv.arriveBell);
+  assert.equal(inner.readBigUInt64LE(65).toString(), pv.tip);
+  assert.equal(inner.subarray(73, 105).toString('hex'), pv.commit);
+  // the escrow the program takes (tip + Season MARCH_FEE + SEAL_BOND) and the transit rent, read independently
+  const raw = Buffer.from(JSON.parse(readFileSync(new URL('fixtures/frontier/season.json', import.meta.url), 'utf8')).bytes_b64, 'base64');
+  assert.equal(pv.marchFee, raw.readBigUInt64LE(280).toString());
+  assert.equal(pv.sealBond, raw.readBigUInt64LE(288).toString());
+  assert.equal(pv.transitRent, '2357120');   // the stand-in RPC answers getMinimumBalanceForRentExemption(336) only
+  assert.equal(BigInt(pv.total), inner.readBigUInt64LE(65) + raw.readBigUInt64LE(280) + raw.readBigUInt64LE(288) + 5000n + 2357120n);
+});
