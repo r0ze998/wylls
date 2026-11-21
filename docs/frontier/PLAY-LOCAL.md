@@ -522,7 +522,7 @@ The world's operator gives it no privilege and never sees its key. The page show
    `decide()` in `examples/external-resident/rule.mjs` (see that folder's README).
 
    **Workstream ⑬'s own resident** runs the same way, with ⑬'s goals, limits and memory instead of the reference rule
-   (no model, no paid API; `workstreams/13-citizens/resident/local/README.md`):
+   (no model, no paid API; `workstreams/13-citizens/resident/local/README.ja.md`):
 
    ```sh
    node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41920 \

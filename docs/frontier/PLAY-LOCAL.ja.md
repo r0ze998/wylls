@@ -482,7 +482,7 @@ scripts/play-local.sh --coexist --two                   # 保存する世界（�
 
    住民は一歩ごとに JSON を 1 行出します（`discover`、`mcp`、`act` … `landed`／`refused`）。命令はページと同じ 6 つ（Join・PlaceHome・Harvest・Build・Train・Muster）です。どれも自分の鍵で署名し、自分の relay から送ります。運営側の AI 住民と同じく、行動は 1 ターンに 1 回です（Join は数えません。同じターンの 2 回目は `ResidentAlreadyActed`）。あなたのページにはこの上限はありません。自分の AI をつなぐには、`examples/external-resident/rule.mjs` の `decide()` を差し替えます（そのフォルダの README を見てください）。
 
-   **⑬ の住民**も同じように動かせます。参照の規則の代わりに ⑬ の目標・上限・記憶で決めます（モデルも有料 API も使いません。`workstreams/13-citizens/resident/local/README.md`）。
+   **⑬ の住民**も同じように動かせます。参照の規則の代わりに ⑬ の目標・上限・記憶で決めます（モデルも有料 API も使いません。`workstreams/13-citizens/resident/local/README.ja.md`）。
 
    ```sh
    node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41920 \
