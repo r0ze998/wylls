@@ -255,3 +255,159 @@ test('DEVNET LEAK: another nation\'s villages and keeps (an ally included) give 
   assert.ok(src.villages.every(v => v.p === 2 && v.q === 0));
   assert.deepEqual(F.nationSources({ overviews: overviews(), faction: null, terrainOf }), { villages: [], territory: [] }, 'no nation yet: no nation vision');
 });
+
+// ================================================================== verify-pr127: the independent verifier's leak tests
+// (written by the verifier: the surfaces the twelve above do not drive — the gate's edges, the LIVE roster in search and
+//  the inspector, a read Province account's hosts, the feed's keep captures, the keep panel, the reach list's "loading",
+//  an ally's march, the wide-map button, and DEVNET_FOG turned off on a copy of the web tree)
+import * as search from '../../permutation-server/web/frontier/hud/search.mjs';
+import * as feed from '../../permutation-server/web/frontier/hud/feed.mjs';
+import { renderKeep, reachLoading } from '../../permutation-server/web/frontier/screens/conquest.mjs';
+import { identityOf, displayName } from '../../permutation-server/web/frontier/people/identity.mjs';
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const ENEMY_TAG = 'ab'.repeat(32);
+// the live roster (app.mjs rosterRef): it knows every lord of every read ring — the enemy's at (-2, 0) site 4 included
+const liveRoster = () => ({
+  entries: () => [{ p: -2, q: 0, site: 4, tag: ENEMY_TAG }],
+  ownerOf: (p, q, site) => (p === -2 && q === 0 && site === 4 ? { tag: ENEMY_TAG } : null),
+  tierOf: (p, q, site) => (p === -2 && q === 0 && site === 4 ? 3 : null),
+});
+const inSightOfEnemy = () => [...homeAnchors(), sightOn(-2, 0, SITES[4], 2)];
+const recMap = FS => new Map(recsOf(FS.fog.overviews).map(r => [`${r.p},${r.q}`, r]));
+
+test('VERIFY v1: the gate\'s edges — the pin outranks the record, exact cluster name, spectate/practice never, no pin no fog', () => {
+  assert.equal(F.fogModeOf({ pin: { ...PIN, cluster: 'localnet' }, record: { cluster: 'devnet' } }), null, 'a pin saying localnet wins over a record saying devnet');
+  assert.equal(F.fogModeOf({ pin: null, record: { cluster: 'devnet' } }), 'devnet', 'no mode: the play page');
+  assert.equal(F.fogModeOf({ mode: 'spectate', localPlay: { a: 1 }, pin: PIN }), null);
+  assert.equal(F.fogModeOf({ mode: 'play', pin: { ...PIN, cluster: 'Devnet' } }), null, 'only the herald\'s exact cluster name');
+  assert.equal(F.fogModeOf({ mode: 'play' }), null);
+  assert.equal(F.fogActive({ mode: 'play', pin: PIN, devnetPlay: null }), true, 'the gateway\'s devnet play answer is not needed');
+});
+
+test('VERIFY v2: map search finds no unseen enemy lord through the LIVE roster on a devnet page; in sight it does', () => {
+  const q = displayName(identityOf(ENEMY_TAG), { full: true, language: 'en' }).slice(0, 5);
+  const hits = page => search.searchMap(q, { recs: recMap(page.FS), roster: liveRoster(), sitesOf: () => SITES, survey: page.FS.survey }).filter(x => x.kind === 'lord');
+  assert.equal(hits(devnetPage()).length, 0, `"${q}": the lord out of sight is not found`);
+  done();
+  assert.equal(hits(devnetPage({ anchors: inSightOfEnemy() })).length, 1, `"${q}": in sight he is`);
+  done();
+  // nation search: the enemy's lands are not found out of sight
+  const fname = q2 => search.searchMap(q2, { recs: recMap(devnetPage().FS), survey: devnetPage().FS.survey, sitesOf: () => SITES }).filter(x => x.kind === 'faction' && x.p === -2);
+  setLang('ja');
+  assert.deepEqual(fname('国'), []);
+  done();
+});
+
+test('VERIFY v3: the inspector names no lord and no tier for an unseen enemy village even though the live roster knows him', () => {
+  const { FS } = devnetPage({ over: { roster: liveRoster(), selected: { p: -2, q: 0, idx: SITES[4] } } });
+  const m = inspect.inspectModel(FS, terrainOf);
+  assert.equal(m.tile.site?.owner ?? null, null);
+  assert.equal(m.tile.site?.tier ?? null, null);
+  assert.doesNotMatch(JSON.stringify(m), new RegExp(ENEMY_TAG));
+  done();
+  const seen = devnetPage({ anchors: inSightOfEnemy(), over: { roster: liveRoster(), selected: { p: -2, q: 0, idx: SITES[4] } } });
+  const m2 = inspect.inspectModel(seen.FS, terrainOf);
+  assert.notEqual(m2.tile.site?.owner ?? null, null, 'in sight: the lord is named');
+  done();
+});
+
+test('VERIFY v4: a Province account the page read (RPC/herald) shows no other nation\'s host on an unseen tile', () => {
+  const prov = { province: { sites: SITES, siteMirror: [], entries: [{ id: 99n, tile: SITES[4], state: 1, faction: ENEMY, unit: 0, troops: 400000n }] } };
+  const { FS } = devnetPage({ over: { provinces: new Map([['-2,0', prov]]), selected: { p: -2, q: 0, idx: SITES[4] } } });
+  assert.deepEqual(inspect.inspectModel(FS, terrainOf).tile.hosts, []);
+  done();
+  const seen = devnetPage({ anchors: inSightOfEnemy(), over: { provinces: new Map([['-2,0', prov]]), selected: { p: -2, q: 0, idx: SITES[4] } } });
+  assert.equal(inspect.inspectModel(seen.FS, terrainOf).tile.hosts.length, 1, 'in sight: shown');
+  done();
+});
+
+test('VERIFY v5: the feed tells no keep capture out of sight (a capture is "news to everyone" without the fog)', () => {
+  const events = [{ kind: 'keep_taken', seq: 7, bell: 40, p: 0, q: -2, from: ENEMY, to: OTHER }];
+  const { FS } = devnetPage({ over: { conquest: { keeps: keepMap(), events } } });
+  assert.deepEqual([...feed.snapshot(FS, 0).keeps.keys()], [], 'unseen keep (0,-2): no capture news');
+  done();
+  const kt = devnetPage({ anchors: [...homeAnchors(), sightOn(0, -2, 30, 1)], over: { conquest: { keeps: keepMap(), events } } });
+  assert.deepEqual([...feed.snapshot(kt.FS, 0).keeps.keys()], ['keep_taken:7'], 'keep tile in sight: told');
+  done();
+  assert.deepEqual([...feed.snapshot({ ...FS, fog: null }, 0).keeps.keys()], ['keep_taken:7'], 'no fog (a non-devnet page): as before');
+});
+
+test('VERIFY v6: the keep panel of an unseen keep says "not seen yet" — never its holder, troops or "loading"; the reach list never "loading"', () => {
+  setLang('ja');
+  const { FS } = devnetPage({ over: { season: { programVersion: 3, endBell: 1008 }, conquest: { keeps: keepMap(), events: [], keepsPending: 4 } } });
+  const out = String(renderKeep(FS, null));
+  assert.match(out, /まだ見ていません/);
+  assert.doesNotMatch(out, /確認しています/);
+  assert.equal(reachLoading(FS), false, 'nothing unseen is "pending"');
+  done();
+  assert.equal(reachLoading(FS), true, 'without the fog: as before');
+});
+
+test('VERIFY v7: an ally\'s (non-hostile nation\'s) march out of sight is not told — alliances share no vision on devnet', () => {
+  // relations say ENEMY and VIEWER are allied; ENEMY's departure from its unseen home is still unseen
+  const { FS } = devnetPage({ over: { relations: { allied: [[VIEWER, ENEMY]] } } });
+  assert.equal(F.viewRecord(FS.chronicle[1].record), false, 'the ally\'s DEPART');
+  assert.equal(F.viewClash({ p: -2, q: 0, keepTile: 30 }), false, 'the ally\'s clash');
+  const src = F.nationSources({ overviews: overviews(), faction: VIEWER, terrainOf, control: [{ p: -2, q: 0, control: ENEMY }] });
+  assert.ok(src.villages.every(v => !(v.p === -2 && v.q === 0)), 'no anchor at the ally\'s village');
+  assert.equal(FS.fog.incoming([{ bell: 46, holding: { p: 2, q: 0, site: 0 } }], { nowBell: 41, departures: [{ faction: ENEMY, origin_p: -2, origin_q: 0, origin_tile: SITES[4], arrive_bell: 46 }] }).length, 0);
+  done();
+});
+
+test('VERIFY v8: last-known memory keeps a seen enemy keep\'s province owner but never its hosts, and nothing crosses Season accounts', () => {
+  const storage = memStore();
+  const seen = devnetPage({ storage, anchors: inSightOfEnemy() });
+  assert.equal(recMap(seen.FS).get('-2,0').hosts[0], 5, 'in sight: the host count');
+  seen.FS.fog.memory.save();
+  const seenTiles = new Set(); S.remember(seenTiles, seen.sv);
+  done();
+  const later = devnetPage({ storage, seenTiles });
+  const r = recMap(later.FS).get('-2,0');
+  assert.equal(r.fog, 'memory');
+  assert.deepEqual([r.hosts, r.clash], [Array(7).fill(0), false], 'units and clashes only in current vision');
+  done();
+  // the same program and Season id, another Season account: the memory key differs, so nothing is loaded
+  const otherKey = F.fogMemoryKey({ cluster: 'devnet', programId: PIN.programId, seasonId: PIN.seasonId }, 'Wal1', 'Other1111111111111111111111111111111111111');
+  assert.notEqual(otherKey, later.memKey);
+  assert.equal(storage.get(otherKey), null);
+  assert.ok(storage.m.has(later.memKey), 'the save went under this season\'s key');
+  done();
+});
+
+test('VERIFY v9: the wide village card offers no 「記録の地図」 button under the devnet fog (the sheet is unmounted there)', () => {
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/screens/wideholding.mjs', import.meta.url), 'utf8');
+  assert.ok(src.includes("${fogNow().on ? '' : html`<div class=\"actions\"><button type=\"button\" class=\"btn\" data-act=\"wide-map\">"), 'the button is gated on the fog view');
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(app, /'wide-map': \(\) => \{[\s\S]{0,400}wideModeRef\?\.focusHolding/, 'and with the sheet gone the action is a no-op (optional chaining)');
+});
+
+test('VERIFY v10: DEVNET_FOG = false on a copy of the web tree restores the old devnet page exactly; LOCAL_FOG is unaffected', async () => {
+  const root = new URL('../../permutation-server/web/', import.meta.url);
+  const tmp = mkdtempSync(join(tmpdir(), 'v127-'));
+  try {
+    cpSync(root, join(tmp, 'web'), { recursive: true });
+    const fogPath = join(tmp, 'web', 'frontier', 'map', 'fog.mjs');
+    const s = readFileSync(fogPath, 'utf8');
+    assert.ok(s.includes('export const DEVNET_FOG = true;'));
+    writeFileSync(fogPath, s.replace('export const DEVNET_FOG = true;', 'export const DEVNET_FOG = false;'));
+    const F2 = await import(join(tmp, 'web', 'frontier', 'map', 'fog.mjs'));
+    const Leg = await import(join(tmp, 'web', 'frontier', 'map', 'legend.mjs'));
+    const Lang = await import(join(tmp, 'web', 'lang.mjs'));
+    Lang.setLang('ja');
+    assert.equal(F2.fogActive({ mode: 'play', pin: PIN }), false, 'a devnet page: no fog');
+    assert.equal(F2.fogActive({ mode: 'play', localPlay: { a: 1 } }), true, 'a local world: still fogged');
+    assert.match(String(Leg.renderSurveyHelp({ mode: 'play', pin: PIN, holdings: [] })), /spectate\.html/, 'the spectate link is back on the devnet page');
+    // the fogger, handed `active: fogActive(FS)` as app.mjs does, passes the herald's records through untouched
+    const v = F2.createFogger({ storage: memStore() })({ active: F2.fogActive({ mode: 'play', pin: PIN }), survey: surveyOf(homeAnchors()), overviews: overviews(), viewer: VIEWER, terrainOf, memKey: null });
+    assert.equal(v.on, false);
+    assert.equal(F2.viewKeeps(keepMap()).size, 3);
+    assert.equal(F2.viewClash({ p: 0, q: -2, keepTile: 30 }), true);
+    // app.mjs: with the switch off fogWorldPinned returns at once (fogActive false), the settings link is shown, the
+    // memory key is passed the Season account only in the devnet mode (unused without the fog)
+    const app = readFileSync(join(tmp, 'web', 'frontier', 'app.mjs'), 'utf8');
+    assert.match(app, /if \(mode !== 'devnet' \|\| !fogActive\(FS\) \|\| fogWorldLaid === mode\) return;/);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
