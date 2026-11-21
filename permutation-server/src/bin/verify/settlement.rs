@@ -29,9 +29,7 @@ pub fn finalized(ctx: &mut Ctx, state: &WorldState, members: &[MemberAccount]) {
     let p = &f.settlement;
     ctx.report.check(
         "every member's payout recomputed (V5 §7, §18) matches the Season account",
-        f.payouts == season.payouts
-            && f.pool == season.pool
-            && f.bounty_paid == season.bounty_paid,
+        f.payouts == season.payouts && f.pool == season.pool && f.bounty_paid == season.bounty_paid,
         format!(
             "pool {} to {} members{}{}",
             f.pool,

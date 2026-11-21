@@ -96,6 +96,8 @@ pub(crate) fn walk(logs: &[&str], program: Option<&str>) -> Result<Vec<(Record, 
 
 /// `walk`, and the program id of every top-level frame (`invoke [1]`) seen
 /// before the logs were cut, in order.
+// The pair is private and built in one place; a type alias would add a name and no clarity.
+#[allow(clippy::type_complexity)]
 fn frames<'a>(
     logs: &[&'a str],
     program: Option<&str>,
