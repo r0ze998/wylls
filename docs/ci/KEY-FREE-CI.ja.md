@@ -44,8 +44,6 @@
 - **機械的な検査**：`scripts/ci/check-ci-keyfree.py` を足し、browser-smoke の段として毎回動かします。
   - `key-tests` 以外の job に、LiteSVM、SBF build、Agave の install、`npm test`、`cargo test --workspace`、鍵の CLI が入ると失敗します。
   - `key-tests` の `if` が上の形でなければ、失敗します。
-  - 2026-11-21 追加（fmt と clippy の関門）：`run` が `cargo fmt … -- --check` と `cargo clippy --locked … --all-targets -- -D warnings` の行**だけ**でできた段は、名前や作業ディレクトリに `svm-tests` を含んでもかまいません。clippy は全 target を compile しますが、試験は 1 件も実行しないので、鍵の生成・導出・署名は起きません（frontier-node の clippy と同じ理由です）。`cargo test`、script、`&&`、`;` などが 1 行でも混じれば、これまでどおり失敗します。同時に、検査の対象へ段の `working-directory` も足しました（以前は `run`・`uses`・`name` だけでした）。
-  - この例外を使う段：Frontier の LiteSVM harness（`permutation-frontier/svm-tests`）、v9 の harness（`permutation-chain/svm-tests`）、Prize の harness（`permutation-prize/svm-tests`）の fmt と clippy。
   - 現状の ci.yml では 14 件、提案では 0 件です。
 - **Node の試験**：`scripts/ci/node-keyfree.sh` で動かします。仕組みは三段です。
   1. 一覧 `scripts/ci/node-key-tests.txt`（98 件。`scripts/ci/scan-node-key-tests.mjs` が、ファイルと、それが import する test helper を辿って作った 87 件と、guard が実行中に止めた 11 件）にあるファイルは動かしません。

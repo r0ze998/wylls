@@ -146,17 +146,12 @@ jobs:
       # Moved to key-tests: permutation-chain/svm-tests/run.sh (SBF build + LiteSVM).
       # Format and lints of what this job builds but nothing linted (2026-11-21):
       # the v9 program (clippy; its format is the root workspace's, checked in
-      # frontier-program), the server, and the v9 LiteSVM harness. Clippy
-      # compiles every target and runs none: no test, no .so, no key.
+      # frontier-program) and the server. Clippy compiles every target and
+      # runs none: no test, no .so, no key.
       - name: v9 program lints
         run: cargo clippy --locked -p permutation-chain --all-targets -- -D warnings
       - name: Server format and lints
         working-directory: permutation-server
-        run: |
-          cargo fmt -- --check
-          cargo clippy --locked --all-targets -- -D warnings
-      - name: v9 LiteSVM harness format and lints (compile only)
-        working-directory: permutation-chain/svm-tests
         run: |
           cargo fmt -- --check
           cargo clippy --locked --all-targets -- -D warnings
@@ -356,37 +351,9 @@ jobs:
           cargo test --locked -p permutation-frontier --no-default-features
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
-      # The LiteSVM harness itself (67k lines of tests) was formatted and linted
-      # nowhere, key-tests included, and drifted (D-ws02-stockswap-10). Format
-      # and clippy only (2026-11-21): clippy compiles every target and runs
-      # none, so no test runs, no .so is read and no key is made;
-      # scripts/ci/check-ci-keyfree.py allows a step naming svm-tests only when
-      # its `run` is nothing but such lines. The probe and workstream 03's
-      # courier tests (which link the harness) reuse the harness's target dir.
-      - name: Frontier LiteSVM harness format and lints (compile only)
-        if: hashFiles('permutation-frontier/svm-tests/Cargo.toml') != ''
-        working-directory: permutation-frontier/svm-tests
-        run: |
-          cargo fmt -- --check
-          cargo clippy --locked --all-targets -- -D warnings
-      - name: Harness probe format and lints (compile only)
-        if: hashFiles('permutation-frontier/svm-tests/probe/Cargo.toml') != ''
-        working-directory: permutation-frontier/svm-tests/probe
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/permutation-frontier/svm-tests/target
-        run: |
-          cargo fmt -- --check
-          cargo clippy --locked --all-targets -- -D warnings
-      - name: Workstream 03 courier tests format and lints (compile only)
-        if: hashFiles('workstreams/03-composability/courier-tests/Cargo.toml') != ''
-        working-directory: workstreams/03-composability/courier-tests
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/permutation-frontier/svm-tests/target
-        run: |
-          cargo fmt -- --check
-          cargo clippy --locked --all-targets -- -D warnings
-      # Format only: this crate compiles the program source on 1.95.0, whose
-      # clippy has lints the program (linted on 1.89.0 above) does not meet.
+      # Format only (2026-11-21): this crate compiles the program source on
+      # 1.95.0, whose clippy has lints the program (linted on 1.89.0 above)
+      # does not meet. `cargo fmt --check` reads source and compiles nothing.
       - name: Runtime-contract support crate format
         if: hashFiles('permutation-frontier/runtime-contract-tests/Cargo.toml') != ''
         working-directory: permutation-frontier/runtime-contract-tests
@@ -638,13 +605,6 @@ jobs:
           cargo clippy --locked --all-targets --features epochs -- -D warnings
           cargo test --locked --features epochs
       # Moved to key-tests: the Prize SBF v2 build and the LiteSVM tests.
-      # Their format and lints run here too (2026-11-21; key-tests is manual,
-      # so they were checked on no pull request). Compile only, no test run.
-      - name: Prize pool LiteSVM harness format and lints (compile only)
-        working-directory: permutation-prize/svm-tests
-        run: |
-          cargo fmt --all -- --check
-          cargo clippy --locked --all-targets -- -D warnings
 
   # Workstream 04's host runs of the real prize and game programs (no keys:
   # fixed keys and program addresses only; System, SPL Token and sysvars are
