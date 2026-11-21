@@ -61,6 +61,8 @@ pub struct LandIndex {
     pub owes: BTreeSet<Address>,
     /// Provinces opened.
     pub provinces: BTreeSet<(i16, i16)>,
+    /// P9: wide provinces `(P, Q)` named by an accounted PSW1 record (the `wide-resolve` role's set).
+    pub wide_provinces: BTreeSet<(i64, i64)>,
     /// Records ingested, by kind (status).
     pub counts: BTreeMap<&'static str, u64>,
     /// Records that did not decode.
@@ -176,6 +178,8 @@ impl LandIndex {
             };
             // (P8: PSW1 records accounted for, never applied to this index)
             self.feed.account_wide(&bodies.wide);
+            self.wide_provinces
+                .extend(bodies.wide_provinces.iter().copied());
             // (P10: an expedition's settlement may raise its rim Holding's `pool_owed` with no TRANSIT_SETTLED)
             for f in &bodies.expedition {
                 if let crate::feedguard::ExpeditionFact::Settled { holding, .. }

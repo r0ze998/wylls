@@ -46,6 +46,7 @@ import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
 import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
 import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
+import { devnetDepartOf } from '../fdevnet-depart.mjs';
 import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
 import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
 import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
@@ -556,6 +557,43 @@ function outboundLocalDepart(FS, ready) {
 }
 
 /**
+ * Devnet play only (FS.devnetPlay on a wide devnet season, never local play; fdevnet-depart.mjs): the boundary card's
+ * departure signed by the player's connected wallet. Two presses: 「送る内容を確認」 seals and shows the transaction
+ * (who pays, the fee, the tip and bond escrowed, the total, the arrival turn, the destination); 「ウォレットで署名して送る」
+ * has the wallet sign exactly that and sends it once. An unknown outcome is said as unknown, with the status look-up.
+ */
+function outboundDevnetDepart(FS, ready) {
+  if (FS.localPlay || !FS.devnetPlay || !FS.devnetWide) return '';
+  const d = devnetDepartOf(FS), sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', p = d.preview;
+  const step = { sealing: L`封をしています…`, preparing: L`送る取引を組み立てています…`, signing: L`ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
+  const line = step ? html`<p class="pop-line devnet-depart-step" role="status">${step}</p>`
+    : d.status === 'confirmed' ? html`<p class="pop-line devnet-depart-done" role="status">${L`出発が確定しました（ターン ${d.arriveBell} に到着予定・移動枠 ${d.transitSlot}）。署名 ${sig}`}</p>
+        <p class="pop-line devnet-depart-keeper">${L`このあとの手順（公開ラウンドでの封の開封・到着先の解決・集結・結果の受け取り）は keeper A が行います。封の中身はこのブラウザに暗号化して保管しています。`}</p>`
+    : d.status === 'submitted' ? html`<p class="pop-line devnet-depart-sent" role="status">${L`送信しました。確定はまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line devnet-depart-failed" role="alert">${L`出発は失敗しました（理由 ${d.code ?? '?'}）。軍勢は出発していません。署名 ${sig}`}</p>`
+    : d.status === 'unknown' ? html`<p class="pop-line devnet-depart-unknown" role="alert">${L`結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'error' ? html`<p class="pop-line devnet-depart-error" role="alert">${L`出発できませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const preview = p && ['preview', 'signing', 'submitting', 'submitted', 'unknown', 'confirmed', 'failed'].includes(d.status) ? html`<div class="devnet-depart-preview" role="status">
+    <p class="pop-line">${L`送る取引：境界への出発（ExpeditionDepart）・署名者はこのウォレットだけ`}</p>
+    <p class="pop-line">${L`支払うウォレット`}: <span style="overflow-wrap:anywhere">${p.payer}</span></p>
+    <p class="pop-line">${L`手数料 ${p.fee} lamports・チップ ${p.tip}・行軍料 ${p.marchFee}・封の保証金 ${p.sealBond}（チップ以下は村に預けられます）`}</p>
+    <p class="pop-line">${L`行軍記録の賃料 ${p.transitRent} lamports（このウォレットから、行軍記録が預かります）`}</p>
+    <p class="pop-line">${L`最大の支払い ${p.total} lamports`}</p>
+    <p class="pop-line">${L`到着ターン ${p.arriveBell}・行き先 ${p.destination ? `${p.destination.p},${p.destination.q}` : '?'}・アカウント ${p.accounts}`}</p>
+    <p class="pop-line" style="overflow-wrap:anywhere">${L`取引の要約`}: ${p.digest}</p></div>` : '';
+  const settle = d.status === 'unknown' || d.status === 'submitted', off = d.busy ? 'aria-disabled="true"' : '';
+  const foot = settle ? html`<button type="button" class="btn small" data-act="outbound-devnet-reconcile" ${raw(off)}>${L`状況を確かめる`}</button>`
+    : d.status === 'preview' ? html`<button type="button" class="btn primary" data-act="outbound-devnet-send" ${raw(off)}>${L`ウォレットで署名して送る`}</button>
+        <button type="button" class="btn small" data-act="outbound-devnet-clear" ${raw(off)}>${L`やめる`}</button>`
+    : ['confirmed', 'failed', 'error'].includes(d.status) ? html`<button type="button" class="btn small" data-act="outbound-devnet-clear" ${raw(off)}>${L`閉じる`}</button>`
+    : html`<button type="button" class="btn primary" data-act="outbound-devnet-preview" ${raw(d.busy || !ready ? 'aria-disabled="true"' : '')}>${d.busy ? L`用意しています…` : L`送る内容を確認`}</button>
+        ${!ready && !d.busy ? html`<span>${L`先に「地形・時間を確認」で道と到着ターンを確かめてください。`}</span>` : ''}`;
+  return html`<div class="outbound-devnet-depart"><p class="pop-line">${L`devnet：この軍勢を、接続中のウォレットの署名で境界の外へ出発させます。手数料・チップ・保証金はこのウォレットが払います。`}</p>
+    ${preview}${line}
+    <div class="pop-foot">${foot}</div></div>`;
+}
+
+/**
  * Local play only (FS.localPlay; flocalplay-reveal.mjs): the explicit opening of a seal this page holds, for a
  * departure the test world confirmed. Two presses: 確認 (a read; nothing is signed) and then 封を開く. Empty when the
  * page holds no such seal and nothing was asked. What it says at the end is only that the opening is recorded:
@@ -667,6 +705,8 @@ function outboundPop(FS, model) {
   let pick = null;
   try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
   const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
+  // (devnet play on a wide season: the keyless departure-conditions read is local play's; the devnet card has its own)
+  const devnetCard = !FS.localPlay && !!FS.devnetPlay && !!FS.devnetWide;
   const points = outboundSketch(directions).map(p => ({ x: p.q + p.r / 2, y: p.r * Math.sqrt(3) / 2 }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const left = Math.min(...xs) - 1, top = Math.min(...ys) - 1, width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
@@ -685,11 +725,12 @@ function outboundPop(FS, model) {
     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
     ${outboundEndpointLine(endpoint, FS.localPlay?.wideLand?.targets)}
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
-      <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
+      ${devnetCard ? '' : html`<button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button>`}</div>
     ${s.dropped && !s.routeCheck && !s.contextCheck ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
     ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
     ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
     ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
+    ${outboundDevnetDepart(FS, !!review && s.routeCheck?.status === 'read' && s.routeCheck.report?.ok === true)}
     ${localRevealStrip(FS)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
     <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
