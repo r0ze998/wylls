@@ -200,8 +200,8 @@ mod p10 {
     use super::*;
     use keeper_core::feedguard::ExpeditionFact as F;
 
-    /// The expedition kinds a playable-lane keeper applies (0..=11) and the
-    /// conquest kinds that still latch it (12..=18, PS2 145 / PSW1 18–24 / PSWC).
+    /// The expedition kinds a playable-lane keeper applies (0..=11); the
+    /// conquest kinds 12..=18 are applied too since P14 (option a, module `p14`).
     const APPLIED: [&str; 12] = [
         "Depart",
         "SettleOrigin",
@@ -233,7 +233,7 @@ mod p10 {
     }
 
     #[test]
-    fn every_real_expedition_transaction_is_applied_and_every_conquest_one_still_latches() {
+    fn every_real_expedition_and_conquest_transaction_is_applied() {
         let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
         for (a, k, t) in real_expedition_txs() {
             let scope = WideScope::of(&a).expect("a playable-lane scope");
@@ -283,10 +283,19 @@ mod p10 {
                     assert!(land.owes.contains(holding), "{k}: pool_owed re-read");
                 }
             } else {
-                assert!(got.is_err(), "{k} (conquest) still latches: {got:?}");
+                // P14 (a): the conquest kinds no longer latch (the exact facts: module `p14`)
+                let b = got.unwrap_or_else(|e| panic!("{k} (seq {}): {e}", t.seq));
+                assert!(b.expedition.is_empty(), "{k}");
+                assert_eq!(b.conquest.len(), 1, "{k}: one fact per wrapper instruction");
                 let mut land = LandIndex::default();
+                let mut play = PlayIndex::default();
                 land.ingest_page(std::slice::from_ref(&t), &a);
-                assert!(land.feed.blocked().is_some(), "{k}: latches");
+                play.ingest_page(std::slice::from_ref(&t), &a);
+                assert!(
+                    land.feed.blocked().is_none() && play.feed.blocked().is_none(),
+                    "{k}"
+                );
+                assert_eq!((land.cursor, play.cursor), (Cursor(t.seq), Cursor(t.seq)));
             }
             *seen.entry(k).or_default() += 1;
         }
@@ -297,7 +306,7 @@ mod p10 {
 
     /// The whole main recording through the play index: the expedition is tracked
     /// from its Depart (with the Depart's and the Reveal's wire) to its member
-    /// settlement; nothing latches before the conquest kinds start.
+    /// settlement; nothing latches, the conquest that follows included (P14).
     #[test]
     fn the_play_index_tracks_the_real_expedition_from_depart_to_settlement() {
         let r = load("playable-expedition-whole.json.gz");
@@ -331,9 +340,10 @@ mod p10 {
             *ext,
             keeper_core::expedition_steps::external_of(&r.addrs, &e.holding, e.slot)
         );
-        // the conquest that follows latches the guard, as before
+        // P14 (a): the conquest that follows no longer latches the guard
         play.ingest_page(&r.txs[first_conquest..], &r.addrs);
-        assert!(play.feed.blocked().is_some());
+        assert!(play.feed.blocked().is_none(), "{:?}", play.feed.blocked());
+        assert_eq!(play.cursor, Cursor(r.txs.last().unwrap().seq));
     }
 
     /// Unpaired, forged, truncated, re-scoped and foreign expedition records latch.
@@ -453,9 +463,7 @@ mod p10 {
             tr.logs.insert(i + 1, "Log truncated".into());
             refused(&a, &tr, &format!("{k}: truncated log"));
         }
-        // PS2 145 (the conquest's legacy source receipt) still latches, with or without a pair
-        let (a, _, t) = pick("DeclareSiege");
-        refused(&a, &t, "DeclareSiege (PS2 145)");
+        // (PS2 145 is read with its pair since P14: its mutations are module `p14`'s)
         // a PS2 146 body under the PSW1 tag, and a PSW1 25 body under the PS2 tag
         let (a, _, t) = pick("Depart");
         let (i, _, body) = data_lines(&t)
@@ -487,5 +495,508 @@ mod p10 {
             b.expedition.is_empty() && b.ps2.is_empty(),
             "another program's records are never applied"
         );
+    }
+}
+
+/// Devnet gap P14, option (a): the Free City conquest records of the wrapper's
+/// kinds 12–18, over the REAL logs of the pinned `.so` (and, for the variants no
+/// recording carries, bodies built by the ABI's own encoders from real ones).
+#[cfg(feature = "playable-lane")]
+mod p14 {
+    use super::*;
+    use frontier_abi::world_index::event::{
+        self as ev, WideEntity, WideKind, WideLink, WideRecord,
+    };
+    use keeper_core::feedguard::{ConquestFact as C, ConquestSource as Src};
+
+    const CONQUEST: [&str; 7] = [
+        "DeclareSiege",
+        "ResolveWithConquest",
+        "SettleCapture",
+        "SettleSiege",
+        "CloseConquest",
+        "CloseCaptureEscrow",
+        "SettleReservation",
+    ];
+
+    fn conquest_txs() -> Vec<(Addresses, &'static str, TxRecord)> {
+        real_expedition_txs()
+            .into_iter()
+            .filter(|(_, k, _)| CONQUEST.contains(k))
+            .collect()
+    }
+
+    fn pick(k: &str) -> (Addresses, TxRecord) {
+        conquest_txs()
+            .into_iter()
+            .find(|(_, kk, _)| *kk == k)
+            .map(|(a, _, t)| (a, t))
+            .unwrap_or_else(|| panic!("{k} in the recordings"))
+    }
+
+    fn facts(a: &Addresses, t: &TxRecord) -> Result<Vec<C>, String> {
+        let scope = WideScope::of(a).unwrap();
+        feedguard::bodies_scoped(t, &a.program, Some(&scope)).map(|b| b.conquest)
+    }
+
+    /// Refused by the reader, and both indexes latch on it without applying anything.
+    fn latches(a: &Addresses, t: &TxRecord, what: &str) {
+        assert!(
+            facts(a, t).is_err(),
+            "{what}: refused, got {:?}",
+            facts(a, t)
+        );
+        let mut land = LandIndex::default();
+        let mut play = PlayIndex::default();
+        land.ingest_page(std::slice::from_ref(t), a);
+        play.ingest_page(std::slice::from_ref(t), a);
+        assert!(
+            land.feed.blocked().is_some() && play.feed.blocked().is_some(),
+            "{what}: latches"
+        );
+        assert_eq!(play.cursor, Cursor(0), "{what}: not applied");
+        assert!(play.touched.is_empty(), "{what}: nothing applied");
+    }
+
+    /// The `(tag, kind)` shape of a transaction's program records.
+    fn shape(t: &TxRecord) -> Vec<(String, u8)> {
+        data_lines(t)
+            .into_iter()
+            .map(|(_, tag, b)| (String::from_utf8_lossy(&tag).into_owned(), b[1]))
+            .collect()
+    }
+
+    /// Step 1 of the brief, as the REAL `.so` logs them: each reachable conquest kind's
+    /// records (the shapes the reader is built on), and the facts the reader makes of them.
+    #[test]
+    fn every_real_conquest_kind_logs_the_documented_records_and_is_read_exactly() {
+        let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+        for (a, k, t) in conquest_txs() {
+            let s = shape(&t);
+            let s: Vec<(&str, u8)> = s.iter().map(|(t, b)| (t.as_str(), *b)).collect();
+            let f = facts(&a, &t).unwrap_or_else(|e| panic!("{k} (seq {}): {e}", t.seq));
+            assert_eq!(f.len(), 1, "{k}");
+            match (k, s.as_slice(), &f[0]) {
+                // the legacy rim host's siege: PSW1 18 then its PS2 145 debit
+                (
+                    "DeclareSiege",
+                    [("PSW1", 18), ("PS2", 145)],
+                    C::Declared {
+                        source: Src::Legacy { .. },
+                        ..
+                    },
+                ) => {}
+                ("ResolveWithConquest", [("PSW1", 20)], C::Resolved { .. }) => {}
+                (
+                    "SettleCapture",
+                    [("PSW1", 22), ("PS2", 145)],
+                    C::Captured {
+                        credit: Some(Src::Legacy { .. }),
+                        ..
+                    },
+                ) => {}
+                // FAILED (the host left): no credit
+                (
+                    "SettleSiege",
+                    [("PSW1", 21)],
+                    C::Settled {
+                        province: Some(_),
+                        action: 3,
+                        credit: None,
+                    },
+                ) => {}
+                // the NOT_APPLIED reservation of a host that left: nothing to return
+                (
+                    "SettleReservation",
+                    [("PSW1", 21)],
+                    C::Settled {
+                        province: Some(_),
+                        action: 9,
+                        credit: None,
+                    },
+                ) => {}
+                ("CloseConquest", [("PSW1", 24)], C::TableClosed { .. }) => {}
+                ("CloseCaptureEscrow", [("PSWC", _)], C::EscrowClosed { .. }) => {}
+                other => panic!("unexpected {k}: {other:?}"),
+            }
+            // the legacy source's home is re-read; a wide-only record touches nothing legacy
+            let mut play = PlayIndex::default();
+            play.ingest_page(std::slice::from_ref(&t), &a);
+            match f[0].legacy_home() {
+                Some(home) => assert!(play.touched.contains(&home), "{k}: home re-read"),
+                None => assert!(play.touched.is_empty(), "{k}: {:?}", play.touched),
+            }
+            assert!(
+                play.feed.wide_accounted().contains_key(f[0].name()),
+                "{k}: counted"
+            );
+            *seen.entry(k).or_default() += 1;
+        }
+        for k in CONQUEST {
+            assert!(seen.contains_key(k), "{k} seen: {seen:?}");
+        }
+        // the DeclareSiege of a reservation behind the cursor is a RESERVE (action 8) Declared
+        let reserves = conquest_txs()
+            .into_iter()
+            .filter_map(|(a, k, t)| (k == "DeclareSiege").then(|| facts(&a, &t).unwrap()))
+            .filter(|f| matches!(f[0], C::Declared { reserve: true, .. }))
+            .count();
+        assert!(reserves >= 1, "the recordings' reservation");
+    }
+
+    fn line(t: &TxRecord, tag: &[u8], kind: u8) -> (usize, Vec<u8>) {
+        data_lines(t)
+            .into_iter()
+            .find(|(_, tt, b)| tt == tag && b[1] == kind)
+            .map(|(i, _, b)| (i, b))
+            .unwrap()
+    }
+
+    // ---- mutations: each must latch (≥ 8 named ones below, plus the byte sweeps)
+
+    #[test]
+    fn m1_a_declare_siege_without_its_debit_latches() {
+        let (a, t) = pick("DeclareSiege");
+        let (i, _) = line(&t, b"PS2", 145);
+        let mut m = t.clone();
+        m.logs.remove(i);
+        latches(&a, &m, "DeclareSiege without PS2 145");
+    }
+
+    #[test]
+    fn m2_a_source_record_alone_latches() {
+        let (a, t) = pick("DeclareSiege");
+        let (i, _) = line(&t, b"PSW1", 18);
+        let mut m = t.clone();
+        m.logs.remove(i);
+        latches(&a, &m, "PS2 145 without its target");
+        // and a source record twice (the second one alone)
+        let (j, _) = line(&t, b"PS2", 145);
+        let mut m = t.clone();
+        m.logs.insert(j + 1, t.logs[j].clone());
+        latches(&a, &m, "PS2 145 twice");
+    }
+
+    #[test]
+    fn m3_the_pair_swapped_latches() {
+        let (a, t) = pick("SettleCapture");
+        let (i, ti) = line(&t, b"PSW1", 22);
+        let (j, sj) = line(&t, b"PS2", 145);
+        let m = with_line(&with_line(&t, i, b"PS2", &sj), j, b"PSW1", &ti);
+        latches(&a, &m, "SettleCapture's pair swapped");
+    }
+
+    #[test]
+    fn m4_a_source_of_the_wrong_direction_latches() {
+        // a DECLARE receipt's source marked Credit (byte 7): no longer a debit
+        let (a, t) = pick("DeclareSiege");
+        let (j, mut b) = line(&t, b"PS2", 145);
+        assert_eq!(b[7], 1, "Debit");
+        b[7] = 2;
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "a Credit under DeclareSiege",
+        );
+        // and the capture's credit marked Debit
+        let (a, t) = pick("SettleCapture");
+        let (j, mut b) = line(&t, b"PS2", 145);
+        assert_eq!(b[7], 2, "Credit");
+        b[7] = 1;
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "a Debit under SettleCapture",
+        );
+    }
+
+    #[test]
+    fn m5_a_source_of_another_operation_or_bell_latches() {
+        // the DeclareSiege's debit under the capture's target: another receipt
+        let (a, t) = pick("SettleCapture");
+        let (_, d) = pick("DeclareSiege");
+        let (_, debit) = line(&d, b"PS2", 145);
+        let (j, _) = line(&t, b"PS2", 145);
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &debit),
+            "another operation's source",
+        );
+        // the debit with its bell moved by one (its own receipt kept)
+        let (a, t) = pick("DeclareSiege");
+        let (j, mut b) = line(&t, b"PS2", 145);
+        let bell = u32::from_le_bytes(b[2..6].try_into().unwrap()) + 1;
+        b[2..6].copy_from_slice(&bell.to_le_bytes());
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "the source at another bell",
+        );
+    }
+
+    #[test]
+    fn m6_a_source_holding_that_is_not_the_hosts_latches() {
+        let (a, t) = pick("DeclareSiege");
+        let (j, mut b) = line(&t, b"PS2", 145);
+        b[66] ^= 0x01; // the holding address
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &b),
+            "a non-canonical source holding",
+        );
+        let (j, mut b) = line(&t, b"PS2", 145);
+        b[200] ^= 0x01; // the chain seq: still decodes (not verified here), the SAME fact
+        let f = facts(&a, &with_line(&t, j, b"PS2", &b)).unwrap();
+        assert!(matches!(f[0], C::Declared { .. }));
+        let mut z = line(&t, b"PS2", 145).1;
+        z[200..208].copy_from_slice(&0u64.to_le_bytes()); // seq 0: no chain
+        latches(
+            &a,
+            &with_line(&t, j, b"PS2", &z),
+            "a source with chain seq 0",
+        );
+    }
+
+    #[test]
+    fn m7_a_record_with_no_source_followed_by_one_latches() {
+        // a FAILED settlement credited, a ResolveWithConquest with a source, a CloseConquest with one
+        let (_, cap) = pick("SettleCapture");
+        let (_, credit) = line(&cap, b"PS2", 145);
+        for k in [
+            "SettleSiege",
+            "ResolveWithConquest",
+            "CloseConquest",
+            "CloseCaptureEscrow",
+        ] {
+            let (a, t) = pick(k);
+            let i = data_lines(&t).last().unwrap().0;
+            let mut m = t.clone();
+            m.logs.insert(
+                i + 1,
+                format!("Program data: {} {}", b64(b"PS2"), b64(&credit)),
+            );
+            latches(&a, &m, &format!("{k} followed by a credit"));
+        }
+    }
+
+    #[test]
+    fn m8_conquest_records_of_another_season_latch() {
+        for k in CONQUEST {
+            let (a, t) = pick(k);
+            let other = Addresses::new(a.program, a.season_id + 1);
+            latches(&other, &t, &format!("{k} read in another Season"));
+        }
+    }
+
+    #[test]
+    fn m9_truncated_trailing_and_retagged_conquest_records_latch() {
+        for k in CONQUEST {
+            let (a, t) = pick(k);
+            for (i, tag, body) in data_lines(&t) {
+                for cut in [1usize, 2, body.len() / 2, body.len() - 1] {
+                    latches(
+                        &a,
+                        &with_line(&t, i, &tag, &body[..cut]),
+                        &format!("{k}: a {cut}-byte prefix"),
+                    );
+                }
+                let mut long = body.clone();
+                long.push(0);
+                latches(
+                    &a,
+                    &with_line(&t, i, &tag, &long),
+                    &format!("{k}: a trailing byte"),
+                );
+                // under another record format
+                let other: &[u8] = if tag == b"PSW1" { b"PS2" } else { b"PSW1" };
+                latches(
+                    &a,
+                    &with_line(&t, i, other, &body),
+                    &format!("{k}: retagged"),
+                );
+                let mut tr = t.clone();
+                tr.logs.insert(i + 1, "Log truncated".into());
+                latches(&a, &tr, &format!("{k}: truncated log"));
+            }
+        }
+    }
+
+    #[test]
+    fn m10_single_byte_flips_are_refused_or_read_as_the_same_fact() {
+        let mut refused = 0;
+        let mut total = 0;
+        for k in CONQUEST {
+            let (a, t) = pick(k);
+            let want = facts(&a, &t).unwrap();
+            for (i, tag, body) in data_lines(&t) {
+                for j in (0..body.len()).step_by(3) {
+                    let mut b = body.clone();
+                    b[j] ^= 0x01;
+                    total += 1;
+                    match facts(&a, &with_line(&t, i, &tag, &b)) {
+                        Err(_) => refused += 1,
+                        // (a byte no codec binds — a chain head, a link seq, an outcome digest — keeps the
+                        //  fact's kind and every identity it names)
+                        Ok(f) => assert_eq!(
+                            std::mem::discriminant(&f[0]),
+                            std::mem::discriminant(&want[0]),
+                            "{k} byte {j}"
+                        ),
+                    }
+                }
+            }
+        }
+        assert!(refused * 2 > total, "most flips refused: {refused}/{total}");
+    }
+
+    /// A WIDE source (PSW1 19 debit / 23 credit) and the unchained PSWR: no recording
+    /// carries them (every recorded siege's source is the rim host's legacy Holding, every
+    /// reservation settled while its province was open), so they are built here by the ABI's
+    /// own encoder from real records: the receipt and bell of the real target, the key of the
+    /// real captured WIDE holding (PSW1 22).
+    #[test]
+    fn m11_wide_sources_and_pswr_built_from_real_records() {
+        let (a, cap) = pick("SettleCapture");
+        let (ci, captured) = line(&cap, b"PSW1", 22);
+        let w22 = WideRecord::decode(&captured).unwrap();
+        let wide_key = w22.key.to_vec(); // a wide holding ref, sequence 0
+        let link = [WideLink {
+            entity: WideEntity::Holding,
+            seq: 7,
+            head: [9; 32],
+        }];
+        let rec =
+            |kind, bell, payload: &[u8]| ev::encode(kind, bell, &wide_key, payload, &link).unwrap();
+        // the capture credited to a WIDE source: PSW1 22 + PSW1 23
+        let (j, _) = line(&cap, b"PS2", 145);
+        let credit = rec(WideKind::ConquestCredited, w22.bell, w22.payload);
+        let m = with_line(&cap, j, b"PSW1", &credit);
+        let f = facts(&a, &m).unwrap();
+        assert!(
+            matches!(
+                f[0],
+                C::Captured {
+                    credit: Some(Src::Wide { .. }),
+                    ..
+                }
+            ),
+            "{f:?}"
+        );
+        assert_eq!(
+            f[0].legacy_home(),
+            None,
+            "a wide source touches nothing legacy"
+        );
+        // ... with a DEBITED record instead (the wrong direction), another bell, another receipt
+        let (_, decl) = pick("DeclareSiege");
+        let (_, d18) = line(&decl, b"PSW1", 18);
+        let w18 = WideRecord::decode(&d18).unwrap();
+        // (the encoder refuses a receipt of the wrong action for the kind: those two by byte edits)
+        let mut debited = credit.clone();
+        debited[1] = WideKind::ConquestDebited as u8;
+        let mut other_receipt = credit.clone();
+        other_receipt[56 + 6..56 + 6 + 100].copy_from_slice(w18.payload);
+        for (what, body) in [
+            ("a Debited credit", debited),
+            (
+                "another bell",
+                rec(WideKind::ConquestCredited, w22.bell + 1, w22.payload),
+            ),
+            ("another receipt", other_receipt),
+        ] {
+            latches(&a, &with_line(&cap, j, b"PSW1", &body), what);
+        }
+        // a Credited record as a target, alone
+        let mut alone = cap.clone();
+        alone.logs[ci] = format!("Program data: {} {}", b64(b"PSW1"), b64(&credit));
+        alone.logs.remove(j);
+        latches(&a, &alone, "PSW1 23 alone");
+        // the siege declared from a WIDE source: PSW1 18 + PSW1 19
+        let (a, decl) = pick("DeclareSiege");
+        let (j, _) = line(&decl, b"PS2", 145);
+        let debit = rec(WideKind::ConquestDebited, w18.bell, w18.payload);
+        let f = facts(&a, &with_line(&decl, j, b"PSW1", &debit)).unwrap();
+        assert!(
+            matches!(
+                f[0],
+                C::Declared {
+                    source: Src::Wide { .. },
+                    ..
+                }
+            ),
+            "{f:?}"
+        );
+
+        // PSWR: version 1, Season, table, seq, bell, a RESERVATION_REFUND receipt
+        let (a, res) = pick("SettleReservation");
+        let (ri, r21) = line(&res, b"PSW1", 21);
+        let w21 = WideRecord::decode(&r21).unwrap();
+        let pswr = |season: &[u8], payload: &[u8]| {
+            let mut b = vec![1u8];
+            b.extend_from_slice(season);
+            b.extend_from_slice(&[0x33; 32]);
+            b.extend_from_slice(&1u32.to_le_bytes());
+            b.extend_from_slice(&w21.bell.to_le_bytes());
+            b.extend_from_slice(payload);
+            b
+        };
+        let ok = with_line(&res, ri, b"PSWR", &pswr(&a.season.to_bytes(), w21.payload));
+        let f = facts(&a, &ok).unwrap();
+        assert!(
+            matches!(
+                f[0],
+                C::Settled {
+                    province: None,
+                    action: 9,
+                    credit: None
+                }
+            ),
+            "{f:?}"
+        );
+        latches(
+            &a,
+            &with_line(&res, ri, b"PSWR", &pswr(&[7; 32], w21.payload)),
+            "PSWR of another Season",
+        );
+        latches(
+            &a,
+            &with_line(&res, ri, b"PSWR", &pswr(&a.season.to_bytes(), w18.payload)),
+            "PSWR with a DECLARE receipt",
+        );
+    }
+
+    /// The whole siege recording through both indexes: nothing latches from its first
+    /// transaction to its last, and every conquest kind is counted.
+    #[test]
+    fn the_whole_siege_and_closes_recordings_never_latch() {
+        for name in [
+            "playable-cov-siege.json.gz",
+            "playable-cov-closes.json.gz",
+            "playable-expedition-whole.json.gz",
+        ] {
+            let r = load(name);
+            let mut land = LandIndex::default();
+            let mut play = PlayIndex::default();
+            land.ingest_page(&r.txs, &r.addrs);
+            play.ingest_page(&r.txs, &r.addrs);
+            assert!(
+                land.feed.blocked().is_none(),
+                "{name}: {:?}",
+                land.feed.blocked()
+            );
+            assert!(
+                play.feed.blocked().is_none(),
+                "{name}: {:?}",
+                play.feed.blocked()
+            );
+            let last = Cursor(r.txs.last().unwrap().seq);
+            assert_eq!((land.cursor, play.cursor), (last, last), "{name}");
+            let acc = play.feed.wide_accounted();
+            assert!(
+                (acc.contains_key("CONQUEST_DECLARED") || acc.contains_key("CONQUEST_RESERVED"))
+                    && acc.contains_key("CONQUEST_RESOLVED"),
+                "{name}: {acc:?}"
+            );
+        }
     }
 }
