@@ -130,7 +130,13 @@ export function villageInUse(h) {
   if ((h.reserve ?? []).some(n => Number(n) > 0)) return true;
   if ((h.queue ?? []).some(q => q && Number(q.doneAt ?? 0) > 0)) return true;
   if ((h.transit ?? []).some(t => t && Number(t.state ?? 0) !== 0)) return true;
-  try { return BUILD_ITEMS.some(b => b.cost && copyNumber(h, b.item) > 1); } catch { return false; }
+  // (loop-play7: on S1 a mine is told from the ore above the village's TERRAIN ore. While the terrain is not read yet
+  //  (seasonBase null), copyNumber falls back to the tier's base and counted a fresh village with terrain ore (+30/h)
+  //  as holding several mines: the first-village welcome card never stood. A resource whose base is unknown is skipped.)
+  try {
+    const tier = Number(h.tier ?? 0), base = seasonBase(baseProduction(tier), h, { bonusPct: TIER_BONUS_PCT[tier] ?? 0 });
+    return BUILD_ITEMS.some(b => b.cost && base[RESOURCE_ORDER.indexOf(b.resource)] !== null && copyNumber(h, b.item) > 1);
+  } catch { return false; }
 }
 
 /** The number of the copy the next Build of `item` (0–5) makes: built (production above the tier's base) + queued + 1. */

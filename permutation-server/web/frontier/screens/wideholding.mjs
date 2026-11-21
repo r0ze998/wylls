@@ -19,7 +19,7 @@ import { html } from '../../util.mjs';
 import { fogNow } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { RESOURCES, UNITS, TIERS, BUILDINGS, HOLDING_STATES, factionName } from '../fi18n.mjs';
-import { UNIT_ORDER, HOLDING_STATE, queueBuildingItem, BUILD_ITEMS } from '../fland.mjs';
+import { UNIT_ORDER, HOLDING_STATE, queueBuildingItem, BUILD_ITEMS, buildItemOf } from '../fland.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { cardHead, stamp, chip, fold } from './parts.mjs';
 import { lamports } from './shell.mjs';
@@ -64,7 +64,7 @@ export function wideModel(FS) {
   };
 }
 
-const queueLabel = q => (q.item === 7 ? L`村の昇格` : q.item !== null && q.item !== undefined ? BUILDINGS[BUILD_ITEMS[q.item]?.resource] ?? L`建物` : L`維持費の変更`);
+const queueLabel = q => (q.item === 7 ? L`村の昇格` : q.item !== null && q.item !== undefined ? BUILDINGS[buildItemOf(q.item)?.resource] ?? L`建物` : L`維持費の変更`);
 
 /** The read-only notice every wide card stands under. */
 export const noExecutionNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`読み取り専用：この村には命令を送れません（収穫・建設・訓練・編成・進軍・隊商・追いつかせる のどれも）。表示は捕捉された村の記録から読んだもので、現在の状態でも所有の証明でもありません。`}</p>`;
