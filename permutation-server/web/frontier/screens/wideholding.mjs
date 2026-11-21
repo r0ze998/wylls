@@ -86,6 +86,10 @@ export function wideHostWaitLine(w) {
     : w.reason === 'host' ? L`軍勢が整列中か休んでいます。進軍できるようになるまで待ちます。`
     : w.reason === 'village' ? L`広い土地の村がまだ確定していません。`
     : w.reason === 'march' ? L`軍勢の進軍の結果を待っています。`
+    // (fix-loop7, LP7-5: the host stands on the keep and the hold counts: followed to its end)
+    : w.reason === 'hold' ? (Number.isFinite(Number(w.hold?.required)) && Number.isFinite(Number(w.hold?.progress))
+      ? L`砦の占拠を見守っています（あと ${fmtNum(Math.max(0, Number(w.hold.required) - Number(w.hold.progress)))} ターン）。奪えたか、占拠が止まったかを、ここに出します。`
+      : L`砦の占拠を見守っています。奪えたか、占拠が止まったかを、ここに出します。`)
     : L`送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。`;
   return html`<p class="wide-host-wait" role="status" data-wide-host-wait="${w.reason}">${icon('hourglass')}${why} ${L`このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。`}</p>`;
 }
@@ -96,9 +100,28 @@ export function wideHostWaitLine(w) {
  * on its way, standing on the keep (with the keep's hold count), being decided, or gone. '' for nothing to say; an answer
  * with no words of its own here is said generically (its log words stay in the card's title).
  */
+/**
+ * (fix-loop7, LP7-5) The end of this page's own hold of a keep (controller followWideHold): taken, or lost and why. ''
+ * while the hold still counts (the march line says the count) or when there is no hold.
+ */
+export function wideHoldOutcomeText(hold) {
+  if (!hold?.outcome || !hold.to) return '';
+  const where = `${hold.to.p},${hold.to.q}`;
+  if (hold.outcome === 'taken') return L`結果：州 ${where} の砦を奪いました。砦はあなたの国のものです（ターン ${fmtNum(Number(hold.at ?? 0))} に確認）。`;
+  if (hold.why === 'held-by-other') return L`結果：州 ${where} の砦は奪えませんでした。軍勢は砦のマスに立っていますが、占拠を進めているのはあなたの国ではなくなりました（砦は${factionName(hold.holder)}が保持）。`;
+  return L`結果：州 ${where} の砦は奪えませんでした。軍勢が砦のマスからいなくなり、占拠が止まりました（ターン ${fmtNum(Number(hold.at ?? 0))} に確認。戦いに敗れたか、押し戻されました）。`;
+}
+
 export function wideHostSayText(say) {
   if (!say) return '';
   const at = x => (x ? `${x.p},${x.q}` : '?');
+  // (fix-loop7, LP7-5: the hold's end, once known, is what the card says — whatever the planner waits for next)
+  const ended = wideHoldOutcomeText(say.hold);
+  if (ended && say.kind !== 'decision') return ended;
+  // (and while the hold counts, a wait for the village's own province does not hide it)
+  const counting = say.hold && !say.hold.outcome && say.hold.to && Number.isFinite(Number(say.hold.progress))
+    ? L`あなたの国が州 ${say.hold.to.p},${say.hold.to.q} の砦を占拠中です：${fmtNum(Number(say.hold.progress))} / ${fmtNum(Number(say.hold.required))} ターン。` : '';
+  if (counting && say.kind === 'wait' && say.wait === 'lag') return L`この村の州の決着が ${fmtNum(Number(say.lag ?? 0))} ターン遅れています。` + ' ' + counting;
   if (say.kind === 'decision') {
     if (say.name === 'WideTrain') return L`広い土地の村で槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練します。`;
     if (say.name === 'WideMuster') return L`広い土地の村で槍兵 ${fmtNum(Number(say.troops ?? 0))} の軍勢を編成します。`;

@@ -60,9 +60,15 @@ export const noContestableKeep = FS => {
  * Whether the world's keeps have been read and EVERY one stands in a heartland (where a keep never counts): a world opened
  * only to the heartlands, with nothing to take at all — the capture guide is not shown there. A keep outside a heartland
  * (taken, protected or contestable) keeps the guide. An empty or unread map hides nothing.
+ * (fix-loop7, LP7-2: "read" means the world's control snapshot — `FS.conquest.control` — has come. Before it, the keeps
+ *  the page holds are only those of the provinces it read for itself: the home province and its neighbours, all in the
+ *  viewer's heartland. In a kept 1x world the first snapshot comes turns later (a fresh world has none until its first
+ *  turn settles, and the herald's lags the turn), and the guide pill was hidden all that time — 「ガイド 3/7」 never
+ *  showed during the first build, training and muster.)
  */
 export const heartlandOnlyKeeps = FS => {
   const keeps = FS?.conquest?.keeps;
+  if (!FS?.conquest?.control) return false;
   return keeps instanceof Map && keeps.size > 0 && [...keeps.values()].every(k => !!k?.heartland);
 };
 /** The turns a hostile host must hold a keep's tile (the season's parameter; the record's own figure where a keep carries one). */
@@ -102,7 +108,15 @@ export function sigChip(sig, { label = null } = {}) {
 export function waitOf(FS, r) {
   const bell = FS.nowBell ?? 0;
   if (!r) return null;
-  if (r.inTransit || r.state === 3) return { why: 'march', turn: null };
+  if (r.inTransit || r.state === 3) {
+    // (fix-loop7, LP7-6: past its arrival turn the march's result is out — the page has shown it — but the village's
+    //  transit record stays open until the program settles it (SettleTransit): the host still may not depart
+    //  (HostInTransit). 「結果を受け取ると、また出発できます」 read as a step left to the player who had just received it)
+    let t = null;
+    try { t = (activeHolding(FS)?.transit ?? []).find(x => x.state >= 1 && x.state <= 3 && BigInt(x.hostId) === BigInt(r.id)) ?? null; } catch { t = null; }
+    const arrive = Number(t?.arriveBell);
+    return { why: 'march', turn: null, arrive: Number.isInteger(arrive) && arrive > 0 ? arrive : null, arrived: Number.isInteger(arrive) && arrive > 0 && bell > arrive };
+  }
   const behind = !r.province || Number(r.province.resolvedNext) + 1 < bell;
   if (r.state === 2) {
     const from = int(r.fromBell) && r.fromBell > 0 ? r.fromBell : null;
@@ -177,7 +191,9 @@ export function waitText(w, FS = null) {
     case 'settling': return L`${who} のいる州が、ターンの処理を進めています。処理が済むと、このターン（ターン ${fmtNum(w.turn)}）から出発できます。`;
     case 'resting': return L`${who} は休息中です。ターン ${fmtNum(w.turn)} から出発できます。`;
     case 'stamina': return L`${who} は体力が足りません（${fmtNum(w.stamina)}/${fmtNum(DEPART_STAMINA)}）。ターン ${fmtNum(w.turn)} から出発できます。`;
-    case 'march': return L`${who} は進軍に出ています。結果を受け取ると、また出発できます。`;
+    case 'march': return w.arrived
+      ? L`${who} の進軍は到着のターン ${fmtNum(w.arrive)} を過ぎ、結果が出ています。村の記録で進軍の締めくくり（決着の反映）が済むと、また出発できます。このページが自動で読み直します。`
+      : L`${who} は進軍に出ています。結果を受け取ると、また出発できます。`;
     default: return L`${who} はいま出発できません：${whyText(w.code)}`;
   }
 }

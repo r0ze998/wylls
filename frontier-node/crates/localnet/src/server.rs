@@ -821,12 +821,79 @@ pub struct Policy {
     /// `frontier_setAccount` before their parameters are read: no file is
     /// read or written and the chain is not touched.
     pub memory_only: bool,
+    /// (fix-loop7, D-verify-pr136-2) When set: the SHA-256 of the world's
+    /// time-control token. `frontier_pause`, `frontier_resume`,
+    /// `frontier_setScale`, `frontier_hold` and `frontier_release` are then
+    /// refused unless the request carries the token in the
+    /// [`CONTROL_HEADER`] header — another loopback program that only knows
+    /// the port can no longer freeze or speed up the world's clock. Every
+    /// other method (reads, `sendTransaction`, `frontier_status`) is served
+    /// as before.
+    pub control: Option<[u8; 32]>,
+}
+
+/// The HTTP header that carries a world's time-control token.
+pub const CONTROL_HEADER: &str = "x-frontier-control";
+/// The environment variable a runner reads its time-control token from (set
+/// by the local-play launcher for the runner process only; never on argv).
+pub const CONTROL_ENV: &str = "FRONTIER_CONTROL_TOKEN";
+/// The methods a time-control token guards.
+pub const CONTROL_METHODS: [&str; 5] = [
+    "frontier_pause",
+    "frontier_resume",
+    "frontier_setScale",
+    "frontier_hold",
+    "frontier_release",
+];
+
+fn token_digest(token: &str) -> [u8; 32] {
+    use sha2::Digest;
+    sha2::Sha256::digest(token.as_bytes()).into()
 }
 
 impl Policy {
     /// A node whose state lives and dies in memory: no snapshot to a path,
     /// no restore from one, no direct account write.
-    pub const MEMORY_ONLY: Policy = Policy { memory_only: true };
+    pub const MEMORY_ONLY: Policy = Policy {
+        memory_only: true,
+        control: None,
+    };
+
+    /// This policy, with time control guarded by `token` (see
+    /// [`Policy::control`]). An empty token guards nothing.
+    pub fn with_control_token(mut self, token: &str) -> Policy {
+        self.control = (!token.is_empty()).then(|| token_digest(token));
+        self
+    }
+
+    /// This policy, guarded by the token in [`CONTROL_ENV`] when it is set
+    /// and not empty (the launcher's worlds); unchanged otherwise.
+    pub fn with_control_from_env(self) -> Policy {
+        match std::env::var(CONTROL_ENV) {
+            Ok(t) if !t.is_empty() => self.with_control_token(&t),
+            _ => self,
+        }
+    }
+
+    fn refuse_control(&self, method: &str, presented: Option<&str>) -> Option<RpcErr> {
+        let want = self.control?;
+        if !CONTROL_METHODS.contains(&method) {
+            return None;
+        }
+        let ok = presented.map(token_digest).is_some_and(|got| {
+            // (compare every byte: no early exit on the first difference)
+            got.iter()
+                .zip(want.iter())
+                .fold(0u8, |a, (x, y)| a | (x ^ y))
+                == 0
+        });
+        (!ok).then(|| {
+            err(
+                -32003,
+                format!("{method} needs this world's time-control token ({CONTROL_HEADER})"),
+            )
+        })
+    }
 
     fn refuse(&self, method: &str) -> Option<RpcErr> {
         let denied = self.memory_only
@@ -846,11 +913,20 @@ impl Policy {
 /// One JSON-RPC request or batch under `policy` (refusals before any
 /// parameter is read or any handler runs).
 fn respond(state: &Shared, policy: Policy, req: &Value) -> Value {
+    respond_as(state, policy, req, None)
+}
+
+/// As [`respond`], for a request that presented `control` (the
+/// [`CONTROL_HEADER`] header's value, if any).
+fn respond_as(state: &Shared, policy: Policy, req: &Value, control: Option<&str>) -> Value {
     let one = |r: &Value| -> Value {
         let id = r.get("id").cloned().unwrap_or(Value::Null);
         let method = r.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let params = r.get("params").cloned().unwrap_or(json!([]));
-        let result = match policy.refuse(method) {
+        let result = match policy
+            .refuse(method)
+            .or_else(|| policy.refuse_control(method, control))
+        {
             Some(e) => Err(e),
             None => handle(state, method, &params),
         };
@@ -873,9 +949,11 @@ fn respond(state: &Shared, policy: Policy, req: &Value) -> Value {
 
 async fn rpc(
     State((state, policy)): State<(Shared, Policy)>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<Value>,
 ) -> Json<Value> {
-    Json(respond(&state, policy, &req))
+    let control = headers.get(CONTROL_HEADER).and_then(|v| v.to_str().ok());
+    Json(respond_as(&state, policy, &req, control))
 }
 
 /// The HTTP router (every extension served, as always).
@@ -1106,7 +1184,13 @@ mod tests {
     /// restore from it work, setAccount still answers by `allow_tamper`.
     #[test]
     fn the_default_policy_keeps_every_extension() {
-        assert_eq!(Policy::default(), Policy { memory_only: false });
+        assert_eq!(
+            Policy::default(),
+            Policy {
+                memory_only: false,
+                control: None
+            }
+        );
         let dir = scratch("default");
         let s = node();
         let path = dir.join("a.snap");
@@ -1165,6 +1249,83 @@ mod tests {
             let v = acct_json(&a, &o);
             assert_eq!(v["data"][0], B64.encode(&want), "offset {off} length {len}");
         }
+    }
+
+    /// fix-loop7 (D-verify-pr136-2): with a time-control token, pause,
+    /// resume, setScale, hold and release are refused without the token or
+    /// with a wrong one (and change nothing); with it they work. Reads and
+    /// `frontier_status` never need it; without a token nothing changes.
+    #[test]
+    fn time_control_needs_the_worlds_token_when_one_is_set() {
+        let s = node();
+        let guarded = Policy::MEMORY_ONLY.with_control_token("secret-1");
+        assert!(guarded.memory_only && guarded.control.is_some());
+        let ask = |m: &str, p: Value, t: Option<&str>| {
+            respond_as(
+                &s,
+                guarded,
+                &json!({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}),
+                t,
+            )
+        };
+        for (m, p) in [
+            ("frontier_pause", json!([])),
+            ("frontier_resume", json!([])),
+            ("frontier_setScale", json!([60.0])),
+            ("frontier_hold", json!([[], 1, 1])),
+            ("frontier_release", json!([1])),
+        ] {
+            for t in [None, Some("secret-2"), Some("")] {
+                let r = ask(m, p.clone(), t);
+                assert_eq!(r["error"]["code"], -32003, "{m} {t:?}: {r}");
+                assert!(r["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(CONTROL_HEADER));
+            }
+        }
+        let st = ask("frontier_status", json!([]), None);
+        assert_eq!(st["result"]["paused"], false, "nothing was paused: {st}");
+        assert_eq!(st["result"]["scale"], 1.0, "nothing was scaled: {st}");
+        assert_eq!(ask("frontier_holds", json!([]), None)["result"], json!([]));
+        assert!(ask("getSlot", json!([]), None)["result"].is_u64());
+        // with the token
+        assert_eq!(
+            ask("frontier_pause", json!([]), Some("secret-1"))["result"],
+            true
+        );
+        assert_eq!(
+            ask("frontier_status", json!([]), None)["result"]["paused"],
+            true
+        );
+        assert_eq!(
+            ask("frontier_resume", json!([]), Some("secret-1"))["result"],
+            true
+        );
+        assert!(
+            ask("frontier_setScale", json!([2.0]), Some("secret-1"))["result"]["atSlot"].is_u64()
+        );
+        // a batch is checked call by call
+        let b = respond_as(
+            &s,
+            guarded,
+            &json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "frontier_pause"},
+            {"jsonrpc": "2.0", "id": 2, "method": "getSlot"}]),
+            None,
+        );
+        assert_eq!(b[0]["error"]["code"], -32003);
+        assert!(b[1]["result"].is_u64());
+        // no token, or an empty one: as before
+        assert_eq!(Policy::default().with_control_token("").control, None);
+        assert_eq!(
+            call(&s, Policy::default(), "frontier_pause", json!([]))["result"],
+            true
+        );
+        assert_eq!(
+            call(&s, Policy::default(), "frontier_resume", json!([]))["result"],
+            true
+        );
     }
 
     #[test]

@@ -70,6 +70,34 @@ export function passablePath(world, origin, dest, destTile, lands, { max = WIDE_
 }
 
 /**
+ * (fix-loop7, LP7-5) The hold of a keep by this page's own last wide → wide march, followed to its end: from the previous
+ * memory `prev` (or null) and the planner's latest `march` (marchState). `{to: {p, q}, progress, required, since,
+ * outcome: null | 'taken' | 'lost', why?: 'gone' | 'held-by-other', at?: turn}` or `prev` unchanged. Only what this
+ * page's own host learns (its own march, standing on the keep's tile, reading the destination province it went to): the
+ * fog rules hold — nothing is read of a province the player has no host in. loop-play7: the card stopped at
+ * 「占拠中です：20 / 72 ターン」 and never said whether the keep was taken.
+ */
+export function followWideHold(prev, march) {
+  const m = march;
+  if (!m?.to) return prev ?? null;
+  const same = prev?.to && String(prev.to.p) === String(m.to.p) && String(prev.to.q) === String(m.to.q);
+  const base = same ? prev : null;
+  if (base?.outcome) return base;            // (an ended hold stays ended: taken or lost is said once and kept)
+  const to = { p: String(m.to.p), q: String(m.to.q) };
+  if (m.phase === 'stands' && m.keep) {
+    const k = m.keep;
+    if (k.holder === m.faction) return { to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell };
+    if (k.contender === m.faction) return { to, progress: k.progress, required: k.required, since: base?.since ?? m.nowBell, outcome: null };
+    // (the host stands, but its nation no longer contends the keep: another took over the contest, or the count was reset)
+    if (base) return { ...base, outcome: 'lost', why: 'held-by-other', holder: k.holder, at: m.nowBell };
+    return prev ?? null;
+  }
+  // (the host that held the keep's tile is no longer there: beaten off, the hold ended without the capture)
+  if (m.phase === 'gone' && base) return { ...base, outcome: 'lost', why: 'gone', at: m.nowBell };
+  return prev ?? null;
+}
+
+/**
  * `createWideHostPlanner({herald, read, chainNow, chainRate})` → `{decide(identity, memory, {wideTargets, villages})}`:
  * `{decision}` (one act for this turn) or `{why}`. `identity`: `{programId, seasonAddress}`; `memory`: the caller's
  * own counters (`wideDeparts`, `wideHostUntil`, `decisions`, `wideTrainN`); `villages`: `[{p, q, site}]`.

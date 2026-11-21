@@ -3703,18 +3703,24 @@ async function wideHostStep(e, mem) {
       const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
       return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
     };
+    const { followWideHold } = await import('./flocalplay-wide-plan.mjs');
     const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
     let w;
     try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
     // (fix-loop6, LP6-15: `wideHostSay` — what the card says, in the page's language (screens/wideholding.mjs
     //  wideHostSayText); `wideHostWhy` stays the planner's own words, for the logs and the card's title only)
-    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostSay: wideHostSayOf(w),
+    // (fix-loop7, LP7-5: the keep's hold by this page's own march, followed to its end — taken or lost)
+    if (w.march) mem.wideHold = followWideHold(mem.wideHold ?? null, w.march);
+    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostSay: { ...wideHostSayOf(w), hold: mem.wideHold ?? null },
       wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
     invalidate('panel');
     if (!w.decision) {
       // (the province lags, the host forms, the village is not final yet: wait here, ask again about once a turn)
       // (fix-loop6, LP6-5: a march on its way or being decided is looked at again too, so its result shows by itself)
       if (WIDE_HOST_AUTO_WAIT.includes(w.wait) || (w.wait === 'march' && ['out', 'settling', 'unread'].includes(w.march?.phase))) wideHostWait(mem, { reason: w.wait === 'march' ? 'march' : w.wait, lag: w.lag ?? null });
+      // (fix-loop7, LP7-5: a host standing on the keep while its nation's hold counts is followed too, about once a turn,
+      //  until the keep is taken or the hold is lost — the card stopped reading at 「占拠中です：20 / 72 ターン」)
+      else if (w.wait === 'march' && w.march?.phase === 'stands' && mem.wideHold && !mem.wideHold.outcome) wideHostWait(mem, { reason: 'hold', lag: null, hold: mem.wideHold });
       else wideHostStopWait(mem);
       return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null };
     }
@@ -3748,9 +3754,12 @@ function wideHostSayOf(w) {
 export const WIDE_HOST_AUTO_WAIT = Object.freeze(['lag', 'host', 'village', 'turn']);
 export const WIDE_HOST_WAIT_MAX = 360;
 const wideHostTurnMs = () => { const rate = FS.chain?.accelerated ? Number(FS.chain.rate) : 1; return Math.min(60_000, Math.max(10_000, Math.round(BELL_SECS * 1000 / (rate > 0 ? rate : 1)))); };
-function wideHostWait(mem, { reason, lag }) {
+function wideHostWait(mem, { reason, lag, hold = null }) {
   clearTimeout(mem.timer);
-  mem.waiting = { reason, lag, since: mem.waiting?.since ?? now(), asks: (mem.waiting?.asks ?? 0) + 1 };
+  // (fix-loop7: a hold of 72 turns is followed from its first turn: the count of asks starts again when the waiting
+  //  turns into following the hold)
+  const fresh = reason === 'hold' && mem.waiting?.reason !== 'hold';
+  mem.waiting = { reason, lag, hold, since: fresh ? now() : mem.waiting?.since ?? now(), asks: (fresh ? 0 : mem.waiting?.asks ?? 0) + 1 };
   if (mem.waiting.asks > WIDE_HOST_WAIT_MAX) { wideHostStopWait(mem); return; }
   mem.timer = setTimeout(() => { mem.timer = null; ACTIONS['wide-host-step']({ auto: true }).catch(x => console.error('wide host wait:', x)); }, wideHostTurnMs());
 }

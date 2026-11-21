@@ -44,7 +44,7 @@ import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
-import { OUTBOUND_POP, outboundReadyOnce, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
+import { OUTBOUND_POP, outboundReadyOnce, outboundSketch, outboundArrivalCandidate, outboundRouteRefusal, outboundEndpointOpen } from '../fexpedition-compose.mjs';
 import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
 import { devnetDepartOf } from '../fdevnet-depart.mjs';
 import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
@@ -661,7 +661,21 @@ function outboundArrivalPick(pick, entered) {
     ${pick.headroom ? html`<p class="pop-line outbound-arrival-why">${L`最も早いターン ${pick.min} は、確認して送るあいだに世界の時計が進むと断られます。${pick.headroom} ターンの余裕を足した候補です。`}</p>` : ''}`;
 }
 
-function outboundRouteReport(check, pick = null, entered = '') {
+/**
+ * (fix-loop7, LP7-3) Why the road cannot be marched, and at which step: 「山や水のマスには進めません」 with 「5 歩め（北西）
+ * のマスです」. Said from the read, and kept (fexpedition-compose outboundRouteRefusal) until the road changes — a clock poll
+ * no longer takes it away. `still`: shown from that memory, after the read itself was dropped by the clock.
+ */
+const ROUTE_WHY = { RouteImpassable: () => L`山や水のマスには進めません`, RoutePalisade: () => L`道の途中の柵を通れません。`, RouteLandMissing: () => L`道の途中に、まだ読み取れていない州があります。` };
+function outboundRefusalLine(m, { still = false } = {}) {
+  if (!m || !ROUTE_WHY[m.code]) return '';
+  const at = Number.isInteger(m.stepIndex) ? (Number.isInteger(m.direction) && DIR_TEXT[m.direction]
+    ? L`${m.stepIndex + 1} 歩め（${DIR_TEXT[m.direction]()}）のマスで止まります。` : L`${m.stepIndex + 1} 歩めのマスで止まります。`) : '';
+  const fix = m.code === 'RouteLandMissing' ? L`「地形・時間を確認」をもう一度押すと読み直します。` : L`その一歩を「一歩戻す」で消して別の方向に変えると、もう一度確認できます。`;
+  return html`<div class="outbound-route-refusal" role="status"><p class="pop-line pop-why">${ROUTE_WHY[m.code]()}</p>${at ? html`<p class="pop-line pop-why outbound-refusal-step">${at}</p>` : ''}<p class="pop-line">${fix}</p>${still ? html`<p class="pop-line outbound-refusal-kept">${L`この道を読み取った結果です。道を変えるまで出ています。`}</p>` : ''}</div>`;
+}
+
+function outboundRouteReport(check, pick = null, entered = '', directions = []) {
   if (!check) return '';
   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`道の州の記録を読み込んでいます…`}</p>`;
   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${L`道の記録を読めませんでした。もう一度確認してください。`} (${check.code})</p>`;
@@ -675,13 +689,14 @@ function outboundRouteReport(check, pick = null, entered = '') {
   return html`<div class="outbound-route-report" role="status">
     ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
     ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
-    ${why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
+    ${ROUTE_WHY[r.code] ? outboundRefusalLine({ code: r.code, stepIndex: r.stepIndex, direction: Number.isInteger(r.stepIndex) ? directions[r.stepIndex] ?? null : null })
+      : why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
     ${outboundArrivalPick(pick, entered)}
     <p class="pop-line">${L`取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。`}</p>
   </div>`;
 }
 
-function outboundContextReport(check, pick = null, entered = '') {
+function outboundContextReport(check, pick = null, entered = '', directions = []) {
   if (!check) return '';
   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`軍勢・村・地形・時刻をまとめて読み込んでいます…`}</p>`;
   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${check.code === 'ExpeditionPreviewDisabled'
@@ -691,7 +706,7 @@ function outboundContextReport(check, pick = null, entered = '') {
     <p class="pop-line${check.ready.ok ? '' : ' pop-why'}">${check.ready.ok
       ? L`この読取時点では、軍勢と村の出発条件を満たしています。`
       : L`この読取時点では、軍勢と村の出発条件を満たしていません。`}${check.ready.ok ? '' : ` (${check.ready.code})`}</p>
-    ${outboundRouteReport(check, pick, entered)}
+    ${outboundRouteReport(check, pick, entered, directions)}
     <p class="pop-line pop-why">${L`出発の送信はまだ利用できません。`}</p>
   </div>`;
 }
@@ -714,6 +729,9 @@ function outboundPop(FS, model) {
   let pick = null;
   try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
   const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
+  // (fix-loop7, LP7-3: the road's refusal, kept until the road changes)
+  let refusal = null;
+  try { refusal = outboundRouteRefusal(FS); } catch { refusal = null; }
   // (devnet play on a wide season: the keyless departure-conditions read is local play's; the devnet card has its own)
   const devnetCard = !FS.localPlay && !!FS.devnetPlay && !!FS.devnetWide;
   const points = outboundSketch(directions).map(p => ({ x: p.q + p.r / 2, y: p.r * Math.sqrt(3) / 2 }));
@@ -737,10 +755,11 @@ function outboundPop(FS, model) {
       ${devnetCard ? '' : html`<button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button>`}</div>
     ${FS.outboundReread && (s.routeCheck?.status === 'loading' || s.contextCheck?.status === 'loading') ? html`<p class="pop-line outbound-read-again" role="status">${L`読み取りの途中で世界の時計が進んだため、読み直しています（${FS.outboundReread.n} / ${FS.outboundReread.of} 回目）…`}</p>` : ''}
     ${pick?.remembered && !entered && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<div class="outbound-route-report outbound-arrival-remembered" role="status">${outboundArrivalPick(pick, entered)}<p class="pop-line">${L`さきほどの「地形・時間を確認」の読み取りからの候補を、時計に合わせて進めています。押すと読み直します。`}</p></div>` : ''}
-    ${s.error === 'ArrivalRequired' && !(pick?.remembered && !entered) && !s.routeCheck && !s.contextCheck && !s.dropped && !FS.outboundReread ? html`<p class="pop-line outbound-arrival-empty" role="status">${L`到着ターンはまだ入っていません。「地形・時間を確認」を押すと、到着候補とそれを入れるボタンが出ます（自分で入れる欄は「詳細」の中です）。`}</p>` : ''}
+    ${!s.routeCheck && !s.contextCheck && !FS.outboundReread && refusal ? outboundRefusalLine(refusal, { still: true }) : ''}
+    ${s.error === 'ArrivalRequired' && !refusal && !(pick?.remembered && !entered) && !s.routeCheck && !s.contextCheck && !s.dropped && !FS.outboundReread ? html`<p class="pop-line outbound-arrival-empty" role="status">${L`到着ターンはまだ入っていません。「地形・時間を確認」を押すと、到着候補とそれを入れるボタンが出ます（自分で入れる欄は「詳細」の中です）。`}</p>` : ''}
     ${s.dropped && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
-    ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
-    ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
+    ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered, directions)}
+    ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered, directions)}
     ${outboundLocalDepart(FS, !!review && ((s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)
       // (fix-loop6, LP6-1: read as holding for this very draft, the observation since dropped by a clock poll — the press reads again first)
       || (!s.contextCheck && outboundReadyOnce(FS))))}

@@ -498,4 +498,10 @@ export default {
   '境界の外への出発は、広い土地が開いた devnet のシーズンでだけ送れます。送っていません。': 'A departure past the boundary can be sent only on a devnet season whose wide land is open. Nothing was sent.',
   'ウォレットが返した署名済みの取引を読めませんでした。送っていません。': 'The signed transaction the wallet returned could not be read. Nothing was sent.',
   '出発の取引を正しく組み立てられませんでした。送っていません。': 'The departure\'s transaction could not be built. Nothing was sent.',
+  // fix-loop7, LP7-3: a refused road is said with its step and stays until the road changes
+  '{0} 歩め（{1}）のマスで止まります。': 'The road stops at step {0} ({1}).',
+  '{0} 歩めのマスで止まります。': 'The road stops at step {0}.',
+  '「地形・時間を確認」をもう一度押すと読み直します。': 'Press Check terrain and time again to read it again.',
+  'その一歩を「一歩戻す」で消して別の方向に変えると、もう一度確認できます。': 'Remove that step with Undo step and choose another direction, then check again.',
+  'この道を読み取った結果です。道を変えるまで出ています。': 'This is what was read for this road. It stays until you change the road.',
 };
