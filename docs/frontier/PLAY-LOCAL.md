@@ -521,6 +521,18 @@ The world's operator gives it no privilege and never sees its key. The page show
    `ResidentAlreadyActed`). Your own page has no such cap. To plug in your own AI, replace
    `decide()` in `examples/external-resident/rule.mjs` (see that folder's README).
 
+   **Workstream ⑬'s own resident** runs the same way, with ⑬'s goals, limits and memory instead of the reference rule
+   (no model, no paid API; `workstreams/13-citizens/resident/local/README.ja.md`):
+
+   ```sh
+   node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41920 \
+     --key /path/to/resident.json --dir /abs/path/resident-state [--goal village-first|surplus-use] [--nation 0-5] \
+     [--mcp http://127.0.0.1:<port>/mcp]
+   ```
+
+   Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
+   resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.
+
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
   the resident's second order waits for you.
 - Not with `--two` or `--wide`. It works with kept worlds, `--demo`, `--ai`, `--random-map`, `--coexist` and `--resume`

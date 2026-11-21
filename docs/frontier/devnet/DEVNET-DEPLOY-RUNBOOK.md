@@ -32,6 +32,17 @@
 > change deploys, funds or signs anything. Option (a) (keeper A reads the conquest records, PR #124) stays useful for
 > the local land lane, which keeps the conquest kinds.
 
+> **Refreshed 2026-11-22 against `origin/main` 6912906d (devnet-refresh-3; offline, docs only; still nothing
+> deployed, no key, no SOL, no devnet contact).** Since the 11-21 refresh main gained keeper A's conquest reader
+> (#124, P14 a), the devnet build without conquest kinds 12–18 (#139, P14 b, the new `.so` `67a33c92…06b3`), fog on
+> the devnet page (#127), the page's devnet ExpeditionDepart and keeper A's `wide-resolve` role (#129, P15 + P9),
+> keeper A's provinces on demand (#138, `provinces_reach`), the page's second / third village (#141, FileOutpost) and
+> the 3-wide-ring cost model (#136). **No owner decision is pending**: what r0ze still does is the deploy-day list
+> of §7.0 ("MUST at deploy") and the "deploy OK" for `67a33c92…06b3`. §4b now has every player step and every keeper A
+> role's season cost (incl. #138's opens and #129's wide Resolves), and §8's `keeper.toml` lists the profile's 16 roles (13 of the keeper's `ROLES` and the 3 `WIDE_ROLES`; `explore`,
+> `dormancy` and `sweep` are not in the profile). Verified 2026-11-22 on main 6d0e91f6 (verify-pr144; #137, merged after
+> #139, changed the page, the launcher and the local chain only: nothing the devnet `.so`, the keeper or the planner links).
+
 ## 1. What gets deployed
 
 | Program | Deployed? | Why |
@@ -239,7 +250,7 @@ At 5 SOL per faucet request: 5 requests for the deploy at 5,080 (7 at 6,960), 25
 season's 98.21 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned or float. A world that never ends
 adds 1.02 SOL per day of AnchorArchives (1.40 at 6,960) [model].
 
-### 4b. Running cost: each player, and the operator's keeper A (2026-11-21)
+### 4b. Running cost: each player, and the operator's keeper A (2026-11-21; refreshed 2026-11-22)
 
 Every figure is **measured offline** on the §1a `.so` in an in-process local chain at 5,080 lamports per byte
 (`stack/tests/operator_playable`, runs P3–P11; each was repeated by an independent verify run, and the per-player
@@ -255,6 +266,7 @@ devnet. Fees are the 5,000-lamport signature fee unless the keeper bids a priori
 | Harvest, Build, Train, Muster | 5,000 each | 5,000 each | fee |
 | Depart (one sealed march; the return home is another Depart) | 50,394 | not computed | fee + the escrowed tip and seal bond, settled by the program |
 | WideClaimSite (one wide village) | 9,108,360 | 12,477,320 | fee + the ticket record's rent and escrow (1,792 B) |
+| FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit |
 | ExpeditionDepart (rim → wide; the page sends it on devnet, §7 P15) | 2,407,514 | not computed | fee (5,000) + the escrowed tip and bond (45,394) + the rent of the 336-byte transit record (2,357,120) |
 | **Join → rim village → 10 Harvests → wide claim** (#110, verify-pr110) | **18,921,960 (0.0189 SOL)** | 25,900,520 (0.0259) | |
 | **Join → rim village → 5 Harvests → Muster → one march** (#118, verify-pr118) | **9,843,994 (0.0098 SOL)** | not computed | |
@@ -280,6 +292,10 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | — so one keep held to its capture (72 bells) | about 0.47 [derived] | — | float | 72 × the line above |
 | Keeper A `skip`: SkipQuiet over every opened legacy province (79: genesis 37 + rim 42) | about 0.55 per 7-day season | same | spent (fees) | P9: 2,373 sends, 38,611,083 lamports; **not in §4a's total** |
 | Keeper A per rim → wide expedition | 0.046 | — | mostly rent (ClashInputs, ArrivalSlot / ArrivalDay, 19 wide Resolves) | P11, verify-pr121: 45,634,216 lamports |
+| Keeper A `rings` `provinces_reach = 3` (#138): OpenProvince next to the settled land, what its payer sends | at most 0.011 | at most 0.0074 as built (0.0006 with a floor rebuilt for 6,960) | spent (fees): 26,332 lamports an open | PPROV; a season total of at most 413 opens (305 once the wide rings are open) at 5,080: the wedge-fund floor, not `provinces_max`, is the bound, and keeper A stops opening in a wedge whose fund reached it (§6: what that means for play). At 6,960 the keeper as built would allow 281, not the 23 a rate-scaled floor gives (§6, F1) |
+| — their rent: 24,709,120 lamports a province, **out of the 36 SOL of wedge funds, not new money** | (at most 10.2) | (at most 9.5 as built; 0.78 with a floor rebuilt for 6,960) | float | 413 × 24,709,120; 281 × 33,853,440; 23 × 33,853,440 [derived] |
+| — SkipQuiet for those provinces | about 0.3–2.9 per 7-day season | — | spent (fees); **not in §4a's total** | verify-pr138: 0.00067 (idle) to 0.0070 (busy) SOL a province × 413 |
+| Keeper A `wide-resolve` (#129): the quiet wide Resolve of every known wide province, every bell | about 0.065 per known wide province per 7-day season; at most about 7.0 (all 108) | same | spent (fees): 64,331 lamports a bell and province (5,000 + the class-D starting bid on the role's 600,000 CU limit; a quiet Resolve uses about 84,000 CU) | verify-pr129; **not in §4a's total** |
 | Fees and tips over 7 days, 50 players | 0.625 | 0.625 | spent [model] | §4a |
 | Keeper B's pools (5.7) and the relay pool (7.5) | 13.2 | 13.2 | float, **optional**: a first devnet season runs keeper A alone, and the wallet-paid devnet routes are not funded routes (`app.mjs`: "wallet-paid, so not a funded route") | §4a |
 | Herald, gateway, page | 0 | 0 | they sign nothing on the devnet play path | |
@@ -288,7 +304,13 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 optional 13.2 SOL above and 0.49 SOL of player rent that the players now pay themselves, and it leaves out the
 SkipQuiet fees (0.55), the ClashInputs float of contested bells and the expeditions (0.046 each); for a small first
 season the two sides roughly cancel. Without keeper B and the relay pool the operator needs about **106.5 SOL plus
-the war's float** at 5,080 [sum of the lines above].
+the war's float** at 5,080 [sum of the lines above]. **Since #129 and #138 keeper A's fee payer also needs a budget
+outside §4a's total:** SkipQuiet over the provinces opened on demand (up to about 2.9 SOL) and `wide-resolve` (about
+0.065 SOL per known wide province, up to about 7.0 SOL if all 108 are known from the first bell). Budget **about +3
+SOL** for a small first season (a few wide villages) and **up to about +10 SOL** for a full one; at 5,080 the 120.15
+SOL hold then becomes about 123–130 SOL [derived]. Re-run 2026-11-22 (devnet-refresh-3, offline, on the committed
+`devnet-playable-67a33c92.so.gz`): `dry-run.mjs --profile … --so … --rate 5080` → season 98.2147, total 120.1467 SOL;
+`--rate 6960` → 106.2416, 136.2751 SOL; `SEND GATE: CLOSED`.
 
 ## 5. Deploy **[r0ze]**
 
@@ -426,9 +448,25 @@ legacy ring within 3 provinces of a settled one (`keeper::rings::demand_plan`), 
 scan and `provinces_max` (600) a run, never below a wedge fund's floor (`demand_fund_floor`: the largest balance check
 still ahead plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080) and never while the feed guard holds
 automatic writes. Rent from the wedge funds (24,709,120 lamports a province at 5,080), fees from keeper A's payer.
-The floor, not `provinces_max`, is the real bound (verify-pr138): at 5,080 at most 413 provinces on demand before the
-wide rings open and 305 after them (69 / 51 a wedge); at 6,960 at most 23 before and none after. `provinces_max` counts
-per keeper run.
+The floor, not `provinces_max`, is the real bound (verify-pr138, recomputed by verify-pr144): at 5,080 a season's
+on-demand opens total at most 413 (69 a wedge, 68 in wedge 0) if they all come before the wide rings open; once the
+108 wide provinces are open (about 21 h in) the total, counting the opens already made, is at most 305 (51 / 50 a
+wedge). `provinces_max` counts per keeper run. **What the floor means for play:** the bound is per wedge. When a
+wedge's fund is at its floor keeper A stops opening provinces in that sixth of the map for the rest of the season
+(nothing refills the funds; the other wedges go on). `GET /v1/status` then shows `provinces_demand.waiting` =
+"wedge fund N at its floor"; the page keeps saying 「この州はまだ開かれていません」 for those provinces (its
+"opens automatically" no longer holds there), and a FileOutpost into them is refused before signing
+(`LocalActProvinceAbsent`; on chain `BadAccount`, as for any act that needs the absent Province). Villages, marches and the wide claim on provinces already open
+are not affected. A heartland home's outposts lie on rings 4–6, whose reach is rings 4–9, 234 provinces, about 39 a wedge:
+under the floor; rim homes and R3 homes past the heartland are what can reach it [derived]. OpenProvince stays
+permissionless, so anyone may still open a province by hand from the same fund, below the floor too.
+**At 6,960 the figures "23 before, none after" hold only for a keeper rebuilt for that rate:** the floor is computed
+from the compile-time `frontier_abi::layout::RENT_PER_BYTE` = 5,080 (`demand_fund_floor`, `PROVINCE_RENT_V2`), not from
+the cluster's Rent sysvar, which the program charges. As built, on a 6,960 cluster the floor would stay 3.95 SOL while
+each open takes 33,853,440 lamports: up to 281 opens before the wide rings (173 after), leaving a fund 3.97 SOL, below
+what the program then checks for OpenRing 118–128 (3.99–4.33 SOL) and for the wide rings' seeds (4.48–4.55 SOL), so
+heavy early opening could stop the map's growth and the wide land [derived, not run]. Devnet was 5,080 on 2026-11-18;
+**if §3's re-check shows another rate, do not start a season with `provinces_reach` on** (open item F1, §7.0).
 OpenProvince stays permissionless: anyone may also send it. **Rim first villages (Q-W1):** once ring 128 is opened and seeded, the
 same duty's `rim_per_wedge = 6` opens the 42 ring-128 provinces beside the middle six ring-129 provinces of each wedge
 (`keeper::rings::rim_plan`, the local wide world's rim; 1.04 SOL of province rent at 5,080, 1.42 SOL at 6,960, out of
@@ -559,12 +597,12 @@ writes carry their own CU limits (`keeper::widelane::WIDE_BUDGETS`; the canonica
 
 ## 7. Services and play (not ready: never run on devnet)
 
-Re-checked against the code on 2026-11-21 (`origin/main` 436bb9c1). "Done (code)" and "closed (code)" mean merged
+Re-checked against the code on 2026-11-22 (`origin/main` 6912906d; before: 2026-11-21, 436bb9c1). "Done (code)" and "closed (code)" mean merged
 and proven **offline only**: the §1a `.so` in an in-process local chain on loopback, with the real keeper, herald,
 gateway and page. **No season, no keeper and no send path has ever run against a real cluster.** §7.0 is the short
 list; the table after it keeps each item's detail.
 
-### 7.0 Done and open (2026-11-21)
+### 7.0 Done and open (2026-11-22)
 
 **Done (code), with the PR that closed it:**
 
@@ -584,13 +622,15 @@ list; the table after it keeps each item's detail.
 | B5 | Read-only RPC client: bounded, jittered 429 backoff honouring `Retry-After`; version-1 transactions no longer stall ingest; `getProgramAccounts` filtered by season | #123 | recorded devnet answers in CI |
 | P5 | Fog of war on the devnet page (player view, `DEVNET_FOG`; cosmetic: herald, spectator page and chain stay public); P9's page driver presses the #122 `march-send-wait` button | #127 | PFOG (browser, three players) |
 | P15, P9 | The page's devnet ExpeditionDepart, wallet-paid; keeper A's `wide-resolve` role keeps the known wide provinces resolved bell by bell | #129 | P12 (browser) |
-| P14 (b) | Free City conquest closed in the devnet build (owner decision 2026-11-22: P14 = (a) + (b)): no `conquest-dispatch-experimental`, the wrapper's kinds 12–18 answer `BadData` before any account is read, so no conquest record can latch keeper A's feed guard; new `.so` `67a33c92…` | this change (p14b-drop-conquest) | `verify/tests/p14b_devnet_no_conquest.rs` (every recorded kind 12–18 transaction re-executed on the new `.so`: refused, no record, keeper A's indexes not latched), `svm-tests/tests/devnet_playable.rs` (the fresh build) |
+| P14 (a) | Keeper A reads every conquest record exactly instead of latching (defence in depth since (b)) | #124 | `operator_playable` P14 on the previous `.so` `da3dc1aa…` (key-tests only) |
+| P16b | The page's second / third village: one wallet-signed FileOutpost (0.00716 SOL), settled by keeper A's `tickets` role | #141 | PPOST (browser) |
+| P14 (b) | Free City conquest closed in the devnet build (owner decision 2026-11-22: P14 = (a) + (b)): no `conquest-dispatch-experimental`, the wrapper's kinds 12–18 answer `BadData` before any account is read, so no conquest record can latch keeper A's feed guard; new `.so` `67a33c92…` | #139 | `verify/tests/p14b_devnet_no_conquest.rs` (every recorded kind 12–18 transaction re-executed on the new `.so`: refused, no record, keeper A's indexes not latched), `svm-tests/tests/devnet_playable.rs` (the fresh build) |
 
 **Open:**
 
 | # | What is missing | Whose | State |
 |---|---|---|---|
-| P14 | **A new devnet `.so` to approve** (P14 b): `67a33c92…06b3` replaces `da3dc1aa…b9741` (§1a); its deploy needs r0ze's confirmation in chat. Option (a), keeper A reading the conquest records exactly, is MERGED (PR #124) and stays as defence in depth | **r0ze** (deploy confirmation); P14 = (a)+(b) decided 2026-11-22 01:12 JST | (a) merged (#124); (b) in code: the build carries no conquest kinds |
+| P14 | Nothing left to decide. **The deploy confirmation is for the new `.so`** `67a33c92…06b3` (§1a; `da3dc1aa…b9741` must not be approved any more). Rebuilt twice by verify-pr139 on the merged tree with the same hash; nothing the build links changed after #139 (#137, merged after it, touches the page, the launcher and the local chain only) | **r0ze** (the "deploy OK" only) | (a) #124 and (b) #139 merged |
 | P11 (O11) | Who pays a player's fees and rent. Today the player's wallet (about 0.02 SOL, §4b) | **r0ze** (not blocking) | wallet-paid is implemented; sponsoring is not wired |
 | Q-W3 | `outpost_tier_min` 0 lets every Hamlet file an outpost, in the heartland too (as local wide play) | **r0ze** (not blocking) | implemented as 0; reverting is one preset byte, the `.so` is unaffected |
 | W1 | **The verifier's witness endpoint.** A PASS on a public-RPC season needs a second, independent RPC that serves the whole season. The only free no-sign-up second provider found (OnFinality) keeps about 7 days of history; a season is 7 days + the 24 h lead + about 21 h of map growth, so after the season ends such a witness reads UNVERIFIABLE (fail-safe, never PASS). Choices: an archival provider (sign-up), an own node, Old Faithful, or verifying while the season is still inside the witness's window | **r0ze** | measured read-only on 2026-11-21 (devnet-readonly-rpc) |
@@ -602,10 +642,31 @@ list; the table after it keeps each item's detail.
 | R1 | Real drand rounds: every bell's anchor and seed, and the 125 bells of map growth to ring 128, were **declared patches** offline (the workspace ships 32 real quicknet rounds). On devnet keeper A posts each from the live round | engineering | first exercised by the first devnet season |
 | R2 | The herald does not decode version-0 / version-1 transactions: one that runs our program raises an alarm and its account writes are not folded (#123). The keeper's and herald's default 150 ms RPC gap is tighter than the public endpoint's limit | engineering | open (#123's D-6, D-7) |
 | R3 | SIMD-0500 (inactive on 2026-11-18) would refuse a deploy or upgrade of this SBPF v2 `.so` once active (§3) | risk | re-check right before the deploy |
+| P17 | **The wide village's own acts are not on the devnet page.** WideEconomy (Harvest / Build / Train), WideGarrison and WideMuster are sent only by local play's relay / page lane (`flocalplay-wide-host.mjs`, the host card needs `FS.localPlay.wideLand`); `DEVNET_ACT_COMMANDS` has none of them. On chain they are allowed, and keeper A's `wide-resolve` keeps the province resident for them (P9; P11/P12's tail sends WideMuster from the TEST, not the page) | engineering | open; not needed for a first season (the claim itself is the goal there) |
+| C1 | Keeper A's fees outside §4a's total: `wide-resolve` (64,331 lamports a bell and known wide province; its 600,000 CU limit is about 7× a quiet Resolve's 84,000 CU, so a lower limit would cut the fee to about a quarter, a behaviour change proposed by verify-pr129, not made) and SkipQuiet over provinces opened on demand (#138) | engineering (optional) | §4b; budget +3 to +10 SOL |
+| F1 | Keeper A's on-demand fund floor is compiled for 5,080 lamports per byte (`RENT_PER_BYTE`; `rings.rs` `demand_fund_floor`), the program charges the cluster's Rent sysvar: at another rate the floor is wrong (§6; at 6,960 too low, so on-demand opens could starve OpenRing and the wide rings) | engineering | open; harmless at 5,080 (today's devnet rate). At another rate: run without `provinces_reach`, or make the floor read the rate first |
+| T1 | CI coverage: P14 (conquest reader) runs on the previous `.so` and in the manual key-tests only; P8's `AFTER_BELLS` is still 48 (< 72, so no capture in CI); the P12/PPOST/P7 page drivers race the declared map growth under load (D-devnet-page-outpost-3, D-verify-pr139-5) | engineering | open |
 
-A playable first season does not need any open engineering item above: Join, the rim village, the economy, the
-wide claim, the legacy war and the rim → wide expedition (the page sends its Depart since #129) are all
-served. **What it needs from r0ze is P14, W1 (only for a verifier PASS / the prize), H1 and the deploy itself.**
+A playable first season does not need any open engineering item above: Join, the rim village, second and third
+villages (FileOutpost, #141, on the provinces #138 opens), the economy, the wide claim, the legacy war and the
+rim → wide expedition (the page sends its Depart since #129) are all served, with fog on the page (#127). A wide
+village, once claimed and finalized, is held but not used from the devnet page (P17). **DECIDE NOW: nothing** (P14 was decided 2026-11-22 01:12 JST and both halves
+are merged). What r0ze still has to do is the deploy-day list below; W1 matters only for a verifier PASS / the prize.
+
+**MUST at deploy time, r0ze, in order:**
+
+1. Play-check locally (t341u): `scripts/play-local.sh`, then `--wide`.
+2. Approve one read-only devnet re-check right before (§3: rent rate, BLS, SBPF v2, SIMD-0500). If the rent rate is
+   not 5,080, stop: the costs change (§4) and keeper A's `provinces_reach` floor is wrong (F1).
+3. Install a Solana CLI ≥ 4.0.0 beside 3.1.9 (3.1.9 cannot deploy this `.so`; §1a).
+4. Make 3 keys offline (deployer, program-playable, authority; never `--final`); put the 2 public keys into
+   `scripts/devnet/devnet-playable-profile.json` (`programId`, `upgradeAuthority`).
+5. Faucet (5 SOL a request): 5 requests for the deploy (7 at 6,960); about 25 (28) with one season; +1–2 for keeper A's
+   fee budget (§4b).
+6. Rebuild (`scripts/build-frontier-devnet-playable-sbf.sh --twice`) and say "deploy OK" in chat for exactly the hash
+   it prints (today `67a33c92…06b3`) → §8 step 3.
+7. Before the season: sign up for an RPC provider and a host with a public name and TLS (H1, B11).
+8. Only for a verifier PASS / the prize: pick an archival witness RPC (W1).
 
 ### 7.1 Detail
 
@@ -625,12 +686,12 @@ served. **What it needs from r0ze is P14, W1 (only for a verifier PASS / the pri
 | P2 | First homes at the rim (owner decision Q-W1, 2026-11-20: allowed on wide devnet seasons, as in local play): PlaceHome is capped at the season's base `r_max` 16, so a rim home is a one-site FileTicket, settled by keeper A's `tickets` role, on the rim provinces its `rim_per_wedge` duty opens; `S1_DEVNET_WIDE_7D` has `outpost_tier_min` 0, so that Hamlet anchors a wide claim. The page offers it on a wide devnet season (P1, P7 test) | closed (code), loopback test only | `keeper/src/rings.rs` `rim_plan`, `stack/tests/operator_playable.rs` P4 |
 | P3 | Wide → wide marches (WideDepart) answer `NotImplemented` in the devnet build by design (§1a), so a wide keep, which only such a march can reach, cannot be captured there; local TEST only (`localnet-wide-depart`) | closed gate | `proc/wide.rs` `DEPART_DEBIT_ENABLED` |
 | P4 | Operator AI residents (`--agent-wallet`, `--agent-runner`) and the test-token faucet are localnet-only | open | `permutation-gateway/src/frontier/config.mjs` |
-| P8 | **The keeper's feed guard stopped keeper A at the first wide record.** A successful transaction logging a `PSW1` record latched the fail-closed feed guard for good, after which only beacon writes went out (rings with P6's wide rings, fold, tickets and `wide-tickets` stopped); a wide village's own actions (WideEconomy Harvest/Build/Train, WideGarrison, WideMuster, WideDissolve) log one. A `playable-lane` keeper now **accounts for** (counts, never applies) a PSW1 record only when it decodes exactly, its kind is the wide march lifecycle or the wide holding's owner actions (kinds 1–17), and every province it names is of the season's world and wide (ring > 128). Everything else still latches: undecodable or unknown records, the rim↔wide bridge kinds 25/26 and the conquest kinds 18–24, a legacy or foreign identity, the expedition PS2 kinds, and (new, every build) any other record format of the program (PSWC, PSWR, PSFF, PSFT, …). `/v1/status` `discovery.land.wide_accounted` counts them. Offline proof: `operator_playable` P6 (ports 41650+) | closed (code), loopback only | `keeper/src/feedguard.rs` `WideScope`, `keeper/tests/wide_feed_guard.rs` `p8::`, `stack/tests/operator_playable.rs` P6 |
+| P8 | **The keeper's feed guard stopped keeper A at the first wide record.** A successful transaction logging a `PSW1` record latched the fail-closed feed guard for good, after which only beacon writes went out (rings with P6's wide rings, fold, tickets and `wide-tickets` stopped); a wide village's own actions (WideEconomy Harvest/Build/Train, WideGarrison, WideMuster, WideDissolve) log one. A `playable-lane` keeper now **accounts for** (counts, never applies) a PSW1 record only when it decodes exactly, its kind is the wide march lifecycle or the wide holding's owner actions (kinds 1–17), and every province it names is of the season's world and wide (ring > 128). Everything else still latched at #108: undecodable or unknown records, the rim↔wide bridge kinds 25/26 (read exactly since #121, P10) and the conquest kinds 18–24 (read exactly since #124, P14 a; not producible by the devnet `.so` since #139), a legacy or foreign identity, the expedition PS2 kinds, and (new, every build) any other record format of the program (PSWC, PSWR, PSFF, PSFT, …). `/v1/status` `discovery.land.wide_accounted` counts them. Offline proof: `operator_playable` P6 (ports 41650+) | closed (code), loopback only | `keeper/src/feedguard.rs` `WideScope`, `keeper/tests/wide_feed_guard.rs` `p8::`, `stack/tests/operator_playable.rs` P6 |
 | P9 | **Wide provinces kept resolved (devnet-p15-p9).** WideMuster and WideGarrison (and an expedition resident's Dissolve / Return) need the wide province resolved through bell − 2 (`resident_ok`: `resolved_next + 1 ≥ now_bell`, `NotResident` otherwise; `proc/wide.rs` `muster_as`, `proc/wide_garrison_exec.rs`) — a program rule, kept. Nothing sent the wide Resolve before (the `wideduty.rs` planner is read-only; `expeditions` resolves a destination only up to an arrival), so a wide village could muster only in its first bells. keeper A's new role **`wide-resolve`** (`--features playable-lane`; needs `beacon`) keeps every wide province it knows of — named by an accounted PSW1 record (the feed index, rebuilt from cursor 0 on restart) or holding a wide village won by a claim (the known Citizens' wide ticket records) — resolved bell by bell with the quiet wide Resolve (0xDC op 1, key `wres:<P>,<Q>:<bell>`) once THE anchor's window closed and the seed is on chain; a bell with arrivals is left to `expeditions` (each role skips the other's pending key). Class D fees only: 64,331 lamports a bell and province as measured offline (verify-pr129: 5,000 base fee + 59,331 priority fee, keeper A's class-D starting bid P_LOW_MILLI 100 on the role's 600,000 CU limit; a quiet Resolve uses about 84,000 CU), so about 0.065 SOL per known wide province for a 7-day season of 1,008 bells, at most about 7.0 SOL if all 108 wide provinces keeper A opens became known from the first bell; more if a write waits and its bid rises. Offline proof: `operator_playable` P11/P12's tail (a wide village claimed from the rim, WideMuster on a later bell with NO declared `resolved_next`) | closed (code), loopback test only (devnet-p15-p9) | `keeper/src/wideresolve.rs`, `proc/wide.rs` |
 | P10 | **The expedition's records no longer stop keeper A (devnet-expedition-keeper); and (option (a) of P14, PR #124) neither does wide conquest.** A `playable-lane` keeper's feed guard now APPLIES the records of the expedition wrapper's kinds 0–11 exactly (`feedguard.rs` `WideScope::expedition`): PS2 146 (Depart, SettleOrigin), PS2 147 (Reveal, Gather), PS2 148 + PSW1 25 (SettleMember, SettleCamp, the pair adjacent and of one identity and receipt), PS2 149 + PSW1 26 (resident Dissolve / Return, one operation id), PSFF v1/v2/v3 (failure, forfeit, retained failure) and PSFT (terminal), each decoded by its own codec with the canonical identity checks (host home a legacy province of this Season's world, destination wide). What they change that the legacy indexes keep is applied as a hint the duties re-read: the home province (touched), a settled or failed holding's `pool_owed` (`owes`), and the transit for the `expeditions` role (P13). Still a blocker: an unpaired, forged, truncated or foreign record, any other format. (P14 option (a), devnet-guard-conquest, merged: the conquest kinds 12–18 — PSW1 18–24, PS2 145, PSWR, PSWC — are read exactly too; since P14 (b) the devnet `.so` cannot produce them.) Tests over the REAL logs of the pinned `.so` (`fixtures/verify/playable-*.json.gz`, every dispatch kind 0–18): `keeper/tests/expedition_feed_guard.rs`. (The legacy PS2 codec refuses all of 145–149, not 145–148: D-devnet-page-war-6, the doc fixed.) | closed (code) for expeditions; wide conquest closed in the devnet build by P14 (b) | `keeper/src/feedguard.rs`, `keeper/tests/expedition_feed_guard.rs`, `stack/tests/operator_playable.rs` P11 |
 | P5 | **Fog of war on the devnet page (fog-devnet).** The play page of a season whose pinned cluster is `devnet` shows the same player view as a local test world (#93/#117): vision around one's own villages and hosts and one's own nation's villages and held provinces (allies share nothing); never-seen land blank on the map and 全体図; last-known records kept per season (program, Season id and Season account) and wallet in the browser; other nations' hosts, marches, clashes and contests only in current vision; no reveal at the season's end; no 「記録」 sheet and no spectator link on the play page. The switch is `DEVNET_FOG` (`map/fog.mjs`, beside `LOCAL_FOG`), keyed on the pin (`FS.pin.cluster`), not on the gateway's devnet play answer. It is a client view only: the herald (`/h/*`), the spectator page and the chain stay public, so anyone can read everything directly (owner: cosmetic fog accepted). Offline proof: `operator_playable` PFOG (`DEVNET_PAGE_DRIVER=1`, ports 41720+): P9's page war plus two observer players of other nations on the devnet page | closed (client), loopback only | `permutation-server/web/frontier/map/fog.mjs`, `app.mjs` `fogWorldPinned`, `stack/tests/operator_playable/war_fog.rs` |
 
-## 8. The whole command list, in order (playable lane; 2026-11-21, `origin/main` 436bb9c1)
+## 8. The whole command list, in order (playable lane; 2026-11-21, `origin/main` 436bb9c1; re-checked 2026-11-22, 6912906d)
 
 Every flag below was read from the code and, except where a line says otherwise, is the one the offline end-to-end
 tests pass (`frontier-node/crates/stack/tests/operator_playable.rs`). **None of it has been run against devnet.**
@@ -656,7 +717,7 @@ node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile
 # ── 2. Keys [r0ze], offline, outside the repository (§2) ─────────────────────────────────────────────────────
 #   ~/wylls-devnet-keys/{deployer,program-playable,authority}.json, mode 600
 #   their two addresses → "programId" and "upgradeAuthority" of scripts/devnet/devnet-playable-profile.json
-#   faucet into the deployer (21.93 SOL at 5,080) and the authority (57.14 SOL); keeper A's funders in step 5
+#   faucet into the deployer (21.93 SOL at 5,080; 30.03 at 6,960) and the authority (57.14 SOL); keeper A's funders in step 5
 
 # ── 3. Deploy [r0ze: "deploy OK" for H] (§5a) ────────────────────────────────────────────────────────────────
 export PATH="$HOME/solana-4x/bin:$PATH"                    # solana CLI ≥ 4.0.0, for this step only
@@ -686,7 +747,8 @@ mkdir -m 700 -p keeper-a && $EDITOR keeper-a/keeper.toml   # the file below
 $KP --config keeper-a/keeper.toml --init-seed              # writes keeper-a/keeper.seed (mode 600) and exits
 (umask 077; openssl rand -hex 32 > keeper-a/keeper.token)  # the API's bearer token: the keeper only reads this file
 $KP --config keeper-a/keeper.toml --print-addresses        # its payers and funders; fund the FUNDERS (§4b: about 5.7 SOL
-                                                           # of pools + the beacon's rent float); the keeper funds its payers
+                                                           # of pools + the beacon's rent float + about 3 SOL of fees
+                                                           # for SkipQuiet and wide-resolve); the keeper funds its payers
 $KP --config keeper-a/keeper.toml                          # runs; GET 127.0.0.1:41050/v1/status with the token
 
 # ── 6. Herald (the only public service, behind the TLS proxy) ────────────────────────────────────────────────
@@ -710,6 +772,8 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
 #   players open https://<the public host name>/frontier/ , connect a wallet set to devnet holding about 0.05 devnet SOL,
 #   and play: Join → first village (heartland, or the rim once ring 128 is open, about 21 h after the genesis)
 #   → Harvest / Build / Train → Muster → sealed march → wide claim (once keeper A opened ring 129)
+#   → 2nd / 3rd village by FileOutpost (once keeper A's provinces_reach opened the provinces next to the home)
+#   → rim → wide expedition (「境界への道を準備」: two presses, wallet-signed ExpeditionDepart; keeper A's expeditions role does the rest)
 
 # ── 9. Check and end ─────────────────────────────────────────────────────────────────────────────────────────
 frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 --rpc $RPC --witness <a second RPC> \
@@ -729,7 +793,7 @@ season = 1
 rpc = ["<$RPC>"]
 feed = "rpc"
 drand = ["https://api.drand.sh", "https://drand.cloudflare.com"]
-roles = ["beacon", "archive", "rings", "fold", "tickets", "wide-tickets", "reveal", "settle-departure", "gather", "resolve", "skip", "settle", "close", "claims", "expeditions"]
+roles = ["beacon", "archive", "rings", "fold", "tickets", "wide-tickets", "reveal", "settle-departure", "gather", "resolve", "skip", "settle", "close", "claims", "expeditions", "wide-resolve"]
 reveal_pool = 150
 delay_pool = 32
 funders = 4
@@ -744,10 +808,15 @@ extend_max_ring = 128
 lazy_provinces = true
 rim_per_wedge = 6
 provinces_reach = 3
+# provinces_per_pass = 12, provinces_max = 600 (the defaults; the wedge-fund floor is the real bound, §6)
 wide_rings = 3
 wide_per_wedge = 6
 rpc_min_gap_ms = 250
 ```
+
+`wide-tickets`, `expeditions`, `wide-resolve` and `wide_rings` need the keeper built with `--features playable-lane`
+(`config.rs` `check_wide`); `expeditions` needs `beacon`, `gather` and `resolve`; `wide-resolve` needs `beacon`;
+`provinces_reach` (at most 8, `PROVINCES_REACH_MAX`; 3 is the preset's `outpost_range`) and `wide_rings` (at most 8) need `rings`. Unknown keys are refused.
 
 Notes on what is **not** tested as written:
 

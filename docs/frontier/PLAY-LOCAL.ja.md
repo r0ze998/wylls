@@ -482,6 +482,16 @@ scripts/play-local.sh --coexist --two                   # 保存する世界（�
 
    住民は一歩ごとに JSON を 1 行出します（`discover`、`mcp`、`act` … `landed`／`refused`）。命令はページと同じ 6 つ（Join・PlaceHome・Harvest・Build・Train・Muster）です。どれも自分の鍵で署名し、自分の relay から送ります。運営側の AI 住民と同じく、行動は 1 ターンに 1 回です（Join は数えません。同じターンの 2 回目は `ResidentAlreadyActed`）。あなたのページにはこの上限はありません。自分の AI をつなぐには、`examples/external-resident/rule.mjs` の `decide()` を差し替えます（そのフォルダの README を見てください）。
 
+   **⑬ の住民**も同じように動かせます。参照の規則の代わりに ⑬ の目標・上限・記憶で決めます（モデルも有料 API も使いません。`workstreams/13-citizens/resident/local/README.ja.md`）。
+
+   ```sh
+   node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41920 \
+     --key /path/to/resident.json --dir /絶対パス/resident-state [--goal village-first|surplus-use] [--nation 0-5] \
+     [--mcp http://127.0.0.1:<port>/mcp]
+   ```
+
+   判断は `<dir>/decisions.jsonl`（一歩ごとに JSON 1 行）に、記憶は `<dir>/state.json` に残ります。再起動した住民は前の命令を署名でたどり、同じターンに 2 回行動しません。`touch <dir>/HALT` で一時停止します。
+
 - `--demo` の ×N の時計は、**あなた**の最初の村が置かれてから動きます。それまでは 1 ターン 10 分なので、住民の 2 つ目の命令はあなたを待ちます。
 - `--two` と `--wide` とは一緒に使えません。保存する世界・`--demo`・`--ai`・`--random-map`・`--coexist`・`--resume` では使えます（続きから遊ぶときも `--external` をもう一度付けます）。
 - ローカルだけです。devnet には外部の住民の受け入れも MCP サーバーもありません（公開の MCP の方針 MCP-1..11 は未決です）。

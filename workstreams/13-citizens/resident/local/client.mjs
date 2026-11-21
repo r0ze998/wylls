@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+// ⑬ RESIDENT as an EXTERNAL AI RESIDENT of a local-play TEST world (2026-11-22; ⑤ option B path, #57/#142).
+//
+//   node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41550 --key <file> --dir <abs dir> \
+//     [--new-key] [--goal village-first|surplus-use] [--nation 0-5] [--mcp http://127.0.0.1:<port>/mcp] [--cadence-ms 3000] [--rounds 0]
+//
+// The operator admits the resident's PUBLIC address (`scripts/play-local.sh --external <address>`); this process holds
+// its own TEST key (examples/external-resident/key.mjs: 0600, test_only) and goes through the reference resident's
+// own path (agent.mjs discoverWorld + sendOrder: the launcher's page start route, the page's own submitLocalAct /
+// followLocalAct on its own world proxy). Only the mind is ⑬'s: brain.mjs (goals, limits) with journal.mjs (memory,
+// restart-safe, one action per turn) over observe.mjs (its own public records). No model, no paid API, no network
+// beyond loopback. The decision log: one JSON line per step on stdout and in <dir>/decisions.jsonl.
+// Stop: SIGINT/SIGTERM, or the operator's halt file <dir>/HALT (a pause: results of earlier orders are still read).
+import { pathToFileURL } from 'node:url';
+import { existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { createKeyFile, loadKeyFile } from '../../../03-composability/mcp/examples/external-resident/key.mjs';
+import { walletShaped, getJson, chainSecondsOf, pagePost } from '../../../03-composability/mcp/examples/external-resident/public.mjs';
+import { discoverWorld, sendOrder } from '../../../03-composability/mcp/examples/external-resident/agent.mjs';
+import { connectMcp } from '../../../03-composability/mcp/examples/external-resident/mcp-client.mjs';
+import { followLocalAct } from '../../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { parseTransaction } from '../../../../permutation-server/web/sdk/solana-tx.mjs';
+import { encode } from '../../../../permutation-server/web/sdk/base58.mjs';
+import { bellOf } from '../../../../permutation-gateway/src/frontier/local-play-operator-policy.mjs';
+import { GOALS } from '../goals.mjs';
+import { createObserver } from './observe.mjs';
+import { openState, settleIntendedOnOpen } from './journal.mjs';
+import { localStep } from './runner.mjs';
+import { BRAIN_KIND } from './brain.mjs';
+
+const loopback = u => { try { const x = new URL(u); return x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname); } catch { return false; } };
+
+export function parseArgs(argv) {
+  const o = {}, flags = new Set(['new-key']), keys = ['launcher', 'key', 'dir', 'goal', 'nation', 'mcp', 'cadence-ms', 'rounds', 'admit-wait-ms'];
+  for (let i = 0; i < argv.length; i++) {
+    const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
+    if (k && flags.has(k)) { o[k] = true; continue; }
+    if (!k || !keys.includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    o[k] = argv[++i];
+  }
+  if (!loopback(o.launcher ?? '') || new URL(o.launcher).pathname !== '/') throw new Error('--launcher: the launcher\'s loopback origin');
+  if (o.mcp !== undefined && (!loopback(o.mcp) || !o.mcp.endsWith('/mcp'))) throw new Error('--mcp: a loopback MCP resource (http://127.0.0.1:<port>/mcp)');
+  if (!o.key) throw new Error('--key <file>');
+  if (!o.dir || !path.isAbsolute(o.dir)) throw new Error('--dir <absolute directory> (state, decision log, HALT)');
+  const goal = o.goal ?? 'village-first';
+  if (!Object.hasOwn(GOALS, goal)) throw new Error(`--goal: one of ${Object.keys(GOALS).join(', ')}`);
+  const num = (k, d, lo, hi) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!/^[0-9]+$/.test(o[k]) || n < lo || n > hi) throw new Error(`--${k}`); return n; };
+  return { launcher: new URL(o.launcher).origin, key: o.key, newKey: o['new-key'] === true, dir: o.dir, goal, nation: num('nation', 3, 0, 5), mcp: o.mcp ?? null,
+    cadenceMs: num('cadence-ms', 3000, 200, 600000), rounds: num('rounds', 0, 0, 1e9), admitWaitMs: num('admit-wait-ms', 600000, 0, 864e5) };
+}
+
+const delay = (ms, signal) => new Promise(r => { const t = setTimeout(r, ms); signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
+const plain = v => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x)));
+
+export async function main(argv = process.argv.slice(2), { print = s => process.stdout.write(`${s}\n`) } = {}) {
+  let o; try { o = parseArgs(argv); } catch (e) { process.stderr.write(`ws13 local resident: ${e.message}\n`); return 64; }
+  mkdirSync(o.dir, { recursive: true, mode: 0o700 });
+  const logFile = path.join(o.dir, 'decisions.jsonl');
+  const stop = new AbortController();
+  for (const s of ['SIGINT', 'SIGTERM']) process.once(s, () => stop.abort(s));
+  const out = (step, extra = {}) => { const line = JSON.stringify(plain({ at: new Date().toISOString(), step, ...extra })); print(line); appendFileSync(logFile, `${line}\n`); };
+  let key;
+  try { key = o.newKey && !existsSync(o.key) ? createKeyFile(o.key) : loadKeyFile(o.key); } catch (e) { out('key', { outcome: 'refused', why: e.message }); return 2; }
+  let store;
+  try { store = openState({ dir: o.dir, wallet: key.address, goal: o.goal, nation: o.nation }); } catch (e) { out('state', { outcome: 'refused', why: e.message }); return 2; }
+  const settledOnOpen = settleIntendedOnOpen(store.state); store.save();
+  out('start', { brain: BRAIN_KIND, wallet: key.address, goal: o.goal, goalWords: GOALS[o.goal].words, nation: o.nation, decisions: store.state.decisions, acted: store.state.acted, restartSettled: settledOnOpen, openLines: Object.values(store.state.journal).filter(l => ['signed', 'sent', 'unknown'].includes(l.state)).length });
+  const found = await discoverWorld({ launcher: o.launcher, wallet: key.address, admitWaitMs: o.admitWaitMs, signal: stop.signal, out });
+  if (!found) return 3;
+  const { herald, info, identity } = found;
+  let mcp = null;
+  if (o.mcp) {
+    try { mcp = await connectMcp(o.mcp, key); const c = await mcp.call('get_connection'); out('mcp', { outcome: 'connected', tools: mcp.tools.map(t => t.name), scopes: c.value?.scopes ?? null, write: c.value?.write ?? null }); }
+    catch (e) { out('mcp', { outcome: 'failed', why: String(e?.message ?? e).slice(0, 200) }); mcp = null; }
+  }
+  const signer = walletShaped(key);
+  const observeRaw = createObserver({ base: herald, wallet: key.address });
+  let lastObs = null;
+  const observe = async () => { const x = await observeRaw(); if (!x.unreadable) lastObs = x; return x; };
+  // the signing step: the page's own signer, and the signature saved (onSigned) before submitLocalAct's one submit
+  const send = async (order, { onSigned }) => sendOrder(order, { herald, info, identity, signer, launcher: o.launcher, signal: stop.signal,
+    sign: async unsigned => {
+      const account = (await signer.wallet.features['standard:connect'].connect()).accounts[0];
+      const [res] = await signer.wallet.features['solana:signTransaction'].signTransaction({ account, transaction: unsigned });
+      onSigned(encode(parseTransaction(Uint8Array.from(res.signedTransaction)).signatures[0]));
+      return res.signedTransaction;
+    } });
+  const post = pagePost(o.launcher);
+  const follow = async sig => { const f = await followLocalAct(sig, { origin: herald, still: () => !stop.signal.aborted, post, tries: 2, every: 500 }); return f.state ?? null; };
+  const bellNow = async () => bellOf(lastObs?.genesisTs, chainSecondsOf(await getJson(`${herald}/h/status`)));
+  const halted = () => existsSync(path.join(o.dir, 'HALT'));
+  let misses = 0, quietSince = null, round = 0;
+  for (; !stop.signal.aborted && (o.rounds === 0 || round < o.rounds); round++) {
+    let r;
+    try { r = await localStep({ store, observe, send, follow, bellNow, halted, log: out }); } catch (e) { r = { did: 'error' }; out('error', { why: String(e?.stack ?? e).slice(0, 400) }); }
+    if (r.did === 'unreadable' || r.did === 'error') { if (++misses >= 20) { out('stop', { why: 'world-gone' }); break; } } else misses = 0;
+    // (quiet steps — asleep or blocked — are logged once per turn, not every round)
+    if (r.did === 'blocked' || r.did === 'asleep') { if (quietSince !== r.bell) { quietSince = r.bell; out('quiet', { bell: r.bell, did: r.did, why: r.why ?? `asleep until turn ${r.until}` }); } }
+    if (mcp && lastObs?.holding && round % 10 === 0) {
+      try { const v = await mcp.call('get_village_status'); out('mcp', { tool: 'get_village_status', round, isError: v.isError, stores: (v.value?.village?.stores ?? []).slice(0, 6).map(s => `${s.resource}:${s.have}`) }); }
+      catch (e) { out('mcp', { tool: 'get_village_status', round, outcome: 'failed', why: String(e?.message ?? e).slice(0, 120) }); }
+    }
+    await delay(o.cadenceMs, stop.signal);
+  }
+  await mcp?.close().catch(() => {});
+  const st = store.state;
+  out('stopped', { why: String(stop.signal.reason ?? 'done'), wallet: key.address, decisions: st.decisions, acted: st.acted, lines: Object.fromEntries(Object.entries(st.journal).map(([k, l]) => [k, `${l.order}:${l.state}`])) });
+  return 0;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = await main();
