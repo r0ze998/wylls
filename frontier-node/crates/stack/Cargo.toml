@@ -37,7 +37,7 @@ hex.workspace = true
 # (in-workspace path crate, already in the lock).
 localnet.workspace = true
 # The playable-lane test reads the committed devnet .so fixture
-# (frontier-node/fixtures/verify/devnet-playable-da3dc1aa.so.gz; DECISIONS J2's
+# (frontier-node/fixtures/verify/devnet-playable-67a33c92.so.gz; DECISIONS J2's
 # flate2, already a workspace dependency: no new crate).
 flate2.workspace = true
 # P4 (Q-W1) judges its wide claim segment with the verifier's playable-lane VWL check (tests only; the operator

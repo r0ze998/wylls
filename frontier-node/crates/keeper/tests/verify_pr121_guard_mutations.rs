@@ -694,9 +694,11 @@ fn m9_frames() {
     latches(&a, &x, "frame never closes");
 }
 
-/// P14: the conquest kinds 12..=18 a participant can send through the wrapper on the devnet `.so`.
-/// They latched keeper A before devnet-guard-conquest (P14 option (a)); now both indexes read them
-/// exactly and keep going (verify-pr124; the mutations in `verify_pr124_conquest_mutations.rs`).
+/// P14: the conquest kinds 12..=18 a participant could send through the wrapper on the previous devnet `.so`
+/// (`da3dc1aa…`, these recordings). They latched keeper A before devnet-guard-conquest (P14 option (a)); now
+/// both indexes read them exactly and keep going (verify-pr124; `verify_pr124_conquest_mutations.rs`).
+/// The devnet `.so` of P14 (b) (`67a33c92…`) refuses them `BadData` and keeper A stays unlatched:
+/// `verify/tests/p14b_devnet_no_conquest.rs`.
 #[test]
 fn p14_conquest_kinds_are_read_by_keeper_a() {
     let mut seen: BTreeMap<u8, Vec<String>> = BTreeMap::new();

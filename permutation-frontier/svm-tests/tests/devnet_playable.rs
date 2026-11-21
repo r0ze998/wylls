@@ -9,7 +9,10 @@
 //! - it refuses a version-4 (S1) season (it is not the S1 program);
 //! - the localnet land lane's artefact, deployed at the same id, refuses every instruction (`BadAddress`): only the
 //!   devnet build can run under a devnet program id;
-//! - the bytes carry `PSF_DEVNET_PLAYABLE_BUILD` and neither localnet marker.
+//! - the bytes carry `PSF_DEVNET_PLAYABLE_BUILD` and neither localnet marker;
+//! - P14 (b) (owner decision 2026-11-22): on that seeded 0x4804 season the version-2 wrapper's Free City conquest
+//!   kinds 12–18, each carrying its exact inner command, are refused `BadData` by the program itself (the build has
+//!   no `conquest-dispatch-experimental`), with no record logged.
 //!
 //! Inputs: `PSF_SO_DEVNET_PLAYABLE` (else `permutation-frontier/target/deploy-devnet-playable-sbf/`) and
 //! `PSF_SO_LOCALNET_LAND` (else `permutation-frontier/target/deploy-localnet-land-sbf/`); `run.sh` builds both.
@@ -20,6 +23,7 @@ use permutation_frontier_svm_tests::chain::{
 };
 use permutation_frontier_svm_tests::world::{params_for, World};
 use permutation_frontier_svm_tests::FrontierError as E;
+use permutation_frontier_svm_tests::{AccountMeta, Instruction, Signer};
 
 const LANE_VERSION: u16 = 0x4804;
 
@@ -94,6 +98,83 @@ fn devnet_playable_runs_a_lane_season_lifecycle_at_an_ordinary_program_id() {
         w.consume_genesis(&mut c),
         "ConsumeGenesisSeed (real quicknet round)",
     );
+}
+
+/// The six existing Free City commands and kind 18's SettleReservation body (`SettleReservation { seq }`: the
+/// Close tag's envelope head, op 0x40, the seq little-endian; its codec exists only with the conquest feature), each under its
+/// own class tag, as `[tag, 0xff, 2, kind] ++ inner` (`expedition_dispatch_ix`).
+fn conquest_wrappers() -> Vec<(u8, Vec<u8>)> {
+    use frontier_abi::world_index::wide_ix as wide;
+    let inners: Vec<(u8, Vec<u8>)> = vec![
+        (
+            12,
+            wide::DeclareSiege { site: 1, entry: 2 }.to_bytes().to_vec(),
+        ),
+        (
+            13,
+            wide::ResolveWithConquest {
+                bell: 20,
+                beneficiary: [7; 32],
+            }
+            .to_bytes()
+            .to_vec(),
+        ),
+        (14, wide::SettleCapture { site: 1 }.to_bytes().to_vec()),
+        (15, wide::SettleSiege { site: 1 }.to_bytes().to_vec()),
+        (16, wide::CloseConquest { p: 129, q: 0 }.to_bytes().to_vec()),
+        (17, wide::CloseCaptureEscrow.to_bytes().to_vec()),
+        (18, {
+            let mut b = vec![
+                wide::TAG_CLOSE,
+                wide::ENVELOPE_ESCAPE,
+                wide::ENVELOPE_VERSION,
+                0x40,
+            ];
+            b.extend_from_slice(&7u32.to_le_bytes());
+            b
+        }),
+    ];
+    inners
+        .into_iter()
+        .map(|(k, inner)| {
+            let mut d = vec![inner[0], wide::ENVELOPE_ESCAPE, 2, k];
+            d.extend_from_slice(&inner);
+            (k, d)
+        })
+        .collect()
+}
+
+#[test]
+fn devnet_playable_refuses_the_conquest_kinds_12_to_18_bad_data() {
+    let so = devnet_so();
+    let mut c = Chain::with_program(Build::Release, &so, program_id());
+    let w = lane_world(&mut c, 10, LANE_VERSION);
+    expect_lands(w.announce(&mut c), "AnnounceSeason (0x4804)");
+    expect_lands(w.create(&mut c), "CreateSeason (0x4804)");
+    expect_lands(w.init_logs(&mut c), "InitBeaconLogs");
+    for f in 0..6 {
+        expect_lands(w.init_shards(&mut c, f), "InitShards");
+    }
+    expect_lands(w.consume_genesis(&mut c), "ConsumeGenesisSeed");
+    let who = c.funded(b"p14b conquest sender", 1);
+    for (k, data) in conquest_wrappers() {
+        // the real 0x4804 Season at every position a conquest kind reads it from (0, 1, 2), the sender signing
+        let mut accounts = vec![AccountMeta::new(who.pubkey(), true)];
+        for _ in 0..3 {
+            accounts.push(AccountMeta::new_readonly(w.a.season, false));
+        }
+        let ix = Instruction {
+            program_id: program_id(),
+            accounts,
+            data,
+        };
+        let f = assert_code(c.send(&[ix], &[&who]), E::BadData);
+        assert!(
+            !f.logs.iter().any(|l| l.starts_with("Program data: ")),
+            "kind {k} logged a record:\n{}",
+            f.logs.join("\n")
+        );
+    }
 }
 
 #[test]
