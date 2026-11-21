@@ -584,7 +584,7 @@ pub(super) async fn keeper_war(
     host: u64,
     nation: u8,
     since: u64,
-    mut observers: Option<&mut fog::Obs>,
+    observers: Option<&mut fog::Obs>,
 ) -> Value {
     use fclient::abi::tag as T;
     let ctx = r.ctx();
@@ -650,7 +650,7 @@ pub(super) async fn keeper_war(
     )
     .await;
     // (PFOG: A's host stands on the keep now — what each player's page shows of it)
-    if let Some(o) = observers.as_deref_mut() {
+    if let Some(o) = observers {
         o.host(host);
         fog::snap_with(r, o, beacon, "settled", Some((tp, tq, nation))).await;
     }

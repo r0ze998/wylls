@@ -156,7 +156,7 @@ pub(super) async fn setup(
                 .map(|&c| pdist(c, (hp, hq)).min(pdist(c, (tp, tq))))
                 .min()
                 .unwrap_or(i32::MAX);
-            if best.map_or(true, |b| score > b.0) {
+            if best.is_none_or(|b| score > b.0) {
                 best = Some((score, z, (p, q)));
             }
         }
@@ -585,6 +585,5 @@ pub(super) async fn finish(
 ) -> Value {
     snap(r, &mut o, beacon, "final").await;
     let _ = o.driver.0.wait();
-    let v = verdict(&mut o, out);
-    v
+    verdict(&mut o, out)
 }
