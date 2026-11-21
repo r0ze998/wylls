@@ -80,8 +80,11 @@ pub(super) async fn flow(
     r: &mut Run<'_>,
     (hp, hq, site, nation): (i32, i32, u8, u8),
     target: WideCoord,
+    // P14: the Free City `(site, tile)` of `target`: the route ends on its tile, then the conquest ([`super::conquest`])
+    free_city: Option<(u8, u8)>,
     extra: Value,
 ) -> Value {
+    let tag = if free_city.is_some() { "p14" } else { "p11" };
     let a = r.c.a.clone();
     let ctx = r.ctx();
     let program = r.c.program;
@@ -202,7 +205,7 @@ pub(super) async fn flow(
         .filter(|t| home_pv.passable_mask & (1u64 << t) != 0)
         .filter_map(|t| {
             let o = TileAddress::new(home_key, t).ok()?;
-            steps::derive_route(o, dest, &lands).map(|rt| (t, rt))
+            steps::derive_route_to(o, dest, &lands, free_city.map(|f| f.1)).map(|rt| (t, rt))
         })
         .min_by_key(|(_, rt)| rt.dirs.len())
         .expect("a passable route from the home province into ring 129");
@@ -484,24 +487,53 @@ pub(super) async fn flow(
     let after_settle_slot = r.lock().slot();
     let keeper_steps = program_rows(r, since);
 
+    // P14: a third party's Free City conquest of the destination while keeper A runs every role
+    let conquest = match free_city {
+        Some((fc_site, fc_tile)) => Some(
+            super::conquest::flow(
+                r,
+                &mut beacon,
+                super::conquest::Siege {
+                    player: &player,
+                    holding,
+                    host,
+                    dest,
+                    dest_key,
+                    region: dest_region,
+                    site: fc_site,
+                    tile: fc_tile,
+                    war: war.clone(),
+                },
+            )
+            .await,
+        ),
+        None => None,
+    };
+
     // 6. keeper A keeps every duty afterwards: three more bells of folds / resolves, the guard not latched
+    // (P14: the season has ended and its grace passed: the conquest phase checked keeper A after it instead)
     let bell_after = r.bell();
-    drive(
-        r,
-        &mut beacon,
-        10.0,
-        900,
-        "three more bells after the settlement",
-        |r| r.bell() >= bell_after + 3,
-    )
-    .await;
+    if conquest.is_none() {
+        drive(
+            r,
+            &mut beacon,
+            10.0,
+            900,
+            "three more bells after the settlement",
+            |r| r.bell() >= bell_after + 3,
+        )
+        .await;
+    }
     r.lock().set_paused(true);
     let after_rows = program_rows(r, after_settle_slot);
     let keeper_ok_after: Vec<&Value> = after_rows.iter().filter(|x| x["ok"] == true).collect();
     assert!(
-        keeper_ok_after.iter().any(|x| x["tx"]
-            .as_str()
-            .is_some_and(|t| t.contains("Fold") || t.contains("Skip") || t.contains("Resolve"))),
+        conquest.is_some()
+            || keeper_ok_after
+                .iter()
+                .any(|x| x["tx"].as_str().is_some_and(|t| t.contains("Fold")
+                    || t.contains("Skip")
+                    || t.contains("Resolve"))),
         "keeper A folds / resolves after the expedition: {after_rows:#?}"
     );
     let status = super::keeper_status(war.0, &war.1).expect("keeper A's status");
@@ -524,7 +556,7 @@ pub(super) async fn flow(
     }
 
     // the verifier judges the whole season (the pinned .so given for VX's re-execution)
-    let verdict = r.judge_season("p11");
+    let verdict = r.judge_season(tag);
 
     let wanted = [
         "ExpeditionSettleOrigin",
@@ -558,7 +590,7 @@ pub(super) async fn flow(
         .collect();
     let once = json!({"restarts": restarts, "settle_origin": landed("ExpeditionSettleOrigin"), "reveal": landed("ExpeditionReveal"),
                       "settle_member": landed("SettleMember"), "gather": landed("ExpeditionGather"), "expedition_failed": exp_failed});
-    eprintln!("p11: exactly-once {once}");
+    eprintln!("{tag}: exactly-once {once}");
     assert_eq!(
         (
             landed("ExpeditionSettleOrigin"),
@@ -579,16 +611,16 @@ pub(super) async fn flow(
         "after": {"bells": 3, "keeper_rows": after_rows.len(), "keeper_ok": keeper_ok_after.len(),
                   "feed": {"land": status["discovery"]["land"], "play": status["discovery"]["play"]},
                   "expeditions_role": status["duties"]["expeditions"]},
-        "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra});
+        "conquest": conquest, "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra});
     if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
         let _ = std::fs::write(
-            std::path::Path::new(&d).join("p11-flow.json"),
+            std::path::Path::new(&d).join(format!("{tag}-flow.json")),
             serde_json::to_string_pretty(&out).unwrap(),
         );
     }
     assert_eq!(
         out["verifier"]["fails"], 0,
-        "the verifier FAILs the season (see p11-flow.json `verifier.not_warn`)"
+        "the verifier FAILs the season (see {tag}-flow.json `verifier.not_warn`)"
     );
     out
 }

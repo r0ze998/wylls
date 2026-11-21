@@ -56,6 +56,9 @@ const P10_PORT_BASE: u16 = 41_575;
 /// P11's (`OPERATOR_EXPEDITION_PORT_BASE` moves them): the rim → wide expedition with a test participant
 /// (devnet-expedition-keeper; devnet gaps P10 + P13).
 const P11_PORT_BASE: u16 = 41_500;
+/// P14's (`OPERATOR_CONQUEST_PORT_BASE` moves them): P11, then a third party's wide Free City conquest
+/// (devnet-guard-conquest; devnet gap P14 option a). Not 41650 (P6's default).
+const P14_PORT_BASE: u16 = 41_670;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -560,6 +563,21 @@ async fn p11_keeper_a_drives_a_rim_to_wide_expedition_on_the_devnet_so_offline()
     .await;
 }
 
+/// P14 (devnet-guard-conquest; devnet gap P14, option a: the program unchanged): P11's season and expedition, then a
+/// THIRD PARTY sends the Free City conquest kinds the devnet `.so` keeps open through the version-2 wrapper —
+/// DeclareSiege (12, the host's own wallet), ResolveWithConquest (13) every bell, SettleSiege (15), a second
+/// DeclareSiege as a RESERVATION, SettleReservation (18), and after the Season's end CloseCaptureEscrow (17) and
+/// CloseConquest (16) — while keeper A runs every role. Keeper A's feed guard reads every conquest record exactly
+/// (`feedguard.rs` P14) and never latches; the verifier judges the whole season ([`rim::conquest`]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p14_a_third_partys_free_city_conquest_never_latches_keeper_a_offline() {
+    playable_season(
+        ports("OPERATOR_CONQUEST_PORT_BASE", P14_PORT_BASE),
+        Mode::Conquest,
+    )
+    .await;
+}
+
 /// P9 (devnet-page-war): P8 with the WEB PAGE as the participant (as P7: the herald's `--web`, the gateway's devnet
 /// play routes, a Wallet Standard TEST wallet): it musters, composes and seals the march, its wallet signs the Depart
 /// (`/gw/f/devnet-play/march/submit`), its encrypted march book survives a reload, it hands the reveal material to
@@ -619,6 +637,8 @@ enum Mode {
     /// P11 (devnet-expedition-keeper): the rim world, keeper A with the play roles, the wide ring 129 and the
     /// `expeditions` role, and a rim → wide expedition by a test participant.
     Expedition,
+    /// P14 (devnet-guard-conquest): P11, then a third party's wide Free City conquest.
+    Conquest,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -634,11 +654,12 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageWar => "p9",
         Mode::PageWarHome => "p10",
         Mode::Expedition => "p11",
+        Mode::Conquest => "p14",
     };
     let war = matches!(mode, Mode::War | Mode::PageWar | Mode::PageWarHome);
     let page_mode = matches!(mode, Mode::Page | Mode::PageWar | Mode::PageWarHome);
-    let expedition = mode == Mode::Expedition;
-    // (P11 too: T(21) is the expedition's arrival round)
+    let expedition = matches!(mode, Mode::Expedition | Mode::Conquest);
+    // (P11 and P14 too: T(21) is the expedition's arrival round)
     let genesis_round = if war || expedition {
         WAR_GENESIS_ROUND
     } else {
@@ -913,8 +934,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::War | Mode::PageWar | Mode::PageWarHome => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
-            // (P11: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
-            Mode::Expedition => {
+            // (P11 / P14: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
+            Mode::Expedition | Mode::Conquest => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\""
             }
         },
@@ -926,8 +947,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
             ),
-            // (P11: ring 129 only, the expedition's destination ring)
-            Mode::Expedition => format!(
+            // (P11 / P14: ring 129 only, the expedition's destination ring)
+            Mode::Expedition | Mode::Conquest => format!(
                 "rim_per_wedge = {n}\nwide_rings = 1\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE
             ),
@@ -1318,10 +1339,15 @@ async fn playable_season(pt: Ports, mode: Mode) {
             rim::run(rim::Ctx {
                 keeper_wide: matches!(
                     mode,
-                    Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::Expedition
+                    Mode::KeeperWide
+                        | Mode::AfterWide
+                        | Mode::Page
+                        | Mode::Expedition
+                        | Mode::Conquest
                 ),
                 wide_rings: if expedition { 1 } else { rim::WIDE_RINGS },
                 expedition,
+                conquest: mode == Mode::Conquest,
                 page: page.clone(),
                 war: (war || expedition).then(|| rim::War {
                     keeper_api: pt.keeper_api,
