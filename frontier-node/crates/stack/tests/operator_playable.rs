@@ -56,6 +56,8 @@ const P10_PORT_BASE: u16 = 41_575;
 /// P11's (`OPERATOR_EXPEDITION_PORT_BASE` moves them): the rim → wide expedition with a test participant
 /// (devnet-expedition-keeper; devnet gaps P10 + P13).
 const P11_PORT_BASE: u16 = 41_500;
+/// PFOG's (fog-devnet; `OPERATOR_PAGE_FOG_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
+const PFOG_PORT_BASE: u16 = 41_720;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -597,6 +599,28 @@ async fn p10_the_page_marches_home_through_keeper_outages_on_the_devnet_so_offli
     .await;
 }
 
+/// PFOG (fog-devnet; owner t387u: the local test world's fog of war, now on the DEVNET page path): P9's page war with
+/// two more players of OTHER nations looking through the devnet page (`operator_playable/war_fog.rs`,
+/// `page_fog_driver.mjs`): B, of the nation holding the keep A marches on, and C, of a third nation far away. Their Join
+/// and rim tickets are sent with TEST keys; they send nothing else. At the start, after A's Depart, after SettleTransit
+/// (A's host on the keep) and at the end, every page's own vision, its fogged records beside the herald's raw ones, the
+/// chronicle, the clash report gate, the keep lists and the full-map links are checked against the owner's fog rules:
+/// each sees only its own vision; A's march appears to B only once it enters B's vision; never-seen provinces are blank
+/// (map and 全体図); the keep's clash is hidden from C. Ports 41720+ (`OPERATOR_PAGE_FOG_PORT_BASE`).
+/// `DEVNET_PAGE_DRIVER=1` only (as P7).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pfog_two_players_see_only_their_own_vision_on_the_devnet_page_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("pfog: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_FOG_PORT_BASE", PFOG_PORT_BASE),
+        Mode::PageWarFog,
+    )
+    .await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// P3: the season's setup only.
@@ -616,6 +640,8 @@ enum Mode {
     PageWar,
     /// P10 (devnet-page-war-2): the page's return march home, through two keeper A outages.
     PageWarHome,
+    /// PFOG (fog-devnet): P9 with two observer players of other nations on the devnet page, under the fog of war.
+    PageWarFog,
     /// P11 (devnet-expedition-keeper): the rim world, keeper A with the play roles, the wide ring 129 and the
     /// `expeditions` role, and a rim → wide expedition by a test participant.
     Expedition,
@@ -633,10 +659,17 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::War => "p8",
         Mode::PageWar => "p9",
         Mode::PageWarHome => "p10",
+        Mode::PageWarFog => "pfog",
         Mode::Expedition => "p11",
     };
-    let war = matches!(mode, Mode::War | Mode::PageWar | Mode::PageWarHome);
-    let page_mode = matches!(mode, Mode::Page | Mode::PageWar | Mode::PageWarHome);
+    let war = matches!(
+        mode,
+        Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog
+    );
+    let page_mode = matches!(
+        mode,
+        Mode::Page | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog
+    );
     let expedition = mode == Mode::Expedition;
     // (P11 too: T(21) is the expedition's arrival round)
     let genesis_round = if war || expedition {
@@ -910,7 +943,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
             // (P8/P9: the devnet profile's keeper A with the play roles of the S1 playtest's keeper A)
-            Mode::War | Mode::PageWar | Mode::PageWarHome => {
+            Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
             // (P11: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
@@ -920,7 +953,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         },
         rim = match mode {
             Mode::Setup => String::new(),
-            Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
@@ -1311,6 +1344,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         out: std::env::var("OPERATOR_EVIDENCE_DIR")
             .map(|d| Path::new(&d).join(format!("{tag}-page")))
             .unwrap_or_else(|_| dir.join("page-out")),
+        fog: mode == Mode::PageWarFog,
     });
     // P4: the rim first village and the wide claim (keeper and herald still running).
     let rim_summary = if rim_run {
