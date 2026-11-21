@@ -63,6 +63,9 @@ import * as localReturn from './flocalplay-return.mjs';
 import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
 import * as devnetPlayMod from './fdevnetplay.mjs';
+import { outpostCost } from './fdevnet-outpost.mjs';
+import { outpostCandidates, OUTPOST_PREVIEW_MS } from './screens/outpostcard.mjs';
+import { nextOutpostSlot } from './fconquest.mjs';
 import { openDevnetBook } from './fdevnetbook.mjs';
 import * as localMarch from './flocalplay-march.mjs';
 import { localPlayIdentityOk } from './flocalplay.mjs';
@@ -3409,6 +3412,34 @@ const num = x => Number.parseInt(x, 10);
 const formNum = (form, name) => Number(form?.elements?.[name]?.value ?? NaN);
 
 /** Hold the button lock until refreshed facts replace the previous offer. */
+/**
+ * (devnet-page-outpost) The checks of one FileOutpost, made again from fresh reads: the Citizen and its villages (the
+ * herald's `me`), the target's and the villages' provinces, then the program's own rule as the page knows it
+ * (fconquest.mjs outpostOffer). → `{ok: true, offer}` or a refusal `{ok: false, code, text}`.
+ */
+/** (devnet-page-outpost) The map's outpost press on a devnet page: the first home's village screen, and its card's preview. */
+function outpostFromMap(d) {
+  FS.tab = 'holding';
+  FS.activeHolding = Math.max(0, (FS.holdings ?? []).findIndex(h => h.order === 1));
+  invalidate('panel', 'tabs', 'rail');
+  return ACTIONS['outpost-preview'](d);
+}
+async function outpostRecheck(target, walletAddress) {
+  const me = await herald.me(walletAddress).catch(() => ({ ok: false, code: 'Unavailable' }));
+  if (!me.ok) return { ok: false, code: me.code ?? 'Unavailable' };
+  if (FS.wallet?.address !== walletAddress) return { ok: false, code: 'NotOwner' };
+  FS.citizen = me.citizen; FS.holdings = me.holdings; FS.land = landState(me.citizen);
+  const sources = [target, ...FS.holdings.filter(h => h.order === 1 || h.order === 2)];
+  for (const [i, p] of sources.entries()) {
+    if (sources.slice(0, i).some(s => s.p === p.p && s.q === p.q)) continue;
+    if (!await loadEnvelope(p.p, p.q)) return i === 0 && FS.provinceReads?.get?.(`${p.p},${p.q}`)?.state === 'missing'
+      ? { ok: false, code: 'LocalActProvinceAbsent' } : { ok: false, code: 'Unavailable' };
+  }
+  const offer = outpostOffer(FS, target);
+  FS.conquest && (FS.conquest.outpost = offer);
+  return offer.eligible ? { ok: true, offer } : { ok: false, code: offer.code ?? 'OutpostRule', text: offer.reason };
+}
+
 async function homeAction(run) {
   if (FS.homeActionBusy || FS.inFlight > 0) return;
   FS.homeActionBusy = true; invalidate('panel');
@@ -3966,7 +3997,9 @@ export const ACTIONS = {
     FS.tab = 'map'; FS.compose.stance = FS.conquest?.keeps.get(`${d.p},${d.q}`)?.holder === FS.citizen?.faction ? 0 : 1;
     await setDestination({p:num(d.p),q:num(d.q),tile:num(d.tile)});
   },
-  'cq-outpost': d => homeAction(async () => {
+  // (devnet-page-outpost: on a devnet page that carries FileOutpost the map's 「前哨を築く」 opens the village card's preview
+  //  instead — the wallet pays, so the cost is shown first and a second press sends; never a one-press send there)
+  'cq-outpost': d => (devnetPlay && devnetPlayMod.devnetOutpostOn(devnetPlay) ? outpostFromMap(d) : homeAction(async () => {
     const target = {p:num(d.p),q:num(d.q),site:num(d.site)};
     const quoted=FS.conquest?.outpost, walletAddress=FS.wallet?.address;
     if(!walletAddress || !conquestEnabled(FS.season)) return failed({code:'NoWallet'});
@@ -3985,7 +4018,7 @@ export const ACTIONS = {
     if(!quoted?.eligible || quoted.target?.p!==target.p || quoted.target?.q!==target.q || quoted.target?.site!==target.site || offer.cost.some((v,i)=>v!==quoted.cost?.[i])) return failed({code:'OutpostRule',text:L`入植の条件と費用が更新されました。内容を確認して、もう一度申請してください。`});
     const anchor = FS.holdings.find(h => h.order===1), slot2 = FS.holdings.find(h => h.order===2) ?? anchor;
     return act('FileOutpost',{v:{sites:[target],anchor,slot2},fields:{sites:[target],anchor_site_key:hostId({...anchor,seq:0})}});
-  }),
+  })),
   'home-pick': d => {
     const h = FS.homeChoice?.candidates?.[num(d.i)];
     if (!h || FS.homeChoice.busy) return;
@@ -4135,6 +4168,56 @@ export const ACTIONS = {
     if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
     return r;
   },
+  // DEVNET PLAY (devnet-page-outpost): the second/third village card (screens/outpostcard.mjs) — wallet-paid, two presses.
+  // 1. scan: the herald's record of each nearby province (open, or not opened yet); 2. preview: what the wallet pays (the
+  // gateway's rent of the Holding the ticket escrows + the fee, in SOL) and the settler cost, nothing signed; 3. send: the
+  // checks again, then ONE wallet-signed FileOutpost through the devnet lane (act → flocalplay-act.mjs).
+  'outpost-scan': () => homeAction(async () => {
+    const h = activeHolding(FS);
+    if (!h || !devnetPlayMod.devnetOutpostOn(devnetPlay) || devnetGate().ok !== true) return failed({ code: devnetGate().code ?? 'DevnetPlayOff' });
+    busy(() => L`近くの州を調べています…`);
+    const c = FS.season?.conquestParams ?? FS.season ?? {};
+    for (const x of outpostCandidates({ p: h.p, q: h.q }, { heartland: Number(c.heartlandMaxRing ?? 3), range: Number(c.outpostRange ?? 3) })) {
+      FS.provinceReads?.delete?.(`${x.p},${x.q}`);
+      await loadEnvelope(x.p, x.q).catch(() => null);
+    }
+    const walletAddress = FS.wallet?.address;
+    const me = walletAddress ? await herald.me(walletAddress).catch(() => ({ ok: false })) : { ok: false };
+    if (me.ok && FS.wallet?.address === walletAddress) { FS.citizen = me.citizen; FS.holdings = me.holdings; FS.land = landState(me.citizen); }
+    done(() => L`近くの州を調べました。`);
+    return { ok: false, quiet: true };
+  }),
+  'outpost-preview': d => homeAction(async () => {
+    const target = { p: num(d.p), q: num(d.q), site: num(d.site) }, walletAddress = FS.wallet?.address;
+    if (!walletAddress || !devnetPlayMod.devnetOutpostOn(devnetPlay) || devnetGate().ok !== true) return failed({ code: devnetGate().code ?? 'DevnetPlayOff' });
+    const checked = await outpostRecheck(target, walletAddress);
+    if (!checked.ok) return failed(checked);
+    let ctx;
+    try { ctx = await localAct.postLocalAct(devnetPlay.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: 'frontier-devnet-play-outpost-context-v1', wallet: walletAddress }); }
+    catch (e) { return failed({ code: e?.code ?? 'LocalActNoAnswer' }); }
+    if (ctx?.wallet !== walletAddress || typeof ctx?.holding_rent !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(ctx.holding_rent)) return failed({ code: 'Unavailable' });
+    const escrow = /^(0|[1-9][0-9]{0,19})$/.test(String(FS.citizen?.ticketEscrow ?? '')) ? BigInt(FS.citizen.ticketEscrow) : 0n;
+    FS.outpostPreview = { step: 'preview', target, cost: outpostCost({ holdingRent: BigInt(ctx.holding_rent), escrow, slots: Number(FS.citizen?.slots ?? 0) }), settler: checked.offer.cost,
+      slot: nextOutpostSlot(FS.citizen, FS.holdings) ?? 2, wallet: walletAddress, at: Date.now() };
+    setNotice(null);
+    return { ok: false, quiet: true };
+  }),
+  // (the preview lives in FS.outpostPreview, page memory only: FS.ui is replaced from the saved UI state on a tab change)
+  'outpost-cancel': () => { if (FS.outpostPreview) { FS.outpostPreview = null; invalidate('panel'); } },
+  'outpost-send': d => homeAction(async () => {
+    const target = { p: num(d.p), q: num(d.q), site: num(d.site) }, walletAddress = FS.wallet?.address, pv = FS.outpostPreview;
+    const same = pv?.step === 'preview' && pv.target.p === target.p && pv.target.q === target.q && pv.target.site === target.site && pv.wallet === walletAddress;
+    if (!same || Date.now() - pv.at > OUTPOST_PREVIEW_MS) { FS.outpostPreview = null; return failed({ code: 'OutpostRule', text: L`確認の内容が古くなりました。もう一度「ここに村を出す」を押してください。` }); }
+    const checked = await outpostRecheck(target, walletAddress);
+    if (!checked.ok) { FS.outpostPreview = null; return failed(checked); }
+    if (checked.offer.cost.some((v, i) => v !== pv.settler[i])) { FS.outpostPreview = null; return failed({ code: 'OutpostRule', text: L`入植の条件と費用が更新されました。内容を確認して、もう一度申請してください。` }); }
+    const anchor = FS.holdings.find(h => h.order === 1), slot2 = FS.holdings.find(h => h.order === 2) ?? anchor;
+    const r = await act('FileOutpost', { v: { sites: [target], anchor, slot2 }, fields: { sites: [target], anchor_site_key: hostId({ ...anchor, seq: 0 }) },
+      say: () => L`州（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
+    FS.outpostPreview = r?.ok ? { step: 'sent', target, signature: r.signature } : null;
+    invalidate('panel');
+    return r;
+  }),
   // (TEST-ONLY wide -> wide marches, local wide-land worlds only, Q-W2 owner t385u: the selected WIDE village's own host —
   //  one press = the planner's one act: train Spearmen, muster a host, or march it onto a neighbouring province's keep;
   //  flocalplay-wide-plan.mjs, the same planner the AI residents use; the act is page-signed, flocalplay-wide-host.mjs)

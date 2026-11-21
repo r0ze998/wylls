@@ -29,6 +29,7 @@ import { toBase64, toHex } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
 import { COEXIST_ACTS, rightsIntentOf, rightsMessage } from './flocalplay-rights.mjs';
 import { COEXIST_LANE, laneOfRuleset, localLane } from './flocalplay-lane.mjs';
+import { OUTPOST_ACT, outpostIntentOf, outpostMessage } from './fdevnet-outpost.mjs';
 
 // (TEST-ONLY wide play, local wide-land worlds: FileTicket — a one-site first village on the rim, which PlaceHome cannot
 //  name — and the wide claim, flocalplay-wide.mjs. The relay takes both only as these exact shapes.)
@@ -50,6 +51,12 @@ export const DEVNET_ACT_STATUS_PATH = '/gw/f/devnet-play/act/status';
 export const DEVNET_ACT_INFO_SCHEMA = 'frontier-devnet-play-act-info-v1';
 export const DEVNET_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
 /**
+ * (devnet-page-outpost) The devnet commands a gateway MAY carry beyond DEVNET_ACT_NAMES: the second and third village
+ * (FileOutpost, fdevnet-outpost.mjs). Taken only when the gateway's info lists it (fdevnetplay.mjs `devnetPlayOf`): a
+ * gateway without it keeps devnet play on with the commands it has, and the page offers no outpost there.
+ */
+export const DEVNET_ACT_OPTIONAL = Object.freeze([OUTPOST_ACT]);
+/**
  * WHICH TRANSPORT: local play's (the launcher's loopback relay, season 11, the memory-only wallet) — the default
  * everywhere — or a devnet season's (`devnetLane`). Paths, schemas, the cluster the identity must name, the Season id
  * the message is built for, and the commands it carries.
@@ -66,9 +73,10 @@ export const LOCAL_LANE = Object.freeze({ kind: 'local', cluster: 'localnet', se
 export const COEXIST_LOCAL_LANE = Object.freeze({ ...LOCAL_LANE, names: Object.freeze([...LOCAL_ACT_NAMES, ...COEXIST_ACTS]), coexist: true });
 /** The local transport of a world of ruleset `hash`: the coexist one for the coexist hash, LOCAL_LANE for every other. */
 export const localLaneFor = hash => (laneOfRuleset(hash) === COEXIST_LANE ? COEXIST_LOCAL_LANE : LOCAL_LANE);
-export function devnetLane(seasonId) {
+export function devnetLane(seasonId, { extra = [] } = {}) {
   if (typeof seasonId !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(seasonId)) throw Object.assign(new Error('DevnetPlaySeason'), { code: 'DevnetPlaySeason' });
-  return Object.freeze({ kind: 'devnet', cluster: 'devnet', seasonId, names: DEVNET_ACT_NAMES,
+  const more = DEVNET_ACT_OPTIONAL.filter(n => Array.isArray(extra) && extra.includes(n));
+  return Object.freeze({ kind: 'devnet', cluster: 'devnet', seasonId, names: more.length ? Object.freeze([...DEVNET_ACT_NAMES, ...more]) : DEVNET_ACT_NAMES,
     paths: Object.freeze({ context: DEVNET_ACT_CONTEXT_PATH, submit: DEVNET_ACT_SUBMIT_PATH, status: DEVNET_ACT_STATUS_PATH }),
     schemas: Object.freeze({ context: 'frontier-devnet-play-act-context-v1', submit: 'frontier-devnet-play-act-submit-v1', status: 'frontier-devnet-play-act-status-v1' }) });
 }
@@ -81,7 +89,7 @@ const ACT_PATHS = [LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STAT
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
-  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant']);
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant', 'LocalActProvinceAbsent']);
 /**
  * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the transaction (gateway
  * local-play-act.mjs `runnerRejection`: its preflight failed, its blockhash was unknown, its signature did not verify):
@@ -276,8 +284,11 @@ function village(h) {
  * page's own value.
  */
 export function localActIntentOf(name, v, fields, wallet) {
-  check(LOCAL_ACT_NAMES.includes(name) || COEXIST_ACTS.includes(name), 'LocalActNotAllowed'); check(object(v) && object(fields ?? {}), 'LocalActShape');
+  check(LOCAL_ACT_NAMES.includes(name) || COEXIST_ACTS.includes(name) || DEVNET_ACT_OPTIONAL.includes(name), 'LocalActNotAllowed'); check(object(v) && object(fields ?? {}), 'LocalActShape');
   const f = fields ?? {};
+  // (devnet-page-outpost: the second/third village, fdevnet-outpost.mjs; `submitLocalAct` has already refused it on any
+  //  lane that does not carry it — local play's lanes never do)
+  if (name === OUTPOST_ACT) return outpostIntentOf(v, f);
   // (TEST-ONLY, the coexist lane: ② rights and the S1 Vault and caravan, flocalplay-rights.mjs; `submitLocalAct` has
   //  already refused them on any lane that does not carry them)
   if (COEXIST_ACTS.includes(name)) return rightsIntentOf(name, v, f);
@@ -334,6 +345,7 @@ export function localActMessage(intent, identity, rulesetHash, blockhash, lane =
     return rightsMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT, profile });
   }
   const profile = profileForHash(rulesetHash), wallet = identity.address;
+  if (intent.name === OUTPOST_ACT) return outpostMessage(intent, { programId: identity.programId, seasonId, wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT, profile });
   const v = { addresses: A, wallet, actor: wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(wallet)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };
   const built = buildShape({ programId: identity.programId, name: intent.name, accounts: accountsFor(intent.name, v), fields, feePayer: wallet, blockhash, profile });
