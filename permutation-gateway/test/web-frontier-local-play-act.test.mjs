@@ -164,7 +164,10 @@ test('WHERE AN ORDER GOES, for every command the page can send: in local play on
   const { localOrderRoute } = await import('../../permutation-server/web/frontier/flocalplay-act.mjs');
   const { SIGNED_BY } = await import('../../permutation-server/web/frontier/fplay.mjs');
   // (wide-local-playable: the wide claim is not an SDK shape — flocalplay-wide.mjs builds it — so it is not among SIGNED_BY)
-  const names = [...Object.keys(SIGNED_BY), 'WideClaim'], ID = IDENTITY, v = { holding: HOME };
+  // (wide -> wide marches, #94: nor are the wide village's WideTrain / WideMuster / WideDepart — flocalplay-wide-host.mjs)
+  const NOT_SDK = ['WideClaim', 'WideTrain', 'WideMuster', 'WideDepart'];
+  for (const n of NOT_SDK) assert.ok(!Object.hasOwn(SIGNED_BY, n), n);
+  const names = [...Object.keys(SIGNED_BY), ...NOT_SDK], ID = IDENTITY, v = { holding: HOME };
   assert.ok(names.length > 20 && LOCAL_ACT_NAMES.every(n => names.includes(n)));
   for (const name of names) {
     const want = LOCAL_ACT_NAMES.includes(name) ? 'local-act' : 'refuse';
@@ -551,8 +554,9 @@ test('THE RELAY GOING AWAY, as the page is told it: stopping or not answering be
   try {
     const unavailable = failureText({ code: 'HTTP503' }), quota = failureText({ code: 'HTTP429' }), busy = failureText({ ok: false, code: 'LocalActBusy', httpStatus: 429 });
     assert.equal(failureText({ ok: false, code: 'LocalActClosed', httpStatus: 503 }), unavailable); assert.equal(failureText({ ok: false, code: 'LocalActNoAnswer', httpStatus: 503 }), unavailable);
-    assert.notEqual(busy, quota); assert.notEqual(unavailable, busy); assert.match(busy, /not settled yet.*not sent.*Wait about a minute/); assert.doesNotMatch(busy, /today|game day/i);
-    assert.match(failureText({ ok: false, code: 'LocalMarchBusy', httpStatus: 429 }), /marches you just sent have not settled yet/);
+    assert.notEqual(busy, quota); assert.notEqual(unavailable, busy); assert.match(busy, /not resolved yet.*not sent.*Wait about a minute/); assert.doesNotMatch(busy, /today|game day/i);
+    assert.match(failureText({ ok: false, code: 'LocalMarchBusy', httpStatus: 429 }), /marches you just sent are not resolved yet/);
+    // (re-pinned 2026-11-21: 決着 is "resolved" in the play screen's English — web-frontier-words.test.mjs bans "not settled")
     assert.doesNotMatch(unavailable, /LocalAct|\?/); assert.match(failureText({ ok: false, code: 'LocalActWideHolding', httpStatus: 409 }), /LocalActWideHolding/, 'a refusal with no sentence of its own still names its code');
   } finally { setLang('ja'); }
   // the relay stops AFTER it sent (the answer never comes): the order keeps its signature — never "not sent", never "unavailable"
