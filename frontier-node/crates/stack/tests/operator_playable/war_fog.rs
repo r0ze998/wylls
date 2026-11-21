@@ -460,7 +460,9 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
             let k = &s["places"]["keep"];
             let shown_a_hosts = k["shown"]["hosts"][xa as usize].as_u64().unwrap_or(0);
             let raw_a_hosts = k["raw"]["hosts"][xa as usize].as_u64().unwrap_or(0);
-            if who != "A" && k["province"] != "sight" {
+            // (map/fog.mjs fogProvince: a province's host counts are its record's unit — live while ANY of its tiles is
+            //  in sight now, the survey's province maximum L3 — and never shown otherwise)
+            if who != "A" && k["max"] != 3 {
                 ok(
                     shown_a_hosts == 0,
                     format!("{at}: A's host at the keep is not shown out of sight"),
@@ -558,8 +560,9 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
     for who in ["B", "C"] {
         let posts = std::fs::read_to_string(out.join("fog").join(who).join("posts.log"))
             .unwrap_or_default();
+        // (the devnet play info read, `act/context`, and the refresh hint `/f/nudge` are reads: no command is SUBMITTED)
         ok(
-            !posts.contains("/gw/f/devnet-play/"),
+            !posts.lines().any(|l| l.contains("/submit")),
             format!("{who} sent no devnet play command"),
             &mut fails,
         );

@@ -41,7 +41,8 @@ const SNAP = focus => `(async (focus) => {
   const find = (ovs, p, q) => { for (const o of ovs?.values?.() ?? []) { const r = (o?.provinces ?? []).find(x => x.p === p && x.q === q); if (r) return r; } return null; };
   const brief = r => r && { owners: [...(r.owners ?? [])], sites: [...(r.sites ?? [])], hosts: [...(r.hosts ?? [])], clash: !!r.clash, control: r.control ?? null, keepTile: r.keepTile ?? null, keepTroops: r.keepTroops ?? null, fog: r.fog ?? null };
   const places = {};
-  for (const [name, x] of Object.entries(focus)) places[name] = { p: x.p, q: x.q, tile: x.tile ?? null, level: lv(x.p, x.q, x.tile), province: kind(x.p, x.q),
+  const maxes = sv ? F.provinceMaxes(sv) : new Map();
+  for (const [name, x] of Object.entries(focus)) places[name] = { p: x.p, q: x.q, tile: x.tile ?? null, level: lv(x.p, x.q, x.tile), province: kind(x.p, x.q), max: maxes.get(x.p + ',' + x.q) ?? 1,
     raw: brief(find(FS.overviews, x.p, x.q)), shown: brief(find(F.viewOverviews(FS), x.p, x.q)) };
   const mine = r => { try { return !!FS.isMine?.(r); } catch { return false; } };
   const recs = (FS.chronicle ?? []).map(x => x.record ?? x).filter(r => r.name === 'DEPART' || r.name === 'CLASH');
