@@ -382,6 +382,17 @@ class Static(unittest.TestCase):
             self.assertIsNone(re.search(bad, code, re.M), bad)
         self.assertIn('placeholder', src)  # the SBF out dir gets a key placeholder before cargo-build-sbf
 
+    def test_coexist_build_invalidates_the_default_stamp(self):
+        # (loop-play6: the coexist lane builds its binaries in the SHARED frontier-node/target/debug, then copies them
+        #  out; the default lane's build.stamp must stop calling that dir "up to date", or the next plain world runs the
+        #  coexist-featured runner and CreateSeason fails with Custom(1))
+        src = read(SCRIPT)
+        branch = src[src.index('if [ "$COEXIST" = 1 ]; then\n    # (the coexist lane: its own program'):]
+        branch = branch[:branch.index('\n  else\n')]
+        self.assertIn('cp -p "$ROOT/frontier-node/target/debug/$b" "$T/$b"', branch)
+        self.assertIn('rm -f "$STATE/build.stamp"', branch)
+        self.assertLess(branch.index('cp -p "$ROOT/frontier-node/target/debug/$b"'), branch.index('rm -f "$STATE/build.stamp"'))
+
     def test_bash_syntax(self):
         self.assertEqual(subprocess.run(['bash', '-n', SCRIPT]).returncode, 0)
 
