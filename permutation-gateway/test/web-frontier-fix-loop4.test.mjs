@@ -66,7 +66,7 @@ test('B-7\'s neighbour: local play\'s nation choice says the page\'s test wallet
   assert.match(join, /: FS\.localPlay \? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS\.devnetPlay \? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS\.wallet \?/);
   setLang('en');
   const en = L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。`;
-  assert.doesNotMatch(en, CJK); assert.match(en, /signs by itself/);
+  assert.doesNotMatch(en, CJK); assert.match(en, /signs on its own/);   // (re-pinned 2026-11-21: "by itself" is off the play screen, web-frontier-words.test.mjs / round 40)
 });
 
 // loop-play4 B-9: a finalized wide claim was still offered, and the own wide village's province said nothing of it
