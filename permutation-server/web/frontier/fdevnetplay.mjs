@@ -53,7 +53,8 @@ export function devnetPlayOf(v, { origin, programId, season, seasonId, rulesetHa
   if (!object(v) || v.schema !== DEVNET_ACT_INFO_SCHEMA || v.cluster !== 'devnet') return null;
   if (v.program !== programId || v.season !== season || v.season_id !== seasonId || v.ruleset_hash !== rulesetHash) return null;
   if (!Array.isArray(v.commands) || !DEVNET_ACT_NAMES.every(n => v.commands.includes(n))) return null;
-  let lane; try { lane = devnetLane(seasonId); } catch { return null; }
+  // (devnet-page-outpost: an optional command — FileOutpost — joins the lane only when the gateway lists it)
+  let lane; try { lane = devnetLane(seasonId, { extra: v.commands }); } catch { return null; }
   return Object.freeze({ relay: origin, programId, seasonAddress: season, seasonId, rulesetHash, lane });
 }
 
@@ -79,3 +80,6 @@ export function devnetIdentityOf(dp, wallet) {
   if (!dp || !address(wallet)) fail('DevnetPlayIdentity');
   return Object.freeze({ address: wallet, programId: dp.programId, seasonAddress: dp.seasonAddress, cluster: 'devnet' });
 }
+
+/** (devnet-page-outpost) Whether this devnet play carries the second/third village (the gateway listed FileOutpost). */
+export const devnetOutpostOn = dp => !!dp?.lane?.names?.includes?.('FileOutpost');
