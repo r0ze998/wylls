@@ -223,6 +223,9 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
 ## 6. Stop it, continue tomorrow
 
 1. To stop, press **Ctrl-C** in the terminal that runs the script. It closes the world, then prints where the logs are.
+   It waits at most 20 s for the worlds to close. A world that still has not closed is named in the log, and the processes
+   the launcher started are ended. To skip the wait, press **Ctrl-C** again: it ends at once (also after a world's time ran
+   out; loop-play6 LP6-3, fixed in fix-loop6).
 2. A kept world continues the next day on the same Mac in the same browser. Its clock stands still while stopped.
 
    ```bash
