@@ -2088,7 +2088,11 @@ fn s1_dry_fill(c: &mut Chain, w: &World, e: &Estate) {
         let mut at = t0;
         for (q, (r, dt)) in h.queue.iter_mut().zip(items) {
             at += dt;
-            let delta = if r == ARMS { WORKSHOP_ARMS_PER_HOUR * MILLI } else { 10 * MILLI };
+            let delta = if r == ARMS {
+                WORKSHOP_ARMS_PER_HOUR * MILLI
+            } else {
+                10 * MILLI
+            };
             *q = Some(QueueItem {
                 done_at: at,
                 effect: Effect::Production { resource: r, delta },
@@ -2096,18 +2100,28 @@ fn s1_dry_fill(c: &mut Chain, w: &World, e: &Estate) {
         }
         h.last_owner_action = now - 80 * HOUR;
     });
-    c.edit(&e.holding, |d| d[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&shield));
+    c.edit(&e.holding, |d| {
+        d[H::SHIELD_UNTIL..H::SHIELD_UNTIL + 8].copy_from_slice(&shield)
+    });
 }
 
 /// Measures `ix` against its S1 limit (`cu_limit_s1`); prints first.
 fn s1_measured(c: &Chain, kind: I2, label: &str, ix: Instruction, signers: &[&Keypair]) -> u64 {
     let p = cq_ladder(kind, c.programdata_len());
     let need = c.measure_with(&p, &[ix], signers).unwrap_or_else(|f| {
-        panic!("{label}: refused while measuring: {:?}\n{}", f.code, f.logs.join("\n"))
+        panic!(
+            "{label}: refused while measuring: {:?}\n{}",
+            f.code,
+            f.logs.join("\n")
+        )
     });
     let limit = frontier_abi::v2::budgets::cu_limit_s1(kind);
     println!("{label}: {} CU (S1 limit {limit})", need.cu);
-    assert!(need.cu <= limit as u64, "{label}: {} CU > the S1 limit {limit}", need.cu);
+    assert!(
+        need.cu <= limit as u64,
+        "{label}: {} CU > the S1 limit {limit}",
+        need.cu
+    );
     need.cu
 }
 

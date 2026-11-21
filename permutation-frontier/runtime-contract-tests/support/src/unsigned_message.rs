@@ -106,16 +106,27 @@ pub fn decode(bytes: &[u8]) -> Result<Message, MessageError> {
     }
     let mut keys: Vec<[u8; 32]> = Vec::with_capacity(n);
     for _ in 0..n {
-        let k: [u8; 32] = r.take(32)?.try_into().map_err(|_| MessageError::Truncated)?;
+        let k: [u8; 32] = r
+            .take(32)?
+            .try_into()
+            .map_err(|_| MessageError::Truncated)?;
         if keys.contains(&k) {
             return Err(MessageError::DuplicateKey);
         }
         keys.push(k);
     }
-    let blockhash = r.take(32)?.try_into().map_err(|_| MessageError::Truncated)?;
+    let blockhash = r
+        .take(32)?
+        .try_into()
+        .map_err(|_| MessageError::Truncated)?;
     let m = r.shortvec()?;
     let mut instructions = Vec::with_capacity(m);
-    let mut message = Message { header, keys, blockhash, instructions: Vec::new() };
+    let mut message = Message {
+        header,
+        keys,
+        blockhash,
+        instructions: Vec::new(),
+    };
     for _ in 0..m {
         let program = r.u8()?;
         let p = usize::from(program);
@@ -132,7 +143,11 @@ pub fn decode(bytes: &[u8]) -> Result<Message, MessageError> {
         }
         let d = r.shortvec()?;
         let data = r.take(d)?.to_vec();
-        instructions.push(CompiledInstruction { program, accounts, data });
+        instructions.push(CompiledInstruction {
+            program,
+            accounts,
+            data,
+        });
     }
     if r.at != bytes.len() {
         return Err(MessageError::TrailingBytes);
@@ -281,7 +296,11 @@ impl<'a> Json<'a> {
                 }
             }
             _ => {
-                for (lit, v) in [("null", Json::Null), ("true", Json::Bool(true)), ("false", Json::Bool(false))] {
+                for (lit, v) in [
+                    ("null", Json::Null),
+                    ("true", Json::Bool(true)),
+                    ("false", Json::Bool(false)),
+                ] {
                     if t[*at..].starts_with(lit) {
                         *at += lit.len();
                         return Ok(v);
@@ -301,7 +320,10 @@ impl<'a> Json<'a> {
                     }
                     _ => return Err(MessageError::Json),
                 }
-                if matches!(b.get(*at), Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')) {
+                if matches!(
+                    b.get(*at),
+                    Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')
+                ) {
                     return Err(MessageError::Json);
                 }
                 Ok(Json::Num(&t[start..*at]))
@@ -363,10 +385,26 @@ mod tests {
 
     #[test]
     fn decodes_a_legacy_message_and_its_privileges() {
-        let m = decode(&legacy([2, 1, 1], &[[1; 32], [2; 32], [3; 32], [4; 32]], &[(3, &[0, 1, 2, 2], &[9])])).unwrap();
+        let m = decode(&legacy(
+            [2, 1, 1],
+            &[[1; 32], [2; 32], [3; 32], [4; 32]],
+            &[(3, &[0, 1, 2, 2], &[9])],
+        ))
+        .unwrap();
         let p = m.privileges(&m.instructions[0]);
-        let bits: Vec<_> = p.iter().map(|a| (a.index_in_transaction, a.is_signer(), a.is_writable())).collect();
-        assert_eq!(bits, vec![(0, true, true), (1, true, false), (2, false, true), (2, false, true)]);
+        let bits: Vec<_> = p
+            .iter()
+            .map(|a| (a.index_in_transaction, a.is_signer(), a.is_writable()))
+            .collect();
+        assert_eq!(
+            bits,
+            vec![
+                (0, true, true),
+                (1, true, false),
+                (2, false, true),
+                (2, false, true)
+            ]
+        );
     }
 
     #[test]
@@ -388,12 +426,30 @@ mod tests {
             (legacy([0, 0, 0], &k, &[]), MessageError::Header),
             (legacy([1, 1, 0], &k, &[]), MessageError::Header),
             (legacy([1, 0, 3], &k, &[]), MessageError::Header),
-            (legacy([1, 0, 1], &[[1; 32], [1; 32], [3; 32]], &[]), MessageError::DuplicateKey),
-            (legacy([1, 0, 1], &k, &[(3, &[], &[])]), MessageError::ProgramIndex),
-            (legacy([1, 0, 1], &k, &[(0, &[], &[])]), MessageError::ProgramIndex),
-            (legacy([1, 0, 0], &k, &[(2, &[], &[])]), MessageError::ProgramPrivilege),
-            (legacy([2, 1, 1], &k, &[(1, &[], &[])]), MessageError::ProgramPrivilege),
-            (legacy([1, 0, 1], &k, &[(2, &[3], &[])]), MessageError::AccountIndex),
+            (
+                legacy([1, 0, 1], &[[1; 32], [1; 32], [3; 32]], &[]),
+                MessageError::DuplicateKey,
+            ),
+            (
+                legacy([1, 0, 1], &k, &[(3, &[], &[])]),
+                MessageError::ProgramIndex,
+            ),
+            (
+                legacy([1, 0, 1], &k, &[(0, &[], &[])]),
+                MessageError::ProgramIndex,
+            ),
+            (
+                legacy([1, 0, 0], &k, &[(2, &[], &[])]),
+                MessageError::ProgramPrivilege,
+            ),
+            (
+                legacy([2, 1, 1], &k, &[(1, &[], &[])]),
+                MessageError::ProgramPrivilege,
+            ),
+            (
+                legacy([1, 0, 1], &k, &[(2, &[3], &[])]),
+                MessageError::AccountIndex,
+            ),
         ] {
             assert_eq!(decode(&bad), Err(e), "{bad:?}");
         }
@@ -404,19 +460,42 @@ mod tests {
         assert_eq!(base64_standard("AAEC").unwrap(), vec![0, 1, 2]);
         assert_eq!(base64_standard("AAE=").unwrap(), vec![0, 1]);
         assert_eq!(base64_standard("AA==").unwrap(), vec![0]);
-        for bad in ["", "AAE", "AAF=", "AB==", "A===", "AA==AAAA", "AA-_", "AAE\n"] {
+        for bad in [
+            "", "AAE", "AAF=", "AB==", "A===", "AA==AAAA", "AA-_", "AAE\n",
+        ] {
             assert_eq!(base64_standard(bad), Err(MessageError::Base64), "{bad}");
         }
         let v = Json::parse("{\"a\":{\"b\":\"x\",\"n\":[1,-2,null,true]}}\n").unwrap();
         assert_eq!(v.at(&["a", "b"]).and_then(Json::str), Some("x"));
-        for bad in ["{\"a\":1,\"a\":2}", "{\"a\":\"\\u0041\"}", "{\"a\":1} ", "[1,]", "{\"a\" :1}"] {
+        for bad in [
+            "{\"a\":1,\"a\":2}",
+            "{\"a\":\"\\u0041\"}",
+            "{\"a\":1} ",
+            "[1,]",
+            "{\"a\" :1}",
+        ] {
             assert_eq!(Json::parse(bad), Err(MessageError::Json), "{bad}");
         }
         for ok in ["0", "-0", "7", "-7", "10", "1234567890"] {
             assert_eq!(Json::parse(ok), Ok(Json::Num(ok)), "{ok}");
             assert!(Json::parse(&format!("[{ok},{ok}]")).is_ok(), "{ok}");
         }
-        for bad in ["-", "--1", "1-2", "01", "-01", "00", "1.5", "1e3", "+1", "1+", "-a", "[-]", "[01]", "{\"a\":1-2}"] {
+        for bad in [
+            "-",
+            "--1",
+            "1-2",
+            "01",
+            "-01",
+            "00",
+            "1.5",
+            "1e3",
+            "+1",
+            "1+",
+            "-a",
+            "[-]",
+            "[01]",
+            "{\"a\":1-2}",
+        ] {
             assert_eq!(Json::parse(bad), Err(MessageError::Json), "{bad}");
         }
     }

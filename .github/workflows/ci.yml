@@ -144,6 +144,17 @@ jobs:
       - name: Server binaries (verify, play, replay) outside cargo test
         run: cd permutation-server && cargo build --locked --release --bins
       # Moved to key-tests: permutation-chain/svm-tests/run.sh (SBF build + LiteSVM).
+      # Format and lints of what this job builds but nothing linted (2026-11-21):
+      # the v9 program (clippy; its format is the root workspace's, checked in
+      # frontier-program) and the server. Clippy compiles every target and
+      # runs none: no test, no .so, no key.
+      - name: v9 program lints
+        run: cargo clippy --locked -p permutation-chain --all-targets -- -D warnings
+      - name: Server format and lints
+        working-directory: permutation-server
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
 
   frontier-sim:
     name: Frontier simulator (conservation, replay, doctrine balance gate)
@@ -340,6 +351,13 @@ jobs:
           cargo test --locked -p permutation-frontier --no-default-features
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
+      # Format only (2026-11-21): this crate compiles the program source on
+      # 1.95.0, whose clippy has lints the program (linted on 1.89.0 above)
+      # does not meet. `cargo fmt --check` reads source and compiles nothing.
+      - name: Runtime-contract support crate format
+        if: hashFiles('permutation-frontier/runtime-contract-tests/Cargo.toml') != ''
+        working-directory: permutation-frontier/runtime-contract-tests
+        run: cargo fmt -p runtime-contract-support -- --check
 
   # Workstreams 09 (capacity-preview) and 10 (custody-preview): host only, key-free. No other job compiles these
   # features (frontier-program builds default features and --no-default-features), so ~6.6k lines of feature-gated
@@ -494,8 +512,18 @@ jobs:
       - name: Rust toolchain and wasm32 target
         if: hashFiles('scripts/build-wasm.sh') != ''
         run: |
-          rustup toolchain install 1.95.0 --profile minimal
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt,clippy
           rustup target add wasm32-unknown-unknown --toolchain 1.95.0
+      # Host-target format and lints of the kernel crate, each feature set the
+      # three modules are built with (2026-11-21). Compiles, runs nothing.
+      - name: Kernel crate format and lints
+        if: hashFiles('frontier-wasm/Cargo.toml') != ''
+        working-directory: frontier-wasm
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --features cq --all-targets -- -D warnings
+          cargo clippy --locked --features s1 --all-targets -- -D warnings
       - name: WASM build matches the committed module
         if: hashFiles('scripts/build-wasm.sh') != ''
         run: scripts/build-wasm.sh --check
@@ -593,7 +621,44 @@ jobs:
         working-directory: workstreams/04-execution/e2e-native
         run: |
           cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+      # Lints only: 04's executor is written wider than rustfmt's 100 columns
+      # and tests/store_observation.rs pins two of its source lines, so its
+      # format is not checked (2026-11-21).
+      - name: Executor lints
+        if: hashFiles('workstreams/04-execution/Cargo.toml') != ''
+        working-directory: workstreams/04-execution
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  # The workstreams' small host crates (kernels, bridges, a vector tool), each
+  # its own workspace, were built by no job (2026-11-21). Format and clippy
+  # only: every target is compiled, nothing is run, no key. with-bridge10 has
+  # no lock file (its run.sh builds it in a temporary tree), so format only.
+  workstream-crates:
+    name: Workstream host crates (format and lints, key-free)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain (rust-toolchain.toml files pin 1.89.0)
+        run: rustup toolchain install 1.89.0 --profile minimal --component rustfmt,clippy
+      - name: Format and lints
+        run: |
+          for d in \
+            workstreams/03-composability/courier \
+            workstreams/07-player-experience/rust-vectors \
+            workstreams/09-capacity/kernel \
+            workstreams/09-capacity/bridge10 \
+            workstreams/10-custody/custody \
+            workstreams/10-custody/adapter-09 \
+            workstreams/11-extensions/creation-bridge \
+            workstreams/11-extensions/ext-kernel
+          do
+            echo "== $d"
+            (cd "$d" && cargo fmt -- --check && cargo clippy --locked --all-targets -- -D warnings)
+          done
+          echo "== workstreams/10-custody/adapter-09/with-bridge10 (format only)"
+          (cd workstreams/10-custody/adapter-09/with-bridge10 && cargo fmt -- --check)
 
   # Workstream 04's native `runexec` (2026-11-20, STATE D34): build it, run 04's own cargo tests (simulated world;
   # the gateway cases stay #[ignore], their bridge signs with test keys) and 06's connect-live tests against this
