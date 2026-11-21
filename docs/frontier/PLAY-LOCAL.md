@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-20 (through #102). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-21 (through #126; loop-play6 corrections). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -82,6 +82,13 @@ move only once its turn is settled: about 17 minutes later).
 6. **March on a keep**: press the guide at the top right when it says 「届く砦を見る」 (if it stays on
    「軍勢の準備を確かめる」, open 「国と領土」 in the bottom bar once). Pick a keep's row and press 「確認した命令で出発」.
    While the province is settling, the same order is sent once, as soon as it can be. 「最初の出陣」 means it left.
+   - When the list says 「届く砦 0」 (「見えている他国の砦で、この軍勢がいま届くものはありません。」), no other nation's
+     keep is in sight from your village (common with `--random-map`; the guide counts unseen keeps too and still says
+     「届く砦を見る」). Press 「進軍」 in the bottom bar, pick the ring-1 keep's tile on the map as the destination (you can
+     press it while it is blank under the fog) and 「確認した命令で出発」 (the destination is called 「見えていない土地」).
+     A march spends 10 + 2 × tiles of stamina (28 for 9 tiles, 74 for 32; the cap is 120) and stamina returns 1 per turn:
+     after a scouting march to a far blank tile the host may have to wait for stamina before it can march on a keep
+     (loop-play6: about 30 turns).
 7. **Check the clash**: on the arrival turn 「戦闘 … 衝突が決着しました」 appears. 「報告」 → 「このブラウザで確かめる」;
    「一致：このブラウザで計算し直した結果はチェーンの記録と同じです」 means it was recomputed and agrees.
    After the notice is gone, the 「報告」 button stays in the list under 「その他」 in the bottom bar.
@@ -93,8 +100,9 @@ Good to know:
 - **There is no centre (a rule of local worlds only, #88).** The six ring-1 provinces are ordinary land, each starting
   with a keep held by some nation (on the usual map: one per nation). Heartland keeps (rings 2–3) are protected and
   cannot be taken, but **ring-1 keeps can be contested**. In a kept world too the AI residents march there (in the #98
-  check: departures on turn 8, clashes on turns 12–13); when your own nation's keep is attacked, 「国と領土」 says
-  「他国が占拠を進めている、あなたの国の砦 … 守りに向かう」. Only the middle province (0,0) is 「第0輪（中央・州なし）」: never
+  check: departures on turn 8, clashes on turns 12–13); when your own nation's keep is attacked, a notice says
+  「州 P,Q の砦を （国）が攻めはじめた／あなたの国が守っている」. 「国と領土」 lists it under 「他国が占拠を進めている、
+  あなたの国の砦 … 守りに向かう」 only when that keep is within your host's reach (loop-play6). Only the middle province (0,0) is 「第0輪（中央・州なし）」: never
   a destination or a road. A first village can only stand in ring 2 or further out.
 - **Because of the fog, the keep list shows only the other nations' keeps you can see** (§5). 「見えている他国の砦で、
   この軍勢がいま届くものはありません。」 is not a defect.
@@ -131,8 +139,8 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
 
 1. **A rim village**: at 「国を選ぶ」 pick a nation without an AI (with `--ai 4`: Aster or Dunmar) and press
    「（国の名前）で始める」. You do not pick the place: the page files a village on a **rim (ring 128) province**
-   (「辺境の村を申し込んでいます…」 → 「辺境の村を申し込みました。ターンの終わりに決まります。」), and a few turns later
-   「（名前）の集落ができました」 appears. While the village name carries 「仮」 (provisional), press 「収穫する」 on the
+   (「辺境の村を申し込んでいます…」 → 「辺境の村を申し込みました。ターンの終わりに決まります。」), and a few turns later (under heavy load
+   about 60 turns / 10 minutes, showing 「村の受け取りを確認しています…」 meanwhile) 「（名前）の集落ができました」 appears. While the village name carries 「仮」 (provisional), press 「収穫する」 on the
    village screen once to confirm it (「…が確定しました」). A rim village has no 「初めての建設」 (one-minute first
    build): the farm takes 1 h 30 min (about 1.5 minutes at ×60).
 2. **A wide village (about 30 minutes at ×60)**: the village screen's 「広い土地に村を出す（テスト）」 shows the cost
@@ -155,6 +163,10 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
       fails it says 「読み取りの途中で世界の時計が進んだため… もう一度押してください。」: press again.
    3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
       bottom of the card).
+      At ×60 the next 「出発条件を確認」 may keep refusing this candidate with 「到着ターンの候補が、記録から計算した範囲に
+      入りません。」 (all 24 tries in loop-play6: the check recomputes on the chain's clock). Then type the current turn + 5
+      or so into the arrival field in 「詳細」 first, and press 「地形・時間を確認」 → 「出発条件を確認」 (loop-play6: 17
+      presses, 18 s, then it departed). Do the same when 「地形・時間を確認」 with an empty arrival shows nothing.
    4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
       「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
       only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than
@@ -181,7 +193,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      itself.
    - The world's keeper opens the march's seal and catches the target province up even when it is far behind (in this
      check: reveal, clash and settlement within minutes of the arrival). The bottom bar's 「進軍」 list does not show
-     marches inside the wide land. Staying on a keep for 72 turns takes it.
+     marches inside the wide land. Staying on a keep for 72 turns takes it. **The page does not yet show that march's
+     result (clash, hold progress)**: after the departure the card keeps saying `its host is away (a march is open)`
+     (loop-play6: revealed on turn 365, destination settled through turn 433), and the destination stays blank in the fog.
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
   have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
 - **The AI residents** also take rim villages, save up, claim wide land, send expeditions and wage war. Their battles
@@ -233,6 +247,7 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
 - `--resume` opens only the kept world started last. To go back to an older one, write its folder
   (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
 - A world's processes stop after 90 minutes by default (`--minutes`). A kept world still continues with `--resume`.
+  `--resume` does not remember `--minutes`: for a long session pass it again, e.g. `--resume --minutes 240`.
 - To delete the test key, press 「このブラウザに保存した試験用の鍵を消す」 in the page's panel. A world's folder stays until
   you delete it.
 
@@ -318,8 +333,10 @@ training are the same rules as devnet.
 
 `scripts/play-local.sh --coexist` runs the usual kept world (or `--demo --speed N`) on the ②+⑨+⑩ **coexist lane**
 (program version 0x7805, `RULESET_HASH_V4`; `scripts/build-frontier-localnet-coexist-sbf.sh`). Its runners, herald and
-tools are built with their `coexist-lane` feature into `.local/play-local/coexist-bin/`; the default world's binaries
-are untouched. It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. `--coexist-node` is the
+tools are built with their `coexist-lane` feature and copied into `.local/play-local/coexist-bin/`. They are built in the
+same `frontier-node/target/debug` as the default world's, so the first plain world after a `--coexist` build relinks its
+own binaries (a few seconds; on main through #126 it did not, and that world never started, the page staying on 「—」:
+there, pass `--rebuild`). It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. `--coexist-node` is the
 old page-less node.
 
 The village screen gets a **Rights (stock swap)** card (owner decision ② A):
@@ -336,3 +353,5 @@ Fog rule: the card lists only rights you issued or received; rights between othe
 never drawn. At the natural clock a Vault takes most of a day of production; `--coexist --demo --speed 60` plays the
 whole loop in about 10 minutes. The caravan path limit (32 tiles / 4 provinces) means both players should be close:
 with `--two`, both join the same nation.
+Even in the same nation, `--random-map` may put the two homes in opposite provinces across the centre (2 of 3 worlds
+in loop-play6); then stop with Ctrl-C and start the world again until both homes share a province.
