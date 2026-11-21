@@ -2071,6 +2071,12 @@ export default {
   // fix-loop6 LP6-6: in a local wide-land world the card below does send
   'この村の記録の表示は読み取り専用です。命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）。収穫・建設・隊商・追いつかせる は、この村には送れません。': 'What this village\'s record shows is read-only. Orders are sent only by the Wide-land host (test) card below (train, form a host, march). Harvest, build, caravan and catch-up cannot be sent to this village.',
   '記録は読み取り専用': 'Record read-only',
+  // fix-loop6 LP6-14: a caravan is offered for delivery once the provinces it crossed have settled past its arrival
+  '通った州（{0}, {1}）の決着が到着のターン {2} を過ぎるのを待っています。過ぎると届けられます（数ターン）。': 'Waiting for the province it crossed ({0}, {1}) to settle past its arrival turn {2}. Then it can be delivered (a few turns).',
+  // fix-loop6 LP6-10: the nation's keeps under attack out of every host's reach
+  '{0}が第{1}ターンから占拠を進めています': '{0} has been taking it since turn {1}',
+  '占拠 {0} ターン': 'held {0} turns',
+  'いまのあなたの軍勢では届きません。': 'None of your hosts can reach it now.',
   // fix-loop6 LP6-9: the rim village's ticket wait, said with its turn
   '辺境の村の申し込みを送りました。世界の進行役がターンの終わりに決めます。': 'The rim village request was sent. The world\'s keeper decides it at the end of a turn.',
   '辺境の村の申し込みを送りました（ターン {0}、{1} ターン前）。世界の進行役がターンの終わりに決めます。マシンの負荷が高いと数十ターン（×60 で数分）かかることがあります。このページは待ち続けます。押し直す必要はありません。': 'The rim village request was sent (turn {0}, {1} turns ago). The world\'s keeper decides it at the end of a turn. On a busy machine this can take tens of turns (a few minutes at ×60). This page keeps waiting; no need to press again.',

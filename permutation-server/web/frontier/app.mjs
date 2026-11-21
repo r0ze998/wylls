@@ -4517,6 +4517,9 @@ function delegate(doc) {
     invalidate('panel');
   });
   doc.addEventListener('change', e => {
+    // (fix-loop6, LP6-13: the caravan's amounts are bounded by the stock of the source now selected)
+    const src = e.target.closest?.('form[data-form="s1-caravan"] select[name="src"]');
+    if (src) { capCaravanAmounts(src); return; }
     const el = e.target.closest?.('[data-bind]');
     if (!el) return;
     if (w4Bind(el.dataset.bind, el.value)) invalidate('panel');
@@ -5169,4 +5172,16 @@ function morphStable(keep, next) {
   if (keep.innerHTML !== next.innerHTML) keep.innerHTML = next.innerHTML;
   // (an attribute is not the live state: `disabled` follows it, set as the new markup says)
   if ('disabled' in keep) keep.disabled = next.hasAttribute('disabled');
+}
+
+/** (fix-loop6, LP6-13) Each amount of the caravan form bounded by the selected source's stock (its option's `data-have`). */
+export function capCaravanAmounts(select) {
+  const have = String(select?.selectedOptions?.[0]?.dataset?.have ?? '').split(',').map(Number);
+  for (const input of select?.form?.querySelectorAll?.('input[name^="c"]') ?? []) {
+    const i = Number(String(input.name).slice(1));
+    if (!Number.isInteger(i)) continue;
+    const max = Number.isFinite(have[i]) ? have[i] : 0;
+    input.max = String(max);
+    if (Number(input.value) > max) input.value = String(max);
+  }
 }

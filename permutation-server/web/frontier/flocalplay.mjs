@@ -425,7 +425,10 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const endAt = launcher ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
     const playedEnd = endAt !== null ? Object.freeze({ ...played, worldEndsAt: endAt }) : played;
     const playedDemo = launcher && claimedDemo !== null ? Object.freeze({ ...playedEnd, clockScale: claimedDemo }) : playedEnd;
-    const playedAs = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
+    const playedWide = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
+    // (fix-loop6, LP6-12: the TEST-ONLY contest pair's role rides on the identity: the controller gives the pair one order
+    //  of first-village places, so two people of one nation start in the same province — controller homeSeed)
+    const playedAs = launcher && state.pairRole ? Object.freeze({ ...playedWide, pair: state.pairRole }) : playedWide;
     // (TEST-ONLY persisted world: the march book (the sealed marches' reveal halves) is kept encrypted for this wallet,
     //  loaded before the game boots, and the game's march sender uses it instead of a memory-only one)
     if (persisted && keyStore) {

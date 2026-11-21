@@ -11,6 +11,7 @@ import { html, raw } from '../../util.mjs';
 import { fogNow, viewKeeps } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, UNITS, RESOURCES, RESOURCE_ORDER, routeLine, clientText } from '../fi18n.mjs';
+import { keepEventSide } from '../fconquest.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { actionBlocks, UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
@@ -245,6 +246,28 @@ export function renderOutpost(FS, site) {
  */
 export const reachLoading = FS => Number(FS?.conquest?.keepsPending ?? 0) > 0 && !fogNow().on;   // (under the fog of war nothing unseen is "pending": map/fog.mjs)
 
+/**
+ * (fix-loop6, LP6-10) The viewer's nation's keeps another nation is taking now, from the keep events the page already
+ * shows as news (hud/feed.mjs: a contest of the viewer's own nation is news under the fog too — no other keep is told):
+ * for each keep, the latest of its events; a contest against the viewer's nation not ended since. → `[{p, q, by, since,
+ * progress?, hold?}]`, latest first. loop-play6: 国と領土 said nothing of such a keep out of every host's reach.
+ */
+export function besiegedOwnKeeps(FS) {
+  const f = FS.citizen?.faction, events = FS.conquest?.events;
+  if (!Number.isInteger(f) || !Array.isArray(events)) return [];
+  const last = new Map();
+  for (const e of events) {
+    if (!Number.isInteger(e?.p) || !Number.isInteger(e?.q)) continue;
+    const k = `${e.p},${e.q}`, was = last.get(k);
+    if (!was || Number(e.bell) > Number(was.bell) || (Number(e.bell) === Number(was.bell) && Number(e.seq) > Number(was.seq))) last.set(k, e);
+  }
+  const seen = FS.conquest?.keeps instanceof Map ? viewKeeps(FS.conquest.keeps) : null;
+  return [...last.values()].filter(e => e.kind === 'keep_contest' && keepEventSide(e, f) === 'defend')
+    .map(e => { const k = seen?.get?.(`${e.p},${e.q}`); const on = k && k.contender === e.to;
+      return { p: e.p, q: e.q, by: e.to, since: Number(e.bell), ...(on && Number.isFinite(Number(k.progress)) ? { progress: Number(k.progress) } : {}) }; })
+    .sort((a, b) => b.since - a.since);
+}
+
 /** The keeps of other nations a march of the viewer can reach now, nearest first. */
 export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
@@ -260,12 +283,18 @@ export function renderReach(FS) {
       <span class="kr-defend">${icon('shield')}<strong>${L`守りに向かう`}</strong> · ${L`マスに残れば占拠を止めます`}</span></span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
   const defends = r?.ok ? r.rows.filter(x => x.defend === true) : [], others = r?.ok ? r.rows.filter(x => x.defend !== true) : [];
+  // (fix-loop6, LP6-10: the nation's keeps under attack that no host of the viewer reaches are said too, with where to look)
+  const reached = new Set(defends.map(x => `${x.p},${x.q}`));
+  const far = besiegedOwnKeeps(FS).filter(x => !reached.has(`${x.p},${x.q}`));
+  const farRow = x => html`<li class="kr-row kr-row-defend kh-n${FS.citizen.faction}" data-keep-defend-far="${x.p},${x.q}">${crest(FS.citizen.faction, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`${factionName(x.by)}が第${fmtNum(x.since)}ターンから占拠を進めています`}${Number.isFinite(x.progress) ? html` · ${L`占拠 ${fmtNum(x.progress)} ターン`}` : ''}
+      <span class="muted">${L`いまのあなたの軍勢では届きません。`}</span></span>
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
   // (measured from the village because no host can depart this moment: a host that is on its way to being ready says so,
   // with the turn from which it can depart; only a player without any combat host is told to train one)
   const waits = r?.ok && r.home ? hostWaits(FS) : [];
   // (the keeps to defend come first, under their own heading; then the other nations' keeps under theirs)
   return html`<section class="conquest-reach hpanel" aria-labelledby="conquest-reach-title">
-    ${defends.length ? html`<h4 class="kr-defend-title" id="conquest-defend-title">${L`他国が占拠を進めている、あなたの国の砦`}</h4><ul class="list kr-rows kr-rows-defend" aria-labelledby="conquest-defend-title">${defends.map(defendRow)}</ul>` : ''}
+    ${defends.length || far.length ? html`<h4 class="kr-defend-title" id="conquest-defend-title">${L`他国が占拠を進めている、あなたの国の砦`}</h4><ul class="list kr-rows kr-rows-defend" aria-labelledby="conquest-defend-title">${defends.map(defendRow)}${far.map(farRow)}</ul>` : ''}
     <h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
     ${!r ? html`<p class="muted">${L`届く砦を調べています…`}</p>` : !r.ok ? html`<p class="muted">${clientText(r.code)}</p>` : html`
       ${r.home ? (waits.length ? html`${renderWaits(FS, waits)}<p class="muted">${L`そのあいだは、村からの道のりで調べています。`}</p>` : html`<p class="muted">${L`出発できる戦闘部隊がいないため、村からの道のりで調べています。`}</p>`) : ''}

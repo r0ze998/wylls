@@ -2344,6 +2344,16 @@ function updateHomeGrant() {
 const wantedHomeFaction = () => { const f = FS.citizen?.faction ?? FS.joinDraft?.faction; return Number.isInteger(f) && f >= 0 && f < 6 ? f : null; };
 
 /** Read a bounded set of actual free sites, without signing or claiming land. */
+/**
+ * (fix-loop6, LP6-12) The order in which first-village places are tried: this wallet's own (players spread out), except
+ * for the TEST-ONLY contest pair of a local world (`localPlay.pair`, both roles): one order for the pair — its world's
+ * Season — so two people of one nation start in the same province (loop-play6: 2 of 3 `--two` worlds put them on
+ * opposite sides, and a caravan could not reach). The places themselves, and every rule of placing, are unchanged.
+ */
+export function homeSeed(fs = FS, identity = localPlay) {
+  if ((identity?.pair === 'first' || identity?.pair === 'second') && typeof identity.seasonAddress === 'string') return `pair:${identity.seasonAddress}`;
+  return fs.wallet?.address ?? 'visitor';
+}
 export async function refreshHomes({ force = false } = {}) {
   if (!needsHomeChoice() || !herald) return;
   const old = FS.homeChoice ?? { candidates: [], selected: readHome().selected, rotation: 0 };
@@ -2375,7 +2385,7 @@ export async function refreshHomes({ force = false } = {}) {
     await refreshOverviews(nowBell());
     // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
     const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: homePlaceOf(FS), ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
-      seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
+      seed: `${homeSeed()}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     const cur = standing();
     if (!cur) return;

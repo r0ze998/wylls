@@ -97,7 +97,8 @@ test('H6 an answer is applied to the choice as it stands, never to the copy take
   // (what makes it "the choice in hand": home-pick writes on FS.homeChoice itself)
   assert.ok(ctl.includes('FS.homeChoice.selected = h; FS.homeChoice.error = null; FS.homeFocus = h;'));
   // (unchanged: how candidates are found and ordered)
-  assert.ok(rh.includes("seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,"));
+  // (fix-loop6, LP6-12: the seed is homeSeed() — the wallet's, or a local contest pair's shared one)
+  assert.ok(rh.includes("seed: `${homeSeed()}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,"));
   assert.ok(rh.includes('read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });'));
 });
 

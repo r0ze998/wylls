@@ -93,3 +93,24 @@ test('a farm completion names the actual effect, even if Harvest consumed its qu
   assert.doesNotMatch(completed[0].text, /伐採/);
   assert.equal(diffFeed(next, snapshot({ holdings: [{ ...holding, queue: [] }] }, 162)).length, 0);
 });
+
+// (fix-loop6, LP6-12) loop-play6: 2 of 3 `--two` worlds put the two people of one nation in opposite provinces, so a
+// caravan could not reach. The TEST-ONLY contest pair now shares one order of places (its Season), every other player
+// keeps its own (players spread out); the places and the placing rules are unchanged.
+test('LP6-12: a local contest pair of one nation is offered the same province first; other players keep their own order', async () => {
+  const { homeSeed } = await import('../../permutation-server/web/frontier/controller.mjs');
+  const SEASON_ADDR = '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin';
+  const a = { wallet: { address: 'AAAAwallet' } }, b = { wallet: { address: 'BBBBwallet' } };
+  assert.equal(homeSeed(a, null), 'AAAAwallet'); assert.equal(homeSeed(a, { seasonAddress: SEASON_ADDR }), 'AAAAwallet', 'local play, not a pair: its own');
+  const first = { pair: 'first', seasonAddress: SEASON_ADDR }, second = { pair: 'second', seasonAddress: SEASON_ADDR };
+  assert.equal(homeSeed(a, first), homeSeed(b, second)); assert.equal(homeSeed(a, first), `pair:${SEASON_ADDR}`);
+  const faction = 3, plan = seed => planHomes({ overviews: overviews(), read: async (p, q) => province(p, q), ringsOpen: 5, seed: `${seed}|0`, faction });
+  const [pa, pb] = [await plan(homeSeed(a, first)), await plan(homeSeed(b, second))];
+  assert.deepEqual([pa.candidates[0].p, pa.candidates[0].q], [pb.candidates[0].p, pb.candidates[0].q], 'the same province first');
+  // by their own wallets, the two would most likely have been offered different provinces (the loop-play6 case)
+  const own = [];
+  for (const w of ['AAAAwallet', 'BBBBwallet', 'CCCCwallet', 'DDDDwallet']) { const c = (await plan(w)).candidates[0]; own.push(`${c.p},${c.q}`); }
+  assert.ok(new Set(own).size > 1, `wallet seeds spread the players: ${own}`);
+  const src = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.mjs', import.meta.url), 'utf8');
+  assert.match(src, /const playedAs = launcher && state\.pairRole \? Object\.freeze\(\{ \.\.\.playedWide, pair: state\.pairRole \}\) : playedWide;/);
+});

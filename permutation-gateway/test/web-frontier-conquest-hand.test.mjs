@@ -405,3 +405,30 @@ test('LP6-4: a host whose list of reachable keeps was read empty is sent to the 
   const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
   assert.match(app, /if \(d\.pop === 'keeps' \|\| d\.pop === 'march'\) \{/);
 });
+
+// (fix-loop6, LP6-10) loop-play6: Ember began taking Dunmar's keep at (0,1) on turn 12; the notice said so, but 国と領土
+// listed it nowhere — its "defend" rows came only from a host's reach. Now a contest against the viewer's nation that has
+// not ended is listed under the same heading, out of reach or not (from the same keep events the notices use).
+test('LP6-10: the nation\'s keeps another nation is taking are listed even when no host reaches them; an ended contest is not', async () => {
+  const { besiegedOwnKeeps } = await import('../../permutation-server/web/frontier/screens/conquest.mjs');
+  setLang('ja');
+  const s = fs();
+  s.conquest.reach = { key: 'k', ok: true, home: false, rows: [], unreachable: [] };
+  s.conquest.events = [
+    { kind: 'keep_contest', seq: 1, p: 0, q: 1, from: 0, to: 4, bell: 12 },     // against the viewer's nation (0): open
+    { kind: 'keep_contest', seq: 2, p: 1, q: 1, from: 0, to: 2, bell: 13 },     // against it, then relieved
+    { kind: 'keep_broken', seq: 3, p: 1, q: 1, from: 2, to: 0, bell: 15 },
+    { kind: 'keep_contest', seq: 4, p: 3, q: 3, from: 1, to: 2, bell: 14 },     // two other nations: not the viewer's
+  ];
+  assert.deepEqual(besiegedOwnKeeps(s), [{ p: 0, q: 1, by: 4, since: 12 }]);
+  const t = plain(renderReach(s));
+  assert.match(t, /他国が占拠を進めている、あなたの国の砦/);
+  assert.match(t, /州 0,1 · エンバーが第12ターンから占拠を進めています いまのあなたの軍勢では届きません。 そこへ移動/);
+  assert.doesNotMatch(t, /州 1,1|州 3,3/);
+  // a defend row the host reaches is listed once, as before (not again as out of reach)
+  s.conquest.reach.rows = [{ p: 0, q: 1, tile: 30, holder: 0, troops: 100, defend: true, route: { hexes: 9, provinces: [1, 2], secs: 900 } }];
+  assert.equal((renderReach(s).toString().match(/data-keep-defend-far=/g) ?? []).length, 0);
+  setLang('en');
+  try { const e = plain(renderReach({ ...s, conquest: { ...s.conquest, reach: { key: 'k', ok: true, home: false, rows: [], unreachable: [] } } })); assert.match(e, /has been taking it since turn 12/); assert.doesNotMatch(e, CJK); }
+  finally { setLang('ja'); }
+});

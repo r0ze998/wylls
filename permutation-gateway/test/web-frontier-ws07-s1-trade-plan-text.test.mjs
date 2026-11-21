@@ -103,13 +103,15 @@ test('P5 the place takes its place in the form\'s own lists', () => {
   assert.doesNotMatch(codeOf(model), /destinations\.(unshift|splice)|sources\.(push|unshift|splice)|forts\.(push|unshift|splice)/, 'no index of the lists moves');
 });
 
+// (fix-loop6, LP6-13: the first destination is told apart from the source chosen on the map, and the amounts' bound is
+//  the selected source's stock)
 test('P6 the form: first choice in the markup, set once at the press, the amounts untouched', () => {
-  order(card, 'const pl = m.plan;', 'const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(m.sources[0], x));', 'const firstSrc = pl?.src ??',
+  order(card, 'const pl = m.plan;', 'const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(plannedSrc ?? m.sources[0], x));', 'const firstSrc = pl?.src ??',
     'data-plan="lost" data-plan-id="${pl.id ?? \'\'}"', '地図で選んだ場所を、いま読めている一覧では確かめられません。計画には入れていません。',
     '行き先の欄の最初の選択にしました。欄で選び直すと、送るのは選び直した場所です。', '出発地の欄の最初の選択にしました。欄で選び直すと、出発するのは選び直した場所です。', '運ぶものと量は、あなたが入れてください。',
     '要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。',
-    "${raw(i === firstDst ? 'selected' : '')}", "<select name=\"src\" data-plan=\"${pl?.src ?? ''}\">${m.sources.map((s, i) => html`<option value=\"${i}\" ${raw(i === firstSrc ? 'selected' : '')}>",
-    "<select name=\"dst\" data-plan=\"${pl?.dst ?? ''}\">", 'type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"',
+    "${raw(i === firstDst ? 'selected' : '')}", "<select name=\"src\" data-plan=\"${pl?.src ?? ''}\">${m.sources.map((s, i) => html`<option value=\"${i}\" data-have=\"${haveOf6(s).join(',')}\" ${raw(i === firstSrc ? 'selected' : '')}>",
+    "<select name=\"dst\" data-plan=\"${pl?.dst ?? ''}\">", 'type="number" min="0" max="${haveOf6(srcNow)[x.i] ?? 0}" step="1" value="0" inputmode="numeric"',
     "<select name=\"tile\" data-plan=\"${pl?.fort ?? ''}\">${m.forts.map(f => html`<option value=\"${f.tile}\" ${raw(pl?.fort === f.tile ? 'selected' : '')}>",
     '${planNote}', "send, { open: !!pl && !pl.lost && pl.fort === null })}", "fort, { open: !!pl && pl.fort !== null }) : ''}");
   assert.doesNotMatch(card, /行き先に入れました|出発地に入れました/, 'the note does not say the place IS the destination: the field decides');

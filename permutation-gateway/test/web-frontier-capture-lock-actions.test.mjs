@@ -114,3 +114,32 @@ test('S1: a village source being captured cannot send a caravan; a storehouse so
     } finally { setLang('ja'); }
   }
 });
+
+// (fix-loop6, LP6-13) loop-play6: Vault → 「ここから隊商を送る」 opened the form with the Vault as source AND destination, and
+// the amounts' bound was the village's stock (food 629) instead of the Vault's (wood 19).
+test('LP6-13: a storehouse chosen as the caravan\'s source is not also its destination; the amounts are bounded by its own stock', async () => {
+  setLang('ja');
+  const w = s1world(7, 7);
+  w.pin = { programId: 'P', cluster: 'localnet', gen: 0, addresses: { season: 'S' } }; w.wallet = { address: 'W' };
+  w.s1Plan = { id: 1, role: 'src', p: 1, q: 0, tile: 9, world: '0|localnet|P|S', viewer: 'W' };
+  const m = SCR.s1VillageModel(w);
+  assert.equal(m.plan?.src, 1, 'the storehouse is the planned source');
+  const html = String(SCR.renderS1Village(w));
+  const form = html.slice(html.indexOf('data-form="s1-caravan"'));
+  const selected = name => { const sel = form.slice(form.indexOf(`name="${name}"`)); return sel.slice(0, sel.indexOf('</select>')).match(/<option value="(\d+)"[^>]*selected/)?.[1]; };
+  assert.equal(selected('src'), '1');
+  assert.notEqual(m.destinations[Number(selected('dst'))].kind, 'vault', 'the first destination is not the storehouse it leaves from');
+  assert.equal(m.destinations[Number(selected('dst'))].kind, 'holding');
+  // food: the storehouse holds 500 (the village 1000): the bound is 500; wood: the storehouse 0 (the village 1000): 0
+  assert.match(form, /name="c0" type="number" min="0" max="500"/); assert.match(form, /name="c1" type="number" min="0" max="0"/);
+  assert.match(form, /<option value="0" data-have="1000,1000,1000,1000,1000,1000"/);
+  // a change of source in the form moves the bounds (app.mjs capCaravanAmounts)
+  const { capCaravanAmounts } = await import('../../permutation-server/web/frontier/app.mjs').catch(() => ({}));
+  if (capCaravanAmounts) {
+    const inputs = [{ name: 'c0', max: '500', value: '700' }, { name: 'c1', max: '0', value: '0' }];
+    capCaravanAmounts({ selectedOptions: [{ dataset: { have: '1000,900,0,0,0,0' } }], form: { querySelectorAll: () => inputs } });
+    assert.deepEqual(inputs.map(i => [i.max, i.value]), [['1000', '700'], ['900', '0']]);
+    capCaravanAmounts({ selectedOptions: [{ dataset: { have: '500,0,0,0,0,0' } }], form: { querySelectorAll: () => inputs } });
+    assert.deepEqual(inputs.map(i => [i.max, i.value]), [['500', '500'], ['0', '0']], 'an amount over the new bound comes down to it');
+  }
+});
