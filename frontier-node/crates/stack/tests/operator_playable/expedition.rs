@@ -84,7 +84,13 @@ pub(super) async fn flow(
     free_city: Option<(u8, u8)>,
     extra: Value,
 ) -> Value {
-    let tag = if free_city.is_some() { "p14" } else { "p11" };
+    let tag = if free_city.is_some() {
+        "p14"
+    } else if r.c.page.is_some() {
+        "p12"
+    } else {
+        "p11"
+    };
     let a = r.c.a.clone();
     let ctx = r.ctx();
     let program = r.c.program;
@@ -100,76 +106,198 @@ pub(super) async fn flow(
             .map(|w| (w.keeper_api, w.token.clone()))
             .expect("keeper A's API");
 
-    // 1. the rim village
-    let player = Keypair::new(); // TEST key
+    // 1. the rim village (P12: founded by the PAGE — its home planner's one-site rim FileTicket, its Harvests — with
+    //    the same TEST key as its wallet; P11: by this test)
+    let player = Keypair::new(); // TEST key (P12: the page's wallet, this chain only)
     let w = player.pubkey();
     r.lock().airdrop(&w, 5 * SOL).unwrap();
-    let now = r.now();
-    r.send(
-        "Join",
-        &[ix::join(&a, w, w, nation, &w, now + 30 * 86_400, None)],
-        &[&player],
-        "participant",
-    );
     let me = ix::Player {
         actor: w,
         payer: w,
         wallet: w,
     };
-    r.send(
-        &format!("FileTicket(rim {hp}, {hq} site {site})"),
-        &[ix::file_ticket(
-            &a,
-            &me,
-            &[ix::Site {
-                p: hp as i16,
-                q: hq as i16,
-                site,
-            }],
-        )],
-        &[&player],
-        "participant",
-    );
-    let holding = a.holding(hp, hq, site);
-    drive(
-        r,
-        &mut beacon,
-        2.0,
-        300,
-        "keeper A settles the rim ticket",
-        |r| {
-            r.lock()
-                .account(&holding)
-                .is_some_and(|h| h.owner == r.c.program)
-        },
-    )
-    .await;
+    let pg = r.c.page.clone();
+    let sync = r.c.dir.join("page");
+    let mut driver: Option<KillChild> = None;
+    let (hp, hq, site, nation, target, holding) = if let Some(pg) = pg.as_ref() {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(&sync).unwrap();
+        std::fs::create_dir_all(&pg.out).unwrap();
+        let seed_file = sync.join("player.seed");
+        std::fs::write(&seed_file, hex::encode(&player.to_bytes()[..32])).unwrap();
+        std::fs::set_permissions(&seed_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        {
+            let mut c = r.lock();
+            c.set_scale(1.0);
+            c.set_paused(false);
+        }
+        driver = Some(KillChild(
+            std::process::Command::new("node")
+                .arg(&pg.driver)
+                .args([
+                    "--url",
+                    &format!("http://127.0.0.1:{}/frontier/frontier/", pg.herald),
+                    "--out",
+                    pg.out.to_str().unwrap(),
+                    "--seed-file",
+                    seed_file.to_str().unwrap(),
+                    "--nation",
+                    &nation.to_string(),
+                    "--inspect",
+                    &pg.inspect.to_string(),
+                    "--sync",
+                    sync.to_str().unwrap(),
+                ])
+                .stdout(std::fs::File::create(pg.out.join("driver.out.log")).unwrap())
+                .stderr(std::fs::File::create(pg.out.join("driver.err.log")).unwrap())
+                .spawn()
+                .expect("node (the page expedition driver)"),
+        ));
+        let citizen = a.citizen(&w);
+        let t0 = Instant::now();
+        let ticket_bell = loop {
+            if let Some(cd) = r.data(&citizen) {
+                let tb = le_u32(&cd, C::TICKET_BELL);
+                if tb != C::NO_TICKET {
+                    break tb;
+                }
+            }
+            assert!(
+                page_alive(&mut driver),
+                "the driver exited before the ticket"
+            );
+            assert!(
+                t0.elapsed() < Duration::from_secs(420),
+                "the page did not file a rim ticket"
+            );
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        };
+        r.advance_exact(genesis_ts + 600 * (ticket_bell as i64 + 1) + 200);
+        let plan = keeper_core::rings::rim_plan(PER_WEDGE);
+        let find_home = |r: &Run<'_>| -> Option<(i32, i32, u8, Address)> {
+            for &(p, q) in &plan {
+                for s in 0..12u8 {
+                    let h = a.holding(p, q, s);
+                    if let Some(d) = r.data(&h) {
+                        if d.len() > H::OWNER_CITIZEN + 32
+                            && d[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] == citizen.to_bytes()
+                        {
+                            return Some((p, q, s, h));
+                        }
+                    }
+                }
+            }
+            None
+        };
+        drive(
+            r,
+            &mut beacon,
+            2.0,
+            300,
+            "keeper A settles the page's rim ticket",
+            |r| find_home(r).is_some(),
+        )
+        .await;
+        let (hp, hq, site, holding) = find_home(r).unwrap();
+        let joined = r.data(&citizen).unwrap()[C::FACTION];
+        let plan129 = keeper_core::rings::wide_plan(FIRST_WIDE_RING, PER_WEDGE);
+        let target = [(1i64, 0i64), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+            .iter()
+            .map(|(dp, dq)| WideCoord::checked(hp as i64 + dp, hq as i64 + dq).unwrap())
+            .find(|c| c.ring() == FIRST_WIDE_RING && plan129.contains(c))
+            .unwrap_or_else(|| {
+                panic!("the page's rim province ({hp}, {hq}) borders no ring-129 province keeper A opened")
+            });
+        let final_ts = le_i64(&r.data(&holding).unwrap(), H::FINAL_TS);
+        let t_final = final_ts.max(r.now()) + 60;
+        drive(
+            r,
+            &mut beacon,
+            10.0,
+            600,
+            "the page's Harvest flips the rim village final",
+            |r| {
+                r.now() >= t_final
+                    && r.data(&holding)
+                        .is_some_and(|d| d[H::STATE] == H::STATE_FINAL)
+            },
+        )
+        .await;
+        assert!(
+            page_alive(&mut driver),
+            "the driver exited while harvesting"
+        );
+        r.lock().set_paused(true);
+        (hp, hq, site, joined, target, holding)
+    } else {
+        let now = r.now();
+        r.send(
+            "Join",
+            &[ix::join(&a, w, w, nation, &w, now + 30 * 86_400, None)],
+            &[&player],
+            "participant",
+        );
+        r.send(
+            &format!("FileTicket(rim {hp}, {hq} site {site})"),
+            &[ix::file_ticket(
+                &a,
+                &me,
+                &[ix::Site {
+                    p: hp as i16,
+                    q: hq as i16,
+                    site,
+                }],
+            )],
+            &[&player],
+            "participant",
+        );
+        let holding = a.holding(hp, hq, site);
+        drive(
+            r,
+            &mut beacon,
+            2.0,
+            300,
+            "keeper A settles the rim ticket",
+            |r| {
+                r.lock()
+                    .account(&holding)
+                    .is_some_and(|h| h.owner == r.c.program)
+            },
+        )
+        .await;
+        let href = ix::HoldingRef {
+            p: hp as i16,
+            q: hq as i16,
+            site,
+        };
+        let final_ts = le_i64(&r.data(&holding).unwrap(), H::FINAL_TS);
+        let t = final_ts.max(r.now()) + 60;
+        while r.now() < t {
+            drive(
+                r,
+                &mut beacon,
+                20.0,
+                120,
+                "the clock passes final_ts",
+                |r| r.now() >= t,
+            )
+            .await;
+        }
+        r.lock().set_paused(true);
+        r.send(
+            "Harvest (the lazy flip to final)",
+            &[fclient::ix::v2::harvest(&a, &me, href)],
+            &[&player],
+            "participant",
+        );
+        assert_eq!(r.data(&holding).unwrap()[H::STATE], H::STATE_FINAL, "final");
+        (hp, hq, site, nation, target, holding)
+    };
     let href = ix::HoldingRef {
         p: hp as i16,
         q: hq as i16,
         site,
     };
-    let final_ts = le_i64(&r.data(&holding).unwrap(), H::FINAL_TS);
-    let t = final_ts.max(r.now()) + 60;
-    while r.now() < t {
-        drive(
-            r,
-            &mut beacon,
-            20.0,
-            120,
-            "the clock passes final_ts",
-            |r| r.now() >= t,
-        )
-        .await;
-    }
-    r.lock().set_paused(true);
-    r.send(
-        "Harvest (the lazy flip to final)",
-        &[fclient::ix::v2::harvest(&a, &me, href)],
-        &[&player],
-        "participant",
-    );
-    assert_eq!(r.data(&holding).unwrap()[H::STATE], H::STATE_FINAL, "final");
     // 2. declared troops
     let mut hd = r.lock().account(&holding).unwrap();
     let ro = H::reserve(0);
@@ -246,12 +374,44 @@ pub(super) async fn flow(
     )
     .await;
     r.lock().set_paused(true);
-    let muster = r.send(
-        &format!("Muster {TROOPS} onto tile {start}"),
-        &[ix::muster(&a, &me, href, 0, TROOPS, start)],
-        &[&player],
-        "participant",
-    );
+    let muster = if pg.is_some() {
+        // P12: the page musters (its village screen's own Muster), on the test's word
+        {
+            let mut c = r.lock();
+            c.set_scale(1.0);
+            c.set_paused(false);
+        }
+        sync_write(
+            &sync,
+            "go-muster",
+            &json!({"troops": TROOPS, "tile": start}),
+        );
+        let t0 = Instant::now();
+        while !r
+            .province_of(hp, hq)
+            .is_some_and(|v| v.entries.iter().any(|e| e.id == host_id))
+        {
+            assert!(
+                page_alive(&mut driver),
+                "the driver exited before the muster landed"
+            );
+            assert!(
+                t0.elapsed() < Duration::from_secs(240),
+                "the page's Muster did not land (host {host_id})"
+            );
+            beacon.tick(r);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        r.lock().set_paused(true);
+        json!({"tx": format!("Muster {TROOPS} onto tile {start}"), "by": "the page (wallet-signed)", "ok": true, "bell": r.bell()})
+    } else {
+        r.send(
+            &format!("Muster {TROOPS} onto tile {start}"),
+            &[ix::muster(&a, &me, href, 0, TROOPS, start)],
+            &[&player],
+            "participant",
+        )
+    };
     assert!(r.bell() < depart_bell, "mustered too late");
     drive(
         r,
@@ -327,7 +487,64 @@ pub(super) async fn flow(
     )
     .expect("the canonical Depart draft");
     let since = r.lock().slot();
-    let depart_row = {
+    let mut page_depart = Value::Null;
+    let depart_row = if pg.is_some() {
+        // P12 (P15): the PAGE departs — the boundary card's route check, its transaction preview, the wallet's
+        // signature, `/gw/f/devnet-play/expedition/submit`; this test only names the host, the steps and the turn
+        {
+            let mut c = r.lock();
+            c.set_scale(1.0);
+            c.set_paused(false);
+        }
+        sync_write(
+            &sync,
+            "go-expedition",
+            &json!({"host": host_id.to_string(), "p": hp, "q": hq, "tile": start,
+                    "directions": route.dirs, "arrive": ARRIVE_BELL}),
+        );
+        let departed = |r: &Run<'_>| {
+            let read = |k: &Address| r.lock().account(k);
+            steps::bridge_transit(&read, &a, &holding, 0)
+                .ok()
+                .flatten()
+                .is_some_and(|x| x.1.state == MarchState::Departed)
+        };
+        let t0 = Instant::now();
+        while !departed(r) {
+            assert!(
+                page_alive(&mut driver),
+                "the driver exited before the Depart landed: {}",
+                std::fs::read_to_string(sync.join("failed.txt")).unwrap_or_default()
+            );
+            assert!(
+                t0.elapsed() < Duration::from_secs(540),
+                "the page's ExpeditionDepart did not land"
+            );
+            assert!(
+                r.bell() <= depart_bell,
+                "the Depart bell {depart_bell} passed before the page departed"
+            );
+            beacon.tick(r);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        r.lock().set_paused(true);
+        page_depart = json!({"preview": read_json(&sync, "preview.json"), "departed_wall_secs": t0.elapsed().as_secs_f64()});
+        let c = r.lock();
+        let l = c
+            .feed(0, 1_000_000, Some(&program))
+            .into_iter()
+            .filter(|l| l.slot > since && l.err.is_none())
+            .find(|l| {
+                fclient::tx::from_wire(&l.wire)
+                    .ok()
+                    .is_some_and(|t| t.message.account_keys.first() == Some(&w))
+            })
+            .expect("the page's landed ExpeditionDepart");
+        json!({"tx": format!("ExpeditionDepart → ({}, {}) tile {}, arrival bell {ARRIVE_BELL}", target.p(), target.q(), route.dest_tile),
+               "by": "the page (wallet-signed, /gw/f/devnet-play/expedition/submit)", "ok": true, "compute_units": l.units, "fee": l.fee, "slot": l.slot,
+               "name": super::super::ix_name(&l.wire, &program),
+               "lamports_from_payer": l.pre_balances.first().zip(l.post_balances.first()).map(|(a, b)| a.saturating_sub(*b))})
+    } else {
         let mut c = r.lock();
         let (blockhash, last_valid) = c.latest_blockhash();
         let obs = BlockhashObservation {
@@ -370,6 +587,17 @@ pub(super) async fn flow(
                "lamports_from_payer": before.saturating_sub(c.balance(&w))})
     };
     r.rows.push(depart_row.clone());
+    // (verify-pr129) the page's preview total is exactly what the wallet paid for the landed Depart
+    if r.c.page.is_some() {
+        let shown = page_depart["preview"]["preview"]["total"]
+            .as_str()
+            .and_then(|t| t.parse::<u64>().ok());
+        assert_eq!(
+            shown,
+            depart_row["lamports_from_payer"].as_u64(),
+            "the preview's total is the wallet's payment: {page_depart:#} {depart_row:#}"
+        );
+    }
     let external = steps::external_of(&a, &holding, 0);
     let transit = |r: &Run<'_>| {
         let read = |k: &Address| r.lock().account(k);
@@ -555,6 +783,64 @@ pub(super) async fn flow(
         }
     }
 
+    // 7. P9 (devnet-p15-p9): a wide village musters on later bells (keeper A's `wide-resolve` role)
+    // (not after P14's conquest: its Season has ended, there are no later bells to muster on)
+    let p9 = if conquest.is_none() {
+        wide_village_musters_later(r, &mut beacon, &player, (hp, hq, site), target, &war).await
+    } else {
+        Value::Null
+    };
+
+    // P12: the page shows the end, then says what it did (done.json: the preview, the reload, every POST)
+    let page_done = if let Some(pg) = pg.as_ref() {
+        {
+            let mut c = r.lock();
+            c.set_scale(1.0);
+            c.set_paused(false);
+        }
+        sync_write(&sync, "go-final", &json!({"fate": "stays"}));
+        let t0 = Instant::now();
+        while !sync.join("done.json").exists() {
+            assert!(
+                page_alive(&mut driver),
+                "the driver exited before done.json: {}",
+                std::fs::read_to_string(sync.join("failed.txt")).unwrap_or_default()
+            );
+            assert!(
+                t0.elapsed() < Duration::from_secs(300),
+                "no done.json from the page driver"
+            );
+            beacon.tick(r);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        r.lock().set_paused(true);
+        let done = read_json(&sync, "done.json");
+        let _ = std::fs::copy(sync.join("done.json"), pg.out.join("done.json"));
+        assert_eq!(done["ok"], true, "the page's run: {done:#}");
+        assert_eq!(done["status"], "confirmed", "{done:#}");
+        assert_eq!(
+            done["reveal_kept"], true,
+            "the reveal half survives the reload: {done:#}"
+        );
+        assert_eq!(done["secret_posted"], false, "{done:#}");
+        let submits = done["posts"]
+            .as_array()
+            .map(|v| {
+                v.iter()
+                    .filter(|p| {
+                        p["path"]
+                            .as_str()
+                            .is_some_and(|x| x.ends_with("/expedition/submit"))
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(submits, 1, "ONE expedition submit: {done:#}");
+        json!({"depart": page_depart, "done": done, "reloaded": read_json(&sync, "reloaded.json")})
+    } else {
+        Value::Null
+    };
+
     // the verifier judges the whole season (the pinned .so given for VX's re-execution)
     let verdict = r.judge_season(tag);
 
@@ -611,7 +897,8 @@ pub(super) async fn flow(
         "after": {"bells": 3, "keeper_rows": after_rows.len(), "keeper_ok": keeper_ok_after.len(),
                   "feed": {"land": status["discovery"]["land"], "play": status["discovery"]["play"]},
                   "expeditions_role": status["duties"]["expeditions"]},
-        "conquest": conquest, "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra});
+        "p9_wide_village_musters_later": p9, "p12_page": page_done, "conquest": conquest,
+        "verifier": verdict, "rows": r.rows.clone(), "declared_patches": r.patches.clone(), "setup": extra});
     if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
         let _ = std::fs::write(
             std::path::Path::new(&d).join(format!("{tag}-flow.json")),
@@ -623,4 +910,298 @@ pub(super) async fn flow(
         "the verifier FAILs the season (see {tag}-flow.json `verifier.not_warn`)"
     );
     out
+}
+
+/// P9 (devnet-p15-p9; devnet runbook gap P9): after the expedition, the participant's WIDE VILLAGE — a slot-2
+/// WideClaimSite from its rim village into a ring-129 province keeper A opened (not the expedition's destination, so
+/// its province is found through the claim, not through the expedition's records) — settled and finalized by keeper
+/// A's `wide-tickets` role; then, with NO declared `resolved_next` (P6 had to declare it), keeper A's `wide-resolve`
+/// role keeps the province resolved, and **WideMuster lands on later bells** (`proc/wide.rs muster_as`:
+/// `resident_ok(resolved_next, now_bell)`). Declared: the rim anchor's stores (the settler cost) and 400 Spearmen in
+/// the wide village's reserve (as P6), and the bells' beacon state (as everywhere in P11).
+pub(super) async fn wide_village_musters_later(
+    r: &mut Run<'_>,
+    beacon: &mut Beacon,
+    player: &Keypair,
+    (hp, hq, site): (i32, i32, u8),
+    avoid: WideCoord,
+    war: &(u16, String),
+) -> Value {
+    use frontier_abi::layout::player::accrual as AC;
+    use frontier_abi::world_index::roster as wro;
+    use permutation_rules::frontier::holding::RESOURCES;
+    const STORES: i64 = 5_000_000_000;
+    const MUSTER: u32 = 100;
+    /// The bells the wide village's province is followed for after its first muster (the second muster's bell).
+    const LATER_BELLS: u32 = 4;
+    let a = r.c.a.clone();
+    let ctx = r.ctx();
+    let w = player.pubkey();
+    let citizen = a.citizen(&w);
+    let anchor = a.holding(hp, hq, site);
+    let anchor_p = a.province(hp, hq);
+    r.lock().set_paused(true);
+    // 1. Declared: the rim anchor's stores (the slot-2 settler cost; natural production would take days).
+    let mut hd = r.lock().account(&anchor).expect("the rim village");
+    for res in 0..RESOURCES {
+        let so = H::store(res);
+        hd.data[so + AC::VALUE..so + AC::VALUE + 8].copy_from_slice(&STORES.to_le_bytes());
+        let cap = i64::from_le_bytes(hd.data[so + AC::CAP..so + AC::CAP + 8].try_into().unwrap());
+        if cap < STORES {
+            hd.data[so + AC::CAP..so + AC::CAP + 8].copy_from_slice(&STORES.to_le_bytes());
+        }
+    }
+    r.patch(
+        anchor,
+        hd,
+        "the rim village's stores filled (the slot-2 settler cost)",
+    );
+    // 2. REAL, the participant: WideClaimSite slot 2 into a ring-129 province keeper A opened.
+    let tk = adr(wt::ticket_address(&ctx, &citizen.to_bytes()));
+    let claim_ix = |c: WideCoord, s: u8| {
+        wide_ix(
+            &a,
+            vec![
+                AccountMeta::new_readonly(w, true),
+                AccountMeta::new(w, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(citizen, false),
+                AccountMeta::new_readonly(a.frontier(), false),
+                AccountMeta::new(adr(wl::province_address(&ctx, c)), false),
+                AccountMeta::new(tk, false),
+                AccountMeta::new(anchor, false),
+                AccountMeta::new_readonly(anchor_p, false),
+                AccountMeta::new(anchor, false),
+                AccountMeta::new_readonly(anchor_p, false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ],
+            wix::ClaimSite {
+                p: c.p(),
+                q: c.q(),
+                site: s,
+                slot: 2,
+            }
+            .to_bytes()
+            .to_vec(),
+        )
+    };
+    let home = WideCoord::checked(hp as i64, hq as i64).unwrap();
+    let mut near = keeper_core::rings::wide_plan(FIRST_WIDE_RING, PER_WEDGE);
+    // (the expedition's destination last: its cursor is the expeditions role's until the arrival)
+    near.sort_by_key(|c| (*c == avoid, c.distance(home)));
+    let mut found = None;
+    let mut last_err = String::new();
+    'outer: for c in near.iter().take(8) {
+        for s in 0..16u8 {
+            match r.simulate_ok(&[claim_ix(*c, s)], &[player]) {
+                Ok(_) => {
+                    found = Some((*c, s));
+                    break 'outer;
+                }
+                Err(e) => last_err = e,
+            }
+        }
+    }
+    let (c, s) = found.unwrap_or_else(|| panic!("no slot-2 wide claim fits ({last_err})"));
+    let claim = r.send(
+        &format!(
+            "WideClaimSite({}, {} site {s}, slot 2) from the rim village",
+            c.p(),
+            c.q()
+        ),
+        &[claim_ix(c, s)],
+        &[player],
+        "participant",
+    );
+    let rec = WideTicket::read(&r.data(&tk).unwrap()).expect("a wide ticket");
+    assert_eq!(rec.status, TicketStatus::Open);
+    let wholding = adr(wh::holding_address(&ctx, c, s));
+    let wprov = adr(wl::province_address(&ctx, c));
+    let wp = WideProvince::read(&r.data(&wprov).unwrap()).expect("the wide province");
+    let pkey = ProvinceKey::new(wp.world, c);
+    // 3. REAL, keeper A's `wide-tickets`: WideSettleTicket on the bell's (declared) seed, then WideFinalize.
+    drive(
+        r,
+        beacon,
+        4.0,
+        900,
+        "keeper A's wide-tickets role settles the wide claim",
+        |r| {
+            r.lock()
+                .account(&wholding)
+                .is_some_and(|h| h.owner == r.c.program)
+        },
+    )
+    .await;
+    r.lock().set_paused(true);
+    let wfinal_ts = le_i64(&r.data(&wholding).unwrap(), H::FINAL_TS);
+    if r.now() < wfinal_ts {
+        r.advance_exact(wfinal_ts + 1);
+    }
+    drive(
+        r,
+        beacon,
+        4.0,
+        900,
+        "keeper A's wide-tickets role finalizes the wide village",
+        |r| {
+            r.data(&wholding)
+                .is_some_and(|h| h[H::STATE] == H::STATE_FINAL)
+        },
+    )
+    .await;
+    r.lock().set_paused(true);
+    // 4. Declared: 400 Spearmen in the wide village's reserve (as P6). NOT declared: the province's resolved_next.
+    let mut whd = r.lock().account(&wholding).unwrap();
+    let ro = H::reserve(0);
+    whd.data[ro..ro + 4].copy_from_slice(&400u32.to_le_bytes());
+    r.patch(wholding, whd, "400 Spearmen in the wide village's reserve");
+    let rn = |r: &Run<'_>| {
+        let read = |k: &Address| r.lock().account(k);
+        steps::resolved_next_at(&read, &a, &wprov).unwrap_or(0)
+    };
+    let at_final = json!({"bell": r.bell(), "resolved_next": rn(r), "opened_bell": wp.opened_bell});
+    let muster_ix = |troops: u32, tile: u8| {
+        wide_ix(
+            &a,
+            vec![
+                AccountMeta::new_readonly(w, true),
+                AccountMeta::new(w, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(citizen, false),
+                AccountMeta::new(wholding, false),
+                AccountMeta::new(wprov, false),
+                AccountMeta::new(adr(wro::roster_address(&ctx, pkey)), false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ],
+            wix::Muster {
+                unit: 0,
+                troops,
+                tile,
+            }
+            .to_bytes()
+            .to_vec(),
+        )
+    };
+    let passable = |r: &Run<'_>| {
+        let pd = r.data(&wprov).unwrap();
+        u64::from_le_bytes(
+            pd[PV::PASSABLE_MASK..PV::PASSABLE_MASK + 8]
+                .try_into()
+                .unwrap(),
+        )
+    };
+    let probe = |r: &Run<'_>| {
+        let m = passable(r);
+        let mut last = String::new();
+        for t in (0..64u8).filter(|t| m & (1u64 << t) != 0) {
+            match r.simulate_ok(&[muster_ix(MUSTER, t)], &[player]) {
+                Ok(_) => return Ok(t),
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
+    };
+    // (the program's own verdict at this moment, whatever it is: a lagging province answers NotResident)
+    let probe_at_final = match probe(r) {
+        Ok(t) => json!({"ok": true, "tile": t}),
+        Err(e) => json!({"ok": false, "err": e}),
+    };
+    // (verify-pr129) the control: the program refuses the muster NotResident (26) exactly while the cursor lags
+    let lagging = !fclient::play::resident_ok(rn(r), r.bell());
+    let refused_26 = probe_at_final["ok"] == false
+        && probe_at_final["err"]
+            .as_str()
+            .is_some_and(|e| e.contains("Custom(26)"));
+    assert_eq!(
+        refused_26, lagging,
+        "NotResident iff the province lags: {at_final} {probe_at_final}"
+    );
+    eprintln!("p9: control at finalization lagging={lagging} refused_26={refused_26}");
+    // 5. REAL, keeper A's `wide-resolve`: the province resolved until resident; the first WideMuster.
+    let t0 = Instant::now();
+    drive(
+        r,
+        beacon,
+        4.0,
+        1500,
+        "keeper A's wide-resolve role brings the wide village's province to resident",
+        |r| fclient::play::resident_ok(rn(r), r.bell()),
+    )
+    .await;
+    r.lock().set_paused(true);
+    let catch_up_wall = t0.elapsed().as_secs_f64();
+    let tile = probe(r).unwrap_or_else(|e| panic!("no tile takes the first wide muster: {e}"));
+    let b1 = r.bell();
+    let muster1 = r.send(
+        &format!("WideMuster {MUSTER} onto tile {tile} (bell {b1})"),
+        &[muster_ix(MUSTER, tile)],
+        &[player],
+        "wide village owner",
+    );
+    // 6. LATER_BELLS more bells: at each bell's end the province is still resident (keeper A keeps it within a bell);
+    //    then the second WideMuster, on a bell no declared state stands in for.
+    let mut timeline = vec![];
+    for b in b1 + 1..=b1 + LATER_BELLS {
+        drive(
+            r,
+            beacon,
+            6.0,
+            900,
+            &format!("bell {b}, the wide village's province resident"),
+            |r| r.bell() >= b && fclient::play::resident_ok(rn(r), r.bell()),
+        )
+        .await;
+        r.lock().set_paused(true);
+        timeline.push(json!({"bell": r.bell(), "resolved_next": rn(r), "chain_ts": r.now()}));
+    }
+    let tile2 = probe(r).unwrap_or_else(|e| panic!("no tile takes the later wide muster: {e}"));
+    let b2 = r.bell();
+    assert!(b2 >= b1 + LATER_BELLS);
+    let muster2 = r.send(
+        &format!(
+            "WideMuster {MUSTER} onto tile {tile2} (bell {b2}, {} bells later)",
+            b2 - b1
+        ),
+        &[muster_ix(MUSTER, tile2)],
+        &[player],
+        "wide village owner",
+    );
+    let st = super::keeper_status(war.0, &war.1).expect("keeper A's status");
+    let role = st["duties"]["wide_resolve"].clone();
+    assert!(
+        role["landed"].as_u64().unwrap_or(0) >= LATER_BELLS as u64,
+        "keeper A's wide-resolve role landed its resolves: {role:#}"
+    );
+    for idx in ["land", "play"] {
+        assert_eq!(
+            st["discovery"][idx]["state"], "legacy",
+            "{idx}: {:#}",
+            st["discovery"][idx]
+        );
+    }
+    json!({
+        "gap": "P9: a wide village musters on later bells; keeper A's wide-resolve role keeps its province resolved (no declared resolved_next)",
+        "wide_village": {"p": c.p(), "q": c.q(), "site": s, "claim": claim, "ticket_bell": rec.bell},
+        "at_final": at_final, "muster_probe_at_final": probe_at_final, "catch_up_wall_secs": catch_up_wall,
+        "muster_first": muster1, "timeline": timeline, "muster_later": muster2,
+        "keeper_wide_resolve_role": role,
+    })
+}
+
+fn sync_write(dir: &std::path::Path, name: &str, v: &Value) {
+    std::fs::write(dir.join(name), v.to_string()).unwrap();
+}
+
+fn read_json(dir: &std::path::Path, name: &str) -> Value {
+    std::fs::read_to_string(dir.join(name))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null)
+}
+
+/// Whether the page driver (if any) still runs.
+fn page_alive(d: &mut Option<KillChild>) -> bool {
+    d.as_mut()
+        .is_none_or(|d| d.0.try_wait().ok().flatten().is_none())
 }

@@ -640,8 +640,15 @@ export function renderS1Village(FS) {
   // (2026-11-17, ⑦: the place chosen on the map is the form's first choice — only where the view starts from its own
   //  markup; a choice the person already made in the form, and every amount, is theirs and is not written over)
   const pl = m.plan;
-  const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(m.sources[0], x));
+  // (fix-loop6, LP6-13: a source chosen on the map — 「ここから隊商を送る」 on a storehouse — is what the first destination is
+  //  told apart from; it was the village's, and the storehouse came out as both source and destination)
+  const plannedSrc = pl?.src !== null && pl?.src !== undefined ? m.sources[pl.src] : null;
+  const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(plannedSrc ?? m.sources[0], x));
   const firstSrc = pl?.src ?? (pl?.dst !== null && pl?.dst !== undefined && samePlace(m.sources[0], m.destinations[pl.dst]) ? m.sources.findIndex(x => !samePlace(x, m.destinations[pl.dst])) : -1);
+  // (fix-loop6, LP6-13: the amounts' upper bound is the SELECTED source's stock — it was the most any source held, the
+  //  village's food 629 for a storehouse of wood 19 —, and follows a change of source: app.mjs, select[name=src])
+  const srcNow = m.sources[firstSrc >= 0 ? firstSrc : 0];
+  const haveOf6 = s => (s?.have ?? []).slice(0, 6).map(v => Math.max(0, Math.floor(Number(v) || 0)));
   const planned = pl?.dst !== null && pl?.dst !== undefined ? m.destinations[pl.dst] : pl?.src !== null && pl?.src !== undefined ? m.sources[pl.src] : null;
   // (corrected 2026-11-17: the note says what was chosen on the map and that it is the field's FIRST choice — not that
   //  it "is" the destination: a choice the person makes in the field afterwards is what is sent, and the note must not
@@ -657,11 +664,11 @@ export function renderS1Village(FS) {
   const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
-    <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
+    <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" data-have="${haveOf6(s).join(',')}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
     <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${otherDst.length
       ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
       : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
-    ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${x.have}" step="1" value="0" inputmode="numeric"></div>`)}
+    ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${haveOf6(srcNow)[x.i] ?? 0}" step="1" value="0" inputmode="numeric"></div>`)}
     <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
     ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}

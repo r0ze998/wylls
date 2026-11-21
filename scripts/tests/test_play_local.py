@@ -382,6 +382,57 @@ class Static(unittest.TestCase):
             self.assertIsNone(re.search(bad, code, re.M), bad)
         self.assertIn('placeholder', src)  # the SBF out dir gets a key placeholder before cargo-build-sbf
 
+    def test_stop_never_waits_for_ever(self):
+        # (fix-loop6, LP6-3) after INT, then TERM, a launcher still there is killed: `wait` must not hang the script
+        src = read(SCRIPT)
+        fin = src[src.index('finish() {'):src.index('trap \'STOPPING=1; finish 0\'')]
+        i_int, i_term, i_kill, i_wait = (fin.index(x) for x in ('kill -INT "$LPID"', 'kill -TERM "$LPID"', 'kill -KILL "$LPID"', 'wait "$LPID"'))
+        self.assertTrue(i_int < i_term < i_kill < i_wait, (i_int, i_term, i_kill, i_wait))
+    def test_coexist_build_invalidates_the_default_stamp(self):
+        # (loop-play6: the coexist lane builds its binaries in the SHARED frontier-node/target/debug, then copies them
+        #  out; the default lane's build.stamp must stop calling that dir "up to date", or the next plain world runs the
+        #  coexist-featured runner and CreateSeason fails with Custom(1). verify-pr128: the stamp goes BEFORE the first
+        #  cargo step, so a coexist build that fails or is interrupted half-way is covered as well)
+        src = read(SCRIPT)
+        branch = src[src.index('if [ "$COEXIST" = 1 ]; then\n    # (the coexist lane: its own program'):]
+        branch = branch[:branch.index('\n  else\n')]
+        self.assertIn('cp -p "$ROOT/frontier-node/target/debug/$b" "$T/$b"', branch)
+        self.assertIn('rm -f "$STATE/build.stamp"', branch)
+        code = '\n'.join(l for l in branch.split('\n') if not l.lstrip().startswith('#'))
+        self.assertLess(code.index('rm -f "$STATE/build.stamp"'), code.index('build_step'))
+        self.assertLess(code.index('rm -f "$STATE/build.stamp"'), code.index('cargo build'))
+
+    def test_default_lane_never_trusts_a_shared_dir_last_built_for_coexist(self):
+        # (verify-pr128: a checkout whose coexist build ran BEFORE the fix keeps a valid default stamp over coexist
+        #  binaries; "up to date" and --no-build must both look at which lane built the shared dir last)
+        src = read(SCRIPT)
+        fn = src[src.index('shared_dir_is_this_lane() {'):]
+        fn = fn[:fn.index('\n}\n')]
+        self.assertIn('[ "$COEXIST" = 1 ] && return 0', fn)
+        self.assertIn('[ "$STATE/build-coexist-lane.stamp" -nt "$STAMP" ]', fn)
+        skip = next(l for l in src.split('\n') if l.startswith('elif [ "$REBUILD" = 0 ] && all_built'))
+        self.assertIn('&& shared_dir_is_this_lane; then', skip)
+        nobuild = src[src.index('if [ "$NOBUILD" = 1 ]; then\n  all_built'):]
+        nobuild = nobuild[:nobuild.index('\nelif ')]
+        self.assertIn('shared_dir_is_this_lane || {', nobuild)
+        self.assertIn('exit 7', nobuild.split('shared_dir_is_this_lane || {')[1])
+        # (the function itself, run as the script runs it: STATE with the two stamps in either order)
+        st = tempfile.mkdtemp(prefix='play-local-lane-')
+        sh = lambda coexist: subprocess.run(['bash', '-c', fn + '\n}\nshared_dir_is_this_lane'], env={
+            'PATH': os.environ['PATH'], 'STATE': st, 'STAMP': os.path.join(st, 'build-coexist-lane.stamp' if coexist else 'build.stamp'), 'COEXIST': '1' if coexist else '0'}).returncode
+        self.assertEqual(sh(False), 0)                       # no stamp at all: nothing says coexist
+        open(os.path.join(st, 'build.stamp'), 'w').write('k')
+        self.assertEqual(sh(False), 0)                       # the default lane built last
+        open(os.path.join(st, 'build-coexist-lane.stamp'), 'w').write('k')
+        os.utime(os.path.join(st, 'build.stamp'), (1_000_000, 1_000_000))
+        self.assertEqual(sh(False), 1)                       # a coexist build after it (the pre-fix state)
+        self.assertEqual(sh(True), 0)                        # the coexist lane reads its own copies
+        os.remove(os.path.join(st, 'build.stamp'))
+        self.assertEqual(sh(False), 1)                       # the fixed coexist build dropped the default stamp
+        os.utime(os.path.join(st, 'build-coexist-lane.stamp'), (1_000_000, 1_000_000))
+        open(os.path.join(st, 'build.stamp'), 'w').write('k')
+        self.assertEqual(sh(False), 0)                       # the default lane rebuilt after it
+
     def test_bash_syntax(self):
         self.assertEqual(subprocess.run(['bash', '-n', SCRIPT]).returncode, 0)
 

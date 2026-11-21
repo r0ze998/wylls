@@ -35,8 +35,7 @@ fn continuous_world_is_created_and_accepts_later_join() {
     // (the playable preset's placement is 2 since ⑭ R1 / ⑧ (c); the
     //  ceiling stays 0)
     assert_eq!(
-        &created[SEASON_CQ_OFFSET + cq_layout::PLACEMENT
-            ..SEASON_CQ_OFFSET + cq_layout::CONTINUOUS],
+        &created[SEASON_CQ_OFFSET + cq_layout::PLACEMENT..SEASON_CQ_OFFSET + cq_layout::CONTINUOUS],
         &[frontier_abi::v2::presets::PLACEMENT_MIXED, 0, 0],
         "the preset's placement; the map extension bytes remain 0"
     );

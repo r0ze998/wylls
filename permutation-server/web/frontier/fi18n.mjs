@@ -410,6 +410,11 @@ const CLIENT_TEXT = {
   LocalMarchShape: () => L`命令の内容の形が正しくありません。送っていません。`,
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
+  // (devnet gap P15, fdevnet-depart.mjs: the devnet boundary departure's own refusals; each before any send)
+  DevnetDepartNotWide: () => L`境界の外への出発は、広い土地が開いた devnet のシーズンでだけ送れます。送っていません。`,
+  DevnetDepartNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
+  DevnetDepartSignedMalformed: () => L`ウォレットが返した署名済みの取引を読めませんでした。送っていません。`,
+  DepartMessageContract: () => L`出発の取引を正しく組み立てられませんでした。送っていません。`,
   LocalMarchClosed: () => L`この軍勢の進軍は、いまローカルプレイでは送れません。`,
   // (2026-11-19, fix-march-held) the runner's definite rejection (not sent), and a sent march whose blockhash expired
   LocalActRejected: () => L`チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。`,
@@ -452,6 +457,18 @@ const CLIENT_TEXT = {
   LocalPlayCluster: () => L`記録の配信元が、ローカルネットの世界を出していません。`,
   LocalPlayVersion: () => L`ローカルプレイの世界の版が、このページと合いません。`,
   LocalPlaySeason: () => L`ローカルプレイのシーズンを確かめられませんでした。`,
+  // (main-red-web-tests 2026-11-21, regression: these nine page codes had no text and were said as 「不明なエラー（…）」 —
+  //  the devnet page's gate and lanes, the kept key / march book of a persistent local world, and the titles card's read;
+  //  test/web-frontier-errors.test.mjs "every code the page's own modules return has a text")
+  DevnetPlayOff: () => L`このページでは devnet の試合を使えません。送っていません。`,
+  DevnetPlayResident: () => L`devnet の試合では、住民NFTの名義では命令を送れません。ウォレットの名義で遊んでください。送っていません。`,
+  DevnetPlayIdentity: () => L`devnet の試合の設定か、ウォレットのアドレスを確かめられませんでした。送っていません。`,
+  DevnetPlaySeason: () => L`devnet のシーズンの番号が正しくありません。送っていません。`,
+  NoIndexedDB: () => L`このブラウザには進軍の記録や試験用の鍵を保存できません（プライベートモードでは保存できないことがあります）。送っていません。`,
+  StoredKeyInvalid: () => L`このブラウザに保存されていた試験用の鍵は、このページが作ったものではないか、壊れています。使いません。`,
+  StoredBookInvalid: () => L`このブラウザに保存されていた進軍の記録を読めませんでした。使いません。`,
+  BadLocalMarchStorage: () => L`進軍の記録の保存先が正しくありません。`,
+  BadOutcomes: () => L`称号と記録の内容を読めませんでした（BadOutcomes）。`,
   WalletNotBound: () => L`このウォレットは、この世界の住民と村にまだ結び付いていません。`,
   WalletBindingMismatch: () => L`このウォレットは、この世界の記録にある結び付きと合いません。`,
   BadHerald: () => L`記録の配信元のアドレスが正しくありません。`,

@@ -6,7 +6,7 @@
 // hud/glossary.mjs sealLine, UX design 11.13) and what an exploration finds.
 // Markup only; the swatches are classes of frontier.css (no inline style).
 import { html, raw } from '../../util.mjs';
-import { fogNow } from './fog.mjs';
+import { fogActive, fogNow } from './fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES } from '../fi18n.mjs';
 import { CHARACTERS, leaderHex } from '../people/leaders.mjs';
@@ -103,8 +103,9 @@ export function renderProtoLegend() {
 }
 
 /**
- * The fog of war of a local test world (map/fog.mjs): what the map shows, in one paragraph. Said instead of the way to the
- * whole public world, which a fogged world does not offer (a player sees only what they saw).
+ * The fog of war of a local test world or a devnet season's play page (map/fog.mjs): what the map shows, in one paragraph.
+ * Said instead of the way to the whole public world, which a fogged world does not offer (a player sees only what they
+ * saw) — fog-devnet: from the page's first picture on (`fogActive`), not only once the viewer has a village.
  */
 export const fogLegendText = () => L`霧の世界：見えるのは、自分の村と軍勢、自分の国の村と州のまわりだけです。一度見た土地は、最後に見たときのようす（薄く表示）のまま残ります。ほかの国の軍勢や進軍は、いま見えている場所でだけ表示します。まだ見ていない土地は白紙です。`;
 
@@ -127,5 +128,5 @@ export function renderSurveyHelp(FS = null) {
     <ul class="key-legend">${lines.map(x => html`<li><span class="survey-key line-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     ${renderProtoLegend()}
     ${renderNationKey()}
-    ${fogNow().on ? html`<p class="survey-fog">${fogLegendText()}</p>` : html`<p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p>`}</section>`;
+    ${fogNow().on || fogActive(FS) ? html`<p class="survey-fog">${fogLegendText()}</p>` : html`<p><a class="survey-all" href="spectate.html">${L`観戦ページで世界全体を見る`}</a></p>`}</section>`;
 }

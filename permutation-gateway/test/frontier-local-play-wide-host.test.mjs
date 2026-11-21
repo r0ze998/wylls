@@ -203,3 +203,59 @@ test('L5-1: the wide host card says what it waits for and offers no press while 
   assert.match(c, /Math\.min\(60_000, Math\.max\(10_000, Math\.round\(BELL_SECS \* 1000 \/ \(rate > 0 \? rate : 1\)\)\)\)/, 'about one turn apart: 10 s at ×60, at most a minute');
   assert.match(c, /export const WIDE_HOST_WAIT_MAX = 360;/);
 });
+
+// (fix-loop6, LP6-5 / LP6-15) loop-play6: after a wide -> wide march the card said only `its host is away (a march is
+// open)` (English, in Japanese too) for 70+ turns; the clash and the keep were nowhere on the page. The planner now reads
+// the destination province the host went to, and the card says the march's state in the page's language.
+test('LP6-5: the wide host card follows its march — on its way, standing on the keep with the hold count, being decided, gone', async () => {
+  const { createWideHostPlanner } = await import('../../permutation-server/web/frontier/flocalplay-wide-plan.mjs');
+  const { wideHostSayText } = await import('../../permutation-server/web/frontier/screens/wideholding.mjs');
+  const { setLang } = await import('../../permutation-server/web/lang.mjs');
+  const GENESIS = 1_000_000;
+  const season = { seasonId: SEASON_ID, genesisTs: GENESIS, drandGenesis: 0, drandPeriod: 3, seedMargin: 0, endBell: 100000 };
+  const herald = { season: async () => ({ ok: true, season, record: {} }) };
+  const hb = new Uint8Array(1344), hv = new DataView(hb.buffer); hb[69] = 1; hb[70] = 17; hb[71] = 2; hb[112] = 3; hv.setUint32(132, 1, true);
+  const province = (resolvedNext, hostTroops = null, keep = null) => {
+    const pv = new Uint8Array(4864), v = new DataView(pv.buffer); v.setUint32(72, resolvedNext, true); pv[4480] = 0xff;
+    if (hostTroops !== null) { const o = 1064; v.setBigUint64(o, wideHostAlias(wideHostRef({ world: WORLD, p: '130', q: '-1', site: 4, gen: 1, seq: 0 })), true); pv[o + 8] = 3; pv[o + 10] = 30; pv[o + 11] = 1; v.setUint32(o + 12, hostTroops, true); }
+    if (keep) { pv[4480] = 30; pv[4481] = keep.holder; pv[4482] = keep.contender; pv[4483] = keep.progress; pv[4484] = 72; }
+    return pv;
+  };
+  const memory = { decisions: 1, wideHostUntil: 1, wideDeparts: 1, lastWideDepart: { to: { p: '131', q: '-1', tile: 30, holder: 4 }, arrive: 365, troops: 500 } };
+  const at = async (nowBell, { open, dest }) => {
+    const planner = createWideHostPlanner({ herald, chainNow: async () => GENESIS + nowBell * 600 + 1,
+      read: async addrs => (addrs.length === 1 ? [dest] : addrs.map((_, i) => (i === 0 ? hb : i === 1 ? province(nowBell) : i === 2 && open ? new Uint8Array(8) : null))) });
+    return planner.decide({ programId: PROGRAM, seasonAddress: SEASON }, memory, { wideTargets: [], villages: [village] });
+  };
+  setLang('ja');
+  let w = await at(360, { open: true, dest: null });
+  assert.equal(w.wait, 'march'); assert.equal(w.march.phase, 'out');
+  assert.equal(wideHostSayText({ kind: 'wait', wait: w.wait, march: w.march }), '軍勢は州 131,-1 の砦へ進軍中です。到着はターン 365 です（いまはターン 360）。');
+  w = await at(370, { open: true, dest: province(368) });
+  assert.equal(w.march.phase, 'settling'); assert.match(wideHostSayText({ kind: 'wait', march: w.march }), /到着ターン 365 を過ぎました。到着先での決着を待っています/);
+  w = await at(380, { open: false, dest: province(378, 480_000, { holder: 4, contender: 3, progress: 12 }) });
+  assert.deepEqual([w.march.phase, w.march.troops, w.march.keep], ['stands', 480, { holder: 4, contender: 3, progress: 12, required: 72 }]);
+  const said = wideHostSayText({ kind: 'wait', march: w.march });
+  assert.match(said, /^結果：軍勢（兵 480）は州 131,-1 に立っています。あなたの国が砦を占拠中です：12 \/ 72 ターン。$/);
+  w = await at(380, { open: false, dest: province(378) });
+  assert.equal(w.march.phase, 'gone'); assert.match(wideHostSayText({ kind: 'wait', march: w.march }), /残れませんでした/);
+  // the planner's own steps, said in the page's language (LP6-15: they were its English log words)
+  assert.equal(wideHostSayText({ kind: 'decision', name: WIDE_TRAIN, n: 100 }), '広い土地の村で槍兵 100 を訓練します。');
+  setLang('en');
+  try {
+    for (const x of [{ kind: 'decision', name: WIDE_MUSTER, troops: 500 }, { kind: 'decision', name: WIDE_DEPART, troops: 500, arrive: 365, to: { p: '131', q: '-1', holder: 4 } },
+      { kind: 'wait', march: w.march }, { kind: 'wait', wait: 'march' }, { kind: 'wait', wait: 'lag', lag: 9 }]) {
+      const t = String(wideHostSayText(x)); assert.ok(t.length > 10, t); assert.doesNotMatch(t, /[぀-ヿ一-鿿]/, `English only: ${t}`);
+    }
+  } finally { setLang('ja'); }
+});
+
+test('LP6-6: in a local wide-land world the header says the card below sends; elsewhere it stays read-only', async () => {
+  const fs = await import('node:fs');
+  const card = fs.readFileSync(new URL('../../permutation-server/web/frontier/screens/wideholding.mjs', import.meta.url), 'utf8');
+  assert.match(card, /\$\{hostCard \? localWideNote\(\) : noExecutionNote\(\)\}/);
+  const { localWideNote, noExecutionNote } = await import('../../permutation-server/web/frontier/screens/wideholding.mjs');
+  assert.match(String(localWideNote()), /命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）/);
+  assert.doesNotMatch(String(localWideNote()), /この村には命令を送れません（収穫・建設・訓練・編成・進軍/);
+  assert.match(String(noExecutionNote()), /読み取り専用：この村には命令を送れません/);
+});

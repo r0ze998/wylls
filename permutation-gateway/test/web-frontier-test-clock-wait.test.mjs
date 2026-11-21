@@ -42,7 +42,9 @@ test('the scale reaches the page only from a capture-demo start, and both card w
   const gate = readFileSync(new URL('flocalplay.mjs', WEB), 'utf8');
   assert.match(gate, /const playedDemo = launcher && claimedDemo !== null \? Object\.freeze\(\{ \.\.\.playedEnd, clockScale: claimedDemo \}\) : playedEnd;/);
   // (wide-local-playable: a local wide world adds its own statement, never a clock scale)
-  assert.match(gate, /const playedAs = launcher && claimedWide !== null \? Object\.freeze\(\{ \.\.\.playedDemo, wideLand: claimedWide \}\) : playedDemo;/);
+  // (fix-loop6, LP6-12: then the contest pair's role, never a clock scale either)
+  assert.match(gate, /const playedWide = launcher && claimedWide !== null \? Object\.freeze\(\{ \.\.\.playedDemo, wideLand: claimedWide \}\) : playedDemo;/);
+  assert.match(gate, /const playedAs = launcher && state\.pairRole \? Object\.freeze\(\{ \.\.\.playedWide, pair: state\.pairRole \}\) : playedWide;/);
   assert.match(gate, /localPlay: playedAs \}/);
   assert.match(gate, /claimedDemo = launcherCaptureDemo\(body\?\.captureDemo\);/, 'the scale is the checked start answer (10..60)');
   const card = readFileSync(new URL('hud/marchcard.mjs', WEB), 'utf8');

@@ -621,7 +621,10 @@ fn g13_s1_reveal_and_gather_wear_a_march_in_range() {
     let region = World::region(t.dest().0, t.dest().1);
     w.ready_bell(&mut c, t.arrive(), region, None);
     let g = w.gather_ix(&c, t.dest(), t.arrive(), 0, 1);
-    expect_lands(c.send(&[g.clone()], &[&w.keeper]), "GatherClash");
+    expect_lands(
+        c.send(std::slice::from_ref(&g), &[&w.keeper]),
+        "GatherClash",
+    );
     let worn = wear(TROOPS as u64 * 1_000, want) as u32;
     let ci = c.data(&w.a.clash_inputs(t.dest().0, t.dest().1, t.arrive()));
     let o = CI::ARRIVALS;

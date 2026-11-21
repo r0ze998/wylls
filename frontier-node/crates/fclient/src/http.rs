@@ -461,8 +461,9 @@ mod tests {
         }
         let w = a.iter().position(|x| x == "--proto").unwrap();
         assert_eq!(a[w + 1], "=https");
-        assert_eq!(a[a.len() - 2], "--url");
-        assert_eq!(a[a.len() - 1], "https://api.drand.sh/info");
+        // (D-verify-pr44-6: the URL goes on stdin, as a POST's does)
+        assert_eq!(&a[a.len() - 2..], ["--config", "-"]);
+        assert!(!a.iter().any(|x| x == "--url" || x.contains("api.drand.sh")));
     }
 
     #[test]

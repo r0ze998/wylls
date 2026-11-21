@@ -293,6 +293,12 @@ export default {
   '到着候補：ターン {0}〜{1}': 'Proposed arrival range: turns {0}–{1}',
   // (the earliest turn of that observed range, offered for the draft's own field: a proposal, not a departure)
   '最も早い候補（ターン {0}）を使う': 'Use the earliest proposed turn ({0})',
+  '読み取りの途中で世界の時計が進んだため、読み直しています（{0} / {1} 回目）…': 'The world\'s clock moved during the read, so it is being read again ({0} of {1})…',
+  '到着ターンはまだ入っていません。「地形・時間を確認」を押すと、到着候補とそれを入れるボタンが出ます（自分で入れる欄は「詳細」の中です）。': 'No arrival turn yet. Press Check terrain and time to see the proposed turns and a button that enters one (the field to type one yourself is in Details).',
+  '間に合う候補（ターン {0}）を使う': 'Use a turn that leaves time to send ({0})',
+  'さきほどの「地形・時間を確認」の読み取りからの候補を、時計に合わせて進めています。押すと読み直します。': 'This proposal comes from the last Check terrain and time read, moved on with the clock. Pressing it reads again.',
+  '到着ターンの候補はターン {0} です（最も早いターン {1} に、送るまでに時計が進む分の余裕を足しています）。詳細で変更できます。': 'The proposed arrival turn is turn {0} (the earliest, turn {1}, plus room for the clock to move while it is sent). You can change it in Details.',
+  '最も早いターン {0} は、確認して送るあいだに世界の時計が進むと断られます。{1} ターンの余裕を足した候補です。': 'The earliest turn, {0}, is refused once the world\'s clock moves on while you check and send. This proposal adds {1} turns of room.',
   'いまの候補：ターン {0}': 'Current proposal: turn {0}',
   // (local play only, closed by default, flocalplay-conquest.mjs: declaring a siege; "recorded" claims no result and no capture)
   'ローカルプレイ：自由都市を包囲する': 'Local play: besiege a Free City',
@@ -470,4 +476,26 @@ export default {
   // ---- the clash report before verifying (screens/report.mjs)
   '確かめる前は、記録にある数を表示しています（到着の結果と、ターンの前後の州の記録）。': 'These are the recorded numbers (the arrivals\' results, and the province\'s record before and after the turn was resolved). “Verify in this browser” recomputes them here.',
 
+  // ---- devnet play: the boundary departure (hud/hand.mjs outboundDevnetDepart; devnet gap P15)
+  '送る取引を組み立てています…': 'Building the transaction…',
+  'ウォレットで署名しています…': 'Signing with your wallet…',
+  'このあとの手順（公開ラウンドでの封の開封・到着先の解決・集結・結果の受け取り）は keeper A が行います。封の中身はこのブラウザに暗号化して保管しています。': 'Keeper A does the rest (opening the seal from the public round, resolving the destination, gathering, collecting the result). The sealed orders are kept encrypted in this browser.',
+  '送る取引：境界への出発（ExpeditionDepart）・署名者はこのウォレットだけ': 'Transaction: boundary departure (ExpeditionDepart); this wallet is the only signer',
+  '支払うウォレット': 'Paying wallet',
+  '行軍記録の賃料 {0} lamports（このウォレットから、行軍記録が預かります）': 'Rent of the transit record {0} lamports (from this wallet, held by the record)',
+  '手数料 {0} lamports・チップ {1}・行軍料 {2}・封の保証金 {3}（チップ以下は村に預けられます）': 'Fee {0} lamports; tip {1}; march fee {2}; seal bond {3} (the tip and the rest are escrowed in the village)',
+  '最大の支払い {0} lamports': 'At most {0} lamports in total',
+  '到着ターン {0}・行き先 {1}・アカウント {2}': 'Arrival turn {0}; destination {1}; {2} accounts',
+  '取引の要約': 'Transaction digest',
+  '状況を確かめる': 'Check the status',
+  'ウォレットで署名して送る': 'Sign with the wallet and send',
+  'やめる': 'Cancel',
+  '閉じる': 'Close',
+  '用意しています…': 'Preparing…',
+  '送る内容を確認': 'Review what will be sent',
+  '先に「地形・時間を確認」で道と到着ターンを確かめてください。': 'First check the route and the arrival turn with “Check terrain and time”.',
+  'devnet：この軍勢を、接続中のウォレットの署名で境界の外へ出発させます。手数料・チップ・保証金はこのウォレットが払います。': "Devnet: this host departs past the boundary with your connected wallet's signature. This wallet pays the fee, the tip and the bond.",
+  '境界の外への出発は、広い土地が開いた devnet のシーズンでだけ送れます。送っていません。': 'A departure past the boundary can be sent only on a devnet season whose wide land is open. Nothing was sent.',
+  'ウォレットが返した署名済みの取引を読めませんでした。送っていません。': 'The signed transaction the wallet returned could not be read. Nothing was sent.',
+  '出発の取引を正しく組み立てられませんでした。送っていません。': 'The departure\'s transaction could not be built. Nothing was sent.',
 };

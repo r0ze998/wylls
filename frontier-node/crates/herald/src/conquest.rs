@@ -1829,9 +1829,13 @@ pub fn complete(f: &mut Fold, tx: &TxRecord) {
 fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot: u64) -> bool {
     // the opened provinces and their records at b. `views` are the provinces of the dense `PSFCT1` file (rings
     // 0..=CONTROL_MAX_RING, CF-2); a grown map's rim (ring 128, R_MAX_HARD) is opened past what that file can hold, so
-    // its provinces go to `grown`: counted in the hour's public figures (standings, 「支配する州」), never written
-    // positionally (no file, sieges, call or event names them — fog, #93 §4 item 13: public counts only). Before
-    // fix wide-herald-lag a rim province stopped every control bell after its opening (`rings > CONTROL_MAX_RING`).
+    // its provinces go to `grown`: counted in the hour's public figures (standings, 「支配する州」) and listed in the
+    // sieges file (its entries name a province by (p, q), with no ring limit: CONQUEST-CONTRACT §8.4 "active holding
+    // sieges and keep contests"), but kept out of the positional control file, the Call and the control events. The
+    // fog (#93) is the page's view only — the herald stays public (#93 report §5 item 1, owner: cosmetic fog accepted) — so it is no reason
+    // to drop them (fix-code-questions, D-keep-capture-progress-2: a --wide world's sieges file stood empty while rim
+    // keeps were contested). Before fix wide-herald-lag a rim province stopped every control bell after its opening
+    // (`rings > CONTROL_MAX_RING`).
     let mut rings = 0u32;
     let mut recs: BTreeMap<u32, fmt::ControlProvince> = BTreeMap::new();
     let mut views: Vec<(ProvinceCoord, View)> = vec![];
@@ -2004,11 +2008,18 @@ fn control_bell(cq: &mut Cq, f: &mut Fold, b: u32, si: Option<&SeasonInfo>, slot
         }
     }
     // the sieges file
-    let mut sieges: Vec<fmt::SiegeEntry> =
-        views.iter().flat_map(|(_, v)| v.sieges.clone()).collect();
+    // (every opened province's, the rim's (`grown`) too: the file names provinces by (p, q), not by PSFCT1 position)
+    let mut sieges: Vec<fmt::SiegeEntry> = views
+        .iter()
+        .chain(&grown)
+        .flat_map(|(_, v)| v.sieges.clone())
+        .collect();
     sieges.sort_by_key(|s| (s.p, s.q, s.site));
-    let mut keeps: Vec<fmt::KeepContest> =
-        views.iter().filter_map(|(_, v)| v.keep.clone()).collect();
+    let mut keeps: Vec<fmt::KeepContest> = views
+        .iter()
+        .chain(&grown)
+        .filter_map(|(_, v)| v.keep.clone())
+        .collect();
     keeps.sort_by_key(|k| (k.p, k.q));
     let sf = SiegesFile {
         bell: b,

@@ -30,7 +30,7 @@ import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
-import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
+import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, prepareDevnetPlayDeparture, sendDevnetPlayDeparture, reconcileDevnetPlayDeparture, clearDevnetPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -41,7 +41,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -371,7 +371,7 @@ function settingsMarkup(FS) {
     <div class="choice-row" role="group" aria-label="${L`音`}"><span class="choice-k">${L`音`}</span><span class="seg">${['on', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="fx-sound" data-v="${v}" aria-pressed="${(fxAudio().muted ? 'off' : 'on') === v ? 'true' : 'false'}">${v === 'on' ? L`オン` : L`オフ`}</button>`)}</span></div>
     ${onboardingCard.renderRestore(FS)}
     <div class="actions"><button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`練習モードを開く`}</button><button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></div>
-    <p class="link-row"><a href="practice.html">${L`練習ページ`}</a> · <a href="spectate.html">${L`観戦ページ`}</a>${FS.agentWallet ? html` · <a href="agent.html" data-agent-link="1">${L`代理人のページ（テストUSDCで自動運転を任せる）`}</a>` : ''}</p></section>`;
+    <p class="link-row"><a href="practice.html">${L`練習ページ`}</a>${fogActive(FS) ? '' : html` · <a href="spectate.html">${L`観戦ページ`}</a>`}${FS.agentWallet ? html` · <a href="agent.html" data-agent-link="1">${L`代理人のページ（テストUSDCで自動運転を任せる）`}</a>` : ''}</p></section>`;
 }
 
 /**
@@ -617,7 +617,11 @@ export function keepState(el, render, scroller = el) {
   const stable = new Map();
   for (const x of el.querySelectorAll('[data-stable]')) if (x.dataset?.stable) stable.set(x.dataset.stable, [x, x.outerHTML]);
   render();
-  for (const x of stable.size ? el.querySelectorAll('[data-stable]') : []) { const was = stable.get(x.dataset?.stable); if (was && was[0] !== x && was[1] === x.outerHTML) x.replaceWith(was[0]); }
+  // (fix-loop6, LP6-11: B-8 still took 3–4 real presses in the ×60 wide picker. Its main cause was not this: each press
+  //  restarted the candidates reading and so cancelled the press before it — controller.mjs confirmHome, FS.homeConfirmWait.
+  //  As a second measure the SAME node is now kept even when its markup changed (label, `disabled`), brought up to the new
+  //  markup in place: a press begun on it ends on it)
+  for (const x of stable.size ? el.querySelectorAll('[data-stable]') : []) { const was = stable.get(x.dataset?.stable); if (was && was[0] !== x) { if (was[1] !== x.outerHTML) morphStable(was[0], x); x.replaceWith(was[0]); } }
   // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
   // typing in the Muster form opened from its fold lost the focus at the first key's redraw
   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
@@ -638,6 +642,10 @@ export function keepState(el, render, scroller = el) {
       }
     }
   }
+  // (verify-pr130, LP6-13: the caravan amounts' bounds are the markup's — the source first offered —; a source the person
+  //  picked in the field and restored just above takes its own bounds again, or the next redraw, about once a second at
+  //  ×60, put the storehouse's back while the field showed the village: food max 0, wood max 20)
+  for (const x of picked.size ? el.querySelectorAll('form[data-form="s1-caravan"] select[name="src"]') : []) capCaravanAmounts(x);
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
   for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }
@@ -854,8 +862,26 @@ function fogSurveyExtras() {
 function fogUpdate() {
   const sc = scope() || null, w = FS.wallet?.address ?? null;
   FS.fog = fogger({ active: fogActive(FS) && (FS.holdings ?? []).length > 0, survey: FS.survey, overviews: FS.overviews, wide: wideLandRaw?.land?.() ?? null,
-    viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells, memKey: sc && w ? fogMemoryKey(sc, w) : null });
+    viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells,
+    // (fog-devnet: a devnet page's last-known memory is keyed by its Season account too — season + wallet)
+    memKey: sc && w ? fogMemoryKey(sc, w, fogModeOf(FS) === 'devnet' ? FS.pin?.addresses?.season ?? null : null) : null });
   return FS.fog;
+}
+/**
+ * (fog-devnet) A devnet page learns that it is one from its pinned season (FS.pin.cluster), after boot: once the pin says
+ * so, the fog's world-wide parts are laid as a local test world lays them at boot — never-seen land as plain paper, and
+ * no 「記録」 sheet (the recorded wide world lists every captured province, its keep nation and villages: a full map).
+ * The spectator links (legend, settings) follow `fogActive` / `fogNow()` by themselves.
+ */
+let fogWorldLaid = null;
+function fogWorldPinned() {
+  const mode = fogModeOf(FS);
+  if (mode !== 'devnet' || !fogActive(FS) || fogWorldLaid === mode) return;
+  fogWorldLaid = mode;
+  setBlankChart(FOG_RULES.blankChart);
+  try { wideModeRef?.unmount?.(); } catch (e) { console.error('frontier wide world:', e); }
+  wideModeRef = null;
+  mapRef?.invalidate?.();
 }
 /** The overviews the map shows (fogged under the fog of war). */
 const shownOverviews = () => (FS.fog?.on ? FS.fog.overviews : FS.overviews);
@@ -3704,6 +3730,12 @@ export const HUD_ACTIONS = {
   // from the page's memory-only wallet, and the status look-up of a departure whose outcome is not settled.
   'outbound-local-depart': () => sendLocalPlayDeparture(),
   'outbound-local-reconcile': () => reconcileLocalPlayDeparture(),
+  // Devnet play only (fdevnet-depart.mjs; the controller asks the devnet gate at every step): the preview of the boundary
+  // departure, then the connected wallet's signature and the one send; the status look-up; a finished run cleared.
+  'outbound-devnet-preview': () => prepareDevnetPlayDeparture(),
+  'outbound-devnet-send': () => sendDevnetPlayDeparture(),
+  'outbound-devnet-reconcile': () => reconcileDevnetPlayDeparture(),
+  'outbound-devnet-clear': () => { clearDevnetPlayDeparture(); },
   // Local play only (flocalplay-reveal.mjs; the same gate, asked at every step): the explicit opening of a seal this
   // page holds. A read first, then the player's own press; an outcome not known is asked about, never sent again.
   'local-reveal-check': () => checkLocalPlayReveal(),
@@ -3740,11 +3772,12 @@ export const HUD_ACTIONS = {
     // (2026-11-16: a draft is put away as 「やめる」 puts it away — controller.mjs compose-close: an armed waiting send is
     //  cancelled first and says so. The pill's press dropped it, and the waiting send was withdrawn as if the order had changed)
     leaveReport(); if (FS.compose) ACTIONS['compose-close'](); FS.guideOpen = false; FS.tab = 'map';
-    if (d.pop === 'keeps') {
+    if (d.pop === 'keeps' || d.pop === 'march') {
       const r = hand.ownHosts(FS).find(x => x.id === String(d.host)) ?? hand.ownHosts(FS).find(x => x.unit !== 6 && x.unit !== 7 && hand.marchCheck(FS, x).ok) ?? null;
       if (!r) { HUD_ACTIONS.tab({ tab: 'hosts' }); return; }
       endPick(); FS.selected = { p: r.p, q: r.q, idx: r.tile }; FS.hand = { host: r.id }; FS.inspectOpen = false;
-      setPop('keeps'); invalidate('map', 'panel', 'tabs', 'rail');
+      // (fix-loop6, LP6-4: 'march' — the guide's next step when no seen keep is in reach: the host's march card)
+      setPop(d.pop); invalidate('map', 'panel', 'tabs', 'rail');
       return;
     }
     const hi = Math.max(0, Math.min((FS.holdings ?? []).length - 1, FS.activeHolding ?? 0));
@@ -4482,7 +4515,7 @@ function delegate(doc) {
     // (the return card's local-play controls act on the card's own observation: pressing them keeps it)
     if (FS.hand?.pop === EXPEDITION_POP && !LOCAL_CONQUEST_ACTS.includes(el.dataset.act) && !LOCAL_RETURN_ACTS.includes(el.dataset.act) && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
     // (the seal's strip stands on the boundary card too: pressing it keeps the draft, like the card's own controls)
-    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
+    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-devnet-preview', 'outbound-devnet-send', 'outbound-devnet-reconcile', 'outbound-devnet-clear', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
@@ -4513,6 +4546,9 @@ function delegate(doc) {
     invalidate('panel');
   });
   doc.addEventListener('change', e => {
+    // (fix-loop6, LP6-13: the caravan's amounts are bounded by the stock of the source now selected)
+    const src = e.target.closest?.('form[data-form="s1-caravan"] select[name="src"]');
+    if (src) { capCaravanAmounts(src); return; }
     const el = e.target.closest?.('[data-bind]');
     if (!el) return;
     if (w4Bind(el.dataset.bind, el.value)) invalidate('panel');
@@ -4612,6 +4648,7 @@ async function loadSeason(herald) {
     return false;
   }
   herald.pin(record.season, FS.pin.addresses);
+  fogWorldPinned();
   // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
   //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
   adoptPinnedWorld();
@@ -4747,6 +4784,7 @@ export async function boot() {
   FS.mode = cfg.mode;
   // (the local test world's fog of war, map/fog.mjs: never-seen land is plain paper — set before anything is painted)
   if (LOCAL_FOG && cfg.localPlay && FS.mode === 'play') setBlankChart(FOG_RULES.blankChart);
+  // (a devnet page: the same, once its pinned season says devnet — fogWorldPinned, map/fog.mjs DEVNET_FOG)
   // (the loop-play report B5: a launcher world that its launcher has ended is said to have ended, and its clock stands
   //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
   // (B21: the same one answer is also counted by launcherWatch — a launcher that gives no answer at all, twice in a row,
@@ -4962,13 +5000,18 @@ export async function boot() {
     // namespace is never shown
     // (the local test world's fog of war, map/fog.mjs: the recorded world's sheet lists every captured province, its keep
     //  nation and villages — a full-map view — so a fogged world does not offer it: a player sees only what they saw)
-    const fogWorld = LOCAL_FOG && !!cfg.localPlay && FS.mode === 'play';
+    // (fog-devnet: a devnet page is known only once its season is pinned — fogWorldLaid, or fogWorldPinned unmounts the
+    //  sheet then)
+    const fogWorld = (LOCAL_FOG && !!cfg.localPlay && FS.mode === 'play') || !!fogWorldLaid;
     if (!fogWorld) try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // the same record on this map and its chart (rings 129+ in their terrain and keep nations' colours): read in the background
     try { wideLandRef = mountWideLand({ herald, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier wide land:', e); }
     // (the map reads the wide land through this: under the fog of war of a local test world, the fogged copy — map/fog.mjs)
     if (wideLandRef) { wideLandRaw = wideLandRef; const raw = wideLandRaw; wideLandRef = { ...raw, land: () => shownWide(raw.land()) }; }
-    // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged: fog is local-only)
+    // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged. Under
+    //  the devnet fog (fog-devnet) nothing of it is SHOWN: fdevnetplay.mjs wideTargetsOf keeps each opened province's
+    //  coordinates and ring only — the ring's opening is public geometry, as the open rings on the chart — never a holder,
+    //  a village or a terrain)
     FS.wideLandNow = () => wideLandRaw?.land?.() ?? null;
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
@@ -5155,4 +5198,26 @@ export async function startPage({ loc = globalThis.location, load = () => import
   }
   return start();
 }
+/** (fix-loop6, LP6-11) Bring node `keep` up to `next`'s markup in place (attributes and content): the same element stays. */
+function morphStable(keep, next) {
+  if (keep.tagName !== next.tagName) return;
+  for (const a of [...keep.attributes]) if (!next.hasAttribute(a.name)) keep.removeAttribute(a.name);
+  for (const a of [...next.attributes]) if (keep.getAttribute(a.name) !== a.value) keep.setAttribute(a.name, a.value);
+  if (keep.innerHTML !== next.innerHTML) keep.innerHTML = next.innerHTML;
+  // (an attribute is not the live state: `disabled` follows it, set as the new markup says)
+  if ('disabled' in keep) keep.disabled = next.hasAttribute('disabled');
+}
+
+/** (fix-loop6, LP6-13) Each amount of the caravan form bounded by the selected source's stock (its option's `data-have`). */
+export function capCaravanAmounts(select) {
+  const have = String(select?.selectedOptions?.[0]?.dataset?.have ?? '').split(',').map(Number);
+  for (const input of select?.form?.querySelectorAll?.('input[name^="c"]') ?? []) {
+    const i = Number(String(input.name).slice(1));
+    if (!Number.isInteger(i)) continue;
+    const max = Number.isFinite(have[i]) ? have[i] : 0;
+    input.max = String(max);
+    if (Number(input.value) > max) input.value = String(max);
+  }
+}
+
 if (globalThis.document && !globalThis.process?.versions?.node) startPage().catch(e => console.error('frontier boot:', e));

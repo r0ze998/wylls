@@ -9,9 +9,13 @@
 //! **GET** (live drand: `api.drand.sh` and its mirrors, W2-C D7). `-q`
 //! first (no `.curlrc` can turn verification off), `--proto =https` and no
 //! redirect following, TLS ≥ 1.2, bounded time and size, the URL passed
-//! with `--url` after a strict check (no userinfo, escapes, whitespace,
+//! on stdin (`--config -`, as for POST) after a strict check (no userinfo, escapes, whitespace,
 //! quotes or query), and the answer refused unless curl reports scheme
-//! HTTPS with `ssl_verify_result` 0. Peer certificates are checked against
+//! HTTPS with `ssl_verify_result` 0. Since D-verify-pr44-6 (2026-11-21)
+//! the GET runs through the same process handling as POST: globbing,
+//! `.netrc`, inherited proxies, `--insecure` and redirects off,
+//! `SSLKEYLOGFILE` removed, a bounded pipe, a watchdog, kill-on-drop and
+//! no curl stderr in errors. Peer certificates are checked against
 //! curl's trust store (`CURL_CA_BUNDLE` / `SSL_CERT_FILE` when the host sets
 //! them). TLS only protects the transport: a drand round is accepted
 //! because it verifies against the pinned key (`beacon::HttpDrand`), never
@@ -46,6 +50,9 @@ use crate::ports::{PortError, PortResult};
 /// Largest body an `https://` GET accepts (a drand round is ≈ 200 B, its
 /// info ≈ 500 B).
 pub const HTTPS_MAX_BODY: u64 = 64 * 1024;
+/// Deadline of one `https://` GET, connect included (curl's `--max-time`;
+/// the watchdog allows one second more).
+pub const GET_TIMEOUT_SECS: u64 = 15;
 
 /// Checks a URL handed to curl: `https://` (or `http://` on loopback
 /// only), an authority of lowercase DNS letters, digits, `.`, `-` (or a
@@ -104,7 +111,8 @@ pub fn check_curl_url(url: &str) -> Result<(), PortError> {
 
 /// The curl argument vector for one GET (`-q` must stay first: it is the
 /// only way to keep a `.curlrc` out). `cacert` replaces the trust store
-/// (tests with their own CA).
+/// (tests with their own CA). `url` only picks the `--proto`; the URL
+/// itself goes on stdin ([`get_config`]).
 pub fn curl_args(url: &str, cacert: Option<&std::path::Path>) -> Vec<String> {
     let proto = if url.starts_with("https://") {
         "=https"
@@ -114,7 +122,12 @@ pub fn curl_args(url: &str, cacert: Option<&std::path::Path>) -> Vec<String> {
     let mut a: Vec<String> = [
         "-q",
         "--silent",
-        "--show-error",
+        "--globoff",
+        "--no-netrc",
+        "--no-insecure",
+        "--no-location",
+        "--proxy",
+        "",
         "--proto",
         proto,
         "--proto-redir",
@@ -125,7 +138,7 @@ pub fn curl_args(url: &str, cacert: Option<&std::path::Path>) -> Vec<String> {
         "--connect-timeout",
         "10",
         "--max-time",
-        "15",
+        &GET_TIMEOUT_SECS.to_string(),
         "--max-filesize",
         &HTTPS_MAX_BODY.to_string(),
         "--header",
@@ -140,9 +153,20 @@ pub fn curl_args(url: &str, cacert: Option<&std::path::Path>) -> Vec<String> {
         a.push("--cacert".into());
         a.push(p.display().to_string());
     }
-    a.push("--url".into());
-    a.push(url.into());
+    // The URL reaches curl on stdin ([`get_config`]), as a POST's does: `ps`
+    // shows fixed flags only.
+    a.push("--config".into());
+    a.push("-".into());
     a
+}
+
+/// The config curl reads on stdin for one GET: the URL only.
+pub fn get_config(url: &str) -> Result<Vec<u8>, PortError> {
+    let mut c = Vec::with_capacity(url.len() + 8);
+    c.extend_from_slice(b"url = ");
+    config_quote(&mut c, url.as_bytes())?;
+    c.push(b'\n');
+    Ok(c)
 }
 
 /// `GET` through curl (see the module notes). The status is curl's; no
@@ -152,31 +176,35 @@ pub async fn curl_get(url: &str) -> Result<Response, PortError> {
 }
 
 /// [`curl_get`] with an explicit trust anchor file.
+///
+/// The process is run exactly as a [`post`] is ([`run_curl`]): stdout read
+/// through a bounded pipe (one byte over [`HTTPS_MAX_BODY`] + the trailer
+/// kills curl, also for a chunked body `--max-filesize` cannot see in
+/// advance), a watchdog one second past curl's own `--max-time`, a dropped
+/// future kills and reaps curl, `SSLKEYLOGFILE` removed, and curl's stderr
+/// discarded (errors show the URL's host only, [`redact`]).
 pub async fn curl_get_with(
     url: &str,
     cacert: Option<std::path::PathBuf>,
 ) -> Result<Response, PortError> {
     check_curl_url(url)?;
     let args = curl_args(url, cacert.as_deref());
+    let stdin = get_config(url)?;
     let https = url.starts_with("https://");
-    let out = tokio::task::spawn_blocking(move || {
-        std::process::Command::new("curl")
-            .args(&args)
-            .stdin(std::process::Stdio::null())
-            .output()
+    let host = redact(url);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let _cancel = Cancel(cancelled.clone());
+    let cap = HTTPS_MAX_BODY as usize + TRAILER_BYTES;
+    let deadline = Duration::from_secs(GET_TIMEOUT_SECS + 1);
+    let out = tokio::task::spawn_blocking(move || run_curl(args, stdin, cap, deadline, cancelled))
+        .await
+        .map_err(|_| PortError::Io(format!("GET {host}: worker failed")))?
+        .map_err(|e| PortError::Io(format!("GET {host}: {e}")))?;
+    parse_curl_output(&out, https).map_err(|e| match e {
+        PortError::Io(m) => PortError::Io(format!("GET {host}: {m}")),
+        PortError::Decode(m) => PortError::Decode(format!("GET {host}: {m}")),
+        e => e,
     })
-    .await
-    .map_err(|e| PortError::Io(format!("curl: {e}")))?
-    .map_err(|e| PortError::Io(format!("curl: {e}")))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let err: String = err.trim().chars().take(300).collect();
-        return Err(PortError::Io(format!(
-            "curl exit {}: {err}",
-            out.status.code().unwrap_or(-1)
-        )));
-    }
-    parse_curl_output(&out.stdout, https)
 }
 
 /// Splits curl's stdout into the body and the `--write-out` trailer
@@ -198,6 +226,12 @@ pub fn parse_curl_output_capped(
         .ok_or_else(|| PortError::Decode("curl: no trailer".into()))?;
     let trailer = std::str::from_utf8(&stdout[nl + 1..])
         .map_err(|_| PortError::Decode("curl: trailer utf8".into()))?;
+    // A POST's trailer ends with ` ra:<Retry-After>` (B5: devnet's 429s
+    // say how long to wait); only delta-seconds are kept.
+    let (trailer, retry_after) = match trailer.split_once(" ra:") {
+        Some((head, ra)) => (head, retry_after_secs(ra)),
+        None => (trailer, None),
+    };
     let mut f = trailer.split_whitespace();
     let (Some(code), Some(verify), Some(scheme), None) = (f.next(), f.next(), f.next(), f.next())
     else {
@@ -220,9 +254,26 @@ pub fn parse_curl_output_capped(
     }
     Ok(Response {
         status,
-        headers: vec![],
+        headers: retry_after
+            .map(|s| vec![("retry-after".to_string(), s.to_string())])
+            .unwrap_or_default(),
         body,
     })
+}
+
+/// The `--write-out` of a POST: status, TLS verification, scheme and the
+/// `Retry-After` header (empty when absent).
+pub const POST_WRITE_OUT: &str =
+    "\n%{http_code} %{ssl_verify_result} %{scheme} ra:%header{retry-after}";
+
+/// A `Retry-After` value in delta-seconds (≤ 1 hour); an HTTP-date, a
+/// value curl could not print or anything else is ignored.
+pub fn retry_after_secs(v: &str) -> Option<u64> {
+    let v = v.trim();
+    if v.is_empty() || v.len() > 4 || !v.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    v.parse().ok().filter(|&s| s <= 3600)
 }
 // ---------------------------------------------------------------- POST
 
@@ -236,7 +287,7 @@ pub const POST_MAX_RESPONSE: usize = 16 << 20;
 pub const POST_TIMEOUT_SECS: u64 = 20;
 /// Longest URL [`post`] accepts.
 pub const MAX_URL: usize = 2048;
-/// The `--write-out` trailer's bound (`\n<code> <verify> <scheme>`).
+/// The `--write-out` trailer's bound (`\n<code> <verify> <scheme>[ ra:<Retry-After>]`).
 pub const TRAILER_BYTES: usize = 64;
 const POLL: Duration = Duration::from_millis(10);
 
@@ -337,7 +388,7 @@ pub fn post_args(https: bool, opts: &PostOpts) -> Vec<String> {
         "--header",
         "Expect:",
         "--write-out",
-        "\n%{http_code} %{ssl_verify_result} %{scheme}",
+        POST_WRITE_OUT,
     ]
     .iter()
     .map(|s| s.to_string())
@@ -650,6 +701,37 @@ mod tests {
         assert_eq!(a[p + 1], "=http");
     }
 
+    /// B5 (devnet, 2026-11-21): a 429 from api.devnet.solana.com carries
+    /// `Retry-After: 10`; the POST trailer brings it back as a header.
+    #[test]
+    fn post_trailer_carries_retry_after_seconds_only() {
+        assert!(post_args(true, &PostOpts::default())
+            .iter()
+            .any(|x| x == POST_WRITE_OUT));
+        let body = br#"{"jsonrpc":"2.0","error":{"code":429,"message":"Too many requests for a specific RPC call"},"id":1}"#;
+        let out = |t: &str| [&body[..], b"\n", t.as_bytes()].concat();
+        let r = parse_curl_output_capped(&out("429 0 https ra:10"), true, 1 << 20).unwrap();
+        assert_eq!((r.status, r.header("Retry-After")), (429, Some("10")));
+        assert_eq!(r.body, body);
+        for (t, status) in [
+            ("200 0 https ra:", 200),
+            ("200 0 https", 200),
+            ("429 0 https ra:Wed, 21 Oct 2026 07:28:00 GMT", 429),
+            ("429 0 https ra:99999", 429),
+            ("429 0 https ra:-1", 429),
+            ("429 0 https ra:%header{retry-after}", 429),
+        ] {
+            let r = parse_curl_output_capped(&out(t), true, 1 << 20).unwrap();
+            assert_eq!((r.status, r.header("retry-after")), (status, None), "{t}");
+        }
+        // The TLS checks still hold with the header present.
+        assert!(parse_curl_output_capped(&out("200 1 https ra:3"), true, 1 << 20).is_err());
+        assert!(parse_curl_output_capped(&out("200 0 http ra:3"), true, 1 << 20).is_err());
+        assert!(parse_curl_output_capped(&out("200 0 https x ra:3"), true, 1 << 20).is_err());
+        assert_eq!(retry_after_secs(" 10 "), Some(10));
+        assert_eq!(retry_after_secs("3601"), None);
+    }
+
     #[test]
     fn redaction_keeps_the_host_only() {
         assert_eq!(
@@ -707,5 +789,97 @@ mod tests {
                 Err(PortError::Unsupported(_))
             ));
         });
+    }
+
+    /// D-verify-pr44-6: every hardening flag of a POST is on a GET too
+    /// (RUN-A-KEEPER §9.1 promises one hardened path).
+    #[test]
+    fn get_argv_has_every_post_hardening_flag() {
+        let g = curl_args("https://api.drand.sh/info", None);
+        let p = post_args(true, &PostOpts::default());
+        for flag in [
+            "-q",
+            "--silent",
+            "--globoff",
+            "--no-netrc",
+            "--no-insecure",
+            "--no-location",
+            "--proxy",
+            "--proto",
+            "--proto-redir",
+            "--max-redirs",
+            "--tlsv1.2",
+            "--connect-timeout",
+            "--max-time",
+            "--max-filesize",
+        ] {
+            assert!(p.iter().any(|x| x == flag), "POST lost {flag}");
+            assert!(g.iter().any(|x| x == flag), "GET lacks {flag}");
+        }
+        let val = |a: &[String], f: &str| a[a.iter().position(|x| x == f).unwrap() + 1].clone();
+        for f in ["--proxy", "--proto", "--proto-redir", "--max-redirs"] {
+            assert_eq!(val(&g, f), val(&p, f), "{f}");
+        }
+        assert_eq!(val(&g, "--max-time"), GET_TIMEOUT_SECS.to_string());
+        assert_eq!(val(&g, "--max-filesize"), HTTPS_MAX_BODY.to_string());
+        assert!(!g.iter().any(|x| x == "--show-error"));
+        // Nothing request-specific on argv: the URL goes on stdin.
+        let g = curl_args("https://api.drand.sh/s3cret/public/1", None);
+        assert!(!g.join(" ").contains("s3cret"));
+        assert_eq!(&g[g.len() - 2..], ["--config", "-"]);
+        assert_eq!(
+            get_config("https://api.drand.sh/x").unwrap(),
+            b"url = \"https://api.drand.sh/x\"\n"
+        );
+    }
+
+    /// One loopback answer per connection, from a thread; → the URL.
+    fn serve_once(reply: Vec<u8>) -> String {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut c, _)) = l.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = c.read(&mut buf);
+                let _ = c.write_all(&reply);
+            }
+        });
+        format!("http://127.0.0.1:{port}/s3cret/path")
+    }
+
+    fn block_on<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    #[test]
+    fn get_is_bounded_and_never_follows_a_redirect() {
+        // A plain answer comes back.
+        let url = serve_once(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"round\":1}"
+                .to_vec(),
+        );
+        let r = block_on(curl_get(&url)).unwrap();
+        assert_eq!((r.status, r.body.as_slice()), (200, &b"{\"round\":1}"[..]));
+        // A chunked body past the cap (no length for --max-filesize to see):
+        // refused, and the error names the host only.
+        let mut big =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+        for _ in 0..80 {
+            big.extend_from_slice(b"400\r\n");
+            big.extend_from_slice(&[b'a'; 1024]);
+            big.extend_from_slice(b"\r\n");
+        }
+        big.extend_from_slice(b"0\r\n\r\n");
+        let url = serve_once(big);
+        let e = block_on(curl_get(&url)).unwrap_err().to_string();
+        assert!(e.contains("GET http://127.0.0.1:"), "{e}");
+        assert!(!e.contains("s3cret"), "{e}");
+        // A redirect is returned as it is, never followed.
+        let url = serve_once(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec());
+        assert_eq!(block_on(curl_get(&url)).unwrap().status, 302);
     }
 }

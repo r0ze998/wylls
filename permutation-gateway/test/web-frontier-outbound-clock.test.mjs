@@ -64,7 +64,8 @@ test('an ordinary poll keeps the draft: steps, arrival, stance, retreat, ratio a
     assert.equal(s.routeCheck, null, `${name}: the route read is dropped`); assert.equal(s.contextCheck, null, `${name}: the departure-conditions read is dropped`);
     assert.notEqual(s.review, review, `${name}: the review is another one`); assert.equal(s.review.plainHex, review.plainHex, 'of the same steps and fields');
     assert.equal(JSON.stringify(s.source), JSON.stringify(source), 'from the same source');
-    assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateUnavailable', `${name}: nothing observed is left to offer`);
+    // (verify-pr130: nothing OBSERVED is left; the card's last offer is remembered and marked so — a press reads again, web-frontier-outbound-arrival-pick)
+    assert.equal(outboundArrivalCandidate(w.fs).remembered, true, `${name}: only the remembered offer is left`);
     assert.equal(codeOf(() => DP.departPreparationRequest(w.fs, { sealed: { commit: '01'.repeat(32), seal: 'a7'.repeat(264) } })), 'DepartObservationUnavailable', `${name}: nothing can be prepared for signing without a new read`);
     // the page's own clock was not written to make the two equal
     assert.notEqual(w.fs.chain.last === last && w.fs.nowBell === bell && name !== 'another measured rate', true);
@@ -205,7 +206,8 @@ test('the page\'s own poll (every 30 s: a new last slot and time on the same cha
   assert.equal(outboundArrivalCandidate(w.fs).arriveBell, '44', 'turn 42\'s earliest');
   poll(w, { bell: 43 });
   assert.equal(reconcileOutbound(w.fs, w.ctx), true); assert.deepEqual(FIELDS(s), fields, 'across the turn: every field is kept, the entered arrival too');
-  assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateUnavailable', 'turn 42\'s earliest is not offered in turn 43');
+  // (verify-pr130: turn 42's earliest is not offered as observed in turn 43; the remembered offer moves on with the turn)
+  assert.deepEqual([outboundArrivalCandidate(w.fs).arriveBell, outboundArrivalCandidate(w.fs).remembered], ['45', true], 'turn 42\'s offer, moved on to turn 43, marked remembered');
   await inspectOutboundContext(w.fs, laterRange);
   assert.equal(s.contextCheck.report.code, 'ArrivalTooEarly', 'the entered turn 44 is judged again, under turn 43');
   assert.equal(outboundArrivalCandidate(w.fs).arriveBell, '45', 'the earliest arrival is worked out again');

@@ -1597,6 +1597,7 @@ export default {
   '開始サービスは終了の処理中です。開始サービスを起動し直してから、ページを開き直してください。': 'The start service is shutting down. Start it again, then reopen this page.',
   '世界を終了できませんでした。開始サービスを確認して、もう一度押してください。': 'The world could not be ended. Check the start service, then press again.',
   '動いている世界を確認できませんでした。開始サービスを確認して、もう一度押してください。': 'The running worlds could not be checked. Check the start service, then press again.',
+  '世界を終了できるのは、開始サービスが表示したアドレス（#owner= の付いたもの）で開いたページだけです。そのアドレスで開き直してください。': 'Only a page opened at the address the start service printed (the one with #owner=) can end a world. Open that address again.',
   '試験世界の準備（時間の早送り）を終えられませんでした。その世界は終了しました。もう一度押すと、新しい世界で準備し直します。': 'The test world\'s preparation (running its clock faster) could not be finished. That world was ended. Press again to prepare a new world.',
   // (the launcher world's standing notice after the gate, flocalplay-session.mjs: what stays true for the session)
   'この試験世界について': 'About this test world',
@@ -1908,7 +1909,7 @@ export default {
   '称号と記録だけです。勝敗・得点・賞金・シーズンの終わりには何も加えません': 'Titles and records only. Nothing is added to who wins, scores, prizes or the end of a season',
   // (2026-11-19, fix-march-held) a march the runner rejected (not sent), one sent and not confirmed, and its re-check
   '進軍は送信済みですが、まだ確認できていません。同じ進軍は送り直しません。しばらく自動で確かめます（「もう一度」でも確認できます）。署名 {0}': 'The march was sent, but it is not confirmed yet. The same march is not sent again. The page keeps checking for a while (Try again checks too). Signature {0}',
-  '送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。': 'The turn changed while it was being sent, and the province it leaves from had not settled the previous turn yet.',
+  '送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。': 'The turn changed while it was being sent, and the province it leaves from had not resolved the previous turn yet.',
   '送るあいだにターンが変わり、この到着ターンには着けなくなりました。': 'The turn changed while it was being sent, and the host can no longer arrive on that turn.',
   '命令は送られていません。カードはそのままです。確かめてから、もう一度押してください。': 'The order was not sent. The card is kept as it was: check it and press again.',
   '送信済みの進軍の結果を確認しています…': 'Checking the outcome of the march already sent…',
@@ -1916,8 +1917,8 @@ export default {
   '送信済みだった進軍はチェーンで断られました。軍勢は村にいます。もう一度命令できます。': 'The march that was sent was refused on chain. The host is still at the village and can be ordered again.',
   '送信済みだった進軍は期限までに記録されませんでした（これから記録されることはありません）。軍勢は村にいます。もう一度命令できます。': 'The march that was sent was not recorded in time (it can no longer be). The host is still at the village and can be ordered again.',
   'チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this order before running it. It was not sent.',
-  '送ったばかりの命令がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。': 'Too many orders you just sent have not settled yet. This one was not sent. Wait about a minute and press again.',
-  '送ったばかりの進軍がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。': 'Too many marches you just sent have not settled yet. This one was not sent. Wait about a minute and press again.',
+  '送ったばかりの命令がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。': 'Too many orders you just sent are not resolved yet. This one was not sent. Wait about a minute and press again.',
+  '送ったばかりの進軍がまだ多く決着していません。送っていません。1 分ほど待ってから、もう一度押してください。': 'Too many marches you just sent are not resolved yet. This one was not sent. Wait about a minute and press again.',
   'チェーンのノードがこの進軍を実行前に受け付けませんでした。送られていません。': 'The chain\'s node rejected this march before running it. It was not sent.',
   '進軍は期限までに記録されませんでした。これから記録されることはありません。': 'The march was not recorded in time. It can no longer be.',
   // fix-ui-b17-b21 (loop-play3 B18–B21)
@@ -1969,6 +1970,10 @@ export default {
   "最後に見たときのようすです（いまは見えていません）。": "As you last saw it (out of sight now).",
   "見えている他国の砦で、いま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within reach now. Keeps on land you have not seen are not shown.",
   "見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within this host's reach now. Keeps on land you have not seen are not shown.",
+  "次の一手：「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます（着いたあたりが見えるようになります）。": "Next: with March you can press a tile on the map and go to land you have not seen yet (you will see around where you arrive).",
+  "進軍で地図から選ぶ": "March: choose on the map",
+  "{0}この軍勢が届く他国の砦はありません（進軍が越えられるのは4州まで）。「進軍」で地図のマスを押して、砦に近づけます。": "{0}No other nation's keep is within this host's reach (a march crosses at most 4 provinces). With March you can press a tile on the map and move closer to the keeps.",
+  "{0}見えている他国の砦で、この軍勢が届くものはありません。「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます。着いたあたりが見えるようになり、砦が見えれば「砦へ進軍」の一覧に出ます。": "{0}No other nation's keep you have seen is within this host's reach. With March you can press a tile on the map and go to land you have not seen yet. You will see around where you arrive, and a keep you see there joins the March on a keep list.",
   // loop-play4 B-2: a local world's province behind by turns (the keeper under the machine's load); the waiting send goes on
   'この編成': 'this order to form a host',
   'この命令': 'this order',
@@ -1979,7 +1984,7 @@ export default {
   // loop-play4 B-11: a local world's march with no seal copy on this device: the world's runner reveals it
   'このローカルの世界では、到着のターンが終わると世界の進行役が封を開けます（この端末に封の控えがなくても進みます）。': "In this local world the world's automatic services open the seal once the arrival turn is over (it goes ahead even without a copy of the seal on this device).",
   // loop-play4 (B-7's neighbour): local play's nation choice — no wallet prompts and no in-game key there
-  'この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。': "In this test world the page's own test wallet signs by itself (no wallet prompt and no in-game key).",
+  'この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。': "In this test world the page's own test wallet signs on its own (no wallet prompt and no in-game key).",
   // loop-play4 B-9: the viewer's own wide village, said on its province
   'あなたの村（広い土地）': 'Your village (wide land)',
   // rights-play (TEST-ONLY, a coexist local world): ② rights, screens/rights.mjs and controller.mjs
@@ -2019,7 +2024,7 @@ export default {
   '閉じた': 'Closed',
   'このページはもう別の種類の試験世界を遊んでいます。新しいタブで開き直してください。': 'This page already plays another kind of test world. Open it again in a new tab.',
   '知らない種類の試験世界です。': 'An unknown kind of test world.',
-  'この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。': 'This test world has no keeper delivering caravans, so you deliver your own arrived caravans yourself (the fee comes back to you).',
+  'この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。': 'This test world has no one delivering caravans, so you deliver your own arrived caravans yourself (the fee comes back to you).',
   '隊商が届きました': 'The caravan was delivered',
   '一覧に出るのは、あなたが出したか受けた権利だけです。ほかの人どうしの権利や、ほかの人の貯蔵庫の中身は表示しません。': 'Only rights you issued or received are listed. Rights between other players and the contents of other players\' storehouses are not shown.',
   '交換を予約しました': 'Swap reserved',
@@ -2037,14 +2042,49 @@ export default {
   'この村の州の決着が {0} ターン遅れています。追いつくまでは、どの命令も通りません。': "This village's province is {0} turns behind. Until it catches up, no order can get through.",
   '軍勢が整列中か休んでいます。進軍できるようになるまで待ちます。': 'The host is forming or resting. Waiting until it can march.',
   '広い土地の村がまだ確定していません。': 'The wide-land village is not confirmed yet.',
-  '送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。': 'The turn changed while sending (the province had not settled). It is sent again next turn.',
-  'このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。': 'This page checks by itself about once a turn and sends the step when it can. No need to press again (pressing sends nothing).',
+  '送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。': 'The turn changed while sending (the province had not resolved its turn). It is sent again next turn.',
+  'このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。': 'This page checks automatically about once a turn and sends the step when it can. No need to press again (pressing sends nothing).',
   '待っています…（押す必要はありません）': 'Waiting… (no need to press)',
   '待つのをやめる': 'Stop waiting',
+  // fix-loop6 LP6-15: the wide host card's own words (they were missing: the card stayed Japanese in English), and what it
+  // says of the planner's answer in the page's language (it showed the planner's English log words in Japanese too)
+  '広い土地の軍勢（テスト）': 'Wide-land host (test)',
+  'ローカル専用': 'Local only',
+  '押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。': 'One step per press: train Spearmen → form a host → march on the keep of a neighbouring province (within the wide land). Staying on the keep for the set number of turns takes it.',
+  '次の一手（広い土地）': 'Next step (wide land)',
+  '広い土地の村で槍兵 {0} を訓練します。': 'Training {0} Spearmen at the wide-land village.',
+  '広い土地の村で槍兵 {0} の軍勢を編成します。': 'Forming a host of {0} Spearmen at the wide-land village.',
+  '軍勢（兵 {0}）が州 {1} の砦へ進軍します（{2}が保持）。到着はターン {3} です。': 'The host ({0} troops) marches on the keep of province {1} (held by {2}). It arrives on turn {3}.',
+  '次の一手を送ります。': 'Sending the next step.',
+  '軍勢は州 {0} の砦へ進軍中です。到着はターン {1} です（いまはターン {2}）。': 'The host is marching on the keep of province {0}. It arrives on turn {1} (now turn {2}).',
+  '砦はあなたの国のものです。': 'The keep is your nation\'s.',
+  'あなたの国が砦を占拠中です：{0} / {1} ターン。': 'Your nation is holding the keep: {0} / {1} turns.',
+  '砦は{0}が保持しています（あなたの国は占拠できていません）。': 'The keep is held by {0} (your nation is not holding it).',
+  '結果：軍勢（兵 {0}）は州 {1} に立っています。': 'Result: the host ({0} troops) stands in province {1}. ',
+  '到着ターン {0} を過ぎました。到着先での決着を待っています（州の決着が遅れると数ターンかかります）。': 'Arrival turn {0} has passed. Waiting for the outcome at the destination (a few turns when the province is behind).',
+  '結果：軍勢は州 {0} に残れませんでした（戦いに敗れました）。': 'Result: the host could not stay in province {0} (it lost the fight).',
+  '到着先の州 {0} の記録をまだ読めていません。': 'The record of the destination province {0} has not been read yet.',
+  '軍勢は進軍に出ています。': 'The host is out on a march.',
+  'この村の州の決着が {0} ターン遅れています。': "This village's province is {0} turns behind.",
+  '軍勢が整列中か休んでいます。': 'The host is forming or resting.',
+  'いまは送れる一手がありません。': 'There is no step to send now.',
+  '軍勢の進軍の結果を待っています。': 'Waiting for the result of the host\'s march.',
+  // fix-loop6 LP6-6: in a local wide-land world the card below does send
+  'この村の記録の表示は読み取り専用です。命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）。収穫・建設・隊商・追いつかせる は、この村には送れません。': 'What this village\'s record shows is read-only. Orders are sent only by the Wide-land host (test) card below (train, form a host, march). Harvest, build, caravan and catch-up cannot be sent to this village.',
+  '記録は読み取り専用': 'Record read-only',
+  // fix-loop6 LP6-14: a caravan is offered for delivery once the provinces it crossed have settled past its arrival
+  '通った州（{0}, {1}）の決着が到着のターン {2} を過ぎるのを待っています。過ぎると届けられます（数ターン）。': 'Waiting for the province it crossed ({0}, {1}) to settle past its arrival turn {2}. Then it can be delivered (a few turns).',
+  // fix-loop6 LP6-10: the nation's keeps under attack out of every host's reach
+  '{0}が第{1}ターンから占拠を進めています': '{0} has been taking it since turn {1}',
+  '占拠 {0} ターン': 'held {0} turns',
+  'いまのあなたの軍勢では届きません。': 'None of your hosts can reach it now.',
+  // fix-loop6 LP6-9: the rim village's ticket wait, said with its turn
+  '辺境の村の申し込みを送りました。世界の進行役がターンの終わりに決めます。': 'The rim village request was sent. The world decides it at the end of a turn.',
+  '辺境の村の申し込みを送りました（ターン {0}、{1} ターン前）。世界の進行役がターンの終わりに決めます。マシンの負荷が高いと数十ターン（×60 で数分）かかることがあります。このページは待ち続けます。押し直す必要はありません。': 'The rim village request was sent (turn {0}, {1} turns ago). The world decides it at the end of a turn. On a busy machine this can take tens of turns (a few minutes at ×60). This page keeps waiting; no need to press again.',
   // fix-loop5 L5-6: a clash out of sight under the fog
   'この場所はいま見えていません。ほかの国どうしの衝突の報告は、その場所が見えているあいだだけ開けます。': "This place is out of sight now. A clash between other nations can be opened only while its place is in sight.",
   // fix-loop5 L5-3/L5-5: the boundary card's dropped read
-  '読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。': "The world's clock moved on while reading, so that result could not be used (common at ×60). This page read again by itself up to 2 times without success. Press again.",
+  '読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。': "The world's clock moved on while reading, so that result could not be used (common at ×60). This page read again automatically up to 2 times without success. Press again.",
   // fix-loop5 L5-7: the guide pill while the host forms
   '軍勢の整列を待つ': 'Wait for the host to form',
   '待つ間に：{0}': 'Meanwhile: {0}',
@@ -2052,6 +2092,21 @@ export default {
   '終点の州 {0},{1} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。いちばん近い開いた州は {2},{3}（{4} 州先）です。': 'The end province {0},{1} is not open in this world (only the provinces of rings 129–131 drawn on the map are open). The nearest open province is {2},{3} ({4} provinces away).',
   '終点の州 {0},{1} は、この世界ではまだ開いていません（開いている広い土地は、地図に描かれた第129〜131輪の州だけです）。': 'The end province {0},{1} is not open in this world (only the provinces of rings 129–131 drawn on the map are open).',
   'いまは送れる一手がありません。送っていません。': 'There is no step to send now. Nothing was sent.',
-  'このページが待っています。送れるようになったら自動で一手を送ります。': 'This page is waiting. It sends the step by itself as soon as it can.',
+  'このページが待っています。送れるようになったら自動で一手を送ります。': 'This page is waiting. It sends the step automatically as soon as it can.',
   '前の一手を確かめています。結果を待ってください。': 'The last step is being checked. Wait for its result.',
+  // main-red-web-tests 2026-11-21: page codes that had no text (fi18n.mjs CLIENT_TEXT)
+  'このページでは devnet の試合を使えません。送っていません。': 'Devnet play is not on for this page. Nothing was sent.',
+  'devnet の試合では、住民NFTの名義では命令を送れません。ウォレットの名義で遊んでください。送っていません。': 'On devnet, orders cannot be sent as a resident NFT. Play as your wallet. Nothing was sent.',
+  'devnet の試合の設定か、ウォレットのアドレスを確かめられませんでした。送っていません。': 'The devnet play settings or the wallet address could not be checked. Nothing was sent.',
+  'devnet のシーズンの番号が正しくありません。送っていません。': 'The devnet season number is not valid. Nothing was sent.',
+  'このブラウザには進軍の記録や試験用の鍵を保存できません（プライベートモードでは保存できないことがあります）。送っていません。': 'This browser cannot keep the march record or the test key (a private window may not allow it). Nothing was sent.',
+  'このブラウザに保存されていた試験用の鍵は、このページが作ったものではないか、壊れています。使いません。': 'The test key kept in this browser is not one this page made, or it is damaged. It is not used.',
+  'このブラウザに保存されていた進軍の記録を読めませんでした。使いません。': 'The march record kept in this browser could not be read. It is not used.',
+  '進軍の記録の保存先が正しくありません。': 'The place to keep the march record is not valid.',
+  '称号と記録の内容を読めませんでした（BadOutcomes）。': 'The titles and records could not be read (BadOutcomes).',
+  // main-red-web-tests 2026-11-21: the local wide village's host card (screens/wideholding.mjs, #94) had no English
+  '広い土地の軍勢（テスト）': 'Wide-land host (test)',
+  'ローカル専用': 'Local only',
+  '押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。': 'One step per press: train Spearmen → form a host → march onto the keep of the next province (inside the wide land). Standing on the keep for the set number of turns takes it.',
+  '次の一手（広い土地）': 'Next step (wide land)',
 };

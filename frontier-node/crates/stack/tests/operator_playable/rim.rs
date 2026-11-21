@@ -92,6 +92,8 @@ pub struct Page {
     pub driver: std::path::PathBuf,
     /// Where the driver writes its stills and log.
     pub out: std::path::PathBuf,
+    /// PFOG (fog-devnet): two observer players of other nations look through the devnet page too (`war_fog.rs`).
+    pub fog: bool,
 }
 
 /// P11 (devnet-expedition-keeper): the rim → wide expedition.

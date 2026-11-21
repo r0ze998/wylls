@@ -64,8 +64,15 @@ test('the main button is the same handler as before, which looks again at the pr
   assert.match(c, /'march-send-wait': \(\) => armMarchWait\(\),/);
   const arm = c.slice(c.indexOf('function armMarchWait()'), c.indexOf('async function sendTheMarch()'));
   assert.match(arm, /const \{ problems, intent \} = marchNow\(c\);/, 'the order as it is at the press');
-  assert.match(arm, /if \(problems\.length === 0\) return sendTheMarch\(\);/, 'ready: the ordinary single send');
-  assert.match(arm, /if \(heldNow\(c\) \|\| !pendable\(problems\)\) return;/, 'anything but settling: nothing');
+  // (re-pinned 2026-11-21 to 0f626c0d of 2026-11-19, "a runner rejection is not sent, held marches are re-checked": a press
+  //  at the turn's very end waits instead of sending into the change; a held march is ASKED ABOUT — one read, nothing sent —
+  //  where the press used to do nothing; web-frontier-march-held / web-frontier-local-march-pending test the behaviour)
+  assert.match(arm, /if \(problems\.length === 0 && !marchNearEnd\(\)\) return sendTheMarch\(\);/, 'ready, and not at the turn\'s very end: the ordinary single send');
+  assert.doesNotMatch(arm, /if \(problems\.length === 0\) return sendTheMarch\(\);/);
+  assert.equal(arm.split('sendTheMarch(').length - 1, 1, 'the one send in the handler');
+  assert.match(arm, /if \(c && !c\.sending && !c\.pending && !pendingDriver\.armed && localPlay && heldNow\(c\)\) return askHeldMarches\(c\.host\?\.id \?\? null, \{ told: true \}\);/, 'a held march: asked about, nothing sent');
+  assert.ok(arm.indexOf('heldNow(c)) return askHeldMarches') < arm.indexOf('marchNow(c)'), 'the held check comes before anything is built');
+  assert.match(arm, /if \(problems\.length > 0 && !pendable\(problems\)\) return;/, 'anything but settling: nothing');
   const card = readFileSync(new URL('../../permutation-server/web/frontier/hud/marchcard.mjs', import.meta.url), 'utf8');
   assert.match(card, /const mainOk = !busy && !waiting && !!c\.route && \(problems\.length === 0 \|\| pendable\(problems\)\);/);
 });

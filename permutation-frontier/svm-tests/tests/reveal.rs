@@ -1082,7 +1082,7 @@ fn g01_s1_reveal_worst_with_towers() {
         .with_cu(REVEAL_CU_LIMIT_S1)
         .with_loaded(frontier_abi::v2::presets::REVEAL_LOADED_LIMIT_S1);
     let l = expect_lands(
-        c.send_with(&p, &[ix.clone()], &[&w.keeper]),
+        c.send_with(&p, std::slice::from_ref(&ix), &[&w.keeper]),
         "Reveal with towers at the S1 limits",
     );
     // the target slot (Reveal data: tag, transit slot, target_i)

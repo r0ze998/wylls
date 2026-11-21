@@ -198,10 +198,7 @@ pub fn serve(cfg: Config) -> Result<(), String> {
     let listener = TcpListener::bind((cfg.host.as_str(), cfg.port))
         .map_err(|e| format!("{}:{}: {e}", cfg.host, cfg.port))?;
     let origin = format!("http://{}:{}", cfg.host, cfg.port);
-    eprintln!(
-        "Wylls (V5) on {origin}/  (web: {})",
-        site.web.display()
-    );
+    eprintln!("Wylls (V5) on {origin}/  (web: {})", site.web.display());
     match site.game() {
         Some(game) => {
             let g = lock(game);

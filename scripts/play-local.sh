@@ -71,8 +71,9 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
                   ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
-                  marches into the wide land by 「境界への道を準備」; a wide village's 「次の一手（広い土地）」 marches
-                  wide to wide (local-only feature). The ordinary map and 「全体図」 draw the wide land as far as you have
+                  marches into the wide land by 「境界への道を準備」 (after 「地形・時間を確認」 press the card's
+                  「間に合う候補（ターン N）を使う」 for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's 「次の一手（広い土地）」 marches
+                  wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and 「全体図」 draw the wide land as far as you have
                   seen it (fog of war: no 「記録」 view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
                   or --two)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
@@ -83,10 +84,13 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   scripts/build-frontier-localnet-coexist-sbf.sh, version 0x7805, RULESET_HASH_V4; workstream 4's
                   allocation rev 8; launcher option --coexist local-coexist-v1). The page is the usual one, plus ②
                   rights: issue a Grant from a workshop village, StockSwap into the grantee's Vault, haul it out by
-                  caravan, revoke. Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
+                  caravan, revoke. The grantee must be another player, so the whole loop needs --two (two browser
+                  windows will do): `--coexist --demo --two`, about 10 minutes, step by step in docs/frontier/PLAY-LOCAL.md
+                  §10 (日本語: PLAY-LOCAL.ja.md §10). Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
                   one), and with --demo --speed N (the capture demo's TEST clock: at the natural clock a Vault's 200 wood
                   + 200 stone + 50 gold take most of a day); not with --wide. Its runners, herald and tools are built with their `coexist-lane`
-                  feature into $STATE/coexist-bin/ (the default world's binaries are untouched)
+                  feature into $STATE/coexist-bin/ (cargo links them in the shared target dir first, so the
+                  next plain world relinks its own binaries: a few seconds)
   --coexist-node  TEST-ONLY, no page: the node localnet-coexist-play alone serves a ②+⑨+⑩ chain on 127.0.0.1:BASE
                   (RPC) and BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its
                   metadata (one JSON line) and runs until Ctrl-C. Memory-only, alone (no other option but --port)
@@ -298,7 +302,8 @@ SO="$SO_DIR/permutation_frontier.so"
 BINS=(localnet-natural-play localnet-expedition-play frontier-herald frontier-experimental-expedition-depart-prepare frontier-original-expedition-preview frontier-experimental-expedition-prepare)
 STAMP="$STATE/build.stamp"
 # (--coexist: the coexist .so, and the same binaries built with their `coexist-lane` feature, kept apart in their own
-#  directory so the default world's binaries in $T stay exactly what they were)
+#  directory. cargo links them in the SHARED frontier-node/target/debug first — the default lane's own binaries are
+#  replaced there until its next build, which is why a coexist build drops the default stamp below)
 if [ "$COEXIST" = 1 ]; then
   T="$STATE/coexist-bin"
   SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-coexist-sbf"
@@ -495,11 +500,21 @@ src_key() {  # the sources the binaries come from: tree hashes at HEAD + any unc
   } | shasum -a 256 | cut -d' ' -f1
 }
 all_built() { [ -f "$SO" ] || return 1; for b in "${BINS[@]}"; do [ -x "$T/$b" ] || return 1; done; }
+# (loop-play6 LP6-2: the default lane runs its binaries straight from the shared target dir, and a coexist build links
+#  coexist-featured ones there. A coexist stamp newer than the default one — or a default stamp that is gone — says the
+#  last finished build in that dir was the coexist lane's: the default binaries are then NOT the default lane's, whatever
+#  the default stamp says. This also covers a checkout whose coexist build ran before that build dropped the stamp)
+shared_dir_is_this_lane() {
+  [ "$COEXIST" = 1 ] && return 0
+  if [ -f "$STATE/build-coexist-lane.stamp" ] && [ "$STATE/build-coexist-lane.stamp" -nt "$STAMP" ]; then return 1; fi
+  return 0
+}
 KEY="$(src_key)"
 if [ "$NOBUILD" = 1 ]; then
   all_built || { err "--no-build ですが、まだビルドされていないものがあります。--no-build を外してください。" "--no-build, but a binary is missing; drop --no-build."; exit 7; }
+  shared_dir_is_this_lane || { err "--no-build ですが、いまあるバイナリは --coexist の世界のものです (最後のビルドが --coexist でした)。--no-build を外してください (数秒で作り直します)。" "--no-build, but the binaries on disk are the --coexist world's (the last build was a --coexist one); drop --no-build (the rebuild takes a few seconds)."; exit 7; }
   say "   ビルドしません (--no-build)" "   not building (--no-build)"
-elif [ "$REBUILD" = 0 ] && all_built && [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$KEY" ]; then
+elif [ "$REBUILD" = 0 ] && all_built && [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$KEY" ] && shared_dir_is_this_lane; then
   say "   最新です。ビルドを省きます (やり直すなら --rebuild)" "   up to date; skipping the build (--rebuild to force)"
 else
   rm -f "$STAMP"
@@ -522,6 +537,10 @@ else
   if [ "$COEXIST" = 1 ]; then
     # (the coexist lane: its own program, and the same binaries with `coexist-lane`, copied out of the shared target
     #  dir into $T so a later default build — which rebuilds them without the feature — never mixes the two)
+    # (from the first cargo step on, the shared target dir holds coexist-featured binaries: the default lane's stamp
+    #  must not call them "up to date", or the next plain world runs them and CreateSeason fails with Custom(1) —
+    #  loop-play6. Dropped BEFORE the builds, so a failed or interrupted coexist build is covered too)
+    rm -f "$STATE/build.stamp"
     build_step program "$ROOT/scripts/build-frontier-localnet-coexist-sbf.sh"
     build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-coexist-lane-play --bin localnet-natural-play --bin localnet-expedition-play"
     build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental,coexist-lane,rights-records --bin frontier-herald"
@@ -574,7 +593,10 @@ finish() {
     say "" ""; say "== 止めています (世界を閉じてから終わります) …" "== stopping (closing every world first) …"
     kill -INT "$LPID" 2>/dev/null || true
     for _ in $(seq 1 60); do kill -0 "$LPID" 2>/dev/null || break; sleep 0.5; done
+    # (fix-loop6, LP6-3: a second signal ends the launcher at once — it ends its own world processes first; and the wait
+    #  below must never hang: a launcher still there after that is killed)
     if kill -0 "$LPID" 2>/dev/null; then kill -TERM "$LPID" 2>/dev/null || true; sleep 2; fi
+    if kill -0 "$LPID" 2>/dev/null; then kill -KILL "$LPID" 2>/dev/null || true; fi
   fi
   wait "$LPID" 2>/dev/null || true
   say "== 止めました。" "== stopped."

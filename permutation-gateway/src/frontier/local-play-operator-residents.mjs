@@ -340,7 +340,8 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
       //  held NotResident for 70 turns in a row, and the war never got a turn — fix-loop4 play-through)
       if (war && Number.isSafeInteger(turnBell)) r.memory.wideMarchUntil = turnBell + WAR_WIDE_RETRY_BELLS;
       r.budget.spent('held', deps.now(), turnBell);
-      return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', outcome: 'wait', code: m.code, why: 'the home province has not settled this turn: the next turn', test_only: true, seen, budget: r.budget.state() };
+      return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', outcome: 'wait', code: m.code, why: 'the home province did not settle while it waited (this turn and the next): a later turn', test_only: true,
+        ...(m.looks !== undefined ? { looks: m.looks, waited_ms: m.waitedMs } : {}), seen, budget: r.budget.state() };
     }
     const outcome = m.ok ? 'landed' : m.unknown ? 'unknown' : m.step === 'failed' ? 'failed' : 'refused';
     if (war && outcome !== 'refused') r.memory.lastBell = spentBell(nowBell, deps);
@@ -348,7 +349,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     r.budget.spent(outcome, deps.now(), turnBell);
     return { resident: r.index, wallet: r.key.address, step: 'act', act: 'WideMarch', why: d.why, outcome, test_only: true,
       to: { p: p.dest.p, q: p.dest.q, tile: p.destTile }, from: { p: p.holding.p, q: p.holding.q, tile: p.host.tile }, host: { id: String(p.host.id), troops: p.host.troops },
-      arrive_bell: p.arriveBell, directions: p.directions, ...(m.code ? { code: m.code, at: m.step } : {}), ...(m.signature ? { signature: m.signature } : {}), seen, budget: r.budget.state() };
+      arrive_bell: p.arriveBell, directions: p.directions, ...(m.looks !== undefined ? { looks: m.looks, waited_ms: m.waitedMs } : {}), ...(m.code ? { code: m.code, at: m.step } : {}), ...(m.signature ? { signature: m.signature } : {}), seen, budget: r.budget.state() };
   }
   const sent = await deps.submit({ name: d.name, v: d.v, fields: d.fields }, r);
   let outcome, signature = null, code = null;

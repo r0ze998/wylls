@@ -571,6 +571,19 @@ impl Fold {
             self.st.folded_through = tx.seq;
             return;
         }
+        // verify-pr123: a successful v0/v1 transaction (legacy decoding
+        // refuses its wire, so the feed fetched no post-state for it) that
+        // ran this program wrote accounts this fold never sees: an alarm,
+        // not a silent gap (B5: devnet carries v1 transactions).
+        if tx.post.is_empty() && runs_program(&tx.logs, &self.cfg.program) {
+            if let Err(e) = fclient::tx::from_wire(&tx.tx) {
+                self.st.alarms.bad_records += 1;
+                eprintln!(
+                    "herald: ALARM tx #{} ({}) ran the program but does not decode ({e}): its post-state is not folded",
+                    tx.seq, tx.signature
+                );
+            }
+        }
         // 1. The post-state.
         let mut before: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
         let mut resolved: Vec<((i16, i16), u32, u32)> = vec![];
@@ -1479,6 +1492,92 @@ impl Fold {
     /// The capture of an address.
     pub fn account(&self, a: &[u8; 32]) -> Option<&Capture> {
         self.cap(a)
+    }
+}
+
+/// Whether the logs show `program` invoked (at any depth).
+fn runs_program(logs: &[String], program: &Address) -> bool {
+    let head = format!("Program {program} invoke [");
+    logs.iter().any(|l| l.starts_with(&head))
+}
+
+#[cfg(test)]
+mod v1_record_tests {
+    use super::*;
+
+    fn fold(dir: &std::path::Path, program: Address) -> Fold {
+        let cfg = FoldCfg {
+            program,
+            season_id: 1,
+            builder: std::sync::Arc::new(crate::clash::Provisional),
+            exact_post: true,
+        };
+        Fold::new(cfg, crate::files::Out::new(dir.join("files")))
+    }
+
+    fn rec(seq: u64, wire: Vec<u8>, logs: Vec<String>) -> TxRecord {
+        TxRecord {
+            seq,
+            slot: 10 + seq,
+            signature: Default::default(),
+            block_time: 1_794_997_722,
+            tx: wire,
+            logs,
+            err: None,
+            code: None,
+            units: 0,
+            fee: 0,
+            post: vec![],
+        }
+    }
+
+    /// verify-pr123: a successful v1 transaction that ran the program (its
+    /// wire starts 0x81, as devnet serves them; legacy decoding refuses
+    /// it, so the feed fetched no post-state) raises `bad_records`; one
+    /// that did not run it, a failed one, and a decodable legacy one do not.
+    #[test]
+    fn an_undecodable_transaction_of_the_program_is_an_alarm() {
+        let program = Address::new_from_array([0x51; 32]);
+        let dir = std::env::temp_dir().join(format!(
+            "herald-v1-alarm-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut f = fold(&dir, program);
+        let ran = |p: &Address| {
+            vec![
+                format!("Program {p} invoke [1]"),
+                format!("Program {p} success"),
+            ]
+        };
+        let v1 = vec![0x81, 0x01, 0x00, 0x02, 0x0f, 0, 0, 0];
+        let other = Address::new_from_array([0x52; 32]);
+        f.apply(&rec(1, v1.clone(), ran(&other)));
+        assert_eq!(f.st.alarms.bad_records, 0, "another program's");
+        let mut failed = rec(2, v1.clone(), ran(&program));
+        failed.err = Some("InstructionError".into());
+        f.apply(&failed);
+        assert_eq!(f.st.alarms.bad_records, 0, "a failed one writes nothing");
+        // A legacy wire by hand: 1 signature, header (1, 0, 1), 2 keys,
+        // a blockhash, no instruction.
+        let mut legacy = vec![1u8];
+        legacy.extend([0u8; 64]);
+        legacy.extend([1, 0, 1, 2]);
+        legacy.extend([9u8; 32]);
+        legacy.extend(program.to_bytes());
+        legacy.extend([0u8; 32]);
+        legacy.push(0);
+        assert!(fclient::tx::from_wire(&legacy).is_ok());
+        f.apply(&rec(3, legacy, ran(&program)));
+        assert_eq!(f.st.alarms.bad_records, 0, "a legacy one decodes");
+        f.apply(&rec(4, v1, ran(&program)));
+        assert_eq!(f.st.alarms.bad_records, 1, "the v1 one of the program");
+        assert_eq!(f.st.folded_through, 4);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
