@@ -293,6 +293,9 @@ export default {
   '到着候補：ターン {0}〜{1}': 'Proposed arrival range: turns {0}–{1}',
   // (the earliest turn of that observed range, offered for the draft's own field: a proposal, not a departure)
   '最も早い候補（ターン {0}）を使う': 'Use the earliest proposed turn ({0})',
+  '間に合う候補（ターン {0}）を使う': 'Use a turn that leaves time to send ({0})',
+  '到着ターンの候補はターン {0} です（最も早いターン {1} に、送るまでに時計が進む分の余裕を足しています）。詳細で変更できます。': 'The proposed arrival turn is turn {0} (the earliest, turn {1}, plus room for the clock to move while it is sent). You can change it in Details.',
+  '最も早いターン {0} は、確認して送るあいだに世界の時計が進むと断られます。{1} ターンの余裕を足した候補です。': 'The earliest turn, {0}, is refused once the world\'s clock moves on while you check and send. This proposal adds {1} turns of room.',
   'いまの候補：ターン {0}': 'Current proposal: turn {0}',
   // (local play only, closed by default, flocalplay-conquest.mjs: declaring a siege; "recorded" claims no result and no capture)
   'ローカルプレイ：自由都市を包囲する': 'Local play: besiege a Free City',

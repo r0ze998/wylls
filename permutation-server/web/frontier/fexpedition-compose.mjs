@@ -14,6 +14,7 @@ import { loadOutboundRouteCaptures } from './fexpedition-route-read.mjs';
 import { evaluateOutboundRoute } from './fexpedition-route.mjs';
 import { readOutboundSnapshot } from './fexpedition-context.mjs';
 import { evaluateOriginalOutboundReady } from './fexpedition-ready.mjs';
+import { BELL_SECS } from './clock.mjs';
 
 export const OUTBOUND_POP = 'expedition-compose';
 export const OUTBOUND_CLOSED = Object.freeze({ dispatch_available: false, executable: false, admitted: false,
@@ -313,7 +314,12 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
     const tip = tipOptions(data.season).find(x => x.id === s.tip)?.lamports;
     const ready = judge({ ...data, holding: data.holdingBytes, arriveBell, tip });
     const report = evaluate({ source: data.source, directions, lands: data.lands, season: data.season, departTs, arriveBell });
-    s.contextCheck = { status: 'read', ready, report, contextSlot: data.contextSlot, digest: data.digest,
+    // (fix-loop6, LP6-1: how many turns the standing province's own processing is behind the read's clock. The program
+    //  refuses the departure until that province has caught up — prologue resident_ok — so the departure lands at
+    //  least this much later than the read)
+    const resolved = Number(data.province?.resolvedNext), readBell = ready?.nowBell;
+    const lagBells = Number.isInteger(resolved) && Number.isInteger(readBell) ? Math.max(0, readBell - (resolved + 1)) : 0;
+    s.contextCheck = { status: 'read', ready, report, lagBells, contextSlot: data.contextSlot, digest: data.digest,
       departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
       observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
     observed.set(s.contextCheck, bindingOf(source, directions, seenAtStart));
@@ -334,6 +340,23 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
  * A candidate is a number for the draft's own arrival field. It is not an admitted, sealed or sent departure, and
  * the observation it comes from says nothing of the present.
  */
+/**
+ * (fix-loop6, LP6-1) The turns added to the earliest observed arrival before it is offered. The observed range is worked
+ * out from ONE clock reading plus departMargin, and the program checks the turn against the clock of the block the
+ * departure LANDS in (wide_expedition_exec: arrive ≥ bell + 2 at landing, and the window's minimum lead). Between the
+ * two there are the next read, the seal, the relay's prepare, the signature and the landing — and, when the standing
+ * province is behind the clock, the wait until it has caught up (the program refuses NotResident before then). At ×60
+ * a turn lasts 10 s: the bare earliest turn had always gone by when the departure-conditions read came back
+ * (loop-play6: 24 presses, ArrivalTooEarly each time; the page's estimated clock is also behind the chain's own,
+ * which the second read uses). So: ARRIVAL_HEADROOM_WALL_SECS of the player's own time at the clock's rate, in whole
+ * turns, plus the province's observed lag. On the chain's own clock (rate ≤ 1) departMargin already covers it: 0.
+ */
+export const ARRIVAL_HEADROOM_WALL_SECS = 30;
+export function arrivalHeadroom(rate, lagBells = 0) {
+  const r = Number(rate), lag = Number.isInteger(lagBells) && lagBells > 0 ? Math.min(lagBells, 24) : 0;
+  const clock = Number.isFinite(r) && r > 1 ? Math.ceil(ARRIVAL_HEADROOM_WALL_SECS * r / BELL_SECS) : 0;
+  return clock + lag;
+}
 export function outboundArrivalCandidate(fs) {
   const s = fs.expeditionCompose;
   check(fs.hand?.pop === OUTBOUND_POP && !!s?.source, 'ArrivalCandidateUnavailable');
@@ -346,7 +369,10 @@ export function outboundArrivalCandidate(fs) {
   check(r.min !== null && r.min !== undefined && r.max !== null && r.max !== undefined, 'ArrivalCandidateUnavailable');
   check(u32(r.min) && u32(r.max), 'ArrivalCandidateInvalid');
   check(r.min <= r.max, 'ArrivalWindowEmpty');
-  return Object.freeze({ arriveBell: String(r.min), min: r.min, max: r.max, from });
+  const headroom = arrivalHeadroom(fs.chain?.rate, from === 'context' ? seen.lagBells : 0);
+  // (never past the observed range's end: a short window gives its last turn, and says so by a smaller headroom)
+  const pick = Math.min(r.max, r.min + headroom);
+  return Object.freeze({ arriveBell: String(pick), min: r.min, max: r.max, from, headroom: pick - r.min });
 }
 
 /**

@@ -153,8 +153,11 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
       「到着候補：ターン A〜B」. The card scrolls its newest result into view by itself. A read that is still running
       when the world's clock moves cannot be used; the page reads again by itself up to 2 times, and if that still
       fails it says 「読み取りの途中で世界の時計が進んだため… もう一度押してください。」: press again.
-   3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
-      bottom of the card).
+   3. Press 「間に合う候補（ターン A+3）を使う」 (at ×60; at 1× it is 「最も早い候補（ターン A）を使う」). At ×60 the proposal is
+      the earliest turn A plus the turns the clock moves while you check and send (3) plus the province's settle lag.
+      The bare earliest turn had already gone by when the next 「出発条件を確認」 came back, and was refused every time
+      (loop-play6 LP6-1, fixed in fix-loop6). The field for typing an arrival turn yourself is inside 「詳細」 at the
+      bottom of the card.
    4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
       「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
       only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than

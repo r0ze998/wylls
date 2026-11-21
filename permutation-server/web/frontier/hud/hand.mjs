@@ -609,9 +609,17 @@ export function localRevealStrip(FS) {
  */
 function outboundArrivalPick(pick, entered) {
   if (!pick) return '';
-  if (entered === pick.arriveBell) return html`<p class="pop-line outbound-arrival-set">${L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
-  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
-    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>`;
+  // (fix-loop6, LP6-1: on a fast clock the offer is the earliest turn plus the turns the send itself takes —
+  //  fexpedition-compose arrivalHeadroom — and an entered turn still inside the observed range is kept, not re-offered)
+  const n = /^(0|[1-9][0-9]{0,9})$/.test(entered) ? Number(entered) : null;
+  const inside = n !== null && n >= pick.min + (pick.headroom ?? 0) && n <= pick.max;
+  if (entered === pick.arriveBell || (inside && (pick.headroom ?? 0) > 0)) return html`<p class="pop-line outbound-arrival-set">${pick.headroom
+    ? L`到着ターンの候補はターン ${entered} です（最も早いターン ${pick.min} に、送るまでに時計が進む分の余裕を足しています）。詳細で変更できます。`
+    : L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
+  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${pick.headroom
+      ? L`間に合う候補（ターン ${pick.arriveBell}）を使う` : L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
+    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>
+    ${pick.headroom ? html`<p class="pop-line outbound-arrival-why">${L`最も早いターン ${pick.min} は、確認して送るあいだに世界の時計が進むと断られます。${pick.headroom} ターンの余裕を足した候補です。`}</p>` : ''}`;
 }
 
 function outboundRouteReport(check, pick = null, entered = '') {

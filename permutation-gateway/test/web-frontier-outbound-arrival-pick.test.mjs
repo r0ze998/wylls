@@ -12,7 +12,7 @@ import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
 import { setLang, EN, EN_GROUPS, missingKeys } from '../../permutation-server/web/lang.mjs';
 import * as hand from '../../permutation-server/web/frontier/hud/hand.mjs';
 import * as CTRL from '../../permutation-server/web/frontier/controller.mjs';
-import { OUTBOUND_POP, OUTBOUND_CLOSED, openOutbound, editOutbound, clearOutbound, inspectOutboundRoute, inspectOutboundContext,
+import { OUTBOUND_POP, OUTBOUND_CLOSED, openOutbound, editOutbound, clearOutbound, reconcileOutbound, inspectOutboundRoute, inspectOutboundContext,
   outboundArrivalCandidate, useEarliestOutboundArrival } from '../../permutation-server/web/frontier/fexpedition-compose.mjs';
 
 const PROGRAM = encode(new Uint8Array(32).fill(94)), WALLET = encode(new Uint8Array(32).fill(65));
@@ -62,7 +62,7 @@ test('one press puts the earliest observed turn in the draft\'s own field and re
   assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateUnavailable', 'nothing read yet: nothing to offer');
   assert.doesNotMatch(card(w), BUTTON);
   await r.read();
-  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route' });
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route', headroom: 0 });
   const before = card(w);
   assert.match(before, BUTTON); assert.match(before, /最も早い候補（ターン 44）を使う/); assert.match(before, /到着候補：ターン 44〜47/);
   assert.equal((before.match(BUTTON) ?? []).length, 1);
@@ -179,7 +179,7 @@ test('a candidate of the departure-conditions read is used the same way, and tha
         contextSlot: '7', digest: 'ab'.repeat(32), coherent: true, contentConsistent: true }) };
   await inspectOutboundContext(w.fs, options);
   assert.equal(w.fs.expeditionCompose.contextCheck.status, 'read'); assert.equal(w.fs.expeditionCompose.routeCheck, null);
-  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'context' });
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'context', headroom: 0 });
   const before = card(w);
   assert.equal((before.match(BUTTON) ?? []).length, 1); assert.match(before, /outbound-context-report/);
   assert.deepEqual(await useEarliestOutboundArrival(w.fs, options), { ok: true, state: 'entered-and-reread', arriveBell: '44', from: 'context' });
@@ -265,7 +265,7 @@ test('a turn typed past the season\'s end comes back to the earliest observed tu
   assert.equal(editOutbound(w.fs, w.ctx, 'arriveBell', '999999'), true);
   await r.read();
   assert.equal(w.fs.expeditionCompose.routeCheck.report.code, 'ArrivalAfterSeason');
-  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route' });
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route', headroom: 0 });
   const before = card(w);
   assert.match(before, BUTTON); assert.match(before, /いまの候補：ターン 999999/); assert.match(before, /到着ターンの候補が、記録から計算した範囲に入りません/);
   assert.deepEqual(await useEarliestOutboundArrival(w.fs, r.options), { ok: true, state: 'entered-and-reread', arriveBell: '44', from: 'route' });
@@ -327,4 +327,51 @@ test('the press is a local edit and a read: an export beside the other boundary 
   const body = src.slice(src.indexOf('export async function useEarliestOutboundArrival'), src.indexOf('/** Relative local coordinates only'));
   assert.match(body, /editOutbound\(fs, ctx, 'arriveBell', pick\.arriveBell\)/, 'the field\'s own edit path');
   assert.doesNotMatch(body, /seal|sign|submit|send|fetch|relay/i);
+});
+
+// (fix-loop6, LP6-1) At ×60 a turn lasts 10 s. The route read works the range out from the page's own estimated clock;
+// the departure-conditions read from the chain's Clock, which is ahead of it, and the departure lands later still. The
+// bare earliest turn was refused by the next read every time (loop-play6: 24 presses, ArrivalTooEarly). The offer now
+// adds the turns the send takes at this rate, and the standing province's observed lag.
+test('at ×60 the offer leaves room for the send: the turn the next read (one turn later) still accepts', async () => {
+  setLang('ja');
+  const { arrivalHeadroom, ARRIVAL_HEADROOM_WALL_SECS } = await import('../../permutation-server/web/frontier/fexpedition-compose.mjs');
+  assert.equal(ARRIVAL_HEADROOM_WALL_SECS, 30);
+  assert.equal(arrivalHeadroom(undefined), 0, 'the chain\'s own clock: departMargin already covers it');
+  assert.equal(arrivalHeadroom(1), 0); assert.equal(arrivalHeadroom(15), 1); assert.equal(arrivalHeadroom(60), 3);
+  assert.equal(arrivalHeadroom(60, 2), 5, 'a province two turns behind adds two'); assert.equal(arrivalHeadroom(60, 999), 27, 'the lag counted is bounded');
+  const w = world(); w.fs.chain.rate = 60; reconcileOutbound(w.fs, w.ctx);
+  // the range moves with the clock the read is made under: one turn later, every turn one later
+  let clockTurns = 0;
+  const ranged = a => { const min = 44 + clockTurns, max = 116;
+    return report({ min, max, ok: a.arriveBell !== null && a.arriveBell >= min && a.arriveBell <= max,
+      code: a.arriveBell === null ? 'ArrivalRequired' : a.arriveBell < min ? 'ArrivalTooEarly' : null }); };
+  const r = reader(w, ranged);
+  await r.read();
+  const pick = outboundArrivalCandidate(w.fs);
+  assert.deepEqual({ ...pick }, { arriveBell: '47', min: 44, max: 116, from: 'route', headroom: 3 });
+  const html = card(w);
+  assert.match(html, /間に合う候補（ターン 47）を使う/); assert.match(html, /最も早いターン 44 は、確認して送るあいだに世界の時計が進むと断られます。3 ターンの余裕/);
+  assert.doesNotMatch(html, /最も早い候補（ターン/);
+  // the old offer (turn 44) against the departure-conditions read one turn later: refused, as in loop-play6
+  clockTurns = 1;
+  assert.equal(ranged({ arriveBell: 44 }).code, 'ArrivalTooEarly');
+  assert.equal(ranged({ arriveBell: Number(pick.arriveBell) }).ok, true, 'the new offer is still inside');
+  // the context read: the province's own processing is behind the read's clock by two turns
+  const options = { context: () => w.ctx, judge: () => ({ ok: true, code: null, nowBell: 45 }), evaluate: ranged,
+    snapshot: async source => ({ status: 'read', source, lands: [], season: w.fs.season, holdingBytes: null, clock: { unixTimestamp: 1000n },
+      province: { resolvedNext: 42 }, contextSlot: '7', digest: 'ab'.repeat(32), coherent: true, contentConsistent: true }) };
+  await inspectOutboundContext(w.fs, options);
+  assert.equal(w.fs.expeditionCompose.contextCheck.lagBells, 2);
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '50', min: 45, max: 116, from: 'context', headroom: 5 });
+  assert.deepEqual(await useEarliestOutboundArrival(w.fs, options), { ok: true, state: 'entered-and-reread', arriveBell: '50', from: 'context' });
+  assert.equal(w.fs.expeditionCompose.contextCheck.report.ok, true);
+  assert.match(card(w), /到着ターンの候補はターン 50 です（最も早いターン 45 に/);
+  // a short window gives its last turn, never one past it
+  const v = world(); v.fs.chain.rate = 60; reconcileOutbound(v.fs, v.ctx);
+  await reader(v, () => report({ min: 44, max: 45 })).read();
+  assert.deepEqual({ ...outboundArrivalCandidate(v.fs) }, { arriveBell: '45', min: 44, max: 45, from: 'route', headroom: 1 });
+  setLang('en');
+  assert.match(card(w), /plus room for the clock to move/);
+  setLang('ja');
 });
