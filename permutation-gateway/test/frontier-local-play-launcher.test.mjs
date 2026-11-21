@@ -4,7 +4,9 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { validWallet, parseStart, WorldManager, createLauncherServer, WORLD_TTL_MS, WORLD_EXPIRY_SCHEMA } from '../src/frontier/local-play-launcher.mjs';
+import { validWallet, parseStart, parseStop, ownerProofOk, makeOwnerProof, OWNER_PROOF_RE, WorldManager, createLauncherServer, WORLD_TTL_MS, WORLD_EXPIRY_SCHEMA } from '../src/frontier/local-play-launcher.mjs';
+// (D-verify-pr57-1: a fixed owner proof for the tests that end worlds over HTTP; a real launcher makes its own)
+const PROOF = 'Zm9yLXRlc3RzLW9ubHktbm90LWEtcmVhbC1wcm9vZi0';
 // A world's automatic end (2026-11-13 contract): exactly these keys, fixed once at the world's TTL origin with this
 // launcher's TTL, `expiresAt == startedAt + ttlMs`, bound to the runner's instance (these stand-in runners state none:
 // null). Not loosened: every field is checked.
@@ -120,26 +122,26 @@ test('a world still starting is stopped where it is; the launcher closing waits 
 
 test('HTTP: the stop route is as strict as the start route; a refusal names the worlds; nothing of the system leaks', { timeout: 120000 }, async t => {
   const calls = []; let startError = null, stopError = null;
-  const c = { port: 41920, worldPort: 41924, web: path.join(root, 'permutation-server/web') };
+  const c = { port: 41920, worldPort: 41924, web: path.join(root, 'permutation-server/web'), ownerProof: PROOF };
   let listed = [];
   const { server } = createLauncherServer(c, { start: async w => { calls.push(['start', w]); if (startError) throw startError; return { herald: 'http://localhost:41926' }; }, stop: async w => { calls.push(['stop', w]); if (stopError) throw stopError; return { stopped: true }; }, list: () => { calls.push(['list']); return listed; }, close() {} });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); const port = server.address().port;
   t.after(() => new Promise(r => server.close(r)));
   const h = { host: 'localhost:41920', origin: 'http://localhost:41920', 'content-type': 'application/json' };
-  let r = await request(port, 'POST', '/local-play/stop', JSON.stringify({ wallet }), h);
+  let r = await request(port, 'POST', '/local-play/stop', JSON.stringify({ wallet, owner: PROOF }), h);
   assert.equal(r.status, 200); assert.deepEqual(JSON.parse(r.body), { stopped: true }); assert.deepEqual(calls, [['stop', wallet]]);
   assert.equal(r.headers['content-security-policy'], "default-src 'none'; frame-ancestors 'none'"); assert.equal(r.headers['x-content-type-options'], 'nosniff'); assert.equal(r.headers['access-control-allow-origin'], undefined);
   for (const headers of [{ ...h, origin: 'http://evil.example' }, { ...h, origin: 'http://localhost:41926' }, { ...h, origin: 'null' }, { ...h, origin: undefined }, { ...h, host: 'evil.example' }, { ...h, host: 'localhost:41926' }, { ...h, 'content-type': 'text/plain' }, { ...h, 'content-type': 'application/x-www-form-urlencoded' }]) {
     for (const k of Object.keys(headers)) if (headers[k] === undefined) delete headers[k];
-    r = await request(port, 'POST', '/local-play/stop', JSON.stringify({ wallet }), headers); assert.equal(r.status, 403, JSON.stringify(headers));
+    r = await request(port, 'POST', '/local-play/stop', JSON.stringify({ wallet, owner: PROOF }), headers); assert.equal(r.status, 403, JSON.stringify(headers));
   }
   for (const method of ['GET', 'PUT', 'DELETE']) assert.equal((await request(port, method, '/local-play/stop', null, h)).status, 405, method);
   assert.equal((await request(port, 'POST', '/local-play/stop', 'x'.repeat(257), h)).status, 413);
-  for (const body of ['{', '[]', '"x"', JSON.stringify({ wallet: 'x' }), JSON.stringify({ wallet, all: true }), JSON.stringify({ wallet, pid: 1 }), JSON.stringify({ wallets: [wallet] }), JSON.stringify({})]) assert.equal((await request(port, 'POST', '/local-play/stop', body, h)).status, 400, body);
+  for (const body of ['{', '[]', '"x"', JSON.stringify({ wallet: 'x' }), JSON.stringify({ wallet, owner: PROOF, all: true }), JSON.stringify({ wallet, owner: PROOF, pid: 1 }), JSON.stringify({ owner: PROOF }), JSON.stringify({ wallets: [wallet] }), JSON.stringify({})]) assert.equal((await request(port, 'POST', '/local-play/stop', body, h)).status, 400, body);
   assert.deepEqual(calls, [['stop', wallet]], 'none of those reached a world');
   // the manager's own refusals come back as they are; the limit with its worlds
   stopError = Object.assign(new Error('WorldNotFound'), { code: 'WorldNotFound', status: 404 });
-  r = await request(port, 'POST', '/local-play/stop', JSON.stringify({ wallet }), h); assert.equal(r.status, 404); assert.deepEqual(JSON.parse(r.body), { error: 'WorldNotFound' });
+  r = await request(port, 'POST', '/local-play/stop', JSON.stringify({ wallet, owner: PROOF }), h); assert.equal(r.status, 404); assert.deepEqual(JSON.parse(r.body), { error: 'WorldNotFound' });
   const worlds = [{ wallet, herald: 'http://localhost:41926', startedAt: 1, state: 'running' }, { wallet: other, herald: null, startedAt: 2, state: 'starting' }];
   startError = Object.assign(new Error('WorldLimit'), { code: 'WorldLimit', status: 409, worlds });
   r = await request(port, 'POST', '/local-play/start', JSON.stringify({ wallet: third }), h); assert.equal(r.status, 409); assert.deepEqual(JSON.parse(r.body), { error: 'WorldLimit', worlds });
@@ -197,6 +199,40 @@ async function proxied(t) {
 const H = { host: 'localhost:41926' }, O = { ...H, origin: 'http://localhost:41920' }, J = { ...O, 'content-type': 'application/json' };
 const errorOf = r => { try { return JSON.parse(r.body).error; } catch { return null; } };
 
+test('D-verify-pr57-1: ending a world takes the launcher\'s owner proof; naming the owner\'s public address is not enough', { timeout: 120000 }, async t => {
+  // the proof: 32 random bytes, base64url, a new one per launcher; compared exactly
+  const made = new Set(Array.from({ length: 8 }, makeOwnerProof)); assert.equal(made.size, 8); for (const p of made) assert.match(p, OWNER_PROOF_RE);
+  assert.equal(ownerProofOk(PROOF, PROOF), true);
+  for (const wrong of [PROOF.slice(0, 42) + 'A', PROOF.slice(0, 42), '', null, undefined, 1, PROOF + 'A']) assert.equal(ownerProofOk(wrong, PROOF), false, String(wrong));
+  assert.equal(ownerProofOk(PROOF, 'short'), false, 'a launcher without a valid proof ends nothing');
+  assert.deepEqual(parseStop({ wallet, owner: PROOF }), { wallet, owner: PROOF });
+  assert.throws(() => parseStop({ wallet }), e => e.code === 'NotWorldOwner' && e.status === 403, 'the address alone: refused as not the owner');
+  assert.throws(() => parseStop({ wallet, owner: 'x' }), e => e.code === 'NotWorldOwner' && e.status === 403);
+  for (const v of [null, [], {}, { owner: PROOF }, { wallet: 'x', owner: PROOF }, { wallet, owner: PROOF, all: true }]) assert.throws(() => parseStop(v), e => e.code === 'InvalidWallet' && e.status === 400, JSON.stringify(v));
+  assert.throws(() => createLauncherServer({ port: 41920, ownerProof: 'short' }, { close() {} }), e => e.code === 'InvalidOwnerProof');
+  // over HTTP: an external resident (or any program that knows only the launcher's origin) names the owner's address
+  const stopped = [];
+  const ext = 'B7yQBg4KBnypKx7TQRSaZFDD17hfhry5JN51dmz88rX3';
+  const manager = new WorldManager({ externalResidents: [ext] }, async (c, w) => ({ herald: 'http://localhost:41926', external: { [ext]: 'http://localhost:41940' }, stop: async reason => { stopped.push([w, reason]); } }));
+  const { server, ownerProof } = createLauncherServer({ port: 41920, worldPort: 41924, web: path.join(root, 'permutation-server/web') }, manager);
+  assert.match(ownerProof, OWNER_PROOF_RE, 'without a fixed one, the launcher makes its own');
+  server.listen(0, '127.0.0.1'); await once(server, 'listening'); const port = server.address().port;
+  t.after(() => new Promise(r => server.close(r)));
+  const h = { host: 'localhost:41920', origin: 'http://localhost:41920', 'content-type': 'application/json' };
+  const post = (route, body) => request(port, 'POST', route, JSON.stringify(body), h).then(r => ({ status: r.status, body: JSON.parse(r.body) }));
+  assert.equal((await post('/local-play/start', { wallet })).status, 200);
+  assert.equal((await post('/local-play/start', { wallet: ext })).body.herald, 'http://localhost:41940', 'the resident lives in that world');
+  const refusal = { status: 403, body: { error: 'NotWorldOwner' } };
+  assert.deepEqual(await post('/local-play/stop', { wallet }), refusal, 'the owner\'s address alone');
+  assert.deepEqual(await post('/local-play/stop', { wallet, owner: PROOF }), refusal, 'another launcher\'s proof');
+  assert.deepEqual(await post('/local-play/stop', { wallet, owner: ownerProof.slice(0, 42) + (ownerProof[42] === 'A' ? 'B' : 'A') }), refusal, 'one character off');
+  assert.deepEqual(await post('/local-play/stop', { wallet: ext }), refusal, 'the resident\'s own address');
+  assert.deepEqual(await post('/local-play/stop', { wallet: ext, owner: ownerProof }), refusal, 'the resident\'s own address, even with the proof: it owns no world');
+  assert.deepEqual(stopped, [], 'no world was touched'); assert.deepEqual(manager.list().map(w => [w.wallet, w.state]), [[wallet, 'running']]);
+  // the owner's page (opened at the printed address) ends it
+  assert.deepEqual(await post('/local-play/stop', { wallet, owner: ownerProof }), { status: 200, body: { stopped: true } });
+  assert.deepEqual(stopped, [[wallet, 'requested']]); assert.deepEqual(manager.list(), []);
+});
 test('world proxy: the herald\'s reads and the relay\'s pins pass, with nothing of the browser\'s but the path', { timeout: 120000 }, async t => {
   const w = await proxied(t);
   let r = await request(w.port, 'GET', '/h/season', null, { ...O, cookie: 'session=1', authorization: 'Bearer x', 'x-payment': 'abc', 'x-forwarded-for': '203.0.113.9', accept: 'application/json', 'if-none-match': '"e1"' });
@@ -828,7 +864,7 @@ test('a process that ignores the polite stop is killed: a stop always ends', { t
 });
 
 test('the launcher end to end over HTTP with stand-in worlds: two worlds, the refusal with its list, the chosen stop, the freed place', { timeout: 120000 }, async t => {
-  const { c } = await standIns(t); const { server, manager } = createLauncherServer(c);
+  const { c } = await standIns(t); c.ownerProof = PROOF; const { server, manager } = createLauncherServer(c);
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); const port = server.address().port;
   t.after(async () => { await manager.close(); await new Promise(r => server.close(r)); });
   const h = { host: 'localhost:41920', origin: 'http://localhost:41920', 'content-type': 'application/json' };
@@ -843,12 +879,12 @@ test('the launcher end to end over HTTP with stand-in worlds: two worlds, the re
   assert.equal(full.status, 409); assert.equal(full.body.error, 'WorldLimit'); assert.deepEqual(full.body.worlds.map(w => [w.wallet, w.herald, w.state]), [[wallet, a.body.herald, 'running'], [other, b.body.herald, 'running']]);
   assert.equal((await request(worldPorts(c.worldPort, 0).herald, 'GET', '/h/status', null, {})).status, 200, 'and both worlds go on');
   assert.equal((await request(worldPorts(c.worldPort, 1).herald, 'GET', '/h/status', null, {})).status, 200);
-  assert.deepEqual(await post('/local-play/stop', { wallet: third }), { status: 404, body: { error: 'WorldNotFound' } });
+  assert.deepEqual(await post('/local-play/stop', { wallet: third, owner: c.ownerProof }), { status: 404, body: { error: 'WorldNotFound' } });
   // asked, the launcher lists the same two; the asking stops nothing
   let asked = await post('/local-play/worlds', {});
   assert.equal(asked.status, 200); assert.deepEqual(asked.body.worlds.map(w => [w.wallet, w.herald, w.state]), [[wallet, a.body.herald, 'running'], [other, b.body.herald, 'running']]);
   assert.equal((await request(worldPorts(c.worldPort, 0).herald, 'GET', '/h/status', null, {})).status, 200);
-  assert.deepEqual(await post('/local-play/stop', { wallet }), { status: 200, body: { stopped: true } });
+  assert.deepEqual(await post('/local-play/stop', { wallet, owner: c.ownerProof }), { status: 200, body: { stopped: true } });
   asked = await post('/local-play/worlds', {}); assert.deepEqual(asked.body.worlds.map(w => w.wallet), [other], 'the stopped world is gone from the list');
   for (const p of Object.values(worldPorts(c.worldPort, 0))) assert.equal(await portFree(p), true, `the stopped world's port ${p} is free`);
   assert.equal((await request(worldPorts(c.worldPort, 1).herald, 'GET', '/h/status', null, {})).status, 200, 'the other world was not touched');

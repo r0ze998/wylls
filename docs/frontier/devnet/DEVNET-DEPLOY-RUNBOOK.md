@@ -204,11 +204,11 @@ faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so
 
 | lamports/byte | ProgramData | Program | Fees | **Peak the payer needs** | Stays locked | Later upgrade float | One season `S1_DEVNET_WIDE_7D`, 50 players | **Deploy + one season** |
 |---|---|---|---|---|---|---|---|---|
-| **5,080 (measured 2026-11-18)** | 23.2430 | 0.0008 | 0.0430 | **23.29 SOL** | 23.24 SOL | 18.58 SOL | 98.22 SOL | **121.50 SOL** |
+| **5,080 (measured 2026-11-18)** | 23.2430 | 0.0008 | 0.0430 | **23.29 SOL** | 23.24 SOL | 18.58 SOL | 98.21 SOL | **121.50 SOL** |
 | 6,960 (worst case, SIMD-0438) | 31.8448 | 0.0011 | 0.0430 | **31.89 SOL** | 31.85 SOL | 25.46 SOL | 106.24 SOL | **138.13 SOL** |
 
 At 5 SOL per faucet request: 5 requests for the deploy at 5,080 (7 at 6,960), 25 for deploy + one season (28). Of a
-season's 98.22 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned or float. A world that never ends
+season's 98.21 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned or float. A world that never ends
 adds 1.02 SOL per day of AnchorArchives (1.40 at 6,960) [model].
 
 ### 4b. Running cost: each player, and the operator's keeper A (2026-11-21)
@@ -243,7 +243,7 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | Season setup, 10 transactions from the upgrade authority | 57.14 | 57.19 | 57 float (1 bond returned, 36 wedge funds, 20 DefencePool returned if unspent) + rent | §6b, #101 |
 | Keeper A's pools: reveal 150 payers × up to 0.016, delay 32 × up to 0.1, beneficiary 0.1 | 5.7 | 5.7 | float | profile `season.lamports`, halved (it models keepers A and B) |
 | Keeper A `beacon` / `archive`: AnchorArchives, BellAnchors, SeedCaches | 20.89 | 28.62 | float [model] | §4a's season lines |
-| Keeper A `rings`: RingSeeds 0–128 and the wide ring seeds (§4a's model counts four, rings 129–132; the profile's `wide_rings` = 3 opens three) | 0.17 | 0.24 | float | §4a; P5: 1,632,371 lamports per wide ring request (1,625,600 of it rent) |
+| Keeper A `rings`: RingSeeds 0–128 and the wide ring seeds (§4a's model counts the three the profile's `wide_rings` = 3 opens, rings 129–131; it counted four, 129–132, until 2026-11-21) | 0.17 | 0.24 | float | §4a; P5: 1,632,371 lamports per wide ring request (1,625,600 of it rent) |
 | Keeper A opening the 42 rim and 108 wide provinces: what its own payers send | 0.014 | 0.015 | 0.009 of fees spent; the rest (0.005 at 5,080) is the three wide ring seeds' rent, already in the line above | P4 (26,332 per rim province), P5 (12,517,785 for the three wide rings: 3 requests with their rent, 3 consumes, 108 opens) |
 | — their rent: 1.04 + 2.74 SOL, **out of the 36 SOL of wedge funds, not new money** | (3.78) | (5.17) | float | #104, #107 |
 | Keeper A per rim first village (SettleTicket) / per wide claim (settle + finalize) | 0.000008 / 0.000015 | same | spent | P4 8,361; P5 14,663 lamports |
@@ -403,7 +403,7 @@ wedge's arc (`keeper::rings::wide_plan`, the local wide world's plan; 108 provin
 SOL at 6,960, out of the wedge funds' float). Keeper A's **`wide-tickets`** role settles every wide claim on its
 bell's seed (WideSettleTicket 0xDC) and finalizes the village when the program's finality rule holds (WideFinalize
 0xDF); it pays fees only. Both need keeper A built with `--features playable-lane`. None of this needs a program
-change: the `.so` and its sha256 are unchanged. One 50-player season of this preset is **98.22 SOL** at 5,080 (106.24
+change: the `.so` and its sha256 are unchanged. One 50-player season of this preset is **98.21 SOL** at 5,080 (106.24
 at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator --preset S1_DEVNET_WIDE_7D` creates this
 season (§6b).
 

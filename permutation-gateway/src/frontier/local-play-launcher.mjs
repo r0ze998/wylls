@@ -10,7 +10,8 @@
 // One loopback page origin (`--port`): the game's own static files, and three same-origin JSON routes that take a
 // PUBLIC address or nothing:
 //   POST /local-play/start  {wallet} → {herald}          a new world for that address (the same address: the same world)
-//   POST /local-play/stop   {wallet} → {stopped: true}   ends that one world, on its owner's explicit press
+//   POST /local-play/stop   {wallet, owner} → {stopped: true}   ends that one world, on its owner's explicit press;
+//                           `owner` is this launcher's owner proof (`launcherOwnerProof`), never an address
 //   POST /local-play/worlds {}       → {worlds}          the worlds this launcher runs (public addresses), when asked
 // A world is three processes this launcher started (runner, relay, herald) and a public proxy in this process, on
 // five loopback ports from `--world-port` (the second world: +5): RPC, WS, public proxy, relay, herald.
@@ -33,7 +34,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs, createReadStream, openSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { randomUUID, randomInt, createHash } from 'node:crypto';
+import { randomUUID, randomInt, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
@@ -110,6 +111,33 @@ export function validWallet(s) { try { return typeof s === 'string' && s.length 
 export function parseStart(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 1 || !validWallet(value.wallet)) throw fault('InvalidWallet');
   return value.wallet;
+}
+/**
+ * The launcher's owner proof (D-verify-pr57-1). A world's address is public — `/local-play/worlds` lists it, and an
+ * admitted external resident lives in that world — so naming it proves nothing. Ending a world takes this launcher's
+ * own secret instead: 32 random bytes (base64url, 43 characters) made once per launcher process and given out only on
+ * its own standard output, in the `open` URL's fragment (`/#owner=<proof>`), the way a Jupyter or VS Code server
+ * hands its token to the browser it opens. A fragment is never sent in a request or a Referer; the page reads it and
+ * names it in the stop body only (`flocalplay.mjs` `launcherOwnerProof`), so the launcher requests stay credential-free.
+ * Whoever opened the launcher's printed address may end any of its worlds (the WorldLimit list ends worlds of earlier
+ * pages, whose keys are gone); a program that only knows the launcher's origin may not.
+ */
+export const OWNER_PROOF_RE = /^[A-Za-z0-9_-]{43}$/;
+export const makeOwnerProof = () => randomBytes(32).toString('base64url');
+/** `/local-play/stop`'s body → `{wallet, owner}`; an address without a proof is well-formed but refused (403 NotWorldOwner). */
+export function parseStop(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !validWallet(value.wallet)) throw fault('InvalidWallet');
+  const keys = Object.keys(value).sort().join();
+  if (keys === 'wallet') throw fault('NotWorldOwner', 403);
+  if (keys !== 'owner,wallet') throw fault('InvalidWallet');
+  if (typeof value.owner !== 'string' || !OWNER_PROOF_RE.test(value.owner)) throw fault('NotWorldOwner', 403);
+  return { wallet: value.wallet, owner: value.owner };
+}
+/** Whether `given` is exactly this launcher's proof (compared in constant time). */
+export function ownerProofOk(given, proof) {
+  if (typeof given !== 'string' || typeof proof !== 'string' || !OWNER_PROOF_RE.test(proof)) return false;
+  const a = Buffer.from(given), b = Buffer.from(proof);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 async function freePort(port) {
   const s = net.createServer();
@@ -1306,6 +1334,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
 const ART_EXT = new Set(['.svg', '.png', '.webp', '.woff2', '.ico', '.mp3']);
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
 export function createLauncherServer(c, manager = new WorldManager(c)) {
+  // (D-verify-pr57-1: ending a world takes this proof — `parseStop`; tests may fix it as `c.ownerProof`)
+  const ownerProof = c.ownerProof ?? makeOwnerProof();
+  if (!OWNER_PROOF_RE.test(ownerProof)) throw fault('InvalidOwnerProof');
   // (TEST-ONLY `--coexist`: this process plays the coexist lane from here on — its relays' ruleset, its residents' pins)
   if (c.coexist === true) selectLocalLane(COEXIST_LANE);
   const allowedHosts = new Set([`localhost:${c.port}`, `127.0.0.1:${c.port}`]);
@@ -1328,10 +1359,15 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
           if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.keys(parsed).length !== 0) throw fault('InvalidRequest');
           return answer(res, 200, { worlds: manager.list() });
         }
+        if (url.pathname === '/local-play/stop') {
+          const asked = parseStop(parsed);
+          if (!ownerProofOk(asked.owner, ownerProof)) throw fault('NotWorldOwner', 403);
+          return answer(res, 200, await manager.stop(asked.wallet));
+        }
         const wallet = parseStart(parsed);
         if (url.pathname === '/local-play/keeper') return answer(res, 200, await manager.keeper(wallet));
         if (url.pathname === '/local-play/pair') return answer(res, 200, await manager.pair(wallet));
-        return answer(res, 200, url.pathname === '/local-play/start' ? await manager.start(wallet) : await manager.stop(wallet));
+        return answer(res, 200, await manager.start(wallet));
       }
       // (B13, TEST-ONLY `--coop-board`: ①'s board of one live world, under that world's mount — local-play-coop-board.mjs)
       const coopRoute = c.coopBoard === true ? coopRouteOf(url.pathname) : null;
@@ -1381,7 +1417,7 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
   });
   server.requestTimeout = 70000; server.headersTimeout = 10000;
   server.on('close', () => { manager.close(); });
-  return { server, manager };
+  return { server, manager, ownerProof };
 }
 export const USAGE = `local-play launcher (this machine only)
   node permutation-gateway/src/frontier/local-play-launcher.mjs
@@ -1577,9 +1613,9 @@ export async function parseConfig(args) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let config;
   try { config = await parseConfig(process.argv.slice(2)); } catch (e) { console.error(`local-play launcher: ${e?.code ?? e?.message ?? 'cannot start'}\n${USAGE}`); process.exit(2); }
-  const { server, manager } = createLauncherServer(config);
+  const { server, manager, ownerProof } = createLauncherServer(config);
   server.once('error', e => { console.error(`local-play launcher: ${e?.code === 'EADDRINUSE' ? `port ${config.port} is in use` : 'cannot listen'}`); process.exit(2); });
-  server.listen(config.port, '127.0.0.1', () => console.log(JSON.stringify({ origin: `http://localhost:${config.port}`, open: `http://localhost:${config.port}/`, mode: 'new-world-per-wallet', worlds: WORLD_LIMIT, ttl_seconds: (config.worldTtlMs ?? WORLD_TTL_MS) / 1000, ttl_source: config['world-ttl-minutes'] === undefined ? 'default' : '--world-ttl-minutes',
+  server.listen(config.port, '127.0.0.1', () => console.log(JSON.stringify({ origin: `http://localhost:${config.port}`, open: `http://localhost:${config.port}/#owner=${ownerProof}`, mode: 'new-world-per-wallet', worlds: WORLD_LIMIT, ttl_seconds: (config.worldTtlMs ?? WORLD_TTL_MS) / 1000, ttl_source: config['world-ttl-minutes'] === undefined ? 'default' : '--world-ttl-minutes',
     prepare: config.prepareScale ? { clock_scale: config.prepareScale, chain_seconds_max: PREPARE_CHAIN_MAX, then: '1x, read back, before the world is handed over' } : 'natural 1x',
     world_preset: config.worldPreset ?? null, continuous: config.continuous === true, fresh_map: config.freshMap === true ? FRESH_MAP_MODE : null, lane: config.coexist === true ? COEXIST_MODE : 'plain', wide_land: config.wideLand === true ? WIDE_LAND_MODE : null, wide_scale: config.wideScale ?? null, persist: config.persist ? { mode: PERSIST_MODE, dir: path.join(config.data, 'persist'), test_only: true, not_for_production: true } : null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
     ports: { launcher: config.port, worlds: Array.from({ length: WORLD_LIMIT }, (_, slot) => worldPorts(config.worldPort, slot)) } })));

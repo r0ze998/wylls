@@ -123,9 +123,9 @@
         "count": 129
       },
       {
-        "name": "Wide ring seed (rings 129..132 [model]: the first four wide rings)",
+        "name": "Wide ring seed (rings 129..131: the wide rings keeper A opens, services.keeperA.ringsDuty.wide_rings 3)",
         "bytes": 192,
-        "count": 4
+        "count": 3
       },
       {
         "name": "AnchorArchive (16 regions x 16 half-days)",
