@@ -80,26 +80,32 @@ export function passablePath(world, origin, dest, destTile, lands, { max = WIDE_
 export function followWideHold(prev, march) {
   const m = march;
   if (!m?.to) return prev ?? null;
-  const same = prev?.to && String(prev.to.p) === String(m.to.p) && String(prev.to.q) === String(m.to.q);
+  // (verify-pr137: the same MARCH, not only the same keep — a later march onto the keep a lost hold was about, the
+  //  planner's second wide march, starts its own hold instead of repeating the first one's 「奪えませんでした」)
+  const arrive = Number.isInteger(m.arrive) ? m.arrive : null;
+  const same = prev?.to && String(prev.to.p) === String(m.to.p) && String(prev.to.q) === String(m.to.q)
+    && (prev.arrive === undefined || prev.arrive === null || arrive === null || prev.arrive === arrive);
   const base = same ? prev : null;
   if (base?.outcome) return base;            // (an ended hold stays ended: taken or lost is said once and kept)
   const to = { p: String(m.to.p), q: String(m.to.q) };
+  const mark = h => (arrive === null ? h : { ...h, arrive });
   // (the capture: the keep is the village nation's. Its holding host became the garrison and left the province's
   //  entries, so this is seen as 'gone' — fix-loop7 live run, turn 451 — or, if a host still stands there, as 'stands')
   if (base && m.keep && m.keep.holder === m.faction && ['stands', 'gone', 'settling'].includes(m.phase)) {
-    return { to, progress: base.required ?? m.keep.required ?? null, required: base.required ?? m.keep.required ?? null, since: base.since, outcome: 'taken', at: m.nowBell };
+    return mark({ to, progress: base.required ?? m.keep.required ?? null, required: base.required ?? m.keep.required ?? null, since: base.since, outcome: 'taken', at: m.nowBell });
   }
   if (m.phase === 'stands' && m.keep) {
     const k = m.keep;
-    if (k.holder === m.faction) return { to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell };
-    if (k.contender === m.faction) return { to, progress: k.progress, required: k.required, since: base?.since ?? m.nowBell, outcome: null };
+    if (k.holder === m.faction) return mark({ to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell });
+    if (k.contender === m.faction) return mark({ to, progress: k.progress, required: k.required, since: base?.since ?? m.nowBell, outcome: null });
     // (the host stands, but its nation no longer contends the keep: another took over the contest, or the count was reset)
     if (base) return { ...base, outcome: 'lost', why: 'held-by-other', holder: k.holder, at: m.nowBell };
-    return prev ?? null;
+    return null;
   }
   // (the host that held the keep's tile is no longer there: beaten off, the hold ended without the capture)
   if (m.phase === 'gone' && base) return { ...base, outcome: 'lost', why: 'gone', at: m.nowBell };
-  return prev ?? null;
+  // (still on its way or being decided: the same march's hold as it was; another march has none yet)
+  return base;
 }
 
 /**

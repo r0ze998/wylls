@@ -141,7 +141,7 @@ test('LP7-5: the hold of the keep by the own wide march is followed past 「占�
   // on the way, then settling: nothing to follow yet
   assert.equal(followWideHold(null, { to: TO, arrive: 373, phase: 'out', nowBell: 360 }), null);
   let h = followWideHold(null, stands(394, { holder: 1, contender: 0, progress: 20, required: 72 }));
-  assert.deepEqual(h, { to: { p: '-63', q: '-67' }, progress: 20, required: 72, since: 394, outcome: null });
+  assert.deepEqual(h, { to: { p: '-63', q: '-67' }, progress: 20, required: 72, since: 394, outcome: null, arrive: 373 });
   let say = { kind: 'wait', wait: 'march', march: stands(394, { holder: 1, contender: 0, progress: 20, required: 72 }), hold: h };
   assert.match(wideHostSayText(say), /あなたの国が砦を占拠中です：20 \/ 72 ターン/);
   // the card keeps following (the waiting line names the hold and what is left), turn after turn
@@ -185,7 +185,8 @@ test('LP7-5 (live fix-loop7, turn 451): the capture turns the holding host into 
   h = followWideHold(h, { ...stands(450, { holder: 1, contender: 2, progress: 71, required: 72 }), faction: 2 });
   assert.equal(h.outcome, null); assert.equal(h.progress, 71);
   // what the live run read at turn 451: no host of the village in the province, the keep held by its nation (2), garrison 42
-  const gone = { to: TO, arrive: 378, phase: 'gone', nowBell: 451, faction: 2, keep: { holder: 2, contender: 255, progress: 0, required: 72 } };
+  // (the same march as the hold above: its arrival turn is the one `stands` carries — verify-pr137 keys a hold on its march)
+  const gone = { to: TO, arrive: 373, phase: 'gone', nowBell: 451, faction: 2, keep: { holder: 2, contender: 255, progress: 0, required: 72 } };
   const t = followWideHold({ ...h, outcome: null }, gone);
   assert.equal(t.outcome, 'taken'); assert.equal(t.at, 451);
   assert.equal(wideHostSayText({ kind: 'wait', wait: 'march', march: gone, hold: t }), '結果：州 -63,-67 の砦を奪いました。砦はあなたの国のものです（ターン 451 に確認）。');
@@ -195,6 +196,25 @@ test('LP7-5 (live fix-loop7, turn 451): the capture turns the holding host into 
   // and the planner's marchState carries the keep for every arrived phase (source)
   const src = readFileSync(new URL('../../permutation-server/web/frontier/flocalplay-wide-plan.mjs', import.meta.url), 'utf8');
   assert.match(src, /phase: open \? 'settling' : 'gone', nowBell, faction: holding\.faction,\n\s+keep: k \?/);
+});
+
+test('LP7-5 (verify-pr137): a LATER march onto the same keep is a new hold — the first march\'s 「奪えませんでした」 is not repeated over it', () => {
+  setLang('ja');
+  let l = followWideHold(null, stands(394, { holder: 1, contender: 0, progress: 20, required: 72 }));
+  l = followWideHold(l, { to: TO, arrive: 373, phase: 'gone', nowBell: 401, faction: 0, keep: { holder: 1, contender: 255, progress: 0, required: 72 } });
+  assert.equal(l.outcome, 'lost');
+  // the same march read again: still lost, said once and kept
+  assert.equal(followWideHold(l, { to: TO, arrive: 373, phase: 'gone', nowBell: 410 }), l);
+  // the planner's second wide march onto the same keep, on its way: no hold yet, so the card says the march, not the old result
+  const out2 = { to: TO, arrive: 470, phase: 'out', nowBell: 450 };
+  assert.equal(followWideHold(l, out2), null);
+  assert.equal(wideHoldOutcomeText(followWideHold(l, out2)), '');
+  // it arrives and counts: a fresh hold; then the capture is said for THIS march
+  let h2 = followWideHold(l, { ...stands(480, { holder: 1, contender: 0, progress: 3, required: 72 }), arrive: 470 });
+  assert.deepEqual([h2.outcome, h2.progress, h2.since, h2.arrive], [null, 3, 480, 470]);
+  h2 = followWideHold(h2, { to: TO, arrive: 470, phase: 'gone', nowBell: 552, faction: 0, keep: { holder: 0, contender: 255, progress: 0, required: 72 } });
+  assert.equal(h2.outcome, 'taken'); assert.equal(h2.at, 552);
+  assert.match(wideHostSayText({ kind: 'wait', wait: 'march', hold: h2 }), /^結果：州 -63,-67 の砦を奪いました。/);
 });
 
 test('LP7-5: the controller follows a standing host while its hold counts (about once a turn), not only out/settling', () => {
