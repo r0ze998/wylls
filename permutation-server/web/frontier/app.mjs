@@ -200,7 +200,7 @@ import { forecast, forecastKey, compareStances, compareKey, COMPARE_RUNS } from 
 import { modelForecast } from './hud/forecastmodel.mjs';
 import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { mountRadioKeys } from './hud/radiokeys.mjs';
-import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
+import { BUILD_ITEMS, buildItemOf, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
@@ -1190,7 +1190,7 @@ function constructionsNow(life = FS.life) {
     if (seen.has(key) || !(doneAt > now)) return;
     seen.add(key);
     const total = Math.max(60, doneAt - startTs);
-    const name = BUILDINGS[BUILD_ITEMS[item]?.resource] ?? '';
+    const name = BUILDINGS[buildItemOf(item)?.resource] ?? '';
     out.push({ p, q, site, name, share: Math.max(0, Math.min(1, 1 - (doneAt - now) / total)), label: `${name} ${hud.span(doneAt - now)}`.trim() });
   };
   for (const h of FS.holdings ?? []) for (const q of h.queue ?? []) {
@@ -2947,10 +2947,10 @@ function awayTake() {
   return out;
 }
 /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
-const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
+const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), hint: returnWords.itemDetail(i) || undefined, awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
 /** The away notices in the page's language (they are kept as words; the language may change after they were told). */
 // (B11, loop-play2: and every other notice, by the words it keeps in every language — hud/words.mjs)
-const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away || x.words)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : reworded(x))); };
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away || x.words)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf), hint: returnWords.itemDetail(x.awayOf) || undefined } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : reworded(x))); };
 onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
@@ -3170,7 +3170,10 @@ function syncStack(el, items) {
       const tpl = globalThis.document.createElement('template');
       tpl.innerHTML = markup;
       const next = tpl.content.firstElementChild;
-      if (next) { node.className = `${next.className} shown`; node.setAttribute('role', next.getAttribute('role') ?? 'status'); node.replaceChildren(...next.childNodes); stackHtml.set(node, markup); }
+      if (next) { node.className = `${next.className} shown`; node.setAttribute('role', next.getAttribute('role') ?? 'status'); node.replaceChildren(...next.childNodes); stackHtml.set(node, markup);
+        // (verify-pr137: and its hover title — a caravan's careful account, LP7-8 — follows a change of language too;
+        //  it stayed in the first language while the toast's words changed)
+        if (next.hasAttribute('title')) node.setAttribute('title', next.getAttribute('title')); else node.removeAttribute('title'); }
     }
     before = node.nextElementSibling;
     while (before && before.classList.contains('leaving')) before = before.nextElementSibling;

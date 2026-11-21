@@ -9,6 +9,7 @@ import { decodeRecord } from '../../permutation-server/web/frontier/flog.mjs';
 import * as SRC from '../../permutation-server/web/frontier/hud/statussources.mjs';
 import * as RS from '../../permutation-server/web/frontier/hud/returnsum.mjs';
 import * as RW from '../../permutation-server/web/frontier/hud/returnwords.mjs';
+import * as SV from '../../permutation-server/web/frontier/hud/statusview.mjs';
 import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
@@ -121,13 +122,17 @@ const arrivalOf = records => sum(records).items.find(i => i.kind === 'CARAVAN_SE
 const heldSince = records => heldSum(records).items.find(i => i.kind === 'CARAVAN_SETTLED')?.facts.arrival;
 heldSince.item = records => heldSum(records).items.find(i => i.kind === 'CARAVAN_SETTLED');
 const heldSum = records => RS.summarize({ records, read: { after: '100', complete: true }, marks: { confirmedSeq: '100', confirmedBell: 280, caravans: { '5:2': '5' } }, last: null, season: '7', wallet: 'W', nowBell: 320, me, rules: S1_RULES });
+// (fix-loop7, LP7-8: the toast says the arrival in one short sentence — RW.itemText → SV.arrivalShort; the careful account
+//  below is the trade card's — SV.arrivalView, text and details — and is checked there)
+const longText = item => { const v = SV.arrivalView(item.facts.arrival); return `隊商（ターン ${item.bell}）：${[v.text, ...v.details].join('。')}`; };
 const F400 = [400, 0, 0, 0, 0, 0, 0, 0], F352 = [352, 0, 0, 0, 0, 0, 0, 0];
 
 test('to a village (Holding::credit adds the record\'s cargo whole): the intake is known; "full" and "partial" are against the SEND RECORD\'s amount, said so', () => {
   setLang('ja');
   const full = arrivalOf([sent(101, F400, 120), settled(102, at(1), F400)]);
   assert.deepEqual(full, { state: 'verifiedFull', basis: 'sentRecord', sent: F400, arrived: F400, wornBps: 120 });
-  const fullText = RW.itemText(sum([sent(101, F400, 120), settled(102, at(1), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
+  const fullItem = sum([sent(101, F400, 120), settled(102, at(1), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'), fullText = longText(fullItem);
+  assert.equal(RW.itemText(fullItem), '隊商（ターン 292）：送った記録の量がそのまま入りました：食料 400 以上', 'the toast: one short sentence');
   assert.match(fullText, /送付記録の数量に対して全量が入りました：食料 400 以上/);
   assert.match(fullText, /比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません/);
   assert.match(fullText, /送付記録には経路の減少率 1\.2% が記されています/);
@@ -135,18 +140,22 @@ test('to a village (Holding::credit adds the record\'s cargo whole): the intake 
   assert.doesNotMatch(fullText, /(?<!送付記録の数量に対して)全量が入りました|全部入りました|無損失/, 'never "all arrived" without its basis');
   const part = arrivalOf([sent(101, F400), settled(102, at(1), F352)]);
   assert.deepEqual(part, { state: 'verifiedPartial', basis: 'sentRecord', sent: F400, arrived: F352, wornBps: 0 });
-  assert.match(RW.itemText(sum([sent(101, F400), settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED')), /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400/);
+  const partItem = sum([sent(101, F400), settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED');
+  assert.match(longText(partItem), /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400/);
+  assert.equal(RW.itemText(partItem), '隊商（ターン 292）：送った記録より少なく入りました：食料 352 以上');
 });
 
 test('the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only', () => {
   setLang('ja');
   assert.deepEqual(heldSince([settled(102, at(1), F352)]), { state: 'verifiedIntake', intake: F352, compare: 'sentUnknown' });
-  assert.match(RW.itemText(heldSince.item([settled(102, at(1), F352)])), /村に入った量：食料 352 以上。送付記録を読めていないため、送った量の全部か一部かは比べられません/);
+  assert.match(longText(heldSince.item([settled(102, at(1), F352)])), /村に入った量：食料 352 以上。送付記録を読めていないため、送った量の全部か一部かは比べられません/);
+  assert.equal(RW.itemText(heldSince.item([settled(102, at(1), F352)])), '隊商（ターン 292）：村に入りました：食料 352 以上');
   // the village's generation changed between the send and the settlement, with no take read: the cause is not known from
   // the records — another place, nothing counted, no raid named (04 DestinationMismatch)
   assert.deepEqual(arrivalOf([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]), { state: 'misdelivered', recorded: F400 });
   const mt = RW.itemText(sum([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
-  assert.match(mt, /^隊商（ターン 292）：別の場所に着きました（原因を確認中）/);
+  assert.equal(mt, '隊商（ターン 292）：別の場所に着きました（この隊商の分としては数えません）');
+  assert.match(longText(sum([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED')), /^隊商（ターン 292）：別の場所に着きました（原因を確認中）/);
   assert.doesNotMatch(mt, /奪|村に入った量|全量|一部が入りました/);
   // neither the send nor a mark that holds it: who holds it is unknown, so no arrival is told as the viewer's at all
   assert.equal(arrivalOf([settled(102, at(1), F352)]), undefined);
@@ -163,10 +172,13 @@ test('under another program version, or an outcome not read, the intake is not r
 test('to a storehouse (settle_caravan cuts at the vault\'s cap, the record keeps the whole cargo): never verified, even when the send matches', () => {
   setLang('ja');
   assert.deepEqual(arrivalOf([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]), { state: 'settledUnverified', why: 'vault', recorded: F400 });
-  const t = RW.itemText(sum([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
+  const vItem = sum([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'), t = longText(vItem);
   // corrected 2026-11-17 (Lane C): the record's numbers, not "最大" (the record is no upper bound of a storehouse's intake)
   assert.match(t, /^隊商（ターン 292）：到着しましたが、入った量は確認できません（記録の積荷：食料 400）。倉庫は上限を超えた分を切り捨てます/);
   assert.equal(t.split('到着しました').length - 1, 1, 'said once, not twice');
+  // (fix-loop7, LP7-8) the toast: what arrived and that the amount cannot be confirmed, in one short sentence
+  assert.equal(RW.itemText(vItem), '隊商（ターン 292）：貯蔵庫に着きました（積荷 食料 400。入った量は確かめられません）');
+  assert.doesNotMatch(RW.itemText(vItem), /全量|一部が入りました|村に入った量|切り捨て/);
   assert.doesNotMatch(t, /全量|一部が入りました|村に入った量/);
   assert.deepEqual(heldSince([settled(102, 0n, F400)]), { state: 'settledUnverified', why: 'dstUnknown', recorded: F400 });
 });

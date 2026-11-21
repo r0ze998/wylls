@@ -77,7 +77,7 @@ fn main() {
             .map_err(|e| e.to_string())?;
         rt.block_on(async move {
             let state = Arc::new(Mutex::new(w.c));
-            let running = localnet::server::start_with_policy(state, rpc, ws, localnet::server::Policy::MEMORY_ONLY).await?;
+            let running = localnet::server::start_with_policy(state, rpc, ws, localnet::server::Policy::MEMORY_ONLY.with_control_from_env()).await?;
             let meta = json!({
                 "schema": "frontier-localnet-coexist-play-v1",
                 "rpc_url": running.url(),

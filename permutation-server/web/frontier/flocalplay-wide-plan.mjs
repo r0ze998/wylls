@@ -70,6 +70,45 @@ export function passablePath(world, origin, dest, destTile, lands, { max = WIDE_
 }
 
 /**
+ * (fix-loop7, LP7-5) The hold of a keep by this page's own last wide → wide march, followed to its end: from the previous
+ * memory `prev` (or null) and the planner's latest `march` (marchState). `{to: {p, q}, progress, required, since,
+ * outcome: null | 'taken' | 'lost', why?: 'gone' | 'held-by-other', at?: turn}` or `prev` unchanged. Only what this
+ * page's own host learns (its own march, standing on the keep's tile, reading the destination province it went to): the
+ * fog rules hold — nothing is read of a province the player has no host in. loop-play7: the card stopped at
+ * 「占拠中です：20 / 72 ターン」 and never said whether the keep was taken.
+ */
+export function followWideHold(prev, march) {
+  const m = march;
+  if (!m?.to) return prev ?? null;
+  // (verify-pr137: the same MARCH, not only the same keep — a later march onto the keep a lost hold was about, the
+  //  planner's second wide march, starts its own hold instead of repeating the first one's 「奪えませんでした」)
+  const arrive = Number.isInteger(m.arrive) ? m.arrive : null;
+  const same = prev?.to && String(prev.to.p) === String(m.to.p) && String(prev.to.q) === String(m.to.q)
+    && (prev.arrive === undefined || prev.arrive === null || arrive === null || prev.arrive === arrive);
+  const base = same ? prev : null;
+  if (base?.outcome) return base;            // (an ended hold stays ended: taken or lost is said once and kept)
+  const to = { p: String(m.to.p), q: String(m.to.q) };
+  const mark = h => (arrive === null ? h : { ...h, arrive });
+  // (the capture: the keep is the village nation's. Its holding host became the garrison and left the province's
+  //  entries, so this is seen as 'gone' — fix-loop7 live run, turn 451 — or, if a host still stands there, as 'stands')
+  if (base && m.keep && m.keep.holder === m.faction && ['stands', 'gone', 'settling'].includes(m.phase)) {
+    return mark({ to, progress: base.required ?? m.keep.required ?? null, required: base.required ?? m.keep.required ?? null, since: base.since, outcome: 'taken', at: m.nowBell });
+  }
+  if (m.phase === 'stands' && m.keep) {
+    const k = m.keep;
+    if (k.holder === m.faction) return mark({ to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell });
+    if (k.contender === m.faction) return mark({ to, progress: k.progress, required: k.required, since: base?.since ?? m.nowBell, outcome: null });
+    // (the host stands, but its nation no longer contends the keep: another took over the contest, or the count was reset)
+    if (base) return { ...base, outcome: 'lost', why: 'held-by-other', holder: k.holder, at: m.nowBell };
+    return null;
+  }
+  // (the host that held the keep's tile is no longer there: beaten off, the hold ended without the capture)
+  if (m.phase === 'gone' && base) return { ...base, outcome: 'lost', why: 'gone', at: m.nowBell };
+  // (still on its way or being decided: the same march's hold as it was; another march has none yet)
+  return base;
+}
+
+/**
  * `createWideHostPlanner({herald, read, chainNow, chainRate})` → `{decide(identity, memory, {wideTargets, villages})}`:
  * `{decision}` (one act for this turn) or `{why}`. `identity`: `{programId, seasonAddress}`; `memory`: the caller's
  * own counters (`wideDeparts`, `wideHostUntil`, `decisions`, `wideTrainN`); `villages`: `[{p, q, site}]`.
@@ -94,7 +133,12 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       return { ...m, phase: 'stands', nowBell, troops: Math.floor(there[0].entry.troops / 1000), faction: holding.faction,
         keep: k ? { holder: k.holder, contender: k.contender, progress: k.progress, required: k.required } : null };
     }
-    return { ...m, phase: open ? 'settling' : 'gone', nowBell };
+    // (fix-loop7, LP7-5: the destination's keep rides along when no host of this village stands there. A capture turns the
+    //  holding host into the keep's garrison — it leaves the province's entries — so 'gone' with the keep now held by the
+    //  village's nation is the capture, not a loss: verify-run fix-loop7, turn 451, keep holder = own nation, garrison 42)
+    const k = dp.keep;
+    return { ...m, phase: open ? 'settling' : 'gone', nowBell, faction: holding.faction,
+      keep: k ? { holder: k.holder, contender: k.contender, progress: k.progress, required: k.required } : null };
   }
   async function decide(id, memory, { wideTargets, villages }) {
     if (!villages?.length) return { why: 'no wide village yet' };

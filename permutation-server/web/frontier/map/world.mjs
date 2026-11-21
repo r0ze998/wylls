@@ -296,6 +296,8 @@ export const PLACE_NOTE = Object.freeze({
   beyondHard: () => L`ここはプログラムの上限（第128輪）の外です`,
 });
 
+/** (fix-loop7, LP7-4) The ring of an opened wide-land province (past ring 128), as the inspector says it. */
+export const wideRingText = ring => L`第${fmtNum(ring)}輪（広い土地・ひらいています）`;
 /** The ring as the inspector says it, with what the place is. */
 export function ringText(state, ring) {
   if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（いまの地図の外）`;
