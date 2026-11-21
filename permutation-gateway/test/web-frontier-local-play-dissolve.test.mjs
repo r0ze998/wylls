@@ -81,7 +81,10 @@ test('the source: the bar and the card ask the same rule the send uses; nothing 
   assert.match(h, /dLocal = localRefuses\(FS, 'Dissolve'\)/);
   const a = readFileSync(new URL('../../permutation-server/web/frontier/flocalplay-act.mjs', import.meta.url), 'utf8');
   // (wide-local-playable: the local wide world's rim request and wide claim joined the list; still no Dissolve)
-  assert.match(a, /export const LOCAL_ACT_NAMES = Object\.freeze\(\['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM\]\);/);
+  // (wide -> wide marches, #94: and the wide village's three acts, WIDE_HOST_ACTS = WideTrain / WideMuster / WideDepart)
+  assert.match(a, /export const LOCAL_ACT_NAMES = Object\.freeze\(\['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, \.\.\.WIDE_HOST_ACTS\]\);/);
+  const wh = readFileSync(new URL('../../permutation-server/web/frontier/flocalplay-wide-host.mjs', import.meta.url), 'utf8');
+  assert.match(wh, /export const WIDE_HOST_ACTS = Object\.freeze\(\[WIDE_TRAIN, WIDE_MUSTER, WIDE_DEPART\]\);/);
 });
 
 test('round 26: a march (March, its return home, a march on a keep) is refused on the bar while local play\'s march trial is closed, as its send refuses it; open, as before', () => {
