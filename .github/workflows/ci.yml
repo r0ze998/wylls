@@ -521,7 +521,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p keeper --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: wideresolve:: config::
+          cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: wideresolve:: config:: rings::
           cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
           cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
           cargo test --locked -p keeper --features playable-lane --test verify_pr121_guard_mutations

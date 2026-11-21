@@ -41,6 +41,10 @@ pub const EXTEND_MAX_RING_DEFAULT: u16 = 17;
 /// provinces.
 pub const RIM_PER_WEDGE_MAX: u16 = 129;
 
+/// The largest `provinces_reach` (devnet-open-province): ⑭ R3's
+/// `SPAWN_REACH_MAX` and `outpost_range`'s upper bound are both 8.
+pub const PROVINCES_REACH_MAX: u16 = 8;
+
 /// Duties (§8.2 `roles`). W2-F runs `beacon` (genesis seed, anchors, seed
 /// caches, beacon logs) and `archive`; W3-C runs `rings` (every ring, its
 /// seed and provinces), `fold`, `tickets`, `explore`, `dormancy` (releases
@@ -309,7 +313,11 @@ pub struct KeeperConfig {
     /// seeds rings but opens none of their provinces, and a seeded ring
     /// counts as complete at once (no fold wait: an unopened province adds
     /// no site to fold). The genesis rings are still opened whole. Provinces
-    /// past them open on demand (OpenProvince is permissionless). Opening
+    /// past them open on demand: [`KeeperConfig::provinces_reach`] next to
+    /// the settled land, [`KeeperConfig::rim_per_wedge`] on the rim,
+    /// [`KeeperConfig::wide_rings`] past it (OpenProvince is also
+    /// permissionless; before devnet-open-province nothing opened the
+    /// provinces between the genesis rings and the rim). Opening
     /// every province to ring 128 would cost 49,537 province rents
     /// (1,224 SOL at 5,080 lamports/byte).
     pub lazy_provinces: bool,
@@ -323,6 +331,32 @@ pub struct KeeperConfig {
     /// wedge funds (24,709,120 lamports a province at 5,080 lamports/byte).
     /// At most [`RIM_PER_WEDGE_MAX`].
     pub rim_per_wedge: u16,
+    /// Provinces on demand (devnet-open-province, D-devnet-rim-homes-2;
+    /// default 0 = off): with `lazy_provinces` nothing opened the
+    /// provinces of rings 4..=127, yet a second or third village
+    /// (FileOutpost: ring > `heartland_max_ring`, within `outpost_range` of
+    /// the home, its Province present) and a ⑭ R3 home past the heartland
+    /// (PlaceHome within `spawn_reach` of a settled witness) need one. With
+    /// `provinces_reach = n` the `rings` duty opens every absent province
+    /// of a seeded legacy ring past the genesis rings that lies within `n`
+    /// provinces of a SETTLED province (`n_sites_used > 0`), nearest first
+    /// ([`crate::rings::demand_plan`]). Bounded by `provinces_per_pass`,
+    /// `provinces_max` and a per-wedge fund floor that keeps what the
+    /// rings duty still needs ([`crate::rings::demand_fund_floor`]); it
+    /// sends nothing while the feed guard holds automatic writes. Rent
+    /// from the wedge funds (24,709,120 lamports a province at 5,080
+    /// lamports/byte), fees from the keeper's payer. At most
+    /// [`PROVINCES_REACH_MAX`].
+    pub provinces_reach: u16,
+    /// `provinces_reach`: the most OpenProvince writes one scan plans
+    /// (default 12, at least 1).
+    pub provinces_per_pass: u16,
+    /// `provinces_reach`: the most provinces this keeper opens on demand
+    /// in its run (default 600).
+    pub provinces_max: u32,
+    /// `provinces_reach`: slots between two scans of the settled provinces
+    /// (default 75, about 30 s; at least 1).
+    pub provinces_scan_slots: u64,
     /// Wide rings the `rings` duty opens (devnet runbook gap P6; default 0
     /// = off; needs the `playable-lane` build): once the legacy rim (ring
     /// 128) is seeded, rings `129..129 + wide_rings` one at a time, each a
@@ -420,6 +454,10 @@ impl KeeperConfig {
             extend_max_ring: EXTEND_MAX_RING_DEFAULT,
             lazy_provinces: false,
             rim_per_wedge: 0,
+            provinces_reach: 0,
+            provinces_per_pass: 12,
+            provinces_max: 600,
+            provinces_scan_slots: 75,
             wide_rings: 0,
             wide_per_wedge: 0,
             wide_scan_slots: 25,
@@ -661,6 +699,24 @@ impl KeeperConfig {
             }
             c.rim_per_wedge = n as u16;
         }
+        if let Some(v) = take("provinces_reach") {
+            let n = int(v, "provinces_reach")?;
+            if n > u64::from(PROVINCES_REACH_MAX) {
+                return Err(format!(
+                    "`provinces_reach` must be at most {PROVINCES_REACH_MAX}"
+                ));
+            }
+            c.provinces_reach = n as u16;
+        }
+        if let Some(v) = take("provinces_per_pass") {
+            c.provinces_per_pass = int(v, "provinces_per_pass")?.clamp(1, 1_000) as u16;
+        }
+        if let Some(v) = take("provinces_max") {
+            c.provinces_max = int(v, "provinces_max")?.min(u64::from(u32::MAX)) as u32;
+        }
+        if let Some(v) = take("provinces_scan_slots") {
+            c.provinces_scan_slots = int(v, "provinces_scan_slots")?.max(1);
+        }
         if let Some(v) = take("wide_rings") {
             let n = int(v, "wide_rings")?;
             if n > u64::from(WIDE_RINGS_MAX) {
@@ -730,6 +786,9 @@ impl KeeperConfig {
         }
         c.check_feed()?;
         c.check_wide()?;
+        if c.provinces_reach > 0 && !c.has_role("rings") {
+            return Err("`provinces_reach` is part of the `rings` duty: add the role".into());
+        }
         if c.p_def_milli > crate::P_DEF_MILLI || c.p_delay_milli > c.p_def_milli {
             return Err("p_def_milli ≤ 2000 and p_delay_milli ≤ p_def_milli".into());
         }
@@ -818,6 +877,27 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(rim.rim_per_wedge, 6);
+        // devnet-open-province: provinces on demand only when asked
+        assert_eq!(c.provinces_reach, 0);
+        assert_eq!(KeeperConfig::new(p, 1, b).provinces_reach, 0);
+        let dem = KeeperConfig::from_toml(&format!(
+            "{text}\nlazy_provinces = true\nprovinces_reach = 3\nprovinces_per_pass = 0\nprovinces_max = 90\nprovinces_scan_slots = 0\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            (
+                dem.provinces_reach,
+                dem.provinces_per_pass,
+                dem.provinces_max,
+                dem.provinces_scan_slots
+            ),
+            (3, 1, 90, 1)
+        );
+        assert!(KeeperConfig::from_toml(&format!("{text}\nprovinces_reach = 9\n")).is_err());
+        assert!(KeeperConfig::from_toml(
+            &format!("{text}\nprovinces_reach = 3\n").replace(", \"rings\"]", "]")
+        )
+        .is_err());
         assert!(KeeperConfig::from_toml(&format!("{text}\nrim_per_wedge = 130\n")).is_err());
         assert!(KeeperConfig::from_toml(&format!("{text}\nrim_per_wedge = -1\n")).is_err());
         // P6 / P7: the playable lane's duties only when asked, and only in a `playable-lane` build
