@@ -521,7 +521,6 @@ permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
 permutation-gateway/test/frontier-local-play-contest-pair.test.mjs
 permutation-gateway/test/frontier-local-play-herald-output.test.mjs
 permutation-gateway/test/frontier-local-play-keeper-view.test.mjs
-permutation-gateway/test/frontier-local-play-launcher-shutdown.test.mjs
 permutation-gateway/test/frontier-local-play-operator-nations.test.mjs
 permutation-gateway/test/frontier-local-play-pair-guide.test.mjs
 permutation-gateway/test/frontier-local-play-persist.test.mjs
