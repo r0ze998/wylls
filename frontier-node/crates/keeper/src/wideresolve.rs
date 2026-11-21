@@ -36,7 +36,9 @@
 //!   is that Citizen's — read every `wide_scan_slots` slots, as `wide-tickets`.
 //!
 //! Once known, a province stays in the set for the process (a resolve of an
-//! emptied province is still a valid, cheap write: 5,000 lamports a bell).
+//! emptied province is still a valid write: measured offline 64,331
+//! lamports a bell, the base fee and the class-D starting bid on
+//! [`CU_RESOLVE`]; verify-pr129).
 //!
 //! **Races.** The `expeditions` role resolves the same cursor of an arrival's
 //! destination (`exp-resolve:<P>,<Q>:<bell>`). Each role skips a bell whose

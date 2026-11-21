@@ -578,6 +578,17 @@ pub(super) async fn flow(
                "lamports_from_payer": before.saturating_sub(c.balance(&w))})
     };
     r.rows.push(depart_row.clone());
+    // (verify-pr129) the page's preview total is exactly what the wallet paid for the landed Depart
+    if r.c.page.is_some() {
+        let shown = page_depart["preview"]["preview"]["total"]
+            .as_str()
+            .and_then(|t| t.parse::<u64>().ok());
+        assert_eq!(
+            shown,
+            depart_row["lamports_from_payer"].as_u64(),
+            "the preview's total is the wallet's payment: {page_depart:#} {depart_row:#}"
+        );
+    }
     let external = steps::external_of(&a, &holding, 0);
     let transit = |r: &Run<'_>| {
         let read = |k: &Address| r.lock().account(k);
@@ -1055,6 +1066,17 @@ pub(super) async fn wide_village_musters_later(
         Ok(t) => json!({"ok": true, "tile": t}),
         Err(e) => json!({"ok": false, "err": e}),
     };
+    // (verify-pr129) the control: the program refuses the muster NotResident (26) exactly while the cursor lags
+    let lagging = !fclient::play::resident_ok(rn(r), r.bell());
+    let refused_26 = probe_at_final["ok"] == false
+        && probe_at_final["err"]
+            .as_str()
+            .is_some_and(|e| e.contains("Custom(26)"));
+    assert_eq!(
+        refused_26, lagging,
+        "NotResident iff the province lags: {at_final} {probe_at_final}"
+    );
+    eprintln!("p9: control at finalization lagging={lagging} refused_26={refused_26}");
     // 5. REAL, keeper A's `wide-resolve`: the province resolved until resident; the first WideMuster.
     let t0 = Instant::now();
     drive(
