@@ -18,6 +18,24 @@ FORBIDDEN = [
 ]
 APPROVED_IF = "github.event_name == 'workflow_dispatch' && inputs.key_tests == 'approved'"
 
+# Format and lint steps (2026-11-21): `cargo fmt --check` reads source and
+# `cargo clippy` compiles every target but runs none, so no test, and no key
+# code in a test, is executed (the same reasoning as frontier-node's lints).
+# A step whose `run` is nothing but such lines may name a LiteSVM crate
+# (svm-tests): that one pattern is waived for it, every other pattern still
+# applies. Anything else on a line (cargo test, a script, `&&`, `;`, a pipe)
+# makes the step an ordinary one again.
+LINT_LINE = re.compile(
+    r'^cargo (fmt( --all| -p [\w-]+)? -- --check'
+    r'|clippy --locked( --workspace| -p [\w-]+)?( --features [\w,-]+)? --all-targets -- -D warnings)$')
+
+def lint_only(step):
+    if step.get('uses'):
+        return False
+    lines = [l.strip() for l in str(step.get('run', '')).splitlines()]
+    lines = [l for l in lines if l and not l.startswith('#')]
+    return bool(lines) and all(LINT_LINE.match(l) for l in lines)
+
 def check(path):
     wf = yaml.safe_load(open(path))
     bad = []
@@ -28,8 +46,11 @@ def check(path):
                 bad.append(f'{path}: job key-tests must have exactly `if: {APPROVED_IF}`')
             continue
         for st in job.get('steps') or []:
-            text = '\n'.join(str(st.get(k, '')) for k in ('run', 'uses', 'name'))
+            text = '\n'.join(str(st.get(k, '')) for k in ('run', 'uses', 'name', 'working-directory'))
+            waived = lint_only(st)
             for pat, why in FORBIDDEN:
+                if waived and pat == r'svm-tests':
+                    continue
                 if re.search(pat, text) and not (st.get('name') or '').startswith('#'):
                     bad.append(f'{path}: job {name}, step "{st.get("name") or st.get("run", "")[:40]}": {why}')
     return bad
