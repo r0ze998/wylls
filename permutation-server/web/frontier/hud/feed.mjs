@@ -317,7 +317,8 @@ export function stackOrder(strip, toasts, { alarmsFirst = false } = {}) {
 
 /** One toast ("what happened this turn": at most three cards over the map, each with "see"). */
 export function renderToast(x) {
-  return html`<div class="toast toast-${x.kind}" role="status">
+  // (fix-loop7, LP7-8: a short sentence on the toast; its careful account, when the item has one, as the hover title)
+  return html`<div class="toast toast-${x.kind}" role="status"${x.hint ? html` title="${x.hint}"` : ''}>
     <span class="toast-icon">${icon(KIND_ICON[x.kind] ?? 'flag')}</span>
     <span class="toast-text"><span class="toast-kind">${KIND_TEXT[x.kind]?.() ?? ''}${stamp(x)}</span>${noticeText(x)}${sideTag(x)}</span>
     <button type="button" class="toast-x" data-act="feed-dismiss" data-id="${x.id}" aria-label="${L`閉じる`}">${icon('close')}</button>

@@ -223,8 +223,16 @@ export function pairTargetSummary(lines) {
   return { state: 'ready', ...base, home: { p: h.p, q: h.q, site: h.site, tile: h.tile } };
 }
 /** One call of this world's own runner's JSON-RPC (loopback, the port this launcher gave it): its result. */
-async function runnerRpc(port, method, params = []) {
-  const r = await fetch(`http://127.0.0.1:${port}/`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(5000) });
+// (fix-loop7, D-verify-pr136-2: a world's runner guards its time control — frontier_pause / resume / setScale / hold /
+//  release — with a per-world token that only this launcher holds: given to the runner process alone, in its environment
+//  (`RUNNER_CONTROL_ENV`, never on argv), and sent back here in `RUNNER_CONTROL_HEADER`. Another loopback program that
+//  knows the port can still read the chain and send transactions, as the page does, but can no longer freeze the clock)
+export const RUNNER_CONTROL_ENV = 'FRONTIER_CONTROL_TOKEN';
+export const RUNNER_CONTROL_HEADER = 'x-frontier-control';
+export const makeRunnerControl = () => randomBytes(32).toString('base64url');
+export async function runnerRpc(port, method, params = [], control = null) {
+  const headers = { 'content-type': 'application/json', ...(typeof control === 'string' && control ? { [RUNNER_CONTROL_HEADER]: control } : {}) };
+  const r = await fetch(`http://127.0.0.1:${port}/`, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(5000) });
   const v = await r.json();
   if (!r.ok || !v || v.error !== undefined || v.result === undefined || v.result === null) throw fault('RunnerRpcRefused', 503);
   return v.result;
@@ -276,7 +284,7 @@ export function runnerFollower(dir, schemas, io = fs) {
  * or result is put in: the one thing changed is the clock's scale, for at most `PREPARE_CHAIN_MAX` chain seconds.
  * Resolves what was done (also written to `prepare.json`); any refusal is thrown, and the caller ends the world.
  */
-export async function prepareWorld({ scale, dir, rpc, herald, meta, stopping, limit = {} }) {
+export async function prepareWorld({ scale, dir, rpc, herald, meta, stopping, limit = {}, control = null }) {
   const chainMax = limit.prepareChainMax ?? PREPARE_CHAIN_MAX, slack = limit.prepareSlackMs ?? PREPARE_SLACK_MS, settle = limit.prepareSettleMs ?? PREPARE_SETTLE_MS, pace = limit.preparePaceMs ?? 250;
   const dest = meta?.wide_destination?.dest;
   if (!Array.isArray(meta?.time_control_rpc) || !meta.time_control_rpc.includes('frontier_setScale') || !Array.isArray(dest) || dest.length !== 2 || !dest.every(Number.isSafeInteger)) throw fault('PrepareUnavailable', 503);
@@ -290,7 +298,7 @@ export async function prepareWorld({ scale, dir, rpc, herald, meta, stopping, li
   try {
     if (!opened(lines)) {
       // (from here the scale may have changed, even if this call's answer is lost: the restore below runs in every case)
-      asked = true; fast = await runnerRpc(rpc, 'frontier_setScale', [scale]);
+      asked = true; fast = await runnerRpc(rpc, 'frontier_setScale', [scale], control);
       const deadline = Date.now() + (chainMax / scale) * 1000 + slack;
       for (;;) {
         if (stopping()) { failure = fault('WorldStopped', 503); break; }
@@ -307,7 +315,7 @@ export async function prepareWorld({ scale, dir, rpc, herald, meta, stopping, li
   if (asked) {
     let restored = false;
     for (let i = 0; i < (stopping() ? 2 : 40) && !restored; i++) {
-      try { if (i % 8 === 0) await runnerRpc(rpc, 'frontier_setScale', [1]); after = await runnerRpc(rpc, 'frontier_status'); restored = at1x(after); } catch { /* asked again */ }
+      try { if (i % 8 === 0) await runnerRpc(rpc, 'frontier_setScale', [1], control); after = await runnerRpc(rpc, 'frontier_status'); restored = at1x(after); } catch { /* asked again */ }
       if (!restored) await delay(Math.min(pace, 250));
     }
     if (!restored) throw fault('PrepareClockNotRestored', 503);
@@ -1152,11 +1160,14 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   const aborted = () => { stop(typeof signal.reason === 'string' ? signal.reason : 'aborted'); };
   signal?.addEventListener('abort', aborted, { once: true });
   if (signal?.aborted) aborted();
+  // (fix-loop7: this world's runner time-control token — RUNNER_CONTROL_ENV — handed to the runner process only)
+  const control = makeRunnerControl();
   const launch = (name, executable, args) => {
     if (stopping) throw fault('WorldStopped', 503);
     const out = openSync(path.join(dir, name + '.out'), 'wx'), err = openSync(path.join(dir, name + '.err'), 'wx');
     let child;
-    try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false }); } finally { closeSync(out); closeSync(err); }
+    const env = name === 'runner' ? { ...process.env, [RUNNER_CONTROL_ENV]: control } : { ...process.env, [RUNNER_CONTROL_ENV]: '' };
+    try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false, env }); } finally { closeSync(out); closeSync(err); }
     children.push(child); own(child); child.once('error', () => { stop(`${name}-failed`); }); child.once('exit', () => { stop(`${name}-exited`); }); return child;
   };
   // (a side process: stopped with the world, but its own end never ends the world — the TEST-ONLY operator residents:
@@ -1165,7 +1176,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     if (stopping) throw fault('WorldStopped', 503);
     const out = openSync(path.join(dir, name + '.out'), 'wx'), err = openSync(path.join(dir, name + '.err'), 'wx');
     let child;
-    try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false }); } finally { closeSync(out); closeSync(err); }
+    try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false, env: { ...process.env, [RUNNER_CONTROL_ENV]: '' } }); } finally { closeSync(out); closeSync(err); }
     children.push(child); own(child); child.once('error', () => {}); return child;
   };
   // the TTL origin: the world's automatic end is fixed here, once (`worldExpiry` refuses a value a Date cannot hold)
@@ -1293,7 +1304,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       rpc, internalHerald, launcherPort: c.port, players: [wallet, ...(second !== null ? [second] : []), ...(operators?.wallets ?? [])], launchSide, relayArgsFor, root: c.root, proxies: externalProxies, stopping: () => stopping !== null, limit }) : null;
     if (external) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...(operators?.ports ?? []), ...external.ports] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
-    const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit }) : null;
+    const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit, control }) : null;
     let conquestWorld = null;
     if (preset) {
       // The destination is open and the clock is back at 1x. The runner states its conquest world on a line of its

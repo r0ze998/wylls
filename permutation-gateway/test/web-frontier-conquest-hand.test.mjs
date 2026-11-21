@@ -356,6 +356,11 @@ test('no fort march and no capture guide where no keep can be taken (only heartl
   // the guide: hidden only when EVERY keep is in a heartland (here the own keep 1,1 is not: the guide stays)
   assert.notEqual(conquestGuide(s), null);
   const pure = fs(); pure.conquest.keeps = new Map([...heartlandOnly].filter(([k]) => k !== '1,1'));
+  // (fix-loop7, LP7-2) only once the world's control snapshot has been read: before it, the heartland keeps around the
+  // home are just the ones the page read for itself, and the guide stays (build / train / muster)
+  assert.equal(K.heartlandOnlyKeeps(pure), false, 'no control snapshot yet: nothing is concluded');
+  assert.notEqual(conquestGuide(pure), null, 'the guide is shown before the control snapshot');
+  pure.conquest.control = { bell: 10, provinces: [] };
   assert.equal(K.heartlandOnlyKeeps(pure), true); assert.equal(conquestGuide(pure), null, 'no guide to a capture that cannot happen');
   // the keeps not read yet: nothing changes (the button and the guide as before)
   const unread = fs(); unread.selected = s.selected; unread.hand = s.hand; unread.conquest.keeps = undefined;

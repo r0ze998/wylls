@@ -5,7 +5,7 @@ import { L, fmtNum, lang } from '../../lang.mjs';
 import { RESOURCES, factionName } from '../fi18n.mjs';
 import { RESOURCE_ORDER } from '../resources.mjs';
 import { FIRST_LOOK_BELLS } from './returnsum.mjs';
-import { arrivalView } from './statusview.mjs';
+import { arrivalShort, arrivalView } from './statusview.mjs';
 
 const cargo = c => (c ? c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) : '');
 const nation = f => (Number.isInteger(f) && f >= 0 && f <= 6 ? factionName(f) : L`他国`);
@@ -29,7 +29,8 @@ export function itemText(i) {
         : L`あなたが送った隊商の決着が記録されました（ターン ${fmtNum(i.bell)}）。結果を記録から読めないため、着いたとも失われたとも言いません${c ? L`：${c}` : ''}`;
       // (a settlement of the viewer's: its arrival as statussources.mjs judges it, never "arrived" without the amount verified;
       // the state's own words say what happened, so the lead names only the caravan and the turn)
-      if (f.arrival) { const v = arrivalView(f.arrival); return L`隊商（ターン ${fmtNum(i.bell)}）：${[v.text, ...v.details].join(L`。`)}`; }
+      // (fix-loop7, LP7-8: one short plain sentence — arrivalShort; the careful account stays on the trade card, arrivalView)
+      if (f.arrival) return L`隊商（ターン ${fmtNum(i.bell)}）：${arrivalShort(f.arrival)}`;
       return f.lost ? L`隊商の行き先がなくなり、積荷が失われました${c ? L`：${c}` : ''}` : L`隊商が着きました${c ? L`：${c}` : ''}`;
     case 'VAULT_SEIZED': case 'STRUCTURE_SEIZED': return i.tone === 'loss' ? L`${what(f.what)}を奪われました（ターン ${fmtNum(i.bell)}）` : L`${what(f.what)}を奪いました（ターン ${fmtNum(i.bell)}）`;
     case 'SIEGE_DECLARED': return L`${nation(f.attacker)}があなたの村の包囲を宣言しました（ターン ${fmtNum(i.bell)}）。陥落には、包囲側がマスを保つターンが ${fmtNum(f.required)} 要ります（夜番の時間と、守り手がいるターンは数えません）`;
@@ -43,6 +44,17 @@ export function itemText(i) {
     case 'CLASH': return L`あなたの村のある州で戦いがありました（ターン ${fmtNum(i.bell)}）`;
     default: return i.kind;
   }
+}
+
+/**
+ * (fix-loop7, LP7-8) The careful account behind an item's short sentence, for the toast's hover title: a settled caravan's
+ * arrival details (arrivalView — the bounds, the basis, why a storehouse's intake is not known). '' for any other item.
+ */
+export function itemDetail(i) {
+  const a = i?.kind === 'CARAVAN_SETTLED' && i.tone !== 'uncertain' ? i.facts?.arrival : null;
+  if (!a) return '';
+  const v = arrivalView(a);
+  return v.ok ? [v.text, ...v.details].join(L`。`) : '';
 }
 
 /** The head: what the summary covers (the player's own mark, or a stated window) and what it cannot (a gap, a read that stopped). */

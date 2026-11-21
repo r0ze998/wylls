@@ -17,6 +17,9 @@ import { mergeDonorReturns, mergeKeepEvents, RETIRE_BY_KEEP_DONOR } from '../../
 import * as FEED from '../../permutation-server/web/frontier/hud/feed.mjs';
 import { troopsAtHome } from '../../permutation-server/web/frontier/screens/host.mjs';
 import { villageInUse } from '../../permutation-server/web/frontier/hud/rulebook.mjs';
+import { setS1 } from '../../permutation-server/web/frontier/fs1.mjs';
+import { BUILDINGS } from '../../permutation-server/web/frontier/fi18n.mjs';
+import { buildItemOf, WORKSHOP } from '../../permutation-server/web/frontier/fland.mjs';
 import * as P from '../../permutation-server/web/frontier/flocalplay-pending.mjs';
 import { launcherSilent, createLauncherWatch, launcherLostText, worldStateOf, LAUNCHER_LOST_AFTER } from '../../permutation-server/web/frontier/flocalplay-ended.mjs';
 import { launcherLostBannerView, endedBannerView } from '../../permutation-server/web/frontier/stale-banner.mjs';
@@ -147,6 +150,14 @@ test('B19: a village already in use is not welcomed again', () => {
   assert.equal(villageInUse(null), false);
   for (const [why, over] of [['a build queued', { queue: [{ doneAt: 1234, kind: 1, arg: 0 }] }], ['troops trained', { reserve: [100, 0, 0, 0, 0, 0, 0, 0] }], ['a host was formed once', { hostSeq: 1 }],
     ['a march under way', { transit: [{ state: 1 }] }], ['walls', { walls: 100 }], ['promoted', { tier: 1 }]]) assert.equal(villageInUse({ ...fresh, ...over }), true, why);
+  // (loop-play7: an S1 village with terrain ore (ore +34/h = base 4 + terrain 30) whose terrain is not read yet is not
+  //  "in use": its ore over the tier's base is the terrain's, not mines; the welcome card stood for no such village)
+  setS1({ layoutVersion: 2, programVersion: 4 });
+  try {
+    const oreHome = { ...fresh, queue: [{ doneAt: 0, kind: 0 }], p: -2, q: 0, production: [40000n, 30000n, 20000n, 34000n, 0n, 15000n, 5000n, 0n] };
+    assert.equal(villageInUse(oreHome), false, 'terrain not read: the ore is not taken for mines');
+    assert.equal(villageInUse({ ...oreHome, production: [64000n, 30000n, 20000n, 34000n, 0n, 15000n, 5000n, 0n] }), true, 'two farms built: still in use');
+  } finally { setS1(null); }
   const ctl = src('controller.mjs');
   assert.match(ctl, /  if \(rec\.seen !== grantId\(h\) && !FS\.homeGrant && villageInUse\(h\)\) \{ saveHomePatch\(\{ seen: grantId\(h\) \}\); FS\.homeGrant = null; return; \}\n  if \(rec\.seen !== grantId\(h\)\) \{/,
     'before the card is raised; a card already on screen is left to its own button');
@@ -309,4 +320,14 @@ test('B21: the "About this test world" box — an ended or stopped world is said
     assert.match(said.textContent, /^この世界は終了しました。/, 'a later "running" answer of the keeper does not replace the end');
   } finally { notice.unmount(); }
   assert.equal(sessionNoticeOf(doc), null);
+});
+
+// ------------------------------------------------------------------ loop-play7: the workshop's name in build labels
+test('loop-play7: build labels name the workshop (item 8), not 「の建設を始めました」', () => {
+  assert.equal(BUILDINGS[buildItemOf(WORKSHOP.item)?.resource], '工房');
+  for (const [file, n] of [['controller.mjs', 1], ['app.mjs', 1], ['screens/holding.mjs', 1], ['screens/wideholding.mjs', 1], ['screens/villageorders.mjs', 2], ['people/activity.mjs', 1]]) {
+    const s = src(file);
+    assert.equal((s.match(/BUILDINGS\[BUILD_ITEMS\[/g) ?? []).length, 0, `${file}: no BUILD_ITEMS lookup for a building's name (it has no item 8)`);
+    assert.equal((s.match(/BUILDINGS\[buildItemOf\(/g) ?? []).length, n, file);
+  }
 });

@@ -53,8 +53,10 @@ wide-world-experimental = ["frontier-abi/world-index-experimental"]
 wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 # Q16-1 = A (2026-11-18): the PLAYABLE lane, program version 0x4804 (S1 |
 # wide 0x4000 | dispatch revision 0x0800), as the devnet build
-# `devnet-playable-sbf` (conquest-dispatch-experimental + land-preview) runs
-# it. With this feature 0x4804 is a known version: its ABI v2 instructions
+# `devnet-playable-sbf` (conquest-dispatch-experimental + land-preview until
+# P14 b, 2026-11-22: since then expedition-dispatch-experimental +
+# land-preview; the verifier keeps the conquest codecs to judge the recorded
+# da3dc1aa seasons and the local land lane) runs it. With this feature 0x4804 is a known version: its ABI v2 instructions
 # are judged by the S1 checks, the land preview's FoldLand / ClaimLandYield
 # by VL, the wide land opening (WideSetRules / WideRequestRingSeed /
 # WideConsumeRingSeed / WideOpenProvince), the wide claims (WideClaimSite

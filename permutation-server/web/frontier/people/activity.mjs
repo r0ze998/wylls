@@ -27,7 +27,7 @@
 //   camp       a barbarian camp
 import { L, fmtNum } from '../../lang.mjs';
 import { BUILDINGS, factionName, unitCount } from '../fi18n.mjs';
-import { BUILD_ITEMS, queueItem } from '../fland.mjs';
+import { BUILD_ITEMS, buildItemOf, queueItem } from '../fland.mjs';
 import { RULES, staminaAt, DEPART_STAMINA, troopsOf } from '../fmarch.mjs';
 
 export const NO_BELL = 0xffffffff;
@@ -143,7 +143,7 @@ export function activityText(a, hostInfo = null) {
     case 'depart': return departText(a, a.host !== undefined && a.host !== null ? hostInfo?.(String(a.host)) ?? null : null);
     case 'muster': return L`編成中（ターン ${until} から使えます）`;
     case 'walls': return L`城壁を建設中（ターン ${until} に完成）`;
-    case 'build': return L`${BUILDINGS[BUILD_ITEMS[a.item]?.resource] ?? L`建物`}を建設中`;
+    case 'build': return L`${BUILDINGS[buildItemOf(a.item)?.resource] ?? L`建物`}を建設中`;
     case 'recruit': return L`守備隊を増員中（ターン ${until} から +${fmtNum(a.n ?? 0)}）`;
     case 'explore': return L`探索中`;
     case 'rest': return L`休息中（ターン ${until} に回復）`;

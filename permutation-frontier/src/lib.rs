@@ -99,16 +99,16 @@ compile_error!(
     "devnet-playable-sbf does not carry the NFT resident instructions (nft-experimental)"
 );
 
-// The conquest kinds 12–17 never reach an SBF artefact except through the
-// dedicated conquest lane, so an expedition-lane (or any other) SBF build can
-// never accept them without carrying PSF_LOCALNET_CONQUEST_SBF_BUILD.
+// The conquest kinds 12–18 never reach an SBF artefact except through the
+// dedicated localnet conquest lane, so an expedition-lane, devnet (P14 b, the
+// guard at the end of this file) or any other SBF build can never accept them
+// without carrying PSF_LOCALNET_CONQUEST_SBF_BUILD.
 #[cfg(all(
     target_os = "solana",
     feature = "conquest-dispatch-experimental",
-    not(feature = "localnet-conquest-sbf"),
-    not(feature = "devnet-playable-sbf")
+    not(feature = "localnet-conquest-sbf")
 ))]
-compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf or devnet-playable-sbf (a marker and build script)");
+compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf (a marker and build script)");
 #[cfg(all(
     feature = "localnet-conquest-sbf",
     not(feature = "localnet-expedition-sbf")
@@ -662,3 +662,15 @@ compile_error!("localnet-coexist-sbf extends the localnet land lane only");
 // the three bands routed by the one dispatch.
 #[cfg(all(test, feature = "coexist-experimental"))]
 mod coexist_runtime_tests;
+
+// P14 (b) (owner decision 2026-11-22 01:12 JST): the devnet playable build
+// does not carry the Free City conquest kinds 12–18 (on any target), so the
+// version-2 wrapper refuses them as BadData before reading an account and
+// no conquest record (PSW1 18–24, PS2 145, PSWR, PSWC) can latch keeper A's
+// feed guard. (At the end of the file: no code line above moves, so every
+// other artefact's panic locations, and bytes, stay as they were.)
+#[cfg(all(
+    feature = "devnet-playable-sbf",
+    feature = "conquest-dispatch-experimental"
+))]
+compile_error!("devnet-playable-sbf does not carry the Free City conquest kinds (conquest-dispatch-experimental; P14 b)");

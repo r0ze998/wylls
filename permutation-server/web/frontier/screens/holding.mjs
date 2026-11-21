@@ -18,7 +18,7 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction, garrisonRoom } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, buildItemOf, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction, garrisonRoom } from '../fland.mjs';
 import { settled, buildOffers, promotionOffer, queueNow, queueSlots, trainCost, shortOf, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 import { costChips, costWords, shortWords, took, unitGood, whyText } from '../hud/orderparts.mjs';
 import { holdingName } from '../people/ui.mjs';
@@ -79,7 +79,7 @@ export { queueSlots, buildSecs } from '../hud/rulebook.mjs';
 export const introBuildAvailable = h => (Number(h?.flags ?? 0) & 2) !== 0;
 export const storageCap = tier => [2000, 6000, 15000, 40000][Number(tier)] ?? 2000;
 export const signedRate = n => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs(n))}`;
-export const queueItemLabel = q => { const item = queueBuildingItem(q); return item === 7 ? L`村の昇格` : item !== null ? BUILDINGS[BUILD_ITEMS[item]?.resource] ?? L`建物` : L`維持費の変更`; };
+export const queueItemLabel = q => { const item = queueBuildingItem(q); return item === 7 ? L`村の昇格` : item !== null ? BUILDINGS[buildItemOf(item)?.resource] ?? L`建物` : L`維持費の変更`; };
 
 /** How many buildings stand in sight before the fold. */
 export const BUILD_SHOWN = 3;

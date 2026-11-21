@@ -509,7 +509,7 @@ pub async fn prepare_with(
         state.clone(),
         rpc_port,
         ws_port,
-        localnet::server::Policy::MEMORY_ONLY,
+        localnet::server::Policy::MEMORY_ONLY.with_control_from_env(),
     )
     .await?;
     let mut metadata = json!({"schema": NATURAL_SCHEMA, "world": "natural", "world_preset": PRESET, "runner_instance": runner_instance,
@@ -734,7 +734,7 @@ async fn resume_world(
         state.clone(),
         rpc_port,
         ws_port,
-        localnet::server::Policy::MEMORY_ONLY,
+        localnet::server::Policy::MEMORY_ONLY.with_control_from_env(),
     )
     .await?;
     let mut metadata = json!({"schema": NATURAL_SCHEMA, "world": "natural", "world_preset": PRESET, "runner_instance": runner_instance,

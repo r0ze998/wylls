@@ -31,7 +31,7 @@ import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { BUILDINGS, TIERS, unitCount, clientText } from '../fi18n.mjs';
-import { BUILD_ITEMS, UNIT_ORDER } from '../fland.mjs';
+import { BUILD_ITEMS, buildItemOf, UNIT_ORDER } from '../fland.mjs';
 import { copyNumber, queueNow, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 
 /** The kinds of order the village screen gives. */
@@ -65,7 +65,7 @@ export function orderOutcome(o) {
 export function villageOrderName(o) {
   switch (o.kind) {
     case 'harvest': return L`収穫`;
-    case 'build': return L`${BUILDINGS[BUILD_ITEMS[o.item]?.resource] ?? ''}の建設`;
+    case 'build': return L`${BUILDINGS[buildItemOf(o.item)?.resource] ?? ''}の建設`;
     case 'walls': return L`城壁の工事`;
     case 'promote': return L`${TIERS[o.to] ?? ''}への昇格`;
     case 'train': return Number.isInteger(o.unit) && Number.isFinite(o.n) ? L`${unitCount(UNIT_ORDER[o.unit], o.n)}の訓練` : L`訓練`;
@@ -181,7 +181,7 @@ export const villageRereadOffered = FS => !!FS.wallet && !FS.proto && FS.mode ==
 /** The record's own fact beside an unknown order: what it holds now, and that it does not say whose order made it. */
 function factWords(f) {
   if (!f) return '';
-  if (f.kind === 'build') return L`いま読めている村の記録では、${BUILDINGS[BUILD_ITEMS[f.item]?.resource] ?? ''}は ${fmtNum(f.count)} つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。`;
+  if (f.kind === 'build') return L`いま読めている村の記録では、${BUILDINGS[buildItemOf(f.item)?.resource] ?? ''}は ${fmtNum(f.count)} つです（建設中を含みます）。この命令で増えたものかどうかは、記録からは分かりません。`;
   return f.queued ? L`いま読めている村の記録では、昇格の工事が列にあります。この命令によるものかどうかは、記録からは分かりません。`
     : L`いま読めている村の記録では、段階は${TIERS[f.tier] ?? ''}です。昇格の工事は列にありません。`;
 }
