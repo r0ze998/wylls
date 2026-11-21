@@ -111,6 +111,11 @@ node "$ROOT/permutation-gateway/src/frontier/local-play-launcher.mjs" --root "$R
   worlds). All of them and the launcher's port must be within 41000–41999, must not overlap, and must avoid 41904–41907.
 - **Disk:** the launcher starts no world while the records directory's disk has less than 5.25 GiB free, and it stops a
   running world when free space falls below that, or when that world's records pass 128 MiB.
+- **Ending a world from the page:** the launcher prints its `open` address with an owner proof in the fragment
+  (`http://localhost:41920/#owner=<43 characters>`, new for each launcher start; `scripts/play-local.sh` opens it). Only a
+  page opened at that address can end a world from the list of running worlds (`/local-play/stop {wallet, owner}`); a
+  page opened at the bare address plays as before but is refused that end (403 `NotWorldOwner`). A world's public address
+  alone never ends it, so an admitted external resident (`--external-residents`; workstreams/03-composability/mcp/examples/external-resident/README.md) cannot stop the world it lives in.
 
 ### (2) Capture demo (TEST-ONLY)
 Add both words to the natural command above:
