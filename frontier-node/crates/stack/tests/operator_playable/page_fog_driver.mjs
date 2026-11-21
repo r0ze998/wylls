@@ -102,11 +102,20 @@ async function open(who) {
   const s = await until('devnet play and the test wallet', x => x.devnetPlay && x.walletList.some(w => w.name.startsWith('Test Wallet') && !w.why), 180);
   await page.evaluate(i => { const b = document.createElement('button'); b.dataset.act = 'connect'; b.dataset.i = String(i); b.style.display = 'none'; document.body.appendChild(b); b.click(); b.remove(); }, s.walletList.findIndex(w => w.name.startsWith('Test Wallet')));
   const v = await until('the observer\'s village and the fog', x => !!x.wallet && x.holdings > 0 && x.fogOn, 600);
+  // (a returning player first sees the title: its 「村へ戻る」 opens the map)
+  await page.locator('button[data-act="intro-close"]:visible').first().click({ timeout: 8000 }).catch(() => log(who, 'no title button (continuing)'));
+  await page.waitForTimeout(2500);
   log(who, 'ready', v);
   let n = 0;
-  return { who, page, eval: js => page.evaluate(js), shot: async name => { const f = `${String(++n).padStart(2, '0')}-${name}.png`; await page.screenshot({ path: path.join(dir, f) }); return f; } };
+  // (between snapshots an observer's tab is FROZEN — CDP Page.setWebLifecycleState — so three pages do not compete with
+  //  player A's for the machine: run1's A tab crashed under load. It is made active again, and given 20 s to read the
+  //  herald, before each snapshot)
+  const cdp = await ctx.newCDPSession(page);
+  const life = state => cdp.send('Page.setWebLifecycleState', { state }).catch(e => log(who, 'lifecycle', state, String(e).slice(0, 120)));
+  return { who, page, life, eval: js => page.evaluate(js), shot: async name => { const f = `${String(++n).padStart(2, '0')}-${name}.png`; await page.screenshot({ path: path.join(dir, f) }); return f; } };
 }
 const B = await open('B'), C = await open('C');
+await B.life('frozen'); await C.life('frozen');
 fs.writeFileSync(path.join(SYNC, 'fog-ready.json'), JSON.stringify({ at: Date.now() }));
 log('both observers ready');
 
@@ -119,7 +128,7 @@ async function snapshot(pg, label, go) {
   const s = await pg.eval(SNAP(FOCUS));
   const shots = [];
   // (player A's own driver is pressing its march: its camera is not moved before the end, only its view is shot)
-  if (pg.who === 'A' && label !== 'final') { try { shots.push(await pg.shot(`${label}-view`)); } catch (e) { log('A', 'still failed', String(e).slice(0, 200)); } s.stills = shots; fs.writeFileSync(path.join(SYNC, `fog-${pg.who}-${label}.json`), JSON.stringify(s)); return; }
+  if (pg.who === 'A' && label !== 'final') { try { shots.push(await pg.shot(`${label}-view`)); } catch (e) { log('A', 'still failed', String(e).slice(0, 200)); } s.stills = shots; fs.writeFileSync(path.join(SYNC, `fog-${pg.who}-${label}.json`), JSON.stringify(s)); fs.mkdirSync(path.join(OUT, 'A'), { recursive: true }); fs.writeFileSync(path.join(OUT, 'A', `snapshot-${label}.json`), JSON.stringify(s, null, 1)); return; }
   try {
     await pg.eval(SHOT_JS(K.p, K.q, 0.6)); await new Promise(r => setTimeout(r, 3500));
     shots.push(await pg.shot(`${label}-map-at-keep`));
@@ -129,6 +138,8 @@ async function snapshot(pg, label, go) {
   } catch (e) { log(pg.who, 'still failed', String(e).slice(0, 200)); }
   s.stills = shots;
   fs.writeFileSync(path.join(SYNC, `fog-${pg.who}-${label}.json`), JSON.stringify(s));
+  fs.mkdirSync(path.join(OUT, pg.who), { recursive: true });
+  fs.writeFileSync(path.join(OUT, pg.who, `snapshot-${label}.json`), JSON.stringify(s, null, 1));
   log(pg.who, label, { fogOn: s.fogOn, mode: s.fogMode, clash: s.clashAtKeep, keeps: s.keeps.shown, told: s.chronicle.filter(c => c.told).map(c => c.name), raw: s.chronicle.map(c => c.name) });
 }
 const done = new Set();
@@ -138,7 +149,10 @@ for (;;) {
     if (!m || done.has(m[1])) continue;
     done.add(m[1]);
     let go = null; try { go = JSON.parse(fs.readFileSync(path.join(SYNC, f), 'utf8')); } catch { go = null; }
+    await B.life('active'); await C.life('active');
+    await new Promise(r => setTimeout(r, 20_000));
     for (const pg of [pageA, B, C]) await snapshot(pg, m[1], go).catch(e => log(pg.who, 'snapshot failed', String(e).slice(0, 300)));
+    if (m[1] !== 'final') { await B.life('frozen'); await C.life('frozen'); }
     fs.writeFileSync(path.join(SYNC, `fog-done-${m[1]}.json`), JSON.stringify({ at: Date.now() }));
     if (m[1] === 'final') { await browser.close(); process.exit(0); }
   }

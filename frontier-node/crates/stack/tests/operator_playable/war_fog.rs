@@ -90,23 +90,53 @@ pub(super) async fn setup(
             .and_then(|v| v.cq.and_then(|c| c.keep))
             .map(|k| k.holder)
     };
-    let y = keep.holder;
+    // B: preferably a village IN the keep's province, on the free site nearest the keep tile and within a hamlet's sight
+    // of it (map/survey.mjs SIGHT.village(0) = 4), of that province's nation — so the keep is in B's own vision (run1:
+    // the keep's holder nation did not count the rim keep as its territory on the page, and a far village of that
+    // nation never saw it). Else a province of the keep's holder nation, as far from A's home as possible.
+    let tile_dist = |a: u8, b: u8| {
+        let (Some(x), Some(y)) = (tile_offset(a), tile_offset(b)) else {
+            return i32::MAX;
+        };
+        let (dq, dr) = (x.q - y.q, x.r - y.r);
+        (dq.abs() + dr.abs() + (dq + dr).abs()) / 2
+    };
+    let in_keep = nation_of(tp, tq)
+        .filter(|n| *n != a_nation && *n < 6)
+        .and_then(|n| {
+            let pd = r.data(&r.c.a.province(tp, tq))?;
+            let v = r.province_of(tp, tq)?;
+            (0..pd[PV::SITE_COUNT] as usize)
+                .filter(|i| {
+                    matches!(
+                        pd[PV::site(*i) + SM::STATE],
+                        SM::STATE_FREE | SM::STATE_RELEASED_FREE
+                    )
+                })
+                .map(|i| (tile_dist(v.sites[i], keep.tile), i as u8, v.sites[i]))
+                .filter(|(d, _, _)| *d <= 4)
+                .min()
+                .map(|(d, site, tile)| (n, site, tile, d))
+        });
+    let y = in_keep.map(|x| x.0).unwrap_or(keep.holder);
     assert!(
         y < 6 && y != a_nation,
-        "the keep's holder {y} is another nation"
+        "the observer B's nation {y} is another nation"
     );
-    // B: a province of Y (not the keep's, not A's), as far from A's home as possible
-    let (bp, bq) = plan
-        .iter()
-        .copied()
-        .filter(|&(p, q)| {
-            (p, q) != (tp, tq)
-                && (p, q) != (hp, hq)
-                && nation_of(p, q) == Some(y)
-                && free_site(r, p, q).is_some()
-        })
-        .max_by_key(|&c| pdist(c, (hp, hq)))
-        .unwrap_or_else(|| panic!("no rim province of the keep's nation {y} with a free site"));
+    let (bp, bq) = if in_keep.is_some() {
+        (tp, tq)
+    } else {
+        plan.iter()
+            .copied()
+            .filter(|&(p, q)| {
+                (p, q) != (tp, tq)
+                    && (p, q) != (hp, hq)
+                    && nation_of(p, q) == Some(y)
+                    && free_site(r, p, q).is_some()
+            })
+            .max_by_key(|&c| pdist(c, (hp, hq)))
+            .unwrap_or_else(|| panic!("no rim province of the keep's nation {y} with a free site"))
+    };
     // C: a third nation Z and a province of Z maximising the distance of C's home AND of every keep Z holds from A's
     // home and the keep
     let mut best: Option<(i32, u8, (i32, i32))> = None;
@@ -143,7 +173,11 @@ pub(super) async fn setup(
             tile,
         }
     };
-    let obs_b = mk(r, y, (bp, bq));
+    let mut obs_b = mk(r, y, (bp, bq));
+    if let Some((_, site, tile, _)) = in_keep {
+        obs_b.site = site;
+        obs_b.tile = tile;
+    }
     let obs_c = mk(r, z, (cp, cq_));
     let ca = r.c.a.clone();
     for (who, o) in [("B", &obs_b), ("C", &obs_c)] {
@@ -232,7 +266,8 @@ pub(super) async fn setup(
         "A": {"nation": a_nation, "home": [hp, hq], "village_tile": a_tile, "march_origin_tile": start},
         "keep": {"p": tp, "q": tq, "tile": keep.tile, "holder": y},
         "B": {"wallet": obs_b.key.pubkey().to_string(), "nation": y, "home": [bp, bq], "site": obs_b.site, "tile": obs_b.tile,
-              "province_distance_from_A": pdist((bp, bq), (hp, hq)), "province_distance_from_keep": pdist((bp, bq), (tp, tq))},
+              "province_distance_from_A": pdist((bp, bq), (hp, hq)), "province_distance_from_keep": pdist((bp, bq), (tp, tq)),
+              "in_keep_province": in_keep.is_some(), "tile_distance_to_keep_tile": in_keep.map(|x| x.3), "keep_holder": keep.holder},
         "C": {"wallet": obs_c.key.pubkey().to_string(), "nation": z, "home": [cp, cq_], "site": obs_c.site, "tile": obs_c.tile,
               "min_province_distance_of_C_and_its_nation_keeps_from_A_and_keep": c_score},
         "focus": focus,
