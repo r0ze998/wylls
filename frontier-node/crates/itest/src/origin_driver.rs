@@ -26,9 +26,8 @@ use fclient::addr::Addresses;
 use fclient::ix::{
     gather_clash, post_seed, resolve_from_inputs, AnchorSource, BeaconArg, SeedSource,
 };
-use fclient::{AccountMeta, Address, Instruction, Keypair, Signer};
+use fclient::{Address, Instruction, Keypair, Signer};
 use frontier_abi::addr::AddrCtx;
-use frontier_abi::world_index::{expedition_dispatch_ix as dx, wide_ix as wix};
 use localnet::server::{lock, Shared};
 use std::time::Duration;
 
@@ -150,24 +149,15 @@ impl OriginDriver {
     }
 
     fn settle_origin_ix(&self, slot: u8) -> Instruction {
-        let home = self.a.province(self.home.0.into(), self.home.1.into());
-        let data = dx::encode(
-            dx::Kind::SettleOrigin,
-            &wix::ExpeditionSettleOrigin { transit_slot: slot }.to_bytes(),
+        // (one copy: `keeper_core::expedition_steps`, also keeper A's `expeditions` role, P13)
+        keeper_core::expedition_steps::settle_origin_ix(
+            &self.a,
+            &self.payer.pubkey(),
+            (self.home.0 as i32, self.home.1 as i32),
+            &self.holding,
+            slot,
         )
-        .expect("a SettleOrigin wire");
-        Instruction {
-            program_id: self.a.program,
-            accounts: vec![
-                AccountMeta::new(self.payer.pubkey(), true),
-                AccountMeta::new_readonly(self.a.season, false),
-                AccountMeta::new(home, false),
-                AccountMeta::new(self.holding, false),
-                AccountMeta::new(home, false),
-                AccountMeta::new(self.external(slot), false),
-            ],
-            data,
-        }
+        .expect("a SettleOrigin wire")
     }
 
     /// At most one transaction; see the module doc for the order. After an

@@ -94,6 +94,9 @@ pub struct Page {
     pub out: std::path::PathBuf,
 }
 
+/// P11 (devnet-expedition-keeper): the rim → wide expedition.
+#[path = "expedition.rs"]
+pub mod expedition;
 /// P8/P9 (devnet-page-war): the legacy war after the rim opened ([`war`]).
 #[path = "war.rs"]
 pub mod war;
@@ -110,8 +113,15 @@ pub struct War {
 pub struct Ctx<'a> {
     /// P5: keeper A runs the wide rings (P6) and the `wide-tickets` role (P7).
     pub keeper_wide: bool,
+    /// P5: the wide rings keeper A opens ([`WIDE_RINGS`]; P11: 1).
+    pub wide_rings: u64,
+    /// P11: the rim → wide expedition ([`expedition`]).
+    pub expedition: bool,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,
+    /// P11 with `OPERATOR_P11_RESTARTS=1` (verify-pr121): keeper A is killed and restarted from the same config and
+    /// journal at three points of the expedition; every step must still land exactly once.
+    pub p11_restarts: Option<Restart>,
     /// P7: the page is the participant.
     pub page: Option<Page>,
     /// P8/P9: the legacy war (P9 with `page`).
@@ -740,7 +750,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
         assert_eq!(r.bell(), rim_bell, "the rim opened within ring 128's bell");
         r.lock().set_paused(true);
         r.witness = Some(Witness::default());
-        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_RINGS {
+        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + r.c.wide_rings {
             let since = r.lock().slot();
             let prev = if ring == FIRST_WIDE_RING {
                 rim_bell
@@ -849,6 +859,15 @@ pub async fn run(c: Ctx<'_>) -> Value {
         .find(|c| c.ring() == FIRST_WIDE_RING && (!keeper_wide || plan129.contains(c)))
         .expect("the rim province borders ring 129 (P5: a province keeper A opened)");
 
+    // P11: the rim → wide expedition into `target` (keeper A drives every step after the Depart).
+    if r.c.expedition {
+        let extra = json!({
+            "rim_plan": {"per_wedge": PER_WEDGE, "provinces": plan.len(), "opened_by": "keeper A rings duty (rim_per_wedge)",
+                         "wall_secs": rim_secs, "open_province_txs": rim_open},
+            "wide_rings": ring_rounds, "wide_ring_txs": wide_ring_txs.len(), "verifier_vwl_rings_segment": vwl_rings,
+        });
+        return expedition::flow(&mut r, (rp, rq, rsite, nation), target, extra).await;
+    }
     // P8/P9: the legacy war from the rim (P9: the page is the participant).
     if r.c.war.is_some() {
         let extra = json!({

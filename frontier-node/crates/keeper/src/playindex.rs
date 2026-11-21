@@ -42,6 +42,32 @@ pub struct DepartRec {
     pub slot: u64,
 }
 
+/// A rim → wide expedition transit as its records announced it (P10; read
+/// by keeper A's `expeditions` role, P13, which plans from the chain).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExpTrack {
+    pub holding: Address,
+    pub slot: u8,
+    /// The legacy origin province (its bell holds the pending Spend).
+    pub home: (i16, i16),
+    /// The bell of the Depart record.
+    pub depart_bell: u32,
+    /// The wire of every landed transaction with a Depart or Reveal record of
+    /// this transit (the evidence `expedition_steps::evidence_of` checks
+    /// against the bridge record's seal root), at most [`EXP_WIRES`].
+    pub wires: Vec<Vec<u8>>,
+    /// A settlement, failure or terminal record of this transit was seen.
+    pub ended: bool,
+    /// Slot of the latest record.
+    pub slot_seen: u64,
+}
+
+/// Evidence wires kept per expedition transit (a Depart and a Reveal, and
+/// a few more for a refused or repeated one).
+pub const EXP_WIRES: usize = 8;
+/// Expedition transits tracked at most (the oldest ended ones go first).
+pub const EXP_TRACKED: usize = 4_096;
+
 /// A REVEAL record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RevealRec {
@@ -95,6 +121,8 @@ pub struct PlayIndex {
     pub cq_logs: Vec<(u64, fclient::conquest::CqLog)>,
     /// MC records dropped because the queue was full (a long catch-up).
     pub cq_dropped: u64,
+    /// P10: rim → wide expedition transits, by bridge transit record.
+    pub expeditions: BTreeMap<Address, ExpTrack>,
 }
 
 fn fld<'a>(r: &plog::Record<'a>, name: &str) -> Option<&'a [u8]> {
@@ -165,6 +193,10 @@ impl PlayIndex {
             };
             // (P8: PSW1 records accounted for, never applied to this index)
             self.feed.account_wide(&bodies.wide);
+            for f in &bodies.expedition {
+                self.apply_expedition(f, tx);
+                n += 1;
+            }
             for b in bodies.ps2 {
                 self.ingest(&b, tx.slot);
                 n += 1;
@@ -172,6 +204,107 @@ impl PlayIndex {
             self.cursor = Cursor(tx.seq);
         }
         n
+    }
+
+    /// P10: what an expedition record changes here. The home province is
+    /// re-read (a Depart's pending Spend makes its bell NotQuiet, a
+    /// SettleOrigin frees the entry, a settlement may bring the host home as
+    /// a pending muster); the transit is tracked for the `expeditions` role
+    /// with the wire of its Depart and Reveal (the role checks them against
+    /// the chain's bridge record before anything is planned).
+    pub fn apply_expedition(
+        &mut self,
+        f: &crate::feedguard::ExpeditionFact,
+        tx: &fclient::ports::TxRecord,
+    ) {
+        use crate::feedguard::ExpeditionFact as F;
+        match f {
+            F::Source {
+                settle_origin,
+                holding,
+                slot,
+                external,
+                home,
+                bell,
+            } => {
+                self.touched.insert(*home);
+                let e = self
+                    .expeditions
+                    .entry(*external)
+                    .or_insert_with(|| ExpTrack {
+                        holding: *holding,
+                        slot: *slot,
+                        home: *home,
+                        depart_bell: *bell,
+                        wires: vec![],
+                        ended: false,
+                        slot_seen: tx.slot,
+                    });
+                if !settle_origin {
+                    if e.ended || e.depart_bell != *bell {
+                        // (a reused transit slot: a new march)
+                        e.wires.clear();
+                        e.ended = false;
+                    }
+                    e.depart_bell = *bell;
+                    if e.wires.len() < EXP_WIRES {
+                        e.wires.push(tx.tx.clone());
+                    }
+                }
+                e.slot_seen = tx.slot;
+            }
+            F::Producer {
+                reveal: Some((_, _, external)),
+                ..
+            } => {
+                if let Some(e) = self.expeditions.get_mut(external) {
+                    if e.wires.len() < EXP_WIRES {
+                        e.wires.push(tx.tx.clone());
+                    }
+                    e.slot_seen = tx.slot;
+                }
+            }
+            F::Producer { .. } => {}
+            F::Settled { external, home, .. } => {
+                self.touched.insert(*home);
+                if let Some(e) = self.expeditions.get_mut(external) {
+                    e.ended = true;
+                    e.slot_seen = tx.slot;
+                }
+            }
+            F::Resident { home, .. } => {
+                self.touched.insert(*home);
+            }
+            F::Failure {
+                holding,
+                home,
+                slot,
+            } => {
+                self.touched.insert(*home);
+                self.end_of(holding, *slot, tx.slot);
+            }
+            F::Terminal { holding, slot } => self.end_of(holding, *slot, tx.slot),
+        }
+        if self.expeditions.len() > EXP_TRACKED {
+            if let Some(k) = self
+                .expeditions
+                .iter()
+                .filter(|(_, e)| e.ended)
+                .min_by_key(|(_, e)| e.slot_seen)
+                .map(|(k, _)| *k)
+            {
+                self.expeditions.remove(&k);
+            }
+        }
+    }
+
+    fn end_of(&mut self, holding: &Address, slot: u8, at: u64) {
+        for e in self.expeditions.values_mut() {
+            if e.holding == *holding && e.slot == slot {
+                e.ended = true;
+                e.slot_seen = at;
+            }
+        }
     }
 
     /// The live transit of `host` (its latest DEPART).

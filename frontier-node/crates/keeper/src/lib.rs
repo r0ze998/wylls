@@ -55,6 +55,14 @@ pub mod clusterfeed;
 pub mod config;
 pub mod conquest;
 pub mod engine;
+/// P13: the rim → wide expedition's steps after the Depart (one copy; the
+/// `expeditions` role and the local runner's drivers).
+#[cfg(feature = "playable-lane")]
+pub mod expedition_steps;
+/// P13: the `expeditions` role (SettleOrigin, the wide Reveal, Gather, the
+/// destination's Resolve, SettleMember).
+#[cfg(feature = "playable-lane")]
+pub mod expeditions;
 /// Bounded one-shot preparation of the wallet-signed wide DeclareSiege (conquest lane).
 #[cfg(feature = "expedition-dispatch-experimental")]
 pub mod experimental_conquest_prepare;
@@ -205,6 +213,9 @@ fn role_of_key(key: &str) -> Option<&'static str> {
         "close" => Some("close"),
         "claim" => Some("claims"),
         "wide-settle" | "wide-final" => Some("wide-tickets"),
+        "exp-origin" | "exp-reveal" | "exp-gather" | "exp-resolve" | "exp-settle" => {
+            Some("expeditions")
+        }
         _ => None,
     }
 }
@@ -355,6 +366,9 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     /// P7 (`playable-lane`): the `wide-tickets` role.
     #[cfg(feature = "playable-lane")]
     pub wide_tickets: widetickets::WideTicketDuty,
+    /// P13 (`playable-lane`): the `expeditions` role.
+    #[cfg(feature = "playable-lane")]
+    pub expeditions: expeditions::ExpeditionDuty,
     pub explore: ExploreDuty,
     pub holdings: HoldingDuty,
     pub index: LandIndex,
@@ -530,6 +544,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             tickets: TicketDuty::default(),
             #[cfg(feature = "playable-lane")]
             wide_tickets: widetickets::WideTicketDuty::default(),
+            #[cfg(feature = "playable-lane")]
+            expeditions: expeditions::ExpeditionDuty::default(),
             explore: ExploreDuty::default(),
             holdings: HoldingDuty::default(),
             index: LandIndex::default(),
@@ -947,6 +963,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         self.payers.reveal.ceiling = fr.saturating_mul(2);
         self.engine.budgets = b;
         self.budgets_version = v;
+    }
+
+    fn expeditions_status(&self) -> Value {
+        #[cfg(feature = "playable-lane")]
+        {
+            self.expeditions.status()
+        }
+        #[cfg(not(feature = "playable-lane"))]
+        {
+            Value::Null
+        }
     }
 
     fn wide_tickets_status(&self) -> Value {
@@ -1426,6 +1453,27 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 } else {
                     Ok(())
                 };
+                // P13: the rim → wide expeditions (after the play duty read the provinces; its next
+                // plan takes the departure bells handed over here)
+                #[cfg(feature = "playable-lane")]
+                let r4 = if r2.is_ok() {
+                    self.expeditions
+                        .plan(
+                            &t,
+                            &self.port,
+                            &self.drand,
+                            &mut self.rounds,
+                            &mut self.engine,
+                            &mut self.play,
+                            &mut self.seeds,
+                            &self.beacon.anchors,
+                        )
+                        .await
+                } else {
+                    Ok(())
+                };
+                #[cfg(not(feature = "playable-lane"))]
+                let r4: fclient::ports::PortResult<()> = Ok(());
                 self.play.guard_reveals(&t, &mut self.engine);
                 let blocking = self.play.blocking(&t, &self.engine);
                 {
@@ -1446,6 +1494,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 }
                 r2.map_err(|e| e.to_string())?;
                 r3.map_err(|e| e.to_string())?;
+                r4.map_err(|e| e.to_string())?;
                 for (s0, d) in std::mem::take(&mut self.play.conquest.alerts) {
                     self.alert(s0, "horn-rate", d);
                 }
@@ -1549,6 +1598,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             #[cfg(feature = "playable-lane")]
             if k.starts_with("wide-") {
                 self.wide_tickets.on_outcome(k, o);
+            }
+            #[cfg(feature = "playable-lane")]
+            if expeditions::is_key(k) {
+                self.expeditions.on_outcome(k, o);
             }
             self.play
                 .conquest
@@ -1810,6 +1863,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "wide_rings_waiting": self.rings.wide.waiting,
                 "wide_rings_unsupported": self.rings.wide.unsupported,
                 "wide_tickets": self.wide_tickets_status(),
+                "expeditions": self.expeditions_status(),
                 "folded_bells": self.fold.folded.len(),
                 "tickets_open": self.index.tickets.len(),
                 "tickets_settled": self.tickets.settled.len(),

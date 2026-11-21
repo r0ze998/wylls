@@ -72,7 +72,10 @@ pub const ROLES: [&str; 16] = [
 /// stack's and the tests' all-roles keepers stay what they were):
 /// `wide-tickets` settles the wide claims (WideSettleTicket 0xDC) and
 /// finalizes the wide villages (WideFinalize 0xDF), [`crate::widetickets`].
-pub const WIDE_ROLES: [&str; 1] = ["wide-tickets"];
+/// `expeditions` (P13) sends the rim → wide expedition's steps after the
+/// player's Depart ([`crate::expeditions`]); it needs `gather` and `resolve`
+/// (the origin's departure bell) and `beacon` (anchors and seeds).
+pub const WIDE_ROLES: [&str; 2] = ["wide-tickets", "expeditions"];
 
 /// The most wide rings the `rings` duty opens (`wide_rings`): rings
 /// 129..=136. The devnet profile asks for 3 (129–131, the local wide world).
@@ -495,7 +498,7 @@ impl KeeperConfig {
         let wants = self.wide_rings > 0 || WIDE_ROLES.iter().any(|r| self.has_role(r));
         if wants && !PLAYABLE_LANE {
             return Err(
-                "`wide_rings` / role `wide-tickets` need a keeper built with `--features playable-lane`"
+                "`wide_rings` / roles `wide-tickets`, `expeditions` need a keeper built with `--features playable-lane`"
                     .into(),
             );
         }
@@ -504,6 +507,15 @@ impl KeeperConfig {
         }
         if self.wide_rings > 0 && self.wide_per_wedge == 0 {
             return Err("`wide_rings` needs `wide_per_wedge` ≥ 1".into());
+        }
+        if self.has_role("expeditions") {
+            for r in ["beacon", "gather", "resolve"] {
+                if !self.has_role(r) {
+                    return Err(format!(
+                        "role `expeditions` needs role `{r}` (the origin's departure bell, anchors and seeds)"
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -837,8 +849,37 @@ mod tests {
             );
             assert!(KeeperConfig::from_toml(&no_rings).is_err());
         }
-        // (the wide role is never part of an all-roles keeper)
+        // (the wide roles are never part of an all-roles keeper)
         assert!(!ROLES.contains(&WIDE_ROLES[0]));
+        assert!(!ROLES.contains(&WIDE_ROLES[1]));
+        // P13: `expeditions` only in a `playable-lane` build, and with `beacon`, `gather` and `resolve`
+        let exp = |roles: &str| text.replace("[\"beacon\", \"archive\", \"rings\"]", roles);
+        let full =
+            exp("[\"beacon\", \"archive\", \"rings\", \"gather\", \"resolve\", \"expeditions\"]");
+        match (KeeperConfig::from_toml(&full), PLAYABLE_LANE) {
+            (Ok(c), true) => assert!(c.has_role("expeditions")),
+            (Err(e), false) => assert!(e.contains("playable-lane"), "{e}"),
+            (r, lane) => panic!("playable-lane build {lane}: {:?}", r.err()),
+        }
+        if PLAYABLE_LANE {
+            for missing in ["gather", "resolve", "beacon"] {
+                let roles = [
+                    "beacon",
+                    "archive",
+                    "rings",
+                    "gather",
+                    "resolve",
+                    "expeditions",
+                ]
+                .iter()
+                .filter(|r| **r != missing)
+                .map(|r| format!("\"{r}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+                let e = KeeperConfig::from_toml(&exp(&format!("[{roles}]"))).unwrap_err();
+                assert!(e.contains(missing), "{missing}: {e}");
+            }
+        }
     }
 
     #[test]

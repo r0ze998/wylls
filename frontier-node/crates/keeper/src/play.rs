@@ -212,6 +212,12 @@ pub struct PlayStats {
 
 #[derive(Default)]
 pub struct PlayDuty {
+    /// P13 (`playable-lane`, the `expeditions` role): the legacy home bells
+    /// `(P, Q, depart_bell)` of rim → wide expeditions whose origin is not
+    /// resolved yet. The Depart's pending Spend makes such a bell NotQuiet
+    /// (no DEPART record names it), so the skip run stops before it and the
+    /// bell is gathered (no arrivals) and resolved as a clash bell.
+    pub expedition_bells: BTreeSet<(i16, i16, u32)>,
     /// Resolve writes in flight: key → the slot estimate of their bell's
     /// close (`resolve_latency` is taken when the resolve lands).
     resolve_close: BTreeMap<String, u64>,
@@ -1932,11 +1938,17 @@ impl PlayDuty {
         if self.nudged.contains_key(&pq) {
             return Some(s.rn);
         }
+        let expeditions = self
+            .expedition_bells
+            .iter()
+            .filter(|e| (e.0, e.1) == pq)
+            .map(|e| e.2);
         let own = s
             .settle_bells
             .iter()
             .copied()
-            .chain(s.leaves.iter().map(|l| l.2));
+            .chain(s.leaves.iter().map(|l| l.2))
+            .chain(expeditions);
         let marches = self.index.departs.iter().filter_map(|(k, d)| {
             if self.index.settled.contains_key(k) {
                 return None;
@@ -2047,7 +2059,11 @@ impl PlayDuty {
                 continue;
             }
             let bit = self.day_bit(t, port, pq, b, Some(close)).await?;
-            if bit || s.contested || self.not_quiet.contains(&(pq.0, pq.1, b)) {
+            if bit
+                || s.contested
+                || self.not_quiet.contains(&(pq.0, pq.1, b))
+                || self.expedition_bells.contains(&(pq.0, pq.1, b))
+            {
                 self.clash_bell(t, port, engine, beacon, seeds, pq, &s, b, an, close, bit)
                     .await?;
                 continue;
@@ -2073,7 +2089,9 @@ impl PlayDuty {
                 if t.now < c2 || self.day_bit(t, port, pq, bb, Some(c2)).await? {
                     break;
                 }
-                if self.not_quiet.contains(&(pq.0, pq.1, bb)) {
+                if self.not_quiet.contains(&(pq.0, pq.1, bb))
+                    || self.expedition_bells.contains(&(pq.0, pq.1, bb))
+                {
                     break;
                 }
                 recomputed += u32::from(s.pending_bells.contains(&bb));

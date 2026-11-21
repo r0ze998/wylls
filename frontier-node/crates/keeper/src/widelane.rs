@@ -257,12 +257,16 @@ pub fn finalize(a: &Addresses, payer: Address, coord: WideCoord, site: u8) -> In
 /// displacing form is not measured); WideFinalize 6,424. Limits: about
 /// 20 % over the largest (more for the unmeasured displacing settle). The
 /// engine's retry ladder doubles a limit that is exceeded (I-50).
-pub const WIDE_BUDGETS: [(WideIxTag, u32); 5] = [
+pub const WIDE_BUDGETS: [(WideIxTag, u32); 6] = [
     (WideIxTag::RequestRingSeed, 25_000),
     (WideIxTag::ConsumeRingSeed, 400_000),
     (WideIxTag::OpenProvince, 650_000),
     (WideIxTag::SettleTicket, 45_000),
     (WideIxTag::Finalize, 15_000),
+    // (P13: the expedition wrapper's ExpeditionReveal, class tag 0xEE, the `expeditions` role; its other steps are
+    //  0xDC. Without this row the Reveal went out at the canonical default loaded-data limit and the runtime refused
+    //  it, MaxLoadedAccountsDataSizeExceeded: P10 run 1)
+    (WideIxTag::Reveal, crate::expeditions::CU_REVEAL),
 ];
 /// Adds [`WIDE_BUDGETS`] to a table that has no row for them (an
 /// operator's `budgets_file` row wins), at the lane's loaded limit.

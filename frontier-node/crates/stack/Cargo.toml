@@ -43,6 +43,9 @@ flate2.workspace = true
 # P4 (Q-W1) judges its wide claim segment with the verifier's playable-lane VWL check (tests only; the operator
 # binary's own build is unchanged).
 verify = { path = "../verify", features = ["playable-lane"] }
+# P10 (devnet-expedition-keeper): the test participant's ExpeditionDepart is the canonical prepared message
+# (`fclient::experimental_expedition_message::prepare_depart`, the wide seal); tests only.
+fclient = { workspace = true, features = ["expedition-dispatch-experimental"] }
 
 [features]
 # Devnet blocker B3, owner decision B7: frontier-operator's playable-lane
