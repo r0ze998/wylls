@@ -75,7 +75,10 @@ pub const ROLES: [&str; 16] = [
 /// `expeditions` (P13) sends the rim → wide expedition's steps after the
 /// player's Depart ([`crate::expeditions`]); it needs `gather` and `resolve`
 /// (the origin's departure bell) and `beacon` (anchors and seeds).
-pub const WIDE_ROLES: [&str; 2] = ["wide-tickets", "expeditions"];
+/// `wide-resolve` (P9) keeps every known wide province resolved bell by bell
+/// (the quiet wide Resolve 0xDC op 1), so a wide village stays resident for
+/// WideMuster / WideGarrison ([`crate::wideresolve`]); it needs `beacon`.
+pub const WIDE_ROLES: [&str; 3] = ["wide-tickets", "expeditions", "wide-resolve"];
 
 /// The most wide rings the `rings` duty opens (`wide_rings`): rings
 /// 129..=136. The devnet profile asks for 3 (129–131, the local wide world).
@@ -498,7 +501,7 @@ impl KeeperConfig {
         let wants = self.wide_rings > 0 || WIDE_ROLES.iter().any(|r| self.has_role(r));
         if wants && !PLAYABLE_LANE {
             return Err(
-                "`wide_rings` / roles `wide-tickets`, `expeditions` need a keeper built with `--features playable-lane`"
+                "`wide_rings` / roles `wide-tickets`, `expeditions`, `wide-resolve` need a keeper built with `--features playable-lane`"
                     .into(),
             );
         }
@@ -516,6 +519,12 @@ impl KeeperConfig {
                     ));
                 }
             }
+        }
+        if self.has_role("wide-resolve") && !self.has_role("beacon") {
+            return Err(
+                "role `wide-resolve` needs role `beacon` (the anchors and seeds of every bell)"
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -852,6 +861,25 @@ mod tests {
         // (the wide roles are never part of an all-roles keeper)
         assert!(!ROLES.contains(&WIDE_ROLES[0]));
         assert!(!ROLES.contains(&WIDE_ROLES[1]));
+        assert!(!ROLES.contains(&WIDE_ROLES[2]));
+        // P9: `wide-resolve` only in a `playable-lane` build, and with `beacon`
+        let wr = text.replace(
+            "[\"beacon\", \"archive\", \"rings\"]",
+            "[\"beacon\", \"archive\", \"rings\", \"wide-resolve\"]",
+        );
+        match (KeeperConfig::from_toml(&wr), PLAYABLE_LANE) {
+            (Ok(c), true) => assert!(c.has_role("wide-resolve")),
+            (Err(e), false) => assert!(e.contains("playable-lane"), "{e}"),
+            (r, lane) => panic!("playable-lane build {lane}: {:?}", r.err()),
+        }
+        if PLAYABLE_LANE {
+            let e = KeeperConfig::from_toml(&text.replace(
+                "[\"beacon\", \"archive\", \"rings\"]",
+                "[\"archive\", \"rings\", \"wide-resolve\"]",
+            ))
+            .unwrap_err();
+            assert!(e.contains("beacon"), "{e}");
+        }
         // P13: `expeditions` only in a `playable-lane` build, and with `beacon`, `gather` and `resolve`
         let exp = |roles: &str| text.replace("[\"beacon\", \"archive\", \"rings\"]", roles);
         let full =

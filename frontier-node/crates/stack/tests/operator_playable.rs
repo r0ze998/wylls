@@ -56,6 +56,9 @@ const P10_PORT_BASE: u16 = 41_575;
 /// P11's (`OPERATOR_EXPEDITION_PORT_BASE` moves them): the rim → wide expedition with a test participant
 /// (devnet-expedition-keeper; devnet gaps P10 + P13).
 const P11_PORT_BASE: u16 = 41_500;
+/// P12's (`OPERATOR_PAGE_EXPEDITION_PORT_BASE` moves them): P11 with the page sending the Depart; as P9 (+6/+7
+/// gateway, +8 inspection) (devnet-p15-p9).
+const P12_PORT_BASE: u16 = 41_520;
 /// PFOG's (fog-devnet; `OPERATOR_PAGE_FOG_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
 const PFOG_PORT_BASE: u16 = 41_720;
 
@@ -562,6 +565,24 @@ async fn p11_keeper_a_drives_a_rim_to_wide_expedition_on_the_devnet_so_offline()
     .await;
 }
 
+/// P12 (devnet-p15-p9; devnet gaps P15 + P9): P11 with the WEB PAGE sending the ExpeditionDepart — its boundary
+/// card 「境界への道を準備」 on a devnet wide season: the route check, the transaction preview, the connected wallet's
+/// signature, the gateway's `/gw/f/devnet-play/expedition/submit`; its sealed reveal half kept in the encrypted book
+/// across a reload. Keeper A drives every later step (STAYS); then P9's wide village musters on later bells (keeper
+/// A's `wide-resolve` role); the verifier judges the whole season. `DEVNET_PAGE_DRIVER=1` only (as P7).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p12_the_page_sends_a_rim_to_wide_expedition_on_the_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("p12: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_EXPEDITION_PORT_BASE", P12_PORT_BASE),
+        Mode::PageExpedition,
+    )
+    .await;
+}
+
 /// P9 (devnet-page-war): P8 with the WEB PAGE as the participant (as P7: the herald's `--web`, the gateway's devnet
 /// play routes, a Wallet Standard TEST wallet): it musters, composes and seals the march, its wallet signs the Depart
 /// (`/gw/f/devnet-play/march/submit`), its encrypted march book survives a reload, it hands the reveal material to
@@ -643,8 +664,12 @@ enum Mode {
     /// PFOG (fog-devnet): P9 with two observer players of other nations on the devnet page, under the fog of war.
     PageWarFog,
     /// P11 (devnet-expedition-keeper): the rim world, keeper A with the play roles, the wide ring 129 and the
-    /// `expeditions` role, and a rim → wide expedition by a test participant.
+    /// `expeditions` role, and a rim → wide expedition by a test participant. (devnet-p15-p9: then P9's wide
+    /// village musters on later bells, keeper A's `wide-resolve` role.)
     Expedition,
+    /// P12 (devnet-p15-p9, gap P15): P11 with the WEB PAGE sending the ExpeditionDepart (its boundary card, the
+    /// wallet signs, `/gw/f/devnet-play/expedition/submit`).
+    PageExpedition,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -661,6 +686,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageWarHome => "p10",
         Mode::PageWarFog => "pfog",
         Mode::Expedition => "p11",
+        Mode::PageExpedition => "p12",
     };
     let war = matches!(
         mode,
@@ -668,9 +694,9 @@ async fn playable_season(pt: Ports, mode: Mode) {
     );
     let page_mode = matches!(
         mode,
-        Mode::Page | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog
+        Mode::Page | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageExpedition
     );
-    let expedition = mode == Mode::Expedition;
+    let expedition = matches!(mode, Mode::Expedition | Mode::PageExpedition);
     // (P11 too: T(21) is the expedition's arrival round)
     let genesis_round = if war || expedition {
         WAR_GENESIS_ROUND
@@ -947,8 +973,9 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
             // (P11: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
-            Mode::Expedition => {
-                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\""
+            // (P12/P13 devnet-p15-p9: and the `wide-resolve` role, P9)
+            Mode::Expedition | Mode::PageExpedition => {
+                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\", \"wide-resolve\""
             }
         },
         rim = match mode {
@@ -960,7 +987,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 w = rim::WIDE_RINGS
             ),
             // (P11: ring 129 only, the expedition's destination ring)
-            Mode::Expedition => format!(
+            Mode::Expedition | Mode::PageExpedition => format!(
                 "rim_per_wedge = {n}\nwide_rings = 1\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE
             ),
@@ -1336,7 +1363,9 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let page = page_mode.then(|| rim::Page {
         herald: pt.herald,
         inspect: pt.rpc + 8,
-        driver: repo_root().join(if war {
+        driver: repo_root().join(if expedition {
+            "frontier-node/crates/stack/tests/operator_playable/page_expedition_driver.mjs"
+        } else if war {
             "frontier-node/crates/stack/tests/operator_playable/page_war_driver.mjs"
         } else {
             "frontier-node/crates/stack/tests/operator_playable/page_driver.mjs"
@@ -1352,7 +1381,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
             rim::run(rim::Ctx {
                 keeper_wide: matches!(
                     mode,
-                    Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::Expedition
+                    Mode::KeeperWide
+                        | Mode::AfterWide
+                        | Mode::Page
+                        | Mode::Expedition
+                        | Mode::PageExpedition
                 ),
                 wide_rings: if expedition { 1 } else { rim::WIDE_RINGS },
                 expedition,

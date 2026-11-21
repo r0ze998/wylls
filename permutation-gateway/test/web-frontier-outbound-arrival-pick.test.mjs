@@ -308,7 +308,7 @@ test('in English the offer, the entered turn and the empty field are said as pro
 test('the page wires every boundary control the card renders, and keeps the draft when one is pressed', () => {
   const read = file => readFileSync(new URL(`../../permutation-server/web/frontier/${file}`, import.meta.url), 'utf8');
   const app = read('app.mjs'), acts = [...new Set([...read('hud/hand.mjs').matchAll(/data-act="(outbound-[a-z-]+)"/g)].map(m => m[1]))].sort();
-  assert.deepEqual(acts, ['outbound-arrival-earliest', 'outbound-context-read', 'outbound-local-depart', 'outbound-local-reconcile', 'outbound-reset', 'outbound-route-read', 'outbound-step', 'outbound-undo']);
+  assert.deepEqual(acts, ['outbound-arrival-earliest', 'outbound-context-read', 'outbound-devnet-clear', 'outbound-devnet-preview', 'outbound-devnet-reconcile', 'outbound-devnet-send', 'outbound-local-depart', 'outbound-local-reconcile', 'outbound-reset', 'outbound-route-read', 'outbound-step', 'outbound-undo']);
   const from = app.indexOf('export const HUD_ACTIONS = {'), table = app.slice(from, app.indexOf('\n};', from));
   assert.ok(from > 0 && table.length > 0);
   for (const act of acts) assert.ok(table.includes(`\n  '${act}': `), `${act} is a HUD action`);

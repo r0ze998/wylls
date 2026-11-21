@@ -88,10 +88,16 @@ fn first_home_rejects_occupied_foreign_closed_and_reserved_sites() {
     let pk = w.a.province(s.p as i32, s.q as i32);
     let mut x = c.fork();
     x.edit(&pk, |d| d[P::site(0) + S::STATE] = S::STATE_HOLDING);
-    assert_code(x.send(&[tx.clone()], &[&who.wallet]), E::TicketState);
+    assert_code(
+        x.send(std::slice::from_ref(&tx), &[&who.wallet]),
+        E::TicketState,
+    );
     let mut x = c.fork();
     x.edit(&w.a.citizen(&who.key()), |d| d[C::FACTION] = 1);
-    assert_code(x.send(&[tx.clone()], &[&who.wallet]), E::BadData);
+    assert_code(
+        x.send(std::slice::from_ref(&tx), &[&who.wallet]),
+        E::BadData,
+    );
     let mut x = c.fork();
     x.edit(&w.a.frontier(), |d| {
         d[F::RINGS_OPENED..F::RINGS_OPENED + 2].copy_from_slice(&2u16.to_le_bytes())
@@ -121,11 +127,17 @@ fn first_home_cannot_bypass_legacy_holding_ticket_or_cohort() {
     ] {
         let mut x = c.fork();
         x.edit(&w.a.citizen(&who.key()), |d| d[C::FLAGS] |= flags);
-        assert_code(x.send(&[tx.clone()], &[&who.wallet]), E::TicketState);
+        assert_code(
+            x.send(std::slice::from_ref(&tx), &[&who.wallet]),
+            E::TicketState,
+        );
     }
     let mut x = c.fork();
     x.edit(&w.a.citizen(&who.key()), |d| d[C::HOLDINGS_N] = 1);
-    assert_code(x.send(&[tx.clone()], &[&who.wallet]), E::TicketState);
+    assert_code(
+        x.send(std::slice::from_ref(&tx), &[&who.wallet]),
+        E::TicketState,
+    );
     let mut x = c.fork();
     expect_lands(w.file_ticket(&mut x, &who, &[s]), "FileTicket");
     assert_code(x.send(&[tx], &[&who.wallet]), E::TicketState);
@@ -144,7 +156,10 @@ fn first_home_authentication_addresses_and_old_season_checked() {
     let mut seeded = c.fork();
     let hk = w.a.holding(s.p as i32, s.q as i32, s.site);
     seeded.put_program_account(hk, vec![0u8; H::SIZE]);
-    assert_code(seeded.send(&[tx.clone()], &[&who.wallet]), E::BadAccount);
+    assert_code(
+        seeded.send(std::slice::from_ref(&tx), &[&who.wallet]),
+        E::BadAccount,
+    );
     let mut x = c.fork();
     let wrong = x.funded(b"wrong-holding", 10);
     assert_code(
@@ -223,7 +238,7 @@ fn first_home_allows_live_session_and_rejects_expiry() {
     let mut expired = c.fork();
     expired.advance(600);
     assert_code(
-        expired.send(&[tx.clone()], &[&who.wallet, &session]),
+        expired.send(std::slice::from_ref(&tx), &[&who.wallet, &session]),
         E::SessionExpired,
     );
     expect_lands(c.send(&[tx], &[&who.wallet, &session]), "session PlaceHome");
