@@ -1270,7 +1270,7 @@ pub struct ProgramInfo {
     /// header with trailing zero bytes stripped (Ellipsis-Labs/
     /// solana-verifiable-build `get_binary_hash`). It differs from
     /// [`ProgramInfo::sha256`] when the ELF itself ends in zeros (the
-    /// playable lane's does: `786ef80f…` vs `da3dc1aa…`).
+    /// playable lane's does: `786ef80f…` vs `da3dc1aa…`, and `8dcaef87…` vs `67a33c92…` after P14 b).
     pub verify_hash: Option<String>,
     pub elf_len: usize,
     pub found_markers: Vec<String>,

@@ -26,7 +26,7 @@ import { hostRows } from '../screens/host.mjs';
 import { hasPin } from './pins.mjs';
 import { termButton } from './glossary.mjs';
 import { placeName, placeWhere } from '../map/names.mjs';
-import { PLACE, placeNow, ringText, ringSeeded } from '../map/world.mjs';
+import { PLACE, placeNow, ringText, wideRingText, ringSeeded } from '../map/world.mjs';
 import { TERRAIN_TEXT, villageDrawn, provinceName, provinceCoords, tileName } from './place.mjs';
 import { unpack } from '../seal.mjs';
 import { materialBytes } from '../marchbook.mjs';
@@ -58,6 +58,16 @@ export const ownClashPlace = (FS, p, q, bell) => !!FS.citizen && ((FS.holdings ?
 /** Whether factions a and b are not hostile in a province (RELATIONS bit a*8+b). */
 export const friendly = (relations, a, b) => a === b || (relations !== undefined && relations !== null && ((BigInt(relations) >> BigInt(a * 8 + b)) & 1n) === 1n);
 
+/** (fix-loop7, LP7-4) Whether province (p, q) is a province of the wide land that is open in this world (ring > 128). */
+export function wideOpen(FS, p, q) {
+  if (!Number.isInteger(p) || !Number.isInteger(q) || ringOf(p, q) <= 128) return false;
+  let land = null;
+  try { land = typeof FS?.wideLandNow === 'function' ? FS.wideLandNow() : null; } catch { land = null; }
+  if (land?.byKey?.has?.(`${p},${q}`)) return true;
+  const targets = FS?.localPlay?.wideLand?.targets;
+  return Array.isArray(targets) && targets.some(t => Number(t?.p) === p && Number(t?.q) === q);
+}
+
 /**
  * The inspector's view of the selection: `{p, q, ring, opened, owners, tile?}`
  * with `tile = {idx, terrain, site?, hosts, camp?}`; null without a selection.
@@ -84,7 +94,12 @@ export function inspectModel(FS, terrainOf) {
   const read = prov ? null : FS.provinceReads?.get?.(`${s.p},${s.q}`) ?? null;
   // (only a ring that has an overview to read — map/world.mjs ringSeeded, as map/overviews.mjs asks it — can be "not read")
   const ringRead = !!rec || !FS.world || !ringSeeded(FS.world, ringOf(s.p, s.q)) || !!FS.overviews?.has?.(ringOf(s.p, s.q));
-  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, read, ringRead, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
+  // (fix-loop7, LP7-4: a province of the opened wide land — rings past 128, open in this world: the page's wide-land read,
+  //  FS.wideLandNow, unfogged, or the local world's start answer's opened targets — is not "not open yet". Its ring being
+  //  open is public geometry (the season record), so saying so shows nothing the fog hides. `wide` says it; the province's
+  //  own record is read by the wide-land path, not the ordinary one, so `opened` stays as it was)
+  const wide = wideOpen(FS, s.p, s.q);
+  const out = { p: s.p, q: s.q, ring: ringOf(s.p, s.q), place, opened: place === PLACE.open, wide, owners, clash: !!rec?.clash && top === 3, loaded: !!prov, read, ringRead, level: Number.isInteger(s.idx) ? lv(s.idx) : top,
     relation: Number.isInteger(viewer) && prov ? owners.filter(f => f !== viewer).map(f => ({ faction: f, friendly: friendly(prov.relations, viewer, f) })) : [],
     // (fix-loop5, L5-6: under the fog a clash is offered only where its place is in sight now, or when it is the viewer's)
     reportBell: top === 3 && viewClash({ p: s.p, q: s.q, keepTile: rec?.keepTile ?? null, mine: ownClashPlace(FS, s.p, s.q, prov?.resolveSummary?.bell) }) ? prov?.resolveSummary?.bell || null : null, tile: null };
@@ -300,12 +315,12 @@ export function render(FS, terrainOf, activities = null) {
   const doing = now.length ? html`${label(L`いまの様子`)}<ul class="list doing">${now.map(a => html`<li class="doing-${a.kind}">${activityText(a, who)}</li>`)}</ul>` : '';
   const facts = [];
   // (the label is "position": in English "Ring" beside "Ring 2" read as a doubled word); the coordinates stand here and nowhere above
-  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${provinceCoords(m.p, m.q)} · ${ringText(m.place, m.ring)}${termButton('ring')}</dd></div>`);
+  facts.push(html`<div class="row"><dt>${L`位置`}</dt><dd>${provinceCoords(m.p, m.q)} · ${m.wide ? wideRingText(m.ring) : ringText(m.place, m.ring)}${termButton('ring')}</dd></div>`);
   if (terrain) facts.push(html`<div class="row"><dt>${L`地形`}</dt><dd>${terrain}</dd></div>`);
   if (m.relation.length) facts.push(html`<div class="row"><dt>${L`この州に村を持つほかの国`}</dt><dd>${m.relation.map(r => html`<span class="nowrap">${swatch(r.faction)}${r.friendly ? L`${factionName(r.faction)}（あなたの国と友好）` : L`${factionName(r.faction)}（あなたの国と敵対）`}</span> `)}</dd></div>`);
   if (!t && m.owners.length) facts.push(html`<div class="row"><dt>${L`村を持つ国`}</dt><dd>${m.owners.map(f => html`<span class="nowrap">${swatch(f)}${factionName(f)}</span> `)}</dd></div>`);
   return html`<section class="inspect" aria-labelledby="inspect-title">
-    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : ringText(m.place, m.ring), side })}
+    ${cardHead({ id: 'inspect-title', ic: mark, pic: held ? villageDrawn(site.faction, site.tier ?? 0) : null, title: name ?? provinceName(FS, m.p, m.q), sub: name ? where : m.wide ? wideRingText(m.ring) : ringText(m.place, m.ring), side })}
     ${site?.owner ? html`<p class="inspect-owner">${personChip(site.owner, site.faction, { size: 44, full: true, own: !!site.mine, note: L`この村の領主` })}</p>` : ''}
     ${chips.length ? html`<p class="fact-chips">${chips}</p>` : ''}
     ${m.opened && m.level < 3 ? html`<p class="insp-survey">${chip(m.level === 2 ? L`測量済み` : L`未測量`, '', 'chart')}<span class="muted">${m.level === 2 ? L`前に見た範囲です。土地と村を、色を落として描きます。` : L`まだ見ていない範囲です。地形だけを図にしています。`}</span></p>` : ''}

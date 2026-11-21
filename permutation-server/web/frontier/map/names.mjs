@@ -31,7 +31,8 @@ export function placeName(m) {
   if (t?.s1?.length && S1_WORDS[t.s1[0].kind]) return S1_WORDS[t.s1[0].kind]();
   if (t?.terrain && TERRAIN_NAME[t.terrain]) return TERRAIN_NAME[t.terrain]();
   if (!t && m.p === 0 && m.q === 0) return L`州 ${m.p},${m.q}`;
-  return t ? L`州 ${m.p},${m.q}` : m.opened === false ? L`第${m.ring}輪（まだひらいていません）` : L`第${m.ring}輪の州`;
+  // (fix-loop7, LP7-4: an opened wide-land province is not 「まだひらいていません」)
+  return t ? L`州 ${m.p},${m.q}` : m.wide ? L`広い土地・第${m.ring}輪の州` : m.opened === false ? L`第${m.ring}輪（まだひらいていません）` : L`第${m.ring}輪の州`;
 }
 
 /** The small print: where it is, by its province (a tile's number is never shown on the play screen: UX brief §6). */

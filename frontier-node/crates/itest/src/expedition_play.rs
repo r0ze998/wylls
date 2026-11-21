@@ -903,8 +903,13 @@ pub async fn launch_full(
     // `getSignatureStatuses` context.instance
     let runner_instance = hex::encode(c.status_instance());
     let state = Arc::new(Mutex::new(c));
-    let running =
-        server::start_with_policy(state, rpc_port, ws_port, server::Policy::MEMORY_ONLY).await?;
+    let running = server::start_with_policy(
+        state,
+        rpc_port,
+        ws_port,
+        server::Policy::MEMORY_ONLY.with_control_from_env(),
+    )
+    .await?;
     let metadata = json!({
         "schema": SCHEMA,
         "rpc_url": running.url(),

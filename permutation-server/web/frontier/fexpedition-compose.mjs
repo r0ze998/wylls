@@ -286,7 +286,7 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {}, lo
     s.routeCheck = { status: 'read', report, captures: data.captures, unavailable: data.unavailable,
       departTs, snapshot: data.snapshot, observationOnly: true, coherentSnapshotVerified: false, provenanceVerified: false, ...OUTBOUND_CLOSED };
     observed.set(s.routeCheck, bindingOf(source, directions, seenAtStart));
-    rememberPick(fs, s);
+    rememberPick(fs, s); rememberRefusal(fs, s);
   } catch (e) {
     if (!current()) return;
     s.routeCheck = { status: 'error', code: e.code ?? 'RouteReadUnavailable' };
@@ -334,7 +334,7 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
       departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
       observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
     observed.set(s.contextCheck, bindingOf(source, directions, seenAtStart));
-    rememberPick(fs, s);
+    rememberPick(fs, s); rememberRefusal(fs, s);
     // (fix-loop6, LP6-1: remembered beyond this observation — the next clock poll drops it, at ×60 within a second or
     //  two — so the departure button stays a press that reads the conditions again and departs if they still hold)
     s.readyOnce = ready?.ok === true && report?.ok === true ? readyKey(s) : null;
@@ -382,6 +382,29 @@ export function arrivalHeadroom(rate, lagBells = 0) {
  * again (useEarliestOutboundArrival): nothing is sealed or sent on a remembered offer.
  */
 const pickKey = s => stable([s.source?.hostId ?? null, s.directions]);
+/** (fix-loop7, LP7-3) Report codes that say the ROAD itself cannot be marched, whatever the arrival turn. */
+export const ROUTE_REFUSALS = Object.freeze(['RouteImpassable', 'RoutePalisade', 'RouteLandMissing']);
+/**
+ * (fix-loop7, LP7-3) The last read's verdict on the road, kept for this host and these steps until the road changes.
+ * A clock poll drops the observation itself (rebuild), and at ×60 that came 0.4–2.4 s after the answer: 「山や水のマスには
+ * 進めません (5)」 vanished and the card read as if nothing had been asked. A refusal of the road does not depend on the
+ * clock — the terrain stays — so it is kept: `s.lastRefusal = {key, code, stepIndex, direction}`; a later read of the
+ * same road that does not refuse it forgets it, and so does any change of the steps (the key no longer matches).
+ */
+function rememberRefusal(fs, s) {
+  const seen = s.contextCheck?.status === 'read' ? s.contextCheck : s.routeCheck?.status === 'read' ? s.routeCheck : null;
+  const r = seen?.report;
+  if (!r) return;
+  if (!ROUTE_REFUSALS.includes(r.code)) { if (s.lastRefusal?.key === pickKey(s)) s.lastRefusal = null; return; }
+  const step = Number.isInteger(r.stepIndex) && r.stepIndex >= 0 && r.stepIndex < s.directions.length ? r.stepIndex : null;
+  s.lastRefusal = Object.freeze({ key: pickKey(s), code: r.code, stepIndex: step, direction: step === null ? null : s.directions[step] });
+}
+/** (fix-loop7, LP7-3) The road refusal still standing for the draft as it is (same host, same steps), or null. */
+export function outboundRouteRefusal(fs) {
+  const s = fs.expeditionCompose, m = s?.lastRefusal;
+  if (!m || fs.hand?.pop !== OUTBOUND_POP || !s.source || m.key !== pickKey(s)) return null;
+  return m;
+}
 function rememberPick(fs, s) {
   try {
     const p = liveArrivalCandidate(fs);

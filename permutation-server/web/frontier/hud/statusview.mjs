@@ -192,6 +192,33 @@ export function arrivalView(x) {
     text: L`送付記録の数量に対して全量が入りました：${atLeastText(x.arrived)}`, details: [...basis, unitsOf(x.arrived)] };
 }
 
+/**
+ * (fix-loop7, LP7-8) A caravan's arrival in ONE short plain sentence, for a toast and the feed: what arrived, or that the
+ * amount cannot be confirmed — and nothing more. The careful account (bounds, the basis of a comparison, why a
+ * storehouse's intake is not known) stays in arrivalView, on the trade card (screens/s1.mjs). The same honesty: never
+ * "all of it" without saying against what, a record's numbers never said as what went in, a lower bound said as 以上.
+ * loop-play7: 「隊商（ターン 17）：到着しましたが、入った量は確認できません（記録の積荷：…）。倉庫は上限を超えた分を切り捨て
+ * ます…」 — four sentences of the record's rules in a toast.
+ */
+export function arrivalShort(x) {
+  if (!x || !ARRIVAL_STATES.includes(x.state)) return L`結果をまだ受け取れていません`;
+  const rec = isCargo(x.recorded) ? recordedText(x.recorded) : null;
+  switch (x.state) {
+    case 'overdue': return Number.isFinite(x.bell) ? L`到着予定のターン ${fmtNum(x.bell)} を過ぎましたが、まだ決着していません` : L`まだ決着していません`;
+    case 'settledUnverified':
+      if (x.why === 'vault') return rec ? L`貯蔵庫に着きました（積荷 ${rec}。入った量は確かめられません）` : L`貯蔵庫に着きました（入った量は確かめられません）`;
+      if (x.why === 'outcomeUnknown') return L`決着しました（入った量は確かめられません）`;
+      return L`着きました（入った量は確かめられません）`;
+    case 'lost': return L`積荷は失われました（行き先がなくなっていました）`;
+    case 'unread': return L`どうなったかは、まだ記録で読めていません`;
+    case 'misdelivered': return L`別の場所に着きました（この隊商の分としては数えません）`;
+    case 'verifiedIntake': return isCargo(x.intake) ? L`村に入りました：${atLeastText(x.intake)}` : L`結果をまだ受け取れていません`;
+    case 'verifiedPartial': return isCargo(x.arrived) ? L`送った記録より少なく入りました：${atLeastText(x.arrived)}` : L`結果をまだ受け取れていません`;
+    case 'verifiedFull': return isCargo(x.arrived) ? L`送った記録の量がそのまま入りました：${atLeastText(x.arrived)}` : L`結果をまだ受け取れていません`;
+    default: return L`結果をまだ受け取れていません`;
+  }
+}
+
 /** 05's cost. `x`: `{phase, amounts?: cargo}`; an unsettled cost may have no amount yet. */
 export function costView(x) {
   if (!x || !COST_PHASES.includes(x.phase)) return notReceived('cost', [`phase: ${x?.phase ?? 'missing'}`]);

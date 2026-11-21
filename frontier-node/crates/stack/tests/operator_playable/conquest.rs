@@ -1,7 +1,9 @@
 //! P14 (devnet-guard-conquest; devnet gap P14, option (a): the program and the `.so` unchanged): a THIRD PARTY's wide
 //! Free City conquest on a devnet wide season, offline, on the exact devnet `.so`, while keeper A runs every role.
+//! Since P14 (b) the devnet build (`67a33c92…`) refuses kinds 12–18 `BadData`, so this run deploys the PREVIOUS devnet
+//! `.so` (`da3dc1aa…`, `super::devnet_build(true)`) and keeper A's exact reading stays proven as defence in depth.
 //!
-//! The devnet `.so` keeps the Free City conquest kinds 12–18 of the version-2 wrapper open (runbook P14; only the raw
+//! That `.so` keeps the Free City conquest kinds 12–18 of the version-2 wrapper open (runbook P14; only the raw
 //! commands are closed by `CONQUEST_LIFECYCLE_ENABLED = false`). After P10's expedition, routed onto the Free City's
 //! tile of its ring-129 destination (the host STAYS there, keeper A having sent every step after the Depart), nobody
 //! but the test sends a conquest step; keeper A is never asked to:

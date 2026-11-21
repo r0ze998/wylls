@@ -202,7 +202,12 @@ mod tests {
             .expect("devnet-playable-sbf feature");
         assert_eq!(
             line,
-            r#"devnet-playable-sbf = ["conquest-dispatch-experimental", "land-preview"]"#
+            r#"devnet-playable-sbf = ["expedition-dispatch-experimental", "land-preview"]"#
+        );
+        // P14 (b): no Free City conquest kinds in the devnet build, by feature or by guard
+        assert!(
+            !line.contains("conquest"),
+            "devnet-playable-sbf carries no conquest feature"
         );
         let land = cargo
             .lines()
@@ -212,7 +217,8 @@ mod tests {
         let lib = include_str!("lib.rs");
         for guard in [
             "not(feature = \"localnet-expedition-sbf\"),\n    not(feature = \"devnet-playable-sbf\")\n))]\ncompile_error!(\"wide-world-experimental",
-            "not(feature = \"localnet-conquest-sbf\"),\n    not(feature = \"devnet-playable-sbf\")\n))]\ncompile_error!(\"conquest-dispatch-experimental",
+            "feature = \"conquest-dispatch-experimental\",\n    not(feature = \"localnet-conquest-sbf\")\n))]\ncompile_error!(\"conquest-dispatch-experimental on SBF requires localnet-conquest-sbf (",
+            "#[cfg(all(\n    feature = \"devnet-playable-sbf\",\n    feature = \"conquest-dispatch-experimental\"\n))]\ncompile_error!(",
             "#[cfg(all(feature = \"devnet-playable-sbf\", feature = \"localnet-expedition-sbf\"))]\ncompile_error!",
             "\"devnet-playable-sbf cannot combine with host proof",
         ] {
