@@ -146,12 +146,17 @@ jobs:
       # Moved to key-tests: permutation-chain/svm-tests/run.sh (SBF build + LiteSVM).
       # Format and lints of what this job builds but nothing linted (2026-11-21):
       # the v9 program (clippy; its format is the root workspace's, checked in
-      # frontier-program) and the server. Clippy compiles every target and
-      # runs none: no test, no .so, no key.
+      # frontier-program), the server, and the v9 LiteSVM harness. Clippy
+      # compiles every target and runs none: no test, no .so, no key.
       - name: v9 program lints
         run: cargo clippy --locked -p permutation-chain --all-targets -- -D warnings
       - name: Server format and lints
         working-directory: permutation-server
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: v9 LiteSVM harness format and lints (compile only)
+        working-directory: permutation-chain/svm-tests
         run: |
           cargo fmt -- --check
           cargo clippy --locked --all-targets -- -D warnings
@@ -351,9 +356,37 @@ jobs:
           cargo test --locked -p permutation-frontier --no-default-features
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
-      # Format only (2026-11-21): this crate compiles the program source on
-      # 1.95.0, whose clippy has lints the program (linted on 1.89.0 above)
-      # does not meet. `cargo fmt --check` reads source and compiles nothing.
+      # The LiteSVM harness itself (67k lines of tests) was formatted and linted
+      # nowhere, key-tests included, and drifted (D-ws02-stockswap-10). Format
+      # and clippy only (2026-11-21): clippy compiles every target and runs
+      # none, so no test runs, no .so is read and no key is made;
+      # scripts/ci/check-ci-keyfree.py allows a step naming svm-tests only when
+      # its `run` is nothing but such lines. The probe and workstream 03's
+      # courier tests (which link the harness) reuse the harness's target dir.
+      - name: Frontier LiteSVM harness format and lints (compile only)
+        if: hashFiles('permutation-frontier/svm-tests/Cargo.toml') != ''
+        working-directory: permutation-frontier/svm-tests
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Harness probe format and lints (compile only)
+        if: hashFiles('permutation-frontier/svm-tests/probe/Cargo.toml') != ''
+        working-directory: permutation-frontier/svm-tests/probe
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/permutation-frontier/svm-tests/target
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Workstream 03 courier tests format and lints (compile only)
+        if: hashFiles('workstreams/03-composability/courier-tests/Cargo.toml') != ''
+        working-directory: workstreams/03-composability/courier-tests
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/permutation-frontier/svm-tests/target
+        run: |
+          cargo fmt -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+      # Format only: this crate compiles the program source on 1.95.0, whose
+      # clippy has lints the program (linted on 1.89.0 above) does not meet.
       - name: Runtime-contract support crate format
         if: hashFiles('permutation-frontier/runtime-contract-tests/Cargo.toml') != ''
         working-directory: permutation-frontier/runtime-contract-tests
@@ -483,6 +516,8 @@ jobs:
       # guard's reading of the expedition's records over the committed real
       # recordings (`expedition_feed_guard`, literal bytes) and the
       # `expeditions` role's config; its end-to-end run (operator_playable P11) is in key-tests.
+      # Gap P14 option (a): the same test reads the wide Free City conquest's
+      # records (kinds 12-18) and its mutations; its end-to-end run (operator_playable P14) too.
       - name: Keeper playable lane (lints, unit tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -492,6 +527,7 @@ jobs:
           cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
           cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
           cargo test --locked -p keeper --features playable-lane --test verify_pr121_guard_mutations
+          cargo test --locked -p keeper --features playable-lane --test verify_pr124_conquest_mutations
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
@@ -607,6 +643,13 @@ jobs:
           cargo clippy --locked --all-targets --features epochs -- -D warnings
           cargo test --locked --features epochs
       # Moved to key-tests: the Prize SBF v2 build and the LiteSVM tests.
+      # Their format and lints run here too (2026-11-21; key-tests is manual,
+      # so they were checked on no pull request). Compile only, no test run.
+      - name: Prize pool LiteSVM harness format and lints (compile only)
+        working-directory: permutation-prize/svm-tests
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
 
   # Workstream 04's host runs of the real prize and game programs (no keys:
   # fixed keys and program addresses only; System, SPL Token and sysvars are
@@ -738,7 +781,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P11, the rim to wide expedition); P7, P9 and P10 need a browser and skip)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P11, the rim to wide expedition), 41670-41675 (P14, a third party's wide Free City conquest); P7, P9 and P10 need a browser and skip)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |

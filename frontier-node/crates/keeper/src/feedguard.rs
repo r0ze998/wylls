@@ -23,8 +23,9 @@
 //!    holding's home, a settlement's sealed destination) is of this
 //!    Season's world and of the **wide** family (ring > `R_MAX_HARD`): a
 //!    PSW1 record that names a legacy province or another world is
-//!    refused, so a bridge between the two worlds (a rim-to-wide
-//!    expedition's records, a conquest from a legacy source) still latches.
+//!    refused, so a bridge between the two worlds is never merely counted
+//!    (the rim-to-wide expedition's and the conquest's records are read by
+//!    their own paired readers, P10 and P14 below).
 //!
 //! Anything else stays a blocker exactly as before: a PSW1 body that does
 //! not decode, an unknown or not-accounted kind, a legacy or foreign
@@ -66,10 +67,46 @@
 //! (a Depart's pending Spend, a SettleOrigin's freed entry, a member
 //! settlement's returning host), a settled or failed holding's `pool_owed`
 //! (`owes`), and the expedition's transit for keeper A's `expeditions` role
-//! (P13, [`crate::expeditions`]). Still a blocker: PS2 145 (the legacy
-//! source receipt of the wide CONQUEST kinds 12–18 only), the conquest PSW1
-//! kinds 18–24, PSWC, PSWR and every other format, and anything that does not
-//! decode or pair exactly.
+//! (P13, [`crate::expeditions`]). Still a blocker: anything that does not
+//! decode or pair exactly, and every other format.
+//!
+//! **Devnet gap P14, option (a) (feature `playable-lane`; program unchanged):
+//! the Free City conquest records.** The devnet `.so` reaches the conquest
+//! bodies through the same wrapper (kinds 12–18; the raw commands stay closed
+//! by `CONQUEST_LIFECYCLE_ENABLED = false`), so any wallet can send one. Each
+//! logs, in the program's frame, one TARGET record and at once after it at
+//! most one SOURCE record carrying the byte-identical receipt and bell:
+//!
+//! | kind | target | source |
+//! |---|---|---|
+//! | 12 DeclareSiege (DECLARE, or RESERVE behind the cursor) | PSW1 18 | always: PS2 145 Debit (legacy source) / PSW1 19 (wide source) |
+//! | 13 ResolveWithConquest (RESOLVE) | PSW1 20 | none |
+//! | 14 SettleCapture (CAPTURE) | PSW1 22 | when the stake is returned: PS2 145 Credit / PSW1 23 |
+//! | 15 SettleSiege (FAILED, LAPSE) | PSW1 21 | LAPSE only, when paid: PS2 145 Credit / PSW1 23 |
+//! | 16 CloseConquest (TABLE_CLOSE) | PSW1 24 | none |
+//! | 17 CloseCaptureEscrow (ESCROW_CLOSE) | PSWC (unchained) | none |
+//! | 18 SettleReservation (RESERVATION_REFUND) | PSW1 21, or PSWR (unchained) when the province is closed | when resources return: PS2 145 Credit / PSW1 23 |
+//!
+//! A `playable-lane` reader **applies** these ([`ConquestFact`]) only when the
+//! target decodes exactly (`WideRecord::decode`, the receipt's action valid for
+//! the kind; PSWC `SidecarClose::decode`; PSWR its exact 173 bytes) and names a
+//! WIDE province of this Season's world (PSWC / PSWR: this Season's address),
+//! and the source, when the kind has one, is adjacent, decodes with its own
+//! codec (`legacy_source_event::Record::decode`: a LEGACY Holding of this world
+//! at its canonical address, or a wide PSW1 19 / 23 naming a WIDE holding), has
+//! the right direction, the same receipt and bell, and (PS2 145) passes
+//! `SourceReceipt::pair_target` against the target. A DeclareSiege without its
+//! debit, a FAILED settlement with a credit, a source record alone or a
+//! Debited / Credited record as a target, a record of another world or Season:
+//! blocker. What a conquest changes that the legacy indexes keep: a LEGACY
+//! source Holding's stores and PS2 chain (its home province is re-read,
+//! `PlayIndex::touched`). No conquest kind writes `pool_owed`, a ticket, a
+//! legacy Province, a settle / release / explore state, nor a Citizen's wallet,
+//! faction, join shard, ticket fields or ticket funder. Unlogged legacy writes
+//! the keeper does not read (verify-pr124): the Citizen's SLOTS reserved bits
+//! (kinds 12, 14, 15, 17, 18), its rate-limit bucket, LAST_ACTION_TS and
+//! SIEGE_DAY / SIEGES_TODAY (kind 12), its HOLDINGS_N and wide slot reference
+//! and the captor's JoinShard EXTRA_HOLDINGS / CAPTURED_IN (kind 14).
 
 use base64::Engine as _;
 use fclient::ports::{PortError, PortResult, TxRecord};
@@ -249,15 +286,95 @@ pub struct Bodies {
     pub wide_provinces: Vec<(i64, i64)>,
     /// The expedition records applied (P10), in log order.
     pub expedition: Vec<ExpeditionFact>,
+    /// The Free City conquest records applied (P14), in log order.
+    pub conquest: Vec<ConquestFact>,
 }
 
-/// The format of one expedition record line (P10).
+/// The format of one expedition or conquest record line (P10, P14).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExpTag {
     Ps2,
     Psw1,
     Psff,
     Psft,
+    /// P14: the capture escrow's unchained close (`conquest_event::SidecarClose`).
+    Pswc,
+    /// P14: SettleReservation's unchained record when the target province is closed.
+    Pswr,
+}
+
+/// The source of a Free City conquest operation as its paired source record
+/// names it (P14): a LEGACY Holding (PS2 145, on the holding's own PS2 chain)
+/// or a WIDE one (PSW1 19 / 23).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConquestSource {
+    /// The legacy source Holding and its LEGACY home province.
+    Legacy { holding: Address, home: (i16, i16) },
+    /// The wide source Holding (canonical address) and its wide province.
+    Wide { holding: Address, home: (i64, i64) },
+}
+
+/// What one decoded, paired Free City conquest record tells the legacy
+/// indexes (P14; module doc). `province` is the WIDE target province.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConquestFact {
+    /// PSW1 18 + its debit (PS2 145 Debit or PSW1 19): a DeclareSiege, or a
+    /// reservation (receipt action RESERVE).
+    Declared {
+        province: (i64, i64),
+        reserve: bool,
+        source: ConquestSource,
+    },
+    /// PSW1 20: one ResolveWithConquest bell.
+    Resolved { province: (i64, i64) },
+    /// PSW1 21 (action FAILED, LAPSE or RESERVATION_REFUND), with the
+    /// source's credit when the operation returns anything (PS2 145 Credit
+    /// or PSW1 23); or PSWR (`province` `None`: the target is closed).
+    Settled {
+        province: Option<(i64, i64)>,
+        action: u8,
+        credit: Option<ConquestSource>,
+    },
+    /// PSW1 22, with the source's credit when the stake was returned (an
+    /// absent or stale source's stake is burned and logs none): a SettleCapture.
+    Captured {
+        province: (i64, i64),
+        credit: Option<ConquestSource>,
+    },
+    /// PSW1 24: a CloseConquest.
+    TableClosed { province: (i64, i64) },
+    /// PSWC: a CloseCaptureEscrow of `citizen`'s escrow.
+    EscrowClosed { citizen: Address },
+}
+
+impl ConquestFact {
+    /// The status counter name (`wide_accounted`).
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Declared { reserve: false, .. } => "CONQUEST_DECLARED",
+            Self::Declared { .. } => "CONQUEST_RESERVED",
+            Self::Resolved { .. } => "CONQUEST_RESOLVED",
+            Self::Settled { province: None, .. } => "CONQUEST_RESERVATION_UNCHAINED",
+            Self::Settled { .. } => "CONQUEST_SETTLED",
+            Self::Captured { .. } => "CONQUEST_CAPTURED",
+            Self::TableClosed { .. } => "CONQUEST_TABLE_CLOSED",
+            Self::EscrowClosed { .. } => "CONQUEST_ESCROW_CLOSED",
+        }
+    }
+
+    /// The LEGACY province a legacy source's record touched, if any.
+    pub fn legacy_home(&self) -> Option<(i16, i16)> {
+        let s = match self {
+            Self::Declared { source, .. } => Some(source),
+            Self::Settled { credit, .. } => credit.as_ref(),
+            Self::Captured { credit, .. } => credit.as_ref(),
+            _ => None,
+        };
+        match s {
+            Some(ConquestSource::Legacy { home, .. }) => Some(*home),
+            _ => None,
+        }
+    }
 }
 
 /// What one decoded, paired expedition record tells the legacy indexes
@@ -354,16 +471,18 @@ pub fn bodies_scoped(
                 let tag = parts
                     .first()
                     .and_then(|p| base64::engine::general_purpose::STANDARD.decode(p).ok());
-                // P10: the expedition kinds (PS2 146..=149, PSW1 25/26) and PSFF / PSFT, with a scope only
-                // (PS2 145, the conquest kinds' legacy source receipt, is left to the PS2 codec: a blocker)
+                // P10: the expedition kinds (PS2 146..=149, PSW1 25/26) and PSFF / PSFT, with a scope only;
+                // P14: the Free City conquest kinds (PSW1 18..=24, PS2 145, PSWC, PSWR), with a scope only
                 if let (Some(_), Some(t), [_, b]) = (scope, tag.as_deref(), parts.as_slice()) {
                     let body = b64(b);
                     let kind = body.as_ref().and_then(|x| x.get(1).copied());
                     let et = match (t, kind) {
-                        (b"PS2", Some(146..=149)) => Some(ExpTag::Ps2),
-                        (b"PSW1", Some(25 | 26)) => Some(ExpTag::Psw1),
+                        (b"PS2", Some(145..=149)) => Some(ExpTag::Ps2),
+                        (b"PSW1", Some(18..=26)) => Some(ExpTag::Psw1),
                         (b"PSFF", Some(_)) => Some(ExpTag::Psff),
                         (b"PSFT", Some(_)) => Some(ExpTag::Psft),
+                        (b"PSWC", Some(_)) => Some(ExpTag::Pswc),
+                        (b"PSWR", Some(_)) => Some(ExpTag::Pswr),
                         _ => None,
                     };
                     if let (Some(et), Some(body)) = (et, body) {
@@ -432,14 +551,15 @@ pub fn bodies_scoped(
     if exp.iter().enumerate().any(|(i, a)| exp[..i].contains(a)) {
         return Err("unsupported expedition record: a record repeated in one transaction".into());
     }
-    let expedition = match (scope, exp.is_empty()) {
-        (_, true) => vec![],
+    let (expedition, conquest) = match (scope, exp.is_empty()) {
+        (_, true) => (vec![], vec![]),
         (Some(scope), false) => scope
-            .expedition(&exp)
-            .map_err(|e| format!("unsupported expedition record: {e}"))?,
+            .lane_records(&exp)
+            .map_err(|e| format!("unsupported expedition or conquest record: {e}"))?,
         (None, false) => unreachable!("expedition lines are collected with a scope only"),
     };
     wide.extend(expedition.iter().map(ExpeditionFact::name));
+    wide.extend(conquest.iter().map(ConquestFact::name));
     let logs: Vec<String> = if skip.is_empty() {
         tx.logs.clone()
     } else {
@@ -462,6 +582,7 @@ pub fn bodies_scoped(
         wide,
         wide_provinces,
         expedition,
+        conquest,
     })
 }
 
@@ -478,8 +599,9 @@ pub struct WideScope {
 /// The PSW1 kinds a `playable-lane` legacy reader accounts for (module doc,
 /// rule 2): the wide march lifecycle (1..=14) and the wide holding's owner
 /// actions (15 economy, 16 economy with the province mirror, 17 garrison).
-/// The provisional conquest kinds (18..=24) are not here: their receipts
-/// carry a source that may be a legacy Holding, so they still latch.
+/// The provisional conquest kinds (18..=24) are not here: alone they never
+/// pass; with a scope they are read, paired with their source record, by the
+/// P14 conquest reader ([`WideScope::lane_records`]; module doc) instead.
 #[cfg(feature = "playable-lane")]
 pub const ACCOUNTED_KINDS: [frontier_abi::world_index::event::WideKind; 17] = {
     use frontier_abi::world_index::event::WideKind as K;
@@ -576,8 +698,22 @@ impl WideScope {
     /// P10 (module doc): the expedition records of ONE accepted transaction,
     /// in log order, decoded exactly and paired, as the facts the legacy
     /// indexes apply; any record that does not decode, pair or name this
-    /// world's legacy home and wide destination is an error (a blocker).
+    /// world's legacy home and wide destination is an error (a blocker). A
+    /// conquest record among them is an error here (see [`Self::lane_records`]).
     pub fn expedition(&self, lines: &[(ExpTag, Vec<u8>)]) -> Result<Vec<ExpeditionFact>, String> {
+        match self.lane_records(lines)? {
+            (e, c) if c.is_empty() => Ok(e),
+            _ => Err("a conquest record among the expedition records".into()),
+        }
+    }
+
+    /// P10 + P14 (module doc): the expedition AND Free City conquest records
+    /// of ONE accepted transaction, in log order, each decoded exactly by its
+    /// own codec and paired; anything else is an error (a blocker).
+    pub fn lane_records(
+        &self,
+        lines: &[(ExpTag, Vec<u8>)],
+    ) -> Result<(Vec<ExpeditionFact>, Vec<ConquestFact>), String> {
         #[cfg(feature = "playable-lane")]
         {
             self.expedition_lane(lines)
@@ -585,7 +721,7 @@ impl WideScope {
         #[cfg(not(feature = "playable-lane"))]
         {
             let _ = lines;
-            Err("this keeper reads no expedition record".into())
+            Err("this keeper reads no expedition or conquest record".into())
         }
     }
 
@@ -625,8 +761,238 @@ impl WideScope {
         }
     }
 
+    /// P14: the WIDE province `key` names (this Season's world), or why not.
     #[cfg(feature = "playable-lane")]
-    fn expedition_lane(&self, lines: &[(ExpTag, Vec<u8>)]) -> Result<Vec<ExpeditionFact>, String> {
+    fn wide_of(
+        &self,
+        key: Option<frontier_abi::world_index::ProvinceKey>,
+        what: &str,
+    ) -> Result<(i64, i64), String> {
+        let key = key.ok_or_else(|| format!("{what} names no province"))?;
+        self.wide_dest(key).map_err(|e| format!("{what}: {e}"))
+    }
+
+    /// P14 (module doc): the conquest record at `lines[i]` and, when its kind
+    /// has one, the source record paired with it at `lines[i + 1]`; the fact
+    /// and the number of lines it used.
+    #[cfg(feature = "playable-lane")]
+    fn conquest_at(
+        &self,
+        lines: &[(ExpTag, Vec<u8>)],
+        i: usize,
+    ) -> Result<(ConquestFact, usize), String> {
+        use frontier_abi::world_index::event::conquest as cr;
+        use frontier_abi::world_index::event::{WideKind as K, WideRecord};
+        let (tag, body) = (&lines[i].0, &lines[i].1);
+        let next = lines.get(i + 1);
+        // (a paired source record follows at once: PS2 145, or PSW1 19 / 23)
+        let source_next = matches!(
+            next,
+            Some((ExpTag::Ps2, b)) if b.get(1) == Some(&145)
+        ) || matches!(next, Some((ExpTag::Psw1, b)) if matches!(b.get(1), Some(19 | 23)));
+        match tag {
+            ExpTag::Pswc => {
+                let c = cr::SidecarClose::decode(body).map_err(|e| format!("PSWC: {e:?}"))?;
+                if c.season != self.ctx.season {
+                    return Err("PSWC: another Season".into());
+                }
+                if source_next {
+                    return Err("PSWC followed by a source record".into());
+                }
+                Ok((
+                    ConquestFact::EscrowClosed {
+                        citizen: Address::new_from_array(c.citizen),
+                    },
+                    1,
+                ))
+            }
+            ExpTag::Pswr => {
+                // version 1, Season, conquest table, seq (LE32), bell (LE32), receipt
+                const LEN: usize = 1 + 32 + 32 + 4 + 4 + cr::RECEIPT_LEN;
+                if body.len() != LEN || body[0] != 1 {
+                    return Err("PSWR: shape".into());
+                }
+                if body[1..33] != self.ctx.season {
+                    return Err("PSWR: another Season".into());
+                }
+                let bell = u32::from_le_bytes(body[69..73].try_into().unwrap());
+                let receipt =
+                    cr::Receipt::decode(&body[73..]).map_err(|e| format!("PSWR receipt: {e:?}"))?;
+                if receipt.action != cr::RESERVATION_REFUND {
+                    return Err("PSWR: not a reservation refund".into());
+                }
+                let credit = if source_next {
+                    Some(self.conquest_source(
+                        &lines[i + 1],
+                        &receipt.encode(),
+                        bell,
+                        false,
+                        None,
+                    )?)
+                } else {
+                    None
+                };
+                Ok((
+                    ConquestFact::Settled {
+                        province: None,
+                        action: receipt.action,
+                        credit,
+                    },
+                    1 + usize::from(credit.is_some()),
+                ))
+            }
+            ExpTag::Psw1 => {
+                let w = WideRecord::decode(body).map_err(|e| format!("PSW1 conquest: {e:?}"))?;
+                let name = w.kind.name();
+                let receipt =
+                    cr::Receipt::decode(w.payload).map_err(|e| format!("{name} receipt: {e:?}"))?;
+                let province = self.wide_of(w.province_of(), name)?;
+                let pair = |debit: bool| -> Result<ConquestSource, String> {
+                    if !source_next {
+                        return Err(format!("{name} without its source record"));
+                    }
+                    self.conquest_source(&lines[i + 1], w.payload, w.bell, debit, Some(&w))
+                };
+                let alone = |fact: ConquestFact| -> Result<(ConquestFact, usize), String> {
+                    if source_next {
+                        return Err(format!("{name} followed by a source record"));
+                    }
+                    Ok((fact, 1))
+                };
+                match w.kind {
+                    K::ConquestDeclared => Ok((
+                        ConquestFact::Declared {
+                            province,
+                            reserve: receipt.action == cr::RESERVE,
+                            source: pair(true)?,
+                        },
+                        2,
+                    )),
+                    K::ConquestResolved => alone(ConquestFact::Resolved { province }),
+                    K::ConquestSettled => {
+                        // FAILED returns nothing to the source; LAPSE and a reservation refund may
+                        let credit = if source_next && receipt.action != cr::FAILED {
+                            Some(pair(false)?)
+                        } else if source_next {
+                            return Err(format!("{name} FAILED followed by a source record"));
+                        } else {
+                            None
+                        };
+                        Ok((
+                            ConquestFact::Settled {
+                                province: Some(province),
+                                action: receipt.action,
+                                credit,
+                            },
+                            1 + usize::from(credit.is_some()),
+                        ))
+                    }
+                    K::ConquestCaptured => {
+                        let credit = if source_next {
+                            Some(pair(false)?)
+                        } else {
+                            None
+                        };
+                        Ok((
+                            ConquestFact::Captured { province, credit },
+                            1 + usize::from(credit.is_some()),
+                        ))
+                    }
+                    K::ConquestTableClosed => alone(ConquestFact::TableClosed { province }),
+                    // (a Debited / Credited record is a source part, never a target)
+                    _ => Err(format!("{name} without its conquest target record")),
+                }
+            }
+            _ => unreachable!("conquest_at is called on a conquest line"),
+        }
+    }
+
+    /// P14: the source record `line` paired with a conquest target whose
+    /// receipt is `receipt` at `bell`: a LEGACY source's PS2 145 (debit or
+    /// credit, `legacy_source_event`, with its structural `pair_target`
+    /// against `target` when the target is chained) or a WIDE source's PSW1
+    /// 19 (debit) / 23 (credit) carrying the same receipt and bell.
+    #[cfg(feature = "playable-lane")]
+    fn conquest_source(
+        &self,
+        line: &(ExpTag, Vec<u8>),
+        receipt: &[u8],
+        bell: u32,
+        debit: bool,
+        target: Option<&frontier_abi::world_index::event::WideRecord<'_>>,
+    ) -> Result<ConquestSource, String> {
+        use frontier_abi::world_index::event::{WideKind as K, WideRecord};
+        use frontier_abi::world_index::expedition::AccountFamily;
+        use frontier_abi::world_index::legacy_source_event as ls;
+        match line {
+            (ExpTag::Ps2, body) => {
+                let r = ls::Record::decode(&self.resolver, body)
+                    .map_err(|e| format!("PS2 145: {e:?}"))?;
+                let want = if debit {
+                    ls::Direction::Debit
+                } else {
+                    ls::Direction::Credit
+                };
+                if r.source.direction != want
+                    || r.source.bell != bell
+                    || r.source.receipt.encode()[..] != *receipt
+                {
+                    return Err("PS2 145 is not this operation's source record".into());
+                }
+                if let Some(t) = target {
+                    r.source
+                        .pair_target(&self.resolver, t)
+                        .map_err(|e| format!("PS2 145 pair: {e:?}"))?;
+                }
+                // (`Record::decode` validated the source a LEGACY Holding of this world at its canonical address)
+                let c = r.source.source.key().coord();
+                Ok(ConquestSource::Legacy {
+                    holding: Address::new_from_array(r.source.source_address),
+                    home: (
+                        i16::try_from(c.p()).map_err(|_| "source coordinate")?,
+                        i16::try_from(c.q()).map_err(|_| "source coordinate")?,
+                    ),
+                })
+            }
+            (ExpTag::Psw1, body) => {
+                let w = WideRecord::decode(body).map_err(|e| format!("PSW1 source: {e:?}"))?;
+                let want = if debit {
+                    K::ConquestDebited
+                } else {
+                    K::ConquestCredited
+                };
+                if w.kind != want || w.bell != bell || w.payload != receipt {
+                    return Err(format!(
+                        "{} is not this operation's source record",
+                        w.kind.name()
+                    ));
+                }
+                let h = w.holding().ok_or("the wide source names no holding")?;
+                match self.resolver.family(h.key()) {
+                    Ok(AccountFamily::Wide) => {}
+                    Ok(AccountFamily::Legacy) => {
+                        return Err(format!("{} names a legacy holding", w.kind.name()))
+                    }
+                    Err(_) => return Err(format!("{} names another world", w.kind.name())),
+                }
+                let holding = self
+                    .resolver
+                    .holding_address(&h)
+                    .map_err(|e| format!("wide source holding: {e:?}"))?;
+                Ok(ConquestSource::Wide {
+                    holding: Address::new_from_array(holding),
+                    home: (h.key().coord().p(), h.key().coord().q()),
+                })
+            }
+            _ => Err("a conquest source record of another format".into()),
+        }
+    }
+
+    #[cfg(feature = "playable-lane")]
+    fn expedition_lane(
+        &self,
+        lines: &[(ExpTag, Vec<u8>)],
+    ) -> Result<(Vec<ExpeditionFact>, Vec<ConquestFact>), String> {
         use frontier_abi::world_index::{
             expedition_event as source, expedition_failure_event as failure,
             expedition_forfeit_event as forfeit, expedition_producer_event as producer,
@@ -636,11 +1002,19 @@ impl WideScope {
         let ctx = &self.ctx;
         let adr = Address::new_from_array;
         let mut out = vec![];
+        let mut cq = vec![];
         let mut i = 0;
         while i < lines.len() {
             let (tag, body) = (&lines[i].0, &lines[i].1);
             let kind = body.get(1).copied();
             match (tag, kind) {
+                // P14: a Free City conquest target record (PSW1 18, 20, 21, 22, 24) with its paired source
+                // record when it has one, or an unchained PSWR / PSWC
+                (ExpTag::Psw1, Some(18..=24)) | (ExpTag::Pswr, _) | (ExpTag::Pswc, _) => {
+                    let (fact, used) = self.conquest_at(lines, i)?;
+                    cq.push(fact);
+                    i += used;
+                }
                 (ExpTag::Ps2, Some(source::KIND)) => {
                     let r =
                         source::Record::decode(ctx, body).map_err(|e| format!("PS2 146: {e:?}"))?;
@@ -791,9 +1165,12 @@ impl WideScope {
                     i += 1;
                 }
                 (ExpTag::Psw1, k) => return Err(format!("PSW1 {k:?} without its PS2 part")),
+                (ExpTag::Ps2, Some(145)) => {
+                    return Err("PS2 145 without its conquest target record".into())
+                }
                 (ExpTag::Ps2, k) => return Err(format!("PS2 {k:?} is not an expedition record")),
             }
         }
-        Ok(out)
+        Ok((out, cq))
     }
 }

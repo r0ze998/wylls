@@ -56,6 +56,9 @@ const P10_PORT_BASE: u16 = 41_575;
 /// P11's (`OPERATOR_EXPEDITION_PORT_BASE` moves them): the rim → wide expedition with a test participant
 /// (devnet-expedition-keeper; devnet gaps P10 + P13).
 const P11_PORT_BASE: u16 = 41_500;
+/// P14's (`OPERATOR_CONQUEST_PORT_BASE` moves them): P11, then a third party's wide Free City conquest
+/// (devnet-guard-conquest; devnet gap P14 option a). Not 41650 (P6's default).
+const P14_PORT_BASE: u16 = 41_670;
 /// P12's (`OPERATOR_PAGE_EXPEDITION_PORT_BASE` moves them): P11 with the page sending the Depart; as P9 (+6/+7
 /// gateway, +8 inspection) (devnet-p15-p9).
 const P12_PORT_BASE: u16 = 41_520;
@@ -133,9 +136,35 @@ fn tmpdir(tag: &str) -> PathBuf {
     d
 }
 
-fn devnet_so() -> Vec<u8> {
+/// P14 (a)'s run (`Mode::Conquest`, devnet-guard-conquest) sends the Free City conquest kinds 12..=18, which the
+/// devnet `.so` of P14 (b) refuses `BadData` (`verify/tests/p14b_devnet_no_conquest.rs`). So that run alone keeps
+/// the PREVIOUS devnet build, which still carries them (the committed `devnet-playable-da3dc1aa.so.gz`): keeper A's
+/// exact reading of the conquest records stays proven as defence in depth. Every other run uses the new `.so`.
+const DEVNET_SO_WITH_CONQUEST_SHA256: &str =
+    "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
+const DEVNET_PROGRAM_HASH_WITH_CONQUEST: &str =
+    "786ef80f132a9d2d18afc5708336a396afba32ff3d4c37ebf6c94425a51352df";
+
+/// (sha256, solana-verify program hash, ELF length as the operator prints it) of the devnet `.so` a run deploys.
+fn devnet_build(conquest: bool) -> (&'static str, &'static str, &'static str) {
+    if conquest {
+        (
+            DEVNET_SO_WITH_CONQUEST_SHA256,
+            DEVNET_PROGRAM_HASH_WITH_CONQUEST,
+            "3,657,488",
+        )
+    } else {
+        (DEVNET_SO_SHA256, DEVNET_PROGRAM_HASH, "3,447,064")
+    }
+}
+
+fn devnet_so_of(conquest: bool) -> Vec<u8> {
     use std::io::Read;
-    let p = repo_root().join("frontier-node/fixtures/verify/devnet-playable-67a33c92.so.gz");
+    let (sha, _, _) = devnet_build(conquest);
+    let p = repo_root().join(format!(
+        "frontier-node/fixtures/verify/devnet-playable-{}.so.gz",
+        &sha[..8]
+    ));
     let mut out = vec![];
     flate2::read::GzDecoder::new(
         std::fs::File::open(&p).expect("the committed devnet .so fixture"),
@@ -143,10 +172,7 @@ fn devnet_so() -> Vec<u8> {
     .read_to_end(&mut out)
     .unwrap();
     let h = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&out));
-    assert_eq!(
-        h, DEVNET_SO_SHA256,
-        "the fixture is the approved devnet artefact"
-    );
+    assert_eq!(h, sha, "the fixture is the expected devnet artefact");
     out
 }
 
@@ -565,6 +591,22 @@ async fn p11_keeper_a_drives_a_rim_to_wide_expedition_on_the_devnet_so_offline()
     .await;
 }
 
+/// P14 (devnet-guard-conquest; devnet gap P14, option a: the program unchanged): P11's season and expedition, then a
+/// THIRD PARTY sends the Free City conquest kinds the PREVIOUS devnet `.so` (`da3dc1aa…`; P14 (b)'s `67a33c92…`
+/// refuses them, see [`devnet_build`]) keeps open through the version-2 wrapper —
+/// DeclareSiege (12, the host's own wallet), ResolveWithConquest (13) every bell, SettleSiege (15), a second
+/// DeclareSiege as a RESERVATION, SettleReservation (18), and after the Season's end CloseCaptureEscrow (17) and
+/// CloseConquest (16) — while keeper A runs every role. Keeper A's feed guard reads every conquest record exactly
+/// (`feedguard.rs` P14) and never latches; the verifier judges the whole season ([`rim::conquest`]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p14_a_third_partys_free_city_conquest_never_latches_keeper_a_offline() {
+    playable_season(
+        ports("OPERATOR_CONQUEST_PORT_BASE", P14_PORT_BASE),
+        Mode::Conquest,
+    )
+    .await;
+}
+
 /// P12 (devnet-p15-p9; devnet gaps P15 + P9): P11 with the WEB PAGE sending the ExpeditionDepart — its boundary
 /// card 「境界への道を準備」 on a devnet wide season: the route check, the transaction preview, the connected wallet's
 /// signature, the gateway's `/gw/f/devnet-play/expedition/submit`; its sealed reveal half kept in the encrypted book
@@ -670,6 +712,8 @@ enum Mode {
     /// P12 (devnet-p15-p9, gap P15): P11 with the WEB PAGE sending the ExpeditionDepart (its boundary card, the
     /// wallet signs, `/gw/f/devnet-play/expedition/submit`).
     PageExpedition,
+    /// P14 (devnet-guard-conquest): P11, then a third party's wide Free City conquest.
+    Conquest,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -687,6 +731,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageWarFog => "pfog",
         Mode::Expedition => "p11",
         Mode::PageExpedition => "p12",
+        Mode::Conquest => "p14",
     };
     let war = matches!(
         mode,
@@ -696,14 +741,18 @@ async fn playable_season(pt: Ports, mode: Mode) {
         mode,
         Mode::Page | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageExpedition
     );
-    let expedition = matches!(mode, Mode::Expedition | Mode::PageExpedition);
-    // (P11 too: T(21) is the expedition's arrival round)
+    let expedition = matches!(
+        mode,
+        Mode::Expedition | Mode::PageExpedition | Mode::Conquest
+    );
+    // (P11, P12 and P14 too: T(21) is the expedition's arrival round)
     let genesis_round = if war || expedition {
         WAR_GENESIS_ROUND
     } else {
         GENESIS_ROUND
     };
-    let so = devnet_so();
+    let (so_sha256, so_program_hash, so_elf_len) = devnet_build(mode == Mode::Conquest);
+    let so = devnet_so_of(mode == Mode::Conquest);
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
     let drand_bin = sibling_bin("DRAND_REPLAY_BIN", "drand-replay");
     let dir = tmpdir(tag);
@@ -761,7 +810,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             "--yes-send",
             "--i-have-r0ze-approval",
             "--approved-sha256",
-            DEVNET_SO_SHA256,
+            so_sha256,
             "--record",
             rec,
         ]);
@@ -784,7 +833,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     .await;
     assert_eq!(r.code, 0, "{}\n{}", r.stdout, r.stderr);
     assert_eq!(r.stdout.matches("\ntx ").count(), 10, "{}", r.stdout);
-    assert!(r.stdout.contains(&format!("program    sha256 {DEVNET_SO_SHA256} (3,447,064 B ELF; solana-verify program hash {DEVNET_PROGRAM_HASH}); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
+    assert!(r.stdout.contains(&format!("program    sha256 {so_sha256} ({so_elf_len} B ELF; solana-verify program hash {so_program_hash}); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
     assert!(
         r.stdout
             .contains(&format!("genesis    round {genesis_round} ")),
@@ -806,7 +855,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
 
     // A wrong --approved-sha256: refused, nothing sent.
     let mut wrong = send(&[]);
-    let i = wrong.iter().position(|x| x == DEVNET_SO_SHA256).unwrap();
+    let i = wrong.iter().position(|x| x == so_sha256).unwrap();
     wrong[i] = "00".repeat(32);
     let r = op(wrong).await;
     assert_eq!(r.code, operator::EXIT_REFUSED, "{}\n{}", r.stdout, r.stderr);
@@ -972,9 +1021,9 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
-            // (P11: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
-            // (P12/P13 devnet-p15-p9: and the `wide-resolve` role, P9)
-            Mode::Expedition | Mode::PageExpedition => {
+            // (P11 / P14: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
+            // (P12/P13 devnet-p15-p9: and the `wide-resolve` role, P9; P14 rides on P11)
+            Mode::Expedition | Mode::PageExpedition | Mode::Conquest => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\", \"wide-resolve\""
             }
         },
@@ -986,8 +1035,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
             ),
-            // (P11: ring 129 only, the expedition's destination ring)
-            Mode::Expedition | Mode::PageExpedition => format!(
+            // (P11 / P12 / P14: ring 129 only, the expedition's destination ring)
+            Mode::Expedition | Mode::PageExpedition | Mode::Conquest => format!(
                 "rim_per_wedge = {n}\nwide_rings = 1\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE
             ),
@@ -1386,9 +1435,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
                         | Mode::Page
                         | Mode::Expedition
                         | Mode::PageExpedition
+                        | Mode::Conquest
                 ),
                 wide_rings: if expedition { 1 } else { rim::WIDE_RINGS },
                 expedition,
+                conquest: mode == Mode::Conquest,
                 page: page.clone(),
                 war: (war || expedition).then(|| rim::War {
                     keeper_api: pt.keeper_api,
@@ -1473,7 +1524,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         "the recorded lamports are the plan's total"
     );
     let summary = json!({
-        "so_sha256": DEVNET_SO_SHA256, "program": program.to_string(), "season": a.season.to_string(),
+        "so_sha256": so_sha256, "program": program.to_string(), "season": a.season.to_string(),
         "t_create_min": t_create_min, "genesis_round": genesis_round, "planned_lamports": planned,
         "operator_records": records, "join": join.json(), "place_home": place.json(),
         "home": {"p": hp, "q": hq, "site": site, "nation": nation},

@@ -82,6 +82,8 @@ function extentOf(name) {
 /** The drift: one texture across DRIFT_SPAN world px (its features are a fifth of that), moving at DRIFT_SPEED world px a second. */
 export const DRIFT_SPAN = 2300;
 export const DRIFT_SPEED = Object.freeze({ x: 11, y: 4 });
+/** How far the drift moves (in grid cells of a piece, GRID to a piece) before a piece's drift picture is made again. */
+export const DRIFT_STEP = 1 / 6;
 /** The cloud's own colours: the body, its lit crests, its shaded troughs, the shadow it casts on the paper. */
 export const CLOUD = Object.freeze({ body: [228, 227, 236], lit: [16, 16, 12], shade: [-30, -28, -14], cast: '74,60,52' });
 /** How much cloud lies next to the land, and from how many tiles out the bank is at its full depth: it thickens away from the land, all the way to the sheet's margin. */
@@ -576,16 +578,28 @@ export class CloudSea {
   /** The drift over one piece: the moving texture, cut to the piece's own bank. */
   drift(ctx, p, tex, t) {
     const n = GRID + 1 + 2 * SKIRT, cell = p.size / GRID;
-    const sc = this.driftCv ??= spare(n, n), sg = sc?.getContext?.('2d');
-    if (!sg?.createPattern || typeof DOMMatrix === 'undefined') return;
-    const pat = this.driftPat ??= sg.createPattern(tex, 'repeat');
-    // the texture lies on the world and moves over it; in this scratch one px is one grid cell of the piece
-    const k = DRIFT_SPAN / 256 / cell;
-    pat.setTransform(new DOMMatrix([k, 0, 0, k, (DRIFT_SPEED.x * t - p.x) / cell + SKIRT + 0.5, (DRIFT_SPEED.y * t - p.y) / cell + SKIRT + 0.5]));
-    sg.setTransform(1, 0, 0, 1, 0, 0);
-    sg.globalCompositeOperation = 'copy'; sg.fillStyle = pat; sg.fillRect(0, 0, n, n);
-    sg.globalCompositeOperation = 'destination-in'; sg.drawImage(p.mask, 0, 0);
-    sg.globalCompositeOperation = 'source-over';
+    if (typeof DOMMatrix === 'undefined') return;
+    // (local-perf, 2026-11-21: each piece keeps its own drift picture and makes it again only when the drift has moved
+    //  DRIFT_STEP of a grid cell — about a device px at the piece's fineness, the step the map's own drift frames are
+    //  timed by (fmap.mjs: "a frame when it has moved about one"). Before, every frame of the map — the people's steps,
+    //  the effects', the drift's own — made every piece's drift anew in ONE shared scratch canvas, piece after piece,
+    //  and a wide world's sea was most of an idle frame's work)
+    const step = cell * DRIFT_STEP / Math.hypot(DRIFT_SPEED.x, DRIFT_SPEED.y);
+    const at = step > 0 ? Math.floor(t / step) * step : t;
+    if (!p.driftCv || p.driftAt !== at || p.driftTex !== tex) {
+      const sc = p.driftCv ??= spare(n, n), sg = sc?.getContext?.('2d');
+      if (!sg?.createPattern) { p.driftCv = null; return; }
+      const pat = p.driftTex === tex && p.driftPat ? p.driftPat : (p.driftPat = sg.createPattern(tex, 'repeat'));
+      // the texture lies on the world and moves over it; in this scratch one px is one grid cell of the piece
+      const k = DRIFT_SPAN / 256 / cell;
+      pat.setTransform(new DOMMatrix([k, 0, 0, k, (DRIFT_SPEED.x * at - p.x) / cell + SKIRT + 0.5, (DRIFT_SPEED.y * at - p.y) / cell + SKIRT + 0.5]));
+      sg.setTransform(1, 0, 0, 1, 0, 0);
+      sg.globalCompositeOperation = 'copy'; sg.fillStyle = pat; sg.fillRect(0, 0, n, n);
+      sg.globalCompositeOperation = 'destination-in'; sg.drawImage(p.mask, 0, 0);
+      sg.globalCompositeOperation = 'source-over';
+      p.driftAt = at; p.driftTex = tex;
+    }
+    const sc = p.driftCv;
     ctx.save();
     ctx.beginPath(); ctx.rect(p.x, p.y, p.size, p.size); ctx.clip();
     ctx.drawImage(sc, p.x - cell * (SKIRT + 0.5), p.y - cell * (SKIRT + 0.5), n * cell, n * cell);

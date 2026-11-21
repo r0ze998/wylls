@@ -2,8 +2,10 @@
 //! expedition records of the pinned devnet `.so` (`da3dc1aa…`, the committed
 //! verifier recordings) that keeper A's feed guard must refuse (latch), and the
 //! honest records of all 19 dispatch kinds classified as the PR says (kinds
-//! 0..=11 applied, the Free City conquest kinds 12..=18 latching by design,
-//! runbook P14). Literal bytes only: no key, no signing, no network.
+//! 0..=11 applied; the Free City conquest kinds 12..=18 latched by design
+//! until devnet-guard-conquest, P14 option (a), made the guard read them
+//! exactly: now applied too, verify-pr124). Literal bytes only: no key, no
+//! signing, no network.
 #![cfg(feature = "playable-lane")]
 use std::collections::BTreeMap;
 use std::io::Read as _;
@@ -192,7 +194,7 @@ const RETAINED: u8 = 11;
 #[test]
 fn h_honest_records_of_all_19_kinds() {
     let mut applied: BTreeMap<u8, usize> = BTreeMap::new();
-    let mut latched: BTreeMap<u8, usize> = BTreeMap::new();
+    let mut conquest: BTreeMap<u8, usize> = BTreeMap::new();
     for (a, k, t) in all() {
         let scope = WideScope::of(&a).unwrap();
         let r = feedguard::bodies_scoped(&t, &a.program, Some(&scope));
@@ -205,9 +207,15 @@ fn h_honest_records_of_all_19_kinds() {
             assert_eq!(play.cursor, Cursor(t.seq));
             *applied.entry(k).or_default() += 1;
         } else {
-            assert!(r.is_err(), "conquest kind {k} latches (P14)");
-            assert!(play.feed.blocked().is_some());
-            *latched.entry(k).or_default() += 1;
+            // (P14 option (a), verify-pr124: read exactly, no latch)
+            let b = r.unwrap_or_else(|e| panic!("conquest kind {k} seq {}: {e}", t.seq));
+            assert!(
+                !b.conquest.is_empty() && b.expedition.is_empty(),
+                "kind {k}"
+            );
+            assert!(play.feed.blocked().is_none(), "kind {k}");
+            assert_eq!(play.cursor, Cursor(t.seq));
+            *conquest.entry(k).or_default() += 1;
         }
         // and with no scope (a default-build keeper) every one of them latches
         assert!(
@@ -215,9 +223,9 @@ fn h_honest_records_of_all_19_kinds() {
             "kind {k}"
         );
     }
-    eprintln!("applied {applied:?} latched {latched:?}");
+    eprintln!("applied {applied:?} conquest {conquest:?}");
     assert_eq!(applied.len(), 12, "{applied:?}");
-    assert_eq!(latched.len(), 7, "{latched:?}");
+    assert_eq!(conquest.len(), 7, "{conquest:?}");
 }
 
 /// M1 forged kind: the kind byte of a real record changed (to another expedition kind, to an unknown one).
@@ -687,18 +695,21 @@ fn m9_frames() {
 }
 
 /// P14: the conquest kinds 12..=18 a participant could send through the wrapper on the previous devnet `.so`
-/// (`da3dc1aa…`, these recordings) latch keeper A, which then stops every feed-driven duty (sticky, journalled
-/// latch). The devnet `.so` of P14 (b) (`67a33c92…`) refuses them `BadData` and leaves keeper A unlatched:
+/// (`da3dc1aa…`, these recordings). They latched keeper A before devnet-guard-conquest (P14 option (a)); now
+/// both indexes read them exactly and keep going (verify-pr124; `verify_pr124_conquest_mutations.rs`).
+/// The devnet `.so` of P14 (b) (`67a33c92…`) refuses them `BadData` and keeper A stays unlatched:
 /// `verify/tests/p14b_devnet_no_conquest.rs`.
 #[test]
-fn p14_conquest_kinds_latch_keeper_a() {
+fn p14_conquest_kinds_are_read_by_keeper_a() {
     let mut seen: BTreeMap<u8, Vec<String>> = BTreeMap::new();
     for (a, k, t) in all() {
         if k < 12 {
             continue;
         }
         let scope = WideScope::of(&a).unwrap();
-        let e = feedguard::bodies_scoped(&t, &a.program, Some(&scope)).unwrap_err();
+        let e = feedguard::bodies_scoped(&t, &a.program, Some(&scope))
+            .map(|b| format!("{:?}", b.conquest))
+            .unwrap_or_else(|e| panic!("kind {k}: {e}"));
         let tags: Vec<String> = data(&t)
             .iter()
             .map(|(_, tg, b)| {
@@ -728,7 +739,7 @@ fn p14_conquest_kinds_latch_keeper_a() {
             .or_insert_with(|| vec![format!("tag {tag} records {tags:?} → {e}")]);
         let mut land = LandIndex::default();
         land.ingest_page(std::slice::from_ref(&t), &a);
-        assert!(land.feed.blocked().is_some(), "kind {k}");
+        assert!(land.feed.blocked().is_none(), "kind {k}");
     }
     for (k, v) in &seen {
         eprintln!("P14 kind {k}: {}", v[0]);
