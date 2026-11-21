@@ -61,6 +61,8 @@ const P11_PORT_BASE: u16 = 41_500;
 const P12_PORT_BASE: u16 = 41_520;
 /// PFOG's (fog-devnet; `OPERATOR_PAGE_FOG_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
 const PFOG_PORT_BASE: u16 = 41_720;
+/// PPOST's (devnet-page-outpost; `OPERATOR_PAGE_OUTPOST_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection).
+const PPOST_PORT_BASE: u16 = 41_610;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -642,6 +644,24 @@ async fn pfog_two_players_see_only_their_own_vision_on_the_devnet_page_offline()
     .await;
 }
 
+/// PPOST (devnet-page-outpost): P4's rim world with the WEB PAGE as the participant, founding its SECOND village by
+/// FileOutpost from the village screen's card (wallet-signed, wallet-paid, two presses: the SOL preview, then the send
+/// through `/gw/f/devnet-play/act/submit`); the card first says the absent neighbours are not opened yet, the test opens
+/// them (declared ring seeds + REAL OpenProvince by a TEST payer, as #138's keeper duty would); keeper A's `tickets`
+/// role settles (`operator_playable/outpost_page.rs`). Ports 41610+. `DEVNET_PAGE_DRIVER=1` only (as P7).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ppost_the_page_founds_a_second_village_on_the_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("ppost: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_OUTPOST_PORT_BASE", PPOST_PORT_BASE),
+        Mode::PageOutpost,
+    )
+    .await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// P3: the season's setup only.
@@ -670,6 +690,8 @@ enum Mode {
     /// P12 (devnet-p15-p9, gap P15): P11 with the WEB PAGE sending the ExpeditionDepart (its boundary card, the
     /// wallet signs, `/gw/f/devnet-play/expedition/submit`).
     PageExpedition,
+    /// PPOST (devnet-page-outpost): P4's rim world with the WEB PAGE founding its second village (FileOutpost).
+    PageOutpost,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -687,6 +709,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageWarFog => "pfog",
         Mode::Expedition => "p11",
         Mode::PageExpedition => "p12",
+        Mode::PageOutpost => "ppost",
     };
     let war = matches!(
         mode,
@@ -694,7 +717,12 @@ async fn playable_season(pt: Ports, mode: Mode) {
     );
     let page_mode = matches!(
         mode,
-        Mode::Page | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageExpedition
+        Mode::Page
+            | Mode::PageWar
+            | Mode::PageWarHome
+            | Mode::PageWarFog
+            | Mode::PageExpedition
+            | Mode::PageOutpost
     );
     let expedition = matches!(mode, Mode::Expedition | Mode::PageExpedition);
     // (P11 too: T(21) is the expedition's arrival round)
@@ -964,7 +992,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         // (P5: the profile's keeper A with P6/P7: `wide-tickets`, and the rings duty's wide rings)
         roles = match mode {
             Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
-            Mode::Rim => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
+            Mode::Rim | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
@@ -980,7 +1008,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         },
         rim = match mode {
             Mode::Setup => String::new(),
-            Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
@@ -1363,7 +1391,9 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let page = page_mode.then(|| rim::Page {
         herald: pt.herald,
         inspect: pt.rpc + 8,
-        driver: repo_root().join(if expedition {
+        driver: repo_root().join(if mode == Mode::PageOutpost {
+            rim::outpost_page::DRIVER
+        } else if expedition {
             "frontier-node/crates/stack/tests/operator_playable/page_expedition_driver.mjs"
         } else if war {
             "frontier-node/crates/stack/tests/operator_playable/page_war_driver.mjs"
@@ -1374,6 +1404,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             .map(|d| Path::new(&d).join(format!("{tag}-page")))
             .unwrap_or_else(|_| dir.join("page-out")),
         fog: mode == Mode::PageWarFog,
+        outpost: mode == Mode::PageOutpost,
     });
     // P4: the rim first village and the wide claim (keeper and herald still running).
     let rim_summary = if rim_run {

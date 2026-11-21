@@ -42,6 +42,12 @@
 // origin province; the replay barrier; ONE send (with preflight). No CLI is spawned and no RPC URL leaves this
 // process. The seal stays opaque: keeper A's `expeditions` role opens it from the public round T(arrive) and drives
 // every later step; the page never posts the reveal half.
+// devnet-page-outpost: the SECOND and THIRD village (FileOutpost) is one of the acts (DEVNET_ACT_COMMANDS), checked by
+// the same core with the shared intent/message of web/frontier/fdevnet-outpost.mjs (its anchor the wallet's first home
+// of the stated generation, by the chain's own bytes); the submit also reads the target Province and refuses an absent
+// one (`LocalActProvinceAbsent`, before any send: the program would answer BadAccount). Its context
+// (`…-outpost-context-v1`) adds the cluster's rent of the Holding the ticket escrows, so the page's preview names what
+// the wallet pays. Keeper A's `tickets` role settles the ticket, as a rim first village's.
 // No key is held, nothing is signed here. Off unless the operator starts the gateway with `--devnet-play`
 // (config.mjs devnetPlayConfigProblems: cluster devnet, an https RPC; the offline test form only on loopback).
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
@@ -56,9 +62,13 @@ import { expeditionDepartPrepareRequest, DEPART_PREPARE_PROGRAM_VERSION } from '
 import { departUnsignedMessage, DEVNET_DEPART_CU_LIMIT, DEVNET_DEPART_LOADED_LIMIT } from '../../../permutation-server/web/frontier/fexpedition-depart-message.mjs';
 import { singleSigned } from './local-play-relay.mjs';
 import { LocalMarchError, localMarchAccountOf, localMarchAccountsCheck, localMarchSubmit, sealBinding } from './local-play-march.mjs';
+import { OUTPOST_ACT, OUTPOST_HOLDING_BYTES } from '../../../permutation-server/web/frontier/fdevnet-outpost.mjs';
 
 /** The commands a devnet page sends itself (the first village, its economy, the wide claim). */
-export const DEVNET_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM]);
+// (devnet-page-outpost: and FileOutpost, the second and third village)
+export const DEVNET_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, OUTPOST_ACT]);
+/** devnet-page-outpost: the context of a FileOutpost — the blockhash, and the cluster's rent of the Holding it escrows. */
+export const DEVNET_OUTPOST_CONTEXT_SCHEMA = 'frontier-devnet-play-outpost-context-v1';
 export const DEVNET_ACT_ROUTES = Object.freeze({ context: 'POST /f/devnet-play/act/context', submit: 'POST /f/devnet-play/act/submit', status: 'POST /f/devnet-play/act/status' });
 /** devnet-page-war: the ordinary sealed march (Depart) of the devnet page, wallet-paid as the acts. */
 export const DEVNET_MARCH_COMMANDS = Object.freeze(['Depart']);
@@ -149,15 +159,21 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
     /** The lane this gateway serves (its own configuration; nothing is read). */
     info: () => ({ schema: DEVNET_ACT_INFO_SCHEMA, cluster: 'devnet', program: base.program, season: base.season, season_id: seasonId, ruleset_hash: base.rulesetHash, commands: [...DEVNET_ACT_COMMANDS],
       march: { commands: [...DEVNET_MARCH_COMMANDS], reveal: 'keeper' },
+      outpost: { commands: [OUTPOST_ACT], settle: 'keeper', holding_bytes: OUTPOST_HOLDING_BYTES },
       expedition: { commands: [...DEVNET_EXPEDITION_COMMANDS], reveal: 'keeper', cu_limit: DEVNET_DEPART_CU_LIMIT, loaded_limit: DEVNET_DEPART_LOADED_LIMIT } }),
 
     async context(body) {
       if (exact(body, ['schema']) && body.schema === DEVNET_ACT_INFO_SCHEMA) return this.info();
-      check(exact(body, ['schema', 'wallet']) && [DEVNET_ACT_CONTEXT_SCHEMA, DEVNET_EXPEDITION_CONTEXT_SCHEMA].includes(body.schema) && address(body.wallet));
+      check(exact(body, ['schema', 'wallet']) && [DEVNET_ACT_CONTEXT_SCHEMA, DEVNET_EXPEDITION_CONTEXT_SCHEMA, DEVNET_OUTPOST_CONTEXT_SCHEMA].includes(body.schema) && address(body.wallet));
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);
       const v = r.result?.value, slot = r.result?.context?.slot;
       if (!address(v?.blockhash) || !Number.isSafeInteger(v.lastValidBlockHeight) || v.lastValidBlockHeight < 0 || !Number.isSafeInteger(slot) || slot < 0) fail('LocalActRpcUnavailable');
       const out = { wallet: body.wallet, blockhash: { hash: v.blockhash, last_valid_block_height: String(v.lastValidBlockHeight), context_slot: String(slot) } };
+      if (body.schema === DEVNET_OUTPOST_CONTEXT_SCHEMA) {
+        const rent = (await ask('getMinimumBalanceForRentExemption', [OUTPOST_HOLDING_BYTES, { commitment: 'confirmed' }])).result;
+        if (!Number.isSafeInteger(rent) || rent < 0) fail('LocalActRpcUnavailable');
+        return { ...out, holding_rent: String(rent) };
+      }
       if (body.schema !== DEVNET_EXPEDITION_CONTEXT_SCHEMA) return out;
       const rent = (await ask('getMinimumBalanceForRentExemption', [DEVNET_EXPEDITION_TRANSIT_BYTES, { commitment: 'confirmed' }])).result;
       if (!Number.isSafeInteger(rent) || rent < 0) fail('LocalActRpcUnavailable');
@@ -172,18 +188,21 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       try { const t = parseTransaction(Buffer.from(body.transaction_b64, 'base64')); if (t.signers.length === 1) signer = t.signers[0]; } catch { fail('LocalActInvalid'); }
       check(address(signer), 'LocalActSigner');
       const pins = Object.freeze({ ...base, wallet: signer });
-      const ok = localActSubmit(body, pins, { schema: DEVNET_ACT_SUBMIT_SCHEMA }), digest = sha(ok.message);
+      const ok = localActSubmit(body, pins, { schema: DEVNET_ACT_SUBMIT_SCHEMA, outpost: true }), digest = sha(ok.message);
       check(!seen.has(digest), 'LocalActMessageUsed');
       const { intent } = ok;
       const citizenAt = A.of('Citizen', { wallet: pins.wallet });
       // (the wide claim's subject holding is its anchor: the first home, a legacy village of this Citizen — checked as one)
       const holdingAt = intent.subject.holding ? A.of('Holding', intent.subject.holding) : null;
-      const asked = holdingAt === null ? [citizenAt] : [citizenAt, holdingAt];
+      // (devnet-page-outpost: a FileOutpost's target Province too, read in the same call — absent: refused before the send)
+      const provinceAt = intent.name === OUTPOST_ACT ? A.of('Province', intent.subject.sites[0]) : null;
+      const asked = [citizenAt, ...(holdingAt === null ? [] : [holdingAt]), ...(provinceAt === null ? [] : [provinceAt])];
       const got = await ask('getMultipleAccounts', [asked, { encoding: 'base64', commitment: 'confirmed' }]);
       const slot = got.result?.context?.slot, rows = got.result?.value;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== asked.length) fail('LocalActRpcUnavailable');
       localActAccountsCheck(intent, pins, { citizenAt, holdingAt },
         [localActAccountOf(rows[0]), holdingAt === null ? undefined : localActAccountOf(rows[1])]);
+      if (provinceAt !== null) { const pv = localActAccountOf(rows[2]); check(pv !== null && pv.owner === pins.program, 'LocalActProvinceAbsent'); }
       check(!seen.has(digest), 'LocalActMessageUsed');   // (re-checked after the await; synchronous from here to the send)
       remember(digest, Object.freeze({ signature: ok.signature, name: intent.name, at: now() }));
       let sent;

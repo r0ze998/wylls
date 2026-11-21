@@ -94,11 +94,17 @@ pub struct Page {
     pub out: std::path::PathBuf,
     /// PFOG (fog-devnet): two observer players of other nations look through the devnet page too (`war_fog.rs`).
     pub fog: bool,
+    /// PPOST (devnet-page-outpost): the page founds its second village (FileOutpost) instead of the wide claim
+    /// ([`outpost_page`]).
+    pub outpost: bool,
 }
 
 /// P11 (devnet-expedition-keeper): the rim → wide expedition.
 #[path = "expedition.rs"]
 pub mod expedition;
+/// PPOST (devnet-page-outpost): the page's second village ([`outpost_page`]).
+#[path = "outpost_page.rs"]
+pub mod outpost_page;
 /// P8/P9 (devnet-page-war): the legacy war after the rim opened ([`war`]).
 #[path = "war.rs"]
 pub mod war;
@@ -888,6 +894,10 @@ pub async fn run(c: Ctx<'_>) -> Value {
             "wide_rings": ring_rounds, "wide_ring_txs": wide_ring_txs, "verifier_vwl_rings_segment": vwl_rings,
             "province_funds_before_rings": funds_before, "province_funds_after_rings": funds_after_rings,
         });
+        // (PPOST: the second village by FileOutpost instead of the wide claim)
+        if pg.outpost {
+            return outpost_page::flow(&mut r, &pg, &plan, nation, extra).await;
+        }
         return page_flow(&mut r, &pg, &plan, nation, extra).await;
     }
 
