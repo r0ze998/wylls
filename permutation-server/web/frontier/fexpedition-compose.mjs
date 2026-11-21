@@ -286,6 +286,7 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {}, lo
     s.routeCheck = { status: 'read', report, captures: data.captures, unavailable: data.unavailable,
       departTs, snapshot: data.snapshot, observationOnly: true, coherentSnapshotVerified: false, provenanceVerified: false, ...OUTBOUND_CLOSED };
     observed.set(s.routeCheck, bindingOf(source, directions, seenAtStart));
+    rememberPick(fs, s);
   } catch (e) {
     if (!current()) return;
     s.routeCheck = { status: 'error', code: e.code ?? 'RouteReadUnavailable' };
@@ -333,6 +334,7 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
       departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
       observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
     observed.set(s.contextCheck, bindingOf(source, directions, seenAtStart));
+    rememberPick(fs, s);
     // (fix-loop6, LP6-1: remembered beyond this observation — the next clock poll drops it, at ×60 within a second or
     //  two — so the departure button stays a press that reads the conditions again and departs if they still hold)
     s.readyOnce = ready?.ok === true && report?.ok === true ? readyKey(s) : null;
@@ -371,7 +373,33 @@ export function arrivalHeadroom(rate, lagBells = 0) {
   const clock = Number.isFinite(r) && r > 1 ? Math.max(1, Math.round(ARRIVAL_HEADROOM_WALL_SECS * r / BELL_SECS)) : 0;
   return clock + lag;
 }
+/**
+ * (verify-pr130, LP6-1/LP6-8) The offer outlives the observation it came from. Every forward clock poll drops the card's
+ * observations (rebuild), at ×60 within 1–3 s of a read: the 「間に合う候補」 button went with them, and a person who
+ * read the card before pressing found it gone (verify-pr130: a real press 1 s after it showed filled the field 2 times
+ * in 4, 2 s after 1 in 4). The last offer is remembered for this host and these steps only, and offered again moved on
+ * by the turns since, while it stays inside the observed range. A press only fills the arrival field and reads the route
+ * again (useEarliestOutboundArrival): nothing is sealed or sent on a remembered offer.
+ */
+const pickKey = s => stable([s.source?.hostId ?? null, s.directions]);
+function rememberPick(fs, s) {
+  try {
+    const p = liveArrivalCandidate(fs);
+    s.lastPick = Object.freeze({ key: pickKey(s), bell: fs.nowBell, pick: Number(p.arriveBell), min: p.min, max: p.max, headroom: p.headroom });
+  } catch { /* nothing to remember: the observation offers no turn */ }
+}
 export function outboundArrivalCandidate(fs) {
+  try { return liveArrivalCandidate(fs); } catch (e) {
+    const s = fs.expeditionCompose, m = s?.lastPick, now = fs.nowBell;
+    // (only while no observation is on the card — one that is shown, or under way, speaks for itself)
+    if (!m || s.routeCheck || s.contextCheck || fs.hand?.pop !== OUTBOUND_POP || !s.source || m.key !== pickKey(s)
+      || !Number.isInteger(now) || !Number.isInteger(m.bell) || now < m.bell) throw e;
+    const moved = now - m.bell, pick = m.pick + moved;
+    if (pick > m.max) throw e;
+    return Object.freeze({ arriveBell: String(pick), min: Math.min(m.min + moved, pick), max: m.max, from: 'route', headroom: pick - Math.min(m.min + moved, pick), remembered: true });
+  }
+}
+function liveArrivalCandidate(fs) {
   const s = fs.expeditionCompose;
   check(fs.hand?.pop === OUTBOUND_POP && !!s?.source, 'ArrivalCandidateUnavailable');
   const from = s.contextCheck?.status === 'read' ? 'context' : s.routeCheck?.status === 'read' ? 'route' : null;
