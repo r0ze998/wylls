@@ -3,7 +3,7 @@
 import { RouteError } from '../../routes/errors.mjs';
 import { LocalActError } from '../local-play-act.mjs';
 import { LocalMarchError } from '../local-play-march.mjs';
-import { DEVNET_ACT_ROUTES, DEVNET_MARCH_ROUTES } from '../devnet-play-act.mjs';
+import { DEVNET_ACT_ROUTES, DEVNET_MARCH_ROUTES, DEVNET_EXPEDITION_ROUTES } from '../devnet-play-act.mjs';
 
 const run = step => async (ctx, request) => {
   if (!ctx.devnetPlay) throw new RouteError(404, 'not found', 'NotFound');
@@ -19,8 +19,11 @@ export const devnetPlayRoutes = Object.freeze({
   // (devnet-page-war: the page's sealed Depart, wallet-paid; the rest of the war is keeper A's)
   [DEVNET_MARCH_ROUTES.submit]: run('marchSubmit'),
   [DEVNET_MARCH_ROUTES.status]: run('marchStatus'),
+  // (devnet-p15-p9, P15: the page's boundary departure, wallet-paid; the rest of the expedition is keeper A's)
+  [DEVNET_EXPEDITION_ROUTES.submit]: run('expeditionSubmit'),
+  [DEVNET_EXPEDITION_ROUTES.status]: run('expeditionStatus'),
 });
-export const DEVNET_PLAY_PUBLIC_ROUTES = Object.freeze([...Object.values(DEVNET_ACT_ROUTES), ...Object.values(DEVNET_MARCH_ROUTES)]);
+export const DEVNET_PLAY_PUBLIC_ROUTES = Object.freeze([...Object.values(DEVNET_ACT_ROUTES), ...Object.values(DEVNET_MARCH_ROUTES), ...Object.values(DEVNET_EXPEDITION_ROUTES)]);
 /** Per client address (the same bursts as the relay's own sends and reads). */
 export const DEVNET_PLAY_IP_LIMITS = Object.freeze({
   [DEVNET_ACT_ROUTES.context]: { burst: 40, perSecond: 3 },
@@ -28,4 +31,6 @@ export const DEVNET_PLAY_IP_LIMITS = Object.freeze({
   [DEVNET_ACT_ROUTES.status]: { burst: 40, perSecond: 4 },
   [DEVNET_MARCH_ROUTES.submit]: { burst: 10, perSecond: 0.5 },
   [DEVNET_MARCH_ROUTES.status]: { burst: 40, perSecond: 4 },
+  [DEVNET_EXPEDITION_ROUTES.submit]: { burst: 10, perSecond: 0.5 },
+  [DEVNET_EXPEDITION_ROUTES.status]: { burst: 40, perSecond: 4 },
 });

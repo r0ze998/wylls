@@ -489,7 +489,22 @@ pub fn resolve_ix_with(
     seed_src: &Address,
     anchor_src: &Address,
 ) -> Instruction {
+    resolve_ix_at(a, payer, arr.dest, bell, seed_src, anchor_src)
+}
+
+/// The wide Resolve of ANY wide province `dest` at `bell` (its
+/// `resolved_next`): [`resolve_ix_with`] without an arrival (P9's
+/// `wide-resolve` role; the same nine accounts, `proc/wide.rs resolve_inner`).
+pub fn resolve_ix_at(
+    a: &Addresses,
+    payer: &Address,
+    dest: ProvinceKey,
+    bell: u32,
+    seed_src: &Address,
+    anchor_src: &Address,
+) -> Instruction {
     let ctx = ctx_of(a);
+    let dest_key = adr(province_address(&ctx, dest.coord()));
     let data = wix::Resolve {
         bell,
         beneficiary: payer.to_bytes(),
@@ -502,15 +517,12 @@ pub fn resolve_ix_with(
         accounts: vec![
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(a.season, false),
-            AccountMeta::new(arr.dest_key, false),
-            AccountMeta::new(adr(roster_address(&ctx, arr.dest)), false),
+            AccountMeta::new(dest_key, false),
+            AccountMeta::new(adr(roster_address(&ctx, dest)), false),
             AccountMeta::new_readonly(*seed_src, false),
             AccountMeta::new_readonly(*anchor_src, false),
-            AccountMeta::new(adr(clash_inputs_address(&ctx, arr.dest, bell)), false),
-            AccountMeta::new_readonly(
-                adr(arrival_day_address(&ctx, arr.dest, day_of(bell))),
-                false,
-            ),
+            AccountMeta::new(adr(clash_inputs_address(&ctx, dest, bell)), false),
+            AccountMeta::new_readonly(adr(arrival_day_address(&ctx, dest, day_of(bell))), false),
             AccountMeta::new_readonly(fclient::addr::system_program(), false),
         ],
     }

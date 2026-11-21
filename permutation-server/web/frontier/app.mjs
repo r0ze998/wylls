@@ -30,7 +30,7 @@ import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
-import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
+import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, prepareDevnetPlayDeparture, sendDevnetPlayDeparture, reconcileDevnetPlayDeparture, clearDevnetPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -3704,6 +3704,12 @@ export const HUD_ACTIONS = {
   // from the page's memory-only wallet, and the status look-up of a departure whose outcome is not settled.
   'outbound-local-depart': () => sendLocalPlayDeparture(),
   'outbound-local-reconcile': () => reconcileLocalPlayDeparture(),
+  // Devnet play only (fdevnet-depart.mjs; the controller asks the devnet gate at every step): the preview of the boundary
+  // departure, then the connected wallet's signature and the one send; the status look-up; a finished run cleared.
+  'outbound-devnet-preview': () => prepareDevnetPlayDeparture(),
+  'outbound-devnet-send': () => sendDevnetPlayDeparture(),
+  'outbound-devnet-reconcile': () => reconcileDevnetPlayDeparture(),
+  'outbound-devnet-clear': () => { clearDevnetPlayDeparture(); },
   // Local play only (flocalplay-reveal.mjs; the same gate, asked at every step): the explicit opening of a seal this
   // page holds. A read first, then the player's own press; an outcome not known is asked about, never sent again.
   'local-reveal-check': () => checkLocalPlayReveal(),
@@ -4482,7 +4488,7 @@ function delegate(doc) {
     // (the return card's local-play controls act on the card's own observation: pressing them keeps it)
     if (FS.hand?.pop === EXPEDITION_POP && !LOCAL_CONQUEST_ACTS.includes(el.dataset.act) && !LOCAL_RETURN_ACTS.includes(el.dataset.act) && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
     // (the seal's strip stands on the boundary card too: pressing it keeps the draft, like the card's own controls)
-    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
+    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-devnet-preview', 'outbound-devnet-send', 'outbound-devnet-reconcile', 'outbound-devnet-clear', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);

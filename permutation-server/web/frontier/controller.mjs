@@ -54,6 +54,7 @@ import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEF
 import * as wallet from '../wallet.mjs';
 import { LOCAL_PLAY_WALLET_NAMES, currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import * as localDepart from './flocalplay-depart.mjs';
+import * as devnetDepart from './fdevnet-depart.mjs';
 import * as localReveal from './flocalplay-reveal.mjs';
 import * as localExpedition from './flocalplay-expedition.mjs';
 import * as localReturn from './flocalplay-return.mjs';
@@ -1643,6 +1644,24 @@ export const sendLocalPlayDeparture = () => localDepart.runLocalDepart(FS, { all
   seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
 export const reconcileLocalPlayDeparture = () => localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged });
 export const clearLocalPlayDeparture = () => { const ok = localDepart.clearLocalDepart(FS); if (ok) localDepartChanged(); return ok; };
+/**
+ * DEVNET PLAY (devnet gap P15; fdevnet-depart.mjs): the boundary draft's departure on a WIDE devnet season, signed by the
+ * player's CONNECTED wallet through the gateway's devnet expedition routes. Two presses: `prepare` seals (the reveal
+ * half kept in the encrypted devnet book), builds the one canonical message and shows what it costs; `send` has the
+ * wallet sign exactly that message and sends it once. keeper A's `expeditions` role drives every later step. Under the
+ * devnet gate (devnet play on, this page's wallet connected and shown, not an NFT Citizen) and only on a wide season.
+ */
+const devnetDepartGate = () => { if (!devnetWideNow()) return { ok: false, code: 'DevnetDepartNotWide' }; return devnetGate(); };
+export const devnetPlayDepartAllowed = () => devnetDepartGate();
+export const prepareDevnetPlayDeparture = () => devnetDepart.prepareDevnetDepart(FS, { allowed: devnetDepartGate, context: expeditionContext,
+  sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
+  seal: async req => (await import('./seal-wide.mjs')).sealWide(req), book: () => devnetBookNow(), wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
+export const sendDevnetPlayDeparture = () => devnetDepart.sendDevnetDepart(FS, { allowed: devnetDepartGate, sign: async w => wallet.signTransaction(w),
+  wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
+export const reconcileDevnetPlayDeparture = () => devnetDepart.reconcileDevnetDepart(FS, { allowed: devnetDepartGate, changed: localDepartChanged });
+export const clearDevnetPlayDeparture = () => { const ok = devnetDepart.clearDevnetDepart(FS); if (ok) localDepartChanged(); return ok; };
+/** The reveal halves of this wallet's boundary departures, as the encrypted devnet book keeps them (null: no book here). */
+export const devnetPlayDepartReveals = async () => { const b = await devnetBookNow(); return b ? devnetDepart.devnetDepartReveals(b.storage) : null; };
 /**
  * Local play only (flocalplay-reveal.mjs): the explicit Reveal of a departure this page sealed, under the same gate
  * as the departure. Two presses, never one: `check` reads the chain and says whether it can be revealed (nothing is

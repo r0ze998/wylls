@@ -29,9 +29,22 @@
 // round, or from the owner's material the page hands to the keeper (`POST /f/reveal`), never by this gateway.
 // The march's later steps (SettleDeparture, the reveal, the clash, SettleTransit, the return) are keeper A's play
 // roles: nothing else of the war is served here.
+// devnet-p15-p9 (devnet gap P15): the BOUNDARY DEPARTURE (ExpeditionDepart, the 0x4804 wrapper kind 0; the page's
+// 「境界への道を準備」) on the same terms, over its own two routes:
+//   POST /f/devnet-play/expedition/submit {schema: …-expedition-submit-v1, request, blockhash, transaction_b64}
+//   POST /f/devnet-play/expedition/status {schema: …-expedition-status-v1, signature} → also `expired`
+// `request` is the local relay's canonical preparation request (expedition-depart-prepare.mjs
+// `expeditionDepartPrepareRequest`: the nine roles and the 369 inner bytes rebuilt from its public facts), pinned to
+// this gateway's program, Season, ruleset hash and the host-only dispatch revision, with the wallet as payer AND actor
+// AND the transaction's one signer. The unsigned message is REBUILT here with the page's own builder
+// (web/frontier/fexpedition-depart-message.mjs, byte-equal to the keyless Rust CLI's) for the stated blockhash and
+// compared byte for byte; the signature verified; one read of the wallet's Citizen, the host's home village and the
+// origin province; the replay barrier; ONE send (with preflight). No CLI is spawned and no RPC URL leaves this
+// process. The seal stays opaque: keeper A's `expeditions` role opens it from the public round T(arrive) and drives
+// every later step; the page never posts the reveal half.
 // No key is held, nothing is signed here. Off unless the operator starts the gateway with `--devnet-play`
 // (config.mjs devnetPlayConfigProblems: cluster devnet, an https RPC; the offline test form only on loopback).
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import { decode, encode } from '../../client/src/base58.mjs';
 import { parseTransaction } from '../../client/src/solana-tx.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
@@ -39,6 +52,9 @@ import { WIDE_CLAIM } from '../../../permutation-server/web/frontier/flocalplay-
 import { fetchRpc } from './local-play-relay.mjs';
 import { LocalActError, localActAccountOf, localActAccountsCheck, localActSubmit, runnerRejection, sendRefusalDetail } from './local-play-act.mjs';
 import { LOCALNET_PLAYABLE_LANE } from './playable-lane-profile.mjs';
+import { expeditionDepartPrepareRequest, DEPART_PREPARE_PROGRAM_VERSION } from './expedition-depart-prepare.mjs';
+import { departUnsignedMessage, DEVNET_DEPART_CU_LIMIT, DEVNET_DEPART_LOADED_LIMIT } from '../../../permutation-server/web/frontier/fexpedition-depart-message.mjs';
+import { singleSigned } from './local-play-relay.mjs';
 import { LocalMarchError, localMarchAccountOf, localMarchAccountsCheck, localMarchSubmit, sealBinding } from './local-play-march.mjs';
 
 /** The commands a devnet page sends itself (the first village, its economy, the wide claim). */
@@ -49,6 +65,16 @@ export const DEVNET_MARCH_COMMANDS = Object.freeze(['Depart']);
 export const DEVNET_MARCH_ROUTES = Object.freeze({ submit: 'POST /f/devnet-play/march/submit', status: 'POST /f/devnet-play/march/status' });
 export const DEVNET_MARCH_SUBMIT_SCHEMA = 'frontier-devnet-play-march-submit-v1';
 export const DEVNET_MARCH_STATUS_SCHEMA = 'frontier-devnet-play-march-status-v1';
+/** devnet-p15-p9 (P15): the boundary departure of the devnet page, wallet-paid as the acts; the rest is keeper A's. */
+export const DEVNET_EXPEDITION_COMMANDS = Object.freeze(['ExpeditionDepart']);
+export const DEVNET_EXPEDITION_ROUTES = Object.freeze({ submit: 'POST /f/devnet-play/expedition/submit', status: 'POST /f/devnet-play/expedition/status' });
+export const DEVNET_EXPEDITION_SUBMIT_SCHEMA = 'frontier-devnet-play-expedition-submit-v1';
+export const DEVNET_EXPEDITION_STATUS_SCHEMA = 'frontier-devnet-play-expedition-status-v1';
+/** devnet-p15-p9: the context of a boundary departure — the blockhash, and the cluster's rent of the transit record the
+ * Depart creates from the wallet (`OWNED_BRIDGE_LEN` 336 bytes, `proc/wide_expedition_exec.rs`), so the page's preview
+ * names everything the wallet pays. */
+export const DEVNET_EXPEDITION_CONTEXT_SCHEMA = 'frontier-devnet-play-expedition-context-v1';
+export const DEVNET_EXPEDITION_TRANSIT_BYTES = 336;
 export const DEVNET_ACT_INFO_SCHEMA = 'frontier-devnet-play-act-info-v1';
 export const DEVNET_ACT_CONTEXT_SCHEMA = 'frontier-devnet-play-act-context-v1';
 export const DEVNET_ACT_SUBMIT_SCHEMA = 'frontier-devnet-play-act-submit-v1';
@@ -64,6 +90,16 @@ const check = (ok, code = 'LocalActInvalid') => { if (!ok) fail(code); };
 const exact = (v, keys) => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 const address = s => { try { return typeof s === 'string' && s.length <= 44 && decode(s).length === 32 && encode(decode(s)) === s; } catch { return false; } };
 const sha = b => createHash('sha256').update(b).digest('hex');
+const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
+const edKey = raw => createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(raw)]), format: 'der', type: 'spki' });
+/** The home `{p, q, site}` of an original host's 56-byte reference (hex): byte 0 = 1, world 32, ring u64 BE, wedge, pos u64 BE, site, gen, seq. */
+function hostHome(hex) {
+  const b = Buffer.from(hex, 'hex');
+  const ring = b.readBigUInt64BE(33), wedge = b[41], pos = b.readBigUInt64BE(42);
+  let p = ring - pos, q = pos;
+  for (let i = 0; i < wedge; i++) [p, q] = [-q, p + q];
+  return { p: Number(p), q: Number(q), site: b[50] };
+}
 
 /**
  * What is wrong with a gateway configuration that asks for the devnet play routes (empty when they may be served):
@@ -112,15 +148,20 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
     routes: DEVNET_ACT_ROUTES,
     /** The lane this gateway serves (its own configuration; nothing is read). */
     info: () => ({ schema: DEVNET_ACT_INFO_SCHEMA, cluster: 'devnet', program: base.program, season: base.season, season_id: seasonId, ruleset_hash: base.rulesetHash, commands: [...DEVNET_ACT_COMMANDS],
-      march: { commands: [...DEVNET_MARCH_COMMANDS], reveal: 'keeper' } }),
+      march: { commands: [...DEVNET_MARCH_COMMANDS], reveal: 'keeper' },
+      expedition: { commands: [...DEVNET_EXPEDITION_COMMANDS], reveal: 'keeper', cu_limit: DEVNET_DEPART_CU_LIMIT, loaded_limit: DEVNET_DEPART_LOADED_LIMIT } }),
 
     async context(body) {
       if (exact(body, ['schema']) && body.schema === DEVNET_ACT_INFO_SCHEMA) return this.info();
-      check(exact(body, ['schema', 'wallet']) && body.schema === DEVNET_ACT_CONTEXT_SCHEMA && address(body.wallet));
+      check(exact(body, ['schema', 'wallet']) && [DEVNET_ACT_CONTEXT_SCHEMA, DEVNET_EXPEDITION_CONTEXT_SCHEMA].includes(body.schema) && address(body.wallet));
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);
       const v = r.result?.value, slot = r.result?.context?.slot;
       if (!address(v?.blockhash) || !Number.isSafeInteger(v.lastValidBlockHeight) || v.lastValidBlockHeight < 0 || !Number.isSafeInteger(slot) || slot < 0) fail('LocalActRpcUnavailable');
-      return { wallet: body.wallet, blockhash: { hash: v.blockhash, last_valid_block_height: String(v.lastValidBlockHeight), context_slot: String(slot) } };
+      const out = { wallet: body.wallet, blockhash: { hash: v.blockhash, last_valid_block_height: String(v.lastValidBlockHeight), context_slot: String(slot) } };
+      if (body.schema !== DEVNET_EXPEDITION_CONTEXT_SCHEMA) return out;
+      const rent = (await ask('getMinimumBalanceForRentExemption', [DEVNET_EXPEDITION_TRANSIT_BYTES, { commitment: 'confirmed' }])).result;
+      if (!Number.isSafeInteger(rent) || rent < 0) fail('LocalActRpcUnavailable');
+      return { ...out, transit_rent: String(rent) };
     },
 
     async submit(body) {
@@ -193,10 +234,10 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
     },
 
     /** The chain's word on a march this gateway sent; `expired` once its blockhash is no longer valid and it is unknown. */
-    async marchStatus(body) {
+    async marchStatus(body, name = 'Depart') {
       const mfail = code => { throw new LocalMarchError(code); };
       if (!(exact(body, ['schema', 'signature']) && body.schema === DEVNET_MARCH_STATUS_SCHEMA && typeof body.signature === 'string' && body.signature.length <= 100)) mfail('LocalMarchInvalid');
-      const entry = [...seen.values()].find(e => e.signature === body.signature && e.name === 'Depart');
+      const entry = [...seen.values()].find(e => e.signature === body.signature && e.name === name);
       if (!entry) mfail('LocalMarchUnknownSignature');
       const q = async (m, p) => { let r; try { r = await rpc(m, p); } catch { mfail('LocalMarchRpcUnavailable'); } if (!r || r.error !== undefined) mfail('LocalMarchRpcUnavailable'); return r; };
       const v = await q('isBlockhashValid', [entry.blockhash, { commitment: 'processed' }]);
@@ -209,6 +250,53 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       if (typeof s !== 'object' || Array.isArray(s) || !Object.hasOwn(s, 'err') || !Number.isSafeInteger(s.slot) || s.slot < 0
           || !['processed', 'confirmed', 'finalized'].includes(s.confirmationStatus)) mfail('LocalMarchRpcUnavailable');
       return { signature: body.signature, status: s.err !== null ? 'failed' : s.confirmationStatus, err: s.err, slot: s.slot, context_slot: slot };
+    },
+
+    /**
+     * ONE page-signed boundary departure (devnet gap P15): the canonical request pinned to this gateway, the message
+     * rebuilt with the shared builder and byte-compared, the wallet's one signature verified, one read, one send.
+     */
+    async expeditionSubmit(body) {
+      const mfail = (code, detail) => { throw new LocalMarchError(code, detail); };
+      if (!(exact(body, ['schema', 'request', 'blockhash', 'transaction_b64']) && body.schema === DEVNET_EXPEDITION_SUBMIT_SCHEMA && address(body.blockhash)
+          && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700)) mfail('LocalMarchInvalid');
+      let request; try { request = expeditionDepartPrepareRequest(body.request); } catch { mfail('LocalMarchInvalid'); }
+      if (request.cluster !== 'devnet' || request.program !== base.program || request.season !== base.season
+          || request.deployment.program_version !== DEPART_PREPARE_PROGRAM_VERSION || request.deployment.ruleset_hash !== base.rulesetHash) mfail('LocalMarchNotAllowed');
+      if (request.payer !== request.wallet) mfail('LocalMarchSigner');
+      const wire = Buffer.from(body.transaction_b64, 'base64');
+      if (wire.toString('base64') !== body.transaction_b64 || wire.length > 1232) mfail('LocalMarchInvalid');
+      let signed; try { signed = singleSigned(wire); } catch { mfail('LocalMarchSigner'); }
+      let built; try { built = departUnsignedMessage({ request, blockhash: body.blockhash }); } catch { mfail('LocalMarchInvalid'); }
+      if (!Buffer.from(signed.message).equals(Buffer.from(built.message))) mfail('LocalMarchMessageMismatch');
+      if (!edVerify(null, signed.message, edKey(decode(request.wallet)), signed.signature)) mfail('LocalMarchSigner');
+      const digest = built.digest;
+      if (seen.has(digest)) mfail('LocalMarchMessageUsed');
+      const pins = Object.freeze({ ...base, wallet: request.wallet });
+      const role = n => request.proposal.roles.find(r => r.name === n).address;
+      const citizenAt = A.of('Citizen', { wallet: pins.wallet });
+      if (role('citizen') !== citizenAt) mfail('LocalMarchCitizen');
+      const home = hostHome(request.host), holdingAt = role('holding'), provinceAt = role('province');
+      let got; try { got = await rpc('getMultipleAccounts', [[citizenAt, holdingAt, provinceAt], { encoding: 'base64', commitment: 'confirmed' }]); } catch { mfail('LocalMarchRpcUnavailable'); }
+      const slot = got?.result?.context?.slot, rows = got?.result?.value;
+      if (got?.error !== undefined || !Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== 3) mfail('LocalMarchRpcUnavailable');
+      localMarchAccountsCheck({ subject: { holding: home, province: { p: Number(request.standing.p), q: Number(request.standing.q) } } }, pins,
+        { citizenAt, holdingAt }, rows.map(localMarchAccountOf));
+      if (seen.has(digest)) mfail('LocalMarchMessageUsed');   // (re-checked after the await; synchronous from here to the send)
+      const signature = encode(signed.signature);
+      remember(digest, Object.freeze({ signature, name: 'ExpeditionDepart', blockhash: body.blockhash, at: now() }));
+      let sent;
+      try { sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]); }
+      catch { return { status: 'unknown', name: 'ExpeditionDepart', signature, message_digest: digest, status_route: DEVNET_EXPEDITION_ROUTES.status }; }
+      if (sent?.error) throw new LocalMarchError(runnerRejection(sent.error) ? 'LocalMarchRejected' : 'LocalMarchSendRefused', sendRefusalDetail(sent.error, signature));
+      return { status: sent?.result === signature ? 'submitted' : 'unknown', name: 'ExpeditionDepart', signature, message_digest: digest, status_route: DEVNET_EXPEDITION_ROUTES.status };
+    },
+
+    /** The chain's word on a boundary departure this gateway sent (as marchStatus). */
+    async expeditionStatus(body) {
+      if (!(exact(body, ['schema', 'signature']) && body.schema === DEVNET_EXPEDITION_STATUS_SCHEMA && typeof body.signature === 'string' && body.signature.length <= 100)) throw new LocalMarchError('LocalMarchInvalid');
+      if (![...seen.values()].some(e => e.signature === body.signature && e.name === 'ExpeditionDepart')) throw new LocalMarchError('LocalMarchUnknownSignature');
+      return this.marchStatus({ schema: DEVNET_MARCH_STATUS_SCHEMA, signature: body.signature }, 'ExpeditionDepart');
     },
 
     stats: () => ({ history: seen.size }),

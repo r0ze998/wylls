@@ -410,6 +410,11 @@ const CLIENT_TEXT = {
   LocalMarchShape: () => L`命令の内容の形が正しくありません。送っていません。`,
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
+  // (devnet gap P15, fdevnet-depart.mjs: the devnet boundary departure's own refusals; each before any send)
+  DevnetDepartNotWide: () => L`境界の外への出発は、広い土地が開いた devnet のシーズンでだけ送れます。送っていません。`,
+  DevnetDepartNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
+  DevnetDepartSignedMalformed: () => L`ウォレットが返した署名済みの取引を読めませんでした。送っていません。`,
+  DepartMessageContract: () => L`出発の取引を正しく組み立てられませんでした。送っていません。`,
   LocalMarchClosed: () => L`この軍勢の進軍は、いまローカルプレイでは送れません。`,
   // (2026-11-19, fix-march-held) the runner's definite rejection (not sent), and a sent march whose blockhash expired
   LocalActRejected: () => L`チェーンのノードがこの命令を実行前に受け付けませんでした。送られていません。`,
