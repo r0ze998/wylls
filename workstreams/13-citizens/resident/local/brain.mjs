@@ -35,7 +35,7 @@ export const BELLS_PER_DAY = 144;
 
 /**
  * ⑬'s limits for a local world. Taken from resident.mjs DEFAULT_LIMITS; three are the resident's own pace for a world
- * whose rule is one action per turn (each is the resident's choice, stricter than the world, and set in its charter):
+ * whose rule is one action per turn (each is the resident's own choice: looser than ⑬'s S1 values, never looser than the world's rule):
  *   wakeEveryBells 1 (S1: 3)      it may decide every turn; the world allows one action per turn and no more
  *   actionsPerDay 144 (S1: 12)    one a turn at most (BELLS_PER_DAY); the S1 value was set against S1's 30/h bucket
  *   idleBackoffMaxBells 4 (S1: 24) a waiting resident looks again within 4 turns (×60: 40 s), not 24
