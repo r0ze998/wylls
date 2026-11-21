@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { homeSites, planHomes, homeKey, loadHome, saveHome } from '../../permutation-server/web/frontier/home.mjs';
 import { ringProvinces, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
@@ -92,4 +93,69 @@ test('a farm completion names the actual effect, even if Harvest consumed its qu
   assert.match(completed[0].text, /農場/);
   assert.doesNotMatch(completed[0].text, /伐採/);
   assert.equal(diffFeed(next, snapshot({ holdings: [{ ...holding, queue: [] }] }, 162)).length, 0);
+});
+
+// (fix-loop6, LP6-12) loop-play6: 2 of 3 `--two` worlds put the two people of one nation in opposite provinces, so a
+// caravan could not reach. The TEST-ONLY contest pair now shares one order of places (its Season), every other player
+// keeps its own (players spread out); the places and the placing rules are unchanged.
+test('LP6-12: a local contest pair of one nation is offered the same province first; other players keep their own order', async () => {
+  const { homeSeed } = await import('../../permutation-server/web/frontier/controller.mjs');
+  const SEASON_ADDR = '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin';
+  const a = { wallet: { address: 'AAAAwallet' } }, b = { wallet: { address: 'BBBBwallet' } };
+  assert.equal(homeSeed(a, null), 'AAAAwallet'); assert.equal(homeSeed(a, { seasonAddress: SEASON_ADDR }), 'AAAAwallet', 'local play, not a pair: its own');
+  const first = { pair: 'first', seasonAddress: SEASON_ADDR }, second = { pair: 'second', seasonAddress: SEASON_ADDR };
+  assert.equal(homeSeed(a, first), homeSeed(b, second)); assert.equal(homeSeed(a, first), `pair:${SEASON_ADDR}`);
+  const faction = 3, plan = seed => planHomes({ overviews: overviews(), read: async (p, q) => province(p, q), ringsOpen: 5, seed: `${seed}|0`, faction });
+  const [pa, pb] = [await plan(homeSeed(a, first)), await plan(homeSeed(b, second))];
+  assert.deepEqual([pa.candidates[0].p, pa.candidates[0].q], [pb.candidates[0].p, pb.candidates[0].q], 'the same province first');
+  // by their own wallets, the two would most likely have been offered different provinces (the loop-play6 case)
+  const own = [];
+  for (const w of ['AAAAwallet', 'BBBBwallet', 'CCCCwallet', 'DDDDwallet']) { const c = (await plan(w)).candidates[0]; own.push(`${c.p},${c.q}`); }
+  assert.ok(new Set(own).size > 1, `wallet seeds spread the players: ${own}`);
+  const src = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.mjs', import.meta.url), 'utf8');
+  assert.match(src, /const playedAs = launcher && state\.pairRole \? Object\.freeze\(\{ \.\.\.playedWide, pair: state\.pairRole \}\) : playedWide;/);
+});
+
+// (fix-loop6, LP6-11) B-8's real cause: a press made before the candidates were read started a forced reading, the next
+// press superseded it, and the first press ended silently — 3–4 real presses in the ×60 wide picker. A press waiting
+// for the reading now marks the button busy, and a press meanwhile adds nothing.
+test('LP6-11: a press waiting for the candidates makes the button busy, and a second press neither restarts the reading nor ends the first', () => {
+  const src = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
+  const c = src('controller.mjs'), j = src('screens/join.mjs');
+  const body = c.slice(c.indexOf('export async function confirmHome() {'), c.indexOf('if (contextSeq !== pressed) return;', c.indexOf('export async function confirmHome() {')));
+  assert.match(body, /if \(FS\.homeConfirmWait\) return;/, 'a press while one waits adds nothing');
+  assert.match(body, /FS\.homeConfirmWait = true; invalidate\('panel'\);/);
+  assert.match(body, /FS\.homeChoice\?\.loading && FS\.homeChoice\.faction === faction && Date\.now\(\) < until/, 'a reading under way for this nation is waited for');
+  assert.match(body, /\} finally \{ FS\.homeConfirmWait = false; invalidate\('panel'\); \}/);
+  assert.ok(body.indexOf('if (FS.homeConfirmWait) return;') < body.indexOf('await refreshHomes({ force: true })'));
+  assert.equal(j.split('|| !!FS.homeConfirmWait;').length - 1, 2, 'both join screens show the wait as busy (「村を準備しています…」, the button disabled)');
+});
+
+// (verify-pr130, LP6-12) Live (`--coexist --demo --two`): the shared order gave both people the very same SITE, and the
+// second PlaceHome was refused TicketState (Custom 45) — one of the two had no village at all. The pair now shares the
+// province but not the site: the first role takes the first site, the second the next one, in provinces with room for both.
+test('LP6-12 (verify-pr130): the contest pair is offered one province but two different sites; nobody else is affected', async () => {
+  const { homeSeed, homePairRole } = await import('../../permutation-server/web/frontier/controller.mjs');
+  const SEASON_ADDR = '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin';
+  const first = { pair: 'first', seasonAddress: SEASON_ADDR }, second = { pair: 'second', seasonAddress: SEASON_ADDR };
+  assert.equal(homePairRole(first), 'first'); assert.equal(homePairRole(second), 'second');
+  assert.equal(homePairRole(null), null); assert.equal(homePairRole({ seasonAddress: SEASON_ADDR }), null); assert.equal(homePairRole({ pair: 'first' }), null);
+  const seed = `${homeSeed({ wallet: { address: 'A' } }, first)}|0`, faction = 3;
+  const plan = (pair, prov = province) => planHomes({ overviews: overviews(), read: async (p, q) => prov(p, q), ringsOpen: 5, seed, faction, pair });
+  const [pa, pb] = [await plan('first'), await plan('second')];
+  assert.ok(pa.candidates.length > 0);
+  const at = c => `${c.p},${c.q}`;
+  assert.equal(at(pa.candidates[0]), at(pb.candidates[0]), 'the same province first');
+  assert.notEqual(pa.candidates[0].site, pb.candidates[0].site, 'never the same site (the second PlaceHome would be refused TicketState)');
+  // once one of the two has placed (its site taken), the other's choice in that province is still a different, free site
+  const taken = pa.candidates[0];
+  const after = (p, q) => { const v = province(p, q); if (`${p},${q}` === at(taken)) { v.siteCount = 3; v.sites = [5, 14, 30]; v.siteMirror = [{ state: 0, gen: 0 }, { state: 3, gen: 2 }, { state: 0, gen: 0 }]; v.siteMirror[taken.site] = { state: 1, gen: 1 }; } return v; };
+  const pb2 = await plan('second', after);
+  assert.equal(at(pb2.candidates[0]), at(taken)); assert.notEqual(pb2.candidates[0].site, taken.site);
+  // a province with room for only one is not offered to the pair (it would put them apart or on one site)
+  const one = (p, q) => ({ ...province(p, q), siteCount: 1, sites: [5], siteMirror: [{ state: 0, gen: 0 }] });
+  assert.equal((await plan('first', one)).candidates.length, 0); assert.equal((await plan('second', one)).candidates.length, 0);
+  assert.equal((await plan(null, one)).candidates.length > 0, true, 'everyone else still takes a one-site province');
+  const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  assert.match(c, /seed: `\$\{homeSeed\(\)\}\|\$\{old\.rotation \?\? 0\}`, rotation: old\.rotation \?\? 0, pair: homePairRole\(\),/);
 });

@@ -1003,6 +1003,37 @@ function own(child) {
   if (!hooked) { hooked = true; process.on('exit', () => { for (const p of live) { try { p.kill('SIGKILL'); } catch { /* already gone */ } } }); }
 }
 const exited = p => p.pid === undefined || p.exitCode !== null || p.signalCode !== null;
+/** Real milliseconds the launcher waits for its worlds to close on Ctrl-C before it ends their processes itself. */
+export const LAUNCHER_CLOSE_MAX_MS = 20_000;
+/**
+ * (fix-loop6, LP6-3) The launcher's end on Ctrl-C / SIGTERM / SIGHUP. loop-play6: a `--wide --ai 4` launcher, hours
+ * after its world's TTL with the page still polling, closed its port on Ctrl-C and then waited in `manager.close()`
+ * forever at 0 % CPU; a second Ctrl-C and SIGTERM were ignored (it was already ending), only SIGKILL ended it. Not
+ * reproduced with a 15-min `--demo` world, so the root cause is not known; whatever it is, the end is bounded now:
+ *   - the first signal closes the port and every world, as before, but waits at most `maxMs` for that;
+ *   - past it, or on a second signal, it says which worlds were left (to find the cause next time), ends every
+ *     process it started (`live`, SIGKILL) and exits — 0: a stop the person asked for.
+ * → the handler for `process.on(signal, …)`. `exit`, `log`, `kill` are stand-ins in tests.
+ */
+export function launcherShutdown({ server, manager, live: kids = live, maxMs = LAUNCHER_CLOSE_MAX_MS, exit = code => process.exit(code),
+  log = line => console.error(line), kill = p => { try { p.kill('SIGKILL'); } catch { /* already gone */ } } }) {
+  let ending = false, done = false;
+  const finish = why => {
+    if (done) return; done = true;
+    let left = [];
+    try { left = manager.list(); } catch { /* nothing to say */ }
+    if (why !== 'closed') log(JSON.stringify({ step: 'launcher-end', why, worlds_left: left.map(w => ({ state: w.state, startedAt: w.startedAt, ...(w.expiry ? { expiresAt: w.expiry.expiresAt } : {}) })), processes_left: [...kids].filter(p => !exited(p)).map(p => p.pid) }));
+    for (const p of kids) if (!exited(p)) kill(p);
+    exit(0);
+  };
+  return signal => {
+    if (ending) { finish(`second ${signal ?? 'signal'}`); return; }
+    ending = true;
+    try { server.close(); server.closeAllConnections(); } catch { /* already closed */ }
+    const t = setTimeout(() => finish(`worlds not closed within ${maxMs} ms`), maxMs); t.unref?.();
+    Promise.resolve().then(() => manager.close()).catch(() => {}).then(() => { clearTimeout(t); finish('closed'); });
+  };
+}
 /**
  * Starts one world for `wallet` on slot `slot` and resolves `{herald, stop}` when its herald answers through the
  * proxy. `stop(reason)` ends the three processes (SIGINT, then SIGKILL) and the proxy, writes why in the world's
@@ -1561,6 +1592,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     lag.reset();
   }, LAUNCHER_HEARTBEAT_MS).unref();
   // Ctrl-C (or a closed terminal): every world of this launcher is ended first, then the launcher.
-  let ending = false;
-  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, async () => { if (ending) return; ending = true; server.close(); server.closeAllConnections(); await manager.close(); process.exit(0); });
+  // (fix-loop6, LP6-3: bounded — launcherShutdown; a second Ctrl-C ends it at once)
+  const end = launcherShutdown({ server, manager });
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => end(signal));
 }

@@ -12,7 +12,7 @@ import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
 import { setLang, EN, EN_GROUPS, missingKeys } from '../../permutation-server/web/lang.mjs';
 import * as hand from '../../permutation-server/web/frontier/hud/hand.mjs';
 import * as CTRL from '../../permutation-server/web/frontier/controller.mjs';
-import { OUTBOUND_POP, OUTBOUND_CLOSED, openOutbound, editOutbound, clearOutbound, inspectOutboundRoute, inspectOutboundContext,
+import { OUTBOUND_POP, OUTBOUND_CLOSED, openOutbound, editOutbound, clearOutbound, reconcileOutbound, inspectOutboundRoute, inspectOutboundContext,
   outboundArrivalCandidate, useEarliestOutboundArrival } from '../../permutation-server/web/frontier/fexpedition-compose.mjs';
 
 const PROGRAM = encode(new Uint8Array(32).fill(94)), WALLET = encode(new Uint8Array(32).fill(65));
@@ -62,7 +62,7 @@ test('one press puts the earliest observed turn in the draft\'s own field and re
   assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateUnavailable', 'nothing read yet: nothing to offer');
   assert.doesNotMatch(card(w), BUTTON);
   await r.read();
-  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route' });
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route', headroom: 0 });
   const before = card(w);
   assert.match(before, BUTTON); assert.match(before, /最も早い候補（ターン 44）を使う/); assert.match(before, /到着候補：ターン 44〜47/);
   assert.equal((before.match(BUTTON) ?? []).length, 1);
@@ -83,7 +83,9 @@ test('one press puts the earliest observed turn in the draft\'s own field and re
   assert.doesNotMatch(after, /<form|data-act="(?:march-send|dissolve|hand-return|seal|send)"/);
   // another turn by hand is still the player's own: the offer returns for the newly read observation
   assert.equal(editOutbound(w.fs, w.ctx, 'arriveBell', '46'), true);
-  assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateUnavailable', 'an edit drops the observation');
+  assert.equal(w.fs.expeditionCompose.routeCheck, null, 'an edit drops the observation');
+  // (verify-pr130: the last offer is remembered for this host and these steps, and still offered)
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route', headroom: 0, remembered: true });
   await r.read();
   assert.equal(outboundArrivalCandidate(w.fs).arriveBell, '44'); assert.match(card(w), BUTTON); assert.match(card(w), /いまの候補：ターン 46/);
 });
@@ -103,14 +105,15 @@ test('only an observation still bound to this host, these steps, this source and
     w.fs.expeditionCompose.routeCheck = old;
     assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateStale');
     assert.equal((await useEarliestOutboundArrival(w.fs, r.options)).ok, false); assert.equal(w.fs.expeditionCompose.arriveBell, ''); }
-  // the turn moved on since the read (an ordinary poll): the draft and its steps stand, the observation is dropped,
-  // and there is nothing observed to enter until the route is read again (web-frontier-outbound-clock.test.mjs)
+  // the turn moved on since the read (an ordinary poll): the draft and its steps stand, the observation is dropped
+  // (web-frontier-outbound-clock.test.mjs). verify-pr130: the remembered offer moves on with the turn, and a press
+  // enters it and reads the route again — the read, not the memory, says whether it holds
   { const w = world(), r = reader(w); await r.read();
     assert.equal(outboundArrivalCandidate(w.fs).arriveBell, '44'); const steps = [...w.fs.expeditionCompose.directions];
     w.fs.nowBell++;
-    assert.deepEqual(await useEarliestOutboundArrival(w.fs, r.options), { ok: false, entered: false, code: 'ArrivalCandidateUnavailable' });
-    assert.equal(w.fs.expeditionCompose.arriveBell, '', 'nothing was entered'); assert.deepEqual(r.asked, [null], 'nothing was read again');
-    assert.deepEqual(w.fs.expeditionCompose.directions, steps, 'the steps stand'); assert.notEqual(w.fs.expeditionCompose.error, 'SourceChanged'); assert.equal(w.fs.expeditionCompose.routeCheck, null); }
+    assert.deepEqual(await useEarliestOutboundArrival(w.fs, r.options), { ok: true, state: 'entered-and-reread', arriveBell: '45', from: 'route' });
+    assert.equal(w.fs.expeditionCompose.arriveBell, '45'); assert.deepEqual(r.asked, [null, 45], 'read again with the moved turn');
+    assert.deepEqual(w.fs.expeditionCompose.directions, steps, 'the steps stand'); assert.notEqual(w.fs.expeditionCompose.error, 'SourceChanged'); assert.equal(w.fs.expeditionCompose.routeCheck.status, 'read'); }
   // the connection, the source, the wallet, the selected host or the card changed since the read
   const changes = [w => { w.ctx.relay = '/new'; }, w => { w.ctx.source = {}; }, w => { w.fs.wallet = { address: WALLET }; },
     w => { w.province.entries[0].troops++; }, w => { w.h.gen++; }, w => { w.fs.hand = { ...w.fs.hand, host: '1' }; }, w => { w.fs.hand = { ...w.fs.hand, pop: null }; }];
@@ -179,7 +182,7 @@ test('a candidate of the departure-conditions read is used the same way, and tha
         contextSlot: '7', digest: 'ab'.repeat(32), coherent: true, contentConsistent: true }) };
   await inspectOutboundContext(w.fs, options);
   assert.equal(w.fs.expeditionCompose.contextCheck.status, 'read'); assert.equal(w.fs.expeditionCompose.routeCheck, null);
-  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'context' });
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'context', headroom: 0 });
   const before = card(w);
   assert.equal((before.match(BUTTON) ?? []).length, 1); assert.match(before, /outbound-context-report/);
   assert.deepEqual(await useEarliestOutboundArrival(w.fs, options), { ok: true, state: 'entered-and-reread', arriveBell: '44', from: 'context' });
@@ -265,7 +268,7 @@ test('a turn typed past the season\'s end comes back to the earliest observed tu
   assert.equal(editOutbound(w.fs, w.ctx, 'arriveBell', '999999'), true);
   await r.read();
   assert.equal(w.fs.expeditionCompose.routeCheck.report.code, 'ArrivalAfterSeason');
-  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route' });
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '44', min: 44, max: 47, from: 'route', headroom: 0 });
   const before = card(w);
   assert.match(before, BUTTON); assert.match(before, /いまの候補：ターン 999999/); assert.match(before, /到着ターンの候補が、記録から計算した範囲に入りません/);
   assert.deepEqual(await useEarliestOutboundArrival(w.fs, r.options), { ok: true, state: 'entered-and-reread', arriveBell: '44', from: 'route' });
@@ -327,4 +330,113 @@ test('the press is a local edit and a read: an export beside the other boundary 
   const body = src.slice(src.indexOf('export async function useEarliestOutboundArrival'), src.indexOf('/** Relative local coordinates only'));
   assert.match(body, /editOutbound\(fs, ctx, 'arriveBell', pick\.arriveBell\)/, 'the field\'s own edit path');
   assert.doesNotMatch(body, /seal|sign|submit|send|fetch|relay/i);
+});
+
+// (fix-loop6, LP6-1) At ×60 a turn lasts 10 s. The route read works the range out from the page's own estimated clock;
+// the departure-conditions read from the chain's Clock, which is ahead of it, and the departure lands later still. The
+// bare earliest turn was refused by the next read every time (loop-play6: 24 presses, ArrivalTooEarly). The offer now
+// adds the turns the send takes at this rate, and the standing province's observed lag.
+test('at ×60 the offer leaves room for the send: the turn the next read (one turn later) still accepts', async () => {
+  setLang('ja');
+  const { arrivalHeadroom, ARRIVAL_HEADROOM_WALL_SECS } = await import('../../permutation-server/web/frontier/fexpedition-compose.mjs');
+  assert.equal(ARRIVAL_HEADROOM_WALL_SECS, 30);
+  assert.equal(arrivalHeadroom(undefined), 0, 'the chain\'s own clock: departMargin already covers it');
+  assert.equal(arrivalHeadroom(1), 0); assert.equal(arrivalHeadroom(15), 1); assert.equal(arrivalHeadroom(60), 3); assert.equal(arrivalHeadroom(64.4), 3, "the measured ×60 rate"); assert.equal(arrivalHeadroom(2), 1, "never 0 on a fast clock");
+  assert.equal(arrivalHeadroom(60, 2), 5, 'a province two turns behind adds two'); assert.equal(arrivalHeadroom(60, 999), 27, 'the lag counted is bounded');
+  const w = world(); w.fs.chain.rate = 60; reconcileOutbound(w.fs, w.ctx);
+  // the range moves with the clock the read is made under: one turn later, every turn one later
+  let clockTurns = 0;
+  const ranged = a => { const min = 44 + clockTurns, max = 116;
+    return report({ min, max, ok: a.arriveBell !== null && a.arriveBell >= min && a.arriveBell <= max,
+      code: a.arriveBell === null ? 'ArrivalRequired' : a.arriveBell < min ? 'ArrivalTooEarly' : null }); };
+  const r = reader(w, ranged);
+  await r.read();
+  const pick = outboundArrivalCandidate(w.fs);
+  assert.deepEqual({ ...pick }, { arriveBell: '47', min: 44, max: 116, from: 'route', headroom: 3 });
+  const html = card(w);
+  assert.match(html, /間に合う候補（ターン 47）を使う/); assert.match(html, /最も早いターン 44 は、確認して送るあいだに世界の時計が進むと断られます。3 ターンの余裕/);
+  assert.doesNotMatch(html, /最も早い候補（ターン/);
+  // the old offer (turn 44) against the departure-conditions read one turn later: refused, as in loop-play6
+  clockTurns = 1;
+  assert.equal(ranged({ arriveBell: 44 }).code, 'ArrivalTooEarly');
+  assert.equal(ranged({ arriveBell: Number(pick.arriveBell) }).ok, true, 'the new offer is still inside');
+  // the context read: the province's own processing is behind the read's clock by two turns
+  const options = { context: () => w.ctx, judge: () => ({ ok: true, code: null, nowBell: 45 }), evaluate: ranged,
+    snapshot: async source => ({ status: 'read', source, lands: [], season: w.fs.season, holdingBytes: null, clock: { unixTimestamp: 1000n },
+      province: { resolvedNext: 42 }, contextSlot: '7', digest: 'ab'.repeat(32), coherent: true, contentConsistent: true }) };
+  await inspectOutboundContext(w.fs, options);
+  assert.equal(w.fs.expeditionCompose.contextCheck.lagBells, 2);
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '50', min: 45, max: 116, from: 'context', headroom: 5 });
+  assert.deepEqual(await useEarliestOutboundArrival(w.fs, options), { ok: true, state: 'entered-and-reread', arriveBell: '50', from: 'context' });
+  assert.equal(w.fs.expeditionCompose.contextCheck.report.ok, true);
+  assert.match(card(w), /到着ターンの候補はターン 50 です（最も早いターン 45 に/);
+  // a short window gives its last turn, never one past it
+  const v = world(); v.fs.chain.rate = 60; reconcileOutbound(v.fs, v.ctx);
+  await reader(v, () => report({ min: 44, max: 45 })).read();
+  assert.deepEqual({ ...outboundArrivalCandidate(v.fs) }, { arriveBell: '45', min: 44, max: 45, from: 'route', headroom: 1 });
+  setLang('en');
+  assert.match(card(w), /plus room for the clock to move/);
+  setLang('ja');
+});
+
+// (fix-loop6, LP6-1) A held read is remembered for the draft as it stands (host, steps, arrival turn) after the clock
+// drops the observation; any edit forgets it, and so does a read that does not hold.
+test('the departure conditions read as holding are remembered for this very draft until it is edited', async () => {
+  const { outboundReadyOnce, forgetOutboundReady } = await import('../../permutation-server/web/frontier/fexpedition-compose.mjs');
+  const w = world();
+  editOutbound(w.fs, w.ctx, 'arriveBell', '45');
+  let holds = true;
+  const options = { context: () => w.ctx, judge: () => ({ ok: holds, code: holds ? null : 'NotResident' }), evaluate: a => sound(a),
+    snapshot: async source => ({ status: 'read', source, lands: [], season: w.fs.season, holdingBytes: null, clock: { unixTimestamp: 1000n },
+      contextSlot: '7', digest: 'ab'.repeat(32), coherent: true, contentConsistent: true }) };
+  await inspectOutboundContext(w.fs, options);
+  assert.equal(outboundReadyOnce(w.fs), true);
+  w.fs.chain.last = { slot: 9, unix: 1001 }; reconcileOutbound(w.fs, w.ctx);
+  assert.equal(w.fs.expeditionCompose.contextCheck, null, 'the clock moved: the observation is dropped');
+  assert.equal(outboundReadyOnce(w.fs), true, '…and the held read is still this draft\'s');
+  editOutbound(w.fs, w.ctx, 'arriveBell', '46'); assert.equal(outboundReadyOnce(w.fs), false, 'an edit forgets it');
+  await inspectOutboundContext(w.fs, options); assert.equal(outboundReadyOnce(w.fs), true);
+  holds = false; await inspectOutboundContext(w.fs, options); assert.equal(outboundReadyOnce(w.fs), false, 'a read that does not hold forgets it');
+  holds = true; await inspectOutboundContext(w.fs, options); forgetOutboundReady(w.fs); assert.equal(outboundReadyOnce(w.fs), false, 'a departure sent forgets it');
+});
+
+test('verify-pr130: the offer outlives the clock poll that drops its observation, for this host and these steps only', async () => {
+  setLang('ja');
+  const w = world(), r = reader(w); await r.read();
+  assert.equal(outboundArrivalCandidate(w.fs).arriveBell, '44');
+  // an ordinary poll (×60: within 1–3 s of the read) drops the observation; the card keeps offering, moved on
+  w.fs.nowBell += 2; assert.equal(reconcileOutbound(w.fs, w.ctx), true); assert.equal(w.fs.expeditionCompose.routeCheck, null);
+  assert.deepEqual({ ...outboundArrivalCandidate(w.fs) }, { arriveBell: '46', min: 46, max: 47, from: 'route', headroom: 0, remembered: true });
+  const c = card(w);
+  assert.match(c, BUTTON); assert.match(c, /最も早い候補（ターン 46）を使う/); assert.match(c, /outbound-arrival-remembered/);
+  assert.match(c, /さきほどの「地形・時間を確認」の読み取りからの候補を、時計に合わせて進めています。押すと読み直します。/);
+  assert.doesNotMatch(c, /outbound-arrival-empty/, 'not "no arrival yet" while a turn is offered');
+  assert.equal((c.match(BUTTON) ?? []).length, 1);
+  setLang('en'); assert.match(card(w), /This proposal comes from the last Check terrain and time read/); setLang('ja');
+  // never past the observed range's end
+  w.fs.nowBell += 2; assert.equal(reconcileOutbound(w.fs, w.ctx), true);
+  assert.equal(codeOf(() => outboundArrivalCandidate(w.fs)), 'ArrivalCandidateUnavailable'); assert.doesNotMatch(card(w), BUTTON);
+  assert.match(card(w), /outbound-arrival-empty/);
+  // a turn already entered: the remembered offer is not put beside it (its own read will say whether it holds)
+  { const v = world(), q = reader(v); await q.read(); assert.equal(editOutbound(v.fs, v.ctx, 'arriveBell', '45'), true);
+    v.fs.nowBell++; reconcileOutbound(v.fs, v.ctx);
+    assert.doesNotMatch(card(v), /outbound-arrival-remembered/); assert.doesNotMatch(card(v), BUTTON); }
+  // other steps: not this road's offer
+  { const v = world(), q = reader(v); await q.read();
+    assert.equal(editOutbound(v.fs, v.ctx, 'step', '0'), true);
+    assert.equal(codeOf(() => outboundArrivalCandidate(v.fs)), 'ArrivalCandidateUnavailable'); assert.doesNotMatch(card(v), BUTTON); }
+  // another card (closed and opened again): forgotten
+  { const v = world(), q = reader(v); await q.read();
+    clearOutbound(v.fs); openOutbound(v.fs, v.ctx); editOutbound(v.fs, v.ctx, 'step', '0');
+    assert.equal(codeOf(() => outboundArrivalCandidate(v.fs)), 'ArrivalCandidateUnavailable'); }
+  // a read under way (or one on the card) speaks for itself: no remembered offer beside it
+  { const v = world(), q = reader(v); await q.read(); v.fs.nowBell++; reconcileOutbound(v.fs, v.ctx);
+    v.fs.expeditionCompose.routeCheck = { status: 'loading' };
+    assert.equal(codeOf(() => outboundArrivalCandidate(v.fs)), 'ArrivalCandidateUnavailable'); }
+  // nothing is sealed, signed or sent by a remembered offer's press: the field and one more route read only
+  { const v = world(), q = reader(v); await q.read(); v.fs.nowBell++; reconcileOutbound(v.fs, v.ctx);
+    assert.deepEqual(await useEarliestOutboundArrival(v.fs, q.options), { ok: true, state: 'entered-and-reread', arriveBell: '45', from: 'route' });
+    const s = v.fs.expeditionCompose;
+    for (const k of Object.keys(OUTBOUND_CLOSED)) assert.equal(s[k], false, k);
+    assert.equal(v.fs.session, null); assert.deepEqual(q.asked, [null, 45]); }
 });

@@ -166,12 +166,11 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
       「到着候補：ターン A〜B」. The card scrolls its newest result into view by itself. A read that is still running
       when the world's clock moves cannot be used; the page reads again by itself up to 2 times, and if that still
       fails it says 「読み取りの途中で世界の時計が進んだため… もう一度押してください。」: press again.
-   3. Press 「最も早い候補（ターン A）を使う」 (the field for typing an arrival turn yourself is inside 「詳細」 at the
-      bottom of the card).
-      At ×60 the next 「出発条件を確認」 may keep refusing this candidate with 「到着ターンの候補が、記録から計算した範囲に
-      入りません。」 (all 24 tries in loop-play6: the check recomputes on the chain's clock). Then type the current turn + 5
-      or so into the arrival field in 「詳細」 first, and press 「地形・時間を確認」 → 「出発条件を確認」 (loop-play6: 17
-      presses, 18 s, then it departed). Do the same when 「地形・時間を確認」 with an empty arrival shows nothing.
+   3. Press 「間に合う候補（ターン A+3）を使う」 (at ×60; at 1× it is 「最も早い候補（ターン A）を使う」). At ×60 the proposal is
+      the earliest turn A plus the turns the clock moves while you check and send (3) plus the province's settle lag.
+      The bare earliest turn had already gone by when the next 「出発条件を確認」 came back, and was refused every time
+      (loop-play6 LP6-1, fixed in fix-loop6). The field for typing an arrival turn yourself is inside 「詳細」 at the
+      bottom of the card.
    4. 「出発条件を確認」 → when it says 「この読取時点では、軍勢と村の出発条件を満たしています。」, press
       「出発する（ローカルプレイ）」. At ×60 「…満たしていません。 (NotResident)」 is common (the province is settled for
       only part of each turn): wait a few seconds and press 「出発条件を確認」 again. In this check it took more than
@@ -243,6 +242,9 @@ view (fog-devnet; runbook §7 P5).
 ## 6. Stop it, continue tomorrow
 
 1. To stop, press **Ctrl-C** in the terminal that runs the script. It closes the world, then prints where the logs are.
+   It waits at most 20 s for the worlds to close. A world that still has not closed is named in the log, and the processes
+   the launcher started are ended. To skip the wait, press **Ctrl-C** again: it ends at once (also after a world's time ran
+   out; loop-play6 LP6-3, fixed in fix-loop6).
 2. A kept world continues the next day on the same Mac in the same browser. Its clock stands still while stopped.
 
    ```bash

@@ -594,7 +594,10 @@ finish() {
     say "" ""; say "== 止めています (世界を閉じてから終わります) …" "== stopping (closing every world first) …"
     kill -INT "$LPID" 2>/dev/null || true
     for _ in $(seq 1 60); do kill -0 "$LPID" 2>/dev/null || break; sleep 0.5; done
+    # (fix-loop6, LP6-3: a second signal ends the launcher at once — it ends its own world processes first; and the wait
+    #  below must never hang: a launcher still there after that is killed)
     if kill -0 "$LPID" 2>/dev/null; then kill -TERM "$LPID" 2>/dev/null || true; sleep 2; fi
+    if kill -0 "$LPID" 2>/dev/null; then kill -KILL "$LPID" 2>/dev/null || true; fi
   fi
   wait "$LPID" 2>/dev/null || true
   say "== 止めました。" "== stopped."

@@ -621,7 +621,11 @@ export function keepState(el, render, scroller = el) {
   const stable = new Map();
   for (const x of el.querySelectorAll('[data-stable]')) if (x.dataset?.stable) stable.set(x.dataset.stable, [x, x.outerHTML]);
   render();
-  for (const x of stable.size ? el.querySelectorAll('[data-stable]') : []) { const was = stable.get(x.dataset?.stable); if (was && was[0] !== x && was[1] === x.outerHTML) x.replaceWith(was[0]); }
+  // (fix-loop6, LP6-11: B-8 still took 3–4 real presses in the ×60 wide picker. Its main cause was not this: each press
+  //  restarted the candidates reading and so cancelled the press before it — controller.mjs confirmHome, FS.homeConfirmWait.
+  //  As a second measure the SAME node is now kept even when its markup changed (label, `disabled`), brought up to the new
+  //  markup in place: a press begun on it ends on it)
+  for (const x of stable.size ? el.querySelectorAll('[data-stable]') : []) { const was = stable.get(x.dataset?.stable); if (was && was[0] !== x) { if (was[1] !== x.outerHTML) morphStable(was[0], x); x.replaceWith(was[0]); } }
   // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
   // typing in the Muster form opened from its fold lost the focus at the first key's redraw
   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
@@ -642,6 +646,10 @@ export function keepState(el, render, scroller = el) {
       }
     }
   }
+  // (verify-pr130, LP6-13: the caravan amounts' bounds are the markup's — the source first offered —; a source the person
+  //  picked in the field and restored just above takes its own bounds again, or the next redraw, about once a second at
+  //  ×60, put the storehouse's back while the field showed the village: food max 0, wood max 20)
+  for (const x of picked.size ? el.querySelectorAll('form[data-form="s1-caravan"] select[name="src"]') : []) capCaravanAmounts(x);
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
   for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }
@@ -3777,11 +3785,12 @@ export const HUD_ACTIONS = {
     // (2026-11-16: a draft is put away as 「やめる」 puts it away — controller.mjs compose-close: an armed waiting send is
     //  cancelled first and says so. The pill's press dropped it, and the waiting send was withdrawn as if the order had changed)
     leaveReport(); if (FS.compose) ACTIONS['compose-close'](); FS.guideOpen = false; FS.tab = 'map';
-    if (d.pop === 'keeps') {
+    if (d.pop === 'keeps' || d.pop === 'march') {
       const r = hand.ownHosts(FS).find(x => x.id === String(d.host)) ?? hand.ownHosts(FS).find(x => x.unit !== 6 && x.unit !== 7 && hand.marchCheck(FS, x).ok) ?? null;
       if (!r) { HUD_ACTIONS.tab({ tab: 'hosts' }); return; }
       endPick(); FS.selected = { p: r.p, q: r.q, idx: r.tile }; FS.hand = { host: r.id }; FS.inspectOpen = false;
-      setPop('keeps'); invalidate('map', 'panel', 'tabs', 'rail');
+      // (fix-loop6, LP6-4: 'march' — the guide's next step when no seen keep is in reach: the host's march card)
+      setPop(d.pop); invalidate('map', 'panel', 'tabs', 'rail');
       return;
     }
     const hi = Math.max(0, Math.min((FS.holdings ?? []).length - 1, FS.activeHolding ?? 0));
@@ -4550,6 +4559,9 @@ function delegate(doc) {
     invalidate('panel');
   });
   doc.addEventListener('change', e => {
+    // (fix-loop6, LP6-13: the caravan's amounts are bounded by the stock of the source now selected)
+    const src = e.target.closest?.('form[data-form="s1-caravan"] select[name="src"]');
+    if (src) { capCaravanAmounts(src); return; }
     const el = e.target.closest?.('[data-bind]');
     if (!el) return;
     if (w4Bind(el.dataset.bind, el.value)) invalidate('panel');
@@ -5199,4 +5211,26 @@ export async function startPage({ loc = globalThis.location, load = () => import
   }
   return start();
 }
+/** (fix-loop6, LP6-11) Bring node `keep` up to `next`'s markup in place (attributes and content): the same element stays. */
+function morphStable(keep, next) {
+  if (keep.tagName !== next.tagName) return;
+  for (const a of [...keep.attributes]) if (!next.hasAttribute(a.name)) keep.removeAttribute(a.name);
+  for (const a of [...next.attributes]) if (keep.getAttribute(a.name) !== a.value) keep.setAttribute(a.name, a.value);
+  if (keep.innerHTML !== next.innerHTML) keep.innerHTML = next.innerHTML;
+  // (an attribute is not the live state: `disabled` follows it, set as the new markup says)
+  if ('disabled' in keep) keep.disabled = next.hasAttribute('disabled');
+}
+
+/** (fix-loop6, LP6-13) Each amount of the caravan form bounded by the selected source's stock (its option's `data-have`). */
+export function capCaravanAmounts(select) {
+  const have = String(select?.selectedOptions?.[0]?.dataset?.have ?? '').split(',').map(Number);
+  for (const input of select?.form?.querySelectorAll?.('input[name^="c"]') ?? []) {
+    const i = Number(String(input.name).slice(1));
+    if (!Number.isInteger(i)) continue;
+    const max = Number.isFinite(have[i]) ? have[i] : 0;
+    input.max = String(max);
+    if (Number(input.value) > max) input.value = String(max);
+  }
+}
+
 if (globalThis.document && !globalThis.process?.versions?.node) startPage().catch(e => console.error('frontier boot:', e));
