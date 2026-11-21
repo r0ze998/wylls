@@ -13,6 +13,7 @@
 //! | `PROVINCE_OPEN` | the province exists |
 //! | `DISSOLVE`, `MUSTER` | the province has pending changes |
 //! | `DEFENCE_CLAIM`, `CLOSE` | claims and closes seen |
+//! | P14, `playable-lane`: a wide Free City conquest record (PSW1 18–24, PS2 145, PSWR, PSWC; `feedguard` [`crate::feedguard::ConquestFact`]) | a LEGACY source Holding's home province moved (re-read it); a wide-only one adds nothing |
 //! | MC kinds 80–88 (ABI v2, CQ2-D) | typed ([`fclient::conquest::parse`]) and queued for the conquest duty's horn watcher; the province moved (re-read it) |
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -195,6 +196,14 @@ impl PlayIndex {
             self.feed.account_wide(&bodies.wide);
             for f in &bodies.expedition {
                 self.apply_expedition(f, tx);
+                n += 1;
+            }
+            // (P14: a Free City conquest record whose source is a LEGACY Holding wrote that holding — its stores
+            //  and its PS2 chain — so its home province is re-read; nothing else of a conquest is legacy state)
+            for f in &bodies.conquest {
+                if let Some(home) = f.legacy_home() {
+                    self.touched.insert(home);
+                }
                 n += 1;
             }
             for b in bodies.ps2 {
