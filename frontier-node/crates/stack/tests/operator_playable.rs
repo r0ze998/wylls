@@ -717,7 +717,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
         mode,
         Mode::Page | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageExpedition
     );
-    let expedition = matches!(mode, Mode::Expedition | Mode::PageExpedition | Mode::Conquest);
+    let expedition = matches!(
+        mode,
+        Mode::Expedition | Mode::PageExpedition | Mode::Conquest
+    );
     // (P11, P12 and P14 too: T(21) is the expedition's arrival round)
     let genesis_round = if war || expedition {
         WAR_GENESIS_ROUND
