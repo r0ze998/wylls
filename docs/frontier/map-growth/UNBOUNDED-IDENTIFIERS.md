@@ -7,7 +7,7 @@ The program today grows a map one ring at a time (ExtendFrontier, OpenRing, Open
 | bound | value | where it is enforced |
 |---|---|---|
 | outermost ring any season may reach | 128 (`R_MAX_HARD`) | `geometry::ProvinceCoord::checked`, `SeasonParamsV2::validate` (`r_max_ceiling ≤ 128`) |
-| the keeper's own extension policy | off (`extend = false`), cap 17 (`extend_max_ring`); `lazy_provinces` off (on for the devnet playable season `S1_DEVNET_WIDE_7D`: rings past the genesis open without their provinces); `rim_per_wedge` 0 (6 on that season, owner Q-W1: the rim's provinces beside the middle of each wedge open once ring 128 is seeded, for rim first villages) | `keeper/src/config.rs`; a local candidate, not a program rule |
+| the keeper's own extension policy | off (`extend = false`), cap 17 (`extend_max_ring`); `lazy_provinces` off (on for the devnet playable season `S1_DEVNET_WIDE_7D`: rings past the genesis open without their provinces); `rim_per_wedge` 0 (6 on that season, owner Q-W1: the rim's provinces beside the middle of each wedge open once ring 128 is seeded, for rim first villages); `provinces_reach` 0 (3 on that season, devnet-open-province: the absent provinces within 3 of a settled province open, for second villages and ⑭ R3 homes) | `keeper/src/config.rs`; a local candidate, not a program rule |
 | the prize tally | rings 0–17 (`permutation_prize::MAX_RING`, a 1,024-bit bitmap) | `permutation_prize` InitPool refuses `r_max` or a ceiling above 17 |
 | a province in a host id | 20 bits (`province_index << 44`) | `frontier_abi::addr::host_id` |
 | instruction coordinates | `i16` P and Q | `frontier_abi::ix::OpenProvince` and every P,Q instruction |

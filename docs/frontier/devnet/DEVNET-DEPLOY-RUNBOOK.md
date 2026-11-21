@@ -390,7 +390,17 @@ its sites), `pfund_initial` 36 SOL (every wedge fund must hold `128 × rent(4,73
 6,960), and (owner decision Q-W1, 2026-11-20) `outpost_tier_min` 0, so a first village on the rim anchors a wide claim
 while it is still a Hamlet, as in local wide play. Keeper A's rings duty runs with `extend = true`, `extend_max_ring = 128` and `lazy_provinces = true`: the
 genesis rings are opened whole and every later ring without its provinces, which open on demand (opening all 49,537
-provinces to ring 128 would cost 1,224 SOL). **Rim first villages (Q-W1):** once ring 128 is opened and seeded, the
+provinces to ring 128 would cost 1,224 SOL). **On demand is keeper A's job (devnet-open-province):** a second or third
+village (FileOutpost: ring > `heartland_max_ring` 3, within `outpost_range` 3 of the home) and a ⑭ R3 home past the
+heartland need a present Province, so the same duty's `provinces_reach = 3` opens every absent province of a seeded
+legacy ring within 3 provinces of a settled one (`keeper::rings::demand_plan`), at most `provinces_per_pass` (12) a
+scan and `provinces_max` (600) a run, never below a wedge fund's floor (`demand_fund_floor`: the largest balance check
+still ahead plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080) and never while the feed guard holds
+automatic writes. Rent from the wedge funds (24,709,120 lamports a province at 5,080), fees from keeper A's payer.
+The floor, not `provinces_max`, is the real bound (verify-pr138): at 5,080 at most 413 provinces on demand before the
+wide rings open and 305 after them (69 / 51 a wedge); at 6,960 at most 23 before and none after. `provinces_max` counts
+per keeper run.
+OpenProvince stays permissionless: anyone may also send it. **Rim first villages (Q-W1):** once ring 128 is opened and seeded, the
 same duty's `rim_per_wedge = 6` opens the 42 ring-128 provinces beside the middle six ring-129 provinces of each wedge
 (`keeper::rings::rim_plan`, the local wide world's rim; 1.04 SOL of province rent at 5,080, 1.42 SOL at 6,960, out of
 the wedge funds' float, not new money). A player's first village there is a one-site **FileTicket** (PlaceHome cannot
@@ -447,7 +457,7 @@ $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha2
 #   (cd frontier-node && cargo build --locked --release -p keeper --features playable-lane --bin frontier-keeper)),
 # with the profile's roles (beacon, archive, rings, fold, tickets, wide-tickets, and the legacy war's reveal, settle-departure,
 # gather, resolve, skip, settle, close, claims — runbook §7 P12 — the rim → wide expeditions' `expeditions`, §7 P13, and `wide-resolve`, §7 P9)
-# and rings duty (extend = true, extend_max_ring = 128, lazy_provinces = true, rim_per_wedge = 6, wide_rings = 3,
+# and rings duty (extend = true, extend_max_ring = 128, lazy_provinces = true, rim_per_wedge = 6, provinces_reach = 3, wide_rings = 3,
 # wide_per_wedge = 6); a keeper built without the feature refuses `wide_rings`, `wide-tickets`, `expeditions` and `wide-resolve`. About 21 min after T it consumes the genesis round.
 # Then the same command once more:
 #   → WideSetRules; exit 0 "setup complete"; any later run prints "setup complete: nothing to send"
@@ -472,6 +482,18 @@ devnet rings duty) with a local `drand-replay` serving the committed real quickn
 `t_create_min` is chosen so its genesis round is one of them) seeds the season and opens the genesis rings; the
 operator's WideSetRules lands; the real `frontier-herald` (`--source rpc --cluster devnet`) folds the season; a test
 participant Joins and places a first home in the heartland. Keeper A's ConsumeGenesisSeed took 329,539 CU.
+
+**Provinces on demand (devnet-open-province), tested offline too** (the same file, PPROV, ports 41540+; keeper A with
+the profile's roles, `rim_per_wedge = 6` and `provinces_reach = 3`). After P3's setup and P4's declared map growth,
+RingSeed(4..=10) are a **declared patch** (copies of ring 3's seed; on devnet the rings duty seeds them one a bell).
+The participant's home is at (−2, 0), ring 2. Its FileOutpost into the absent ring-4 province (−4, 0) is **refused**
+(`BadAccount`, code 2) on the exact devnet `.so`. Keeper A then opens the 14 absent provinces of rings 4–10 within 3 of
+the home and nothing farther (OpenProvince 140,606–148,207 CU, 26,332 lamports of fee each, 24,709,120 lamports of rent
+each from the wedge funds, 17.5 s wall). The same FileOutpost lands (20,752 CU, 7,157,640 lamports: fee + the
+Holding's rent escrow) after 6 Harvests. The ticket bell's anchor and seed are a declared patch, as in P4.
+**Keeper A's `tickets` role settles it** (SettleTicket 22,588 CU): the second village, order 2. Then keeper A opens
+the 14 provinces within 3 of the new village. The page's devnet path sends FileOutpost since #141
+(`DEVNET_ACT_COMMANDS`, operator_playable PPOST).
 
 **Rim first village (Q-W1), tested offline too** (the same file, P4; keeper A with the profile's roles and
 `rim_per_wedge = 6`). The map's growth to the rim is a **declared patch** (Frontier `rings_opened` 129 / `r_max_ext`
@@ -520,6 +542,7 @@ list; the table after it keeps each item's detail.
 | G1, G2, G5 | Rust services over `https`; keeper `feed = "rpc"`; payer listing | #44 | loopback; the read path also ran read-only against the real devnet RPC on 2026-11-21 (#123: fclient over real TLS, the keeper's cluster feed, 1,568 read requests, nothing sent) |
 | G4 (B3), K1 | `frontier-operator --preset S1_DEVNET_WIDE_7D` (10 transactions); the lane's 64 MiB loaded-data budgets | #101 | `operator_playable` P1–P3 |
 | P2 (Q-W1) | Rim first villages: preset `outpost_tier_min` 0, keeper `rim_per_wedge`, `tickets` role | #104 | P4 |
+| P16 | Provinces on demand: keeper A's rings duty `provinces_reach` opens the provinces next to the settled land, so a nation can found second villages past the genesis rings (D-devnet-rim-homes-2) | #138 | PPROV |
 | P6, P7 | Keeper A opens the wide rings 129–131 and settles / finalizes wide claims (`wide-tickets`) | #107 | P5 |
 | P8 | Keeper A's feed guard accounts for wide-land records (PSW1 kinds 1–17) instead of latching | #108 | P6 |
 | P1 | The page on devnet, wallet-paid: Join, PlaceHome / rim FileTicket, Harvest, Build, Train, Muster, WideClaimSite | #110 | P7 (browser) |
@@ -688,6 +711,7 @@ extend = true
 extend_max_ring = 128
 lazy_provinces = true
 rim_per_wedge = 6
+provinces_reach = 3
 wide_rings = 3
 wide_per_wedge = 6
 rpc_min_gap_ms = 250

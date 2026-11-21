@@ -94,6 +94,16 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --coexist-node  TEST-ONLY, no page: the node localnet-coexist-play alone serves a ②+⑨+⑩ chain on 127.0.0.1:BASE
                   (RPC) and BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its
                   metadata (one JSON line) and runs until Ctrl-C. Memory-only, alone (no other option but --port)
+  --external ADDR[,ADDR]
+                  TEST-ONLY: admit up to two EXTERNAL AI residents (⑬ independent residents, ⑤ option B; launcher
+                  option --external-residents) by their PUBLIC addresses. Each runs in its own process with its own
+                  TEST key (never given to this script) and joins the next world like a newcomer: the player's own
+                  funding amount, a relay pinned to its wallet, a public world proxy of its own; same rules, same
+                  refusals, no AI mark on the page. With it the ③ MCP server for the world starts READ-ONLY on
+                  loopback (127.0.0.1, after the world's ports; only read tools, a link is the resident's own wallet).
+                  Reference resident: workstreams/03-composability/mcp/examples/external-resident/ (README "plug in
+                  your own AI"). Kept worlds, --demo, --ai, --random-map, --coexist, --resume; not --two or --wide
+  --no-mcp        with --external: do not start the read-only MCP server
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -105,7 +115,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0
+AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -136,6 +146,8 @@ while [ $# -gt 0 ]; do
     --random-map) RANDOM_MAP=1; shift ;;
     --coexist) COEXIST=1; shift ;;
     --coexist-node) COEXIST_NODE=1; shift ;;
+    --external) need_val "$@"; EXTERNAL="$2"; shift 2 ;;
+    --no-mcp) NO_MCP=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --no-build) NOBUILD=1; shift ;;
     --no-open) NOOPEN=1; shift ;;
@@ -160,8 +172,9 @@ for v in SOLANA_URL SOLANA_RPC_URL ANCHOR_PROVIDER_URL; do
   fi
 done
 if [ "$FRESH" = 1 ] && [ "$RESUME" = 1 ]; then err "--fresh と --resume は同時に使えません" "--fresh and --resume cannot be combined"; exit 2; fi
+EXTERNAL_SET=0; if [ -n "$EXTERNAL" ]; then EXTERNAL_SET=1; fi
 if [ "$COEXIST_NODE" = 1 ]; then
-  for f in "DEMO:--demo" "WIDE:--wide" "TWO:--two" "RESUME:--resume" "RANDOM_MAP:--random-map" "AI_SET:--ai" "SPEED_SET:--speed" "COEXIST:--coexist"; do
+  for f in "DEMO:--demo" "WIDE:--wide" "TWO:--two" "RESUME:--resume" "RANDOM_MAP:--random-map" "AI_SET:--ai" "SPEED_SET:--speed" "COEXIST:--coexist" "EXTERNAL_SET:--external"; do
     v="${f%%:*}"
     if [ "${!v}" = 1 ]; then
       err "--coexist-node は ${f#*:} と一緒には使えません (ページなし・AI なし・メモリだけのノードです)" \
@@ -214,6 +227,33 @@ if [ "$TWO" = 1 ] && { [ -z "$PAIR_WORD" ] || ! grep -q "out\['capture-demo'\] =
   err "--two: このチェックアウトのランチャーは、二人で一つの世界 (--contest-pair を普通の世界で) にまだ対応していません。" \
       "--two: the launcher on this checkout cannot yet put two people in one world (--contest-pair on a natural world)."
   exit 5
+fi
+if [ "$NO_MCP" = 1 ] && [ "$EXTERNAL_SET" = 0 ]; then
+  err "--no-mcp は --external と一緒にだけ使えます (MCP は外部の AI 住民のためだけに起動します)" "--no-mcp works only with --external (the MCP server is started only for external AI residents)"; exit 2
+fi
+if [ "$EXTERNAL_SET" = 1 ]; then
+  # (the shape only: up to two distinct base58 addresses; the launcher checks each decodes to exactly 32 bytes)
+  EXT_OK=1
+  [[ "$EXTERNAL" =~ ^[1-9A-HJ-NP-Za-km-z]{32,44}(,[1-9A-HJ-NP-Za-km-z]{32,44})?$ ]] || EXT_OK=0
+  if [[ "$EXTERNAL" == *,* ]] && [ "${EXTERNAL%%,*}" = "${EXTERNAL#*,}" ]; then EXT_OK=0; fi
+  if [ "$EXT_OK" = 0 ]; then
+    err "--external は公開アドレス (base58) を 1 つか、カンマで区切った別々の 2 つです (鍵ではありません)" "--external takes one public address (base58), or two different ones separated by a comma (never a key)"; exit 2
+  fi
+  for f in "TWO:--two" "WIDE:--wide"; do
+    v="${f%%:*}"
+    if [ "${!v}" = 1 ]; then
+      err "--external は ${f#*:} と一緒には使えません (外部の AI 住民は一人用の普通の世界かデモに入ります)" \
+          "--external cannot be combined with ${f#*:} (external AI residents join a one-person ordinary world or the demo)"; exit 2
+    fi
+  done
+  if ! grep -q "EXTERNAL_RESIDENTS_MODE" "$LAUNCHER" 2>/dev/null; then
+    err "--external: このチェックアウトのランチャーには外部の AI 住民 (--external-residents) がまだありません。" "--external: the launcher on this checkout has no external AI residents (--external-residents) yet."; exit 5
+  fi
+fi
+MCP=0; if [ "$EXTERNAL_SET" = 1 ] && [ "$NO_MCP" = 0 ]; then MCP=1; fi
+MCP_BIN="$ROOT/workstreams/03-composability/mcp/bin/wylls-mcp-local-play.mjs"
+if [ "$MCP" = 1 ] && [ ! -f "$MCP_BIN" ]; then
+  err "--external: このチェックアウトには読み取り専用の MCP サーバー ($MCP_BIN) がありません。--no-mcp を付けてください。" "--external: this checkout has no read-only MCP server ($MCP_BIN); add --no-mcp."; exit 5
 fi
 if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build は同時に使えません" "--rebuild and --no-build cannot be combined"; exit 2; fi
 is_int "$AI" && [ "$AI" -le 4 ] || { err "--ai は 0〜4 です" "--ai must be 0-4"; exit 2; }
@@ -284,7 +324,13 @@ fi
 # (the relay refuses it).
 is_int "$PORT" || { err "--port は数字です" "--port must be a number"; exit 2; }
 PORT=$((10#$PORT)); WORLD_PORT=$((PORT + 4)); SPAN=$((2 * 5 + (AI > 0 ? 2 * 4 : 0)))
+# (--external: the launcher's externalPorts — after the worlds' 2 x 5 and the operator relays' 2 x 4, two ports (proxy,
+#  relay) per admitted address per world slot, 2 x 2 x 2 in all; the read-only MCP server takes the next port)
+EXT_BASE=$((WORLD_PORT + SPAN))
+if [ "$EXTERNAL_SET" = 1 ]; then SPAN=$((SPAN + 2 * 2 * 2)); fi
 LAST=$((WORLD_PORT + SPAN - 1))
+MCP_PORT=""
+if [ "$MCP" = 1 ]; then MCP_PORT=$((LAST + 1)); LAST=$MCP_PORT; fi
 # (--coexist-node: the node's RPC on BASE and its WebSocket on BASE+1, nothing else)
 if [ "$COEXIST_NODE" = 1 ]; then LAST=$((PORT + 1)); fi
 port_ok=1
@@ -343,6 +389,12 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   if [ "$RANDOM_MAP" = 1 ]; then printf '%s\n' --fresh-map "$FRESH_MAP_WORD"; fi
   if [ "$TWO" = 1 ]; then printf '%s\n' --contest-pair "$PAIR_WORD"; fi
   if [ "$COEXIST" = 1 ]; then printf '%s\n' --coexist local-coexist-v1; fi
+  if [ "$EXTERNAL_SET" = 1 ]; then printf '%s\n' --external-residents "$EXTERNAL"; fi
+}
+# (the read-only MCP server reads the first world slot's first external resident's public proxy: its own /h/* and /gw)
+MCP_HERALD="http://localhost:$EXT_BASE"
+mcp_env() {
+  printf '%s\n' WYLLS_MCP_TEST_AS=1 "WYLLS_MCP_PORT=$MCP_PORT" WYLLS_MCP_HOST=127.0.0.1 "WYLLS_MCP_HERALD=$MCP_HERALD" "WYLLS_MCP_RELAY=$MCP_HERALD/gw"
 }
 
 CO_SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-coexist-sbf"
@@ -379,6 +431,11 @@ if [ "$PLAN" = 1 ]; then
   echo "map=$([ "$RANDOM_MAP" = 1 ] && echo fresh || echo fixed)"
   echo "players=$([ "$TWO" = 1 ] && echo two || echo one)"
   if [ "$COEXIST" = 1 ]; then echo "lane=coexist"; echo "program_version=0x7805"; fi
+  if [ "$EXTERNAL_SET" = 1 ]; then
+    echo "external=$EXTERNAL"
+    echo "external_proxy=$EXT_BASE"
+    if [ "$MCP" = 1 ]; then echo "mcp=http://127.0.0.1:$MCP_PORT/mcp"; printf 'mcp_server='; mcp_env | tr '\n' ' '; echo "node $MCP_BIN"; else echo "mcp=off"; fi
+  fi
   echo "build=$([ "$NOBUILD" = 1 ] && echo never || { [ "$REBUILD" = 1 ] && echo always || echo when-changed; })"
   echo "open=$([ "$NOOPEN" = 1 ] && echo no || echo yes)"
   echo "data=$DATA"
@@ -426,6 +483,14 @@ fi
 for t in "$TOOLS/rust/bin/rustc" "$TOOLS/llvm/bin/clang"; do
   [ -x "$t" ] || { miss "platform-tools v1.52 ($t)  →  once, with network: cargo-build-sbf --tools-version v1.52 --force-tools-install (in any SBF crate)"; break; }
 done
+if [ "$MCP" = 1 ] && command -v node >/dev/null; then
+  # (the read-only MCP server imports permutation-gateway's client code, whose npm packages a fresh checkout lacks:
+  #  load its modules once, start nothing)
+  MCP_DIR="$(dirname "$(dirname "$MCP_BIN")")"
+  if ! node --input-type=module -e "for (const f of ['src/local-play-game.mjs', 'src/auth.mjs', 'src/server.mjs', 'src/http.mjs']) await import(process.argv[1] + '/' + f);" "$MCP_DIR" >/dev/null 2>&1; then
+    miss "npm packages of the read-only MCP server (--external)  →  (cd permutation-gateway && npm ci --ignore-scripts)   (or add --no-mcp)"
+  fi
+fi
 FREE_GIB="$(df -Pk "$ROOT" | awk 'NR==2 { printf "%d", $4 / 1048576 }')"
 NEED_GIB=6
 [ -x "$T/localnet-natural-play" ] || NEED_GIB=20
@@ -590,9 +655,16 @@ LPID=$!
 echo "$LPID" > "$DATA/launcher.pid"
 
 STOPPING=0
+MPID=""
 finish() {
   local code="${1:-0}"
   trap - INT TERM HUP
+  if [ -n "$MPID" ] && kill -0 "$MPID" 2>/dev/null; then
+    kill -TERM "$MPID" 2>/dev/null || true
+    for _ in $(seq 1 10); do kill -0 "$MPID" 2>/dev/null || break; sleep 0.2; done
+    kill -KILL "$MPID" 2>/dev/null || true
+  fi
+  [ -n "$MPID" ] && { wait "$MPID" 2>/dev/null || true; }
   if kill -0 "$LPID" 2>/dev/null; then
     say "" ""; say "== 止めています (世界を閉じてから終わります) …" "== stopping (closing every world first) …"
     kill -INT "$LPID" 2>/dev/null || true
@@ -613,6 +685,7 @@ finish() {
         "   world records: $DATA/ (one folder per world: runner / herald / relay / operators logs, stopped.json)"
   fi
   say "   起動コマンド:  $DATA/command.txt" "   command:       $DATA/command.txt"
+  if [ -n "$MPID" ]; then say "   MCP のログ:    $MLOG" "   MCP log:       $MLOG"; fi
   if [ "$KEPT" = 1 ]; then
     say "   この世界は保存されています。続きは同じブラウザで:  scripts/play-local.sh --resume" \
         "   This world is kept. To continue it later, in the same browser:  scripts/play-local.sh --resume"
@@ -637,6 +710,19 @@ for _ in $(seq 1 120); do
   sleep 0.5
 done
 [ -n "$URL" ] || { err "ランチャーが 60 秒以内に応答しませんでした。ログ: $LOG" "the launcher did not answer within 60 s. Log: $LOG"; finish 8; }
+if [ "$MCP" = 1 ]; then
+  # (TEST-ONLY ③: the read-only local-play MCP server, loopback only, for the external residents; it only GETs the
+  #  world's public proxy, so it may start before a world exists and answers once the world is up)
+  MLOG="$DATA/mcp-$RUN_ID.log"
+  MENV=(); while IFS= read -r a; do MENV+=("$a"); done < <(mcp_env)
+  env "${MENV[@]}" node "$MCP_BIN" >"$MLOG" 2>&1 &
+  MPID=$!
+  echo "$MPID" > "$DATA/mcp.pid"
+  for _ in $(seq 1 40); do grep -q 'listening on' "$MLOG" 2>/dev/null && break; kill -0 "$MPID" 2>/dev/null || break; sleep 0.25; done
+  if ! grep -q 'listening on' "$MLOG" 2>/dev/null; then
+    err "読み取り専用の MCP サーバーが起動できませんでした。ログ: $MLOG" "the read-only MCP server did not start. Log: $MLOG"; tail -n 5 "$MLOG" >&2; finish 8
+  fi
+fi
 phase_end start
 
 # ------------------------------------------------------------------ 4. open
@@ -660,6 +746,17 @@ fi
 [ "$AI" -gt 0 ] && say "   AI 住民 $AI 人 (運営側のテスト住民) が同じ世界で動きます。" "   $AI operator AI resident(s) play in the same world."
 [ "$AI" -gt 0 ] && [ "$WAR" = 1 ] && say "   AI の国は戦争中です: 届く他国の砦へ進軍し、包囲して奪います (1 ターンに 1 回の行動)。止めるには --ai-peaceful。" \
     "   The AI nations are at war: they march on reachable keeps of other nations, siege and capture them (one action per turn). --ai-peaceful turns it off."
+if [ "$EXTERNAL_SET" = 1 ]; then
+  LBASE="http://localhost:$PORT"
+  say "   外部の AI 住民 (TEST): ${EXTERNAL} を受け入れます。あなたが「新しい世界を始める」を押すと、その世界に新しい住民として入ります (同じ規則・同じ拒否、ページに AI の印はありません)。" \
+      "   External AI resident(s) (TEST) admitted: ${EXTERNAL}. When you press start, each joins your world as a newcomer (same rules, same refusals, no AI mark on the page)."
+  say "   住民は自分のプロセスと自分のテスト鍵で動かします。例: node workstreams/03-composability/mcp/examples/external-resident/agent.mjs --launcher $LBASE --key <鍵ファイル>$([ "$MCP" = 1 ] && echo " --mcp http://127.0.0.1:$MCP_PORT/mcp")" \
+      "   Each resident runs in its own process with its own TEST key, e.g.: node workstreams/03-composability/mcp/examples/external-resident/agent.mjs --launcher $LBASE --key <key file>$([ "$MCP" = 1 ] && echo " --mcp http://127.0.0.1:$MCP_PORT/mcp")"
+  if [ "$MCP" = 1 ]; then
+    say "   読み取り専用の MCP (③): http://127.0.0.1:$MCP_PORT/mcp (この機械だけ、読むツールだけ、つなぐのは住民自身の財布の署名)。" \
+        "   Read-only MCP (③): http://127.0.0.1:$MCP_PORT/mcp (this machine only, read tools only, linked by the resident's own wallet signature)."
+  fi
+fi
 if [ "$TWO" = 1 ]; then
   ALT_URL="$(printf '%s' "$URL" | sed 's#//localhost:#//127.0.0.1:#')"
   say "   二人で一つの世界です。2 人目は別のブラウザで $URL を開くか、同じブラウザなら $ALT_URL を開いて、同じボタンを押してください。" \

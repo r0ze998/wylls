@@ -198,6 +198,10 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   // Q-W1 (owner 2026-11-20): rim first villages — keeper A opens the rim's provinces (rim_per_wedge) and settles
   // the rim FileTickets (role tickets); the preset's Hamlet anchors a wide claim (outpost_tier_min 0), the S1 one keeps Town
   assert.equal(playable().services.keeperA.ringsDuty.rim_per_wedge, 6);
+  // devnet-open-province (D-devnet-rim-homes-2): keeper A opens the provinces within outpost_range (3) of the settled
+  // land, so a second village (FileOutpost: ring > 3, within 3 of the home, its Province present) can be founded
+  assert.equal(playable().services.keeperA.ringsDuty.provinces_reach, 3);
+  assert.match(playable().services.keeperA.ringsDuty.provincesWhy, /FileOutpost/);
   assert.ok(playable().services.keeperA.roles.includes('tickets') && playable().services.keeperA.roles.includes('beacon'));
   // P6 / P7: keeper A opens the wide rings 129-131 with the rim's own n (every rim village within outpost_range of a
   // ring-129 province) and settles / finalizes the wide claims (role wide-tickets, a playable-lane keeper build)

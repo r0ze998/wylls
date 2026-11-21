@@ -342,6 +342,54 @@ class Refusals(unittest.TestCase):
             self.assertEqual(code, 5, err)
             self.assertIn('--two', err)
 
+    def test_external_residents_are_opt_in_with_a_read_only_mcp(self):
+        # (playable-2-3-4-13: ⑬ / ⑤B external AI residents and ③ read-only MCP, both already in the launcher and ③,
+        #  exposed by one play-local flag; nothing of them without it)
+        A, B = 'FW2MND8oQBXS9fNF2HYewTeWCsWrEaMRYo9cpkL6eiPR', '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin'
+        d = plan()
+        self.assertNotIn('--external-residents', d['launcher'])
+        for k in ('external', 'external_proxy', 'mcp', 'mcp_server'):
+            self.assertNotIn(k, d)
+        p = plan('--external', A)
+        self.assertEqual(p['launcher'].count(f'--external-residents {A}'), 1)
+        # (launcher externalPorts: worldPort + 2x5 worlds + 2x4 operator relays = 41942 for slot 0; 2x2x2 more ports,
+        #  then the MCP server on the next one)
+        self.assertEqual((p['external'], p['external_proxy'], p['ports']), (A, '41942', '41920-41950'))
+        self.assertEqual(p['mcp'], 'http://127.0.0.1:41950/mcp')
+        for w in ['WYLLS_MCP_TEST_AS=1', 'WYLLS_MCP_PORT=41950', 'WYLLS_MCP_HOST=127.0.0.1', 'WYLLS_MCP_HERALD=http://localhost:41942',
+                  'WYLLS_MCP_RELAY=http://localhost:41942/gw', 'bin/wylls-mcp-local-play.mjs']:
+            self.assertIn(w, p['mcp_server'])
+        for bad in ['WYLLS_MCP_WS04', 'ALLOW_REMOTE_BIND', 'ROTATE', 'bin/wylls-mcp.mjs']:
+            self.assertNotIn(bad, p['mcp_server'])
+        # (no operator residents: the externals follow the worlds directly)
+        p0 = plan('--external', A, '--ai', '0')
+        self.assertEqual((p0['external_proxy'], p0['ports'], p0['mcp']), ('41934', '41920-41942', 'http://127.0.0.1:41942/mcp'))
+        # (two addresses; --no-mcp drops only the server)
+        p2 = plan('--external', f'{A},{B}', '--no-mcp')
+        self.assertIn(f'--external-residents {A},{B}', p2['launcher'])
+        self.assertEqual((p2['mcp'], p2['ports']), ('off', '41920-41949'))
+        self.assertNotIn('mcp_server', p2)
+        # (with the demo, the coexist lane, a fresh map)
+        for extra in [('--demo',), ('--coexist',), ('--random-map', '--ai', '4')]:
+            self.assertIn(f'--external-residents {A}', plan('--external', A, *extra)['launcher'], extra)
+        # (refused before any write: not a key-shaped or bad address, the same address twice, three, with --two or --wide,
+        #  --no-mcp alone, with --coexist-node; ports past 41999 or across 41970)
+        for args in [('--external', 'not-an-address!'), ('--external', A + ',' + A), ('--external', f'{A},{B},{A}'),
+                     ('--external', A[:20]), ('--external',), ('--external', A, '--two'), ('--wide', '--external', A),
+                     ('--no-mcp',), ('--coexist-node', '--external', A), ('--external', A, '--port', '41960'),
+                     ('--external', A, '--port', '41940'), ('--external', A, '--port', '41970')]:
+            code, out, err = run('--print-plan', *args)
+            self.assertEqual((code, out), (2, ''), args)
+        self.assertIn('--external', run('--help')[1])
+        self.assertIn('--no-mcp', run('--help')[1])
+        # (the server is the read-only one; it is stopped with the world)
+        src = read(SCRIPT)
+        self.assertIn('kill -TERM "$MPID"', src)
+        # (a fresh checkout lacks the gateway client's npm packages the MCP server imports: listed as missing, not installed)
+        self.assertIn("npm packages of the read-only MCP server (--external)  →  (cd permutation-gateway && npm ci --ignore-scripts)", src)
+        self.assertIn("EXTERNAL_RESIDENTS_MODE", read(os.path.join(ROOT, 'permutation-gateway/src/frontier/local-play-launcher.mjs')))
+        self.assertIn('readOnly: true', read(os.path.join(ROOT, 'workstreams/03-composability/mcp/bin/wylls-mcp-local-play.mjs')))
+
     def test_resume_with_a_dangling_pointer_is_refused(self):
         st, world = kept_state()
         os.remove(os.path.join(world, 'play-local.conf'))
