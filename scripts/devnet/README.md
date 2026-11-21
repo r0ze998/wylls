@@ -12,6 +12,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land / conquest + the land preview, version 0x4804): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080, and the `operator` block read by `frontier-operator --preset S1_DEVNET_WIDE_7D` |
 | `test/dry-run.test.mjs` | 40 tests (33 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 | `test/playable-profile.test.mjs` | 10 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
+| `readonly-guard.mjs`, `test/readonly-guard.test.mjs` | The loopback guard of the read-only devnet runs (B5, #123): a read-method allow-list, batches refused, devnet-only upstream with a genesis check, spacing, a hard request budget, a JSONL log; and its tests |
 
 ```sh
 node scripts/devnet/dry-run.mjs                  # check the existing .so, print the plan (rate 5,080 lamports/byte, measured on devnet 2026-11-18)

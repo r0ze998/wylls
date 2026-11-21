@@ -92,7 +92,7 @@ The default of 4,000 stays in the code until the owner accepts the recommendatio
 
 ### 4.4 Funding
 
-Fund the **funders**; the keeper funds the payers. The keeper does not yet print its derived addresses (§9): derive them with the formula in §4.1 (any ed25519 library: the 32-byte `sha256` output is the secret seed) from the master seed file (on a local run the stack writes it to `<run>/keeper-a/keeper.seed` and `<run>/keeper-b/keeper.seed`, and airdrops the funders itself). Fund the **beneficiary** too if the keeper has the `claims` role: the funders never pay for it, and ClaimDefence's fee comes from the beneficiary (§1). Keep the funders' balance above the sum of the ceilings you configure; the `/v1/status` `pools` object shows each pool's lamports and effective N.
+Fund the **funders**; the keeper funds the payers. `frontier-keeper --config keeper.toml --print-addresses` prints every derived address (payers, funders; offline, it sends nothing), and `frontier-keeper --print-relay-addresses <relay-master.seed>` the relay pool's; they follow the formula in §4.1 (any ed25519 library: the 32-byte `sha256` output is the secret seed) over the master seed file (on a local run the stack writes it to `<run>/keeper-a/keeper.seed` and `<run>/keeper-b/keeper.seed`, and airdrops the funders itself). Fund the **beneficiary** too if the keeper has the `claims` role: the funders never pay for it, and ClaimDefence's fee comes from the beneficiary (§1). Keep the funders' balance above the sum of the ceilings you configure; the `/v1/status` `pools` object shows each pool's lamports and effective N.
 
 ## 5. `keeper.toml`
 
