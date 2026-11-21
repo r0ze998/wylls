@@ -83,7 +83,7 @@ expedition-dispatch-experimental = ["wide-world-experimental", "fclient/expediti
 # Gaps P10 + P13 (devnet-expedition-keeper): the guard APPLIES the rim -> wide expedition's records exactly (PS2
 # 146-149 with their PSW1 25/26 parts, PSFF, PSFT), and the `expeditions` role sends every step after the player's
 # ExpeditionDepart (`expeditions.rs`, `expedition_steps.rs`); off unless keeper.toml names the role.
-# Gap P14 option (a) (devnet-guard-conquest, DRAFT awaiting r0ze): the guard also READS the Free City conquest records
+# Gap P14 option (a) (devnet-guard-conquest; r0ze chose (a)+(b), 2026-11-22): the guard also READS the Free City conquest records
 # of the wrapper's kinds 12-18 exactly (PSW1 18-24, PS2 145, PSWC, PSWR; paired) instead of latching. Their receipts'
 # reservation actions (RESERVE 8, RESERVATION_REFUND 9) exist only under frontier-abi's
 # `conquest-dispatch-experimental`, which the devnet `.so` is built with (`devnet-playable-sbf`); with it the keeper's
