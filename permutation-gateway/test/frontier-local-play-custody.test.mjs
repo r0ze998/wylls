@@ -319,6 +319,9 @@ test('the card on real chain state after a seizure: the lot of the generation be
   const keeper = custodyModel(fsKeeper);
   assert.equal(keeper.keptLots.length, 1); assert.ok(keeper.keptLots[0].seized); assert.equal(keeper.losses.length, 1);
   assert.match(String(renderCustody(fsKeeper)), /奪われた/);
+  // a storehouse the view does not list (the herald's list late) is not taken for a seizure: no false alarm
+  const late = custodyModel(world({ lots: [lotEntry(VAULT_YOU, ME, { held: 12000 })], vaults: [] }));
+  assert.ok(!late.myLots[0].seized); assert.deepEqual(late.losses, []);
 });
 
 test('lending: only the copies the village still runs itself are offered (workshops − lent); the arms left count the open jobs (verify-pr140)', () => {

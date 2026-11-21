@@ -41,7 +41,8 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   const caravans = [...(c.caravans?.values() ?? [])];
   const myLots = lots.filter(e => e.owner === viewer).map(e => {
     const l = e.lot, v = vaultNow(e);
-    const seized = l.state === LOT_OPEN && (!v || Number(v.gen) !== l.vaultGen || v.ownerCitizen !== e.vault.ownerCitizen);
+    // (a storehouse not in the view is unknown, never "seized": the herald's list can be late, and a loss is told once)
+    const seized = l.state === LOT_OPEN && !!v && (Number(v.gen) !== l.vaultGen || (e.vault.ownerCitizen != null && v.ownerCitizen !== e.vault.ownerCitizen));
     const mine = caravans.filter(cv => same(cv.dst, e.vault) && cv.dst.tile === e.vault.tile);
     const taken = mine.filter(cv => cv.custody === CV_CUSTODY_TAKEN || cv.state === CV_LOST);
     const inbound = l.inbound.filter(x => x.tag === myTag).map(x => {
@@ -64,7 +65,7 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   // (the keeper is the lot's custodian — its tag is in the lot — so a seized storehouse's lots stay on its old keeper's card)
   const keptLots = lots.filter(e => e.owner !== viewer && (l => l.custodianTag === String(myTag))(e.lot)).map(e => {
     const l = e.lot, v = vaultNow(e);
-    const seized = l.state === LOT_FORFEITED || !v || Number(v.gen) !== l.vaultGen || v.ownerCitizen !== viewer;
+    const seized = l.state === LOT_FORFEITED || (!!v && (Number(v.gen) !== l.vaultGen || v.ownerCitizen !== viewer));
     if (seized) losses.push({ key: `kept:${l.p},${l.q},${l.tile},${l.vaultGen}:${l.ownerTag}`, text: () => L`あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。` });
     return { vault: e.vault, depositor: nationOf(e.owner), held: whole(l.held), quota: whole(l.quota), state: l.state, seized };
   });
