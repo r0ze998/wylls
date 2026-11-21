@@ -912,11 +912,12 @@ impl Policy {
 
 /// One JSON-RPC request or batch under `policy` (refusals before any
 /// parameter is read or any handler runs).
+#[cfg(test)]
 fn respond(state: &Shared, policy: Policy, req: &Value) -> Value {
     respond_as(state, policy, req, None)
 }
 
-/// As [`respond`], for a request that presented `control` (the
+/// One JSON-RPC request or batch under `policy`, for a request that presented `control` (the
 /// [`CONTROL_HEADER`] header's value, if any).
 fn respond_as(state: &Shared, policy: Policy, req: &Value, control: Option<&str>) -> Value {
     let one = |r: &Value| -> Value {
