@@ -24,7 +24,7 @@ import { AGENTS_REFRESH_MS, delegatedTo, delegationOf, loadAgents, refusalNote, 
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
-import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, UNIT_ORDER } from './fland.mjs';
+import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, buildItemOf, UNIT_ORDER } from './fland.mjs';
 import { BUILDINGS, TIERS, unitCount, failureText } from './fi18n.mjs';
 import { villageInUse } from './hud/rulebook.mjs';
 import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS, HOST_TROOPS } from './hud/rulebook.mjs';
@@ -3999,7 +3999,7 @@ export const ACTIONS = {
       order = orderOf('walls', 'Build', { item, secs: WALLS.secs, doneAt: hs ? doneAfterQueue(hs, now(), WALLS.secs) : null, say: () => L`城壁の工事を始めました` });
     } else {
       const n = hs ? copyNumber(hs, item) : 1, secs = item < 6 && (Number(h?.flags ?? 0) & 2) ? 60 : buildSecs(n);
-      order = orderOf('build', 'Build', { item, n, secs, doneAt: hs ? doneAfterQueue(hs, now(), secs) : null, say: () => L`${BUILDINGS[BUILD_ITEMS[item]?.resource] ?? ''}の建設を始めました` });
+      order = orderOf('build', 'Build', { item, n, secs, doneAt: hs ? doneAfterQueue(hs, now(), secs) : null, say: () => L`${BUILDINGS[buildItemOf(item)?.resource] ?? ''}の建設を始めました` });
     }
     return act('Build', { v: { holding: h, item }, fields: { item }, order });
   }),
