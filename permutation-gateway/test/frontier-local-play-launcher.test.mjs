@@ -832,7 +832,7 @@ test('a world ends itself, whole, when one of its processes ends, when its time 
   { const { c } = await standIns(t, { guard: { ttlMs: 3000, everyMs: 50 } }); let stops = 0; const at = Date.now(); await startWorld(c, wallet, 0, () => { stops++; });
     const dir = await worldDir(c), { pids } = await json(path.join(dir, 'processes.json')); assert.equal(stops, 0); assert.ok(pids.every(alive));
     await until('the time limit', () => stops === 1); assert.ok(Date.now() - at >= 3000); assert.ok(pids.every(pid => !alive(pid))); assert.equal((await json(path.join(dir, 'stopped.json'))).reason, 'ttl'); }
-  { const { c } = await standIns(t, { guard: { outputMax: 16384, everyMs: 50 } }); let stops = 0; await startWorld(c, wallet, 0, () => { stops++; });
+  { const { c } = await standIns(t, { guard: { outputMax: 16384, everyMs: 50, outputEveryMs: 50 } }); let stops = 0; await startWorld(c, wallet, 0, () => { stops++; });
     const dir = await worldDir(c), { pids } = await json(path.join(dir, 'processes.json'));
     await new Promise(r => setTimeout(r, 200)); assert.equal(stops, 0, 'under the limit it goes on'); assert.ok(pids.every(alive));
     await fsp.mkdir(path.join(dir, 'herald')); await fsp.writeFile(path.join(dir, 'herald', 'records.bin'), Buffer.alloc(32768));

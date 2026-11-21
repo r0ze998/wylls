@@ -205,10 +205,33 @@ export function applySeasonRecord(FS, record, { herald = null, onRings = () => {
   FS.worldRevision = revision;
   FS.record = record;
   FS.world = s.world;
-  for (const d of s.drop) FS.worldRings?.delete?.(d);
+  for (const d of s.drop) { FS.worldRings?.delete?.(d); FS.worldRingTaken?.delete?.(d); }
   if (herald?.worldRing) {
+    // (local-perf, 2026-11-21: a ring's list is asked again only when it can have changed — the record's Province count
+    //  for that ring moved, the herald changed, or the page has no list of it (adoptPinnedWorld empties FS.worldRings).
+    //  Before, every season record asked every partly created ring again: a wide world grown to ring 128 has ~125 of
+    //  them and the page reads the record about once a second, so ~7,400 list reads a minute, each answer redrawing the
+    //  map. A list is kept as read at count n only when it names n Provinces: a herald list that lags the record is
+    //  asked again with the next record, as before)
+    const taken = (FS.worldRingTaken ??= new Map());
     for (const d of s.partial) {
-      Promise.resolve().then(() => herald.worldRing(d)).then(a => { if (a?.ok && FS.worldRevision === revision && FS.record === record) { (FS.worldRings ??= new Map()).set(d, a.present); onRings(d); } }).catch(() => {});
+      const n = s.world.ringProvinces?.[d] ?? null;
+      const t = taken.get(d);
+      if (t && t.herald === herald && t.n === n && (t.asking || FS.worldRings?.has?.(d))) continue;
+      const ticket = { herald, n, asking: true };
+      taken.set(d, ticket);
+      Promise.resolve().then(() => herald.worldRing(d)).then(a => {
+        const current = taken.get(d) === ticket;
+        if (current) ticket.asking = false;
+        if (!a?.ok) { if (current) taken.delete(d); return; }
+        // (a list is this world's only while the record it answers still shows the count it was asked at: a record that
+        //  moved on, or a pin to another world — adoptPinnedWorld forgets the taken counts — asks it again)
+        if (!current || FS.world?.ringProvinces?.[d] !== n) return;
+        const had = FS.worldRings?.get?.(d);
+        (FS.worldRings ??= new Map()).set(d, a.present);
+        if (!(int(n) && a.present?.size === n)) taken.delete(d);
+        if (!had || had.size !== a.present.size || [...a.present].some(k => !had.has(k))) onRings(d);
+      }).catch(() => { if (taken.get(d) === ticket) taken.delete(d); });
     }
   }
   return s;
