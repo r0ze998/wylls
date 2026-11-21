@@ -36,6 +36,12 @@ pub const VILLAGES_SCHEMA: &str = "frontier-localnet-operator-villages-v1";
 pub const OPERATORS_FILE_SCHEMA: &str = "frontier-local-play-operator-residents-v1";
 /// At most this many operator villages are served (the launcher's own maximum per world).
 pub const MAX_OPERATOR_VILLAGES: usize = 12;
+/// runner-throughput-2 (BREAK-143-1): the launcher's file of the admitted EXTERNAL residents (⑤ option B; public
+/// addresses only): its schema. Their villages join the same keeper loop as the operator residents' — before, nobody
+/// but the first village's world sweep resolved an external resident's home, so it trailed by many turns.
+pub const EXTERNALS_FILE_SCHEMA: &str = "frontier-local-play-external-residents-v1";
+/// At most this many external villages are served (the launcher's `EXTERNAL_RESIDENTS_MAX`).
+pub const MAX_EXTERNAL_VILLAGES: usize = 2;
 const POLL: Duration = Duration::from_secs(1);
 
 fn line(step: &str, extra: Value) -> Value {
@@ -49,21 +55,32 @@ fn line(step: &str, extra: Value) -> Value {
 /// `--operator-villages <abs path>` out of the runner's arguments: `(rest, Some(path))` when given exactly once with an
 /// absolute path to a file named `operators.json`; `(args, None)` when absent; anything else is refused.
 pub fn take_villages_args(args: Vec<String>) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    take_file_arg(args, "--operator-villages", "operators.json")
+}
+
+/// `--external-villages <abs path>` (runner-throughput-2): as [`take_villages_args`], for the launcher's
+/// `externals.json` of the admitted external residents.
+pub fn take_external_args(args: Vec<String>) -> Result<(Vec<String>, Option<PathBuf>), String> {
+    take_file_arg(args, "--external-villages", "externals.json")
+}
+
+fn take_file_arg(
+    args: Vec<String>,
+    flag: &str,
+    name: &str,
+) -> Result<(Vec<String>, Option<PathBuf>), String> {
     let mut rest = vec![];
     let mut path = None::<PathBuf>;
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
-        if a == "--operator-villages" {
+        if a == flag {
             if path.is_some() {
-                return Err("--operator-villages twice".into());
+                return Err(format!("{flag} twice"));
             }
-            let v = it.next().ok_or("--operator-villages needs a value")?;
+            let v = it.next().ok_or(format!("{flag} needs a value"))?;
             let p = PathBuf::from(&v);
-            if !p.is_absolute() || p.file_name().and_then(|n| n.to_str()) != Some("operators.json")
-            {
-                return Err(
-                    "--operator-villages must be an absolute path to operators.json".into(),
-                );
+            if !p.is_absolute() || p.file_name().and_then(|n| n.to_str()) != Some(name) {
+                return Err(format!("{flag} must be an absolute path to {name}"));
             }
             path = Some(p);
         } else {
@@ -76,9 +93,18 @@ pub fn take_villages_args(args: Vec<String>) -> Result<(Vec<String>, Option<Path
 /// The wallets of the launcher's `operators.json` (`{schema, test_only: true, wallets: [base58…]}`), each once, at most
 /// [`MAX_OPERATOR_VILLAGES`]; `None` while the file is not a whole, valid record yet.
 pub fn parse_wallets(text: &str) -> Option<Vec<Address>> {
+    parse_record(text, OPERATORS_FILE_SCHEMA, MAX_OPERATOR_VILLAGES)
+}
+
+/// The wallets of the launcher's `externals.json` (`{schema, test_only: true, wallets: [base58…]}`, runner-throughput-2),
+/// each once, at most [`MAX_EXTERNAL_VILLAGES`]; `None` while the file is not a whole, valid record yet.
+pub fn parse_external_wallets(text: &str) -> Option<Vec<Address>> {
+    parse_record(text, EXTERNALS_FILE_SCHEMA, MAX_EXTERNAL_VILLAGES)
+}
+
+fn parse_record(text: &str, schema: &str, max: usize) -> Option<Vec<Address>> {
     let v: Value = serde_json::from_str(text).ok()?;
-    if v.get("schema")?.as_str()? != OPERATORS_FILE_SCHEMA || v.get("test_only")?.as_bool()? != true
-    {
+    if v.get("schema")?.as_str()? != schema || v.get("test_only")?.as_bool()? != true {
         return None;
     }
     let mut out: Vec<Address> = vec![];
@@ -89,7 +115,7 @@ pub fn parse_wallets(text: &str) -> Option<Vec<Address>> {
         }
         out.push(a);
     }
-    (!out.is_empty() && out.len() <= MAX_OPERATOR_VILLAGES).then_some(out)
+    (!out.is_empty() && out.len() <= max).then_some(out)
 }
 
 /// A wallet's home village from its own Citizen: slot 1's `(p, q, site)` whose Holding account exists → `(Holding,
@@ -116,6 +142,35 @@ pub async fn watch(
     a: Addresses,
     path: PathBuf,
     more: tokio::sync::mpsc::UnboundedSender<MoreVillage>,
+    stop: tokio::sync::watch::Receiver<bool>,
+    out: impl Fn(Value),
+) {
+    watch_with(state, a, path, parse_wallets, "resident", more, stop, out).await
+}
+
+/// runner-throughput-2: [`watch`] for the launcher's `externals.json` — each admitted external resident's village joins
+/// the same keeper loop, by the same rule, once its own PlaceHome landed (lines say `external: i`). Fairness: an external
+/// resident's home is served exactly as an operator resident's or the person's (never better: the same loop, the same
+/// home batch, the same order rule).
+pub async fn watch_externals(
+    state: Shared,
+    a: Addresses,
+    path: PathBuf,
+    more: tokio::sync::mpsc::UnboundedSender<MoreVillage>,
+    stop: tokio::sync::watch::Receiver<bool>,
+    out: impl Fn(Value),
+) {
+    watch_with(state, a, path, parse_external_wallets, "external", more, stop, out).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn watch_with(
+    state: Shared,
+    a: Addresses,
+    path: PathBuf,
+    parse: fn(&str) -> Option<Vec<Address>>,
+    who: &str,
+    more: tokio::sync::mpsc::UnboundedSender<MoreVillage>,
     mut stop: tokio::sync::watch::Receiver<bool>,
     out: impl Fn(Value),
 ) {
@@ -126,7 +181,7 @@ pub async fn watch(
         if let Some(w) = std::fs::read_to_string(&path)
             .ok()
             .as_deref()
-            .and_then(parse_wallets)
+            .and_then(parse)
         {
             break w;
         }
@@ -150,10 +205,9 @@ pub async fn watch(
                 let sent = more
                     .send((crate::keeper_loop::public_quicknet(), holding, home))
                     .is_ok();
-                out(line(
-                    "village",
-                    json!({"resident": i, "wallet": w.to_string(), "holding": holding.to_string(), "p": home.0, "q": home.1, "keeper": sent}),
-                ));
+                let mut extra = json!({"wallet": w.to_string(), "holding": holding.to_string(), "p": home.0, "q": home.1, "keeper": sent});
+                extra[who] = json!(i);
+                out(line("village", extra));
             }
         }
         tokio::select! { _ = tokio::time::sleep(POLL) => {} _ = stop.changed() => {} }
@@ -164,7 +218,7 @@ pub async fn watch(
 fn display(p: &Path) -> String {
     p.file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("operators.json")
+        .unwrap_or("villages file")
         .to_string()
 }
 
@@ -309,6 +363,38 @@ mod tests {
         );
         assert!(parse_wallets(&rec("", &[&w1]).replace("true", "false")).is_none());
         assert!(parse_wallets(&rec("", &[&w1]).replace(OPERATORS_FILE_SCHEMA, "other")).is_none());
+    }
+
+    #[test]
+    fn external_residents_come_from_the_launchers_externals_json_only() {
+        // (runner-throughput-2, BREAK-143-1: the same keeper loop serves them; the option and the record are their own)
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let (rest, p) =
+            take_external_args(s(&["--a", "--external-villages", "/w/externals.json"])).unwrap();
+        assert_eq!(rest, s(&["--a"]));
+        assert_eq!(p, Some(PathBuf::from("/w/externals.json")));
+        for bad in [
+            &["--external-villages"][..],
+            &["--external-villages", "/w/operators.json"],
+            &["--external-villages", "w/externals.json"],
+            &["--external-villages", "/a/externals.json", "--external-villages", "/a/externals.json"],
+        ] {
+            assert!(take_external_args(s(bad)).is_err(), "{bad:?}");
+        }
+        // (and the operator option does not take it, nor the reverse)
+        assert!(take_villages_args(s(&["--operator-villages", "/w/externals.json"])).is_err());
+        let w = |n: u8| Address::new_from_array([n; 32]).to_string();
+        let rec = |schema: &str, ws: &[String]| {
+            format!("{{\"schema\":\"{schema}\",\"mode\":\"external-residents-v1\",\"test_only\":true,\"wallets\":{},\"ports\":[]}}", serde_json::to_string(ws).unwrap())
+        };
+        assert_eq!(parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1), w(2)])).unwrap().len(), 2);
+        assert!(parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1), w(2), w(3)])).is_none(), "at most 2");
+        assert!(parse_external_wallets(&rec(OPERATORS_FILE_SCHEMA, &[w(1)])).is_none(), "its own schema");
+        assert!(parse_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1)])).is_none());
+        assert!(parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1)]).replace("true", "false")).is_none());
+        let bin = include_str!("bin/localnet_natural_play.rs");
+        assert!(bin.contains("itest::operator_villages::watch_externals(st, a, path, tx, rx, |v| println!(\"{v}\")).await"));
+        assert!(bin.contains("} else if operators.is_none() && externals.is_none() {\n                    drop(more_tx);"));
     }
 
     #[test]

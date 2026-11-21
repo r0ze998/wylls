@@ -370,6 +370,16 @@ Small ones (nothing blocks play):
   was 3 turns behind, and each went on the next press; one muster press in the turn's last second was refused and the
   next press, 3 s later, went through). If one is still withdrawn (「送信待ちを取り消しました…」),
   press it again.
+- **With `--demo` (and `--external`) at ×60, your province is ready for a muster about 80 % of the time, and an external
+  resident's the same** (runner-throughput-2, BREAK-143-1). "Ready" is the program's rule for resident orders (muster,
+  garrison, dissolve, explore): the province settled through two turns ago. Before this change it was about 30 % for your
+  province and 0–6 % for an external resident's: the demo's keeper loop slept a whole 10-s turn between quiet passes,
+  cranked the demo's 60 provinces one transaction at a time, and did not serve an external resident's village at all.
+  Now, on a compressed clock (`--demo`, `--wide`), every player home (yours, the AI residents', an external resident's)
+  is settled together in one block, first and whenever one comes due, and the loop wakes at the next turn edge.
+  Measured (demo ×60, 1 AI, 1 external): yours 79 %, the external resident's 86 % (before: 30 % and 6 %); at ×15:
+  93 % and 96 % (before: 79 % and 60 %). It can never be 100 %: a turn can only be settled once the next turn has begun.
+  While it is not ready, the page's 「編成」 waits and sends once, as before.
 - **A wide-land expedition whose reveal window was missed never settles** (the program has no settlement for it; that
   waits on r0ze). The march screen stays on 「到着しました。封が開けられるのを待っています」, and that rim village cannot
   send another expedition (「出発できませんでした（DepartRolesUnavailable）」). It happened once, before #105

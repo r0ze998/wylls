@@ -95,3 +95,24 @@ test('a world whose start does not hand over every admitted resident\'s proxy is
   await assert.rejects(m.start(OWNER), e => e.code === 'ExternalResidentsNotReady');
   assert.equal(m.list().length, 0);
 });
+
+test('runner-throughput-2 (BREAK-143-1): the keeper loop serves an external resident\'s village like an operator resident\'s', async () => {
+  const { readFileSync } = await import('node:fs');
+  const launcher = readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
+  // (the natural runner gets the world's externals.json whenever the world admitted external residents)
+  assert.match(launcher, /\.\.\.\(\(opts\.external \?\? \[\]\)\.length \? \['--external-villages', path\.join\(dir, 'externals\.json'\)\] : \[\]\)\]\);/);
+  // (only on the natural runner's command line: the other runner never sees it)
+  const natural = launcher.slice(launcher.indexOf("if (natural) launch('runner', c.naturalRunner"), launcher.indexOf("else launch('runner', c.runner"));
+  assert.ok(natural.includes("'--external-villages'"));
+  assert.ok(!launcher.slice(launcher.indexOf("else launch('runner', c.runner")).split('\n')[0].includes('--external-villages'));
+  const runner = readFileSync(new URL('../../frontier-node/crates/itest/src/bin/localnet_natural_play.rs', import.meta.url), 'utf8');
+  assert.ok(runner.includes('itest::operator_villages::take_external_args(rest)?'));
+  assert.ok(runner.includes('itest::operator_villages::watch_externals(st, a, path, tx, rx,'));
+  // (and the file the runner reads is the one the launcher writes, by the same schema)
+  const villages = readFileSync(new URL('../../frontier-node/crates/itest/src/operator_villages.rs', import.meta.url), 'utf8');
+  assert.ok(villages.includes(`pub const EXTERNALS_FILE_SCHEMA: &str = "frontier-local-play-external-residents-v1";`));
+  const ext = readFileSync(new URL('../src/frontier/local-play-external-residents.mjs', import.meta.url), 'utf8');
+  assert.match(ext, /export const EXTERNAL_RESIDENTS_SCHEMA = 'frontier-local-play-external-residents-v1';/);
+  assert.equal(EXTERNAL_RESIDENTS_MAX, 2);
+  assert.ok(villages.includes('pub const MAX_EXTERNAL_VILLAGES: usize = 2;'));
+});

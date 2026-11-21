@@ -681,6 +681,9 @@ pub enum BellPlan {
 /// runner-throughput: at most this many batches in one world or stand step (each awaited; a round that lands nothing ends
 /// it). A contested province needs GatherClash, PostSeed and ResolveFromInputs per turn — three rounds.
 pub const BATCH_ROUNDS: u32 = 4;
+/// runner-throughput-2: rounds of one player-homes batch (`homes_batch`): a not-quiet turn needs its anchor, then the
+/// gather, the seed and the resolve, each its own round on a fresh read; a quiet one its anchor and a FastForward.
+pub const HOME_BATCH_ROUNDS: u32 = 6;
 
 /// The answer of a batched step (pure): a stop first (fail-closed: the driver stops and later recovers), else what landed
 /// (one line: the count and the first), else the first wait.
@@ -752,6 +755,9 @@ pub struct LegacyMarchDriver {
     pub batch: bool,
     /// While a batch is planned: `plan_bell` answers `Round` for a seed round not cached instead of fetching it.
     defer_rounds: bool,
+    /// runner-throughput-2 (compressed clocks only): the keeper loop's player homes; the batched world sweep yields between
+    /// its batches when one of them has a new due step (`home_gate`), so the loop serves the homes first. `None`: never.
+    pub preempt: Option<crate::home_gate::SharedGate>,
     /// Provinces ANOTHER village of the same keeper loop resolves itself (its home and where its hosts stand): the
     /// world sweep never cranks them, so two drivers never race on one province (keeper_loop `Village`).
     pub world_skip: Vec<(i32, i32)>,
@@ -802,6 +808,7 @@ impl LegacyMarchDriver {
             world_crank: true,
             batch: false,
             defer_rounds: false,
+            preempt: None,
             world_skip: vec![],
             world_skipped: 0,
             world_rounds: Default::default(),
@@ -1330,36 +1337,110 @@ impl LegacyMarchDriver {
         season: &Season,
         home: (i32, i32),
     ) -> Step {
+        self.crank_batch(state, clock, season, Some(home), &[]).await
+    }
+
+    /// runner-throughput-2 (BREAK-143-1, compressed clocks only): the keeper loop's PLAYER HOMES (the person's, the pair's
+    /// second, every operator and external resident's) as rounds of same-block batches — exactly `world_batch`'s decision
+    /// per province (its missing anchor, FastForward when simulated, else the real gather / seed / resolve), over these
+    /// provinces only, so every home's next step lands in the SAME block: no home is served before another. Each home's own
+    /// keeper and origin driver still run in their village's pass and find the work done (each re-reads; nothing is sent
+    /// twice: a batch sends one instruction per province, decided on one read). An unknown outcome is terminal and a
+    /// refusal stops this driver, as in the world sweep.
+    pub async fn homes_batch(&mut self, state: &Shared, homes: &[(i32, i32)]) -> Step {
+        if homes.is_empty() {
+            return Step::Wait("no player home".into());
+        }
+        let (season, clock) = {
+            let c = lock(state);
+            let Some(season) = self.read(&c, &self.a.season, Season::decode) else {
+                return Step::Stopped("the Season is not readable".into());
+            };
+            match lk::season_clock(&c, &self.a) {
+                Ok(k) => (season, k),
+                Err(e) => return Step::Stopped(e),
+            }
+        };
+        let s = self.crank_batch(state, &clock, &season, None, homes).await;
+        if let Step::Unknown { .. } = &s {
+            self.terminal = Some(s.clone());
+        }
+        s
+    }
+
+    /// The world sweep (`world: Some(home)`: every other opened province but this village's home, its stands and
+    /// `world_skip`) or the player homes (`world: None`: exactly `only`), as rounds of batches (see `world_batch`).
+    async fn crank_batch(
+        &mut self,
+        state: &Shared,
+        clock: &fclient::clock::SeasonClock,
+        season: &Season,
+        world: Option<(i32, i32)>,
+        only: &[(i32, i32)],
+    ) -> Step {
         let me = self.payer.pubkey();
         let mut landed: Vec<String> = vec![];
         let mut first_wait: Option<String> = None;
         let mut first_stop: Option<Step> = None;
-        for _ in 0..BATCH_ROUNDS {
+        let rounds = if world.is_some() {
+            BATCH_ROUNDS
+        } else {
+            HOME_BATCH_ROUNDS
+        };
+        let kind = if world.is_some() { "world" } else { "home" };
+        for round in 0..rounds {
+            // (runner-throughput-2: the world sweep yields to a player home with a new due step — the keeper loop serves
+            //  the homes, then the sweep goes on in its next step)
+            if world.is_some() && round > 0 {
+                if let Some(g) = &self.preempt {
+                    if crate::home_gate::gate_due(g, state, &self.a) {
+                        break;
+                    }
+                }
+            }
             let provinces = {
                 let c = lock(state);
                 opened_provinces(&c, &self.a)
             };
-            let skip: Vec<(i32, i32)> = std::iter::once(home)
-                .chain(self.stands.iter().map(|s| s.0))
-                .chain(self.world_skip.iter().copied())
-                .collect();
-            let cands: Vec<(i32, i32)> = provinces
-                .into_iter()
-                .filter(|p| !skip.contains(p))
-                .collect();
+            let cands: Vec<(i32, i32)> = match world {
+                Some(home) => {
+                    let skip: Vec<(i32, i32)> = std::iter::once(home)
+                        .chain(self.stands.iter().map(|s| s.0))
+                        .chain(self.world_skip.iter().copied())
+                        .collect();
+                    provinces
+                        .into_iter()
+                        .filter(|p| !skip.contains(p))
+                        .collect()
+                }
+                None => {
+                    let mut v: Vec<(i32, i32)> = vec![];
+                    for p in only {
+                        if provinces.contains(p) && !v.contains(p) {
+                            v.push(*p);
+                        }
+                    }
+                    v
+                }
+            };
             let mut items: Vec<(Instruction, String, bool)> = vec![];
             let mut anchors: std::collections::BTreeMap<u32, std::collections::BTreeSet<u8>> =
                 Default::default();
             let mut seeds: std::collections::BTreeSet<(u32, u8)> = Default::default();
             let mut later: Vec<(u64, (i32, i32), lk::HomeView)> = vec![];
-            let start = self.world_cursor;
-            self.world_cursor = self.world_cursor.wrapping_add(1);
+            let start = if world.is_some() {
+                let s = self.world_cursor;
+                self.world_cursor = self.world_cursor.wrapping_add(1);
+                s
+            } else {
+                0
+            };
             for i in world_order(start, cands.len()) {
                 if items.len() >= crate::keeper_loop::BATCH_MAX {
                     break;
                 }
                 let dest = cands[i];
-                let tag = |label: String| format!("world {},{}: {label}", dest.0, dest.1);
+                let tag = |label: String| format!("{kind} {},{}: {label}", dest.0, dest.1);
                 let (dv, now) = {
                     let c = lock(state);
                     (
@@ -1491,7 +1572,7 @@ impl LegacyMarchDriver {
                 let rs: Vec<u64> = later.iter().map(|l| l.0).collect();
                 lk::prefetch_rounds(&rs).await;
                 for (_, dest, dv) in std::mem::take(&mut later) {
-                    let tag = |label: String| format!("world {},{}: {label}", dest.0, dest.1);
+                    let tag = |label: String| format!("{kind} {},{}: {label}", dest.0, dest.1);
                     let plan = self
                         .plan_bell(state, clock, dest, &dv, dv.resolved_next, season.end_bell)
                         .await;
@@ -1531,7 +1612,11 @@ impl LegacyMarchDriver {
             landed,
             first_stop,
             first_wait,
-            "the world's provinces are current",
+            if world.is_some() {
+                "the world's provinces are current"
+            } else {
+                "the player homes are current"
+            },
         )
     }
 
@@ -2873,18 +2958,24 @@ mod tests {
         assert_eq!(stop, Some(Step::Stopped("world 1,1: no".into())));
     }
     #[test]
-    fn batching_is_the_wide_paces_only() {
+    fn batching_is_the_compressed_paces_only() {
         let src = include_str!("legacy_march.rs");
         assert_eq!(
             src.matches("            batch: false,\n").count(),
             1,
             "off by default"
         );
+        // (runner-throughput-2: every compressed clock — the demo's too — batches; natural play never)
         let kl = include_str!("keeper_loop.rs");
         assert!(
-            kl.contains("        l.batch = home_first(pace);\n")
-                && kl.contains("            l.batch = self.home_first;\n")
+            kl.contains("    p.batch = homes_first(pace);\n")
+                && kl.contains("        l.batch = p.batch;\n")
+                && kl.contains("            l.batch = self.batch;\n")
         );
+        // (the homes batch: the world sweep's own decision over the player homes only, and the sweep yields to it)
+        assert!(src.contains("self.crank_batch(state, clock, season, Some(home), &[]).await"));
+        assert!(src.contains("let s = self.crank_batch(state, &clock, &season, None, homes).await;"));
+        assert!(src.contains("if crate::home_gate::gate_due(g, state, &self.a) {"));
     }
 
     fn transit(state: u8) -> Transit {
