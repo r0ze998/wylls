@@ -23,6 +23,16 @@ use crate::ports::{
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
+/// `maxSupportedTransactionVersion` of every transaction read (B5,
+/// measured 2026-11-21: devnet carries **version 1** transactions, 15 of
+/// the 33 in slot 523,600,000; with 0 the node refuses each one with
+/// -32015, so a single v1 transaction that names the program stalled every
+/// `getSignaturesForAddress` + `getTransaction` poller on it). The bytes of
+/// a v0/v1 transaction are kept as served; `crate::tx::from_wire` decodes
+/// legacy ones only, so to the decoders a v1 record is as undecodable as a
+/// v0 one already was (it no longer stops the read).
+pub const MAX_TX_VERSION: u8 = 1;
+
 pub struct RpcClient {
     pub url: String,
     id: AtomicU64,
@@ -32,7 +42,18 @@ pub struct RpcClient {
     /// Spacing shared with other clients of the same endpoint (a public
     /// RPC's per-IP limit), `None`: unpaced (loopback).
     pub pacer: Option<Arc<Pacer>>,
+    /// How often one call is tried again after an HTTP 429/503 (each try
+    /// waits the pacer's penalty, at least the server's `Retry-After`).
+    /// 0 (default): the 429 is the caller's error. [`RpcClient::with_pacer`]
+    /// sets [`PUBLIC_RETRIES`] for an `https://` URL.
+    pub retries: u32,
 }
+
+/// Retries of a paced `https://` client (B5, measured 2026-11-21: the
+/// public devnet RPC allows about 10 calls of one method per 10 s per IP
+/// and answers the 11th with 429 and `Retry-After: 10`; without a retry a
+/// one-shot reader such as the verifier stopped at the 11th transaction).
+pub const PUBLIC_RETRIES: u32 = 6;
 
 /// Request spacing for one public RPC endpoint, shared by every client that
 /// reads it from this process (devnet-readiness B2: the public devnet RPC
@@ -44,6 +65,10 @@ pub struct Pacer {
     pub min_gap: Duration,
     pub max_penalty: Duration,
     state: tokio::sync::Mutex<PacerState>,
+    /// HTTP requests made through this pacer (each retry counts).
+    pub calls: AtomicU64,
+    /// Of those, answered 429/503.
+    pub throttles: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -61,6 +86,8 @@ impl Pacer {
                 next: None,
                 penalty: Duration::ZERO,
             }),
+            calls: AtomicU64::new(0),
+            throttles: AtomicU64::new(0),
         })
     }
 
@@ -77,11 +104,20 @@ impl Pacer {
 
     /// The endpoint said "too many requests": everyone waits a penalty.
     pub async fn throttled(&self) {
+        self.throttled_for(None).await
+    }
+
+    /// [`Pacer::throttled`], waiting at least `retry_after` (the server's
+    /// `Retry-After`, capped by `max_penalty`).
+    pub async fn throttled_for(&self, retry_after: Option<Duration>) {
         let mut st = self.state.lock().await;
         st.penalty = (st.penalty * 2)
             .max(Duration::from_millis(500))
+            .max(retry_after.unwrap_or_default())
             .min(self.max_penalty);
-        let until = tokio::time::Instant::now() + st.penalty;
+        // Jittered (verify-pr123): up to a quarter more, so clients of one
+        // endpoint in other processes do not retry in lockstep.
+        let until = tokio::time::Instant::now() + st.penalty + jitter(st.penalty / 4);
         st.next = Some(st.next.map_or(until, |n| n.max(until)));
     }
 
@@ -96,6 +132,23 @@ impl Pacer {
     }
 }
 
+/// A random duration in `[0, max]` (no RNG dependency: the std hasher's
+/// per-process random keys over the clock).
+fn jitter(max: Duration) -> Duration {
+    use std::hash::{BuildHasher, Hasher};
+    if max.is_zero() {
+        return Duration::ZERO;
+    }
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos()),
+    );
+    let ns = max.as_nanos().min(u64::MAX as u128) as u64;
+    Duration::from_nanos(h.finish() % (ns + 1))
+}
+
 impl RpcClient {
     pub fn new(url: impl Into<String>) -> RpcClient {
         RpcClient {
@@ -104,12 +157,24 @@ impl RpcClient {
             max_response_bytes: None,
             https: crate::https::PostOpts::default(),
             pacer: None,
+            retries: 0,
         }
     }
 
-    /// Spaces this client's calls through `pacer` (shared per endpoint).
+    /// Spaces this client's calls through `pacer` (shared per endpoint);
+    /// an `https://` client also retries a 429/503 [`PUBLIC_RETRIES`]
+    /// times (loopback clients keep 0: their tests see the 429).
     pub fn with_pacer(mut self, pacer: Arc<Pacer>) -> RpcClient {
         self.pacer = Some(pacer);
+        if self.url.starts_with("https://") {
+            self.retries = PUBLIC_RETRIES;
+        }
+        self
+    }
+
+    /// Sets [`RpcClient::retries`].
+    pub fn with_retries(mut self, n: u32) -> RpcClient {
+        self.retries = n;
         self
     }
 
@@ -133,19 +198,41 @@ impl RpcClient {
     pub async fn call(&self, method: &str, params: Value) -> PortResult<Value> {
         let id = self.id.fetch_add(1, Ordering::Relaxed);
         let req = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        if let Some(p) = &self.pacer {
-            p.turn().await;
-        }
-        let resp =
-            crate::http::post_json_with(&self.url, &req, self.max_response_bytes, &self.https)
-                .await?;
-        if let Some(p) = &self.pacer {
-            if matches!(resp.status, 429 | 503) {
-                p.throttled().await;
-            } else if resp.status == 200 {
-                p.ok().await;
+        let mut tries = 0u32;
+        let resp = loop {
+            if let Some(p) = &self.pacer {
+                p.turn().await;
             }
-        }
+            let resp =
+                crate::http::post_json_with(&self.url, &req, self.max_response_bytes, &self.https)
+                    .await?;
+            let busy = matches!(resp.status, 429 | 503);
+            let hint = resp
+                .header("retry-after")
+                .and_then(crate::https::retry_after_secs)
+                .map(Duration::from_secs);
+            if let Some(p) = &self.pacer {
+                p.calls.fetch_add(1, Ordering::Relaxed);
+                if busy {
+                    p.throttles.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            match &self.pacer {
+                Some(p) if busy => p.throttled_for(hint).await,
+                Some(p) if resp.status == 200 => p.ok().await,
+                _ => {}
+            }
+            if !busy || tries >= self.retries {
+                break resp;
+            }
+            tries += 1;
+            if self.pacer.is_none() {
+                // Unpaced: wait here (the server's hint, else doubling).
+                let back = Duration::from_millis(500 << tries.min(6));
+                let wait = hint.unwrap_or(back).min(Duration::from_secs(30));
+                tokio::time::sleep(wait + jitter(wait / 4)).await;
+            }
+        };
         if resp.status != 200 {
             return Err(PortError::Http(resp.status));
         }
@@ -364,7 +451,7 @@ impl RpcClient {
         let v = self
             .call(
                 "getTransaction",
-                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": 0}]),
+                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": MAX_TX_VERSION}]),
             )
             .await?;
         if v.is_null() {
@@ -402,7 +489,7 @@ impl RpcClient {
         let v = self
             .call(
                 "getTransaction",
-                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": 0}]),
+                json!([sig.to_string(), {"encoding": "base64", "commitment": commitment, "maxSupportedTransactionVersion": MAX_TX_VERSION}]),
             )
             .await?;
         Ok(parse_balances(&v))
@@ -961,6 +1048,18 @@ mod bounded_response_tests {
 
 #[cfg(test)]
 mod tests {
+    /// verify-pr123: the backoff jitter stays in `[0, max]` and varies.
+    #[test]
+    fn backoff_jitter_is_bounded_and_varies() {
+        use std::time::Duration;
+        assert_eq!(super::jitter(Duration::ZERO), Duration::ZERO);
+        let max = Duration::from_millis(250);
+        let got: std::collections::BTreeSet<Duration> =
+            (0..64).map(|_| super::jitter(max)).collect();
+        assert!(got.iter().all(|d| *d <= max));
+        assert!(got.len() > 1, "{got:?}");
+    }
+
     #[test]
     fn get_transaction_balances_parse() {
         let v = json!({"slot": 3, "meta": {"err": null, "preBalances": [10, 0, 1], "postBalances": [5, 4, 1]}});

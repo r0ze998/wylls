@@ -931,18 +931,31 @@ async fn finalized_slot(rpc: &RpcClient) -> Option<u64> {
         .as_u64()
 }
 
-async fn blocks(rpc: &RpcClient, slots: &BTreeSet<u64>) -> BTreeMap<u64, Option<Block>> {
+/// The blocks of `slots`; a read that failed (not a block the node says it
+/// lacks) is also said in `errors` (B5: a 429 used to read as "not served",
+/// as if the source had lied).
+async fn blocks(
+    rpc: &RpcClient,
+    slots: &BTreeSet<u64>,
+    errors: &mut Vec<String>,
+) -> BTreeMap<u64, Option<Block>> {
     let mut out = BTreeMap::new();
     for &s in slots {
-        let v = rpc
+        let v = match rpc
             .call(
                 "getBlock",
                 json!([s, {"encoding": "json", "transactionDetails": "signatures", "rewards": false,
-                        "commitment": "finalized", "maxSupportedTransactionVersion": 0}]),
+                        "commitment": "finalized",
+                        "maxSupportedTransactionVersion": fclient::rpc::MAX_TX_VERSION}]),
             )
             .await
-            .ok()
-            .filter(|v| !v.is_null());
+        {
+            Ok(v) => Some(v).filter(|v| !v.is_null()),
+            Err(e) => {
+                errors.push(format!("getBlock {s}: {e}"));
+                None
+            }
+        };
         let b = v.map(|v| Block {
             blockhash: v["blockhash"].as_str().unwrap_or_default().into(),
             previous: v["previousBlockhash"].as_str().unwrap_or_default().into(),
@@ -985,14 +998,17 @@ pub async fn read_primary(
     season_id: u64,
     txs: &[TxRecord],
 ) -> SourceRead {
-    let rpc = RpcClient::new(url);
+    let rpc = crate::input::rpc_client(url);
     let mut errors = vec![];
     let slots: BTreeSet<u64> = txs.iter().map(|t| t.slot).collect();
+    let genesis = genesis(&rpc, &mut errors).await;
+    let finalized_slot = finalized_slot(&rpc).await;
+    let blocks = blocks(&rpc, &slots, &mut errors).await;
     SourceRead {
         url: url.into(),
-        genesis: genesis(&rpc, &mut errors).await,
-        finalized_slot: finalized_slot(&rpc).await,
-        blocks: blocks(&rpc, &slots).await,
+        genesis,
+        finalized_slot,
+        blocks,
         program_accounts: program_accounts(url, program, season_id, &mut errors).await,
         errors,
         ..SourceRead::default()
@@ -1013,7 +1029,7 @@ pub async fn read_witness(
     final_keys: &[Address],
     final_slot: u64,
 ) -> SourceRead {
-    let rpc = RpcClient::new(url);
+    let rpc = crate::input::rpc_client(url);
     let mut r = SourceRead {
         url: url.into(),
         ..SourceRead::default()
@@ -1106,7 +1122,7 @@ pub async fn read_witness(
         let v = rpc
             .call(
                 "getTransaction",
-                json!([sig.to_string(), {"encoding": "base64", "commitment": "finalized", "maxSupportedTransactionVersion": 0}]),
+                json!([sig.to_string(), {"encoding": "base64", "commitment": "finalized", "maxSupportedTransactionVersion": fclient::rpc::MAX_TX_VERSION}]),
             )
             .await;
         let served = match v {
@@ -1130,7 +1146,7 @@ pub async fn read_witness(
         r.txs.insert(sig.to_string(), served);
     }
     let slots: BTreeSet<u64> = txs.iter().map(|t| t.slot).collect();
-    r.blocks = blocks(&rpc, &slots).await;
+    r.blocks = blocks(&rpc, &slots, &mut r.errors).await;
     match crate::input::program_hash(url, program).await {
         Ok((_, h)) => r.program_hash = Some(h),
         Err(e) => r.errors.push(format!("the deployed .so hash: {e}")),
