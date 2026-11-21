@@ -31,5 +31,5 @@
 * [付録C 開発者向け整理](appendix/c-developer-spec.md)
 * [付録D 出典と根拠の対応表](appendix/d-sources.md)
 * [付録E 更新時の再確認と GitBook との同期](appendix/e-maintenance.md)
-
-* [付録F 2026-11-06 更新の根拠と範囲](appendix/f-update-20261106.md)
+* [付録F 2026-11-22 更新の根拠と範囲](appendix/f-update-20261122.md)
+* [付録F（当時）2026-11-06 更新の根拠と範囲](appendix/f-update-20261106.md)

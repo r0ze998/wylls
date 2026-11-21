@@ -1,6 +1,6 @@
 # 付録E 更新時の再確認と、GitBook との同期
 
-2026-11-06 の文書更新でも、既存の同期ブランチとProject directoryを維持します。公開サイトは https://zhu-yuan-da-zhispersonal-organiz.gitbook.io/wylls-she-ji-shu です。GitHubへの反映と、公開ページへの反映は別々に確認します。
+2026-11-22 の文書更新でも、既存の同期ブランチと Project directory を維持します。今回の原稿は、レビュー用の変更として渡す前提です。Git Sync のブランチへ直接 push して公開を自動反映することはしません。公開サイトは https://zhu-yuan-da-zhispersonal-organiz.gitbook.io/wylls-she-ji-shu です。GitHubへの反映と、公開ページへの反映は別々に確認します。
 
 ## E.1 最新の作業ツリーで照合するときのコマンド
 
@@ -26,7 +26,9 @@ HEAD が同じでも、未コミットの変更は変わることがあります
 
 | 項目 | 見る場所 | 本文 |
 |---|---|---|
-| 決定の追加と覆し | `docs/design/redesign/99-decisions.ja.md` | 00、各章 |
+| 決定の追加と覆し | `docs/design/redesign/99-decisions.ja.md`、2026-11-18 以降のオーナー決定（状態メモ） | 00、各章、第12章 |
+| 手元の遊びと霧 | `docs/frontier/PLAY-LOCAL.ja.md` | 第1章、第2章、第5章、第10章 |
+| いまのプログラム（MagicBlock を使わない旨を含む） | `permutation-frontier/src/lib.rs`、`docs/frontier/devnet/DEVNET-DEPLOY-RUNBOOK.md` | 第9章、第10章 |
 | 設計書のまとめ | `docs/design/redesign/27-design-v1.ja.md` | 各章 |
 | 段階の実装の進み | `docs/frontier/stage1*/`（メモと契約書） | 第10章、第11章、付録C |
 | 兵器、工房、強い兵、地形の鉱石の数値 | `permutation-rules/src/frontier/arms.rs`、`holding.rs` | 第2章、第7章 |
@@ -90,7 +92,7 @@ GitBook は、Project directory の中の `.gitbook.yaml` を読みます。こ�
 
 Git Sync は双方向です。
 
-- **GitHub で直したとき。** ブランチ `claude/determined-ride-engpa4` の `gitbook-design/` に push すれば、GitBook に自動で反映されます。
+- **GitHub で直したとき。** ブランチ `claude/determined-ride-engpa4` の `gitbook-design/` に push すると、GitBook に自動で反映され、**公開が直る可能性があります。** 公開前のレビューには、GitBook の change request を使い、マージするまで公開しません。
 - **GitBook で直したとき。** Change request を Merge すると、その変更がこのブランチに commit されます。GitHub で原稿を直す前に、必ずブランチの最新を取り込んでください（`git pull origin claude/determined-ride-engpa4`）。取り込まずに直すと、GitBook での変更を上書きするおそれがあります。
 - **README は GitHub で直します。** GitBook の画面で README を直すと、衝突やページの重複が起きることがあると、GitBook の資料に書かれています。
 - **ページを足すときは目次にも載せます。** GitHub で新しいファイルを足したら、`SUMMARY.md` に 1 回だけ載せ、E.3 の検査を通してから push します。
@@ -107,7 +109,7 @@ Git Sync は双方向です。
 ### 確認できていないこと
 
 - GitBook の GitHub App に与えた権限の細部と、プランの条件。設定はオーナーの画面で行ったため、この文書では確かめていません。
-- GitBook の Space の公開の設定。取り込み時点では非公開でした。同期で公開設定を変える操作はしていませんが、確認はオーナーの画面で行います。
+- GitBook の Space の公開の設定。公開サイト https://zhu-yuan-da-zhispersonal-organiz.gitbook.io/wylls-she-ji-shu は公開されています。取り込み時点のメモは非公開でした。同期で公開設定を変える操作はしていませんが、確認はオーナーの画面で行います。
 
 ### 手で取り込む方法（参考）
 
