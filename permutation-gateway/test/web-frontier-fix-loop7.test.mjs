@@ -16,7 +16,8 @@ import { followWideHold } from '../../permutation-server/web/frontier/flocalplay
 import { wideHostSayText, wideHostWaitLine, wideHoldOutcomeText } from '../../permutation-server/web/frontier/screens/wideholding.mjs';
 import * as K from '../../permutation-server/web/frontier/hud/keephand.mjs';
 import { arrivalShort, ARRIVAL_STATES } from '../../permutation-server/web/frontier/hud/statusview.mjs';
-import { itemText } from '../../permutation-server/web/frontier/hud/returnwords.mjs';
+import { itemText, itemDetail } from '../../permutation-server/web/frontier/hud/returnwords.mjs';
+import { renderToast } from '../../permutation-server/web/frontier/hud/feed.mjs';
 import { OUTBOUND_POP, openOutbound, editOutbound, reconcileOutbound, inspectOutboundRoute, outboundRouteRefusal } from '../../permutation-server/web/frontier/fexpedition-compose.mjs';
 
 const PROGRAM = encode(new Uint8Array(32).fill(94)), WALLET = encode(new Uint8Array(32).fill(65));
@@ -244,6 +245,15 @@ test('LP7-8: every caravan arrival state is one short plain sentence in the toas
   // the toast, as loop-play7 saw it (a delivery to the Vault, turn 17)
   const toast = itemText({ kind: 'CARAVAN_SETTLED', bell: 17, tone: 'result', facts: { cargo: W40O80, delivered: true, arrival: cases[1] } });
   assert.equal(toast, '隊商（ターン 17）：貯蔵庫に着きました（積荷 木材 40・鉱石 80。入った量は確かめられません）');
+  // the careful account is kept, as the toast's hover title (a settled caravan leaves the trade card's road list)
+  const item = { kind: 'CARAVAN_SETTLED', bell: 17, tone: 'result', facts: { cargo: W40O80, delivered: true, arrival: cases[1] } };
+  assert.match(itemDetail(item), /^到着しましたが、入った量は確認できません（記録の積荷：木材 40・鉱石 80）。倉庫は上限を超えた分を切り捨てます/);
+  const markup = String(renderToast({ id: 'aw:1', kind: 's1', bell: 17, text: itemText(item), hint: itemDetail(item) }));
+  assert.match(markup, /title="到着しましたが、入った量は確認できません/); assert.match(markup, /貯蔵庫に着きました（積荷 木材 40・鉱石 80。入った量は確かめられません）/);
+  assert.doesNotMatch(String(renderToast({ id: 'x', kind: 's1', text: 'a' })), /title=/, 'no title without a detail');
+  assert.equal(itemDetail({ kind: 'CARAVAN_SETTLED', tone: 'uncertain', facts: { arrival: cases[1] } }), '');
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(app, /text: returnWords\.itemText\(i\), hint: returnWords\.itemDetail\(i\) \|\| undefined/);
   setLang('en');
   for (const c of cases) assert.doesNotMatch(arrivalShort(c), /[ぁ-んァ-ン一-龯]/, `English: ${arrivalShort(c)}`);
   assert.equal(itemText({ kind: 'CARAVAN_SETTLED', bell: 17, tone: 'result', facts: { cargo: W40O80, delivered: true, arrival: cases[1] } }),

@@ -5,7 +5,7 @@ import { L, fmtNum, lang } from '../../lang.mjs';
 import { RESOURCES, factionName } from '../fi18n.mjs';
 import { RESOURCE_ORDER } from '../resources.mjs';
 import { FIRST_LOOK_BELLS } from './returnsum.mjs';
-import { arrivalShort } from './statusview.mjs';
+import { arrivalShort, arrivalView } from './statusview.mjs';
 
 const cargo = c => (c ? c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) : '');
 const nation = f => (Number.isInteger(f) && f >= 0 && f <= 6 ? factionName(f) : L`他国`);
@@ -44,6 +44,17 @@ export function itemText(i) {
     case 'CLASH': return L`あなたの村のある州で戦いがありました（ターン ${fmtNum(i.bell)}）`;
     default: return i.kind;
   }
+}
+
+/**
+ * (fix-loop7, LP7-8) The careful account behind an item's short sentence, for the toast's hover title: a settled caravan's
+ * arrival details (arrivalView — the bounds, the basis, why a storehouse's intake is not known). '' for any other item.
+ */
+export function itemDetail(i) {
+  const a = i?.kind === 'CARAVAN_SETTLED' && i.tone !== 'uncertain' ? i.facts?.arrival : null;
+  if (!a) return '';
+  const v = arrivalView(a);
+  return v.ok ? [v.text, ...v.details].join(L`。`) : '';
 }
 
 /** The head: what the summary covers (the player's own mark, or a stated window) and what it cannot (a gap, a read that stopped). */

@@ -2934,10 +2934,10 @@ function awayTake() {
   return out;
 }
 /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
-const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
+const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), hint: returnWords.itemDetail(i) || undefined, awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
 /** The away notices in the page's language (they are kept as words; the language may change after they were told). */
 // (B11, loop-play2: and every other notice, by the words it keeps in every language — hud/words.mjs)
-const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away || x.words)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : reworded(x))); };
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away || x.words)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf), hint: returnWords.itemDetail(x.awayOf) || undefined } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : reworded(x))); };
 onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */

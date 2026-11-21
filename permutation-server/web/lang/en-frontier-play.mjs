@@ -1529,6 +1529,7 @@ export default {
   '使える量（未確定の費用を最大で引いた見込み）：{0}': 'Usable (with unsettled costs taken at their most, an estimate): {0}',
   '使える量（予約を引いたあと）：{0}': 'Usable (after reservations): {0}',
   '使える量を出せません：{0}': 'Cannot say what is usable: {0}',
+  '。': '. ',
   // The local-play gate before the page boots (frontier/flocalplay.mjs): the operator's panel, the launcher's
   // "new world" panel with its start, its worlds list and the explicit end of a world, the words of the test world's
   // preparation, and every refusal with what to do next. Terms as in en-frontier-hand.mjs ("local play", "test wallet",
