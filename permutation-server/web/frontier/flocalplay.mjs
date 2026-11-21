@@ -119,6 +119,17 @@ export function localPersistPage(cfg, loc = globalThis.location) {
 export function launcherPersisted(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 1 && typeof v.resumed === 'boolean' ? { resumed: v.resumed } : null;
 }
+/**
+ * The launcher's owner proof (D-verify-pr57-1): the `owner` word of the fragment of the address the launcher printed
+ * (`/#owner=<43 base64url characters>`; the launcher's redirects keep the fragment), or null. Ending a world takes it
+ * (`/local-play/stop {wallet, owner}`); a fragment never leaves the browser except in that one body.
+ */
+export function launcherOwnerProof(loc = globalThis.location) {
+  try {
+    const proof = new URLSearchParams(new URL(loc.href).hash.slice(1)).get('owner');
+    return typeof proof === 'string' && /^[A-Za-z0-9_-]{43}$/.test(proof) ? proof : null;
+  } catch { return null; }
+}
 export function localMarchTrialPage(cfg, loc = globalThis.location) {
   try { return localNaturalWorld(cfg, loc) && new URL(loc.href).searchParams.get('march') === 'trial'; } catch { return false; }
 }
@@ -175,7 +186,9 @@ const LAUNCHER_CODES = Object.freeze({ WorldLimit: 'WorldLimit', WorldStopping: 
   PrepareUnavailable: 'LauncherPrepareFailed', PrepareClock: 'LauncherPrepareFailed', PrepareTimeout: 'LauncherPrepareFailed', PrepareHalted: 'LauncherPrepareFailed', PrepareFailed: 'LauncherPrepareFailed',
   PrepareClockNotRestored: 'LauncherPrepareFailed', PrepareNotSettled: 'LauncherPrepareFailed', RunnerRpcRefused: 'LauncherPrepareFailed',
   // (TEST-ONLY persisted worlds: the launcher's own refusal of a world directory that is not private, or another start's remains)
-  PersistNotPrivate: 'LauncherPersistRefused', PersistIncomplete: 'LauncherPersistRefused', PersistDirUnavailable: 'LauncherPersistRefused' });
+  PersistNotPrivate: 'LauncherPersistRefused', PersistIncomplete: 'LauncherPersistRefused', PersistDirUnavailable: 'LauncherPersistRefused',
+  // (a stop without this launcher's owner proof: the page was not opened at the address the launcher printed)
+  NotWorldOwner: 'LauncherNotOwner' });
 const isAddress = text => { try { return typeof text === 'string' && text.length <= 44 && fromBase58(text).length === 32 && toBase58(fromBase58(text)) === text; } catch { return false; } };
 /**
  * The worlds a refused start lists, believed in nothing: at most the launcher's two, each a PUBLIC address, since
@@ -296,6 +309,7 @@ const WHY = {
   LauncherClosed: () => L`開始サービスは終了の処理中です。開始サービスを起動し直してから、ページを開き直してください。`,
   LauncherStopFailed: () => L`世界を終了できませんでした。開始サービスを確認して、もう一度押してください。`,
   LauncherListFailed: () => L`動いている世界を確認できませんでした。開始サービスを確認して、もう一度押してください。`,
+  LauncherNotOwner: () => L`世界を終了できるのは、開始サービスが表示したアドレス（#owner= の付いたもの）で開いたページだけです。そのアドレスで開き直してください。`,
   LauncherPrepareFailed: () => L`試験世界の準備（時間の早送り）を終えられませんでした。その世界は終了しました。もう一度押すと、新しい世界で準備し直します。`,
   BadHerald: () => L`herald の場所は、この端末（localhost / 127.0.0.1）の http(s) の URL にしてください。`,
   LauncherPersistRefused: () => L`保存された試験用の世界のフォルダを使えません（ほかの人も読める権限か、途中で止まった世界の残りです）。開始サービスの記録を確認してください。`,
@@ -322,6 +336,7 @@ export const localPlayWhy = code => (WHY[code]?.() ?? String(code));
 export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = globalThis.document, win = globalThis.window, makeHerald, subtle, request = globalThis.fetch, launcherTimeoutMs = undefined, retryDelayMs = 500,
   stopTimeoutMs = 30000, makeWallet = createEphemeralWallet, now = () => Date.now(), openStore = openKeyStore, openBook = openSealedBook } = {}) {
   const launcher = localLauncherRequested(cfg, loc);
+  const ownerProof = launcher ? launcherOwnerProof(loc) : null;
   // (TEST-ONLY: a launcher that keeps its worlds; the page then keeps its key in this browser — never otherwise)
   const persisted = localPersistPage(cfg, loc);
   let keyStore = null;
@@ -425,7 +440,10 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const endAt = launcher ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
     const playedEnd = endAt !== null ? Object.freeze({ ...played, worldEndsAt: endAt }) : played;
     const playedDemo = launcher && claimedDemo !== null ? Object.freeze({ ...playedEnd, clockScale: claimedDemo }) : playedEnd;
-    const playedAs = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
+    const playedWide = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
+    // (fix-loop6, LP6-12: the TEST-ONLY contest pair's role rides on the identity: the controller gives the pair one order
+    //  of first-village places, so two people of one nation start in the same province — controller homeSeed)
+    const playedAs = launcher && state.pairRole ? Object.freeze({ ...playedWide, pair: state.pairRole }) : playedWide;
     // (TEST-ONLY persisted world: the march book (the sealed marches' reveal halves) is kept encrypted for this wallet,
     //  loaded before the game boots, and the game's march sender uses it instead of a memory-only one)
     if (persisted && keyStore) {
@@ -478,7 +496,8 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
   const endWorld = async address => {
     if (done || checking || !launcher || !handle || handle.destroyed || !state.worlds.some(w => w.wallet === address)) return state;
     checking = true; state.phase = 'stopping'; state.code = null; state.detail = null; state.ended = null; state.listed = null; paint();
-    const result = await askLauncher('/local-play/stop', { wallet: address }, 'LauncherStopFailed');
+    const stopBody = ownerProof === null ? { wallet: address } : { wallet: address, owner: ownerProof };
+    const result = await askLauncher('/local-play/stop', stopBody, 'LauncherStopFailed');
     if (!stillHere()) return state;
     // (a world that ended by itself meanwhile is the same to the player: its place is free)
     if (!result.ok && result.launcher !== 'WorldNotFound') { state.phase = 'refused'; state.code = result.code; paint(); return state; }

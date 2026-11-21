@@ -34,13 +34,13 @@
 
 | # | 穴 | 今の状態 | 根拠 |
 |---|---|---|---|
-| G1 | `frontier-node` に TLS のクライアントがない。keeper と herald が、`https` の devnet RPC と drand に届かない | **未解決** | `fclient/src/http.rs` の冒頭：「Plain `http://` only」。`Cargo.lock` に rustls がない |
-| G2 | keeper が、ローカルチェーン専用の `frontier_feed` で取引を読む | **未解決** | `keeper/src/main.rs:164` が `RpcPort::localnet` |
-| G3 | keeper が、live の drand に届かない | **未解決**（G1 と同じ原因） | `drand-replay` は保存済みの記録と、テスト用の鍵だけを扱う |
+| G1 | `frontier-node` に TLS のクライアントがない。keeper と herald が、`https` の devnet RPC と drand に届かない | **コードあり**（2026-11-18、`fclient::https`：システムの `curl` で `https` の GET と JSON-RPC の POST を行う。TLS の crate は足していない） | `fclient/src/https.rs`、`fclient/src/http.rs` の冒頭 |
+| G2 | keeper が、ローカルチェーン専用の `frontier_feed` で取引を読む | **コードあり**（2026-11-18、`keeper.toml` の `feed = "rpc"`。既定は `"localnet"` のまま） | `keeper/src/clusterfeed.rs`、`keeper/src/config.rs` |
+| G3 | keeper が、live の drand に届かない | **コードあり**（2026-11-18、G1 と同じ道。keeper の drand の URL に `https://` を書ける） | `keeper/src/main.rs` の冒頭、`keeper/src/config.rs` の `drand_urls_are_https_or_loopback` |
 | G4 | 公開チェーンに向けて季を作る運営の道具がない（AnnounceSeason、CreateSeason など） | **コードあり**（2026-11-18、`frontier-operator`。ローカルチェーンでだけ試した） | `stack/src/operator.rs`、DEVNET-DEPLOY-RUNBOOK §6 |
-| G5 | keeper の払い手の住所を一覧する機能がない | 未確認 | — |
-| G6 | devnet で BLS12-381 の syscall が使えるか | 未確認（devnet への読み取りに承認が要る） | — |
-| G7 | devnet の賃料（1 バイトあたり） | 未確認（同上） | — |
+| G5 | keeper の払い手の住所を一覧する機能がない | **コードあり**（2026-11-18、`frontier-keeper --print-addresses` と `--print-relay-addresses`） | `keeper/src/main.rs` の冒頭 |
+| G6 | devnet で BLS12-381 の syscall が使えるか | **確認済み**（2026-11-18、読み取りだけ：有効） | DEVNET-DEPLOY-RUNBOOK §3、`scripts/devnet/devnet-profile.json` の `measured` |
+| G7 | devnet の賃料（1 バイトあたり） | **確認済み**（2026-11-18、読み取りだけ：1 バイト 5,080 lamports） | 同上 |
 | G8 | 小さい季に合わせた keeper の払い手の下限 | 設定だけで済む | M1 文書 §4 |
 
 **公開テストで新たに要るもの**

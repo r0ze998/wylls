@@ -12,11 +12,13 @@
 //
 // Nothing here is a new rule, instruction, route or privilege: every check is the page's or the program's. The world's
 // runner reveals the expedition from the PUBLIC round and drives its destination (itest destination_driver, TEST-ONLY
-// SELF_REVEAL), so the resident keeps no secret after the send. No key leaves the process; nothing is retried.
+// SELF_REVEAL), so the resident keeps no secret after the send. No key leaves the process; nothing SENT is retried (the
+// read-only prepare is looked at again while the home province settles: prepareWhenSettled).
 import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
 import { hostsIn } from '../../../permutation-server/web/frontier/fland.mjs';
 import { DEPART_STAMINA, tipOptions, departMargin } from '../../../permutation-server/web/frontier/fmarch.mjs';
-import { seasonClock, bellAt } from '../../../permutation-server/web/frontier/clock.mjs';
+import { seasonClock, bellAt, BELL_SECS } from '../../../permutation-server/web/frontier/clock.mjs';
+import { nearTurnEnd } from '../../../permutation-server/web/frontier/flocalplay-muster-wait.mjs';
 import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { traceWideDirections, prepareOriginalOutboundPlain, unpackWidePlain } from '../../../permutation-server/web/frontier/fexpedition-seal.mjs';
 import { originalHostRef } from '../../../permutation-server/web/frontier/fexpedition.mjs';
@@ -33,8 +35,47 @@ import { toHex, toBase64, fromHex } from '../../../permutation-server/web/sdk/by
 export const WIDE_PATH_MAX = 14;
 /** Candidate paths judged per decision (each one herald read). */
 export const WIDE_PATH_TRIES = 4;
-/** Turns of slack over the observation's earliest arrival (the send runs a few seconds; ×60 is 10 s a turn). */
-export const ARRIVAL_SLACK_BELLS = 2;
+/**
+ * (fix-loop6, LP6-7) The turns the send may wait, after the plan's turn, for the home province to settle. loop-play6:
+ * 0 of 454 AI rim→wide expeditions landed — every one was refused NotResident at the relay's prepare and given up for
+ * two turns. The AI round starts right after the turn changes, when the rim province is still finishing the last turn
+ * (at ×60 it is caught up only for part of each turn), so the one look it took was always the wrong one. The page's
+ * pattern (flocalplay-muster-wait.mjs, the waiting send of #117): look again until the program's own check passes, not
+ * in a turn's last moments, then send at once. The prepare is a read (a blocked one keeps no relay ticket).
+ */
+export const SETTLE_WAIT_BELLS = 1;
+/** Real milliseconds the settle wait may last at most (one ×60 turn and a little: the war round waits on it). */
+export const SETTLE_WAIT_MAX_MS = 12_000;
+/** Real milliseconds between two looks while waiting. */
+export const SETTLE_LOOK_MS = 700;
+/** The prepare's refusals that are only the province finishing its turn: waited out, never a refusal of the march. */
+export const SETTLE_CODES = Object.freeze(['NotResident', 'NotFinal']);
+/** Turns of slack over the observation's earliest arrival: the send's own seconds (2; ×60 is 10 s a turn) and the settle wait. */
+export const ARRIVAL_SLACK_BELLS = 2 + SETTLE_WAIT_BELLS;
+
+/**
+ * (fix-loop6, LP6-7) Prepare once the home province has settled: `prepare()` → the prepared message, or throws with the
+ * program's check as `code`. A SETTLE_CODES refusal is looked at again every `lookMs` while the chain's turn
+ * (`clock()` → `{bell, nearEnd}`) is at most `untilBell` and `maxMs` has not passed; a look is not made in the turn's
+ * last moments (`nearEnd`: the send would land in the next turn, unsettled again). → `{prepared, looks, waitedMs}`;
+ * throws the last refusal (with `looks`, `waitedMs`) when the wait is over. Nothing is sent here.
+ */
+export async function prepareWhenSettled({ prepare, clock, untilBell, maxMs = SETTLE_WAIT_MAX_MS, lookMs = SETTLE_LOOK_MS,
+  now = () => Date.now(), sleep = ms => new Promise(r => setTimeout(r, ms)) }) {
+  const start = now();
+  let looks = 0;
+  for (;;) {
+    let c = null;
+    try { c = await clock(); } catch { c = null; }
+    const over = () => now() - start >= maxMs || (c && Number.isSafeInteger(c.bell) && c.bell > untilBell);
+    if (c?.nearEnd && !over()) { await sleep(lookMs); continue; }
+    looks++;
+    try { return { prepared: await prepare(), looks, waitedMs: now() - start }; } catch (e) {
+      if (!SETTLE_CODES.includes(e?.code) || over()) { e.looks = looks; e.waitedMs = now() - start; throw e; }
+    }
+    await sleep(lookMs);
+  }
+}
 
 const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
 const big = x => BigInt(String(x));
@@ -130,9 +171,14 @@ export function createWideMarch({ herald: base, fetch: f = (...a) => globalThis.
     }
     return { ok: false, why: `no passable path into the wide land (${tried.slice(0, 4).join('; ') || 'no geometric path'})` };
   }
-  /** ONE send of a judged plan by the resident `r` (`origin`, `signer`, `key`): → `{ok, step, code?, signature?, status?}`. */
-  async function send(r, p, { transitSlot = 0, requestId = `wm_${now().toString(36)}_${r.index}` } = {}) {
-    const step = { at: 'sealing' };
+  /** The chain's turn as the herald sees it now, and whether it is in its last moments (flocalplay-muster-wait nearTurnEnd). */
+  async function turnNow(season) {
+    const ts = await chainNow(), genesisTs = seasonClock(season).genesisTs;
+    return { bell: bellAt(genesisTs, ts), nearEnd: nearTurnEnd({ genesisTs, nowTs: ts, bellSecs: BELL_SECS, rate: clock.rate }) };
+  }
+  /** ONE send of a judged plan by the resident `r` (`origin`, `signer`, `key`): → `{ok, step, code?, signature?, status?, looks?, waitedMs?}`. */
+  async function send(r, p, { transitSlot = 0, requestId = `wm_${now().toString(36)}_${r.index}`, settle = true } = {}) {
+    const step = { at: 'sealing' }, waited = {};
     try {
       const host = originalHostRef(p.source.world, String(p.host.id));
       // (the page's review of the plaintext; the sealer takes the typed plaintext unpacked from its bytes, as runLocalDepart does)
@@ -152,7 +198,15 @@ export function createWideMarch({ herald: base, fetch: f = (...a) => globalThis.
       const request = departPreparationRequestOf({ ...scope, proposal: canonicalDepartProposal(scope) });
       // (the page's three /gw/ paths, as the page names them; a resident posts to its own relay directly, without /gw)
       const post = (path, body) => postLocalDepart(r.origin, path, body, { fetch: (url, init) => f(String(url).replace(`${r.origin}/gw/`, `${r.origin}/`), init) });
-      const prepared = localDepartPrepared(await post('/gw/f/local-play/depart/prepare', request), request);
+      // (fix-loop6, LP6-7: wait for the home province's settle within the plan's turn and the next, as the page does)
+      const once = async () => localDepartPrepared(await post('/gw/f/local-play/depart/prepare', request), request);
+      let prepared;
+      if (settle) {
+        try {
+          const w = await prepareWhenSettled({ prepare: once, clock: () => turnNow(p.season), untilBell: (p.nowBell ?? 0) + SETTLE_WAIT_BELLS, now });
+          prepared = w.prepared; waited.looks = w.looks; waited.waitedMs = w.waitedMs;
+        } catch (e) { waited.looks = e.looks; waited.waitedMs = e.waitedMs; throw e; }
+      } else prepared = await once();
       step.at = 'signing';
       const [out] = await r.signer.wallet.features['solana:signTransaction'].signTransaction({ account: { address: r.key.address }, transaction: wireTransaction(prepared.message, []) });
       const signed = await localDepartSigned(out?.signedTransaction ?? [], prepared, r.key.address);
@@ -165,13 +219,13 @@ export function createWideMarch({ herald: base, fetch: f = (...a) => globalThis.
       for (let i = 0; i < 20; i++) {
         let st = null;
         try { st = localDepartStatus(await post('/gw/f/local-play/depart/status', { schema: 'frontier-local-play-depart-status-v1', signature: signed.signature }), signed.signature); } catch { st = null; }
-        if (st && ['confirmed', 'finalized'].includes(st.status)) return { ok: true, step: 'landed', signature: signed.signature, submitted: answer };
-        if (st?.status === 'failed') return { ok: false, step: 'failed', code: st.err ?? 'Failed', signature: signed.signature };
+        if (st && ['confirmed', 'finalized'].includes(st.status)) return { ok: true, step: 'landed', signature: signed.signature, submitted: answer, ...waited };
+        if (st?.status === 'failed') return { ok: false, step: 'failed', code: st.err ?? 'Failed', signature: signed.signature, ...waited };
         await new Promise(res => setTimeout(res, 1000));
       }
       return { ok: false, step: 'sent', code: 'LocalDepartOutcomeUnknown', signature: signed.signature, unknown: true };
     } catch (e) {
-      return { ok: false, step: step.at, code: e.code ?? String(e?.message ?? e).slice(0, 120) };
+      return { ok: false, step: step.at, code: e.code ?? String(e?.message ?? e).slice(0, 120), ...waited };
     }
   }
   return Object.freeze({ plan, send, herald });

@@ -18,7 +18,9 @@ import { setLang, lang, EN } from '../../permutation-server/web/lang.mjs';
 const SEASON_ID = '11', ADDRS = seasonAddresses(LP.LOCAL_PLAY_PROGRAM, SEASON_ID);
 const CFG = { origin: 'http://127.0.0.1:41920', herald: 'http://127.0.0.1:41920', relay: 'http://127.0.0.1:41920/gw', dev: true, mode: 'play' };
 const loc = href => { const u = new URL(href); return { href, hostname: u.hostname, origin: u.origin }; };
-const launcherLoc = () => loc('http://127.0.0.1:41920/frontier/frontier/index.html?localPlay=1&launcher=1&devWallet=off');
+// (D-verify-pr57-1: the address the launcher prints carries its owner proof in the fragment; its redirects keep it)
+const PROOF = 'Zm9yLXRlc3RzLW9ubHktbm90LWEtcmVhbC1wcm9vZi0';
+const launcherLoc = (fragment = `#owner=${PROOF}`) => loc(`http://127.0.0.1:41920/frontier/frontier/index.html?localPlay=1&launcher=1&devWallet=off${fragment}`);
 const ME = 'BbPGAbHDvV5U43zQ5E8FmSnEzZ7r2vwWAZWTNAPTTSUT', W1 = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', W2 = 'B7yQBg4KBnypKx7TQRSaZFDD17hfhry5JN51dmz88rX3', W3 = '11111111111111111111111111111111';
 const T0 = 1_800_000_000_000;
 
@@ -158,7 +160,7 @@ test('at the launcher\'s limit the refusal lists its worlds; ending one is the p
   assert.equal(stops(calls).length, 1);
   const [url, options] = stops(calls)[0];
   assert.equal(url, 'http://127.0.0.1:41920/local-play/stop', 'the page\'s own origin'); assert.equal(options.method, 'POST'); assert.equal(options.credentials, 'omit'); assert.equal(options.redirect, 'error'); assert.deepEqual(options.headers, { 'Content-Type': 'application/json' });
-  assert.deepEqual(JSON.parse(options.body), { wallet: W1 }, 'the public address of the chosen world, nothing else');
+  assert.deepEqual(JSON.parse(options.body), { wallet: W1, owner: PROOF }, 'the public address of the chosen world and the launcher\'s owner proof from the fragment, nothing else');
   // while it ends: said so, and no key does anything
   assert.equal(gate.state().phase, 'stopping'); assert.match(doc.byId('local-play-status').textContent, /選んだ世界を終了しています/);
   rows = rowsOf(doc); assert.deepEqual(rows.map(r => r.end.disabled), [true, true]); assert.deepEqual(rows.map(r => r.ask.hidden), [true, true]); assert.equal(doc.byId('local-play-connect').disabled, true);
@@ -211,7 +213,7 @@ test('below the limit the worlds are listed only on the player\'s own press of t
   assert.equal(stops(calls).length, 0); assert.equal(starts(calls).length, 0);
   // the two presses on its row end it; then the start is the player's own press: one world at a time
   rowsOf(doc)[0].end.click(); assert.equal(stops(calls).length, 0); rowsOf(doc)[0].yes.click(); for (let i = 0; i < 4; i++) await settle();
-  assert.deepEqual(stops(calls).map(([, o]) => JSON.parse(o.body)), [{ wallet: W1 }]); assert.deepEqual(rowsOf(doc), []); assert.equal(doc.byId('local-play-worlds').hidden, true);
+  assert.deepEqual(stops(calls).map(([, o]) => JSON.parse(o.body)), [{ wallet: W1, owner: PROOF }]); assert.deepEqual(rowsOf(doc), []); assert.equal(doc.byId('local-play-worlds').hidden, true);
   assert.match(doc.byId('local-play-status').textContent, /世界を終了しました/); assert.equal(gate.state().listed, null);
   // asking again: none
   answer.worlds = () => ({ ok: true, status: 200, json: async () => ({ worlds: running }) });
@@ -757,7 +759,7 @@ test('the source: five launcher routes and no other, no storage, no markup from 
   //  failed by the network (app.mjs loadSeason → flocalplay-ended.mjs createWorldWatch: one at a time, spaced, never
   //  again once the end is known). The same route, the same body — this page's own public address —, the same bounded
   //  request; the gate itself never calls it. web-frontier-world-ended.test.mjs, web-frontier-fix-b6-b9.test.mjs)
-  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
+  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', stopBody, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
   assert.match(code, /const checkWorld = async \(\) => \{\n    if \(!launcher \|\| !done \|\| !handle \|\| handle\.destroyed\) return null;\n    const wallet = handle\.address;\n    const result = await askLauncher\('\/local-play\/keeper', \{ wallet \}, 'LauncherKeeperFailed'\);\n    return !handle \|\| handle\.destroyed \|\| handle\.address !== wallet \? null : result;\n  \};/);
   assert.equal(code.split('checkWorld(').length - 1, 0, 'the gate never asks it by itself: it is handed to the page (worldChecks, the gate\'s own handle)');
   assert.match(read('app.mjs'), /if \(!r\.ok && r\.code === 'network'\) worldWatch\?\.readFailed\(\);/, 'the page asks only after a herald read failed by the network');
@@ -827,4 +829,20 @@ test('contest pair: while the first player waits, the panel says it is waiting f
   release(); await connecting; await gate.ready;
   assert.equal(gate.state().pairWaiting, false); assert.equal(gate.state().pairRole, 'first');
   assert.doesNotMatch(doc.byId('local-play-status').textContent, /もう一人のプレイヤーを待っています/);
+});
+
+test('D-verify-pr57-1: the owner proof is read only from the fragment the launcher printed; a page without it names the address alone and is told why the launcher refused', async () => {
+  for (const [href, want] of [[`http://127.0.0.1:41920/x?launcher=1#owner=${PROOF}`, PROOF], [`http://127.0.0.1:41920/x?owner=${PROOF}`, null], ['http://127.0.0.1:41920/x#owner=short', null],
+    [`http://127.0.0.1:41920/x#owner=${PROOF}x`, null], [`http://127.0.0.1:41920/x#owner=${PROOF.slice(0, 42)}+`, null], ['http://127.0.0.1:41920/x', null]]) assert.equal(LP.launcherOwnerProof(loc(href)), want, href);
+  assert.equal(LP.launcherOwnerProof({ href: 'not a url' }), null);
+  const { gate, doc, calls, answer } = open({ loc: launcherLoc('') });
+  answer.start = () => ({ ok: false, status: 409, json: async () => ({ error: 'WorldLimit', worlds: twoWorlds() }) });
+  answer.stop = () => ({ ok: false, status: 403, json: async () => ({ error: 'NotWorldOwner' }) });
+  await made(gate); doc.byId('local-play-connect').click(); await settle(); await settle();
+  assert.equal(gate.state().phase, 'refused'); assert.equal(gate.state().code, 'WorldLimit');
+  await gate.endWorld(W1); await settle();
+  assert.deepEqual(stops(calls).map(([, o]) => JSON.parse(o.body)), [{ wallet: W1 }], 'no proof to send: the address alone, which the launcher refuses');
+  assert.equal(gate.state().phase, 'refused'); assert.equal(gate.state().code, 'LauncherNotOwner');
+  assert.match(doc.byId('local-play-status').textContent, /開始サービスが表示したアドレス/);
+  assert.deepEqual(rowsOf(doc).map(r => r.where.textContent).sort(), [W1, W2].sort(), 'both worlds are still listed');
 });

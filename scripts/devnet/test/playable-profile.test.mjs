@@ -183,7 +183,14 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   }
   assert.equal(sol(128n * rentExempt(4736, 5080)), '3.1627');
   assert.equal(sol(129n * rentExempt(4864, 5080)), '3.2713');
-  assert.equal(sol(seasonCost(season, 5080).total), '98.2163');
+  // D-verify-pr125-3: the model counts exactly the wide ring seeds keeper A requests (rings 129..128 + wide_rings),
+  // not four (was 98.2163 with rings 129..132)
+  const wideSeeds = season.accounts.filter(a => a.name.startsWith('Wide ring seed'));
+  assert.equal(wideSeeds.length, 1);
+  assert.equal(wideSeeds[0].count, playable().services.keeperA.ringsDuty.wide_rings);
+  assert.equal(wideSeeds[0].bytes, 192);
+  assert.equal(sol(seasonCost(season, 5080).total), '98.2147');
+  assert.equal(sol(seasonCost(season, 6960).total), '106.2416');
   // the rings keeper grows the map to the rim, without opening every province
   assert.deepEqual(
     (({ extend, extend_max_ring, lazy_provinces }) => ({ extend, extend_max_ring, lazy_provinces }))(playable().services.keeperA.ringsDuty),
@@ -205,6 +212,10 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   // (role expeditions, a playable-lane keeper build; it needs beacon, gather and resolve)
   assert.ok(playable().services.keeperA.roles.includes('expeditions'));
   assert.match(playable().services.keeperA.rolesWhy, /expeditions \(devnet-expedition-keeper/);
+  // devnet-p15-p9 (P9): keeper A keeps every known wide province resolved (role wide-resolve, a playable-lane keeper
+  // build; it needs beacon), so a wide village's WideMuster stays resident on later bells
+  assert.ok(playable().services.keeperA.roles.includes('wide-resolve'));
+  assert.match(playable().services.keeperA.rolesWhy, /wide-resolve \(devnet-p15-p9/);
   for (const rate of [5080, 6960]) {
     // after the genesis rings (≤ 7 provinces a wedge, the Concord's included), the rim (≤ 8) and wide rings 129-130
     // (6 each), every fund still clears ring 131's balance check
@@ -218,5 +229,5 @@ test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and it
   assert.equal(sol(108n * rentExempt(4864, 6960)), '3.7523');
   assert.equal(conquest.outpost_tier_min, 0);
   assert.equal(local.conquest.outpost_tier_min, 1);
-  assert.equal(sol(seasonCost(season, 6960).total), '106.2438');
+  assert.equal(sol(seasonCost(season, 6960).total), '106.2416'); // (106.2438 while the model counted four wide ring seeds)
 });

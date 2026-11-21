@@ -382,6 +382,12 @@ class Static(unittest.TestCase):
             self.assertIsNone(re.search(bad, code, re.M), bad)
         self.assertIn('placeholder', src)  # the SBF out dir gets a key placeholder before cargo-build-sbf
 
+    def test_stop_never_waits_for_ever(self):
+        # (fix-loop6, LP6-3) after INT, then TERM, a launcher still there is killed: `wait` must not hang the script
+        src = read(SCRIPT)
+        fin = src[src.index('finish() {'):src.index('trap \'STOPPING=1; finish 0\'')]
+        i_int, i_term, i_kill, i_wait = (fin.index(x) for x in ('kill -INT "$LPID"', 'kill -TERM "$LPID"', 'kill -KILL "$LPID"', 'wait "$LPID"'))
+        self.assertTrue(i_int < i_term < i_kill < i_wait, (i_int, i_term, i_kill, i_wait))
     def test_coexist_build_invalidates_the_default_stamp(self):
         # (loop-play6: the coexist lane builds its binaries in the SHARED frontier-node/target/debug, then copies them
         #  out; the default lane's build.stamp must stop calling that dir "up to date", or the next plain world runs the

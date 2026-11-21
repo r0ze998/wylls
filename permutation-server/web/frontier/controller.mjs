@@ -54,6 +54,7 @@ import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEF
 import * as wallet from '../wallet.mjs';
 import { LOCAL_PLAY_WALLET_NAMES, currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import * as localDepart from './flocalplay-depart.mjs';
+import * as devnetDepart from './fdevnet-depart.mjs';
 import * as localReveal from './flocalplay-reveal.mjs';
 import * as localExpedition from './flocalplay-expedition.mjs';
 import * as localReturn from './flocalplay-return.mjs';
@@ -1617,8 +1618,16 @@ export const originalOutboundMap = () => outbound.readOutboundMap(FS, expedition
 // (fix-loop5, L5-3: a read the clock's move dropped — fexpedition-compose `dropped` — is read again by itself, at most
 //  OUTBOUND_READ_RETRIES more times; then the card says so and the person presses again. Reads only: nothing is sent)
 export const OUTBOUND_READ_RETRIES = 2;
+// (fix-loop6, LP6-8: each read made again is said on the card while it runs — FS.outboundReread — : a mid-turn press at
+//  ×60 showed nothing for 12 s and more while the page read again by itself)
 const outboundReadAgain = async (run, kind) => {
-  for (let i = 0; ; i++) { await run(); if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return; }
+  try {
+    for (let i = 0; ; i++) {
+      await run();
+      if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return;
+      FS.outboundReread = { kind, n: i + 1, of: OUTBOUND_READ_RETRIES }; invalidate('panel');
+    }
+  } finally { if (FS.outboundReread) { FS.outboundReread = null; invalidate('panel'); } }
 };
 export const inspectOriginalOutboundRoute = () => outboundReadAgain(() => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'route');
 export const inspectOriginalOutboundContext = () => outboundReadAgain(() => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'context');
@@ -1638,11 +1647,42 @@ export const useEarliestOriginalOutboundArrival = () => outbound.useEarliestOutb
 const localDepartGate = () => localDepart.localDepartAllowed({ localPlay, cluster: io.pinned()?.cluster, relay: io.relay(), wallet: FS.wallet?.address ?? null, signer: currentEphemeralWallet() });
 const localDepartChanged = () => invalidate('map', 'panel');
 export const localPlayDepartAllowed = () => localDepartGate();
-export const sendLocalPlayDeparture = () => localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
-  sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
-  seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
+// (fix-loop6, LP6-1: at ×60 the conditions' observation is dropped by the next clock poll, often before the person's
+//  press on 出発する — the press was refused in place (loop-play6: 17 presses / 18 s). A press on a draft whose conditions
+//  were read as holding (outboundReadyOnce) reads them again first and departs only if they still hold; otherwise the
+//  card shows that read. The departure's own checks, and the program's, are unchanged.)
+const isReadyNow = () => { const c = FS.expeditionCompose?.contextCheck; return c?.status === 'read' && c.ready?.ok === true && c.report?.ok === true; };
+export const sendLocalPlayDeparture = async () => {
+  if (!isReadyNow() && outbound.outboundReadyOnce(FS)) {
+    await inspectOriginalOutboundContext();
+    if (!isReadyNow()) return localDepart.localDepartOf(FS);
+  }
+  const out = await localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
+    sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
+    seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
+  if (out?.sent) outbound.forgetOutboundReady(FS);
+  return out;
+};
 export const reconcileLocalPlayDeparture = () => localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged });
 export const clearLocalPlayDeparture = () => { const ok = localDepart.clearLocalDepart(FS); if (ok) localDepartChanged(); return ok; };
+/**
+ * DEVNET PLAY (devnet gap P15; fdevnet-depart.mjs): the boundary draft's departure on a WIDE devnet season, signed by the
+ * player's CONNECTED wallet through the gateway's devnet expedition routes. Two presses: `prepare` seals (the reveal
+ * half kept in the encrypted devnet book), builds the one canonical message and shows what it costs; `send` has the
+ * wallet sign exactly that message and sends it once. keeper A's `expeditions` role drives every later step. Under the
+ * devnet gate (devnet play on, this page's wallet connected and shown, not an NFT Citizen) and only on a wide season.
+ */
+const devnetDepartGate = () => { if (!devnetWideNow()) return { ok: false, code: 'DevnetDepartNotWide' }; return devnetGate(); };
+export const devnetPlayDepartAllowed = () => devnetDepartGate();
+export const prepareDevnetPlayDeparture = () => devnetDepart.prepareDevnetDepart(FS, { allowed: devnetDepartGate, context: expeditionContext,
+  sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
+  seal: async req => (await import('./seal-wide.mjs')).sealWide(req), book: () => devnetBookNow(), wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
+export const sendDevnetPlayDeparture = () => devnetDepart.sendDevnetDepart(FS, { allowed: devnetDepartGate, sign: async w => wallet.signTransaction(w),
+  wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
+export const reconcileDevnetPlayDeparture = () => devnetDepart.reconcileDevnetDepart(FS, { allowed: devnetDepartGate, changed: localDepartChanged });
+export const clearDevnetPlayDeparture = () => { const ok = devnetDepart.clearDevnetDepart(FS); if (ok) localDepartChanged(); return ok; };
+/** The reveal halves of this wallet's boundary departures, as the encrypted devnet book keeps them (null: no book here). */
+export const devnetPlayDepartReveals = async () => { const b = await devnetBookNow(); return b ? devnetDepart.devnetDepartReveals(b.storage) : null; };
 /**
  * Local play only (flocalplay-reveal.mjs): the explicit Reveal of a departure this page sealed, under the same gate
  * as the departure. Two presses, never one: `check` reads the chain and says whether it can be revealed (nothing is
@@ -2323,6 +2363,20 @@ function updateHomeGrant() {
 const wantedHomeFaction = () => { const f = FS.citizen?.faction ?? FS.joinDraft?.faction; return Number.isInteger(f) && f >= 0 && f < 6 ? f : null; };
 
 /** Read a bounded set of actual free sites, without signing or claiming land. */
+/**
+ * (fix-loop6, LP6-12) The order in which first-village places are tried: this wallet's own (players spread out), except
+ * for the TEST-ONLY contest pair of a local world (`localPlay.pair`, both roles): one order for the pair — its world's
+ * Season — so two people of one nation start in the same province (loop-play6: 2 of 3 `--two` worlds put them on
+ * opposite sides, and a caravan could not reach). The places themselves, and every rule of placing, are unchanged.
+ */
+export function homeSeed(fs = FS, identity = localPlay) {
+  if ((identity?.pair === 'first' || identity?.pair === 'second') && typeof identity.seasonAddress === 'string') return `pair:${identity.seasonAddress}`;
+  return fs.wallet?.address ?? 'visitor';
+}
+/** (verify-pr130, LP6-12) The pair role that shares homeSeed's order ('first' | 'second'), else null: home.mjs planHomes gives the two roles different sites. */
+export function homePairRole(identity = localPlay) {
+  return (identity?.pair === 'first' || identity?.pair === 'second') && typeof identity.seasonAddress === 'string' ? identity.pair : null;
+}
 export async function refreshHomes({ force = false } = {}) {
   if (!needsHomeChoice() || !herald) return;
   const old = FS.homeChoice ?? { candidates: [], selected: readHome().selected, rotation: 0 };
@@ -2354,7 +2408,7 @@ export async function refreshHomes({ force = false } = {}) {
     await refreshOverviews(nowBell());
     // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
     const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: homePlaceOf(FS), ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
-      seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
+      seed: `${homeSeed()}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0, pair: homePairRole(),
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     const cur = standing();
     if (!cur) return;
@@ -2433,14 +2487,29 @@ export function ackHomeGrant() {
   return h;
 }
 
+/** Real milliseconds a press waits for a candidates reading already under way (then it reads itself). */
+export const HOME_READ_WAIT_MS = 20_000;
 export async function confirmHome() {
   if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;
+  // (fix-loop6, LP6-11 — B-8's real cause in the ×60 wide picker: a press made before the candidates were read started a
+  //  FORCED reading; the next press, three seconds later, started another, which superseded the first, and the first
+  //  press then found no selection and ended silently. Under load a reading outlasts the seconds between presses: 3–4
+  //  presses. Now the press that waits says so on the button — FS.homeConfirmWait, screens/join.mjs — and a press
+  //  meanwhile adds nothing; a reading already under way for this nation is waited for, not superseded)
+  if (FS.homeConfirmWait) return;
   // (corrected 2026-11-17: the press is of the context it was made in — viewer, herald, world — and that is taken
   //  BEFORE the first wait. A candidates reading that outlasts a change of wallet or world leaves a choice of the page
   //  as it has become: this press does not go on with it.)
   const pressed = contextSeq;
   const faction = wantedHomeFaction();
-  if (!FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction)) await refreshHomes({ force: true });
+  const unread = () => !FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction);
+  if (unread()) {
+    FS.homeConfirmWait = true; invalidate('panel');
+    try {
+      for (const until = Date.now() + HOME_READ_WAIT_MS; FS.homeChoice?.loading && FS.homeChoice.faction === faction && Date.now() < until && contextSeq === pressed;) await new Promise(r => setTimeout(r, 150));
+      if (contextSeq === pressed && unread()) await refreshHomes({ force: true });
+    } finally { FS.homeConfirmWait = false; invalidate('panel'); }
+  }
   if (contextSeq !== pressed) return;
   // (2026-11-18, ⑧ doc 31 §1-A: a visitor whose chosen nation has no free first home (the reading said NoFreeHome for
   //  that nation) is not left at a button that does nothing: this press joins the nation — Join and the in-game key,
@@ -2587,7 +2656,11 @@ export async function confirmHome() {
       const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。` });
       if (!mine()) return;
       if (!filed?.ok) { await refresh(); if (mine()) error(filed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`村の申し込みを送れませんでした。候補を更新してください。`); return; }
-      pending('confirming');
+      // (fix-loop6, LP6-9: a rim ticket is settled by the world's runner at a turn's end; under load that took ~60 turns
+      //  in loop-play6 with only 「村の受け取りを確認しています…」 on the card. The card now says the ticket's turn and how
+      //  many turns have gone by: screens/join.mjs renderInstantPlacing, pending 'ticket')
+      if (mine()) run.choice.ticketBell = nowBell();
+      pending('ticket');
       if (!await waitForOwn(() => (FS.holdings ?? []).length > 0)) error('PendingHome', L`村の申し込みは送りました。ターンの終わりの決着を待っています。`);
       return;
     }
@@ -3633,18 +3706,26 @@ async function wideHostStep(e, mem) {
     const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
     let w;
     try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
-    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
+    // (fix-loop6, LP6-15: `wideHostSay` — what the card says, in the page's language (screens/wideholding.mjs
+    //  wideHostSayText); `wideHostWhy` stays the planner's own words, for the logs and the card's title only)
+    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostSay: wideHostSayOf(w),
+      wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
     invalidate('panel');
     if (!w.decision) {
       // (the province lags, the host forms, the village is not final yet: wait here, ask again about once a turn)
-      if (WIDE_HOST_AUTO_WAIT.includes(w.wait)) wideHostWait(mem, { reason: w.wait, lag: w.lag ?? null });
+      // (fix-loop6, LP6-5: a march on its way or being decided is looked at again too, so its result shows by itself)
+      if (WIDE_HOST_AUTO_WAIT.includes(w.wait) || (w.wait === 'march' && ['out', 'settling', 'unread'].includes(w.march?.phase))) wideHostWait(mem, { reason: w.wait === 'march' ? 'march' : w.wait, lag: w.lag ?? null });
       else wideHostStopWait(mem);
       return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null };
     }
     const d = w.decision;
     const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
     mem.decisions = (mem.decisions ?? 0) + 1;
-    if (r?.ok !== false && d.name === 'WideDepart') mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
+    if (r?.ok !== false && d.name === 'WideDepart') {
+      mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
+      // (fix-loop6, LP6-5: kept so the card can follow the march to its result — flocalplay-wide-plan marchState)
+      if (d.to && Number.isInteger(d.fields?.arrive_bell)) mem.lastWideDepart = { to: d.to, arrive: d.fields.arrive_bell, troops: d.troops ?? null };
+    }
     mem.wideHostUntil = mem.decisions;
     // (refused BEFORE it was sent because the turn rolled under it — NotResident 26 — : wait a turn and try again
     //  by itself; any other answer ends the waiting and is shown as it is)
@@ -3655,6 +3736,13 @@ async function wideHostStep(e, mem) {
     return r;
 }
 
+/** (fix-loop6, LP6-15) The planner's answer as plain facts for the card to put in words (screens/wideholding.mjs wideHostSayText). */
+function wideHostSayOf(w) {
+  const d = w?.decision;
+  if (d) return { kind: 'decision', name: d.name, n: d.fields?.n ?? null, troops: d.fields?.troops ?? d.troops ?? null, arrive: d.fields?.arrive_bell ?? null,
+    to: d.to ? { p: String(d.to.p), q: String(d.to.q), holder: d.to.holder ?? null } : null, village: d.v?.wide ? { p: String(d.v.wide.p), q: String(d.v.wide.q) } : null };
+  return { kind: 'wait', wait: w?.wait ?? null, lag: w?.lag ?? null, march: w?.march ?? null, why: w?.why ?? null };
+}
 // (fix-loop5, L5-1) the wide village card's waiting (TEST-ONLY wide -> wide play): one timer, about one turn apart
 // (10–60 s of real time), at most WIDE_HOST_WAIT_MAX asks; stopped by 「待つのをやめる」, a sent step, or another answer.
 export const WIDE_HOST_AUTO_WAIT = Object.freeze(['lag', 'host', 'village', 'turn']);

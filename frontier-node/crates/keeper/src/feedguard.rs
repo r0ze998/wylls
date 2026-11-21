@@ -244,6 +244,9 @@ pub fn bodies(tx: &TxRecord, program: &Address) -> Result<Vec<Vec<u8>>, String> 
 pub struct Bodies {
     pub ps2: Vec<Vec<u8>>,
     pub wide: Vec<&'static str>,
+    /// P9: the wide province `(P, Q)` each accounted PSW1 record names (`WideRecord::province_of`), for the
+    /// `wide-resolve` role's province set; never applied to legacy state.
+    pub wide_provinces: Vec<(i64, i64)>,
     /// The expedition records applied (P10), in log order.
     pub expedition: Vec<ExpeditionFact>,
 }
@@ -335,6 +338,7 @@ pub fn bodies_scoped(
     let mut saw_frame = false;
     let mut stack: Vec<&str> = vec![];
     let mut wide = vec![];
+    let mut wide_provinces = vec![];
     // (the accounted PSW1 lines and the expedition lines, left out of the PS2 extraction below)
     let mut skip = std::collections::BTreeSet::new();
     // (P10: the expedition record lines, decoded and paired after the frame check)
@@ -383,6 +387,7 @@ pub fn bodies_scoped(
                             .account(&body)
                             .map_err(|e| format!("unsupported PSW1 record: {e}"))?,
                     );
+                    wide_provinces.extend(scope.province(&body));
                     skip.insert(i);
                     continue;
                 }
@@ -455,6 +460,7 @@ pub fn bodies_scoped(
     Ok(Bodies {
         ps2: bodies,
         wide,
+        wide_provinces,
         expedition,
     })
 }
@@ -549,6 +555,21 @@ impl WideScope {
         {
             let _ = body;
             Err("this keeper reads no PSW1 record".into())
+        }
+    }
+
+    /// P9: the wide province `(P, Q)` an ACCOUNTED PSW1 body names (call after [`Self::account`] accepted it).
+    pub fn province(&self, body: &[u8]) -> Option<(i64, i64)> {
+        #[cfg(feature = "playable-lane")]
+        {
+            let w = frontier_abi::world_index::event::WideRecord::decode(body).ok()?;
+            let c = w.province_of()?.coord();
+            Some((c.p(), c.q()))
+        }
+        #[cfg(not(feature = "playable-lane"))]
+        {
+            let _ = body;
+            None
         }
     }
 

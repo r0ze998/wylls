@@ -93,6 +93,17 @@ test('deliveries: only the viewer\'s own caravans past their arrival, not raided
   const d = rightsModel(f).deliveries;
   assert.deepEqual(d.map(x => [x.seq, x.provinces]), [[1, [{ p: 3, q: -2 }]], [2, [{ p: 3, q: -2 }, { p: 4, q: -2 }]]]);
   assert.match(renderRights(f).s, /data-act="rights-deliver"/);
+  // (fix-loop6, LP6-14: a crossed province read and not settled past the arrival — the press is not offered, the wait is said;
+  //  settled past it, or not read at all, the press is offered — the program decides)
+  f.clock = { genesisTs: 0 }; f.provinces = new Map([['3,-2', { province: { resolvedNext: 1 } }]]);   // arrival bell of ts 6 / 999_000: 0 / 1665
+  f.s1.caravans.moving = [car(tag(ME), 999_000)];
+  assert.equal(rightsModel(f).deliveries[0].settled, false);
+  let out = renderRights(f).s;
+  assert.doesNotMatch(out, /data-act="rights-deliver"/); assert.match(out, /通った州（3, -2）の決着が到着のターン 1,?665 を過ぎるのを待っています/);
+  f.provinces.get('3,-2').province.resolvedNext = 1666;
+  assert.equal(rightsModel(f).deliveries[0].settled, true); assert.match(renderRights(f).s, /data-act="rights-deliver"/);
+  f.provinces = new Map();
+  assert.equal(rightsModel(f).deliveries[0].settled, null); assert.match(renderRights(f).s, /data-act="rights-deliver"/);
   assert.ok(COEXIST_ACTS.includes('SettleCaravan'));
   const W = w(1), intent = rightsIntent('SettleCaravan', { seq: 1, dst: { kind: 'holding', p: 3, q: -2, site: 4, gen: 1 }, provinces: [{ p: 3, q: -2 }] }, {});
   const ix = settleCaravanInstruction(intent, { programId: LOCAL_PLAY_PROGRAM, seasonId: '11', wallet: W });

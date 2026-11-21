@@ -10,9 +10,11 @@
 //! every post-state of the original mirrored to the twin's address with
 //! the twin's coordinates. Then:
 //! - the control bells go on to the season's end (the gap);
-//! - every heartland file (`h/control`, `h/sieges`, `h/call`) is byte for
-//!   byte the plain fold's (nothing positional about the rim is written —
-//!   fog, #93 §4 item 13 — and the heartland output is unchanged);
+//! - the positional heartland files (`h/control`, `h/call`) are byte for
+//!   byte the plain fold's, and `h/sieges` is the plain fold's plus the
+//!   twin's own entries (fix-code-questions, D-keep-capture-progress-2: the
+//!   sieges file names provinces by (p, q) and lists the rim's keep contests
+//!   and sieges too; the fog is the page's view only, the herald is public);
 //! - the standings' per-nation provinces count the twin with its holder.
 
 mod common;
@@ -101,6 +103,117 @@ fn last_control_bell(dir: &std::path::Path) -> Option<u32> {
         .max()
 }
 
+/// `(p, q)` of a sieges-file entry.
+fn pq(e: &serde_json::Value) -> (i64, i64) {
+    (e["p"].as_i64().unwrap(), e["q"].as_i64().unwrap())
+}
+
+/// The entries of one array of a sieges file at `at`, re-addressed to `to` (`owner`, the holding owner's tag the fold
+/// looks up by the site's own coordinate, is left out: the twin has no holdings index entry of its own; so is `key`,
+/// which spells the coordinate).
+fn entries_at(
+    v: &serde_json::Value,
+    key: &str,
+    at: (i16, i16),
+    to: (i16, i16),
+) -> Vec<serde_json::Value> {
+    v[key]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| pq(e) == (at.0 as i64, at.1 as i64))
+        .map(|e| {
+            let mut e = e.clone();
+            let o = e.as_object_mut().unwrap();
+            o.insert("p".into(), to.0.into());
+            o.insert("q".into(), to.1.into());
+            o.remove("owner");
+            o.remove("key");
+            e
+        })
+        .collect()
+}
+
+/// Every `h/sieges` file of the twin fold is the plain fold's with the twin's own entries added, and those are the
+/// original province's entries at `of`, re-addressed (the rim is listed, not dropped). → how many twin entries.
+fn assert_sieges_with_twin(db: &std::path::Path, dt: &std::path::Path, of: (i16, i16)) -> usize {
+    let json = |d| -> BTreeMap<String, Vec<u8>> {
+        files(d, "h/sieges")
+            .into_iter()
+            .filter(|(n, _)| n.ends_with(".json"))
+            .collect()
+    };
+    let (a, b) = (json(db), json(dt));
+    assert!(!a.is_empty(), "h/sieges written");
+    assert_eq!(
+        a.keys().collect::<Vec<_>>(),
+        b.keys().collect::<Vec<_>>(),
+        "h/sieges: the same files"
+    );
+    let mut n = 0;
+    for (name, bytes) in &a {
+        let base: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        let twin: serde_json::Value = serde_json::from_slice(&b[name]).unwrap();
+        assert_eq!(base["bell"], twin["bell"], "h/sieges/{name}: the same bell");
+        for key in ["sieges", "keeps"] {
+            let t = twin[key].as_array().unwrap();
+            let rest: Vec<_> = t
+                .iter()
+                .filter(|e| pq(e) != (TWIN.0 as i64, TWIN.1 as i64))
+                .cloned()
+                .collect();
+            assert_eq!(
+                &rest,
+                base[key].as_array().unwrap(),
+                "h/sieges/{name}: the heartland's {key} unchanged"
+            );
+            let got = entries_at(&twin, key, TWIN, TWIN);
+            assert_eq!(
+                got,
+                entries_at(&base, key, of, TWIN),
+                "h/sieges/{name}: the rim twin's {key} are listed"
+            );
+            n += got.len();
+        }
+    }
+    n
+}
+
+/// D-keep-capture-progress-2: a rim (ring 128) province's keep contest is listed in `/h/sieges` (it stood empty in
+/// a `--wide` world while rim keeps were contested). The twin is of a province that HAS sieges-file entries.
+#[test]
+fn a_rim_province_keep_contest_is_listed_in_the_sieges_file() {
+    let base_txs = cqfixture::mini_season();
+    let db = tmp("grown-sieges-base");
+    let _fb = fold_all(&db, &base_txs);
+    // the heartland province with the most keep-contest entries over the season's sieges files
+    let mut count: BTreeMap<(i64, i64), usize> = BTreeMap::new();
+    for (_, bytes) in files(&db, "h/sieges")
+        .iter()
+        .filter(|(n, _)| n.ends_with(".json"))
+    {
+        let v: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        for e in v["keeps"].as_array().unwrap() {
+            *count.entry(pq(e)).or_default() += 1;
+        }
+    }
+    let (&(p, q), &keeps) = count
+        .iter()
+        .max_by_key(|(_, n)| **n)
+        .expect("the mini-season has a keep contest");
+    assert!(keeps > 0);
+    let of = (p as i16, q as i16);
+    let dt = tmp("grown-sieges-twin");
+    let _ft = fold_all(&dt, &with_twin(&base_txs, of));
+    let n = assert_sieges_with_twin(&db, &dt, of);
+    assert!(
+        n >= keeps,
+        "the rim twin's keep contests are listed: {n} entries, want ≥ {keeps}"
+    );
+    let _ = std::fs::remove_dir_all(db);
+    let _ = std::fs::remove_dir_all(dt);
+}
+
 #[test]
 fn a_rim_province_keeps_the_control_bells_going_and_counts_without_a_position() {
     let base_txs = cqfixture::mini_season();
@@ -136,8 +249,10 @@ fn a_rim_province_keeps_the_control_bells_going_and_counts_without_a_position() 
         "a ring-128 province must not stop the control bells"
     );
 
-    // 2. the heartland files are the plain fold's, byte for byte (no rim position anywhere)
-    for rel in ["h/control", "h/sieges", "h/call"] {
+    // 2. the positional heartland files are the plain fold's, byte for byte; the sieges file is the plain fold's
+    //    plus the twin's own entries (a copy of the original's)
+    assert_sieges_with_twin(&db, &dt, of);
+    for rel in ["h/control", "h/call"] {
         let (a, b) = (files(&db, rel), files(&dt, rel));
         assert!(!a.is_empty() || rel == "h/call", "{rel} written");
         assert_eq!(

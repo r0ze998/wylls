@@ -125,7 +125,13 @@ export function homeSites(province, { faction = null, nowBell = 0, ringsOpen = I
 }
 
 /** At most 24 reads, different nations before joining, different places after. */
-export async function planHomes({ overviews, read, faction = null, nowBell = 0, ringsOpen = Infinity, seed = '', rotation = 0, max = 3, place = undefined }) {
+/**
+ * `pair` (verify-pr130, LP6-12): 'first' | 'second' for the TEST-ONLY contest pair of a local world, else null. The pair
+ * shares one `seed` (controller homeSeed), so both read the same order of provinces AND of sites: both chose the very
+ * same site, and the second PlaceHome was refused TicketState (live: one of the two never had a village). A pair takes
+ * only provinces with a free site for each of the two, the first role its first site and the second role the next one.
+ */
+export async function planHomes({ overviews, read, faction = null, nowBell = 0, ringsOpen = Infinity, seed = '', rotation = 0, max = 3, place = undefined, pair = null }) {
   if (place && ((Number(place.placement) !== 1 && !(place.outward && Number(place.placement) === 2)) || !place.genesisSeed || place.genesisSeed.length !== 32)) return { candidates: [], error: 'Unavailable', reads: 0 };
   const factions = faction === null ? Array.from({ length: 6 }, (_, i) => (i + rotation) % 6) : [faction];
   const lists = factions.map(f => (place?.outward ? outwardCandidates(overviews, f, place) : candidateProvinces(overviews, f, place).sort((a, b) => a.ring - b.ring || hash32(`${seed}|${a.p},${a.q}`) - hash32(`${seed}|${b.p},${b.q}`))));
@@ -139,7 +145,8 @@ export async function planHomes({ overviews, read, faction = null, nowBell = 0, 
       const r = results[i];
       if (r.status !== 'fulfilled' || !r.value) { failures++; continue; }
       const sites = homeSites(r.value, { faction, nowBell, ringsOpen, place }).sort((a, b) => hash32(`${seed}|${a.p},${a.q},${a.site}`) - hash32(`${seed}|${b.p},${b.q},${b.site}`));
-      if (sites.length) candidates.push(sites[0]);
+      if (pair === 'first' || pair === 'second') { if (sites.length >= 2) candidates.push(sites[pair === 'second' ? 1 : 0]); }
+      else if (sites.length) candidates.push(sites[0]);
       if (candidates.length >= max) return { candidates, error: null, reads };
     }
   }

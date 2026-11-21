@@ -725,6 +725,13 @@ impl ExpeditionDuty {
                 let Some(s) = seed else {
                     return Ok(Ok(format!("destination bell {bell}: waiting for the seed")));
                 };
+                // (P9: the `wide-resolve` role may already be resolving this quiet bell of a province it keeps)
+                let (p, q) = (arr.dest.coord().p(), arr.dest.coord().q());
+                if engine.is_pending(&crate::wideresolve::key(p, q, bell)) {
+                    return Ok(Ok(format!(
+                        "destination bell {bell}: the wide-resolve role's Resolve in flight"
+                    )));
+                }
                 let (seed_src, anchor_src) = match s.src {
                     SeedSource::Cache { nonce } => {
                         (a.seed_cache(bell, arr.region, nonce), anchor_src)
