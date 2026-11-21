@@ -504,4 +504,6 @@ export default {
   '「地形・時間を確認」をもう一度押すと読み直します。': 'Press Check terrain and time again to read it again.',
   'その一歩を「一歩戻す」で消して別の方向に変えると、もう一度確認できます。': 'Remove that step with Undo step and choose another direction, then check again.',
   'この道を読み取った結果です。道を変えるまで出ています。': 'This is what was read for this road. It stays until you change the road.',
+  // verify-pr137: a road stopped before its last step needs several Undo presses
+  '「一歩戻す」を {0} 回押して {1} 歩めまで消し、別の方向に変えると、もう一度確認できます。': 'Press Undo step {0} times to remove steps back to step {1}, choose another direction, then check again.',
 };

@@ -133,6 +133,28 @@ test('LP7-4: a ring-130 province of the opened wide land is named as open wide l
   setLang('ja');
 });
 
+test('LP7-3 (verify-pr137): a road stopped before its last step says how many 「一歩戻す」 presses take the stopping step away (JA/EN)', async () => {
+  setLang('ja');
+  const w = world();
+  for (const d of ['2', '2', '1']) editOutbound(w.fs, w.ctx, 'step', d);
+  assert.deepEqual(w.fs.expeditionCompose.directions, [0, 2, 2, 1]);
+  const r = reader(w, impassable({ stepIndex: 1 }));
+  await r.read();
+  let c = card(w);
+  assert.match(c, /2 歩め（北西）のマスで止まります。/);
+  assert.match(c, /「一歩戻す」を 3 回押して 2 歩めまで消し、別の方向に変えると、もう一度確認できます。/);
+  assert.doesNotMatch(c, /その一歩を「一歩戻す」で消して/);
+  // the same words from memory, after the clock poll dropped the read
+  w.fs.nowBell += 1; reconcileOutbound(w.fs, w.ctx);
+  c = card(w);
+  assert.match(c, /「一歩戻す」を 3 回押して 2 歩めまで消し/); assert.match(c, /道を変えるまで出ています/);
+  setLang('en');
+  c = card(w);
+  assert.match(c, /Press Undo step 3 times to remove steps back to step 2, choose another direction, then check again\./);
+  assert.doesNotMatch(c, /[ぁ-んァ-ン一-龯]/);
+  setLang('ja');
+});
+
 // ------------------------------------------------------------------ LP7-5: the W2 card follows the hold to its end
 const TO = { p: '-63', q: '-67', tile: 30, holder: 1 };
 const stands = (nowBell, keep) => ({ to: TO, arrive: 373, troops: 20, phase: 'stands', nowBell, faction: 0, keep });
