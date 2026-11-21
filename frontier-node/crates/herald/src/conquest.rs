@@ -485,6 +485,9 @@ pub fn on_record(f: &mut Fold, tx: &TxRecord, body: &[u8]) -> bool {
             .and_then(|e| e.province())
             .map_or(Scope::None, |(p, q)| Scope::Province(p, q)),
         CqKind::MARCH_FOLD => Scope::None,
+        // ⑩: these three are keyed by a caravan (owner tag, seq), not by a
+        // Province: read as one, the key's bytes named no real Province.
+        CqKind::LOT_INBOUND | CqKind::LOT_SHIPPED | CqKind::LOT_SETTLED => Scope::None,
         // ⑳: a Citizen's start has no Province (its key is a resident ID).
         CqKind::RESIDENT_JOINED => Scope::None,
         // ② (feature `rights-records`): a Grant's key is its issuer and nonce; its Province is in the payload.
