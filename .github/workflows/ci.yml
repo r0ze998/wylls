@@ -454,7 +454,7 @@ jobs:
       # recordings (`expedition_feed_guard`, literal bytes) and the
       # `expeditions` role's config; its end-to-end run (operator_playable P11) is in key-tests.
       # Gap P14 option (a): the same test reads the wide Free City conquest's
-      # records (kinds 12-18) and its mutations; its end-to-end run (P14) too.
+      # records (kinds 12-18) and its mutations; its end-to-end run (operator_playable P14) too.
       - name: Keeper playable lane (lints, unit tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node

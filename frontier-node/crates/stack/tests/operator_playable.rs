@@ -659,7 +659,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let war = matches!(mode, Mode::War | Mode::PageWar | Mode::PageWarHome);
     let page_mode = matches!(mode, Mode::Page | Mode::PageWar | Mode::PageWarHome);
     let expedition = matches!(mode, Mode::Expedition | Mode::Conquest);
-    // (P11 too: T(21) is the expedition's arrival round)
+    // (P11 and P14 too: T(21) is the expedition's arrival round)
     let genesis_round = if war || expedition {
         WAR_GENESIS_ROUND
     } else {
@@ -934,7 +934,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::War | Mode::PageWar | Mode::PageWarHome => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
-            // (P11: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
+            // (P11 / P14: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
             Mode::Expedition | Mode::Conquest => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\""
             }
@@ -947,7 +947,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
             ),
-            // (P11: ring 129 only, the expedition's destination ring)
+            // (P11 / P14: ring 129 only, the expedition's destination ring)
             Mode::Expedition | Mode::Conquest => format!(
                 "rim_per_wedge = {n}\nwide_rings = 1\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE

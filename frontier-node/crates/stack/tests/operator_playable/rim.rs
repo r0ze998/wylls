@@ -98,7 +98,7 @@ pub struct Page {
 #[path = "expedition.rs"]
 pub mod expedition;
 
-/// P14 (devnet-guard-conquest): a third party's wide Free City conquest after P10's expedition.
+/// P14 (devnet-guard-conquest): a third party's wide Free City conquest after P11's expedition.
 #[path = "conquest.rs"]
 pub mod conquest;
 /// P8/P9 (devnet-page-war): the legacy war after the rim opened ([`war`]).
@@ -121,7 +121,7 @@ pub struct Ctx<'a> {
     pub wide_rings: u64,
     /// P11: the rim → wide expedition ([`expedition`]).
     pub expedition: bool,
-    /// P14: after P10's expedition (onto a Free City's tile), a third party's Free City conquest ([`conquest`]).
+    /// P14: after P11's expedition (onto a Free City's tile), a third party's Free City conquest ([`conquest`]).
     pub conquest: bool,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,

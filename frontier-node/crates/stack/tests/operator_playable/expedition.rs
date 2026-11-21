@@ -84,7 +84,7 @@ pub(super) async fn flow(
     free_city: Option<(u8, u8)>,
     extra: Value,
 ) -> Value {
-    let tag = if free_city.is_some() { "p14" } else { "p10" };
+    let tag = if free_city.is_some() { "p14" } else { "p11" };
     let a = r.c.a.clone();
     let ctx = r.ctx();
     let program = r.c.program;
@@ -590,7 +590,7 @@ pub(super) async fn flow(
         .collect();
     let once = json!({"restarts": restarts, "settle_origin": landed("ExpeditionSettleOrigin"), "reveal": landed("ExpeditionReveal"),
                       "settle_member": landed("SettleMember"), "gather": landed("ExpeditionGather"), "expedition_failed": exp_failed});
-    eprintln!("p11: exactly-once {once}");
+    eprintln!("{tag}: exactly-once {once}");
     assert_eq!(
         (
             landed("ExpeditionSettleOrigin"),
