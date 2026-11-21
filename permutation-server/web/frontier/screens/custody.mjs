@@ -13,7 +13,8 @@
 // it booked — and the other side by its nation only. Losses are told from the viewer's side, in few words.
 // The model is pure; the program checks every rule again.
 import { html, raw } from '../../util.mjs';
-import { L, fmtNum } from '../../lang.mjs';
+import { L, fmtNum, lang } from '../../lang.mjs';
+import { placeName } from '../people/identity.mjs';
 import { icon } from '../hud/icons.mjs';
 import { factionName } from '../fi18n.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
@@ -21,6 +22,8 @@ import { settledFor } from './rights.mjs';
 import { FIN, LOT_OPEN, LOT_FORFEITED, CV_MOVING, CV_LOST, CV_CUSTODY_TAKEN, MILLI, ORE_PER_ARM, WOOD_PER_ARM, MAX_JOBS, MAX_GRANTS, jobOutAt, nextGrantSeq, nextJobSeq, tagOf } from '../flocalplay-custody.mjs';
 
 const whole = m => Math.floor(Number(m) / MILLI);
+/** A workshop village by the name the map gives it (its place), never by its site number, which no screen shows. */
+const siteName = f => placeName(f.p, f.q, f.site)[lang() === 'en' ? 'en' : 'ja'];
 const same = (a, b) => a.p === b.p && a.q === b.q;
 
 /** The card's model (pure): `{on, read, losses, myLots, keptLots, openChoices, arrivals, pools, lendable, grants, jobs}`. */
@@ -155,8 +158,8 @@ export function renderCustody(FS) {
     : html`<p class="muted">${L`同じ州にあなたの貯蔵庫と、ほかの人の村があると、預かりの枠を開けます。`}</p>`;
   // ---- ⑨ lending your workshops
   const lend = (f, free, open, seq) => html`<form class="vform inline" data-form="cap-lend" ${data({ ...fd(f), open: open ? 1 : 0, seq })}><input name="units" type="number" min="1" max="${Math.max(1, free)}" step="1" value="1" inputmode="numeric" aria-label="${L`貸す工房の数`}"><button type="submit" class="btn small">${L`工房を貸し出す`}</button></form>`;
-  const owned = html`${m.lendable.map(x => html`<p data-facility="${x.facility.p},${x.facility.q},${x.facility.site}">${icon('hammer')}${L`村 ${x.facility.site} の工房 ${fmtNum(x.free)}`} ${lend(x.facility, x.free, true, 0)}</p>`)}
-    ${m.owned.map(e => html`<div class="custody-pool" data-facility="${e.facility.p},${e.facility.q},${e.facility.site}">${icon('hammer')}${L`村 ${e.facility.site}：貸し出し中 ${fmtNum(e.lent)}（使用中 ${fmtNum(e.busy)}）`} ${e.lost ? chip(L`村を失った`, 'warn') : e.gone ? chip(L`村が奪われた`, 'warn') : ''}
+  const owned = html`${m.lendable.map(x => html`<p data-facility="${x.facility.p},${x.facility.q},${x.facility.site}">${icon('hammer')}${L`村 ${siteName(x.facility)} の工房 ${fmtNum(x.free)}`} ${lend(x.facility, x.free, true, 0)}</p>`)}
+    ${m.owned.map(e => html`<div class="custody-pool" data-facility="${e.facility.p},${e.facility.q},${e.facility.site}">${icon('hammer')}${L`村 ${siteName(e.facility)}：貸し出し中 ${fmtNum(e.lent)}（使用中 ${fmtNum(e.busy)}）`} ${e.lost ? chip(L`村を失った`, 'warn') : e.gone ? chip(L`村が奪われた`, 'warn') : ''}
       <span class="actions">${!e.lost && !e.gone && e.free > 0 ? lend(e.facility, e.free, false, e.pool.ownerSeq) : ''}${!e.lost && !e.gone && e.lent - e.busy > 0 ? btn('cap-reclaim', { ...fd(e.facility), units: e.lent - e.busy, seq: e.pool.ownerSeq }, L`空いた工房を戻す`) : ''}
         ${e.gone ? btn('cap-loss', { ...fd(e.facility), jobs: e.lossJobs }, L`村を失ったことを記録する`) : ''}</span>
       ${e.grants.length ? html`<ul class="list">${e.grants.map(g => html`<li>${L`${factionName(g.user)} の人に 工房 ${fmtNum(g.maxUnits)} まで`} ${g.revoked ? chip(L`取り消し済み`, 'warn') : now >= g.until ? chip(L`期限切れ`, 'warn') : chip(L`有効`, 'ok')} ${!g.revoked && !e.lost ? btn('cap-revoke', { ...fd(e.facility), grant: g.seq }, L`取り消す`) : ''}</li>`)}</ul>` : ''}
@@ -169,7 +172,7 @@ export function renderCustody(FS) {
         <div class="actions"><button type="submit" class="btn primary">${L`工房を使わせる`}</button></div></form>` : ''}</div>`)}`;
   const ownedNone = !m.lendable.length && !m.owned.length ? html`<p class="muted">${L`工房のある村があると、工房を貸し出せます。`}</p>` : '';
   // ---- ⑨ workshops you may use
-  const grants = m.grants.length ? html`${label(L`使える工房`)}<ul class="list custody-grants">${m.grants.map(g => html`<li data-facility="${g.facility.p},${g.facility.q},${g.facility.site}">${icon('hammer')}${L`${factionName(g.owner)} の村 ${g.facility.site} の工房 ${fmtNum(g.maxUnits)} まで（兵器あと ${fmtNum(g.maxArms)}）`} ${g.gone || g.lost ? chip(L`村が奪われた`, 'warn') : g.revoked ? chip(L`取り消された`, 'warn') : ''}
+  const grants = m.grants.length ? html`${label(L`使える工房`)}<ul class="list custody-grants">${m.grants.map(g => html`<li data-facility="${g.facility.p},${g.facility.q},${g.facility.site}">${icon('hammer')}${L`${factionName(g.owner)} の村 ${siteName(g.facility)} の工房 ${fmtNum(g.maxUnits)} まで（兵器あと ${fmtNum(g.maxArms)}）`} ${g.gone || g.lost ? chip(L`村が奪われた`, 'warn') : g.revoked ? chip(L`取り消された`, 'warn') : ''}
     ${g.gone ? btn('cap-loss', { ...fd(g.facility), jobs: g.lossJobs }, L`村が奪われたことを記録する`) : ''}
     ${g.canReserve ? html`<form class="vform" data-form="cap-reserve" ${data({ ...fd(g.facility), grant: g.seq, job: g.nextJob, vtile: g.vault.tile, vgen: g.vault.gen })}>
       <div class="count-row"><label class="count-label" for="cr-u-${g.seq}">${L`使う工房の数`}</label><input id="cr-u-${g.seq}" name="units" type="number" min="1" max="${g.maxUnits}" step="1" value="${g.maxUnits}" inputmode="numeric"></div>
