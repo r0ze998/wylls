@@ -291,7 +291,11 @@ export function renderKeepsPop(FS, model, { head }) {
     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
     // (B9: keeps the page cannot place yet — a ring's village list not read — : the list is still being worked out)
     // (the fog of war of a local test world, map/fog.mjs: only keeps the viewer has seen are listed; nothing is "pending")
-    : fogNow().on ? html`<p class="pop-line">${L`見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。`}</p>`
+    // (fix-loop6, LP6-4: not a dead end — the next useful step: a march onto a tile of the map, seen or not, which this
+    //  list cannot offer. Nothing of the unseen land is said: no keep, place or count)
+    : fogNow().on ? html`<p class="pop-line">${L`見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。`}</p>
+      <p class="pop-line kh-fog-next">${L`次の一手：「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます（着いたあたりが見えるようになります）。`}</p>
+      <div class="pop-foot"><button type="button" class="btn small" data-act="hand-march" data-host="${r.id}">${L`進軍で地図から選ぶ`}</button></div>`
     : Number(FS.conquest?.keepsPending ?? 0) > 0 ? html`<p class="pop-line kh-loading">${L`届く砦を調べています…`}</p>`
     : html`<p class="pop-line">${L`この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`;
   // the wait line (real), and its invisible stand-in: when nothing waits, the slot holds the settling line this host would

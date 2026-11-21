@@ -346,6 +346,12 @@ function renderInstantPlacing(FS) {
   const pending = {
     connecting: () => L`参加の準備をしています…`, joining: () => L`所属国への参加を確認しています…`,
     placing: () => L`選んだ土地に村を築いています…`, confirming: () => L`村の受け取りを確認しています…`,
+    // (fix-loop6, LP6-9: the rim village's ticket, settled by the world's runner — said with its turn and the turns gone by)
+    ticket: () => {
+      const at = choice.ticketBell, now = FS.nowBell, gone = Number.isInteger(at) && Number.isInteger(now) ? Math.max(0, now - at) : null;
+      return gone === null || !FS.localPlay ? L`辺境の村の申し込みを送りました。世界の進行役がターンの終わりに決めます。`
+        : L`辺境の村の申し込みを送りました（ターン ${fmtNum(at)}、${fmtNum(gone)} ターン前）。世界の進行役がターンの終わりに決めます。マシンの負荷が高いと数十ターン（×60 で数分）かかることがあります。このページは待ち続けます。押し直す必要はありません。`;
+    },
   };
   const title = busy ? L`村を準備しています…` : L`最初の村を置いています`;
   return html`<section class="vcard wait-card" aria-labelledby="join-sites" aria-busy="${busy ? 'true' : 'false'}">

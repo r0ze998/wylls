@@ -375,3 +375,24 @@ test('at ×60 the offer leaves room for the send: the turn the next read (one tu
   assert.match(card(w), /plus room for the clock to move/);
   setLang('ja');
 });
+
+// (fix-loop6, LP6-1) A held read is remembered for the draft as it stands (host, steps, arrival turn) after the clock
+// drops the observation; any edit forgets it, and so does a read that does not hold.
+test('the departure conditions read as holding are remembered for this very draft until it is edited', async () => {
+  const { outboundReadyOnce, forgetOutboundReady } = await import('../../permutation-server/web/frontier/fexpedition-compose.mjs');
+  const w = world();
+  editOutbound(w.fs, w.ctx, 'arriveBell', '45');
+  let holds = true;
+  const options = { context: () => w.ctx, judge: () => ({ ok: holds, code: holds ? null : 'NotResident' }), evaluate: a => sound(a),
+    snapshot: async source => ({ status: 'read', source, lands: [], season: w.fs.season, holdingBytes: null, clock: { unixTimestamp: 1000n },
+      contextSlot: '7', digest: 'ab'.repeat(32), coherent: true, contentConsistent: true }) };
+  await inspectOutboundContext(w.fs, options);
+  assert.equal(outboundReadyOnce(w.fs), true);
+  w.fs.chain.last = { slot: 9, unix: 1001 }; reconcileOutbound(w.fs, w.ctx);
+  assert.equal(w.fs.expeditionCompose.contextCheck, null, 'the clock moved: the observation is dropped');
+  assert.equal(outboundReadyOnce(w.fs), true, '…and the held read is still this draft\'s');
+  editOutbound(w.fs, w.ctx, 'arriveBell', '46'); assert.equal(outboundReadyOnce(w.fs), false, 'an edit forgets it');
+  await inspectOutboundContext(w.fs, options); assert.equal(outboundReadyOnce(w.fs), true);
+  holds = false; await inspectOutboundContext(w.fs, options); assert.equal(outboundReadyOnce(w.fs), false, 'a read that does not hold forgets it');
+  holds = true; await inspectOutboundContext(w.fs, options); forgetOutboundReady(w.fs); assert.equal(outboundReadyOnce(w.fs), false, 'a departure sent forgets it');
+});

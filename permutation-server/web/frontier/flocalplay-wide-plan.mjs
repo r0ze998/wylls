@@ -75,6 +75,27 @@ export function passablePath(world, origin, dest, destTile, lands, { max = WIDE_
  * own counters (`wideDeparts`, `wideHostUntil`, `decisions`, `wideTrainN`); `villages`: `[{p, q, site}]`.
  */
 export function createWideHostPlanner({ herald, read, chainNow, chainRate = () => 1 }) {
+  /**
+   * (fix-loop6, LP6-5) The last wide → wide march of this page (`m`: `{to: {p, q, tile, holder}, arrive, troops}`, kept by
+   * the page when it sent it): `{...m, phase}` — 'out' before its arrival turn; then, from the destination province's
+   * record: 'stands' (a host of this village stands there: `troops`, and the keep's `keep` {holder, contender, progress,
+   * required} and this village's `faction`), 'settling' (its transit is still open: the arrival is being decided),
+   * 'gone' (no host of it there and nothing open), 'unread' (the province record was not read).
+   */
+  async function marchState({ m, nowBell, open, world, village, holding, seasonAddr, program }) {
+    if (!m?.to || !Number.isInteger(m.arrive)) return null;
+    if (nowBell < m.arrive) return { ...m, phase: 'out', nowBell };
+    let dp = null;
+    try { const [db] = await read([wideProvinceAddress(seasonAddr, program, m.to.p, m.to.q)]); dp = db ? readWideProvince(db) : null; } catch { dp = null; }
+    if (!dp) return { ...m, phase: 'unread', nowBell };
+    const there = wideHostsIn({ world, village, holding, province: dp });
+    if (there.length) {
+      const k = dp.keep;
+      return { ...m, phase: 'stands', nowBell, troops: Math.floor(there[0].entry.troops / 1000), faction: holding.faction,
+        keep: k ? { holder: k.holder, contender: k.contender, progress: k.progress, required: k.required } : null };
+    }
+    return { ...m, phase: open ? 'settling' : 'gone', nowBell };
+  }
   async function decide(id, memory, { wideTargets, villages }) {
     if (!villages?.length) return { why: 'no wide village yet' };
     if ((memory.wideDeparts ?? 0) >= WIDE_DEPARTS_MAX) return { why: `${WIDE_DEPARTS_MAX} wide marches sent` };
@@ -100,8 +121,12 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       const hosts = wideHostsIn({ world, village, holding, province });
       const open = tb.filter(Boolean).length;
       if (!hosts.length) {
-        if (open) return { why: 'its host is away (a march is open)', wait: 'march' };
-        if ((memory.wideDeparts ?? 0) > 0) return { why: 'its host left: the march settles', wait: 'march' };
+        // (fix-loop6, LP6-5: where the march is — on its way, arrived and standing on the keep, settling, or gone — read
+        //  from the destination province the host itself went to; loop-play6: 70+ turns of "its host is away" only)
+        const march = (open || (memory.wideDeparts ?? 0) > 0) && memory.lastWideDepart
+          ? await marchState({ m: memory.lastWideDepart, nowBell, open: open > 0, world, village, holding, seasonAddr, program }) : null;
+        if (open) return { why: 'its host is away (a march is open)', wait: 'march', ...(march ? { march } : {}) };
+        if ((memory.wideDeparts ?? 0) > 0) return { why: 'its host left: the march settles', wait: 'march', ...(march ? { march } : {}) };
         if (holding.reserve[0] >= 100) {
           return { decision: { name: WIDE_MUSTER, v: { wide: village }, fields: { unit: 0, troops: Math.min(holding.reserve[0], WIDE_HOST_TROOPS), tile: holding.tile }, wideHostAct: true,
             why: `a host of ${Math.min(holding.reserve[0], WIDE_HOST_TROOPS)} Spearmen at the wide village ${village.p},${village.q}` } };

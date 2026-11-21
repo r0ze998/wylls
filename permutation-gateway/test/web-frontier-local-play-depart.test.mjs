@@ -359,7 +359,12 @@ test('the boundary card: the local-play block only in local play, a button that 
     assert.match(c, DEPART); assert.doesNotMatch(c, CHECK); assert.match(c, /再読み込みすると失われます/); assert.doesNotMatch(c, /data-act="outbound-local-depart" aria-disabled/);
     // conditions not observed: the button is disabled and says what to do first
     const check = p.fs.expeditionCompose.contextCheck; p.fs.expeditionCompose.contextCheck = null;
+    // (fix-loop6, LP6-1: read as holding for this very draft, then dropped by a clock poll — the press reads again first)
+    assert.ok(typeof p.fs.expeditionCompose.readyOnce === 'string', 'the held read is remembered for this draft');
+    c = card(); assert.doesNotMatch(c, /data-act="outbound-local-depart" aria-disabled/);
+    const once = p.fs.expeditionCompose.readyOnce; p.fs.expeditionCompose.readyOnce = null;
     c = card(); assert.match(c, /data-act="outbound-local-depart" aria-disabled="true"/); assert.match(c, /先に「出発条件を確認」/);
+    p.fs.expeditionCompose.readyOnce = once;
     p.fs.expeditionCompose.contextCheck = check;
     // submitted, not confirmed: no departure button, the look-up instead, and no word of success
     let d = deps(p, { status: () => ({ status: 'pending' }) });
@@ -403,7 +408,8 @@ test('the wiring: the page\'s two actions go to the controller\'s local-play ent
   assert.match(app, /'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'\]\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/, 'pressing them keeps the draft');
   // the controller: the gate is asked with the page's own facts, and the run gets nothing but it, the composer's context, the seal and the live wallet
   assert.match(ctl, /const localDepartGate = \(\) => localDepart\.localDepartAllowed\(\{ localPlay, cluster: io\.pinned\(\)\?\.cluster, relay: io\.relay\(\), wallet: FS\.wallet\?\.address \?\? null, signer: currentEphemeralWallet\(\) \}\);/);
-  assert.match(ctl, /export const sendLocalPlayDeparture = \(\) => localDepart\.runLocalDepart\(FS, \{ allowed: localDepartGate, context: expeditionContext,/);
+  // (fix-loop6, LP6-1: a press on a draft read as holding, its observation since dropped, reads the conditions again first)
+  assert.match(ctl, /export const sendLocalPlayDeparture = async \(\) => \{\n  if \(!isReadyNow\(\) && outbound\.outboundReadyOnce\(FS\)\) \{\n    await inspectOriginalOutboundContext\(\);\n    if \(!isReadyNow\(\)\) return localDepart\.localDepartOf\(FS\);\n  \}\n  const out = await localDepart\.runLocalDepart\(FS, \{ allowed: localDepartGate, context: expeditionContext,/);
   assert.match(ctl, /export const reconcileLocalPlayDeparture = \(\) => localDepart\.reconcileLocalDepart\(FS, \{ allowed: localDepartGate, changed: localDepartChanged \}\);/);
   const from = ctl.indexOf('const localDepartGate'), block = ctl.slice(from, ctl.indexOf('export const clearLocalPlayDeparture', from));
   for (const banned of ['fsession', 'FS.session', 'submit(', 'sendMarch', 'act(', 'faucet', 'storage']) assert.ok(!block.includes(banned), banned);

@@ -44,7 +44,7 @@ import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
-import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
+import { OUTBOUND_POP, outboundReadyOnce, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
 import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
 import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
 import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
@@ -694,10 +694,14 @@ function outboundPop(FS, model) {
     ${outboundEndpointLine(endpoint, FS.localPlay?.wideLand?.targets)}
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
       <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
-    ${s.dropped && !s.routeCheck && !s.contextCheck ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
+    ${FS.outboundReread && (s.routeCheck?.status === 'loading' || s.contextCheck?.status === 'loading') ? html`<p class="pop-line outbound-read-again" role="status">${L`読み取りの途中で世界の時計が進んだため、読み直しています（${FS.outboundReread.n} / ${FS.outboundReread.of} 回目）…`}</p>` : ''}
+    ${s.error === 'ArrivalRequired' && !s.routeCheck && !s.contextCheck && !s.dropped && !FS.outboundReread ? html`<p class="pop-line outbound-arrival-empty" role="status">${L`到着ターンはまだ入っていません。「地形・時間を確認」を押すと、到着候補とそれを入れるボタンが出ます（自分で入れる欄は「詳細」の中です）。`}</p>` : ''}
+    ${s.dropped && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
     ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
     ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
-    ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
+    ${outboundLocalDepart(FS, !!review && ((s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)
+      // (fix-loop6, LP6-1: read as holding for this very draft, the observation since dropped by a clock poll — the press reads again first)
+      || (!s.contextCheck && outboundReadyOnce(FS))))}
     ${localRevealStrip(FS)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
     <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>

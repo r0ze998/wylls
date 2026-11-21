@@ -1617,8 +1617,16 @@ export const originalOutboundMap = () => outbound.readOutboundMap(FS, expedition
 // (fix-loop5, L5-3: a read the clock's move dropped — fexpedition-compose `dropped` — is read again by itself, at most
 //  OUTBOUND_READ_RETRIES more times; then the card says so and the person presses again. Reads only: nothing is sent)
 export const OUTBOUND_READ_RETRIES = 2;
+// (fix-loop6, LP6-8: each read made again is said on the card while it runs — FS.outboundReread — : a mid-turn press at
+//  ×60 showed nothing for 12 s and more while the page read again by itself)
 const outboundReadAgain = async (run, kind) => {
-  for (let i = 0; ; i++) { await run(); if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return; }
+  try {
+    for (let i = 0; ; i++) {
+      await run();
+      if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return;
+      FS.outboundReread = { kind, n: i + 1, of: OUTBOUND_READ_RETRIES }; invalidate('panel');
+    }
+  } finally { if (FS.outboundReread) { FS.outboundReread = null; invalidate('panel'); } }
 };
 export const inspectOriginalOutboundRoute = () => outboundReadAgain(() => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'route');
 export const inspectOriginalOutboundContext = () => outboundReadAgain(() => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'context');
@@ -1638,9 +1646,22 @@ export const useEarliestOriginalOutboundArrival = () => outbound.useEarliestOutb
 const localDepartGate = () => localDepart.localDepartAllowed({ localPlay, cluster: io.pinned()?.cluster, relay: io.relay(), wallet: FS.wallet?.address ?? null, signer: currentEphemeralWallet() });
 const localDepartChanged = () => invalidate('map', 'panel');
 export const localPlayDepartAllowed = () => localDepartGate();
-export const sendLocalPlayDeparture = () => localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
-  sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
-  seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
+// (fix-loop6, LP6-1: at ×60 the conditions' observation is dropped by the next clock poll, often before the person's
+//  press on 出発する — the press was refused in place (loop-play6: 17 presses / 18 s). A press on a draft whose conditions
+//  were read as holding (outboundReadyOnce) reads them again first and departs only if they still hold; otherwise the
+//  card shows that read. The departure's own checks, and the program's, are unchanged.)
+const isReadyNow = () => { const c = FS.expeditionCompose?.contextCheck; return c?.status === 'read' && c.ready?.ok === true && c.report?.ok === true; };
+export const sendLocalPlayDeparture = async () => {
+  if (!isReadyNow() && outbound.outboundReadyOnce(FS)) {
+    await inspectOriginalOutboundContext();
+    if (!isReadyNow()) return localDepart.localDepartOf(FS);
+  }
+  const out = await localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
+    sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
+    seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
+  if (out?.sent) outbound.forgetOutboundReady(FS);
+  return out;
+};
 export const reconcileLocalPlayDeparture = () => localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged });
 export const clearLocalPlayDeparture = () => { const ok = localDepart.clearLocalDepart(FS); if (ok) localDepartChanged(); return ok; };
 /**
@@ -2587,7 +2608,11 @@ export async function confirmHome() {
       const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。` });
       if (!mine()) return;
       if (!filed?.ok) { await refresh(); if (mine()) error(filed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`村の申し込みを送れませんでした。候補を更新してください。`); return; }
-      pending('confirming');
+      // (fix-loop6, LP6-9: a rim ticket is settled by the world's runner at a turn's end; under load that took ~60 turns
+      //  in loop-play6 with only 「村の受け取りを確認しています…」 on the card. The card now says the ticket's turn and how
+      //  many turns have gone by: screens/join.mjs renderInstantPlacing, pending 'ticket')
+      if (mine()) run.choice.ticketBell = nowBell();
+      pending('ticket');
       if (!await waitForOwn(() => (FS.holdings ?? []).length > 0)) error('PendingHome', L`村の申し込みは送りました。ターンの終わりの決着を待っています。`);
       return;
     }
@@ -3633,18 +3658,26 @@ async function wideHostStep(e, mem) {
     const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
     let w;
     try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
-    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
+    // (fix-loop6, LP6-15: `wideHostSay` — what the card says, in the page's language (screens/wideholding.mjs
+    //  wideHostSayText); `wideHostWhy` stays the planner's own words, for the logs and the card's title only)
+    FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostSay: wideHostSayOf(w),
+      wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
     invalidate('panel');
     if (!w.decision) {
       // (the province lags, the host forms, the village is not final yet: wait here, ask again about once a turn)
-      if (WIDE_HOST_AUTO_WAIT.includes(w.wait)) wideHostWait(mem, { reason: w.wait, lag: w.lag ?? null });
+      // (fix-loop6, LP6-5: a march on its way or being decided is looked at again too, so its result shows by itself)
+      if (WIDE_HOST_AUTO_WAIT.includes(w.wait) || (w.wait === 'march' && ['out', 'settling', 'unread'].includes(w.march?.phase))) wideHostWait(mem, { reason: w.wait === 'march' ? 'march' : w.wait, lag: w.lag ?? null });
       else wideHostStopWait(mem);
       return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null };
     }
     const d = w.decision;
     const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
     mem.decisions = (mem.decisions ?? 0) + 1;
-    if (r?.ok !== false && d.name === 'WideDepart') mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
+    if (r?.ok !== false && d.name === 'WideDepart') {
+      mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
+      // (fix-loop6, LP6-5: kept so the card can follow the march to its result — flocalplay-wide-plan marchState)
+      if (d.to && Number.isInteger(d.fields?.arrive_bell)) mem.lastWideDepart = { to: d.to, arrive: d.fields.arrive_bell, troops: d.troops ?? null };
+    }
     mem.wideHostUntil = mem.decisions;
     // (refused BEFORE it was sent because the turn rolled under it — NotResident 26 — : wait a turn and try again
     //  by itself; any other answer ends the waiting and is shown as it is)
@@ -3655,6 +3688,13 @@ async function wideHostStep(e, mem) {
     return r;
 }
 
+/** (fix-loop6, LP6-15) The planner's answer as plain facts for the card to put in words (screens/wideholding.mjs wideHostSayText). */
+function wideHostSayOf(w) {
+  const d = w?.decision;
+  if (d) return { kind: 'decision', name: d.name, n: d.fields?.n ?? null, troops: d.fields?.troops ?? d.troops ?? null, arrive: d.fields?.arrive_bell ?? null,
+    to: d.to ? { p: String(d.to.p), q: String(d.to.q), holder: d.to.holder ?? null } : null, village: d.v?.wide ? { p: String(d.v.wide.p), q: String(d.v.wide.q) } : null };
+  return { kind: 'wait', wait: w?.wait ?? null, lag: w?.lag ?? null, march: w?.march ?? null, why: w?.why ?? null };
+}
 // (fix-loop5, L5-1) the wide village card's waiting (TEST-ONLY wide -> wide play): one timer, about one turn apart
 // (10–60 s of real time), at most WIDE_HOST_WAIT_MAX asks; stopped by 「待つのをやめる」, a sent step, or another answer.
 export const WIDE_HOST_AUTO_WAIT = Object.freeze(['lag', 'host', 'village', 'turn']);

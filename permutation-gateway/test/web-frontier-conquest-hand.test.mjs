@@ -384,3 +384,24 @@ test('a foreign keep under its post-capture protection: no fort march while prot
   assert.ok(handModel(after).buttons.some(b => b.id === 'keeps'));
   assert.notEqual(conquestGuide(after), null);
 });
+
+// (fix-loop6, LP6-4) loop-play6: with no seen keep in reach the guide kept saying 「届く砦を見る」, and the list it opened
+// said 「届く砦 0」 with no next step. Once the host's list is read and holds none, the guide offers the march instead
+// (onto a tile of the map, seen or not), and the empty list offers it too. Nothing of the unseen land is named.
+test('LP6-4: a host whose list of reachable keeps was read empty is sent to the march, not to the empty list again', () => {
+  setLang('ja');
+  const s = fs();
+  s.conquest.hostReach = { key: 'k', host: String(entry().id), ok: true, unreachable: [], rows: [] };
+  const o = conquestObjective(s);
+  assert.equal(o.id, 'march');
+  assert.deepEqual(o.go, { act: 'cg-go', data: { pop: 'march', host: String(entry().id) }, label: '進軍で地図から選ぶ' });
+  assert.match(o.text, /この軍勢が届く他国の砦はありません（進軍が越えられるのは4州まで）。「進軍」で地図のマスを押して、砦に近づけます。/);
+  // not read yet: the list is still the step (it says what it finds)
+  const unread = fs(); unread.conquest.hostReach = null;
+  assert.equal(conquestObjective(unread).go.data.pop, 'keeps');
+  // the fog's words and the list's own next step, as written (map/fog.mjs is on only in a local world's page)
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/hud/keephand.mjs', import.meta.url), 'utf8');
+  assert.match(src, /次の一手：「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます（着いたあたりが見えるようになります）。`\}<\/p>\s*<div class="pop-foot"><button type="button" class="btn small" data-act="hand-march" data-host="\$\{r\.id\}">\$\{L`進軍で地図から選ぶ`\}/);
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(app, /if \(d\.pop === 'keeps' \|\| d\.pop === 'march'\) \{/);
+});

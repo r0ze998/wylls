@@ -196,9 +196,19 @@ function rebuild(fs, ctx) {
   } catch (e) { s.error = e.code ?? 'OutboundUnavailable'; }
 }
 export function openOutbound(fs, ctx) { clearOutbound(fs); rebuild(fs, ctx); }
+/** (fix-loop6, LP6-1) What a "conditions held" is of: this host, these steps and this arrival turn. */
+const readyKey = s => stable([s.source?.hostId ?? null, s.directions, s.arriveBell]);
+/**
+ * (fix-loop6, LP6-1) Whether the departure conditions were last read as holding for the draft exactly as it stands (same
+ * host, steps and arrival turn), even after a clock poll dropped that observation. Not a present observation: the
+ * departure press reads them again first (controller sendLocalPlayDeparture). Any edit or a departure sent forgets it.
+ */
+export const outboundReadyOnce = fs => { const s = fs.expeditionCompose; return !!s?.readyOnce && !!s.review && s.readyOnce === readyKey(s); };
+export const forgetOutboundReady = fs => { if (fs.expeditionCompose) fs.expeditionCompose.readyOnce = null; };
 export function editOutbound(fs, ctx, action, value) {
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return false;
   const s = fs.expeditionCompose;
+  s.readyOnce = null;
   if (!s?.source) return false;
   if (action === 'step') {
     if (!/^[0-5]$/.test(String(value))) return false;
@@ -323,6 +333,9 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
       departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
       observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
     observed.set(s.contextCheck, bindingOf(source, directions, seenAtStart));
+    // (fix-loop6, LP6-1: remembered beyond this observation — the next clock poll drops it, at ×60 within a second or
+    //  two — so the departure button stays a press that reads the conditions again and departs if they still hold)
+    s.readyOnce = ready?.ok === true && report?.ok === true ? readyKey(s) : null;
   } catch (e) {
     if (!current()) return;
     s.contextCheck = { status: 'error', code: e.code ?? 'OutboundSnapshotUnavailable' };
