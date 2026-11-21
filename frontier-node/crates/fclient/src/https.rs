@@ -198,6 +198,12 @@ pub fn parse_curl_output_capped(
         .ok_or_else(|| PortError::Decode("curl: no trailer".into()))?;
     let trailer = std::str::from_utf8(&stdout[nl + 1..])
         .map_err(|_| PortError::Decode("curl: trailer utf8".into()))?;
+    // A POST's trailer ends with ` ra:<Retry-After>` (B5: devnet's 429s
+    // say how long to wait); only delta-seconds are kept.
+    let (trailer, retry_after) = match trailer.split_once(" ra:") {
+        Some((head, ra)) => (head, retry_after_secs(ra)),
+        None => (trailer, None),
+    };
     let mut f = trailer.split_whitespace();
     let (Some(code), Some(verify), Some(scheme), None) = (f.next(), f.next(), f.next(), f.next())
     else {
@@ -220,9 +226,26 @@ pub fn parse_curl_output_capped(
     }
     Ok(Response {
         status,
-        headers: vec![],
+        headers: retry_after
+            .map(|s| vec![("retry-after".to_string(), s.to_string())])
+            .unwrap_or_default(),
         body,
     })
+}
+
+/// The `--write-out` of a POST: status, TLS verification, scheme and the
+/// `Retry-After` header (empty when absent).
+pub const POST_WRITE_OUT: &str =
+    "\n%{http_code} %{ssl_verify_result} %{scheme} ra:%header{retry-after}";
+
+/// A `Retry-After` value in delta-seconds (≤ 1 hour); an HTTP-date, a
+/// value curl could not print or anything else is ignored.
+pub fn retry_after_secs(v: &str) -> Option<u64> {
+    let v = v.trim();
+    if v.is_empty() || v.len() > 4 || !v.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    v.parse().ok().filter(|&s| s <= 3600)
 }
 // ---------------------------------------------------------------- POST
 
@@ -236,7 +259,7 @@ pub const POST_MAX_RESPONSE: usize = 16 << 20;
 pub const POST_TIMEOUT_SECS: u64 = 20;
 /// Longest URL [`post`] accepts.
 pub const MAX_URL: usize = 2048;
-/// The `--write-out` trailer's bound (`\n<code> <verify> <scheme>`).
+/// The `--write-out` trailer's bound (`\n<code> <verify> <scheme>[ ra:<Retry-After>]`).
 pub const TRAILER_BYTES: usize = 64;
 const POLL: Duration = Duration::from_millis(10);
 
@@ -337,7 +360,7 @@ pub fn post_args(https: bool, opts: &PostOpts) -> Vec<String> {
         "--header",
         "Expect:",
         "--write-out",
-        "\n%{http_code} %{ssl_verify_result} %{scheme}",
+        POST_WRITE_OUT,
     ]
     .iter()
     .map(|s| s.to_string())
@@ -648,6 +671,37 @@ mod tests {
         let a = post_args(false, &PostOpts::default());
         let p = a.iter().position(|x| x == "--proto").unwrap();
         assert_eq!(a[p + 1], "=http");
+    }
+
+    /// B5 (devnet, 2026-11-21): a 429 from api.devnet.solana.com carries
+    /// `Retry-After: 10`; the POST trailer brings it back as a header.
+    #[test]
+    fn post_trailer_carries_retry_after_seconds_only() {
+        assert!(post_args(true, &PostOpts::default())
+            .iter()
+            .any(|x| x == POST_WRITE_OUT));
+        let body = br#"{"jsonrpc":"2.0","error":{"code":429,"message":"Too many requests for a specific RPC call"},"id":1}"#;
+        let out = |t: &str| [&body[..], b"\n", t.as_bytes()].concat();
+        let r = parse_curl_output_capped(&out("429 0 https ra:10"), true, 1 << 20).unwrap();
+        assert_eq!((r.status, r.header("Retry-After")), (429, Some("10")));
+        assert_eq!(r.body, body);
+        for (t, status) in [
+            ("200 0 https ra:", 200),
+            ("200 0 https", 200),
+            ("429 0 https ra:Wed, 21 Oct 2026 07:28:00 GMT", 429),
+            ("429 0 https ra:99999", 429),
+            ("429 0 https ra:-1", 429),
+            ("429 0 https ra:%header{retry-after}", 429),
+        ] {
+            let r = parse_curl_output_capped(&out(t), true, 1 << 20).unwrap();
+            assert_eq!((r.status, r.header("retry-after")), (status, None), "{t}");
+        }
+        // The TLS checks still hold with the header present.
+        assert!(parse_curl_output_capped(&out("200 1 https ra:3"), true, 1 << 20).is_err());
+        assert!(parse_curl_output_capped(&out("200 0 http ra:3"), true, 1 << 20).is_err());
+        assert!(parse_curl_output_capped(&out("200 0 https x ra:3"), true, 1 << 20).is_err());
+        assert_eq!(retry_after_secs(" 10 "), Some(10));
+        assert_eq!(retry_after_secs("3601"), None);
     }
 
     #[test]

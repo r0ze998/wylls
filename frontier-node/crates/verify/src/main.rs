@@ -24,6 +24,9 @@
 //!                                           `unproven` (⑰ Q-P1 = (a)+(b), witness.rs);
 //!                                           every witness agreeing with VG FAILing is
 //!                                           FAIL, never PASS (⑰ Q-P2, history.rs)
+//!          --rpc-min-gap-ms N               least time between two calls to one RPC endpoint
+//!                                           (default: 250 for https://, none for loopback); given,
+//!                                           it also paces a loopback proxy and retries its 429s
 //!          --resident-program ID            the NFT resident program, for V28: its feed from
 //!                                           --resident-archive DIR (its findex archive) or
 //!                                           from --rpc URL --localnet (same node, one ledger order);
@@ -122,6 +125,11 @@ fn main() {
             "--localnet" => localnet = true,
             "--origin" => origin = Some(val().parse().unwrap_or_else(|_| usage("bad --origin"))),
             "--witness" => witnesses.push(val()),
+            "--rpc-min-gap-ms" => verify_core::input::set_rpc_min_gap_ms(
+                val()
+                    .parse()
+                    .unwrap_or_else(|_| usage("bad --rpc-min-gap-ms")),
+            ),
             "--resident-program" => resident_program = Some(val()),
             "--resident-archive" => resident_archive = Some(val().into()),
             "--program" => program = Some(val()),
@@ -372,6 +380,9 @@ fn main() {
             raw
         };
         inp.program_so = Some(std::sync::Arc::new(so));
+    }
+    for (u, n, busy) in verify_core::input::rpc_calls() {
+        eprintln!("frontier-verify: {u}: {n} RPC requests ({busy} answered 429/503)");
     }
     if let Some(p) = &save {
         if let Err(e) = inp.save(p) {
