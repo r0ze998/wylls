@@ -528,6 +528,9 @@ else
     build_step tools bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p keeper --features expedition-dispatch-experimental,coexist-lane --bin frontier-experimental-expedition-depart-prepare --bin frontier-original-expedition-preview --bin frontier-experimental-expedition-prepare"
     mkdir -p "$T"
     for b in "${BINS[@]}"; do cp -p "$ROOT/frontier-node/target/debug/$b" "$T/$b"; done
+    # (the shared target dir now holds the coexist-featured binaries: the default lane's stamp must not call them
+    #  "up to date", or the next plain world runs them and CreateSeason fails with Custom(1) — loop-play6)
+    rm -f "$STATE/build.stamp"
   else
   build_step program "$ROOT/scripts/build-frontier-localnet-land-sbf.sh"
   build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-land-play --bin localnet-natural-play --bin localnet-expedition-play"
