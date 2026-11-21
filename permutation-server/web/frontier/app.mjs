@@ -617,9 +617,10 @@ export function keepState(el, render, scroller = el) {
   const stable = new Map();
   for (const x of el.querySelectorAll('[data-stable]')) if (x.dataset?.stable) stable.set(x.dataset.stable, [x, x.outerHTML]);
   render();
-  // (fix-loop6, LP6-11: B-8 still took 3–4 real presses in the ×60 wide picker — the button's markup itself changed
-  //  between renders (its label or `disabled` as the page's reads came and went), so it was replaced all the same. Now the
-  //  SAME node is kept whatever changed, and brought up to the new markup in place: a press begun on it ends on it)
+  // (fix-loop6, LP6-11: B-8 still took 3–4 real presses in the ×60 wide picker. Its main cause was not this: each press
+  //  restarted the candidates reading and so cancelled the press before it — controller.mjs confirmHome, FS.homeConfirmWait.
+  //  As a second measure the SAME node is now kept even when its markup changed (label, `disabled`), brought up to the new
+  //  markup in place: a press begun on it ends on it)
   for (const x of stable.size ? el.querySelectorAll('[data-stable]') : []) { const was = stable.get(x.dataset?.stable); if (was && was[0] !== x) { if (was[1] !== x.outerHTML) morphStable(was[0], x); x.replaceWith(was[0]); } }
   // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
   // typing in the Muster form opened from its fold lost the focus at the first key's redraw

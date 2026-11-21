@@ -270,8 +270,8 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
 
 // loop-play4 B-8: the ×60 picker's confirm was a new node at every 10 s turn (Playwright: "element was detached"; a person's
 // press between hover and release missed it). A `data-stable` node whose markup is unchanged is the same node afterwards.
-// (fix-loop6, LP6-11: still 3–4 real presses in the ×60 wide picker — the button's label or `disabled` changed between renders,
-//  so it was a new node all the same. A changed one is now the SAME node too, brought up to the new markup in place)
+// (fix-loop6, LP6-11: still 3–4 real presses in the ×60 wide picker; the main cause was confirmHome's reading being restarted
+//  by each press (web-frontier-home.test.mjs). As a second measure a changed node is now the SAME node too, brought up to date)
 test('keepState: a data-stable node survives the re-render as the SAME node — unchanged as it was, changed brought up to date in place', () => {
   const attrsOf = html => [...html.matchAll(/ ([a-z-]+)(?:="([^"]*)")?/g)].map(m => ({ name: m[1], value: m[2] ?? '' }));
   const mk = (key, html) => {
