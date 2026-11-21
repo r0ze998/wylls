@@ -438,10 +438,7 @@ impl<'a> Run<'a> {
     fn judge_season(&self, tag: &str) -> Value {
         let so = super::devnet_so_of(self.c.conquest);
         let so_sha256 = super::devnet_build(self.c.conquest).0;
-        let so_hash: [u8; 32] = hex::decode(so_sha256)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let so_hash: [u8; 32] = hex::decode(so_sha256).unwrap().try_into().unwrap();
         let program = self.c.program;
         let (txs, finals, final_slot) = {
             let c = self.lock();
