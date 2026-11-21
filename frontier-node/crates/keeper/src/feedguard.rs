@@ -101,8 +101,12 @@
 //! blocker. What a conquest changes that the legacy indexes keep: a LEGACY
 //! source Holding's stores and PS2 chain (its home province is re-read,
 //! `PlayIndex::touched`). No conquest kind writes `pool_owed`, a ticket, a
-//! legacy Province, a settle / release / explore state, nor a Citizen's wallet
-//! or faction (the Citizen's siege marks only).
+//! legacy Province, a settle / release / explore state, nor a Citizen's wallet,
+//! faction, join shard, ticket fields or ticket funder. Unlogged legacy writes
+//! the keeper does not read (verify-pr124): the Citizen's SLOTS reserved bits
+//! (kinds 12, 14, 15, 17, 18), its rate-limit bucket, LAST_ACTION_TS and
+//! SIEGE_DAY / SIEGES_TODAY (kind 12), its HOLDINGS_N and wide slot reference
+//! and the captor's JoinShard EXTRA_HOLDINGS / CAPTURED_IN (kind 14).
 
 use base64::Engine as _;
 use fclient::ports::{PortError, PortResult, TxRecord};
