@@ -31,6 +31,7 @@ import { WIDE_HOST_ACTS, wideHostIntent, wideHostMessage } from '../../../permut
 import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { COEXIST_ACTS, RIGHTS_ACTS, RIGHTS_WALLET_ONLY, rightsIntent, rightsMessage, grantOfIntent, decodeGrant } from '../../../permutation-server/web/frontier/flocalplay-rights.mjs';
 import { COEXIST_LANE } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
+import { OUTPOST_ACT, outpostIntent, outpostMessage } from '../../../permutation-server/web/frontier/fdevnet-outpost.mjs';
 
 // (TEST-ONLY wide play, owner t379u: the seventh, the wide claim 0xD9, built by the page's own flocalplay-wide.mjs)
 // (and FileTicket, one site: a first village on the rim of a local wide world, where PlaceHome cannot reach)
@@ -70,6 +71,9 @@ const ERRORS = Object.freeze({
   // (…and the Grant read with the Citizen is not one this command may use: absent, another program's or Season's, or
   //  naming another grantee, issuer, facility or Vault)
   LocalActGrant: [409, 'the Grant is not there, or is not one this wallet\'s Citizen may use this way'],
+  // (devnet-page-outpost: the devnet flow's FileOutpost names a Province that is not there yet — the program would
+  //  refuse it with BadAccount; refused here before any send)
+  LocalActProvinceAbsent: [409, 'the target province is not opened yet'],
 });
 export class LocalActError extends Error {
   constructor(code, detail) { const known = Object.hasOwn(ERRORS, code) ? code : 'LocalActInvalid'; super(ERRORS[known][1]); this.code = known; this.status = ERRORS[known][0]; if (detail !== undefined) this.detail = detail; }
@@ -82,7 +86,7 @@ export class LocalActError extends Error {
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
-  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant']);
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant', 'LocalActProvinceAbsent']);
 
 /** (TEST-ONLY) Whether the relay's pins are a coexist world's (flocalplay-lane.mjs COEXIST_LANE): only then are ② rights and the S1 Vault and caravan served. */
 export const coexistPins = pins => pins?.rulesetHash === COEXIST_LANE.rulesetHash;
@@ -140,8 +144,13 @@ function village(h) {
  *   Muster     subject {holding}            fields {unit, troops, tile}
  * `wallet`: the relay's one wallet (the Join's session key must be it: no other key is ever registered here).
  */
-export function localActIntent(value, { wallet, coexist = false }) {
+// (`outpost`: the caller's own flow carries FileOutpost — the devnet wallet-paid flow, devnet-play-act.mjs, never the
+//  request's word; every local-play relay refuses it as before: not one local play sends)
+export function localActIntent(value, { wallet, coexist = false, outpost = false }) {
   check(exact(value, ['name', 'subject', 'fields']) && typeof value.name === 'string');
+  if (outpost && value.name === OUTPOST_ACT) {
+    try { return outpostIntent(value.subject, value.fields, 'LocalActInvalid'); } catch { fail('LocalActInvalid'); }
+  }
   // (TEST-ONLY, the coexist lane only — `coexist` is the relay's own pins, never the request's word: ② rights' six and
   //  the S1 Vault and caravan, flocalplay-rights.mjs. Every other relay refuses them as before: not one local play sends)
   if (coexist && COEXIST_ACTS.includes(value.name)) {
@@ -207,6 +216,9 @@ export function localActMessage(intent, pins, blockhash) {
     try { return { message: rightsMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT, profile: profileForHash(pins.rulesetHash) ?? 3 }), name: intent.name }; } catch { fail('LocalActInvalid'); }
   }
   const profile = profileForHash(pins.rulesetHash);
+  if (intent.name === OUTPOST_ACT) {
+    try { return { message: outpostMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT, profile }), name: intent.name }; } catch { fail('LocalActInvalid'); }
+  }
   const v = { addresses: A, wallet: pins.wallet, actor: pins.wallet, profile, ...intent.subject };
   const fields = intent.name === 'Join' ? { faction: intent.fields.faction, session: Uint8Array.from(decode(intent.fields.session)), session_expiry: BigInt(intent.fields.session_expiry) } : { ...intent.fields };
   let built;
@@ -223,10 +235,11 @@ export function localActMessage(intent, pins, blockhash) {
  * Nothing is sent here.
  */
 // (`schema`: the submit schema of the flow; devnet-play-act.mjs, the devnet wallet-paid flow, states its own)
-export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA } = {}) {
+// (`outpost`: devnet-page-outpost — the devnet flow carries FileOutpost; no local-play relay passes it)
+export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA, outpost = false } = {}) {
   check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === schema
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
-  const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet, coexist: coexistPins(pins) });
+  const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet, coexist: coexistPins(pins), outpost });
   const wire = Buffer.from(body.transaction_b64, 'base64');
   check(wire.toString('base64') === body.transaction_b64 && wire.length <= 1232);
   let tx; try { tx = parseTransaction(wire); } catch { fail('LocalActInvalid'); }
@@ -377,6 +390,8 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
   check(String(d.seasonId) === String(pins.seasonId) && d.p === h.p && d.q === h.q && d.site === h.site, 'LocalActHolding');
   const owner = d.ownerCitizen;
   check(owner instanceof Uint8Array && owner.length === 32 && encode(owner) === citizenAt, 'LocalActNotYourVillage');
+  // (devnet-page-outpost: FileOutpost's subject holding is its ANCHOR — this Citizen's first home, of the generation its key names)
+  if (intent.name === OUTPOST_ACT) check(Number(d.gen) === intent.subject.gen && Number(d.order) === 1, 'LocalActHolding');
   void holdingAt;
 }
 

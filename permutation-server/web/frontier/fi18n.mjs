@@ -407,6 +407,8 @@ const CLIENT_TEXT = {
   LocalLaneUnknown: () => L`知らない種類の試験世界です。`,
   LocalActWalletOnly: () => L`権利を出すことと取り消すことは、あなたのウォレットだけができます。代理の住民からは送れません。送っていません。`,
   LocalActGrant: () => L`この権利は、いまこの命令に使えません（ないか、相手や場所が違います）。送っていません。`,
+  // (devnet-page-outpost: the gateway read no Province at the outpost's target: the keeper has not opened it yet)
+  LocalActProvinceAbsent: () => L`この州はまだ開かれていません。開かれるまで村は出せません。送っていません。`,
   LocalMarchShape: () => L`命令の内容の形が正しくありません。送っていません。`,
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
