@@ -91,7 +91,10 @@ pub(super) async fn setup(
             .map(|k| k.holder)
     };
     let y = keep.holder;
-    assert!(y < 6 && y != a_nation, "the keep's holder {y} is another nation");
+    assert!(
+        y < 6 && y != a_nation,
+        "the keep's holder {y} is another nation"
+    );
     // B: a province of Y (not the keep's, not A's), as far from A's home as possible
     let (bp, bq) = plan
         .iter()
@@ -203,12 +206,7 @@ pub(super) async fn setup(
     std::fs::create_dir_all(&out).unwrap();
     let driver = KillChild(
         std::process::Command::new("node")
-            .arg(
-                pg.driver
-                    .parent()
-                    .unwrap()
-                    .join("page_fog_driver.mjs"),
-            )
+            .arg(pg.driver.parent().unwrap().join("page_fog_driver.mjs"))
             .args([
                 "--url",
                 &format!("http://127.0.0.1:{}/frontier/frontier/", pg.herald),
@@ -281,7 +279,13 @@ impl Obs {
 pub(super) async fn snap(r: &mut Run<'_>, o: &mut Obs, beacon: &mut Beacon, label: &str) {
     snap_with(r, o, beacon, label, None).await
 }
-pub(super) async fn snap_with(r: &mut Run<'_>, o: &mut Obs, beacon: &mut Beacon, label: &str, wait_hosts: Option<(i32, i32, u8)>) {
+pub(super) async fn snap_with(
+    r: &mut Run<'_>,
+    o: &mut Obs,
+    beacon: &mut Beacon,
+    label: &str,
+    wait_hosts: Option<(i32, i32, u8)>,
+) {
     // (a few seconds of running clock first: the herald's index and the pages' polls catch up with what just landed)
     {
         let mut c = r.lock();
@@ -350,13 +354,31 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
                 continue;
             }
             let at = format!("{label}/{who}");
-            ok(s["fogMode"] == "devnet" && s["fogOn"] == true && s["cluster"] == "devnet", format!("{at}: the devnet fog is on"), &mut fails);
-            ok(s["spectateLinks"] == 0, format!("{at}: no spectate link"), &mut fails);
-            ok(s["recordSheetButton"] == false, format!("{at}: no 「記録」 sheet"), &mut fails);
+            ok(
+                s["fogMode"] == "devnet" && s["fogOn"] == true && s["cluster"] == "devnet",
+                format!("{at}: the devnet fog is on"),
+                &mut fails,
+            );
+            ok(
+                s["spectateLinks"] == 0,
+                format!("{at}: no spectate link"),
+                &mut fails,
+            );
+            ok(
+                s["recordSheetButton"] == false,
+                format!("{at}: no 「記録」 sheet"),
+                &mut fails,
+            );
             let wallet = s["wallet"].as_str().unwrap_or("?");
             ok(
                 s["fogMemoryKeys"].as_array().is_some_and(|k| {
-                    k.iter().any(|x| x.as_str().is_some_and(|x| x.starts_with("ps-ffog:v1:devnet:") && x.contains('@') && x.ends_with(wallet)))
+                    k.iter().any(|x| {
+                        x.as_str().is_some_and(|x| {
+                            x.starts_with("ps-ffog:v1:devnet:")
+                                && x.contains('@')
+                                && x.ends_with(wallet)
+                        })
+                    })
                 }),
                 format!("{at}: the last-known memory is keyed by season + wallet"),
                 &mut fails,
@@ -365,8 +387,12 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
             for (place, p) in s["places"].as_object().into_iter().flatten() {
                 if p["shown"]["fog"] == "unseen" {
                     ok(
-                        p["shown"]["owners"].as_array().is_some_and(|a| a.iter().all(|x| x == 7))
-                            && p["shown"]["hosts"].as_array().is_some_and(|a| a.iter().all(|x| x == 0))
+                        p["shown"]["owners"]
+                            .as_array()
+                            .is_some_and(|a| a.iter().all(|x| x == 7))
+                            && p["shown"]["hosts"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().all(|x| x == 0))
                             && p["shown"]["clash"] == false
                             && p["shown"]["control"].is_null(),
                         format!("{at}: never-seen {place} is blank"),
@@ -377,8 +403,17 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
             // A's march: told to B and C exactly when its origin tile is in sight now
             let origin_seen = lv(s, "aOrigin") == Some(3);
             for c in s["chronicle"].as_array().into_iter().flatten() {
-                if c["name"] == "DEPART" && host.as_deref().is_some_and(|h| c["host"] == h) && who != "A" {
-                    ok(c["told"] == origin_seen, format!("{at}: A's departure told iff its origin is in sight ({origin_seen})"), &mut fails);
+                if c["name"] == "DEPART"
+                    && host.as_deref().is_some_and(|h| c["host"] == h)
+                    && who != "A"
+                {
+                    ok(
+                        c["told"] == origin_seen,
+                        format!(
+                            "{at}: A's departure told iff its origin is in sight ({origin_seen})"
+                        ),
+                        &mut fails,
+                    );
                 }
             }
             // the clash report at the keep: offered exactly when the keep tile is in sight now
@@ -391,7 +426,11 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
             let shown_a_hosts = k["shown"]["hosts"][xa as usize].as_u64().unwrap_or(0);
             let raw_a_hosts = k["raw"]["hosts"][xa as usize].as_u64().unwrap_or(0);
             if who != "A" && k["province"] != "sight" {
-                ok(shown_a_hosts == 0, format!("{at}: A's host at the keep is not shown out of sight"), &mut fails);
+                ok(
+                    shown_a_hosts == 0,
+                    format!("{at}: A's host at the keep is not shown out of sight"),
+                    &mut fails,
+                );
             }
             table.push(json!({"snap": label, "who": who, "bell": s["bell"], "faction": s["faction"],
                 "origin_level": lv(s, "aOrigin"), "keep_tile_level": s["clashAtKeep"]["keepTileLevel"], "keep_province": k["province"],
@@ -407,61 +446,105 @@ pub(super) fn verdict(o: &mut Obs, out: &std::path::Path) -> Value {
         }
     }
     // the scenario's own claims
-    let get = |label: &str, who: &str| o.snaps.get(label).map(|s| s[who].clone()).unwrap_or(Value::Null);
+    let get = |label: &str, who: &str| {
+        o.snaps
+            .get(label)
+            .map(|s| s[who].clone())
+            .unwrap_or(Value::Null)
+    };
     let settled_b = get("settled", "B");
     let start_b = get("start", "B");
     let settled_c = get("settled", "C");
-    let raw_b = settled_b["places"]["keep"]["raw"]["hosts"][xa as usize].as_u64().unwrap_or(0);
-    ok(raw_b > 0, "settled/B: the herald's record has A's host on the keep (the raw data is there)".into(), &mut fails);
+    let raw_b = settled_b["places"]["keep"]["raw"]["hosts"][xa as usize]
+        .as_u64()
+        .unwrap_or(0);
     ok(
-        settled_b["places"]["keep"]["shown"]["hosts"][xa as usize].as_u64().unwrap_or(0) > 0,
+        raw_b > 0,
+        "settled/B: the herald's record has A's host on the keep (the raw data is there)".into(),
+        &mut fails,
+    );
+    ok(
+        settled_b["places"]["keep"]["shown"]["hosts"][xa as usize]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
         "settled/B: A's march entered B's vision (its nation's keep): its host is shown".into(),
         &mut fails,
     );
     ok(
-        start_b["places"]["keep"]["shown"]["hosts"][xa as usize].as_u64().unwrap_or(0) == 0,
+        start_b["places"]["keep"]["shown"]["hosts"][xa as usize]
+            .as_u64()
+            .unwrap_or(0)
+            == 0,
         "start/B: no host of A's at the keep before the march".into(),
         &mut fails,
     );
     for label in ["start", "departed", "settled", "final"] {
         let c = get(label, "C");
-        ok(c["clashAtKeep"]["offered"] == false, format!("{label}/C: the keep's clash is outside C's vision"), &mut fails);
         ok(
-            c["chronicle"].as_array().is_some_and(|l| l.iter().filter(|x| x["told"] == true).all(|x| x["mine"] == true)),
+            c["clashAtKeep"]["offered"] == false,
+            format!("{label}/C: the keep's clash is outside C's vision"),
+            &mut fails,
+        );
+        ok(
+            c["chronicle"].as_array().is_some_and(|l| {
+                l.iter()
+                    .filter(|x| x["told"] == true)
+                    .all(|x| x["mine"] == true)
+            }),
             format!("{label}/C: no other player's march or clash is told to C"),
             &mut fails,
         );
         for place in ["aOrigin", "aVillage", "keep"] {
             ok(
-                c["places"][place]["shown"].is_null() || c["places"][place]["shown"]["fog"] == "unseen",
+                c["places"][place]["shown"].is_null()
+                    || c["places"][place]["shown"]["fog"] == "unseen",
                 format!("{label}/C: {place} never seen (blank on the map and 全体図)"),
                 &mut fails,
             );
         }
         let a = get(label, "A");
         ok(
-            a["places"]["cVillage"]["shown"].is_null() || a["places"]["cVillage"]["shown"]["fog"] == "unseen",
+            a["places"]["cVillage"]["shown"].is_null()
+                || a["places"]["cVillage"]["shown"]["fog"] == "unseen",
             format!("{label}/A: C's province never seen"),
             &mut fails,
         );
     }
     ok(
-        settled_c["places"]["keep"]["shown"]["hosts"][xa as usize].as_u64().unwrap_or(0) == 0,
+        settled_c["places"]["keep"]["shown"]["hosts"][xa as usize]
+            .as_u64()
+            .unwrap_or(0)
+            == 0,
         "settled/C: A's host at the keep is not shown to C".into(),
         &mut fails,
     );
     // the observers sent nothing
     for who in ["B", "C"] {
-        let posts = std::fs::read_to_string(out.join("fog").join(who).join("posts.log")).unwrap_or_default();
-        ok(!posts.contains("/gw/f/devnet-play/"), format!("{who} sent no devnet play command"), &mut fails);
+        let posts = std::fs::read_to_string(out.join("fog").join(who).join("posts.log"))
+            .unwrap_or_default();
+        ok(
+            !posts.contains("/gw/f/devnet-play/"),
+            format!("{who} sent no devnet play command"),
+            &mut fails,
+        );
     }
     let summary = json!({"plan": o.plan, "checks": checks, "failures": fails, "table": table, "snapshots": Value::Object(o.snaps.clone())});
-    std::fs::write(out.join("fog").join("fog-summary.json"), serde_json::to_string_pretty(&summary).unwrap()).unwrap();
+    std::fs::write(
+        out.join("fog").join("fog-summary.json"),
+        serde_json::to_string_pretty(&summary).unwrap(),
+    )
+    .unwrap();
     summary
 }
 
 /// The last snapshot; then the driver is gone.
-pub(super) async fn finish(r: &mut Run<'_>, mut o: Obs, beacon: &mut Beacon, out: &std::path::Path) -> Value {
+pub(super) async fn finish(
+    r: &mut Run<'_>,
+    mut o: Obs,
+    beacon: &mut Beacon,
+    out: &std::path::Path,
+) -> Value {
     snap(r, &mut o, beacon, "final").await;
     let _ = o.driver.0.wait();
     let v = verdict(&mut o, out);

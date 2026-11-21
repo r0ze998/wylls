@@ -334,7 +334,9 @@ pub(super) async fn flow(
                 "the fog of war on the devnet page: {:#}",
                 json!({"failures": v["failures"], "checks": v["checks"], "plan": v["plan"], "table": v["table"]})
             );
-            Some(json!({"checks": v["checks"], "failures": v["failures"], "plan": v["plan"], "table": v["table"]}))
+            Some(
+                json!({"checks": v["checks"], "failures": v["failures"], "plan": v["plan"], "table": v["table"]}),
+            )
         }
         None => None,
     };

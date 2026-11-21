@@ -733,8 +733,8 @@ pub(super) async fn keeper_war(
                    "settle_capture": landed(T::SETTLE_CAPTURE)}})
 }
 
-#[path = "war_page.rs"]
-mod page;
 /// PFOG (fog-devnet): the observers of the page's war.
 #[path = "war_fog.rs"]
 pub(super) mod fog;
+#[path = "war_page.rs"]
+mod page;
