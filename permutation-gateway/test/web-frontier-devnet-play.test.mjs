@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { submitLocalAct, localActIntentOf, localActMessage as pageMessage, localOrderRoute, devnetLane, LOCAL_LANE, LOCAL_ACT_NAMES,
-  DEVNET_ACT_NAMES, DEVNET_ACT_CONTEXT_PATH, DEVNET_ACT_SUBMIT_PATH, DEVNET_ACT_STATUS_PATH, localActRead } from '../../permutation-server/web/frontier/flocalplay-act.mjs';
+  DEVNET_ACT_NAMES, DEVNET_ACT_OPTIONAL, DEVNET_ACT_CONTEXT_PATH, DEVNET_ACT_SUBMIT_PATH, DEVNET_ACT_STATUS_PATH, localActRead } from '../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { readDevnetPlay, devnetPlayOf, devnetWide, wideTargetsOf, devnetIdentityOf } from '../../permutation-server/web/frontier/fdevnetplay.mjs';
 import { homePlaceOf, homeRingsOf, wideDevnet } from '../../permutation-server/web/frontier/home.mjs';
 import { createEphemeralWallet } from '../../permutation-server/web/frontier/fephemeral-wallet.mjs';
@@ -80,7 +80,8 @@ test('the configuration: off by default; on only for a devnet season over an htt
 });
 
 test('one list and one set of routes on both sides; the wide -> wide host acts are not carried on devnet', () => {
-  assert.deepEqual([...DEVNET_ACT_NAMES], [...DEVNET_ACT_COMMANDS]);
+  // (devnet-page-outpost: the gateway also carries the optional FileOutpost; the page takes it only when listed)
+  assert.deepEqual([...DEVNET_ACT_NAMES, ...DEVNET_ACT_OPTIONAL], [...DEVNET_ACT_COMMANDS]);
   assert.deepEqual([DEVNET_ACT_CONTEXT_PATH, DEVNET_ACT_SUBMIT_PATH, DEVNET_ACT_STATUS_PATH].map(p => `POST ${p.slice(3)}`), Object.values(DEVNET_ACT_ROUTES));
   for (const n of ['WideTrain', 'WideMuster', 'WideDepart']) { assert.ok(LOCAL_ACT_NAMES.includes(n)); assert.ok(!DEVNET_ACT_NAMES.includes(n), n); }
   // where an order goes on devnet: the lane's commands in their plain form; anything else keeps the ORDINARY path (never refused here)
