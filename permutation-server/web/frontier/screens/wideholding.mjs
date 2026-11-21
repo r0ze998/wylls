@@ -10,9 +10,11 @@
 // recorded due times (no countdown), the reserve's recorded counts. Each
 // card says so. The captured slot stands against the fold's latest slot as
 // a slot count; the age in time is unknown (a capture carries no clock).
-// There is no action here: no builder, trainer, muster, march, caravan or
-// nudge takes a wide village (fwide.mjs wideRefusal), and the only wide
-// instructions are not enabled.
+// No legacy action takes a wide village here: no builder, trainer, muster,
+// march, caravan or nudge (fwide.mjs wideRefusal). The one exception is the
+// TEST-ONLY local wide-land world's own host card (「広い土地の軍勢（テスト）」,
+// controller `wide-host-step`: train, muster, march), and the header says so
+// there (fix-loop6 LP6-6, localWideNote).
 import { html } from '../../util.mjs';
 import { fogNow } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
