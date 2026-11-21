@@ -557,6 +557,7 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
         host,
         nation,
         since,
+        None,
     )
     .await;
     let participant_txs = r.rows.clone();
@@ -583,6 +584,7 @@ pub(super) async fn keeper_war(
     host: u64,
     nation: u8,
     since: u64,
+    observers: Option<&mut fog::Obs>,
 ) -> Value {
     use fclient::abi::tag as T;
     let ctx = r.ctx();
@@ -647,6 +649,11 @@ pub(super) async fn keeper_war(
         |r| settled(r),
     )
     .await;
+    // (PFOG: A's host stands on the keep now — what each player's page shows of it)
+    if let Some(o) = observers {
+        o.host(host);
+        fog::snap_with(r, o, beacon, "settled", Some((tp, tq, nation))).await;
+    }
     // the keep's held bells, the capture and the donor's return (as long as the Season's keep rules take)
     let last = ARRIVE_BELL + AFTER_BELLS;
     let mut taken: Option<Value> = None;
@@ -726,5 +733,8 @@ pub(super) async fn keeper_war(
                    "settle_capture": landed(T::SETTLE_CAPTURE)}})
 }
 
+/// PFOG (fog-devnet): the observers of the page's war.
+#[path = "war_fog.rs"]
+pub(super) mod fog;
 #[path = "war_page.rs"]
 mod page;
