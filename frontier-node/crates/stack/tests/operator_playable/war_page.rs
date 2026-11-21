@@ -117,6 +117,27 @@ pub(super) async fn flow(
         .unwrap_or_else(|| panic!("no contestable keep beside the page's village ({hp}, {hq}) of nation {joined_nation}"));
     let (hr, dr) = (ix::region_of(hp, hq), ix::region_of(tp, tq));
     let _ = (hr, dr);
+    // PFOG (fog-devnet): two observers of other nations found their rim villages and open the page too
+    let mut observers = if pg.fog {
+        let a_tile = r.province_of(hp, hq).unwrap().sites[site as usize];
+        Some(
+            super::fog::setup(
+                r,
+                pg,
+                plan,
+                &mut beacon,
+                &sync,
+                (hp, hq, site, a_tile),
+                joined_nation,
+                (tp, tq),
+                &keep0,
+                start,
+            )
+            .await,
+        )
+    } else {
+        None
+    };
     // 2. Final: the page harvests at each new bell; the clock passes final_ts.
     let final_ts = le_i64(&r.data(&holding).unwrap(), H::FINAL_TS);
     let t_final = final_ts.max(r.now()) + 60;
@@ -285,6 +306,11 @@ pub(super) async fn flow(
         reloaded["after"]["plainLocalStorageEntries"], 0,
         "nothing of the book in plain localStorage: {reloaded:#}"
     );
+    // (PFOG: A's march has left — what each player's page tells of it)
+    if let Some(o) = observers.as_mut() {
+        o.host(host);
+        super::fog::snap(r, o, &mut beacon, "departed").await;
+    }
     // 5. keeper A's war (the page asks keeper A to reveal once T(21) is out; keeper A may have opened it itself first).
     let war = keeper_war(
         r,
@@ -295,9 +321,25 @@ pub(super) async fn flow(
         host,
         joined_nation,
         since,
+        observers.as_mut(),
     )
     .await;
     assert!(alive(&mut driver), "the driver exited during the war");
+    // (PFOG: the last look, then the owner's fog rules over every snapshot)
+    let fog = match observers.take() {
+        Some(o) => {
+            let v = super::fog::finish(r, o, &mut beacon, &pg.out).await;
+            assert!(
+                v["failures"].as_array().is_some_and(|f| f.is_empty()),
+                "the fog of war on the devnet page: {:#}",
+                json!({"failures": v["failures"], "checks": v["checks"], "plan": v["plan"], "table": v["table"]})
+            );
+            Some(
+                json!({"checks": v["checks"], "failures": v["failures"], "plan": v["plan"], "table": v["table"]}),
+            )
+        }
+        None => None,
+    };
     {
         let mut c = r.lock();
         c.set_scale(1.0);
@@ -355,7 +397,7 @@ pub(super) async fn flow(
         "village": {"p": hp, "q": hq, "site": site, "ticket_bell": ticket_bell, "final_ts": final_ts},
         "target": {"p": tp, "q": tq, "keep": format!("{keep0:?}"), "start_tile": start, "dirs": dirs},
         "muster_bell": muster_bell, "depart_bell": depart_bell, "reloaded": reloaded, "keeper_war": war,
-        "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "plan_hint": war_plan, "setup": extra})
+        "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "plan_hint": war_plan, "setup": extra, "fog": fog})
 }
 
 // ------------------------------------------------------------------ P10 (devnet-page-war-2)

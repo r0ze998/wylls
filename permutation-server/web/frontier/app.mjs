@@ -41,7 +41,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -371,7 +371,7 @@ function settingsMarkup(FS) {
     <div class="choice-row" role="group" aria-label="${L`音`}"><span class="choice-k">${L`音`}</span><span class="seg">${['on', 'off'].map(v => html`<button type="button" class="seg-btn" data-act="fx-sound" data-v="${v}" aria-pressed="${(fxAudio().muted ? 'off' : 'on') === v ? 'true' : 'false'}">${v === 'on' ? L`オン` : L`オフ`}</button>`)}</span></div>
     ${onboardingCard.renderRestore(FS)}
     <div class="actions"><button type="button" class="btn" data-act="practice-open">${icon('swords')}${L`練習モードを開く`}</button><button type="button" class="btn" data-act="intro-open">${L`タイトルを見る`}</button></div>
-    <p class="link-row"><a href="practice.html">${L`練習ページ`}</a> · <a href="spectate.html">${L`観戦ページ`}</a>${FS.agentWallet ? html` · <a href="agent.html" data-agent-link="1">${L`代理人のページ（テストUSDCで自動運転を任せる）`}</a>` : ''}</p></section>`;
+    <p class="link-row"><a href="practice.html">${L`練習ページ`}</a>${fogActive(FS) ? '' : html` · <a href="spectate.html">${L`観戦ページ`}</a>`}${FS.agentWallet ? html` · <a href="agent.html" data-agent-link="1">${L`代理人のページ（テストUSDCで自動運転を任せる）`}</a>` : ''}</p></section>`;
 }
 
 /**
@@ -858,8 +858,26 @@ function fogSurveyExtras() {
 function fogUpdate() {
   const sc = scope() || null, w = FS.wallet?.address ?? null;
   FS.fog = fogger({ active: fogActive(FS) && (FS.holdings ?? []).length > 0, survey: FS.survey, overviews: FS.overviews, wide: wideLandRaw?.land?.() ?? null,
-    viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells, memKey: sc && w ? fogMemoryKey(sc, w) : null });
+    viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells,
+    // (fog-devnet: a devnet page's last-known memory is keyed by its Season account too — season + wallet)
+    memKey: sc && w ? fogMemoryKey(sc, w, fogModeOf(FS) === 'devnet' ? FS.pin?.addresses?.season ?? null : null) : null });
   return FS.fog;
+}
+/**
+ * (fog-devnet) A devnet page learns that it is one from its pinned season (FS.pin.cluster), after boot: once the pin says
+ * so, the fog's world-wide parts are laid as a local test world lays them at boot — never-seen land as plain paper, and
+ * no 「記録」 sheet (the recorded wide world lists every captured province, its keep nation and villages: a full map).
+ * The spectator links (legend, settings) follow `fogActive` / `fogNow()` by themselves.
+ */
+let fogWorldLaid = null;
+function fogWorldPinned() {
+  const mode = fogModeOf(FS);
+  if (mode !== 'devnet' || !fogActive(FS) || fogWorldLaid === mode) return;
+  fogWorldLaid = mode;
+  setBlankChart(FOG_RULES.blankChart);
+  try { wideModeRef?.unmount?.(); } catch (e) { console.error('frontier wide world:', e); }
+  wideModeRef = null;
+  mapRef?.invalidate?.();
 }
 /** The overviews the map shows (fogged under the fog of war). */
 const shownOverviews = () => (FS.fog?.on ? FS.fog.overviews : FS.overviews);
@@ -4620,6 +4638,7 @@ async function loadSeason(herald) {
     return false;
   }
   herald.pin(record.season, FS.pin.addresses);
+  fogWorldPinned();
   // (2026-11-17, ⑦: the overviews, ring lists, conquest and S1 state read for another pinned world are forgotten before
   //  this world's record is applied — controller.adoptPinnedWorld; the same world forgets nothing)
   adoptPinnedWorld();
@@ -4755,6 +4774,7 @@ export async function boot() {
   FS.mode = cfg.mode;
   // (the local test world's fog of war, map/fog.mjs: never-seen land is plain paper — set before anything is painted)
   if (LOCAL_FOG && cfg.localPlay && FS.mode === 'play') setBlankChart(FOG_RULES.blankChart);
+  // (a devnet page: the same, once its pinned season says devnet — fogWorldPinned, map/fog.mjs DEVNET_FOG)
   // (the loop-play report B5: a launcher world that its launcher has ended is said to have ended, and its clock stands
   //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
   // (B21: the same one answer is also counted by launcherWatch — a launcher that gives no answer at all, twice in a row,
@@ -4970,13 +4990,18 @@ export async function boot() {
     // namespace is never shown
     // (the local test world's fog of war, map/fog.mjs: the recorded world's sheet lists every captured province, its keep
     //  nation and villages — a full-map view — so a fogged world does not offer it: a player sees only what they saw)
-    const fogWorld = LOCAL_FOG && !!cfg.localPlay && FS.mode === 'play';
+    // (fog-devnet: a devnet page is known only once its season is pinned — fogWorldLaid, or fogWorldPinned unmounts the
+    //  sheet then)
+    const fogWorld = (LOCAL_FOG && !!cfg.localPlay && FS.mode === 'play') || !!fogWorldLaid;
     if (!fogWorld) try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // the same record on this map and its chart (rings 129+ in their terrain and keep nations' colours): read in the background
     try { wideLandRef = mountWideLand({ herald, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier wide land:', e); }
     // (the map reads the wide land through this: under the fog of war of a local test world, the fogged copy — map/fog.mjs)
     if (wideLandRef) { wideLandRaw = wideLandRef; const raw = wideLandRaw; wideLandRef = { ...raw, land: () => shownWide(raw.land()) }; }
-    // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged: fog is local-only)
+    // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged. Under
+    //  the devnet fog (fog-devnet) nothing of it is SHOWN: fdevnetplay.mjs wideTargetsOf keeps each opened province's
+    //  coordinates and ring only — the ring's opening is public geometry, as the open rings on the chart — never a holder,
+    //  a village or a terrain)
     FS.wideLandNow = () => wideLandRaw?.land?.() ?? null;
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere

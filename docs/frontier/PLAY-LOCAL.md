@@ -207,7 +207,8 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
 
 ## 5. Fog of war (every local test world, #93)
 
-A player's view, as in Civ. It is display only: the local chain's records stay public and nothing changes for devnet.
+A player's view, as in Civ. It is display only: the local chain's records stay public. The devnet page shows the same
+view (fog-devnet; runbook §7 P5).
 
 | | What you see |
 |---|---|
@@ -226,9 +227,12 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
   follow the same rule (keep news your own nation is in is always shown). Other nations' map moments (「…の新しい村」,
   a host setting out, an arrival, a camp gone) play only where their tile is in sight now, and the march card's
   「近くの行き先」 lists camps only on tiles you have surveyed.
-- In a fog world the map's 「記録」 view (every recorded province) and the link to the spectator page are **not shown**.
-- One switch: `LOCAL_FOG` in `permutation-server/web/frontier/map/fog.mjs` (`false` = no fog). The radii and the like
-  are `FOG_RULES` in the same file. Devnet, the spectator page and the practice page have no fog.
+- In a fog world the map's 「記録」 view (every recorded province) and the links to the spectator page (the legend's and
+  the settings' 「観戦ページ」) are **not shown**, from the first picture on (fog-devnet: before, the legend and the
+  settings still linked to the spectator page until the first village).
+- One switch per mode in `permutation-server/web/frontier/map/fog.mjs`: `LOCAL_FOG` (local test worlds) and
+  `DEVNET_FOG` (fog-devnet: the play page of a season whose pinned cluster is `devnet`); `false` = no fog in that mode.
+  The radii and the like are `FOG_RULES` in the same file. The spectator page and the practice page have no fog.
 
 ## 6. Stop it, continue tomorrow
 
@@ -265,7 +269,7 @@ A player's view, as in Civ. It is display only: the local chain's records stay p
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | AI residents at war, the keeper opening seals | the launcher's TEST machinery | none of this launcher's machinery |
-| Fog | yes (display only) | no |
+| Fog | yes (display only) | yes, the same player view on the devnet page (fog-devnet, `DEVNET_FOG`) |
 
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.

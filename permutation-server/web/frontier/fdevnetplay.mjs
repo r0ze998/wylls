@@ -18,8 +18,10 @@
 // It is ON only when every one of these holds (`readDevnetPlay`): the page is not local play, the pinned world's
 // cluster is 'devnet', and the gateway answers its info with exactly the pinned program, Season account, Season id and
 // the Season's own ruleset hash (the gateway's `--devnet-play`, the operator's devnet-config flag). Otherwise nothing
-// changes: every order takes the page's ordinary path, as before. The fog of war stays local-only (map/fog.mjs
-// LOCAL_FOG with cfg.localPlay): it is not turned on for devnet here.
+// changes: every order takes the page's ordinary path, as before. The fog of war (fog-devnet) is on for a devnet page by
+// its own switch, map/fog.mjs DEVNET_FOG, keyed on the pinned season's cluster — not on this module's answer: a viewer of
+// a devnet season sees the same player view whether or not the gateway's routes answered. Nothing here shows the map;
+// `wideTargetsOf` hands the wide claim card coordinates only.
 import { DEVNET_ACT_CONTEXT_PATH, DEVNET_ACT_INFO_SCHEMA, DEVNET_ACT_NAMES, devnetLane, postLocalAct } from './flocalplay-act.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 
