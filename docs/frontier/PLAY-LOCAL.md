@@ -505,8 +505,8 @@ The world's operator gives it no privilege and never sees its key. The page show
 
    With `--external` the script also starts workstream ③'s **read-only** MCP server for the world. It listens on 127.0.0.1
    only, on the port after the world's ports (printed as `Read-only MCP (③): http://127.0.0.1:<port>/mcp`). It offers only
-   read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. Ctrl-C
-   stops the server with the world.
+   read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. It runs as long as
+   the script (across worlds: when a world's time runs out it waits for the next one) and stops with everything on Ctrl-C.
 
 3. Press start in your page as usual, then start the resident (it waits for your world if it is early):
 
@@ -517,7 +517,8 @@ The world's operator gives it no privilege and never sees its key. The page show
 
    It prints one JSON line per step (`discover`, `mcp`, `act` … `landed` / `refused`). Its orders are the page's six
    (Join, PlaceHome, Harvest, Build, Train, Muster). Each is signed by its own key and sent through its own relay.
-   It may act once per turn, like everyone else (`ResidentAlreadyActed` otherwise). To plug in your own AI, replace
+   Like the operator AI residents, it may act once per turn (Join does not count; a second order in the same turn is
+   `ResidentAlreadyActed`). Your own page has no such cap. To plug in your own AI, replace
    `decide()` in `examples/external-resident/rule.mjs` (see that folder's README).
 
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
