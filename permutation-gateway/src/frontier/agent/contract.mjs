@@ -46,7 +46,7 @@ export const AGENT_ACTIONS = Object.freeze(Object.values(ACTION_GROUPS).flat());
  */
 // (② rights, owner decision ② A: issuing and revoking a Grant are the wallet's own — workstreams/02-rights/03-CONTRACT
 //  §MCP. An agent never issues or revokes; it may at most use a Grant it was given, once such an action exists.)
-export const NEVER_DELEGATED = Object.freeze(['Join', 'SetSession', 'PlaceHome', 'FileTicket', 'FileOutpost', 'DeclareSiege', 'RetireHost', 'IssueGrant', 'RevokeGrant']);
+export const NEVER_DELEGATED = Object.freeze(['Join', 'SetSession', 'PlaceHome', 'FileTicket', 'FileOutpost', 'DeclareSiege', 'RetireHost', 'IssueGrant', 'RevokeGrant', 'GrantCapacity', 'RevokeCapacity', 'OpenLot']);
 
 /** Machine-readable refusals (stable: callers, MCP tools and tests match on them). */
 export const ERR = Object.freeze({
