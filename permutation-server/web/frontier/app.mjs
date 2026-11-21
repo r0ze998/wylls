@@ -642,6 +642,10 @@ export function keepState(el, render, scroller = el) {
       }
     }
   }
+  // (verify-pr130, LP6-13: the caravan amounts' bounds are the markup's — the source first offered —; a source the person
+  //  picked in the field and restored just above takes its own bounds again, or the next redraw, about once a second at
+  //  ×60, put the storehouse's back while the field showed the village: food max 0, wood max 20)
+  for (const x of picked.size ? el.querySelectorAll('form[data-form="s1-caravan"] select[name="src"]') : []) capCaravanAmounts(x);
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
   for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }

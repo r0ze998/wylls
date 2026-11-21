@@ -346,3 +346,30 @@ test('the Hosts tab: March opens while the province is only resolving the last t
   assert.doesNotMatch(marchButton(hostScreen.render(world().FS), id7), /disabled/);
   setLang('ja');
 });
+
+// (verify-pr130, LP6-13) Live: a caravan opened from a storehouse, then the source switched to the village in the field;
+// the next redraw (×60: about once a second) put the storehouse's bounds back (food max 0, wood max 20) while the field
+// still showed the village. A source the person picked takes its own bounds again after the redraw.
+test('keepState: the caravan amounts follow the source picked in the field across a redraw (verify-pr130 LP6-13)', () => {
+  const build = () => {
+    const form = { dataset: { form: 's1-caravan' } };
+    const inForm = o => ({ dataset: {}, matches: () => false, closest: s => (s === 'form[data-form]' ? form : null), ...o });
+    const opts = [{ value: '0', defaultSelected: false, dataset: { have: '457,198,78,75,0,109' } }, { value: '1', defaultSelected: true, dataset: { have: '0,20,0,40,0,0' } }];
+    const inputs = [0, 1, 2, 3, 5].map(i => inForm({ tagName: 'INPUT', type: 'number', name: `c${i}`, value: '0', defaultValue: '0', max: String([0, 20, 0, 40, 0, 0][i]) }));
+    const src = inForm({ tagName: 'SELECT', name: 'src', options: opts, value: '1' });
+    Object.defineProperty(src, 'selectedOptions', { get: () => opts.filter(o => o.value === src.value) });
+    src.form = { querySelectorAll: () => inputs };
+    const all = { 'input, select, textarea': [src, ...inputs], 'form[data-form="s1-caravan"] select[name="src"]': [src] };
+    return { src, inputs, el: { scrollTop: 0, contains: () => false, querySelectorAll: sel => all[sel] ?? [] } };
+  };
+  let cur = build();
+  const el = { get scrollTop() { return 0; }, set scrollTop(v) {}, contains: () => false, querySelectorAll: sel => cur.el.querySelectorAll(sel) };
+  cur.src.value = '0'; cur.inputs[1].value = '150';      // the village picked, 150 wood typed
+  keepState(el, () => { cur = build(); }, el);
+  assert.equal(cur.src.value, '0', 'the picked source is kept');
+  assert.deepEqual(cur.inputs.map(x => x.max), ['457', '198', '78', '75', '109'], "the village's bounds, not the storehouse's");
+  assert.equal(cur.inputs[1].value, '150', 'and the typed amount stands (within the village stock)');
+  // the first-offered source untouched: its own markup bounds, nothing re-applied
+  cur = build(); keepState(el, () => { cur = build(); }, el);
+  assert.deepEqual(cur.inputs.map(x => x.max), ['0', '20', '0', '40', '0']);
+});

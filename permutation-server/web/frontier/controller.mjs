@@ -2354,6 +2354,10 @@ export function homeSeed(fs = FS, identity = localPlay) {
   if ((identity?.pair === 'first' || identity?.pair === 'second') && typeof identity.seasonAddress === 'string') return `pair:${identity.seasonAddress}`;
   return fs.wallet?.address ?? 'visitor';
 }
+/** (verify-pr130, LP6-12) The pair role that shares homeSeed's order ('first' | 'second'), else null: home.mjs planHomes gives the two roles different sites. */
+export function homePairRole(identity = localPlay) {
+  return (identity?.pair === 'first' || identity?.pair === 'second') && typeof identity.seasonAddress === 'string' ? identity.pair : null;
+}
 export async function refreshHomes({ force = false } = {}) {
   if (!needsHomeChoice() || !herald) return;
   const old = FS.homeChoice ?? { candidates: [], selected: readHome().selected, rotation: 0 };
@@ -2385,7 +2389,7 @@ export async function refreshHomes({ force = false } = {}) {
     await refreshOverviews(nowBell());
     // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
     const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: homePlaceOf(FS), ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
-      seed: `${homeSeed()}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
+      seed: `${homeSeed()}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0, pair: homePairRole(),
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     const cur = standing();
     if (!cur) return;
