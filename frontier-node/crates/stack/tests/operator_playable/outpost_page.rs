@@ -92,24 +92,25 @@ pub(super) async fn flow(
     //    anchor + seed; keeper A settles it), but a page that read the world before P4's declared growth reached the
     //    herald offers a heartland home instead (PlaceHome, final at once; P7's driver has the same race). Either is a
     //    first home a FileOutpost can anchor on.
+    // (verify-pr141: the herald's `/h/me` lists each Holding as `{address, slot, seq, head, bytes_b64}` — views.rs
+    //  `acct` — not as `{p, q, site, order}`: the place and order are read from the chain's bytes at that address)
     let herald_home = |r: &Run<'_>| -> Option<(i32, i32, u8, Address)> {
         let me = super::super::http_get(pg.herald, &format!("/h/me/{w}"))?;
-        let h = me["holdings"]
-            .as_array()?
-            .iter()
-            .find(|h| h["order"].as_u64().unwrap_or(1) == 1)?;
-        let (p, q, s) = (
-            h["p"].as_i64()? as i32,
-            h["q"].as_i64()? as i32,
-            h["site"].as_u64()? as u8,
-        );
-        let at = a.holding(p, q, s);
-        r.data(&at)
-            .filter(|d| {
-                d.len() > H::OWNER_CITIZEN + 32
-                    && d[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] == citizen.to_bytes()
-            })
-            .map(|_| (p, q, s, at))
+        me["holdings"].as_array()?.iter().find_map(|h| {
+            let at: Address = h["address"].as_str()?.parse().ok()?;
+            let d = r.data(&at)?;
+            (d.len() > H::OWNER_CITIZEN + 32
+                && d[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32] == citizen.to_bytes()
+                && d[H::ORDER] == 1)
+                .then(|| {
+                    (
+                        i16::from_le_bytes([d[H::P], d[H::P + 1]]) as i32,
+                        i16::from_le_bytes([d[H::Q], d[H::Q + 1]]) as i32,
+                        d[H::SITE],
+                        at,
+                    )
+                })
+        })
     };
     let t0 = Instant::now();
     let mut ticket_bell = None;
@@ -403,9 +404,23 @@ pub(super) async fn flow(
     }
     std::fs::write(sync.join("go-final"), format!("{op} {oq} {os}\n")).unwrap();
     let t0 = Instant::now();
+    let mut use_from = None;
     let done = loop {
         if let Ok(t) = std::fs::read_to_string(sync.join("done.json")) {
             break serde_json::from_str::<Value>(&t).unwrap_or(json!({"raw": t}));
+        }
+        // (verify-pr141: the new village is used — the clock moves 5 h so its stores fill, then the page harvests it
+        //  and presses 「建てる」 and 「訓練する」 on its screen)
+        if use_from.is_none() && sync.join("want-use").exists() {
+            use_from = Some(r.lock().slot());
+            let t = r.now() + 5 * 3_600;
+            r.advance_exact(t);
+            {
+                let mut c = r.lock();
+                c.set_scale(1.0);
+                c.set_paused(false);
+            }
+            std::fs::write(sync.join("go-use"), "go\n").unwrap();
         }
         assert!(
             alive(&mut driver),
@@ -413,8 +428,8 @@ pub(super) async fn flow(
             failed_note(&sync)
         );
         assert!(
-            t0.elapsed() < Duration::from_secs(300),
-            "the page did not show the second village"
+            t0.elapsed() < Duration::from_secs(600),
+            "the page did not show (and use) the second village"
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
     };
@@ -466,6 +481,31 @@ pub(super) async fn flow(
     } else {
         panic!("the driver recorded no preview: {filed_info}");
     }
+    // (verify-pr141) The second village is usable: the page's Build and Train after the settle name it, and land.
+    let used: Vec<Value> = r
+        .lock()
+        .feed(0, 1_000_000, Some(&r.c.program))
+        .into_iter()
+        .filter(|l| l.slot >= use_from.unwrap_or(u64::MAX))
+        .filter_map(|l| {
+            let t = fclient::tx::from_wire(&l.wire).ok()?;
+            if t.message.account_keys.first() != Some(&w) || !t.message.account_keys.contains(&outpost) {
+                return None;
+            }
+            let tag = t.message.instructions.iter().find(|i| t.message.account_keys.get(i.program_id_index as usize) == Some(&r.c.program)).and_then(|i| i.data.first().copied())?;
+            Some(json!({"slot": l.slot, "ok": l.err.is_none(), "err": l.err, "tag": tag, "compute_units": l.units}))
+        })
+        .collect();
+    for (tag, what) in [
+        (fclient::abi::tag::BUILD, "Build"),
+        (fclient::abi::tag::TRAIN, "Train"),
+    ] {
+        assert!(
+            used.iter().any(|x| x["tag"] == tag && x["ok"] == true),
+            "the page's {what} in the second village landed: {used:#?}\n{:#}",
+            done["use"]
+        );
+    }
     let keeper_alive = r.c.keeper.try_wait().ok().flatten().is_none();
     assert!(keeper_alive, "keeper A exited");
     json!({
@@ -476,7 +516,7 @@ pub(super) async fn flow(
         "page_scan_before_open": scan1, "open_province_by_test_payer": opens, "harvest_steps": steps,
         "outpost": {"p": op, "q": oq, "site": os, "ring": oc.ring(), "distance": home.distance(oc), "ticket_bell": outpost_bell,
                     "in_a_province_opened_here": targets.contains(&oc), "wallet_lamports": paid, "holding_rent": rent},
-        "page_filed": filed_info, "keeper_settle_ticket": settle,
+        "page_filed": filed_info, "second_village_used": used, "keeper_settle_ticket": settle,
         "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "setup": extra,
     })
 }

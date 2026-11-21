@@ -109,13 +109,20 @@ export function outpostMessage(intent, { programId, seasonId, wallet, blockhash,
 }
 
 /**
- * What the wallet pays for one FileOutpost, in lamports (BigInt): the rent deposit (one Holding rent, less what the
- * Citizen already holds in escrow) and the one signature's fee. `holdingRent` = the cluster's rent of 1280 bytes (the
- * gateway's context answer), `escrow` = the Citizen's TICKET_ESCROW (0 when unknown: the bound is then the full rent).
+ * What the wallet pays for one FileOutpost, in lamports (BigInt): the rent deposit and the one signature's fee.
+ * The program (proc/citizen.rs `escrow_need`) tops the Citizen's TICKET_ESCROW up to one Holding rent for the ticket
+ * PLUS one per capture reservation (Citizen `slots` bits 2 and 3); the payer moves what is missing. `holdingRent` = the
+ * cluster's rent of 1280 bytes (the gateway's context answer), `escrow` = the Citizen's TICKET_ESCROW (0 when unknown),
+ * `slots` = the Citizen's slot byte (0 when unknown). Every reservation bit is counted (the program counts only the
+ * legacy ones), so the figure is an upper bound — the preview's 「最大」.
  */
-export function outpostCost({ holdingRent, escrow = 0n }) {
+export const OUTPOST_SLOTS_RESERVED = 0x0c;
+export function outpostCost({ holdingRent, escrow = 0n, slots = 0 }) {
   const rent = BigInt(holdingRent), held = BigInt(escrow ?? 0n);
-  const deposit = rent > held ? rent - held : 0n;
+  let bits = Number(slots ?? 0) & OUTPOST_SLOTS_RESERVED, reserved = 0n;
+  for (; bits; bits &= bits - 1) reserved += 1n;
+  const need = rent * (1n + reserved);
+  const deposit = need > held ? need - held : 0n;
   return Object.freeze({ deposit, fee: OUTPOST_FEE, total: deposit + OUTPOST_FEE });
 }
 /** Lamports as SOL text with up to 9 decimals, trailing zeros dropped ("0.007157640" → "0.00715764"). */

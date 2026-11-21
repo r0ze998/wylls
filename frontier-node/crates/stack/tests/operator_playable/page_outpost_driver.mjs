@@ -144,7 +144,25 @@ log('scan 1', s.outpost.rows, 'fog', s.fog);
 await page.locator('#hp-outpost').scrollIntoViewIfNeeded().catch(() => {});
 await shot('outpost-card-not-opened-yet');
 const text1 = await cardText();
-fs.writeFileSync(path.join(SYNC, 'scan1.json'), JSON.stringify({ rows: s.outpost.rows, fog: s.fog, cardText: text1, wanted }, null, 2));
+// (verify-pr141) The refusal a press on a province not opened yet gets (the map's 「前哨を築く」 lands on the same
+// preview), in Japanese and in English: nothing is signed, the notice names why.
+const refusal = {};
+const absent = s.outpost.rows.find(r => r.state === 'unopened');
+if (absent) {
+  const Lg = '/frontier/lang.mjs';
+  for (const lang of ['ja', 'en']) {
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, lang]);
+    await wait(800);
+    await act('outpost-preview', { p: String(absent.p), q: String(absent.q), site: '0' });
+    const x = await until(`the ${lang} refusal of an unopened province`, y => y.notice && y.notice.ok === false && y.notice.code, { secs: 60 });
+    refusal[lang] = { code: x.notice.code, text: x.notice.text, preview: x.outpost?.preview ?? null };
+    log('refusal', lang, refusal[lang]);
+    await shot(`refusal-unopened-${lang}`);
+  }
+  await ev(async m => { (await import(m)).setLang('ja'); }, Lg);
+  await wait(800);
+}
+fs.writeFileSync(path.join(SYNC, 'scan1.json'), JSON.stringify({ rows: s.outpost.rows, fog: s.fog, cardText: text1, wanted, refusal }, null, 2));
 const unopened1 = new Set(s.outpost.rows.filter(r => r.state === 'unopened').map(r => `${r.p},${r.q}`));
 
 // 2. Harvest at every bell; after go-outpost, scan once a bell and file on the first ready row (an opened neighbour first).
@@ -214,18 +232,56 @@ const fin = shown ?? await state();
 log('final', fin.outpost, fin.holdings, finalText);
 // the second village's own screen (the village rail), and the map
 const second = fin.holdings.findIndex(h => h.order === 2);
-if (second >= 0) { await act('holding-go', { i: String(second) }).catch(() => {}); await wait(2500); await openVillage(); await shot('second-village-screen'); }
+// (verify-pr141: the village switch is the page's own key `]` — app.mjs cycleHolding; there is no 'holding-go' action)
+const activeOrder = () => ev(async () => { const { FS } = await import('/frontier/frontier/fstate.mjs'); return Number(FS.holdings?.[FS.activeHolding ?? 0]?.order ?? 0); });
+const toOrder = async want => { for (let i = 0; i < 4 && (await activeOrder()) !== want; i++) { await ev(() => document.activeElement?.blur?.()); await page.keyboard.press(']'); await wait(1200); } return activeOrder(); };
+if (second >= 0) { log('active order', await toOrder(2)); await openVillage(); await shot('second-village-screen'); }
 await page.keyboard.press('Escape').catch(() => {});
 await shot('map-final');
+// (verify-pr141) The new village is usable: after the test moves the clock (its stores fill), the page harvests it and
+// presses a real 「建てる」 and 「訓練する」 on ITS screen — each one wallet-signed act through the devnet lane.
+const use = {};
+if (second >= 0) {
+  fs.writeFileSync(path.join(SYNC, 'want-use'), 'go\n');
+  while (!exists('go-use')) { await wait(1000); }
+  for (let i = 0; i < 10; i++) { await act('me-retry').catch(() => {}); await wait(2000); }
+  use.order = await toOrder(2);
+  // (a click on the village tab while the screen is open closes it: open it only when it is not on screen)
+  const ensureVillage = async sel => { if (!(await page.locator(`${sel}:visible`).count())) await openVillage(); };
+  await ensureVillage('#hp-build');
+  await act('harvest'); await wait(5000);
+  use.harvest = (await state()).notice;
+  await ensureVillage('#hp-build');
+  const bb = page.locator('#hp-build button[data-act="build"]:visible:not([disabled])').first();
+  use.buildEnabled = await page.locator('#hp-build button[data-act="build"]:visible:not([disabled])').count();
+  if (await bb.count()) { use.buildItem = await bb.getAttribute('data-item'); await bb.scrollIntoViewIfNeeded().catch(() => {}); await bb.click({ timeout: 8000 }); }
+  await wait(6000);
+  use.build = (await state()).notice;
+  await shot('second-village-build');
+  await ensureVillage('#hp-train');
+  const tf = page.locator('#hp-train button[type="submit"]:visible').first();
+  if (!(await tf.count())) { await page.locator('#hp-train').scrollIntoViewIfNeeded().catch(() => {}); }
+  await page.locator('#hp-train input[name="n"]').first().fill('100').catch(() => {});
+  await wait(600);
+  use.trainEnabled = await page.locator('#hp-train button[type="submit"]:not([disabled])').count();
+  const tb = page.locator('#hp-train button[type="submit"]').first();
+  if (use.trainEnabled) { await tb.scrollIntoViewIfNeeded().catch(() => {}); await tb.click({ timeout: 8000 }).catch(e => log('train press', String(e).slice(0, 160))); }
+  else use.trainBlocked = await page.locator('#hp-train').innerText().catch(() => null);
+  await wait(6000);
+  use.train = (await state()).notice;
+  use.activeOrderAfter = await activeOrder();
+  await shot('second-village-train');
+  log('use', use);
+}
 // the same card in English (the language toggle)
-await ev(async () => { const Lg = await import('/frontier/lang.mjs'); Lg.setLang?.('en'); }).catch(() => {});
+await ev(async () => { const Lg = await import('/frontier/lang.mjs'); Lg.setLang('en'); }).catch(() => {});
 await wait(1500);
-if (second >= 0) { await act('holding-go', { i: '0' }).catch(() => {}); await wait(1500); }
+if (second >= 0) await toOrder(1);
 await openVillage();
 await page.locator('#hp-outpost').scrollIntoViewIfNeeded().catch(() => {});
 await shot('outpost-card-en');
 const enText = await cardText();
-fs.writeFileSync(path.join(SYNC, 'done.json'), JSON.stringify({ outpostVillageShown: !!shown, outpost: fin.outpost, holdings: fin.holdings, cardText: finalText, cardTextEn: enText, devnetPlay: fin.devnetPlay, stills: shotN }, null, 2));
+fs.writeFileSync(path.join(SYNC, 'done.json'), JSON.stringify({ outpostVillageShown: !!shown, outpost: fin.outpost, holdings: fin.holdings, cardText: finalText, cardTextEn: enText, use, devnetPlay: fin.devnetPlay, stills: shotN }, null, 2));
 log('done');
 await wait(1000);
 await browser.close();

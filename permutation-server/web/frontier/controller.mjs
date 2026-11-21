@@ -4032,7 +4032,7 @@ export const ACTIONS = {
     catch (e) { return failed({ code: e?.code ?? 'LocalActNoAnswer' }); }
     if (ctx?.wallet !== walletAddress || typeof ctx?.holding_rent !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(ctx.holding_rent)) return failed({ code: 'Unavailable' });
     const escrow = /^(0|[1-9][0-9]{0,19})$/.test(String(FS.citizen?.ticketEscrow ?? '')) ? BigInt(FS.citizen.ticketEscrow) : 0n;
-    FS.outpostPreview = { step: 'preview', target, cost: outpostCost({ holdingRent: BigInt(ctx.holding_rent), escrow }), settler: checked.offer.cost,
+    FS.outpostPreview = { step: 'preview', target, cost: outpostCost({ holdingRent: BigInt(ctx.holding_rent), escrow, slots: Number(FS.citizen?.slots ?? 0) }), settler: checked.offer.cost,
       slot: nextOutpostSlot(FS.citizen, FS.holdings) ?? 2, wallet: walletAddress, at: Date.now() };
     setNotice(null);
     return { ok: false, quiet: true };

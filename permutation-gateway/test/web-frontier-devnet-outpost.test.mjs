@@ -141,6 +141,9 @@ test('the outpost context names the cluster\'s Holding rent; the preview\'s cost
   assert.equal(c.deposit, 7152640n); assert.equal(c.fee, 5000n); assert.equal(c.total, 7157640n);
   assert.equal(solText(c.total), '0.00715764');
   assert.equal(outpostCost({ holdingRent: 7152640n, escrow: 7152640n }).total, 5000n, 'escrow already held: the fee only');
+  // (verify-pr141: the program's escrow_need is one rent for the ticket PLUS one per capture reservation — slots bits 2, 3)
+  assert.equal(outpostCost({ holdingRent: 7152640n, escrow: 7152640n, slots: 0x04 }).deposit, 7152640n, 'one reservation held: one more rent');
+  assert.equal(outpostCost({ holdingRent: 100n, escrow: 0n, slots: 0x0c | 0x01 }).deposit, 300n, 'two reservations, the ticket bits ignored');
   assert.equal(solText(1_500_000_000n), '1.5'); assert.equal(solText(0n), '0');
   // the intent check itself: exact keys only
   assert.throws(() => outpostIntent({ holding: HOME, gen: 1, slot2: null, sites: [TARGET], extra: 1 }, { sites: [TARGET], anchor_site_key: anchorKeyOf(HOME, 1) }), /LocalActInvalid/);
