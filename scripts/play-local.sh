@@ -187,7 +187,11 @@ if [ "$RANDOM_MAP" = 1 ] && [ -z "$FRESH_MAP_WORD" ]; then
   exit 5
 fi
 if [ "$WIDE" = 1 ] && { [ "$DEMO" = 1 ] || [ "$RESUME" = 1 ] || [ "$FRESH" = 1 ] || [ "$TWO" = 1 ]; }; then
-  err "--wide は --demo / --resume / --fresh / --two と一緒には使えません (広い版はメモリだけの一人用の世界です)" "--wide cannot be combined with --demo, --resume, --fresh or --two (the wide version is a memory-only world for one player)"; exit 2
+  # (local-perf: the refusal names the options given with --wide, and how the wide version is started)
+  WITH=(); for f in "DEMO:--demo" "RESUME:--resume" "FRESH:--fresh" "TWO:--two"; do v="${f%%:*}"; if [ "${!v}" = 1 ]; then WITH+=("${f#*:}"); fi; done
+  err "--wide は ${WITH[*]} と一緒には使えません。広い版は \`--wide\` だけで起動します (例: scripts/play-local.sh --wide --ai 4 --random-map)。広い版はメモリだけの一人用の世界なので、--demo (攻略デモ)・--resume / --fresh (保存する世界)・--two (二人用) はありません。" \
+      "--wide cannot be combined with ${WITH[*]}. The wide version is started with \`--wide\` alone (e.g. scripts/play-local.sh --wide --ai 4 --random-map). It is a memory-only world for one player: no --demo (capture demo), --resume / --fresh (kept worlds) or --two (two players)."
+  exit 2
 fi
 # (the wide world's TEST clock: only when the launcher on this checkout takes --wide-scale; refused, never faked, otherwise)
 if [ "$WIDE" = 1 ] && ! grep -q "'wide-scale'" "$LAUNCHER" 2>/dev/null; then

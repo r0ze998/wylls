@@ -97,6 +97,8 @@ export const WATCH_ON_MS = 600;
 export const WATCH_WORDS_MS = 9000;
 /** After a person's own move of the map the camera is not taken for this long (ms). */
 export const BUSY_MS = 3500;
+/** The shortest time between two frames drawn for ambient animation alone (FrontierMap.ambient): the people's own step (people/crowds.mjs PEOPLE_FRAME_MS). */
+export const AMBIENT_FRAME_MS = 70;
 /** Where the board says, by the village, that the viewer's lead host is away on a sealed march (world px from the tile's centre): where the character stands. */
 export const AWAY_AT = Object.freeze({ x: RADIUS * 1.78, y: RADIUS * 0.12 });
 /** A pick's lit set takes this much of its colour as a wash (every tile of it may be taken: map/picktile.mjs). */
@@ -703,7 +705,7 @@ export class FrontierMap {
     // canvas text (name tags, tiers, construction labels, pills) is drawn in the page's language: redraw on a switch
     this.unredraw = onLangChange(() => this.invalidate());
     // Opt-in sprite art at tile LOD (map/sprites.mjs); the vector tiles stay the default.
-    this.art = art ? new SpriteArt({ onLoad: () => this.invalidate(), onTick: () => this.tick() }) : null;
+    this.art = art ? new SpriteArt({ onLoad: () => this.invalidate(), onTick: (urgent = false) => (urgent ? this.tick() : this.ambient()) }) : null;
     // the cloud sea beyond the opened rings (map/cloudsea.mjs): one body of cloud over the sheet; its puffs are the art's cloud sprites
     this.sea = new CloudSea({ image: this.art ? (set, size, name) => this.art.image(set, size, name) : null });
     this.mark();
@@ -736,7 +738,8 @@ export class FrontierMap {
       if (this.proto.on || this.shakeSet) { this.protoShake(); if (this.shakeSet) this.dirty = true; }
       if (this.reachFly) { const f = this.reachFly; this.reachFly = null; if (f.moves === (this.moves ?? 0)) this.setView(f.to, { auto: true, ms: MOVE_MS.reach, kind: 'fly', ease: EASE.inOutCubic }); }
       if (this.cam.step(now)) this.dirty = true;
-      if (this.dirty) this.draw(now);
+      if (this.ticked && !this.dirty && !(now - (this.drawnAt ?? -Infinity) < AMBIENT_FRAME_MS)) this.dirty = true;
+      if (this.dirty) { this.ticked = false; this.drawnAt = now; this.draw(now); }
       this.raf = globalThis.requestAnimationFrame?.(this.frame);
     };
     this.raf = globalThis.requestAnimationFrame?.(this.frame);
@@ -974,8 +977,16 @@ export class FrontierMap {
   invalidate() { this.stamp++; this.dirty = true; }
   /** An animation frame is due: the animated layers repaint (the still ones are kept while the view rests). */
   tick() { this.dirty = true; }
+  /**
+   * Another frame for an ambient animation (the people's steps, the standards, the drift of the cloud sea, the effects'
+   * ground): drawn with the next frame that is drawn anyway, else at most AMBIENT_FRAME_MS after the last one.
+   * (local-perf, 2026-11-21: each of them asked its own frame on its own timer — the people every 70 ms, the standard
+   * every 90, the drift every 110 or more, the effects 30 a second — so an idle map was drawn whole ~26 times a second,
+   * none of the frames shared. A camera move, a change of what is shown and a battle still draw at once)
+   */
+  ambient() { this.ticked = true; }
   /** Another frame in a moment (an animated overlay: the threat halo). */
-  invalidateSoon(ms = 80) { if (this.soon) return; this.soon = setTimeout(() => { this.soon = null; this.tick(); }, ms); }
+  invalidateSoon(ms = 80) { if (this.soon) return; this.soon = setTimeout(() => { this.soon = null; this.ambient(); }, ms); }
 
   /**
    * Place the camera: the logical view changes now; with `ms` the picture

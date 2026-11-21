@@ -108,7 +108,9 @@ test('the page reads the world\'s extent, not the record\'s length: source, rost
   //  the fog of war of a local test world, where it is the fogged copy: map/fog.mjs. The seeded rings are carried as before)
   assert.match(app, /return \{ overviews: shownOverviews\(\), ringsOpen: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own,/, 'the map source carries the seeded rings');
   assert.match(app, /const shownOverviews = \(\) => \(FS\.fog\?\.on \? FS\.fog\.overviews : FS\.overviews\);/, 'and the page\'s own overviews without the fog');
-  assert.equal(app.split('for (const d of seededNow()) rosterRef.ensure(d);').length - 1, 2, 'the roster is asked for the seeded rings only (both places)');
+  assert.equal(app.split('for (const d of rosterRingsNow()) rosterRef.ensure(d);').length - 1, 2, 'the roster is asked for the seeded rings only (both places)');
+  // (local-perf: of the seeded rings, those with a Province on chain — or every seeded ring when the record has no counts)
+  assert.match(app, /const rosterRingsNow = \(\) => \{ const counts = worldNow\(\)\.ringProvinces; return seededNow\(\)\.filter\(d => !Number\.isInteger\(counts\?\.\[d\]\) \|\| counts\[d\] > 0\); \};/);
   assert.match(app, /rings: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own:/, 'the minimap is given the seeded rings'); assert.match(app, /minimap\.frameOf\(ringsOpenNow\(\) \+ 1, r\.width\);/);
   assert.equal(app.split('homeRingsOpen(FS.season, ').length - 1, 1); assert.equal(app.split('homeRingsOf(FS, ').length - 1, 1, 'the tap: home.mjs homeRingsOf (wide-local-playable)'); assert.equal(app.split('contiguousRings(worldNow())').length - 1, 2, 'home rings are counted from the centre without a gap');
   assert.match(app, /function loadOverviews\(herald, rings = overviewRings\(FS\.world, FS\.overviewTaken\)\)/, 'the boot asks for the overviews the world wants');

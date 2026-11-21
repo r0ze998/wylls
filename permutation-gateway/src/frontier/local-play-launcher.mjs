@@ -34,6 +34,8 @@ import { promises as fs, createReadStream, openSync, closeSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID, randomInt, createHash } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { onLocalLane, selectLocalLane, localLane, COEXIST_LANE, COEXIST_MODE, COEXIST_LANE_WORD } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { COOP_BOARD_MODE, openWorldBoard, answerWorldBoard, coopRouteOf, coopTarget } from './local-play-coop-board.mjs';
@@ -48,6 +50,10 @@ onLocalLane(l => { RULESET = l.rulesetHash; });
 export const WORLD_LIMIT = 2, WORLD_TTL_MS = 7200000, WORLD_OUTPUT_MAX = 128 * 1024 ** 2, DISK_FLOOR = 5.25 * 1024 ** 3;
 /** (TEST-ONLY) The output guard of a `--wide-land` world (above). */
 export const WIDE_OUTPUT_MAX = 512 * 1024 ** 2;
+/** The guard (startWorld): how often a world's output is measured (a walk of all its files), and when a measurement still under way is given up. */
+export const OUTPUT_EVERY_MS = 15000, GUARD_STALL_MS = 120000;
+/** How often the launcher says on stderr that it is alive (its worlds, memory, event-loop lag). */
+export const LAUNCHER_HEARTBEAT_MS = 600000;
 /** The page's statement of a world's automatic end (`expiryOf`). */
 export const WORLD_EXPIRY_SCHEMA = 'frontier-local-play-world-expiry-v1';
 /** The largest time a Date can hold (ms since the epoch). */
@@ -200,6 +206,37 @@ async function runnerLines(dir) {
   const out = [];
   for (const line of (await fs.readFile(path.join(dir, 'runner.out'), 'utf8')).split('\n')) { try { const v = JSON.parse(line); if (v && typeof v === 'object') out.push(v); } catch { /* not a whole line yet */ } }
   return out;
+}
+/**
+ * The runner's latest public line of each schema in `schemas`, read incrementally (local-perf, 2026-11-21): each call
+ * reads only the bytes the runner appended since the previous one, in 64 KiB steps, and parses only the lines that name
+ * one of the schemas. `runnerLines` reads and parses the whole file: a wide world's runner writes ~5 MB an hour (a
+ * 30-hour world's was 165 MB), and the keeper question re-read all of it on the event loop each time it was asked.
+ * One read at a time (a call while one runs shares it); a file that became shorter is read again from its start.
+ * → `() => Promise<Map(schema → line)>`.
+ */
+export function runnerFollower(dir, schemas, io = fs) {
+  let at = 0, rest = '', last = new Map(), decoder = new StringDecoder('utf8'), busy = null;
+  const wanted = schemas.map(x => [x, `"${x}"`]);
+  const take = line => { for (const [x, quoted] of wanted) if (line.includes(quoted)) { try { const v = JSON.parse(line); if (v && typeof v === 'object' && v.schema === x) last.set(x, v); } catch { /* not a whole line */ } } };
+  const step = async () => {
+    const fh = await io.open(path.join(dir, 'runner.out'), 'r');
+    try {
+      const { size } = await fh.stat();
+      if (size < at) { at = 0; rest = ''; last = new Map(); decoder = new StringDecoder('utf8'); }
+      const buf = Buffer.alloc(64 * 1024);
+      while (at < size) {
+        const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, size - at), at);
+        if (!bytesRead) break;
+        at += bytesRead;
+        const parts = (rest + decoder.write(buf.subarray(0, bytesRead))).split('\n');
+        rest = parts.pop();
+        for (const line of parts) take(line);
+      }
+    } finally { await fh.close(); }
+    return new Map(last);
+  };
+  return () => (busy ??= step().finally(() => { busy = null; }));
 }
 /**
  * The opt-in preparation of a NEW world, before it is handed to its page and never after. The runner's own time
@@ -1107,12 +1144,27 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   const started = Date.now(); let checking = false;
   let expiresAt;
   try { expiresAt = worldExpiry(started, limit.ttlMs); } catch (e) { await stop('expiry-unrepresentable'); throw e; }
+  // (local-perf, 2026-11-21: the life is checked on every tick, before anything is awaited; the disk and the output are
+  //  measured beside it, the output — a walk of every file of the world, ~70,000 of them after a day of a wide world —
+  //  at most every OUTPUT_EVERY_MS. Before, one `checking` flag held all three, so a measurement that never came back
+  //  held the life too: two wide worlds of the owner's ran a day past their 90-minute life, 1 GB past their 512 MiB
+  //  output limit, with the guard silent. A measurement still under way after GUARD_STALL_MS is given up (said on
+  //  stderr) and the next tick measures again)
+  let outputAt = 0, checkingSince = 0;
   timer = setInterval(async () => {
-    if (checking || stopping) return; checking = true;
+    if (stopping) return;
+    if (Date.now() > expiresAt) { stop('ttl'); return; }
+    if (checking) {
+      if (Date.now() - checkingSince < (limit.stallMs ?? GUARD_STALL_MS)) return;
+      process.stderr.write(`${JSON.stringify({ launcher_guard: 'stalled', world: path.basename(dir), ms: Date.now() - checkingSince })}\n`);
+    }
+    const mine = checkingSince = Date.now(); checking = true;
     try {
       const stat = await fs.statfs(c.data);
-      if (Date.now() > expiresAt) stop('ttl'); else if (stat.bavail * stat.bsize < limit.diskFloor) stop('disk-floor'); else if (await bytesUnder(home ?? dir) > limit.outputMax) stop('output-limit');
-    } catch { stop('guard-failed'); } finally { checking = false; }
+      if (stopping) return;
+      if (stat.bavail * stat.bsize < limit.diskFloor) { stop('disk-floor'); return; }
+      if (Date.now() - outputAt >= (limit.outputEveryMs ?? OUTPUT_EVERY_MS)) { outputAt = Date.now(); if (await bytesUnder(home ?? dir) > limit.outputMax) stop('output-limit'); }
+    } catch { stop('guard-failed'); } finally { if (checkingSince === mine) checking = false; }
   }, limit.everyMs); timer.unref();
   try {
     if (natural) launch('runner', c.naturalRunner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet',
@@ -1240,7 +1292,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (the automatic end the guard above enforces, bound to this runner's instance: the same `started` and TTL)
     const expiry = expiryOf(started, limit.ttlMs, instance.id);
     // (the keeper's latest line, read only when the player asks: `keeperSummary`)
-    const keeper = async () => { try { return keeperSummary(await runnerLines(dir)); } catch { return null; } };
+    // (incrementally: runnerFollower — a long world's runner.out is too large to read whole on each question)
+    const keeperLines = runnerFollower(dir, [KEEPER_LINE]);
+    const keeper = async () => { try { return keeperSummary([...(await keeperLines()).values()]); } catch { return null; } };
     // (TEST-ONLY contest pair: the fort and nations the two players meet over, read only when a player asks)
     const pairView = second !== null ? async () => { try { return pairTargetSummary(await runnerLines(dir)); } catch { return null; } } : null;
     return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(coop ? { coop } : {}), ...(external ? { external: external.heralds } : {}), ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(c.coexist === true ? { lane: COEXIST_LANE_WORD } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}),
@@ -1248,6 +1302,8 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       ...(continuous ? { continuous: true } : {}), ...(persist ? { persisted: { resumed: meta.persist.resumed } } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
 }
+/** The art a page may keep between loads (checked again on each: no-cache with a validator). */
+const ART_EXT = new Set(['.svg', '.png', '.webp', '.woff2', '.ico', '.mp3']);
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
 export function createLauncherServer(c, manager = new WorldManager(c)) {
   // (TEST-ONLY `--coexist`: this process plays the coexist lane from here on — its relays' ruleset, its residents' pins)
@@ -1305,6 +1361,16 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
         actual = await fs.realpath(path.resolve(c.web, decoded === '' || decoded.endsWith('/') ? decoded + 'index.html' : decoded)); stat = await fs.stat(actual);
       } catch { throw fault('NotFound', 404); }
       if (!actual.startsWith(c.web + path.sep) || !stat.isFile()) throw fault('NotFound', 404);
+      // (local-perf, 2026-11-21: the art — pictures and fonts — may be kept by the browser but is checked with this
+      //  launcher on every load of the page (no-cache + a validator: 304 when unchanged). With no-store the page asked
+      //  the same icons again every time the HUD was drawn anew, ~260 requests a minute. Code and pages stay no-store)
+      if (ART_EXT.has(path.extname(actual))) {
+        const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+        const head = { ...SHIELD, 'content-security-policy': pageCsp, 'cache-control': 'no-cache', etag };
+        if (req.headers['if-none-match'] === etag) { res.writeHead(304, head); return res.end(); }
+        res.writeHead(200, { ...head, 'content-type': mime[path.extname(actual)] ?? 'application/octet-stream', 'content-length': stat.size });
+        if (req.method === 'HEAD') return res.end(); return createReadStream(actual).pipe(res);
+      }
       res.writeHead(200, { ...SHIELD, 'content-security-policy': pageCsp, 'content-type': mime[path.extname(actual)] ?? 'application/octet-stream', 'content-length': stat.size, 'cache-control': 'no-store' });
       if (req.method === 'HEAD') return res.end(); createReadStream(actual).pipe(res);
     } catch (e) {
@@ -1517,6 +1583,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     prepare: config.prepareScale ? { clock_scale: config.prepareScale, chain_seconds_max: PREPARE_CHAIN_MAX, then: '1x, read back, before the world is handed over' } : 'natural 1x',
     world_preset: config.worldPreset ?? null, continuous: config.continuous === true, fresh_map: config.freshMap === true ? FRESH_MAP_MODE : null, lane: config.coexist === true ? COEXIST_MODE : 'plain', wide_land: config.wideLand === true ? WIDE_LAND_MODE : null, wide_scale: config.wideScale ?? null, persist: config.persist ? { mode: PERSIST_MODE, dir: path.join(config.data, 'persist'), test_only: true, not_for_production: true } : null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
     ports: { launcher: config.port, worlds: Array.from({ length: WORLD_LIMIT }, (_, slot) => worldPorts(config.worldPort, slot)) } })));
+  // (local-perf, 2026-11-21: a line on stderr — the launcher's log — every LAUNCHER_HEARTBEAT_MS: the worlds it runs, its
+  //  memory and how late its event loop ran. An owner's page that went white after ~9 hours left nothing to read; the
+  //  next time, the log says whether the launcher was alive, busy or growing then)
+  const lag = monitorEventLoopDelay({ resolution: 50 }); lag.enable();
+  setInterval(() => {
+    process.stderr.write(`${JSON.stringify({ launcher_heartbeat: new Date().toISOString(), worlds: manager.list().map(w => ({ state: w.state, startedAt: w.startedAt, expiresAt: w.expiry?.expiresAt ?? null })), rss_mb: Math.round(process.memoryUsage().rss / 1048576), loop_lag_ms: { p99: Math.round(lag.percentile(99) / 1e6), max: Math.round(lag.max / 1e6) } })}\n`);
+    lag.reset();
+  }, LAUNCHER_HEARTBEAT_MS).unref();
   // Ctrl-C (or a closed terminal): every world of this launcher is ended first, then the launcher.
   // (fix-loop6, LP6-3: bounded — launcherShutdown; a second Ctrl-C ends it at once)
   const end = launcherShutdown({ server, manager });
