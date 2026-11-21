@@ -1,6 +1,6 @@
 {
   "schema": "wylls-devnet-profile-v1",
-  "note": "DRAFT devnet profile of the PLAYABLE lane (owner decision B7, 2026-11-18: expedition / wide land / conquest + the land preview, program_version 0x4804). Nothing here has been deployed. A different program from the S1 profile (its own program id, its own seasons). Every <SET-BY-R0ZE...> value is a placeholder that r0ze fills in; the dry-run refuses to send while any placeholder is left. No key material is ever stored here.",
+  "note": "DRAFT devnet profile of the PLAYABLE lane (owner decision B7, 2026-11-18: expedition / wide land + the land preview, program_version 0x4804; the Free City conquest kinds 12-18 are NOT in this build since P14 (b), owner decision 2026-11-22). Nothing here has been deployed. A different program from the S1 profile (its own program id, its own seasons). Every <SET-BY-R0ZE...> value is a placeholder that r0ze fills in; the dry-run refuses to send while any placeholder is left. No key material is ever stored here.",
   "cluster": "devnet",
   "rpcUrl": "https://api.devnet.solana.com",
   "allowedRpcHosts": [
@@ -35,7 +35,7 @@
       "PSF_LOCALNET_COEXIST_SBF_BUILD"
     ],
     "programVersion": "0x4804",
-    "features": "devnet-playable-sbf = conquest-dispatch-experimental + land-preview (the land lane localnet-land-sbf without the [0x45; 32] id check)",
+    "features": "devnet-playable-sbf = expedition-dispatch-experimental + land-preview (the land lane localnet-land-sbf without the [0x45; 32] id check and, P14 b, without conquest-dispatch-experimental: wrapper kinds 12-18 refused BadData)",
     "requiredMarkers": [
       "PSF_DEVNET_PLAYABLE_BUILD"
     ]
@@ -224,6 +224,6 @@
   "risks": {
     "SIMD-0500": "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g 'Disable deployment of SBPF v0, v1 and v2 programs' was inactive on devnet at 2026-11-18 20:40 JST (devnet-readonly-checks). This .so is SBPF v2: once it activates, a deploy or upgrade of it is refused. Moving to SBPF v3 leaves the pinned cargo-build-sbf 3.1.9 (blocked on r0ze).",
     "verifier": "frontier-verify built with --features playable-lane judges a 0x4804 season (re-execution on the pinned .so; whole offline seasons judged with no FAIL, verify-pr118); a default build cannot. On a public RPC a PASS also needs a second, independent witness RPC that serves the whole season: a 7-day public endpoint reads UNVERIFIABLE once the season is over (devnet-readonly-rpc, 2026-11-21; the endpoint is r0ze's choice).",
-    "seasonTool": "frontier-operator --preset S1_DEVNET_WIDE_7D creates the 0x4804 season and its WideSetRules (B3, tested on loopback only with the devnet .so). Keeper A opens the wide rings (rings duty wide_rings / wide_per_wedge, runbook P6) and settles / finalizes the wide claims (role wide-tickets, P7), both closed in code by PR #107; rim first villages (Q-W1) are settled by its tickets role on the rim provinces its rim_per_wedge duty opens. All tested on loopback only, never on devnet. Open: runbook section 7.0 (P14 conquest records and the feed guard, the witness endpoint, hosting)."
+    "seasonTool": "frontier-operator --preset S1_DEVNET_WIDE_7D creates the 0x4804 season and its WideSetRules (B3, tested on loopback only with the devnet .so). Keeper A opens the wide rings (rings duty wide_rings / wide_per_wedge, runbook P6) and settles / finalizes the wide claims (role wide-tickets, P7), both closed in code by PR #107; rim first villages (Q-W1) are settled by its tickets role on the rim provinces its rim_per_wedge duty opens. All tested on loopback only, never on devnet. Open: runbook section 7.0 (the witness endpoint, hosting; P14 closed in the build by (b): no conquest kinds, a new .so to approve)."
   }
 }

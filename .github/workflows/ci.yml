@@ -453,7 +453,9 @@ jobs:
       # the committed pinned .so in LiteSVM, signatures verified, none made;
       # playable_witness, VS's second-source cross-check, ⑰ Q-P1's lift of
       # an RPC history and ⑰ Q-P2's FAIL on agreeing witnesses, over the
-      # genesis recording). These tests
+      # genesis recording; p14b_devnet_no_conquest, P14 (b): the recorded
+      # conquest kinds 12-18 re-executed on the NEW devnet .so are refused
+      # BadData and never latch keeper A's indexes). These tests
       # read recorded archives only: no key is generated, derived or signed
       # (every recorder in these files is #[ignore] and is not run here).
       - name: Verifier playable lane (lints, recorded-fixture tests; key-free)
@@ -461,7 +463,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test wallet_finals
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test wallet_finals --test p14b_devnet_no_conquest
 
       # Devnet blocker B3 (owner decision B7): frontier-operator's playable-lane
       # preset S1_DEVNET_WIDE_7D (program version 0x4804) is behind the stack

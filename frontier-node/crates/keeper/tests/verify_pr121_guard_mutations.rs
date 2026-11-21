@@ -686,8 +686,10 @@ fn m9_frames() {
     latches(&a, &x, "frame never closes");
 }
 
-/// P14: the conquest kinds 12..=18 a participant can send through the wrapper on the devnet `.so`
-/// latch keeper A, which then stops every feed-driven duty (sticky, journalled latch).
+/// P14: the conquest kinds 12..=18 a participant could send through the wrapper on the previous devnet `.so`
+/// (`da3dc1aa…`, these recordings) latch keeper A, which then stops every feed-driven duty (sticky, journalled
+/// latch). The devnet `.so` of P14 (b) (`67a33c92…`) refuses them `BadData` and leaves keeper A unlatched:
+/// `verify/tests/p14b_devnet_no_conquest.rs`.
 #[test]
 fn p14_conquest_kinds_latch_keeper_a() {
     let mut seen: BTreeMap<u8, Vec<String>> = BTreeMap::new();
