@@ -1,5 +1,7 @@
 # ⑬ プレイヤーの代理ではない、独立したAI住民（最小実装）
 
+> **追記 2026-11-22（`grok/ws13-brain-client`、#142 の上）：** ⑬ の頭脳（`resident/goals.mjs` の目標、`resident.mjs` の上限、記憶）を、ローカルの遊べる世界の外部の住民（⑤B、#57）のクライアントとしてつないだ：[`resident/local/`](resident/local/README.ja.md)。命令はページと同じ 6 つ（Join・PlaceHome・Harvest・Build・Train・Muster）だけ、1 ターンに 1 回、公開の herald の自分の記録だけを読む。参加は ⑤B の新しい住民の道（`live/candidates.mjs` の UNSUPPORTED.join は S1 の live の道についての記述に直した）。プログラムの変更なし。
+>
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** 実際の HTTP で確認済み、修正は main にある（PR #28）。遊べる世界にはつながっていない：⑤ の AI 住人は自分の方針のモジュール（`permutation-gateway/src/frontier/local-play-operator-policy.mjs`）を使い、⑬ を呼ばない。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の handoff 文書。`main` 9214293 に試遊キット文書を足したもの）。作業ブランチ `claude/eager-cerf-k74z5s`（この担当専用。`main` から 4cd901de へ早送り）。この担当の成果物はすべてこのディレクトリにあり、**共有コード（`permutation-gateway` ほか）は一行も変えていない**。共有コードへの変更は [patches/](patches/) に未適用の差分として分けた。

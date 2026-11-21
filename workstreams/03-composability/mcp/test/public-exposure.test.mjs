@@ -442,7 +442,9 @@ test('E9 settings: the public server and the owner server opt-ins', () => {
 
 // ------------------------------------------------------------------ E10
 test('E10 NEVER_DELEGATED still holds; no MCP tool reaches one; public modules import no send path', () => {
-  assert.deepEqual([...contract.NEVER_DELEGATED], ['Join', 'SetSession', 'PlaceHome', 'FileTicket', 'FileOutpost', 'DeclareSiege', 'RetireHost']);
+  // (IssueGrant/RevokeGrant joined with ② rights, c50ec3d8 / #119: issuance is wallet-only, owner decision ② A;
+  //  GrantCapacity/RevokeCapacity/OpenLot with the ⑨⑩ local preview, 8d102e70 / #140)
+  assert.deepEqual([...contract.NEVER_DELEGATED], ['Join', 'SetSession', 'PlaceHome', 'FileTicket', 'FileOutpost', 'DeclareSiege', 'RetireHost', 'IssueGrant', 'RevokeGrant', 'GrantCapacity', 'RevokeCapacity', 'OpenLot']);
   for (const n of contract.NEVER_DELEGATED) {
     // even a policy that lists it cannot allow it
     assert.throws(() => policy.checkAllowed({ allowed: [n] }, n), e => e.code === 'ActionNotAllowed', n);
