@@ -35,6 +35,7 @@ import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
 import { claimTargets, settlerCost } from '../flocalplay-wide.mjs';
 import { wideSlots } from '../fwide.mjs';
+import { outpostCard } from './outpostcard.mjs';
 
 /**
  * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) The village screen's wide-land card in a local
@@ -510,6 +511,9 @@ export function render(FS) {
   // (2026-11-17, ⑦: what became of the orders given from this village this turn — screens/villageorders.mjs — rides with
   //  the head too; it reads FS.orders and the record, and changes no button)
   const orderNote = renderVillageOrders(FS, m.settled, m.now, { rereadShown: holdingRead(FS).reread.can });
-  const wideCard = wideClaimCard(FS, m, actionBusy);
+  // (devnet-page-outpost: the second/third village on a devnet season whose gateway carries FileOutpost —
+  //  screens/outpostcard.mjs — rides in the wide card's place, after it; the list below is as it was)
+  const claimCard = wideClaimCard(FS, m, actionBusy), outpost = outpostCard(FS, m, actionBusy);
+  const wideCard = claimCard && outpost ? html`${claimCard}${outpost}` : claimCard || outpost;
   return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }
