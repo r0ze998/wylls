@@ -71,8 +71,9 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
                   ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
-                  marches into the wide land by 「境界への道を準備」; a wide village's 「次の一手（広い土地）」 marches
-                  wide to wide (local-only feature). The ordinary map and 「全体図」 draw the wide land as far as you have
+                  marches into the wide land by 「境界への道を準備」 (after 「地形・時間を確認」 press the card's
+                  「間に合う候補（ターン N）を使う」 for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's 「次の一手（広い土地）」 marches
+                  wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and 「全体図」 draw the wide land as far as you have
                   seen it (fog of war: no 「記録」 view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
                   or --two)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
@@ -83,7 +84,9 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   scripts/build-frontier-localnet-coexist-sbf.sh, version 0x7805, RULESET_HASH_V4; workstream 4's
                   allocation rev 8; launcher option --coexist local-coexist-v1). The page is the usual one, plus ②
                   rights: issue a Grant from a workshop village, StockSwap into the grantee's Vault, haul it out by
-                  caravan, revoke. Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
+                  caravan, revoke. The grantee must be another player, so the whole loop needs --two (two browser
+                  windows will do): `--coexist --demo --two`, about 10 minutes, step by step in docs/frontier/PLAY-LOCAL.md
+                  §10 (日本語: PLAY-LOCAL.ja.md §10). Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
                   one), and with --demo --speed N (the capture demo's TEST clock: at the natural clock a Vault's 200 wood
                   + 200 stone + 50 gold take most of a day); not with --wide. Its runners, herald and tools are built with their `coexist-lane`
                   feature into $STATE/coexist-bin/ (cargo links them in the shared target dir first, so the
