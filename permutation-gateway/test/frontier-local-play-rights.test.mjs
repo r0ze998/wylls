@@ -17,6 +17,7 @@ import { seasonAddresses, seasonPda, citizenTag } from '../../permutation-server
 import { parseTransaction } from '../client/src/solana-tx.mjs';
 import { CARAVAN_FEE } from '../../permutation-server/web/sdk/frontier/budgets.mjs';
 import { PREVIEW_INTENTS } from './fixtures/custody-intents.mjs';
+import { LOSS_INTENTS } from './fixtures/loss-intents.mjs';
 
 const key = () => { const { publicKey, privateKey } = generateKeyPairSync('ed25519'); return { address: encode(publicKey.export({ format: 'der', type: 'spki' }).subarray(12)), privateKey }; };
 const W = key(), B = key();
@@ -43,6 +44,8 @@ const INTENTS = {
   // (local-9-10-preview: ⑨ capacity and ⑩ custody ride the same coexist acts — flocalplay-custody.mjs; their own encodings
   //  are pinned in frontier-local-play-custody.test.mjs)
   ...PREVIEW_INTENTS({ F, V, owner: CIT_B, tag: TAG, rentTo: B.address }),
+  // (fix-9-10-followups: the S1 losses ride the same coexist acts; their encodings are pinned in frontier-local-play-losses.test.mjs)
+  ...LOSS_INTENTS({ F, V, owner: CIT_B, ownerTag: citizenTag(CIT_B).toString() }),
 };
 const wireOf = (message, signers = [W]) => Buffer.concat([Buffer.from([signers.length]), ...signers.map(s => sign(null, message, s.privateKey)), Buffer.from(message)]).toString('base64');
 const body = (intent, tx) => ({ schema: LOCAL_ACT_SUBMIT_SCHEMA, name: intent.name, subject: intent.subject, fields: intent.fields, transaction_b64: tx });

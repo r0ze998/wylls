@@ -562,6 +562,22 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 Losses (told once as an alert, and kept on the card, from the viewer's side): a storehouse seized (「帳簿を確かめる」 then
 records it; 「預けていた貯蔵庫が奪われ、…」), a custody caravan taken on the road (「預けに向かった鉱石 N は道中で奪われました。」),
 a workshop village lost (「村が奪われたことを記録する」; 「借りていた工房の村が奪われ、…は占領者のものになりました。」).
-Local play has no way yet to raid a caravan, seize a storehouse or capture a village, so these were checked with tests and
-injected state only (local-9-10-preview report).
+Since fix-9-10-followups the first two can be made to happen in a `--coexist --two` world with real transactions (the
+program's own SeizeVault, RaidDomestic and RaidCaravan; nothing changed on chain). A village capture still cannot (tests only).
+- **A caravan stopped on the road** (B takes A's custody ore). A pair is one nation, and a clash never raids its own nation's
+  caravan, so B stops it itself. A caravan stands on a tile only at a turn's start (about 5 flat tiles a turn), so one that
+  departs and arrives within a turn can never be stopped. In verify, A's village on tile 28 and B's storehouse on tile 22 of
+  province (-1, 2): A's caravan stood on tile 20 when 「鉱石を預ける」 was pressed with about 5½ minutes of game time (about 22
+  seconds at ×15) left in the turn. Steps: B forms a host on that tile first (village screen 「編成」, choose the tile on the
+  board). When the turn the caravan stood there has resolved, B taps the tile, opens the host card's ⓘ (the tile panel) and
+  presses 「隊商を止める（ターン N まで）」 → 「隊商を止めました。…」, then 「奪って運ぶ」 or 「焼き払う」 in the same panel (six turns
+  from the turn it stood there). A is told 「預けに向かった鉱石 N は道中で奪われました。」 (or 「…焼き払われました。」) and presses
+  「帳簿を確かめる」 (ReconcileLot) to free the room. A taken caravan goes to B's village; B delivers it with the ② card's
+  「奪った隊商」 → 「隊商を届ける」 (the ore goes into B's village). A burned one goes on empty; A delivers it with 「鉱石を届ける」.
+- **A storehouse seized**: the other player forms a host on the storehouse tile (none of the owner's hosts may stand there),
+  taps the tile → ⓘ → 「貯蔵庫を奪う」. The keeper is told 「あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。」. With two
+  players the captor is the depositor itself: its card says 「あなたが奪った貯蔵庫」 and no loss; 「帳簿を確かめる」 then forfeits
+  the lot into the storehouse it now owns (captor takes all). A third party's seizure, and "the depositor's troops do not
+  defend", need a third seat (not built).
+- The herald now drops a delivered custody caravan from the map (D-verify-pr140-5: it stayed as 「隊商 ターン N 着・位置は推定」).
 

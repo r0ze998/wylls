@@ -19,7 +19,7 @@ import { icon } from '../hud/icons.mjs';
 import { factionName } from '../fi18n.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { settledFor } from './rights.mjs';
-import { FIN, LOT_OPEN, LOT_FORFEITED, CV_MOVING, CV_LOST, CV_CUSTODY_TAKEN, MILLI, ORE_PER_ARM, WOOD_PER_ARM, MAX_JOBS, MAX_GRANTS, jobOutAt, nextGrantSeq, nextJobSeq, tagOf } from '../flocalplay-custody.mjs';
+import { FIN, LOT_OPEN, LOT_FORFEITED, CV_MOVING, CV_LOST, CV_CUSTODY_LOT, CV_CUSTODY_TAKEN, MILLI, ORE_PER_ARM, WOOD_PER_ARM, MAX_JOBS, MAX_GRANTS, jobOutAt, nextGrantSeq, nextJobSeq, tagOf } from '../flocalplay-custody.mjs';
 
 const whole = m => Math.floor(Number(m) / MILLI);
 /** A workshop village by the name the map gives it (its place), never by its site number, which no screen shows. */
@@ -46,21 +46,33 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
     const l = e.lot, v = vaultNow(e);
     // (a storehouse not in the view is unknown, never "seized": the herald's list can be late, and a loss is told once)
     const seized = l.state === LOT_OPEN && !!v && (Number(v.gen) !== l.vaultGen || (e.vault.ownerCitizen != null && v.ownerCitizen !== e.vault.ownerCitizen));
-    const mine = caravans.filter(cv => same(cv.dst, e.vault) && cv.dst.tile === e.vault.tile);
+    // (fix-9-10-followups: a caravan is this lot's by the storehouse it was read for — `vault`, refreshCustody — not by
+    //  its destination: a raid that takes it sends it to the raider's village (caravan.rs: DST rewritten), and matched by
+    //  `dst` the taken caravan dropped out and its loss was never told. An expected caravan whose account is gone was
+    //  closed on the road — taken and delivered elsewhere — which ReconcileLot also counts as lost (custody.rs 0xCA).)
+    const forVault = cv => (cv.vault ? same(cv.vault, e.vault) && cv.vault.tile === e.vault.tile : same(cv.dst, e.vault) && cv.dst.tile === e.vault.tile);
+    const mine = caravans.filter(forVault);
+    const gone = c.caravansGone ?? new Set();
     const taken = mine.filter(cv => cv.custody === CV_CUSTODY_TAKEN || cv.state === CV_LOST);
     const inbound = l.inbound.filter(x => x.tag === myTag).map(x => {
       const cv = mine.find(y => y.seq === x.seq) ?? null;
-      const lost = !!cv && (cv.custody === CV_CUSTODY_TAKEN || cv.state === CV_LOST);
+      const lost = cv ? (cv.custody === CV_CUSTODY_TAKEN || cv.state === CV_LOST) : gone.has(x.seq);
+      // (a raider that burns the load leaves the empty caravan on its way: still the depositor's, delivered as usual — of nothing)
+      const burned = !!cv && !lost && cv.custody === CV_CUSTODY_LOT && Array.isArray(cv.cargo) && cv.cargo.every(n => Number(n) === 0);
       const arrived = !!cv && cv.state === CV_MOVING && !lost && cv.arriveTs <= nowTs;
-      return { seq: x.seq, qty: whole(x.qty), lost, arrived, provinces: cv?.provinces ?? [], arriveTs: cv?.arriveTs ?? null, ...(arrived ? settledFor(FS, cv.provinces, cv.arriveTs) : {}) };
+      return { seq: x.seq, qty: whole(x.qty), lost, burned, arrived, provinces: cv?.provinces ?? [], arriveTs: cv?.arriveTs ?? null, ...(arrived ? settledFor(FS, cv.provinces, cv.arriveTs) : {}) };
     });
     for (const x of inbound) if (x.lost) losses.push({ key: `road:${x.seq}`, text: () => L`預けに向かった鉱石 ${fmtNum(x.qty)} は道中で奪われました。` });
+    for (const x of inbound) if (x.burned) losses.push({ key: `burn:${x.seq}`, text: () => L`預けに向かった鉱石 ${fmtNum(x.qty)} は道中で焼き払われました。` });
+    // (fix-9-10-followups: the captor may be the depositor itself — it took the storehouse its ore was in, and the lot is
+    //  forfeit to it: that is no loss of the viewer's and is not told as one; the card says it took the storehouse)
+    const tookIt = (seized || l.state === LOT_FORFEITED) && !!v && v.ownerCitizen === viewer && Number(v.gen) !== l.vaultGen;
     // (told once, at the seizure: the same key once the lot is reconciled and forfeit)
-    if (l.state === LOT_FORFEITED) losses.push({ key: `lot:${l.p},${l.q},${l.tile},${l.vaultGen}`, text: () => L`預けていた貯蔵庫が奪われ、鉱石 ${fmtNum(whole(l.forfeited))} は奪った側のものになりました。` });
+    if (tookIt) { /* no loss */ } else if (l.state === LOT_FORFEITED) losses.push({ key: `lot:${l.p},${l.q},${l.tile},${l.vaultGen}`, text: () => L`預けていた貯蔵庫が奪われ、鉱石 ${fmtNum(whole(l.forfeited))} は奪った側のものになりました。` });
     else if (seized) losses.push({ key: `lot:${l.p},${l.q},${l.tile},${l.vaultGen}`, text: () => L`預けていた貯蔵庫が奪われました。預けた鉱石 ${fmtNum(whole(l.held))} は奪った側のものになります。` });
     const live = l.state === LOT_OPEN && !seized;
     const keeper = (e.vault.ownerCitizen ? e.vault.faction : null) ?? nationOfTag(l.custodianTag) ?? e.vault.faction ?? null;
-    return { vault: e.vault, lot: l, keeper, held: whole(l.held), quota: whole(l.quota), forfeited: whole(l.forfeited), state: l.state, seized, inbound,
+    return { vault: e.vault, lot: l, keeper, held: whole(l.held), quota: whole(l.quota), forfeited: whole(l.forfeited), state: l.state, seized, tookIt, inbound,
       reconcile: seized || inbound.some(x => x.lost) ? { caravans: inbound.filter(x => x.lost).map(x => `${myTag}_${x.seq}`) } : null,
       canDeposit: live && !inbound.some(x => x.lost) && l.held + l.inbound.reduce((a, x) => a + x.qty, 0) < l.quota, room: whole(l.quota - l.held - l.inbound.reduce((a, x) => a + x.qty, 0)),
       canWithdraw: live && l.held >= MILLI, canClose: l.inbound.length === 0 && (l.state === LOT_FORFEITED || (live && l.held === 0)), taken: taken.length };
@@ -139,10 +151,10 @@ export function renderCustody(FS) {
   // ---- ⑩ your ore in others' storehouses
   const myLots = m.myLots.length ? html`${label(L`預けた鉱石`)}<ul class="list custody-lots">${m.myLots.map(e => {
     const d = { ...vd(e.vault), owner: FS.custody.myTag };
-    const st = e.state === LOT_FORFEITED ? chip(L`奪われた`, 'warn') : e.seized ? chip(L`貯蔵庫が奪われた`, 'warn') : chip(L`預け中`, 'ok');
+    const st = e.tookIt ? chip(L`あなたが奪った貯蔵庫`, 'ok') : e.state === LOT_FORFEITED ? chip(L`奪われた`, 'warn') : e.seized ? chip(L`貯蔵庫が奪われた`, 'warn') : chip(L`預け中`, 'ok');
     return html`<li data-lot="${e.vault.p},${e.vault.q},${e.vault.tile}">${icon('ore')}${L`${factionName(e.keeper)} の貯蔵庫（マス ${e.vault.tile}）`} ${st}
       <span class="muted">${L`鉱石 ${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span>
-      ${e.inbound.map(x => html`<span class="muted custody-inbound" data-seq="${x.seq}">${x.lost ? L`隊商 ${fmtNum(x.qty)}：道中で奪われた` : x.arrived ? (x.settled === false ? L`隊商 ${fmtNum(x.qty)}：着いた（通った州の決着待ち）` : '') : L`隊商 ${fmtNum(x.qty)}：移動中`}
+      ${e.inbound.map(x => html`<span class="muted custody-inbound" data-seq="${x.seq}">${x.lost ? L`隊商 ${fmtNum(x.qty)}：道中で奪われた` : x.burned && !x.arrived ? L`隊商 ${fmtNum(x.qty)}：道中で焼き払われた（空のまま移動中）` : x.arrived ? (x.settled === false ? L`隊商 ${fmtNum(x.qty)}：着いた（通った州の決着待ち）` : '') : L`隊商 ${fmtNum(x.qty)}：移動中`}
         ${x.arrived && x.settled !== false ? btn('lot-deliver', { ...d, seq: x.seq, path: x.provinces.map(pq => `${pq.p}_${pq.q}`).join('.') }, L`鉱石を届ける`) : ''}</span>`)}
       <span class="actions">${e.canDeposit ? html`<form class="vform inline" data-form="lot-deposit" ${data(vd(e.vault))}><input name="qty" type="number" min="1" max="${e.room}" step="1" value="${Math.min(10, e.room)}" inputmode="numeric" aria-label="${L`預ける鉱石の量`}"><button type="submit" class="btn small">${L`鉱石を預ける`}</button></form>` : ''}
       ${e.canWithdraw ? html`<form class="vform inline" data-form="lot-withdraw" ${data(vd(e.vault))}><input name="qty" type="number" min="1" max="${e.held}" step="1" value="${e.held}" inputmode="numeric" aria-label="${L`引き取る鉱石の量`}"><button type="submit" class="btn small">${L`引き取る`}</button></form>` : ''}
