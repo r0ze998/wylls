@@ -16,6 +16,7 @@ import { PLAIN_LANE, COEXIST_LANE, selectLocalLane } from '../../permutation-ser
 import { seasonAddresses, seasonPda, citizenTag } from '../../permutation-server/web/frontier/faddr.mjs';
 import { parseTransaction } from '../client/src/solana-tx.mjs';
 import { CARAVAN_FEE } from '../../permutation-server/web/sdk/frontier/budgets.mjs';
+import { PREVIEW_INTENTS } from './fixtures/custody-intents.mjs';
 
 const key = () => { const { publicKey, privateKey } = generateKeyPairSync('ed25519'); return { address: encode(publicKey.export({ format: 'der', type: 'spki' }).subarray(12)), privateKey }; };
 const W = key(), B = key();
@@ -39,6 +40,9 @@ const INTENTS = {
     fields: { seq: 0, dst_kind: 1, dst_p: 3, dst_q: -2, dst_at: 4, dst_gen: 0, steps: 2, path: [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], cargo: [0, 0, 0, 0, 1, 0, 0, 0], fee: CARAVAN_FEE.toString() } },
   // (rights-play, parent: the delivery of the wallet's own arrived caravan — local play has no keeper delivering S1 caravans)
   SettleCaravan: { name: 'SettleCaravan', subject: { seq: 0, dst: { kind: 'vault', p: 3, q: -2, tile: 22, gen: 0 }, provinces: [{ p: 3, q: -2 }] }, fields: {} },
+  // (local-9-10-preview: ⑨ capacity and ⑩ custody ride the same coexist acts — flocalplay-custody.mjs; their own encodings
+  //  are pinned in frontier-local-play-custody.test.mjs)
+  ...PREVIEW_INTENTS({ F, V, owner: CIT_B, tag: TAG, rentTo: B.address }),
 };
 const wireOf = (message, signers = [W]) => Buffer.concat([Buffer.from([signers.length]), ...signers.map(s => sign(null, message, s.privateKey)), Buffer.from(message)]).toString('base64');
 const body = (intent, tx) => ({ schema: LOCAL_ACT_SUBMIT_SCHEMA, name: intent.name, subject: intent.subject, fields: intent.fields, transaction_b64: tx });

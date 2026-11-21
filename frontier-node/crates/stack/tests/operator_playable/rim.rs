@@ -447,11 +447,9 @@ impl<'a> Run<'a> {
     /// re-execution, and every patch of this run as a declared state. Saved as `{tag}-season.json.gz` under
     /// `OPERATOR_EVIDENCE_DIR` when set. → `{verdict, counts by (severity, check, code), the non-WARN findings}`.
     fn judge_season(&self, tag: &str) -> Value {
-        let so = super::devnet_so();
-        let so_hash: [u8; 32] = hex::decode(super::DEVNET_SO_SHA256)
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let so = super::devnet_so_of(self.c.conquest);
+        let so_sha256 = super::devnet_build(self.c.conquest).0;
+        let so_hash: [u8; 32] = hex::decode(so_sha256).unwrap().try_into().unwrap();
         let program = self.c.program;
         let (txs, finals, final_slot) = {
             let c = self.lock();
@@ -481,7 +479,7 @@ impl<'a> Run<'a> {
             program_hashes: vec![(0, so_hash)],
             provenance: format!(
                 "stack/tests/operator_playable.rs {tag} (verify-pr118): the whole season on the devnet .so (sha256 {}), keeper A's play roles; {}",
-                super::DEVNET_SO_SHA256,
+                so_sha256,
                 self.patches.join("; ")
             ),
             scenarios: vec![format!("{tag}-legacy-war")],
@@ -598,7 +596,7 @@ impl<'a> Run<'a> {
 
 /// A witnessed segment as the verifier reads it (the exact devnet `.so`'s hash).
 fn segment_of(r: &Run<'_>, wit: &Witness, scenario: &str) -> verify_core::input::Input {
-    let so_hash: [u8; 32] = hex::decode(super::DEVNET_SO_SHA256)
+    let so_hash: [u8; 32] = hex::decode(super::devnet_build(r.c.conquest).0)
         .unwrap()
         .try_into()
         .unwrap();

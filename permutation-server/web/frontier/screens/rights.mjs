@@ -82,7 +82,8 @@ export function rightsModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   // (deliveries: the viewer's OWN caravans past their arrival — local play has no keeper that delivers S1 caravans, so the
   //  sender delivers them itself, SettleCaravan; the program checks the arrival, the resolved bells and any raid again)
   const moving = FS.s1?.caravans?.moving ?? [];
-  const deliveries = moving.filter(c => myTag !== null && String(c.ownerTag) === myTag && Number(c.arriveTs) <= nowTs && !c.raided)
+  // (⑩ preview: the viewer's CUSTODY caravans are delivered into their lot by the custody card, SettleCustody — never here)
+  const deliveries = moving.filter(c => myTag !== null && String(c.ownerTag) === myTag && Number(c.arriveTs) <= nowTs && !c.raided && !FS.custody?.custodySeqs?.has?.(Number(c.seq)))
     .map(c => ({ seq: Number(c.seq), dst: c.dst, provinces: (c.provinces ?? []).map(x => (Array.isArray(x) ? { p: x[0], q: x[1] } : { p: x.p, q: x.q })), cargo: c.cargo ?? [] }))
     .map(c => ({ ...c, ...settledFor(FS, c.provinces, moving.find(x => Number(x.seq) === c.seq)?.arriveTs) }));
   return { on: true, viewer, read: r.read ?? 'unread', grants, facilities, nextNonce, deliveries };

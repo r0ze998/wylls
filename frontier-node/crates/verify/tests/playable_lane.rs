@@ -1,6 +1,8 @@
 //! The PLAYABLE lane (program version 0x4804: S1 | wide 0x4000 | dispatch
 //! revision 0x0800; the devnet build `devnet-playable-sbf` =
-//! conquest-dispatch-experimental + land-preview) under the verifier's
+//! conquest-dispatch-experimental + land-preview for the recorded
+//! `da3dc1aa…` / `ec511123…` binaries, expedition-dispatch-experimental +
+//! land-preview since P14 b, `p14b_devnet_no_conquest.rs`) under the verifier's
 //! `playable-lane` feature (Q16-1 = A, 2026-11-18).
 //!
 //! * `record_playable_lane_natural` (ignored; needs the artefact): a REAL

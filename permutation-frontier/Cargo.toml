@@ -116,10 +116,13 @@ expedition-dispatch-experimental = ["wide-world-experimental"]
 # scripts/build-frontier-localnet-expedition-sbf.sh. Raw departure, conquest
 # and wide→wide debit gates are unchanged.
 localnet-expedition-sbf = ["expedition-dispatch-experimental"]
-# Host-only: routes the expedition wrapper's provisional conquest kinds 12–17
-# to the EXISTING Free City lifecycle consumers (DeclareSiege,
-# ResolveWithConquest, SettleCapture, SettleSiege, CloseConquest,
-# CloseCaptureEscrow), each with its unchanged authentication. The raw
+# Host, and on SBF only the localnet conquest lanes (localnet-conquest-sbf and
+# the lanes built on it; since P14 b, 2026-11-22, NOT devnet-playable-sbf):
+# routes the expedition wrapper's provisional conquest kinds 12–17 to the
+# EXISTING Free City lifecycle consumers (DeclareSiege, ResolveWithConquest,
+# SettleCapture, SettleSiege, CloseConquest, CloseCaptureEscrow), each with
+# its unchanged authentication, and kind 18 to SettleReservation (the siege
+# reservation region of the version-2 conquest table). The raw
 # `CONQUEST_LIFECYCLE_ENABLED = false` gate and every production gate stay.
 conquest-dispatch-experimental = ["expedition-dispatch-experimental", "frontier-abi/conquest-dispatch-experimental"]
 # Isolated localnet SBF lane of the expedition revision PLUS those conquest
@@ -154,17 +157,21 @@ localnet-land-sbf = ["localnet-conquest-sbf", "land-preview", "localnet-wide-dep
 # (scripts/build-frontier-localnet-land-sbf.sh) to close the gate again.
 localnet-wide-depart = ["localnet-expedition-sbf"]
 # The DEVNET build of the playable lane (owner decision B7, 2026-11-18: ship
-# the playable build, expedition / wide land / conquest, to devnet). The same
-# code as localnet-land-sbf (version 0x4804, the expedition wrapper with
-# conquest kinds 12-18, wide land, the land preview) WITHOUT the [0x45; 32]
-# program-id check: id-agnostic, like the S1 release. Carries marker
+# the playable build, expedition / wide land / conquest, to devnet). The
+# localnet land lane's code (version 0x4804, the expedition wrapper kinds
+# 0-11, wide land, the land preview) WITHOUT the [0x45; 32] program-id check
+# (id-agnostic, like the S1 release) and WITHOUT the Free City conquest kinds
+# 12-18: P14 (b), owner decision 2026-11-22 01:12 JST, drops
+# conquest-dispatch-experimental, so the wrapper refuses kinds 12-18 as
+# BadData before reading any account (no conquest record, no siege
+# reservation table; lib.rs guards it). Carries marker
 # PSF_DEVNET_PLAYABLE_BUILD and neither localnet marker; never combines with
 # a localnet lane or a test feature (lib.rs guards). Built only by
 # scripts/build-frontier-devnet-playable-sbf.sh; deployable to devnet only
 # through scripts/devnet/devnet-playable-profile.json. The raw gates
 # (EXPEDITION_ENABLED, CONQUEST_LIFECYCLE_ENABLED, the Depart debit) are
 # unchanged; tags and version stay provisional.
-devnet-playable-sbf = ["conquest-dispatch-experimental", "land-preview"]
+devnet-playable-sbf = ["expedition-dispatch-experimental", "land-preview"]
 # ②+⑨+⑩ COEXIST in one LOCAL build (2026-11-20, owner t412u/t413u; workstream 4's allocation rev 8,
 # `frontier_abi::feature_registry`, provisional): rights (0xD0-0xD5), capacity (0xF0-0xFD) and custody (0xC2-0xCC)
 # together. One exact version: 0x3005 on S1 (host) / 0x7805 on the playable lane; custody's RULESET_HASH_V4.

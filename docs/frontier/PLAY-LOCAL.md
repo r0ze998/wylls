@@ -428,8 +428,8 @@ scripts/play-local.sh --coexist --two                   # a kept world (natural 
   `http://localhost:41920/`, B at `http://127.0.0.1:41920/` (§3.1). Below, **A = the workshop village's owner**,
   **B = the grantee**.
 - `--coexist` runs a kept world or `--demo` on the ②+⑨+⑩ **coexist lane** (program version 0x7805,
-  `RULESET_HASH_V4`). It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. ⑨ and ⑩ have no
-  page yet.
+  `RULESET_HASH_V4`). It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. ⑨ and ⑩ have a
+  TEST-only preview card since local-9-10-preview (§12).
 - The first `--coexist` builds for a minute or two. A plain world started afterwards relinks its own binaries in a few
   seconds (#128: both lanes build in the same `frontier-node/target/debug`; before #128 it did not, and the plain
   world never started, the page staying on 「—」).
@@ -539,3 +539,41 @@ The world's operator gives it no privilege and never sees its key. The page show
   (pass `--external` again on resume).
 - Local only: on devnet there is no external-resident admission and no MCP server (the public MCP policy questions
   MCP-1..11 are open).
+
+## 12. Preview: ⑨ lend a workshop, ⑩ store ore in another's storehouse (`--coexist`, TEST-only)
+
+Owner rules of 2026-11-21: ⑨ a local preview built on ② A's storehouse and caravans, and the captor takes everything;
+⑩ folded into ② A's storehouse — goods on the road are the carrier's and are lost if the carrier is beaten, the
+depositor's troops do not defend, seizures and losses are shown on screen, ore only. Nothing here is on devnet: the
+coexist lane's own program instructions (⑨ 0xF0–0xFA, ⑩ 0xC2–0xCC) are sent by the page and checked by the program.
+
+The village screen of a `--coexist` world has a second card, 「預かりと工房貸し（試験）」, under the ② card. Set up as §10
+steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫 and brings ore and wood into it).
+
+⑨ lend a workshop (A owns the workshop village, B has a storehouse in that province):
+1. A: open 「工房を貸す」, type how many workshops, 「工房を貸し出す」 (the pool opens and the copies leave the village's own
+   arms production). 「工房を貸し出しました」.
+2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」, the workshops, 「兵器の上限」 and 「有効な日数」, then
+   「工房を使わせる」 (the wallet signs). 「工房を使う権利を出しました」.
+3. B: under 「使える工房」, set 「使う工房の数」 and 「作る兵器の数」, then 「予約して材料を入れる」: one transaction books the job
+   and takes 2 ore + 1 wood per arm from B's storehouse. The job starts two minutes of chain time later.
+4. B: 「あなたの作業」 counts 「兵器 N / M」 (4 arms an hour a workshop; at ×60 ten arms take about 2.5 minutes). Then
+   「貯蔵庫へ受け取る」: 「兵器と残りの材料が貯蔵庫に入りました」. Haul them home by caravan as in §10 step 8.
+5. A: 「取り消す」 ends the grant (a booked job keeps running), 「空いた工房を戻す」 gives the copies back to the village.
+
+⑩ store ore (B keeps the storehouse, A deposits):
+1. B: open 「鉱石を預かる」, choose 「マス (storehouse) → (nation) の村（マス N）」 (A's village is the one on its tile), the
+   「鉱石の枠」, then 「預かりの枠を開く」 (wallet). 「預かりの枠を開きました」.
+2. A: 「預けた鉱石」 lists the storehouse. Type an amount, 「鉱石を預ける」: A's own caravan leaves with A's ore. When it has
+   arrived and the province it crossed has resolved, 「鉱石を届ける」: 「預ける鉱石が届きました」 (the ② card does not offer
+   these caravans).
+3. A: 「引き取る」 sends the ore home in an ordinary caravan; deliver it with the ② card's 「隊商を届ける」. 「枠を閉じる」 once
+   the room is empty.
+4. B sees only 「あなたの貯蔵庫の預かり」: whose ore (by nation) and how much.
+
+Losses (told once as an alert, and kept on the card, from the viewer's side): a storehouse seized (「帳簿を確かめる」 then
+records it; 「預けていた貯蔵庫が奪われ、…」), a custody caravan taken on the road (「預けに向かった鉱石 N は道中で奪われました。」),
+a workshop village lost (「村が奪われたことを記録する」; 「借りていた工房の村が奪われ、…は占領者のものになりました。」).
+Local play has no way yet to raid a caravan, seize a storehouse or capture a village, so these were checked with tests and
+injected state only (local-9-10-preview report).
+

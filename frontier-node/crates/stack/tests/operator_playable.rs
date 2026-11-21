@@ -6,8 +6,8 @@
 //!   replaced by fixed addresses) is the committed snapshot: 10 transactions, the last WideSetRules after Seeded;
 //! - P2 (key-free) the send gate on the committed profile's devnet URL: `--yes-send` without
 //!   `--i-have-r0ze-approval` / `--approved-sha256` is refused before any key is read or any host contacted;
-//! - P3 the exact devnet `.so` (the committed fixture `frontier-node/fixtures/verify/devnet-playable-da3dc1aa.so.gz`,
-//!   sha256 `da3dc1aa…b9741`, the artefact `scripts/build-frontier-devnet-playable-sbf.sh` builds) deployed in an
+//! - P3 the exact devnet `.so` (the committed fixture `frontier-node/fixtures/verify/devnet-playable-67a33c92.so.gz`,
+//!   sha256 `67a33c92…06b3`, P14 b: no Free City conquest kinds, the artefact `scripts/build-frontier-devnet-playable-sbf.sh` builds) deployed in an
 //!   in-process frontier-localnet, then the operator in SEND mode with the flags r0ze would pass on devnet
 //!   (`--rpc` pointed at the local node): dry run, a wrong `--approved-sha256` refused, AnnounceSeason, the lead,
 //!   CreateSeason + InitBeaconLogs + InitShards × 6, a wait for Seeded; then the REAL `frontier-keeper` (roles
@@ -92,11 +92,11 @@ fn ports(env: &str, default: u16) -> Ports {
     }
 }
 const SOL: u64 = 1_000_000_000;
-/// sha256 of the devnet build of the playable lane (reports/devnet-refresh.md, the committed verifier fixture).
-const DEVNET_SO_SHA256: &str = "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
-/// The same program's `program_hash` (trailing zeros stripped; reports/devnet-refresh.md, `solana-verify`'s form).
+/// sha256 of the devnet build of the playable lane (P14 b, reports/p14b-drop-conquest.md; the committed verifier fixture).
+const DEVNET_SO_SHA256: &str = "67a33c9231560fe95280d00d56b02dc778213c83030e403e3d853ebb651206b3";
+/// The same program's `program_hash` (trailing zeros stripped; `solana-verify`'s form, printed by the build script).
 const DEVNET_PROGRAM_HASH: &str =
-    "786ef80f132a9d2d18afc5708336a396afba32ff3d4c37ebf6c94425a51352df";
+    "8dcaef873758b981df191a33f5e38bfb90afbf9ae673d2589641adf9f40174bb";
 /// The first of the 32 committed real quicknet rounds (`fclient/fixtures/quicknet`): the genesis round.
 const GENESIS_ROUND: u64 = 32_551_361;
 /// P8/P9 (devnet-page-war): a later shipped genesis round, so that the arrival bell [`rim::war::ARRIVE_BELL`]'s
@@ -142,9 +142,35 @@ fn tmpdir(tag: &str) -> PathBuf {
     d
 }
 
-fn devnet_so() -> Vec<u8> {
+/// P14 (a)'s run (`Mode::Conquest`, devnet-guard-conquest) sends the Free City conquest kinds 12..=18, which the
+/// devnet `.so` of P14 (b) refuses `BadData` (`verify/tests/p14b_devnet_no_conquest.rs`). So that run alone keeps
+/// the PREVIOUS devnet build, which still carries them (the committed `devnet-playable-da3dc1aa.so.gz`): keeper A's
+/// exact reading of the conquest records stays proven as defence in depth. Every other run uses the new `.so`.
+const DEVNET_SO_WITH_CONQUEST_SHA256: &str =
+    "da3dc1aae66d262ba79321ca9031b4b3510acc13b690154f02b2e304b38b9741";
+const DEVNET_PROGRAM_HASH_WITH_CONQUEST: &str =
+    "786ef80f132a9d2d18afc5708336a396afba32ff3d4c37ebf6c94425a51352df";
+
+/// (sha256, solana-verify program hash, ELF length as the operator prints it) of the devnet `.so` a run deploys.
+fn devnet_build(conquest: bool) -> (&'static str, &'static str, &'static str) {
+    if conquest {
+        (
+            DEVNET_SO_WITH_CONQUEST_SHA256,
+            DEVNET_PROGRAM_HASH_WITH_CONQUEST,
+            "3,657,488",
+        )
+    } else {
+        (DEVNET_SO_SHA256, DEVNET_PROGRAM_HASH, "3,447,064")
+    }
+}
+
+fn devnet_so_of(conquest: bool) -> Vec<u8> {
     use std::io::Read;
-    let p = repo_root().join("frontier-node/fixtures/verify/devnet-playable-da3dc1aa.so.gz");
+    let (sha, _, _) = devnet_build(conquest);
+    let p = repo_root().join(format!(
+        "frontier-node/fixtures/verify/devnet-playable-{}.so.gz",
+        &sha[..8]
+    ));
     let mut out = vec![];
     flate2::read::GzDecoder::new(
         std::fs::File::open(&p).expect("the committed devnet .so fixture"),
@@ -152,10 +178,7 @@ fn devnet_so() -> Vec<u8> {
     .read_to_end(&mut out)
     .unwrap();
     let h = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&out));
-    assert_eq!(
-        h, DEVNET_SO_SHA256,
-        "the fixture is the approved devnet artefact"
-    );
+    assert_eq!(h, sha, "the fixture is the expected devnet artefact");
     out
 }
 
@@ -575,7 +598,8 @@ async fn p11_keeper_a_drives_a_rim_to_wide_expedition_on_the_devnet_so_offline()
 }
 
 /// P14 (devnet-guard-conquest; devnet gap P14, option a: the program unchanged): P11's season and expedition, then a
-/// THIRD PARTY sends the Free City conquest kinds the devnet `.so` keeps open through the version-2 wrapper —
+/// THIRD PARTY sends the Free City conquest kinds the PREVIOUS devnet `.so` (`da3dc1aa…`; P14 (b)'s `67a33c92…`
+/// refuses them, see [`devnet_build`]) keeps open through the version-2 wrapper —
 /// DeclareSiege (12, the host's own wallet), ResolveWithConquest (13) every bell, SettleSiege (15), a second
 /// DeclareSiege as a RESERVATION, SettleReservation (18), and after the Season's end CloseCaptureEscrow (17) and
 /// CloseConquest (16) — while keeper A runs every role. Keeper A's feed guard reads every conquest record exactly
@@ -776,7 +800,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
     } else {
         GENESIS_ROUND
     };
-    let so = devnet_so();
+    let (so_sha256, so_program_hash, so_elf_len) = devnet_build(mode == Mode::Conquest);
+    let so = devnet_so_of(mode == Mode::Conquest);
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
     let drand_bin = sibling_bin("DRAND_REPLAY_BIN", "drand-replay");
     let dir = tmpdir(tag);
@@ -834,7 +859,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             "--yes-send",
             "--i-have-r0ze-approval",
             "--approved-sha256",
-            DEVNET_SO_SHA256,
+            so_sha256,
             "--record",
             rec,
         ]);
@@ -857,7 +882,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     .await;
     assert_eq!(r.code, 0, "{}\n{}", r.stdout, r.stderr);
     assert_eq!(r.stdout.matches("\ntx ").count(), 10, "{}", r.stdout);
-    assert!(r.stdout.contains(&format!("program    sha256 {DEVNET_SO_SHA256} (3,657,488 B ELF; solana-verify program hash {DEVNET_PROGRAM_HASH}); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
+    assert!(r.stdout.contains(&format!("program    sha256 {so_sha256} ({so_elf_len} B ELF; solana-verify program hash {so_program_hash}); markers PSF_DEVNET_PLAYABLE_BUILD")), "{}", r.stdout);
     assert!(
         r.stdout
             .contains(&format!("genesis    round {genesis_round} ")),
@@ -879,7 +904,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
 
     // A wrong --approved-sha256: refused, nothing sent.
     let mut wrong = send(&[]);
-    let i = wrong.iter().position(|x| x == DEVNET_SO_SHA256).unwrap();
+    let i = wrong.iter().position(|x| x == so_sha256).unwrap();
     wrong[i] = "00".repeat(32);
     let r = op(wrong).await;
     assert_eq!(r.code, operator::EXIT_REFUSED, "{}\n{}", r.stdout, r.stderr);
@@ -1561,7 +1586,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         "the recorded lamports are the plan's total"
     );
     let summary = json!({
-        "so_sha256": DEVNET_SO_SHA256, "program": program.to_string(), "season": a.season.to_string(),
+        "so_sha256": so_sha256, "program": program.to_string(), "season": a.season.to_string(),
         "t_create_min": t_create_min, "genesis_round": genesis_round, "planned_lamports": planned,
         "operator_records": records, "join": join.json(), "place_home": place.json(),
         "home": {"p": hp, "q": hq, "site": site, "nation": nation},

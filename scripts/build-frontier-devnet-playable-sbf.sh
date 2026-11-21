@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The DEVNET build of the playable lane (owner decision B7, 2026-11-18): the land lane's code (version 0x4804: the
-# expedition wrapper with conquest kinds 12-18, wide land, the land preview) as cargo feature
-# `devnet-playable-sbf`, WITHOUT the localnet lane's [0x45; 32] program-id check (id-agnostic, like the S1 release).
+# expedition wrapper kinds 0-11, wide land, the land preview) as cargo feature `devnet-playable-sbf`, WITHOUT the
+# localnet lane's [0x45; 32] program-id check (id-agnostic, like the S1 release) and WITHOUT the Free City conquest
+# kinds 12-18 (P14 b, owner decision 2026-11-22: no conquest-dispatch-experimental; the wrapper refuses them BadData).
 #
 #   scripts/build-frontier-devnet-playable-sbf.sh [--twice]
 #
@@ -26,7 +27,7 @@ twice=()
 case "${1:-}" in
   "") ;;
   --twice) twice=(--twice) ;;
-  -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+  -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
   *) echo "unknown argument: $1 (only --twice)" >&2; exit 2 ;;
 esac
 export CARGO_NET_OFFLINE=true
@@ -42,4 +43,4 @@ scripts/build-frontier.sh --features devnet-playable-sbf ${twice[@]+"${twice[@]}
 echo "artefact       $out/permutation_frontier.so"
 echo "program_id     none compiled in (id-agnostic); devnet id = scripts/devnet/devnet-playable-profile.json programId"
 echo "program_version 0x4804 (S1 4 | wide 0x4000 | expedition 0x0800; provisional)"
-echo "conquest_kinds 12-18 through the expedition wrapper only; land tags 0xCD 0xCE (provisional)"
+echo "conquest_kinds none (wrapper kinds 12-18 refused BadData, P14 b); land tags 0xCD 0xCE (provisional)"
