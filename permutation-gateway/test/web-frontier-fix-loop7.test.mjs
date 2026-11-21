@@ -178,6 +178,24 @@ test('LP7-5: the hold of the keep by the own wide march is followed past 「占�
   assert.deepEqual([other.to.p, other.outcome, other.progress], ['-64', null, 1]);
 });
 
+test('LP7-5 (live fix-loop7, turn 451): the capture turns the holding host into the garrison — "gone" with the keep now the nation\'s is TAKEN, not lost', () => {
+  setLang('ja');
+  let h = followWideHold(null, stands(397, { holder: 1, contender: 2, progress: 5, required: 72 }));
+  h = followWideHold(h, { ...stands(450, { holder: 1, contender: 2, progress: 71, required: 72 }), faction: 2 });
+  assert.equal(h.outcome, null); assert.equal(h.progress, 71);
+  // what the live run read at turn 451: no host of the village in the province, the keep held by its nation (2), garrison 42
+  const gone = { to: TO, arrive: 378, phase: 'gone', nowBell: 451, faction: 2, keep: { holder: 2, contender: 255, progress: 0, required: 72 } };
+  const t = followWideHold({ ...h, outcome: null }, gone);
+  assert.equal(t.outcome, 'taken'); assert.equal(t.at, 451);
+  assert.equal(wideHostSayText({ kind: 'wait', wait: 'march', march: gone, hold: t }), '結果：州 -63,-67 の砦を奪いました。砦はあなたの国のものです（ターン 451 に確認）。');
+  // gone with the keep still another nation's: lost, as before
+  const lost = followWideHold({ ...h, outcome: null }, { ...gone, keep: { holder: 1, contender: 255, progress: 0, required: 72 } });
+  assert.equal(lost.outcome, 'lost'); assert.equal(lost.why, 'gone');
+  // and the planner's marchState carries the keep for every arrived phase (source)
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/flocalplay-wide-plan.mjs', import.meta.url), 'utf8');
+  assert.match(src, /phase: open \? 'settling' : 'gone', nowBell, faction: holding\.faction,\n\s+keep: k \?/);
+});
+
 test('LP7-5: the controller follows a standing host while its hold counts (about once a turn), not only out/settling', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(src, /mem\.wideHold = followWideHold\(mem\.wideHold \?\? null, w\.march\)/);

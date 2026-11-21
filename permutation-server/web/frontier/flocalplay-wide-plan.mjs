@@ -84,6 +84,11 @@ export function followWideHold(prev, march) {
   const base = same ? prev : null;
   if (base?.outcome) return base;            // (an ended hold stays ended: taken or lost is said once and kept)
   const to = { p: String(m.to.p), q: String(m.to.q) };
+  // (the capture: the keep is the village nation's. Its holding host became the garrison and left the province's
+  //  entries, so this is seen as 'gone' — fix-loop7 live run, turn 451 — or, if a host still stands there, as 'stands')
+  if (base && m.keep && m.keep.holder === m.faction && ['stands', 'gone', 'settling'].includes(m.phase)) {
+    return { to, progress: base.required ?? m.keep.required ?? null, required: base.required ?? m.keep.required ?? null, since: base.since, outcome: 'taken', at: m.nowBell };
+  }
   if (m.phase === 'stands' && m.keep) {
     const k = m.keep;
     if (k.holder === m.faction) return { to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell };
@@ -122,7 +127,12 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       return { ...m, phase: 'stands', nowBell, troops: Math.floor(there[0].entry.troops / 1000), faction: holding.faction,
         keep: k ? { holder: k.holder, contender: k.contender, progress: k.progress, required: k.required } : null };
     }
-    return { ...m, phase: open ? 'settling' : 'gone', nowBell };
+    // (fix-loop7, LP7-5: the destination's keep rides along when no host of this village stands there. A capture turns the
+    //  holding host into the keep's garrison — it leaves the province's entries — so 'gone' with the keep now held by the
+    //  village's nation is the capture, not a loss: verify-run fix-loop7, turn 451, keep holder = own nation, garrison 42)
+    const k = dp.keep;
+    return { ...m, phase: open ? 'settling' : 'gone', nowBell, faction: holding.faction,
+      keep: k ? { holder: k.holder, contender: k.contender, progress: k.progress, required: k.required } : null };
   }
   async function decide(id, memory, { wideTargets, villages }) {
     if (!villages?.length) return { why: 'no wide village yet' };
