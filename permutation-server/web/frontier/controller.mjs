@@ -3735,20 +3735,19 @@ async function refreshCustody(current = () => true) {
     if (!current() || FS.custody !== c) return;
     const holdings = [...hs.values()].map(b => (b ? cust.decodeHoldingBrief(b) : null)).filter(h => h && h.state !== 0);
     const vaults = (FS.s1?.caravans?.vaults ?? []).filter(v => provs.some(pq => pq.p === v.p && pq.q === v.q) && typeof v.ownerCitizen === 'string');
-    const lotAt = [];
-    for (const v of vaults) {
-      if (v.ownerCitizen === viewer) { for (const h of holdings) if (h.ownerCitizen !== viewer && h.p === v.p && h.q === v.q) lotAt.push({ vault: v, owner: h.ownerCitizen }); }
-      else lotAt.push({ vault: v, owner: viewer });
-    }
+    // (a seizure or a capture moves a storehouse or village to its next generation, and a lot's or pool's address
+    //  carries the generation: the planners also read the generations before and everything read before, or a loss
+    //  would vanish instead of being told — verify-pr140)
+    const lotAt = cust.lotReadPlan({ vaults, holdings, viewer, known: [...c.lots.values()].map(e => ({ vault: e.vault, owner: e.owner })) });
     const lotAddr = lotAt.map(x => cust.lotAddress(A.season, pin.programId, x.vault, cust.tagOf(x.owner)));
-    const poolOf = holdings.filter(h => h.workshops > 0 || h.lent > 0);
-    const poolAddr = poolOf.map(h => cust.poolAddress(A.season, pin.programId, h));
+    const poolOf = cust.poolReadPlan({ holdings, known: [...c.pools.values()].map(e => e.pool.facility) });
+    const poolAddr = poolOf.map(f => cust.poolAddress(A.season, pin.programId, f));
     const got = await custodyRead([...lotAddr, ...poolAddr]);
     if (!current() || FS.custody !== c) return;
     const lots = new Map();
-    lotAt.forEach((x, i) => { const b = got.get(lotAddr[i]); const l = b ? cust.decodeLot(b) : null; if (l) lots.set(lotAddr[i], { vault: x.vault, owner: x.owner, lot: l }); else if (c.lots.has(lotAddr[i])) lots.set(lotAddr[i], { ...c.lots.get(lotAddr[i]), gone: true }); });
+    lotAt.forEach((x, i) => { const b = got.get(lotAddr[i]); const l = b ? cust.decodeLot(b) : null; if (l && l.owner === x.owner) lots.set(lotAddr[i], { vault: x.vault, owner: x.owner, lot: l }); else if (!l && c.lots.has(lotAddr[i]) && !c.lots.get(lotAddr[i]).gone) lots.set(lotAddr[i], { ...c.lots.get(lotAddr[i]), gone: true }); });
     const pools = new Map();
-    poolOf.forEach((h, i) => { const b = got.get(poolAddr[i]); const pl = b ? cust.decodePool(b) : null; if (pl) pools.set(poolAddr[i], { holding: h, pool: pl }); });
+    poolOf.forEach((f, i) => { const b = got.get(poolAddr[i]); const pl = b ? cust.decodePool(b) : null; if (pl) pools.set(poolAddr[i], { pool: pl }); });
     // jobs: every job of the viewer's own pools, and the viewer's own jobs in others' pools
     const jobAt = [];
     for (const [, e] of pools) {

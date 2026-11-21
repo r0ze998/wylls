@@ -18,7 +18,7 @@ import { icon } from '../hud/icons.mjs';
 import { factionName } from '../fi18n.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { settledFor } from './rights.mjs';
-import { FIN, LOT_OPEN, LOT_FORFEITED, CV_MOVING, CV_LOST, CV_CUSTODY_TAKEN, MILLI, ORE_PER_ARM, WOOD_PER_ARM, MAX_JOBS, MAX_GRANTS, jobOutAt, nextGrantSeq, nextJobSeq } from '../flocalplay-custody.mjs';
+import { FIN, LOT_OPEN, LOT_FORFEITED, CV_MOVING, CV_LOST, CV_CUSTODY_TAKEN, MILLI, ORE_PER_ARM, WOOD_PER_ARM, MAX_JOBS, MAX_GRANTS, jobOutAt, nextGrantSeq, nextJobSeq, tagOf } from '../flocalplay-custody.mjs';
 
 const whole = m => Math.floor(Number(m) / MILLI);
 const same = (a, b) => a.p === b.p && a.q === b.q;
@@ -30,12 +30,17 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   const viewer = c.viewer, myTag = c.myTag;
   const holdings = c.holdings ?? [], vaults = c.vaults ?? [];
   const nationOf = citizen => holdings.find(h => h.ownerCitizen === citizen)?.faction ?? vaults.find(v => v.ownerCitizen === citizen)?.faction ?? null;
+  // (a lot of a generation before — its storehouse was seized since — names no keeper: the lot's custodian tag does)
+  const nationOfTag = tag => holdings.find(h => typeof h.ownerCitizen === 'string' && tagOf(h.ownerCitizen) === String(tag))?.faction ?? null;
+  const vaultNow = e => vaults.find(x => same(x, e.vault) && x.tile === e.vault.tile) ?? null;
+  // (workshops the village still runs itself: the program lends at most `workshops − lent` more, holding.rs lend_workshops)
+  const freeOf = h => (h ? Math.max(0, h.workshops - (h.lent ?? 0)) : 0);
   const losses = [];
   // ---- ⑩ custody
   const lots = [...(c.lots?.values() ?? [])].filter(e => !e.gone);
   const caravans = [...(c.caravans?.values() ?? [])];
   const myLots = lots.filter(e => e.owner === viewer).map(e => {
-    const l = e.lot, v = vaults.find(x => same(x, e.vault) && x.tile === e.vault.tile) ?? null;
+    const l = e.lot, v = vaultNow(e);
     const seized = l.state === LOT_OPEN && (!v || Number(v.gen) !== l.vaultGen || v.ownerCitizen !== e.vault.ownerCitizen);
     const mine = caravans.filter(cv => same(cv.dst, e.vault) && cv.dst.tile === e.vault.tile);
     const taken = mine.filter(cv => cv.custody === CV_CUSTODY_TAKEN || cv.state === CV_LOST);
@@ -46,17 +51,22 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
       return { seq: x.seq, qty: whole(x.qty), lost, arrived, provinces: cv?.provinces ?? [], arriveTs: cv?.arriveTs ?? null, ...(arrived ? settledFor(FS, cv.provinces, cv.arriveTs) : {}) };
     });
     for (const x of inbound) if (x.lost) losses.push({ key: `road:${x.seq}`, text: () => L`預けに向かった鉱石 ${fmtNum(x.qty)} は道中で奪われました。` });
+    // (told once, at the seizure: the same key once the lot is reconciled and forfeit)
     if (l.state === LOT_FORFEITED) losses.push({ key: `lot:${l.p},${l.q},${l.tile},${l.vaultGen}`, text: () => L`預けていた貯蔵庫が奪われ、鉱石 ${fmtNum(whole(l.forfeited))} は奪った側のものになりました。` });
+    else if (seized) losses.push({ key: `lot:${l.p},${l.q},${l.tile},${l.vaultGen}`, text: () => L`預けていた貯蔵庫が奪われました。預けた鉱石 ${fmtNum(whole(l.held))} は奪った側のものになります。` });
     const live = l.state === LOT_OPEN && !seized;
-    return { vault: e.vault, lot: l, keeper: e.vault.faction, held: whole(l.held), quota: whole(l.quota), forfeited: whole(l.forfeited), state: l.state, seized, inbound,
+    const keeper = (e.vault.ownerCitizen ? e.vault.faction : null) ?? nationOfTag(l.custodianTag) ?? e.vault.faction ?? null;
+    return { vault: e.vault, lot: l, keeper, held: whole(l.held), quota: whole(l.quota), forfeited: whole(l.forfeited), state: l.state, seized, inbound,
       reconcile: seized || inbound.some(x => x.lost) ? { caravans: inbound.filter(x => x.lost).map(x => `${myTag}_${x.seq}`) } : null,
       canDeposit: live && !inbound.some(x => x.lost) && l.held + l.inbound.reduce((a, x) => a + x.qty, 0) < l.quota, room: whole(l.quota - l.held - l.inbound.reduce((a, x) => a + x.qty, 0)),
       canWithdraw: live && l.held >= MILLI, canClose: l.inbound.length === 0 && (l.state === LOT_FORFEITED || (live && l.held === 0)), taken: taken.length };
   });
-  const keptLots = lots.filter(e => e.owner !== viewer && e.vault.ownerCitizen === viewer).map(e => {
-    const l = e.lot;
-    if (l.state === LOT_FORFEITED) losses.push({ key: `kept:${l.p},${l.q},${l.tile},${l.vaultGen}:${l.ownerTag}`, text: () => L`あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。` });
-    return { vault: e.vault, depositor: nationOf(e.owner), held: whole(l.held), quota: whole(l.quota), state: l.state };
+  // (the keeper is the lot's custodian — its tag is in the lot — so a seized storehouse's lots stay on its old keeper's card)
+  const keptLots = lots.filter(e => e.owner !== viewer && (l => l.custodianTag === String(myTag))(e.lot)).map(e => {
+    const l = e.lot, v = vaultNow(e);
+    const seized = l.state === LOT_FORFEITED || !v || Number(v.gen) !== l.vaultGen || v.ownerCitizen !== viewer;
+    if (seized) losses.push({ key: `kept:${l.p},${l.q},${l.tile},${l.vaultGen}:${l.ownerTag}`, text: () => L`あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。` });
+    return { vault: e.vault, depositor: nationOf(e.owner), held: whole(l.held), quota: whole(l.quota), state: l.state, seized };
   });
   const myVaults = vaults.filter(v => v.ownerCitizen === viewer);
   const openChoices = myVaults.flatMap(v => holdings.filter(h => same(h, v) && h.ownerCitizen !== viewer)
@@ -75,20 +85,22 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
     const busy = pl.occ.filter(o => o.open && o.endEff > nowTs).reduce((a, o) => a + o.units, 0);
     const users = vaults.filter(v => same(v, f) && v.ownerCitizen !== viewer && typeof v.ownerCitizen === 'string')
       .filter((v, i, a) => a.findIndex(x => x.ownerCitizen === v.ownerCitizen) === i).map(v => ({ user: v.ownerCitizen, faction: v.faction }));
-    return { facility: f, pool: pl, lost: pl.lostAt !== null, gone, lent: pl.lent, busy, free: now ? now.workshops : 0, nextGrant: nextGrantSeq(pl), users,
+    return { facility: f, pool: pl, lost: pl.lostAt !== null, gone, lent: pl.lent, busy, free: freeOf(now), nextGrant: nextGrantSeq(pl), users,
       canGrant: pl.lostAt === null && !gone && pl.lent > 0 && pl.grants.length < MAX_GRANTS && users.length > 0,
       grants: pl.grants.map(g => ({ seq: g.seq, user: nationOf(g.user), maxUnits: g.maxUnits, until: g.until, revoked: g.revokedAt !== null })),
       jobs: jobsOf(f).map(e => ({ grant: e.job.grant, seq: e.job.seq, units: e.job.units, fin: e.job.fin, made: whole(jobOutAt(e.job, nowTs)) })),
       lossJobs: pl.occ.map(o => `${o.grant}_${o.job}`).join('.') };
   });
-  const lendable = holdings.filter(h => h.ownerCitizen === viewer && h.workshops > 0 && !pools.some(e => same(e.pool.facility, h) && e.pool.facility.site === h.site && e.pool.facility.gen === h.gen))
-    .map(h => ({ facility: { p: h.p, q: h.q, site: h.site, gen: h.gen }, free: h.workshops }));
+  const lendable = holdings.filter(h => h.ownerCitizen === viewer && freeOf(h) > 0 && !pools.some(e => same(e.pool.facility, h) && e.pool.facility.site === h.site && e.pool.facility.gen === h.gen))
+    .map(h => ({ facility: { p: h.p, q: h.q, site: h.site, gen: h.gen }, free: freeOf(h) }));
   const grants = pools.filter(e => e.pool.owner !== viewer).flatMap(e => e.pool.grants.filter(g => g.user === viewer).map(g => {
     const pl = e.pool, f = pl.facility, now = facilityNow(f);
     const vault = myVaults.find(v => same(v, f)) ?? null;
     const gone = pl.lostAt === null && (!now || now.gen !== f.gen || now.ownerCitizen !== pl.owner);
-    const live = pl.lostAt === null && !gone && g.revokedAt === null && nowTs < g.until && pl.occ.length < MAX_JOBS;
-    return { facility: f, owner: nationOf(pl.owner), seq: g.seq, maxUnits: g.maxUnits, maxArms: whole(g.maxOutput - g.spent), until: g.until, revoked: g.revokedAt !== null,
+    const live = pl.lostAt === null && !gone && g.revokedAt === null && nowTs < g.until && pl.occ.length < MAX_JOBS && g.maxOutput - g.spent - pl.occ.filter(o => o.grant === g.seq).reduce((a, o) => a + o.budget, 0) >= MILLI;
+    // (the grant's output budget: what its retired jobs made (`spent`) and what its jobs in the pool hold (`budget`))
+    const held = pl.occ.filter(o => o.grant === g.seq).reduce((a, o) => a + o.budget, 0);
+    return { facility: f, owner: nationOf(pl.owner), seq: g.seq, maxUnits: g.maxUnits, maxArms: Math.max(0, whole(g.maxOutput - g.spent - held)), until: g.until, revoked: g.revokedAt !== null,
       vault, nextJob: nextJobSeq(g), canReserve: live && vault !== null, gone, lost: pl.lostAt !== null, lossJobs: pl.occ.map(o => `${o.grant}_${o.job}`).join('.') };
   }));
   const myJobs = jobs.filter(e => e.job.user === viewer).map(e => {
@@ -133,7 +145,7 @@ export function renderCustody(FS) {
       ${e.reconcile ? btn('lot-reconcile', { ...d, caravans: e.reconcile.caravans.join('.') }, L`帳簿を確かめる`) : ''}
       ${e.canClose ? btn('lot-close', { ...d, rent: e.lot.rentTo }, L`枠を閉じる`) : ''}</span></li>`;
   })}</ul>` : '';
-  const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.state === LOT_FORFEITED ? chip(L`奪われた`, 'warn') : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
+  const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? chip(L`奪われた`, 'warn') : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
   const openLot = m.openChoices.length ? html`<form class="vform" data-form="lot-open">
     <label class="field">${L`貯蔵庫と預ける人`}<select name="pair">${m.openChoices.map((x, i) => html`<option value="${i}" ${data({ ...vd(x.vault), owner: x.owner })}>${L`マス ${x.vault.tile} → ${factionName(x.faction)} の村（マス ${x.at}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="lot-q">${L`鉱石の枠`}</label><input id="lot-q" name="quota" type="number" min="1" max="10000" step="1" value="50" inputmode="numeric"></div>

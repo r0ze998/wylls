@@ -161,10 +161,10 @@ function jobBytes({ grant = 0, seq = 0, user, units = 2, start, end, maxOutput =
   put(i64(0)); put(i64(0)); put(i64(forfeitedIn[0])); put(i64(forfeitedIn[1])); put(i64(forfeitedOut)); put(Buffer.from([0]));
   return new Uint8Array(b);
 }
-function lotBytes({ vault, owner, ownerTag, state = 1, quota = 50000, held = 0, forfeited = 0, inbound = [], rentTo = WALLET_B }) {
+function lotBytes({ vault, owner, ownerTag, custodianTag = vault.ownerTag ?? 0, state = 1, quota = 50000, held = 0, forfeited = 0, inbound = [], rentTo = WALLET_B }) {
   const b = Buffer.alloc(576);
   b.write('PSF1CLOT', 0); b.writeInt16LE(vault.p, 64); b.writeInt16LE(vault.q, 66); b[68] = vault.tile; b[69] = vault.gen; b[70] = 3; b[71] = state;
-  Buffer.from(b58d(owner)).copy(b, 72); b.writeBigUInt64LE(BigInt(ownerTag), 104); b.writeBigInt64LE(BigInt(quota), 120); b.writeBigInt64LE(BigInt(held), 128); b.writeBigInt64LE(BigInt(forfeited), 160);
+  Buffer.from(b58d(owner)).copy(b, 72); b.writeBigUInt64LE(BigInt(ownerTag), 104); b.writeBigUInt64LE(BigInt(custodianTag), 112); b.writeBigInt64LE(BigInt(quota), 120); b.writeBigInt64LE(BigInt(held), 128); b.writeBigInt64LE(BigInt(forfeited), 160);
   inbound.forEach((x, i) => { const at = 432 + i * 24; b.writeBigUInt64LE(BigInt(x.tag), at); b.writeUInt32LE(x.seq, at + 8); b[at + 12] = 1; b.writeBigInt64LE(BigInt(x.qty), at + 16); });
   Buffer.from(b58d(rentTo)).copy(b, 528);
   return new Uint8Array(b);
@@ -278,4 +278,61 @@ test('a loss is told as what happened — an alert with its own words, never "co
   const h = String(renderStatus(st));
   assert.match(h, /role="alert"/); assert.match(h, /道中で奪われました/);
   assert.doesNotMatch(h, /できませんでした|notice-retry/);
+});
+
+// ---- verify-pr140: a seizure or a capture moves the storehouse or village to its next generation, and a lot's or pool's
+// address carries the generation — the page reads the generations before too, or the loss vanishes instead of being told
+test('reads after a seizure or a capture: the lots and pools of the generations before, and everything read before (verify-pr140)', () => {
+  // a storehouse seized once (gen 2 now; built at gen 1): both roles are looked for at gen 1, the present one as before
+  const v2 = { ...VAULT_YOU, gen: 2, ownerCitizen: THEM, faction: 2 };
+  const plan = C.lotReadPlan({ vaults: [v2, { ...VAULT_ME, gen: 1 }], holdings: [H(ME, 4), H(YOU, 7), H(THEM, 9)], viewer: ME });
+  const key = x => `${x.vault.tile}/${x.vault.gen}/${x.owner === ME ? 'me' : x.owner === YOU ? 'you' : 'them'}`;
+  assert.deepEqual(plan.map(key).sort(), ['22/1/me', '22/1/them', '22/1/you', '22/2/me', '30/1/them', '30/1/you'].sort());
+  // the addresses differ by generation (the reason for all this)
+  assert.notEqual(C.lotAddress(A.season, LOCAL_PLAY_PROGRAM, { ...V, gen: 1 }, TAG), C.lotAddress(A.season, LOCAL_PLAY_PROGRAM, { ...V, gen: 2 }, TAG));
+  // a lot read before is read again by its own address, even when nothing else points at it (the storehouse left the view)
+  const again = C.lotReadPlan({ vaults: [], holdings: [], viewer: ME, known: [{ vault: { ...VAULT_YOU, gen: 1 }, owner: ME }] });
+  assert.deepEqual(again.map(key), ['22/1/me']);
+  // a captured workshop village (gen 2, the generation before 1): its old pool is read; a plain village is not
+  const pools = C.poolReadPlan({ holdings: [{ ...H(THEM, 7), gen: 2, prevGen: 1, capturedBell: 40, workshops: 1 }, H(YOU, 9)], known: [{ p: 3, q: -2, site: 4, gen: 0 }] });
+  assert.deepEqual(pools.map(f => `${f.site}/${f.gen}`).sort(), ['4/0', '7/1', '7/2']);
+  // the brief decoder reads PREV_GEN @1256 and CAPTURED_BELL @1260
+  const hb = Buffer.alloc(1264); hb.write('PSF1HOLD', 0); hb.writeInt16LE(3, 64); hb.writeInt16LE(-2, 66); hb[68] = 7; hb[69] = 2; hb[71] = 1; hb[1256] = 1; hb.writeUInt32LE(40, 1260);
+  const brief = C.decodeHoldingBrief(new Uint8Array(hb));
+  assert.equal(brief.gen, 2); assert.equal(brief.prevGen, 1); assert.equal(brief.capturedBell, 40);
+});
+
+test('the card on real chain state after a seizure: the lot of the generation before stays on both cards and the loss is told at once (verify-pr140)', () => {
+  const v2 = { ...VAULT_YOU, gen: 2, ownerCitizen: THEM, faction: 2 };   // (YOU kept it at gen 1; THEM seized it)
+  const old = { p: 3, q: -2, tile: 22, gen: 1, ownerCitizen: null, faction: null };
+  const mine = lotEntry(old, ME, { held: 12000, custodianTag: citizenTag(YOU).toString() });
+  const dep = custodyModel(world({ lots: [mine], vaults: [v2, VAULT_ME] }));
+  assert.equal(dep.myLots.length, 1); assert.ok(dep.myLots[0].seized && dep.myLots[0].reconcile && !dep.myLots[0].canWithdraw);
+  assert.equal(dep.myLots[0].keeper, 1);   // (the keeper the lot names — YOU's nation — not the captor's)
+  assert.equal(dep.losses.length, 1); assert.match(dep.losses[0].text(), /12/);
+  // the same key once reconciled: told once
+  const after = custodyModel(world({ lots: [lotEntry(old, ME, { state: C.LOT_FORFEITED, forfeited: 12000, custodianTag: citizenTag(YOU).toString() })], vaults: [v2, VAULT_ME] }));
+  assert.equal(after.losses[0].key, dep.losses[0].key);
+  // the old keeper (viewer = YOU) still sees the lot it held, marked taken, and is told
+  const fsKeeper = world({ lots: [lotEntry(old, ME, { held: 12000, custodianTag: citizenTag(YOU).toString() })], vaults: [v2, VAULT_ME] });
+  fsKeeper.custody.viewer = YOU; fsKeeper.custody.myTag = citizenTag(YOU).toString();
+  const keeper = custodyModel(fsKeeper);
+  assert.equal(keeper.keptLots.length, 1); assert.ok(keeper.keptLots[0].seized); assert.equal(keeper.losses.length, 1);
+  assert.match(String(renderCustody(fsKeeper)), /奪われた/);
+});
+
+test('lending: only the copies the village still runs itself are offered (workshops − lent); the arms left count the open jobs (verify-pr140)', () => {
+  const fac = { ...F, gen: 0 };
+  const pool = C.decodePool(poolBytes({ facility: fac, owner: ME, lent: 1, grants: [{ seq: 0, user: YOU }] }));
+  const all = custodyModel(world({ pools: [{ pool }], holdings: [H(ME, 4, { workshops: 1, lent: 1 }), H(YOU, 7)] }));
+  assert.equal(all.owned[0].free, 0); assert.doesNotMatch(String(renderCustody(world({ pools: [{ pool }], holdings: [H(ME, 4, { workshops: 1, lent: 1 }), H(YOU, 7)] }))), /data-form="cap-lend"/);
+  assert.deepEqual(custodyModel(world({ holdings: [H(ME, 4, { workshops: 2, lent: 1 })] })).lendable.map(x => x.free), [1]);
+  assert.deepEqual(custodyModel(world({ holdings: [H(ME, 4, { workshops: 1, lent: 1 })] })).lendable, []);
+  // a grant of 40 arms with one 10-arm job in the pool: 30 left; with 40 held, nothing is bookable
+  const theirs = C.decodePool(poolBytes({ facility: { p: 3, q: -2, site: 7, gen: 0 }, owner: YOU, grants: [{ seq: 0, user: ME, maxOutput: 40000 }], occ: [{ grant: 0, job: 0, units: 1, start: NOW - 100, end: NOW + 4400 }] }));
+  const user = custodyModel(world({ pools: [{ pool: theirs }] }));
+  assert.equal(user.grants[0].maxArms, 30); assert.ok(user.grants[0].canReserve);
+  const full = C.decodePool(poolBytes({ facility: { p: 3, q: -2, site: 7, gen: 0 }, owner: YOU, grants: [{ seq: 0, user: ME, maxOutput: 10000 }], occ: [{ grant: 0, job: 0, units: 1, start: NOW - 100, end: NOW + 4400 }] }));
+  const none = custodyModel(world({ pools: [{ pool: full }] }));
+  assert.equal(none.grants[0].maxArms, 0); assert.ok(!none.grants[0].canReserve);
 });

@@ -461,5 +461,53 @@ export function decodeHoldingBrief(bytes) {
   r.at(112); h.faction = r.u8();
   r.at(472 + 8 * RES.arms); h.workshops = Math.floor(n(r.i64()) / (ARMS_PER_HOUR * MILLI));
   r.at(700); h.lent = r.u32();
+  // (PREV_GEN @1256, CAPTURED_BELL @1260: a capture moves the village to the next generation — the pool and jobs of the
+  //  generation before stay at their own addresses, which carry that generation)
+  if (bytes.length >= 1264) { r.at(1256); h.prevGen = r.u8(); r.at(1260); h.capturedBell = r.u32(); } else { h.prevGen = 0; h.capturedBell = 0; }
   return Object.freeze(h);
+}
+
+// ------------------------------------------------------------------ what to read (pure)
+
+/** How many generations before a storehouse's present one its lots are still looked for (each seizure is one). */
+export const LOT_GEN_LOOKBACK = 2;
+/**
+ * The lots to read: `[{vault, owner}]` (the vault as the lot's address needs it: p, q, tile and the lot's generation).
+ * A lot's address carries its storehouse's generation, and a seizure moves the storehouse to the next one (SeizeVault:
+ * gen + 1) — read only at the present generation, a seized storehouse's lots would vanish from both sides and the loss
+ * would never be told. So: the present generation (the viewer's storehouses for every other player with a village in
+ * that Province; another's storehouse for the viewer), the generations before (up to LOT_GEN_LOOKBACK, both roles:
+ * the lot's own `custodianTag` and `owner` tell which side the viewer was), and every lot read before, again by its own
+ * address (`known`).
+ */
+export function lotReadPlan({ vaults = [], holdings = [], viewer, known = [] }) {
+  const out = new Map();
+  const add = (vault, owner) => { const key = `${vault.p},${vault.q},${vault.tile},${vault.gen}:${owner}`; if (!out.has(key)) out.set(key, { vault, owner }); };
+  for (const v of vaults) {
+    const others = [...new Set(holdings.filter(h => h.ownerCitizen !== viewer && h.p === v.p && h.q === v.q).map(h => h.ownerCitizen))];
+    if (v.ownerCitizen === viewer) for (const o of others) add(v, o);
+    else add(v, viewer);
+    for (let g = Number(v.gen) - 1; g >= Math.max(1, Number(v.gen) - LOT_GEN_LOOKBACK); g--) {
+      const before = { p: v.p, q: v.q, tile: v.tile, gen: g, ownerCitizen: null, faction: null };
+      add(before, viewer);
+      for (const o of others) add(before, o);
+    }
+  }
+  for (const e of known) add(e.vault, e.owner);
+  return [...out.values()];
+}
+/**
+ * The pools to read: `[{p, q, site, gen}]`. A pool's address carries its village's generation and a capture moves the
+ * village on (the Holding keeps PREV_GEN and CAPTURED_BELL), so a captured workshop village's pool — the one whose jobs
+ * the captor takes, RecordFacilityLoss — is at the generation before: read it too, and every pool read before (`known`).
+ */
+export function poolReadPlan({ holdings = [], known = [] }) {
+  const out = new Map();
+  const add = f => { const key = `${f.p},${f.q},${f.site},${f.gen}`; if (!out.has(key)) out.set(key, { p: f.p, q: f.q, site: f.site, gen: f.gen }); };
+  for (const h of holdings) {
+    if (h.workshops > 0 || h.lent > 0) add(h);
+    if (h.capturedBell && h.prevGen > 0 && h.prevGen !== h.gen) add({ ...h, gen: h.prevGen });
+  }
+  for (const f of known) add(f);
+  return [...out.values()];
 }
