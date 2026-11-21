@@ -1597,6 +1597,7 @@ export default {
   '開始サービスは終了の処理中です。開始サービスを起動し直してから、ページを開き直してください。': 'The start service is shutting down. Start it again, then reopen this page.',
   '世界を終了できませんでした。開始サービスを確認して、もう一度押してください。': 'The world could not be ended. Check the start service, then press again.',
   '動いている世界を確認できませんでした。開始サービスを確認して、もう一度押してください。': 'The running worlds could not be checked. Check the start service, then press again.',
+  '世界を終了できるのは、開始サービスが表示したアドレス（#owner= の付いたもの）で開いたページだけです。そのアドレスで開き直してください。': 'Only a page opened at the address the start service printed (the one with #owner=) can end a world. Open that address again.',
   '試験世界の準備（時間の早送り）を終えられませんでした。その世界は終了しました。もう一度押すと、新しい世界で準備し直します。': 'The test world\'s preparation (running its clock faster) could not be finished. That world was ended. Press again to prepare a new world.',
   // (the launcher world's standing notice after the gate, flocalplay-session.mjs: what stays true for the session)
   'この試験世界について': 'About this test world',

@@ -51,7 +51,8 @@ It prints one JSON line per step (`key`, `discover`, `mcp`, `decide`, `act`, `st
 
 - **Discover:** `POST <launcher>/local-play/start {wallet}` with the launcher page's `Origin` — the page's own button.
   An admitted address never starts a world of its own: the answer is `{residentWaiting: true}` until a world has it,
-  then `{herald: <your proxy>, external: {role: 'resident'}}`. It cannot stop the world (`403 NotWorldOwner`) or read
+  then `{herald: <your proxy>, external: {role: 'resident'}}`. It cannot stop the world (`403 NotWorldOwner`: a stop
+  takes the launcher's owner proof, which only the launcher's own printed address carries, never an address) or read
   the owner's views.
 - **Observe:** the public herald through your proxy (`/h/me/<you>`, `/h/status`, `/h/season`, `/h/province/P,Q/latest`
   — the page's reads, decoded with the page's codec; first-home sites by the page's own `homeSites`), and the MCP read
