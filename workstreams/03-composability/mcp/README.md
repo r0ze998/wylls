@@ -33,6 +33,7 @@ The design and the facts are in [../07-mcp.ja.md](../07-mcp.ja.md) (Japanese). T
 ## Test
 
 ```sh
+(cd permutation-gateway && npm ci)                               # the tests import this repository's gateway (test/fixture.mjs), which needs its own packages
 cd workstreams/03-composability/mcp && npm ci
 npm test                                                         # this repository's gateway has patch 0005 since 31ceb016: the write tests run (test/fixture.mjs PATCHED)
 WS03_GATEWAY_ROOT=/path/to/another/permutation-gateway npm test  # another gateway tree (one without patch 0005 skips the write tests)
@@ -85,4 +86,4 @@ node e2e/http-verify.mjs --mcp http://127.0.0.1:41530 --stack http://127.0.0.1:4
 ```
 
 The server's per-address limit (20, then 1 every 2 s) applies to the driver too: it waits out a 429 (`--phase rate-limit`
-counts them instead). The chain is scripted (`[SIMULATED CHAIN]`): what the program would do is not executed.
+counts them instead). `--phase board-down` and `--phase rate-limit` read the token the main phase left at `<--out>.token`, so give them the same `--out` as the main run. The chain is scripted (`[SIMULATED CHAIN]`): what the program would do is not executed.
