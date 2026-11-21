@@ -270,17 +270,33 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
 
 // loop-play4 B-8: the ×60 picker's confirm was a new node at every 10 s turn (Playwright: "element was detached"; a person's
 // press between hover and release missed it). A `data-stable` node whose markup is unchanged is the same node afterwards.
-test('keepState: a data-stable node with unchanged markup survives the re-render as the SAME node; a changed one is the new', () => {
-  const mk = (key, html) => { const n = { tagName: 'BUTTON', dataset: { stable: key }, outerHTML: html, closest: () => null, matches: () => false, swapped: null }; n.replaceWith = o => { n.swapped = o; }; return n; };
+// (fix-loop6, LP6-11: still 3–4 real presses in the ×60 wide picker; the main cause was confirmHome's reading being restarted
+//  by each press (web-frontier-home.test.mjs). As a second measure a changed node is now the SAME node too, brought up to date)
+test('keepState: a data-stable node survives the re-render as the SAME node — unchanged as it was, changed brought up to date in place', () => {
+  const attrsOf = html => [...html.matchAll(/ ([a-z-]+)(?:="([^"]*)")?/g)].map(m => ({ name: m[1], value: m[2] ?? '' }));
+  const mk = (key, html) => {
+    const n = { tagName: 'BUTTON', dataset: { stable: key }, outerHTML: html, closest: () => null, matches: () => false, swapped: null,
+      innerHTML: html.replace(/^<[^>]*>|<\/[^>]*>$/g, ''), attributes: attrsOf(html.match(/^<[^>]*>/)[0]), disabled: /\sdisabled/.test(html) };
+    n.replaceWith = o => { n.swapped = o; const i = nodes.indexOf(n); if (i >= 0) nodes[i] = o; };
+    n.hasAttribute = a => n.attributes.some(x => x.name === a);
+    n.getAttribute = a => n.attributes.find(x => x.name === a)?.value ?? null;
+    n.setAttribute = (a, v) => { n.attributes = [...n.attributes.filter(x => x.name !== a), { name: a, value: v }]; };
+    n.removeAttribute = a => { n.attributes = n.attributes.filter(x => x.name !== a); };
+    return n;
+  };
   let nodes = [mk('join-go', '<button data-stable="join-go">Start as Cinder</button>')];
   const el = { scrollTop: 0, contains: () => false, querySelectorAll: sel => (sel === '[data-stable]' ? nodes : []) };
   const old = nodes[0];
-  keepState(el, () => { nodes = [mk('join-go', '<button data-stable="join-go">Start as Cinder</button>')]; }, el);
-  assert.equal(nodes[0].swapped, old, 'unchanged: the old node is put back in place of the new');
-  const old2 = nodes[0];
-  keepState(el, () => { nodes = [mk('join-go', '<button data-stable="join-go">Start as Ember</button>')]; }, el);
-  assert.equal(nodes[0].swapped, null, 'changed markup: the new node stays');
-  assert.notEqual(nodes[0], old2);
+  let first;
+  keepState(el, () => { nodes = [first = mk('join-go', '<button data-stable="join-go">Start as Cinder</button>')]; }, el);
+  assert.equal(first.swapped, old, 'unchanged: the old node is put back in place of the new');
+  // changed markup (label and `disabled`): the old node is put back, now saying what the new markup says
+  let fresh;
+  keepState(el, () => { nodes = [fresh = mk('join-go', '<button data-stable="join-go" disabled>Preparing…</button>')]; }, el);
+  assert.equal(fresh.swapped, old, 'changed: still the same node'); assert.equal(nodes[0], old);
+  assert.equal(old.innerHTML, 'Preparing…'); assert.equal(old.disabled, true); assert.equal(old.getAttribute('disabled'), '');
+  keepState(el, () => { nodes = [fresh = mk('join-go', '<button data-stable="join-go">Start as Ember</button>')]; }, el);
+  assert.equal(fresh.swapped, old); assert.equal(old.innerHTML, 'Start as Ember'); assert.equal(old.disabled, false); assert.equal(old.hasAttribute('disabled'), false);
 });
 
 // round 43 (seen in live33, turn 27): the only host on the march is in no province record the page holds until its
@@ -329,4 +345,31 @@ test('the Hosts tab: March opens while the province is only resolving the last t
   // not behind: as before (open for a rested host with stamina)
   assert.doesNotMatch(marchButton(hostScreen.render(world().FS), id7), /disabled/);
   setLang('ja');
+});
+
+// (verify-pr130, LP6-13) Live: a caravan opened from a storehouse, then the source switched to the village in the field;
+// the next redraw (×60: about once a second) put the storehouse's bounds back (food max 0, wood max 20) while the field
+// still showed the village. A source the person picked takes its own bounds again after the redraw.
+test('keepState: the caravan amounts follow the source picked in the field across a redraw (verify-pr130 LP6-13)', () => {
+  const build = () => {
+    const form = { dataset: { form: 's1-caravan' } };
+    const inForm = o => ({ dataset: {}, matches: () => false, closest: s => (s === 'form[data-form]' ? form : null), ...o });
+    const opts = [{ value: '0', defaultSelected: false, dataset: { have: '457,198,78,75,0,109' } }, { value: '1', defaultSelected: true, dataset: { have: '0,20,0,40,0,0' } }];
+    const inputs = [0, 1, 2, 3, 5].map(i => inForm({ tagName: 'INPUT', type: 'number', name: `c${i}`, value: '0', defaultValue: '0', max: String([0, 20, 0, 40, 0, 0][i]) }));
+    const src = inForm({ tagName: 'SELECT', name: 'src', options: opts, value: '1' });
+    Object.defineProperty(src, 'selectedOptions', { get: () => opts.filter(o => o.value === src.value) });
+    src.form = { querySelectorAll: () => inputs };
+    const all = { 'input, select, textarea': [src, ...inputs], 'form[data-form="s1-caravan"] select[name="src"]': [src] };
+    return { src, inputs, el: { scrollTop: 0, contains: () => false, querySelectorAll: sel => all[sel] ?? [] } };
+  };
+  let cur = build();
+  const el = { get scrollTop() { return 0; }, set scrollTop(v) {}, contains: () => false, querySelectorAll: sel => cur.el.querySelectorAll(sel) };
+  cur.src.value = '0'; cur.inputs[1].value = '150';      // the village picked, 150 wood typed
+  keepState(el, () => { cur = build(); }, el);
+  assert.equal(cur.src.value, '0', 'the picked source is kept');
+  assert.deepEqual(cur.inputs.map(x => x.max), ['457', '198', '78', '75', '109'], "the village's bounds, not the storehouse's");
+  assert.equal(cur.inputs[1].value, '150', 'and the typed amount stands (within the village stock)');
+  // the first-offered source untouched: its own markup bounds, nothing re-applied
+  cur = build(); keepState(el, () => { cur = build(); }, el);
+  assert.deepEqual(cur.inputs.map(x => x.max), ['0', '20', '0', '40', '0']);
 });

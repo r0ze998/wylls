@@ -1969,6 +1969,10 @@ export default {
   "最後に見たときのようすです（いまは見えていません）。": "As you last saw it (out of sight now).",
   "見えている他国の砦で、いま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within reach now. Keeps on land you have not seen are not shown.",
   "見えている他国の砦で、この軍勢がいま届くものはありません。まだ見ていない土地の砦は表示しません。": "No other nation's keep you have seen is within this host's reach now. Keeps on land you have not seen are not shown.",
+  "次の一手：「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます（着いたあたりが見えるようになります）。": "Next: with March you can press a tile on the map and go to land you have not seen yet (you will see around where you arrive).",
+  "進軍で地図から選ぶ": "March: choose on the map",
+  "{0}この軍勢が届く他国の砦はありません（進軍が越えられるのは4州まで）。「進軍」で地図のマスを押して、砦に近づけます。": "{0}No other nation's keep is within this host's reach (a march crosses at most 4 provinces). With March you can press a tile on the map and move closer to the keeps.",
+  "{0}見えている他国の砦で、この軍勢が届くものはありません。「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます。着いたあたりが見えるようになり、砦が見えれば「砦へ進軍」の一覧に出ます。": "{0}No other nation's keep you have seen is within this host's reach. With March you can press a tile on the map and go to land you have not seen yet. You will see around where you arrive, and a keep you see there joins the March on a keep list.",
   // loop-play4 B-2: a local world's province behind by turns (the keeper under the machine's load); the waiting send goes on
   'この編成': 'this order to form a host',
   'この命令': 'this order',
@@ -2041,6 +2045,41 @@ export default {
   'このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。': 'This page checks automatically about once a turn and sends the step when it can. No need to press again (pressing sends nothing).',
   '待っています…（押す必要はありません）': 'Waiting… (no need to press)',
   '待つのをやめる': 'Stop waiting',
+  // fix-loop6 LP6-15: the wide host card's own words (they were missing: the card stayed Japanese in English), and what it
+  // says of the planner's answer in the page's language (it showed the planner's English log words in Japanese too)
+  '広い土地の軍勢（テスト）': 'Wide-land host (test)',
+  'ローカル専用': 'Local only',
+  '押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。': 'One step per press: train Spearmen → form a host → march on the keep of a neighbouring province (within the wide land). Staying on the keep for the set number of turns takes it.',
+  '次の一手（広い土地）': 'Next step (wide land)',
+  '広い土地の村で槍兵 {0} を訓練します。': 'Training {0} Spearmen at the wide-land village.',
+  '広い土地の村で槍兵 {0} の軍勢を編成します。': 'Forming a host of {0} Spearmen at the wide-land village.',
+  '軍勢（兵 {0}）が州 {1} の砦へ進軍します（{2}が保持）。到着はターン {3} です。': 'The host ({0} troops) marches on the keep of province {1} (held by {2}). It arrives on turn {3}.',
+  '次の一手を送ります。': 'Sending the next step.',
+  '軍勢は州 {0} の砦へ進軍中です。到着はターン {1} です（いまはターン {2}）。': 'The host is marching on the keep of province {0}. It arrives on turn {1} (now turn {2}).',
+  '砦はあなたの国のものです。': 'The keep is your nation\'s.',
+  'あなたの国が砦を占拠中です：{0} / {1} ターン。': 'Your nation is holding the keep: {0} / {1} turns.',
+  '砦は{0}が保持しています（あなたの国は占拠できていません）。': 'The keep is held by {0} (your nation is not holding it).',
+  '結果：軍勢（兵 {0}）は州 {1} に立っています。': 'Result: the host ({0} troops) stands in province {1}. ',
+  '到着ターン {0} を過ぎました。到着先での決着を待っています（州の決着が遅れると数ターンかかります）。': 'Arrival turn {0} has passed. Waiting for the outcome at the destination (a few turns when the province is behind).',
+  '結果：軍勢は州 {0} に残れませんでした（戦いに敗れました）。': 'Result: the host could not stay in province {0} (it lost the fight).',
+  '到着先の州 {0} の記録をまだ読めていません。': 'The record of the destination province {0} has not been read yet.',
+  '軍勢は進軍に出ています。': 'The host is out on a march.',
+  'この村の州の決着が {0} ターン遅れています。': "This village's province is {0} turns behind.",
+  '軍勢が整列中か休んでいます。': 'The host is forming or resting.',
+  'いまは送れる一手がありません。': 'There is no step to send now.',
+  '軍勢の進軍の結果を待っています。': 'Waiting for the result of the host\'s march.',
+  // fix-loop6 LP6-6: in a local wide-land world the card below does send
+  'この村の記録の表示は読み取り専用です。命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）。収穫・建設・隊商・追いつかせる は、この村には送れません。': 'What this village\'s record shows is read-only. Orders are sent only by the Wide-land host (test) card below (train, form a host, march). Harvest, build, caravan and catch-up cannot be sent to this village.',
+  '記録は読み取り専用': 'Record read-only',
+  // fix-loop6 LP6-14: a caravan is offered for delivery once the provinces it crossed have settled past its arrival
+  '通った州（{0}, {1}）の決着が到着のターン {2} を過ぎるのを待っています。過ぎると届けられます（数ターン）。': 'Waiting for the province it crossed ({0}, {1}) to settle past its arrival turn {2}. Then it can be delivered (a few turns).',
+  // fix-loop6 LP6-10: the nation's keeps under attack out of every host's reach
+  '{0}が第{1}ターンから占拠を進めています': '{0} has been taking it since turn {1}',
+  '占拠 {0} ターン': 'held {0} turns',
+  'いまのあなたの軍勢では届きません。': 'None of your hosts can reach it now.',
+  // fix-loop6 LP6-9: the rim village's ticket wait, said with its turn
+  '辺境の村の申し込みを送りました。世界の進行役がターンの終わりに決めます。': 'The rim village request was sent. The world decides it at the end of a turn.',
+  '辺境の村の申し込みを送りました（ターン {0}、{1} ターン前）。世界の進行役がターンの終わりに決めます。マシンの負荷が高いと数十ターン（×60 で数分）かかることがあります。このページは待ち続けます。押し直す必要はありません。': 'The rim village request was sent (turn {0}, {1} turns ago). The world decides it at the end of a turn. On a busy machine this can take tens of turns (a few minutes at ×60). This page keeps waiting; no need to press again.',
   // fix-loop5 L5-6: a clash out of sight under the fog
   'この場所はいま見えていません。ほかの国どうしの衝突の報告は、その場所が見えているあいだだけ開けます。': "This place is out of sight now. A clash between other nations can be opened only while its place is in sight.",
   // fix-loop5 L5-3/L5-5: the boundary card's dropped read

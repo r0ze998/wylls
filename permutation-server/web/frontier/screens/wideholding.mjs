@@ -10,13 +10,15 @@
 // recorded due times (no countdown), the reserve's recorded counts. Each
 // card says so. The captured slot stands against the fold's latest slot as
 // a slot count; the age in time is unknown (a capture carries no clock).
-// There is no action here: no builder, trainer, muster, march, caravan or
-// nudge takes a wide village (fwide.mjs wideRefusal), and the only wide
-// instructions are not enabled.
+// No legacy action takes a wide village here: no builder, trainer, muster,
+// march, caravan or nudge (fwide.mjs wideRefusal). The one exception is the
+// TEST-ONLY local wide-land world's own host card (「広い土地の軍勢（テスト）」,
+// controller `wide-host-step`: train, muster, march), and the header says so
+// there (fix-loop6 LP6-6, localWideNote).
 import { html } from '../../util.mjs';
 import { fogNow } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { RESOURCES, UNITS, TIERS, BUILDINGS, HOLDING_STATES } from '../fi18n.mjs';
+import { RESOURCES, UNITS, TIERS, BUILDINGS, HOLDING_STATES, factionName } from '../fi18n.mjs';
 import { UNIT_ORDER, HOLDING_STATE, queueBuildingItem, BUILD_ITEMS } from '../fland.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { cardHead, stamp, chip, fold } from './parts.mjs';
@@ -68,6 +70,12 @@ const queueLabel = q => (q.item === 7 ? L`村の昇格` : q.item !== null && q.i
 export const noExecutionNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`読み取り専用：この村には命令を送れません（収穫・建設・訓練・編成・進軍・隊商・追いつかせる のどれも）。表示は捕捉された村の記録から読んだもので、現在の状態でも所有の証明でもありません。`}</p>`;
 
 /**
+ * (fix-loop6, LP6-6) The notice in a local wide-land world, where the card below DOES send (train, muster, march): the
+ * header said 「読み取り専用：この村には命令を送れません（…訓練・編成・進軍…）」 right above it.
+ */
+export const localWideNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`この村の記録の表示は読み取り専用です。命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）。収穫・建設・隊商・追いつかせる は、この村には送れません。`}</p>`;
+
+/**
  * (fix-loop5, L5-1) What the wide host card is waiting for (controller `wideHostWait`): the page sends nothing while it
  * waits and asks again by itself about once a turn, so the player does not press again and again.
  */
@@ -77,8 +85,43 @@ export function wideHostWaitLine(w) {
     ? L`この村の州の決着が ${fmtNum(Number(w.lag))} ターン遅れています。追いつくまでは、どの命令も通りません。`
     : w.reason === 'host' ? L`軍勢が整列中か休んでいます。進軍できるようになるまで待ちます。`
     : w.reason === 'village' ? L`広い土地の村がまだ確定していません。`
+    : w.reason === 'march' ? L`軍勢の進軍の結果を待っています。`
     : L`送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。`;
   return html`<p class="wide-host-wait" role="status" data-wide-host-wait="${w.reason}">${icon('hourglass')}${why} ${L`このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。`}</p>`;
+}
+
+/**
+ * (fix-loop6, LP6-15 / LP6-5) What the wide host card says of the planner's last answer (controller `wideHostSayOf`), in
+ * the page's language — it showed the planner's English log words in both languages — and, for a march, where it is:
+ * on its way, standing on the keep (with the keep's hold count), being decided, or gone. '' for nothing to say; an answer
+ * with no words of its own here is said generically (its log words stay in the card's title).
+ */
+export function wideHostSayText(say) {
+  if (!say) return '';
+  const at = x => (x ? `${x.p},${x.q}` : '?');
+  if (say.kind === 'decision') {
+    if (say.name === 'WideTrain') return L`広い土地の村で槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練します。`;
+    if (say.name === 'WideMuster') return L`広い土地の村で槍兵 ${fmtNum(Number(say.troops ?? 0))} の軍勢を編成します。`;
+    if (say.name === 'WideDepart') return L`軍勢（兵 ${fmtNum(Number(say.troops ?? 0))}）が州 ${at(say.to)} の砦へ進軍します（${factionName(say.to?.holder)}が保持）。到着はターン ${fmtNum(Number(say.arrive ?? 0))} です。`;
+    return L`次の一手を送ります。`;
+  }
+  const m = say.march;
+  if (m) {
+    if (m.phase === 'out') return L`軍勢は州 ${at(m.to)} の砦へ進軍中です。到着はターン ${fmtNum(m.arrive)} です（いまはターン ${fmtNum(m.nowBell)}）。`;
+    if (m.phase === 'stands') {
+      const k = m.keep, mine = k && k.contender === m.faction, held = k && k.holder === m.faction;
+      const keep = !k ? '' : held ? L`砦はあなたの国のものです。` : mine ? L`あなたの国が砦を占拠中です：${fmtNum(k.progress)} / ${fmtNum(k.required)} ターン。` : L`砦は${factionName(k.holder)}が保持しています（あなたの国は占拠できていません）。`;
+      return L`結果：軍勢（兵 ${fmtNum(m.troops)}）は州 ${at(m.to)} に立っています。` + keep;
+    }
+    if (m.phase === 'settling') return L`到着ターン ${fmtNum(m.arrive)} を過ぎました。到着先での決着を待っています（州の決着が遅れると数ターンかかります）。`;
+    if (m.phase === 'gone') return L`結果：軍勢は州 ${at(m.to)} に残れませんでした（戦いに敗れました）。`;
+    return L`到着先の州 ${at(m.to)} の記録をまだ読めていません。`;
+  }
+  if (say.wait === 'march') return L`軍勢は進軍に出ています。`;
+  if (say.wait === 'lag') return L`この村の州の決着が ${fmtNum(Number(say.lag ?? 0))} ターン遅れています。`;
+  if (say.wait === 'host') return L`軍勢が整列中か休んでいます。`;
+  if (say.wait === 'village') return L`広い土地の村がまだ確定していません。`;
+  return L`いまは送れる一手がありません。`;
 }
 
 export function render(FS) {
@@ -105,7 +148,7 @@ export function render(FS) {
   const hostCard = FS.localPlay?.wideLand ? html`<section class="vcard wide-village" id="wide-host" aria-labelledby="wide-host-h">
     ${cardHead({ id: 'wide-host-h', ic: 'flag', title: L`広い土地の軍勢（テスト）`, side: stamp(L`ローカル専用`, 'warn') })}
     <p>${L`押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。`}</p>
-    ${FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
+    ${FS.ui?.wideHostSay ? html`<p class="wide-host-why" role="status" title="${FS.ui.wideHostWhy ?? ''}">${wideHostSayText(FS.ui.wideHostSay)}</p>` : FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
     ${wideHostWaitLine(FS.ui?.wideHost?.waiting)}
     <div class="actions">${FS.ui?.wideHost?.waiting
       ? html`<button type="button" class="btn" data-act="wide-host-step" disabled aria-disabled="true">${L`待っています…（押す必要はありません）`}</button><button type="button" class="btn ghost" data-act="wide-host-stop">${L`待つのをやめる`}</button>`
@@ -113,11 +156,11 @@ export function render(FS) {
   const head = html`<section class="vcard village-head wide-village" aria-labelledby="wide-v-title">
     ${cardHead({ id: 'wide-v-title', ic: 'home', title: m.title, sub: `${coordText(h.p, h.q)} · ${L`村の場所 ${fmtNum(h.site)} · 世代 ${fmtNum(h.generation)}`}`, side: stamp(L`捕捉・未検証`, 'warn') })}
     <ul class="fact-chips">
-      <li>${chip(L`読み取り専用`, 'info', 'eye')}</li>
+      <li>${hostCard ? chip(L`記録は読み取り専用`, 'info', 'eye') : chip(L`読み取り専用`, 'info', 'eye')}</li>
       <li>${chip(L`現在性：未確認`, 'warn', 'hourglass')}</li>
       <li>${chip(L`経過時間：不明`, '', 'moon')}</li>
     </ul>
-    ${noExecutionNote()}${fogNow().on ? '' : html`<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>`}${back}</section>`;
+    ${hostCard ? localWideNote() : noExecutionNote()}${fogNow().on ? '' : html`<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>`}${back}</section>`;
 
   const provenance = html`<section class="vcard wide-village" aria-labelledby="wide-v-prov">
     ${cardHead({ id: 'wide-v-prov', ic: 'scroll', title: L`出どころ` })}
