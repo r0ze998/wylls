@@ -22,6 +22,8 @@ This guide describes the keeper built in M1 (`frontier-node/crates/keeper`, bina
 
 `roles` in `keeper.toml` selects duties. The stack runs keeper A with every role (the operator's keeper) and keeper B with the **public profile** `["reveal", "settle-departure", "settle", "claims"]` (the duties that earn tips and fees, and the ones whose liveness matters to players).
 
+"Every role" is the 16 roles of `keeper/src/config.rs` `ROLES`. The playable lane (devnet, `program_version` 0x4804) adds three roles outside that list, `wide-tickets`, `expeditions` and `wide-resolve` (`WIDE_ROLES`, only in a keeper built with `--features playable-lane`), and the `rings` duty's `rim_per_wedge`, `provinces_reach` and `wide_rings` keys; the devnet keeper A's full `keeper.toml` is in [`../devnet/DEVNET-DEPLOY-RUNBOOK.md`](../devnet/DEVNET-DEPLOY-RUNBOOK.md) §8.
+
 | Role | Duty (contract §8.2) | Instructions | Class |
 |---|---|---|---|
 | `beacon` | genesis seed; one anchor per (bell, region) when round `T(b)` appears (combined posts of ≤ 7 regions **and** per-region fallbacks); seed caches when `S(b, r)` appears (a random unused nonce, switched if not landed in 2 slots); BeaconLogs every bell. **v1.12:** anchors only for bells before `end_bell` (the program refuses later ones); a round drand has not served yet is asked for again within the slot, on the 100-ms idle ticks | ConsumeGenesisSeed, PostAnchorMulti, PostAnchor, PostSeed, PostBeacon | D (PostBeacon N) |
