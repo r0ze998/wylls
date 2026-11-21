@@ -241,7 +241,6 @@ permutation-gateway/test/web-frontier-dispersed-map.test.mjs
 permutation-gateway/test/web-frontier-dissolve-other-village.test.mjs
 permutation-gateway/test/web-frontier-drawer-order-first.test.mjs
 permutation-gateway/test/web-frontier-economy-display.test.mjs
-permutation-gateway/test/web-frontier-errors.test.mjs
 permutation-gateway/test/web-frontier-expedition-compose.test.mjs
 permutation-gateway/test/web-frontier-expedition-context.test.mjs
 permutation-gateway/test/web-frontier-expedition-depart.test.mjs
@@ -262,7 +261,6 @@ permutation-gateway/test/web-frontier-firststeps.test.mjs
 permutation-gateway/test/web-frontier-fix-b10-b11.test.mjs
 permutation-gateway/test/web-frontier-fix-b17-b21.test.mjs
 permutation-gateway/test/web-frontier-fix-b6-b9.test.mjs
-permutation-gateway/test/web-frontier-fix-loop4.test.mjs
 permutation-gateway/test/web-frontier-fix-loop5.test.mjs
 permutation-gateway/test/web-frontier-fix2.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak.test.mjs
@@ -300,7 +298,6 @@ permutation-gateway/test/web-frontier-leader-sprite.test.mjs
 permutation-gateway/test/web-frontier-live-map.test.mjs
 permutation-gateway/test/web-frontier-live.test.mjs
 permutation-gateway/test/web-frontier-local-click-sync.test.mjs
-permutation-gateway/test/web-frontier-local-fixed-seal.test.mjs
 permutation-gateway/test/web-frontier-local-fixture-citizen.test.mjs
 permutation-gateway/test/web-frontier-local-march-gate-per-host.test.mjs
 permutation-gateway/test/web-frontier-local-muster-wait-controller.test.mjs
@@ -325,7 +322,6 @@ permutation-gateway/test/web-frontier-muster-province-full.test.mjs
 permutation-gateway/test/web-frontier-next-host-other-village.test.mjs
 permutation-gateway/test/web-frontier-onboarding.test.mjs
 permutation-gateway/test/web-frontier-opening-world.test.mjs
-permutation-gateway/test/web-frontier-order-unconfirmed-display.test.mjs
 permutation-gateway/test/web-frontier-outbound-arrival-pick.test.mjs
 permutation-gateway/test/web-frontier-outbound-clock.test.mjs
 permutation-gateway/test/web-frontier-pending-vs-formed-host.test.mjs
@@ -378,7 +374,6 @@ permutation-gateway/test/web-frontier-wave4.test.mjs
 permutation-gateway/test/web-frontier-wide-herald-lag.test.mjs
 permutation-gateway/test/web-frontier-wide-holding-ui.test.mjs
 permutation-gateway/test/web-frontier-wide-land-map.test.mjs
-permutation-gateway/test/web-frontier-words.test.mjs
 permutation-gateway/test/web-frontier-world-growth.test.mjs
 permutation-gateway/test/web-frontier-world-sparse.test.mjs
 permutation-gateway/test/web-frontier-world.test.mjs
@@ -396,7 +391,6 @@ permutation-gateway/test/web-frontier-ws07-sendstates.test.mjs
 permutation-gateway/test/web-frontier-ws07-spectate.test.mjs
 permutation-gateway/test/web-frontier-ws07-terms.test.mjs
 permutation-gateway/test/web-frontier-ws07-unread.test.mjs
-permutation-gateway/test/web-lang.test.mjs
 permutation-gateway/test/web-play.test.mjs
 permutation-gateway/test/web-views.test.mjs
 permutation-nft-resident-spike/test/bindings-atomic-no-keys.test.mjs

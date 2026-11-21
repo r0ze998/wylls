@@ -34,8 +34,12 @@ const refused = (f, code) => assert.throws(f, e => e instanceof LocalActError &&
 test('the closed list: exactly the six commands, each one the page already sends; nothing else is taken', () => {
   // (wide-local-playable: and the local wide world's one-site rim request and wide claim — the claim is not an SDK
   //  shape, flocalplay-wide.mjs builds it on both sides; frontier-local-play-wide-play.test.mjs)
-  assert.deepEqual(LOCAL_ACT_COMMANDS, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim']); assert.ok(Object.isFrozen(LOCAL_ACT_COMMANDS));
-  for (const n of LOCAL_ACT_COMMANDS.filter(n => n !== 'WideClaim')) assert.ok(Object.hasOwn(SIGNED_BY, n), n);
+  // (wide -> wide marches, #94, owner Q-W2 t385u: plus the wide village's own WideTrain / WideMuster / WideDepart, built by
+  //  flocalplay-wide-host.mjs on both sides; the list is still closed — frontier-local-play-wide-host.test.mjs)
+  assert.deepEqual(LOCAL_ACT_COMMANDS, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'WideTrain', 'WideMuster', 'WideDepart']); assert.ok(Object.isFrozen(LOCAL_ACT_COMMANDS));
+  const NOT_SDK = ['WideClaim', 'WideTrain', 'WideMuster', 'WideDepart'];
+  for (const n of LOCAL_ACT_COMMANDS.filter(n => !NOT_SDK.includes(n))) assert.ok(Object.hasOwn(SIGNED_BY, n), n);
+  for (const n of NOT_SDK) assert.ok(!Object.hasOwn(SIGNED_BY, n), `${n} is not an SDK shape`);
   for (const name of ['SetSession', 'JoinResident', 'DeclareSiege', 'Depart', 'Dissolve', 'Garrison', 'Explore', 'SendCaravan', 'RaidCaravan', 'BuildVault', 'Vote', 'SeizeVault', 'SettleTransit', 'toString', '__proto__', '']) {
     refused(() => localActIntent({ name, subject: { holding: HOME }, fields: {} }, { wallet: W.address }), name === '' ? 'LocalActNotAllowed' : 'LocalActNotAllowed');
   }

@@ -1,4 +1,4 @@
-// (2026-11-17) WRITTEN ONLY, NOT RUN. An order that was SENT and whose outcome is not known is shown as that — never
+// (2026-11-17; first written without being run — run and in the key-free CI set since 2026-11-21, main-red-web-tests.) An order that was SENT and whose outcome is not known is shown as that — never
 // as done ("訓練しました", "建設中（完成）"), refused ("できませんでした") or not sent ("…はまだされていません") — in the
 // turn list (hud/turnlist.mjs) and the map's status toast (hud/status.mjs). Pure modules over a hand-made store; no
 // page, no send. The retry button is offered exactly as before (its rule is the owner's).
@@ -68,9 +68,15 @@ test('the status toast: an unknown outcome is its own state, not a refusal and n
   assert.equal(unconfirmedNotice({ busy: true, code: 'LocalActUnconfirmed' }), false);
 });
 
-test('the controller marks local play\'s two order notices (the march send\'s pinned line is not changed)', () => {
+// (re-pinned 2026-11-21: since 0f626c0d of 2026-11-19 the march send's "sent, not confirmed" notice is marked too — its own
+//  text, the same code, and `unsent: 'march-send'` so the status names the march and not the last act; it used to be the
+//  unmarked line `setNotice({ busy: false, text: localActUnconfirmedText(r.signature) })`. web-frontier-march-held.test.mjs
+//  tests what the status makes of it.)
+test('the controller marks local play\'s two order notices, and the march send\'s own', () => {
   const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(ctl, /orderUnconfirmed\(order, s\.signature\); setNotice\(\{ busy: false, text: localActUnconfirmedText\(s\.signature\), code: 'LocalActUnconfirmed' \}\);/);
   assert.match(ctl, /orderUnconfirmed\(order, r\.signature\); setNotice\(\{ busy: false, text: localActUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed' \}\);/);
-  assert.match(ctl, /if \(localSent && r\.code !== 'TransactionFailed'\) setNotice\(\{ busy: false, text: localActUnconfirmedText\(r\.signature\) \}\); else failed\(r\);/);
+  assert.match(ctl, /if \(localSent && r\.code !== 'TransactionFailed'\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); if \(localPlay\) recheckHeldMarch\(r\.signature\); \}/);
+  assert.doesNotMatch(ctl, /setNotice\(\{ busy: false, text: local(Act|March)UnconfirmedText\([a-z]\.signature\) \}\)/, 'no unmarked "sent, not confirmed" notice is left');
+  assert.equal(unconfirmedNotice({ busy: false, text: () => 'x', code: 'LocalActUnconfirmed', unsent: 'march-send' }), true);
 });
