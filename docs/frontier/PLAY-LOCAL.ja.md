@@ -453,3 +453,35 @@ scripts/play-local.sh --coexist --two                   # 保存する世界（�
   「…決着しました。入った量はまだ確かめられていません…」と出ることもあります。これも失敗ではありません（村の蔵に入っています）。
 - 普通の世界（`--coexist` なし）では、工房は建てられず、隊商を届けるボタンもありません（着いた隊商は届けられないままです）。
 - ページのない旧ノードは `--coexist-node` です（開発用）。
+
+## 11. 外部の AI 住民を入れる（`--external`、試験専用）
+
+外部の住民は、あなた（または別の人）が自分のプロセスで、自分のテスト鍵を使って動かすプログラムです（⑬ 独立した住民／⑤ 案 B）。人と同じ規則で、新しく来た住民としてあなたのローカルの世界に入ります。運営側は特権を与えず、鍵も見ません。ページには普通の住民として出ます（AI の印はありません）。
+
+1. 住民のテスト鍵を一度だけ作り、ファイルを持っておきます（`0600`。外に出るのは表示される公開アドレスだけです）。
+
+   ```sh
+   cd workstreams/03-composability/mcp && npm ci --ignore-scripts
+   node -e "import('./examples/external-resident/key.mjs').then(m => console.log(m.createKeyFile('/path/to/resident.json').address))"
+   ```
+
+2. そのアドレスを付けて世界を起動します（2 つまで、カンマ区切り）。MCP サーバーは gateway のクライアントを読み込むので、一度 `(cd permutation-gateway && npm ci --ignore-scripts)` を実行します。まだ入れていなければ、確認の段階で「足りないもの」に出ます。
+
+   ```sh
+   scripts/play-local.sh --demo --external <アドレス>
+   ```
+
+   `--external` を付けると、③ の**読み取り専用**の MCP サーバーもこの世界のために起動します。待受は 127.0.0.1 だけで、ポートは世界のポートの次です（`Read-only MCP (③): http://127.0.0.1:<port>/mcp` と表示されます）。使えるのは読むツールだけで、つなぐのは住民自身です（住民の財布がつなぐ文に署名します）。`--no-mcp` を付けると起動しません。スクリプトが動いているあいだ動き続け（世界の時間が切れたら次の世界を待ちます）、Ctrl-C ですべてと一緒に止まります。
+
+3. いつもどおりページで開始を押してから、住民を起動します（早すぎたときは、あなたの世界ができるまで待ちます）。
+
+   ```sh
+   node workstreams/03-composability/mcp/examples/external-resident/agent.mjs --launcher http://localhost:41920 \
+     --key /path/to/resident.json --mcp http://127.0.0.1:<port>/mcp
+   ```
+
+   住民は一歩ごとに JSON を 1 行出します（`discover`、`mcp`、`act` … `landed`／`refused`）。命令はページと同じ 6 つ（Join・PlaceHome・Harvest・Build・Train・Muster）です。どれも自分の鍵で署名し、自分の relay から送ります。運営側の AI 住民と同じく、行動は 1 ターンに 1 回です（Join は数えません。同じターンの 2 回目は `ResidentAlreadyActed`）。あなたのページにはこの上限はありません。自分の AI をつなぐには、`examples/external-resident/rule.mjs` の `decide()` を差し替えます（そのフォルダの README を見てください）。
+
+- `--demo` の ×N の時計は、**あなた**の最初の村が置かれてから動きます。それまでは 1 ターン 10 分なので、住民の 2 つ目の命令はあなたを待ちます。
+- `--two` と `--wide` とは一緒に使えません。保存する世界・`--demo`・`--ai`・`--random-map`・`--coexist`・`--resume` では使えます（続きから遊ぶときも `--external` をもう一度付けます）。
+- ローカルだけです。devnet には外部の住民の受け入れも MCP サーバーもありません（公開の MCP の方針 MCP-1..11 は未決です）。
