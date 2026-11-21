@@ -71,8 +71,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
                   ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
-                  marches into the wide land by 「境界への道を準備」 (at ×60 type the arrival turn, now + 5, into the
-                  card's 「詳細」 first: docs/frontier/PLAY-LOCAL.md §4); a wide village's 「次の一手（広い土地）」 marches
+                  marches into the wide land by 「境界への道を準備」 (after 「地形・時間を確認」 press the card's
+                  「間に合う候補（ターン N）を使う」 for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's 「次の一手（広い土地）」 marches
                   wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and 「全体図」 draw the wide land as far as you have
                   seen it (fog of war: no 「記録」 view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
                   or --two)
@@ -593,7 +593,10 @@ finish() {
     say "" ""; say "== 止めています (世界を閉じてから終わります) …" "== stopping (closing every world first) …"
     kill -INT "$LPID" 2>/dev/null || true
     for _ in $(seq 1 60); do kill -0 "$LPID" 2>/dev/null || break; sleep 0.5; done
+    # (fix-loop6, LP6-3: a second signal ends the launcher at once — it ends its own world processes first; and the wait
+    #  below must never hang: a launcher still there after that is killed)
     if kill -0 "$LPID" 2>/dev/null; then kill -TERM "$LPID" 2>/dev/null || true; sleep 2; fi
+    if kill -0 "$LPID" 2>/dev/null; then kill -KILL "$LPID" 2>/dev/null || true; fi
   fi
   wait "$LPID" 2>/dev/null || true
   say "== 止めました。" "== stopped."

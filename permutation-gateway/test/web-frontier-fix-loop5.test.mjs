@@ -21,7 +21,9 @@ test('L5-3: the boundary card is taller and scrolls; a dropped read is said and 
   assert.ok(app.includes("const el = handPopEl?.querySelector?.('.outbound-context-report, .outbound-route-report, .outbound-read-dropped');"));
   const c = src('controller.mjs');
   assert.ok(c.includes('export const OUTBOUND_READ_RETRIES = 2;'));
-  assert.ok(c.includes("for (let i = 0; ; i++) { await run(); if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return; }"));
+  // (fix-loop6, LP6-8: the same loop, each read made again now said on the card — FS.outboundReread)
+  assert.ok(c.includes("if (FS.expeditionCompose?.dropped !== kind || i >= OUTBOUND_READ_RETRIES) return;"));
+  assert.ok(c.includes("FS.outboundReread = { kind, n: i + 1, of: OUTBOUND_READ_RETRIES }; invalidate('panel');"));
   const compose = src('fexpedition-compose.mjs');
   assert.ok(compose.includes("const dropped = s.routeCheck?.status === 'loading' ? 'route' : s.contextCheck?.status === 'loading' ? 'context' : null;\n  if (dropped) s.dropped = dropped;"));
   const hand = src('hud/hand.mjs');

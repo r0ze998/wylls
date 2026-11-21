@@ -16,6 +16,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { icon } from '../hud/icons.mjs';
 import { factionName } from '../fi18n.mjs';
+import { bellAt } from '../clock.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { grantOptions, partyGrants, rowGrant, issuerTagOf, GRANT_ISSUE_COST, MAX_GRANT_SECS, MAX_UNITS_PER_SWAP, STATE_ACTIVE, STATE_REVOKED } from '../flocalplay-rights.mjs';
 
@@ -31,6 +32,26 @@ const stateWord = (g, now, closed = false) => (closed ? L`閉じた` : g.state =
  * `{on, viewer (Citizen base58), read: 'unread'|'loading'|'ok'|'unavailable'|'failed', rows (herald), live: Map(address →
  * decoded Grant), issued: [{address, issuerTag, nonce}]}`.
  */
+/**
+ * (fix-loop6, LP6-14) Whether the provinces a caravan crossed have settled past its arrival, as the page holds them: the
+ * program refuses the delivery (CaravanEarly) while any of them is resolved only up to a bell the caravan stood there
+ * (caravan.rs settle: RESOLVED_NEXT ≤ its last bell). Its arrival's bell bounds every such bell. → `{settled: true}` (every
+ * province read and past it), `{settled: false, waitP, waitQ, waitBell}` (one read and not past it), or `{settled: null}`
+ * (not every province read: the press is offered, the program decides). loop-play6: offered, refused, works later.
+ */
+export function settledFor(FS, provinces, arriveTs) {
+  const g = Number(FS.clock?.genesisTs), t = Number(arriveTs);
+  if (!Number.isFinite(g) || !Number.isFinite(t) || !provinces?.length) return { settled: null };
+  const arriveBell = bellAt(g, t);
+  if (arriveBell === null) return { settled: null };
+  let unknown = false;
+  for (const x of provinces) {
+    const rn = Number(FS.provinces?.get?.(`${x.p},${x.q}`)?.province?.resolvedNext);
+    if (!Number.isFinite(rn)) { unknown = true; continue; }
+    if (rn <= arriveBell) return { settled: false, waitP: x.p, waitQ: x.q, waitBell: arriveBell };
+  }
+  return { settled: unknown ? null : true };
+}
 export function rightsModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   const r = FS.rights;
   if (!r?.on || !r.viewer) return { on: false };
@@ -62,7 +83,8 @@ export function rightsModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   //  sender delivers them itself, SettleCaravan; the program checks the arrival, the resolved bells and any raid again)
   const moving = FS.s1?.caravans?.moving ?? [];
   const deliveries = moving.filter(c => myTag !== null && String(c.ownerTag) === myTag && Number(c.arriveTs) <= nowTs && !c.raided)
-    .map(c => ({ seq: Number(c.seq), dst: c.dst, provinces: (c.provinces ?? []).map(x => (Array.isArray(x) ? { p: x[0], q: x[1] } : { p: x.p, q: x.q })), cargo: c.cargo ?? [] }));
+    .map(c => ({ seq: Number(c.seq), dst: c.dst, provinces: (c.provinces ?? []).map(x => (Array.isArray(x) ? { p: x[0], q: x[1] } : { p: x.p, q: x.q })), cargo: c.cargo ?? [] }))
+    .map(c => ({ ...c, ...settledFor(FS, c.provinces, moving.find(x => Number(x.seq) === c.seq)?.arriveTs) }));
   return { on: true, viewer, read: r.read ?? 'unread', grants, facilities, nextNonce, deliveries };
 }
 
@@ -100,8 +122,10 @@ export function renderRights(FS) {
   const deliver = m.deliveries.length ? html`${label(L`着いた隊商（あなたが届けます）`)}<ul class="list rights-deliveries">${m.deliveries.map(c => {
     const kind = Number(c.dst.kind) === 2 ? 'vault' : 'holding', at = Number(c.dst.at ?? c.dst.tile ?? c.dst.site);
     const d = { seq: c.seq, kind, dp: c.dst.p, dq: c.dst.q, at, gen: c.dst.gen ?? 0, path: c.provinces.map(x => `${x.p}_${x.q}`).join('.') };
+    // (fix-loop6, LP6-14: not offered while a crossed province has not settled past the arrival — it said so only after a refused press)
     return html`<li data-caravan="${c.seq}">${icon('scroll')}${kind === 'vault' ? L`貯蔵庫（${c.dst.p}, ${c.dst.q} · マス ${at}）へ` : L`村（${c.dst.p}, ${c.dst.q} · ${at}）へ`} <span class="muted">${cargoText(c.cargo)}</span>
-      <span class="actions">${btn('rights-deliver', d, L`隊商を届ける`)}</span></li>`;
+      ${c.settled === false ? html`<span class="muted rights-deliver-wait" role="status">${L`通った州（${c.waitP}, ${c.waitQ}）の決着が到着のターン ${fmtNum(c.waitBell)} を過ぎるのを待っています。過ぎると届けられます（数ターン）。`}</span>`
+        : html`<span class="actions">${btn('rights-deliver', d, L`隊商を届ける`)}</span>`}</li>`;
   })}</ul><p class="muted">${L`この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。`}</p>` : '';
   return html`<section class="vcard vcard-folds rights-card" id="hp-rights" aria-labelledby="rights-title" data-rights-read="${m.read}">
     ${cardHead({ id: 'rights-title', ic: 'scroll', title: L`権利（在庫の交換）` })}

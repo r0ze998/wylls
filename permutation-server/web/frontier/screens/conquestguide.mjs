@@ -27,7 +27,7 @@ import { keepArrival } from '../hud/rulebook.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { hostRows } from './host.mjs';
 import { cardHead } from './parts.mjs';
-import { viewKeeps } from '../map/fog.mjs';
+import { viewKeeps, fogNow } from '../map/fog.mjs';
 import { holdingModel } from './holding.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
@@ -122,6 +122,11 @@ function bestOdds(FS, r) {
   return o ? { odds: o.odds, need: o.need, troops: t.troops } : null;
 }
 
+/** (fix-loop6, LP6-4) The host's own list of reachable keeps has been read and holds none (keepsModel 'ready', 0 rows). */
+function noVisibleReach(FS, r) {
+  try { const km = keepsModel(FS, r); return km.state === 'ready' && km.rows.length === 0; } catch { return false; }
+}
+
 const TITLE = {
   village: () => L`最初の村`, build: () => L`建物を建てる`, train: () => L`兵を訓練する`, muster: () => L`軍勢を編成する`,
   march: () => L`砦へ進軍する`, hold: hold => L`砦のマスを ${fmtNum(hold)} ターン保つ`, capture: () => L`州を奪う`,
@@ -214,6 +219,13 @@ export function conquestObjective(FS) {
       const need = best.need ? L`${unitCount(UNIT_ORDER[ready.unit], best.need)} ほどにしてから進軍すると、運が悪くても砦のマスに残れます。` : '';
       text = L`${back}いまの軍勢（${who}）で届く砦（守備兵 ${fmtNum(best.troops)}、城壁あり）を攻めると、${chance}${need}訓練で兵を足し、今の軍勢を解散して控えに戻してから（次のターンに戻ります）、まとめて編成し直します。`;
       go = { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` };
+    } else if (ready && noVisibleReach(FS, ready)) {
+      // (fix-loop6, LP6-4: the host's list was read and holds no keep — under the fog, none SEEN — 「届く砦を見る」 again
+      //  would only show 「届く砦 0」. The next useful step instead: a march onto a tile of the map, seen or not, toward
+      //  the keeps. Nothing unseen is named)
+      text = fogNow().on ? L`${back}見えている他国の砦で、この軍勢が届くものはありません。「進軍」で地図のマスを押せば、まだ見ていない土地へも向かえます。着いたあたりが見えるようになり、砦が見えれば「砦へ進軍」の一覧に出ます。`
+        : L`${back}この軍勢が届く他国の砦はありません（進軍が越えられるのは4州まで）。「進軍」で地図のマスを押して、砦に近づけます。`;
+      go = { act: 'cg-go', data: { pop: 'march', host: String(ready.id) }, label: L`進軍で地図から選ぶ` };
     } else {
       text = ready ? L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。勝ち目の欄が「十分」の砦を選ぶと、着いたターンに砦のマスに残れる見込みです。命令に封をして出発すると、到着のターンに戦いが決まります。`
         : wait ? back + waitText(wait, FS) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;

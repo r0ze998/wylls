@@ -80,3 +80,35 @@ test('a rim village with no host forms one for the wide march first: Train to th
   const v = decideNext(createResidentMemory(0), { ...view, holding: { p: 62, q: -128, site: 10 } }, { homes: [], wide: { targets: [], canClaim: false, needHost: { reserve: 500 } } });
   assert.notEqual(v.name, 'Muster');
 });
+
+// (fix-loop6, LP6-7) loop-play6: 0 of 454 AI rim→wide expeditions landed. Each prepare came right after the turn changed,
+// was refused NotResident (the rim province still finishing the turn) and was given up for two turns. Now the send
+// looks again — the read-only prepare — until the program's own check passes, within the plan's turn and the next.
+test('the wide march waits for the home province to settle, then prepares once; it gives up only after the wait', async () => {
+  const W = await import('../src/frontier/local-play-operator-wide-march.mjs');
+  assert.equal(W.SETTLE_WAIT_BELLS, 1); assert.equal(W.ARRIVAL_SLACK_BELLS, 3, 'the arrival leaves room for the wait');
+  assert.deepEqual([...W.SETTLE_CODES], ['NotResident', 'NotFinal']);
+  const refuse = code => Object.assign(new Error(code), { code });
+  const run = async ({ answers, clocks }) => {
+    let t = 0, i = 0, c = 0; const slept = [];
+    const out = await W.prepareWhenSettled({ untilBell: 41, now: () => t, sleep: async ms => { slept.push(ms); t += ms; },
+      clock: async () => clocks[Math.min(c++, clocks.length - 1)],
+      prepare: async () => { const a = answers[Math.min(i++, answers.length - 1)]; if (a instanceof Error) throw a; return a; } }).catch(e => ({ error: e.code, looks: e.looks, waitedMs: e.waitedMs }));
+    return { out, prepares: i, slept };
+  };
+  // refused twice while the province catches up, then prepared: sent on the third look
+  let r = await run({ answers: [refuse('NotResident'), refuse('NotFinal'), 'msg'], clocks: [{ bell: 40, nearEnd: false }] });
+  assert.deepEqual(r.out, { prepared: 'msg', looks: 3, waitedMs: 1400 }); assert.equal(r.prepares, 3);
+  // a turn's last moments: no look (the send would land unsettled in the next turn)
+  r = await run({ answers: ['msg'], clocks: [{ bell: 40, nearEnd: true }, { bell: 40, nearEnd: true }, { bell: 41, nearEnd: false }] });
+  assert.deepEqual(r.out, { prepared: 'msg', looks: 1, waitedMs: 1400 }); assert.equal(r.prepares, 1);
+  // any other refusal is not waited for
+  r = await run({ answers: [refuse('HostBusy'), 'msg'], clocks: [{ bell: 40, nearEnd: false }] });
+  assert.deepEqual(r.out, { error: 'HostBusy', looks: 1, waitedMs: 0 });
+  // past the next turn: the last refusal, said with how long it waited (the resident then leaves it for a later turn)
+  r = await run({ answers: [refuse('NotResident')], clocks: [{ bell: 40, nearEnd: false }, { bell: 41, nearEnd: false }, { bell: 42, nearEnd: false }] });
+  assert.deepEqual(r.out, { error: 'NotResident', looks: 3, waitedMs: 1400 });
+  // and never past the real-time cap, whatever the clock says (an unreadable clock included)
+  r = await run({ answers: [refuse('NotResident')], clocks: [null] });
+  assert.equal(r.out.error, 'NotResident'); assert.ok(r.out.waitedMs >= W.SETTLE_WAIT_MAX_MS && r.out.waitedMs < W.SETTLE_WAIT_MAX_MS + 1000);
+});

@@ -44,7 +44,7 @@ import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
-import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
+import { OUTBOUND_POP, outboundReadyOnce, outboundSketch, outboundArrivalCandidate, outboundEndpointOpen } from '../fexpedition-compose.mjs';
 import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
 import { devnetDepartOf } from '../fdevnet-depart.mjs';
 import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
@@ -647,9 +647,18 @@ export function localRevealStrip(FS) {
  */
 function outboundArrivalPick(pick, entered) {
   if (!pick) return '';
-  if (entered === pick.arriveBell) return html`<p class="pop-line outbound-arrival-set">${L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
-  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
-    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>`;
+  // (fix-loop6, LP6-1: on a fast clock the offer is the earliest turn plus the turns the send itself takes —
+  //  fexpedition-compose arrivalHeadroom — and an entered turn still inside the observed range is kept, not re-offered)
+  const n = /^(0|[1-9][0-9]{0,9})$/.test(entered) ? Number(entered) : null;
+  // (an entered turn with any room past the earliest stays — the offer moves with the clock and the measured rate, the field need not)
+  const inside = n !== null && n > pick.min && n <= pick.max;
+  if (entered === pick.arriveBell || (inside && (pick.headroom ?? 0) > 0)) return html`<p class="pop-line outbound-arrival-set">${pick.headroom
+    ? L`到着ターンの候補はターン ${entered} です（最も早いターン ${pick.min} に、送るまでに時計が進む分の余裕を足しています）。詳細で変更できます。`
+    : L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
+  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${pick.headroom
+      ? L`間に合う候補（ターン ${pick.arriveBell}）を使う` : L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
+    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>
+    ${pick.headroom ? html`<p class="pop-line outbound-arrival-why">${L`最も早いターン ${pick.min} は、確認して送るあいだに世界の時計が進むと断られます。${pick.headroom} ターンの余裕を足した候補です。`}</p>` : ''}`;
 }
 
 function outboundRouteReport(check, pick = null, entered = '') {
@@ -726,10 +735,15 @@ function outboundPop(FS, model) {
     ${outboundEndpointLine(endpoint, FS.localPlay?.wideLand?.targets)}
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
       ${devnetCard ? '' : html`<button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button>`}</div>
-    ${s.dropped && !s.routeCheck && !s.contextCheck ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
+    ${FS.outboundReread && (s.routeCheck?.status === 'loading' || s.contextCheck?.status === 'loading') ? html`<p class="pop-line outbound-read-again" role="status">${L`読み取りの途中で世界の時計が進んだため、読み直しています（${FS.outboundReread.n} / ${FS.outboundReread.of} 回目）…`}</p>` : ''}
+    ${pick?.remembered && !entered && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<div class="outbound-route-report outbound-arrival-remembered" role="status">${outboundArrivalPick(pick, entered)}<p class="pop-line">${L`さきほどの「地形・時間を確認」の読み取りからの候補を、時計に合わせて進めています。押すと読み直します。`}</p></div>` : ''}
+    ${s.error === 'ArrivalRequired' && !(pick?.remembered && !entered) && !s.routeCheck && !s.contextCheck && !s.dropped && !FS.outboundReread ? html`<p class="pop-line outbound-arrival-empty" role="status">${L`到着ターンはまだ入っていません。「地形・時間を確認」を押すと、到着候補とそれを入れるボタンが出ます（自分で入れる欄は「詳細」の中です）。`}</p>` : ''}
+    ${s.dropped && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
     ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
     ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
-    ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
+    ${outboundLocalDepart(FS, !!review && ((s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)
+      // (fix-loop6, LP6-1: read as holding for this very draft, the observation since dropped by a clock poll — the press reads again first)
+      || (!s.contextCheck && outboundReadyOnce(FS))))}
     ${outboundDevnetDepart(FS, !!review && s.routeCheck?.status === 'read' && s.routeCheck.report?.ok === true)}
     ${localRevealStrip(FS)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>

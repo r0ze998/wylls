@@ -41,7 +41,8 @@ test('H1 the button under a failed or empty reading, on both join screens', () =
   assert.ok(btn);
   order(btn, "FS.mode === 'play' ?", 'data-act="home-reread"', "raw(busy || FS.homeChoice?.loading ? 'disabled' : '')", 'L`土地の候補を読み直す`', ": '');");
   const nat = fnOf(join, 'export function renderNations(FS) {');
-  order(nat, "const busy = !!FS.homeChoice?.busy || !!FS.homeChoice?.pending || FS.inFlight > 0;",
+  // (fix-loop6, LP6-11: a press waiting for the candidates reading is busy too — FS.homeConfirmWait)
+  order(nat, "const busy = !!FS.homeChoice?.busy || !!FS.homeChoice?.pending || FS.inFlight > 0 || !!FS.homeConfirmWait;",
     'instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}`',
     'instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>`');
   assert.equal(join.split('${homeReread(FS, busy)}').length - 1, 2, 'the nations screen and the placing screen');
@@ -97,7 +98,8 @@ test('H6 an answer is applied to the choice as it stands, never to the copy take
   // (what makes it "the choice in hand": home-pick writes on FS.homeChoice itself)
   assert.ok(ctl.includes('FS.homeChoice.selected = h; FS.homeChoice.error = null; FS.homeFocus = h;'));
   // (unchanged: how candidates are found and ordered)
-  assert.ok(rh.includes("seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,"));
+  // (fix-loop6, LP6-12: the seed is homeSeed() — the wallet's, or a local contest pair's shared one)
+  assert.ok(rh.includes("seed: `${homeSeed()}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,"));
   assert.ok(rh.includes('read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });'));
 });
 
