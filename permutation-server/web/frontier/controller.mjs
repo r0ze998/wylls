@@ -1034,6 +1034,7 @@ export function adoptPinnedWorld() {
   FS.overviews?.clear?.();
   FS.overviewTaken?.clear?.();
   FS.worldRings?.clear?.();
+  FS.worldRingTaken?.clear?.();
   FS.overviewsBell = undefined;
   overviewSource = null; overviewWorld = null;
   // (2026-11-17, ⑦ the wide map: the province records read for another world are not this world's land — emptied in
