@@ -412,7 +412,8 @@ export function createEngine({ clock = defaultClock, motion = defaultMotion, bus
       }
       applyShake(t);
       updateDom(t, v, sz);
-      // ground effects live inside the tile painter: ask it for a frame (30 a second is enough under the props)
+      // ground effects live inside the tile painter: ask it for a frame (30 a second is enough under the props; the map
+      // draws such ambient frames at most every AMBIENT_FRAME_MS, shared with its other animations — map/fmap.mjs ambient())
       if (!ground && (c.ground || m.groundWas)) {
         const w = clock.wall();
         if (w - lastGroundAsk >= 30 || !c.ground) { lastGroundAsk = w; try { m.invalidate?.(); } catch { /* no map */ } }
