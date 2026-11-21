@@ -155,6 +155,13 @@ test('LP7-3 (verify-pr137): a road stopped before its last step says how many ã€
   setLang('ja');
 });
 
+test('LP7-8 (verify-pr137): a toast already on screen takes its new hover title with a change of language (syncStack)', () => {
+  // live: the toast's words turned English, its title stayed Japanese â€” syncStack copied class, role and children only
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('function syncStack(el, items) {'), src.indexOf('function syncStack(el, items) {') + 2600);
+  assert.match(body, /node\.replaceChildren\(\.\.\.next\.childNodes\); stackHtml\.set\(node, markup\);\s*\n(?:\s*\/\/[^\n]*\n)*\s*if \(next\.hasAttribute\('title'\)\) node\.setAttribute\('title', next\.getAttribute\('title'\)\); else node\.removeAttribute\('title'\);/);
+});
+
 // ------------------------------------------------------------------ LP7-5: the W2 card follows the hold to its end
 const TO = { p: '-63', q: '-67', tile: 30, holder: 1 };
 const stands = (nowBell, keep) => ({ to: TO, arrive: 373, troops: 20, phase: 'stands', nowBell, faction: 0, keep });

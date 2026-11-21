@@ -3170,7 +3170,10 @@ function syncStack(el, items) {
       const tpl = globalThis.document.createElement('template');
       tpl.innerHTML = markup;
       const next = tpl.content.firstElementChild;
-      if (next) { node.className = `${next.className} shown`; node.setAttribute('role', next.getAttribute('role') ?? 'status'); node.replaceChildren(...next.childNodes); stackHtml.set(node, markup); }
+      if (next) { node.className = `${next.className} shown`; node.setAttribute('role', next.getAttribute('role') ?? 'status'); node.replaceChildren(...next.childNodes); stackHtml.set(node, markup);
+        // (verify-pr137: and its hover title — a caravan's careful account, LP7-8 — follows a change of language too;
+        //  it stayed in the first language while the toast's words changed)
+        if (next.hasAttribute('title')) node.setAttribute('title', next.getAttribute('title')); else node.removeAttribute('title'); }
     }
     before = node.nextElementSibling;
     while (before && before.classList.contains('leaving')) before = before.nextElementSibling;
