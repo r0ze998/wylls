@@ -3,7 +3,9 @@
 //   /h/season          the Season (genesis → the turn; program version → training prices), once per world
 //   /h/status          the chain's clock
 //   /h/me/<own wallet> its own Citizen and Holdings (never another wallet's)
-//   /h/province/P,Q    only before it has a village: the free home sites of its own nation (the page's homeSites)
+//   /h/province/P,Q    before it has a village: the free home sites of its own nation (the page's homeSites);
+//                      with a village: its OWN province only (how far the world has resolved it: a Muster needs
+//                      resolvedNext + 1 >= the turn, frontier-abi prologue.rs resident_ok)
 // No other village, no world-wide list, no operator route, no event feed: under fog it knows what a person knows.
 // KEY-FREE.
 import { createHerald } from '../../../../permutation-server/web/frontier/herald.mjs';
@@ -58,6 +60,9 @@ export function createObserver({ base, wallet, deps = {} }) {
     const holding = { p: Number(raw.p), q: Number(raw.q), site: Number(raw.site), ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) };
     let stores = null, st = null;
     try { st = settled(raw, nowSecs); stores = storesAt(raw, nowSecs, RESOURCE_ORDER).map(s => ({ resource: s.resource, value: s.value, perHour: s.perHour, cap: s.cap })); } catch { stores = null; }
-    return { ...base0, joined: true, faction, holding, settled: st, stores };
+    reads.push('/h/province/<own>');
+    let province = null;
+    try { const pv = await h.province(holding.p, holding.q); if (pv.ok && pv.province) province = { resolvedNext: Number(pv.province.resolvedNext), passableMask: pv.province.passableMask }; } catch { province = null; }
+    return { ...base0, joined: true, faction, holding, settled: st, stores, province };
   };
 }

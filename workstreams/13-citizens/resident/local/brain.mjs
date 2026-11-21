@@ -173,6 +173,11 @@ export function localCandidates(obs, mem, { limits = LOCAL_LIMITS } = {}) {
     if (troops < HOST_TROOPS.min) held.push(`reserve ${reserve} spearmen: a host needs ${HOST_TROOPS.min}`);
     if (obs.holding.tile === undefined) held.push('my village\'s tile is not known');
     if (busy >= TRANSIT_SLOTS) held.push('every host slot is in use');
+    // (the program's resident_ok: the village's province must be resolved to the turn before this one; at ×60 the
+    //  world's keeper trails, and a Muster sent early is refused NotResident (Custom 26). Unread is held, never guessed.)
+    const rn = obs.province?.resolvedNext;
+    if (!Number.isInteger(rn)) held.push('my province\'s resolved turn is not read');
+    else if (rn + 1 < bell) held.push(`my province is resolved to turn ${rn}; a muster waits until it reaches turn ${bell - 1}`);
     const fh = failureHold(mem, 'Muster', bell); if (fh) held.push(fh);
     out.push({ id: 'muster:0', kind: 'muster', order: { name: 'Muster', v, fields: { unit: 0, troops: Math.max(100, troops), tile: obs.holding.tile ?? null } }, ...(held.length ? { held } : {}),
       score: goal.use * 0.35 + 0.05, why: `form a host of ${Math.max(100, troops)} from my reserve (guards the village)` });

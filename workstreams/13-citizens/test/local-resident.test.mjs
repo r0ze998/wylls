@@ -26,7 +26,7 @@ function village({ stores = [500, 500, 300, 200, 0, 200, 0, 0], reserve = 0, que
 }
 function obsOf(raw, extra = {}) {
   return { bell: 10, nowSecs: NOW, genesisTs: NOW - 6000, seasonId: '11', programVersion: 1, joined: true, faction: 3, holding: { p: 2, q: 0, site: 3, tile: 7 },
-    settled: settled(raw, NOW), stores: storesAt(raw, NOW, RESOURCE_ORDER).map(s => ({ resource: s.resource, value: s.value, perHour: s.perHour, cap: s.cap })), ...extra };
+    province: { resolvedNext: 9 }, settled: settled(raw, NOW), stores: storesAt(raw, NOW, RESOURCE_ORDER).map(s => ({ resource: s.resource, value: s.value, perHour: s.perHour, cap: s.cap })), ...extra };
 }
 const mem = (o = {}) => ({ ...freshState({ wallet: 'W', goal: 'village-first', nation: 3 }), ...o });
 const tmp = () => { const d = mkdtempSync(path.join(os.tmpdir(), 'ws13-local-')); return { d, done: () => rmSync(d, { recursive: true, force: true }) }; };
@@ -95,6 +95,10 @@ test('LR6 a reserve of 100+ musters a host; nothing affordable and a recent touc
   const m = localCandidates(obsOf(village({ stores: [0, 0, 0, 0, 0, 0, 0, 0], reserve: 300 })), mem({ lastTouchBell: 9 }));
   assert.equal(localRule(m).choice, 'muster:0');
   assert.equal(m.candidates.find(x => x.id === 'muster:0').order.fields.troops, 300);
+  // the program's resident_ok: a province the world has not resolved to the turn before holds the muster
+  const lag = localCandidates(obsOf(village({ stores: [0, 0, 0, 0, 0, 0, 0, 0], reserve: 300 }), { province: { resolvedNext: 8 } }), mem({ lastTouchBell: 9 }));
+  assert.match(lag.candidates.find(x => x.id === 'muster:0').held.join(), /resolved to turn 8/);
+  assert.match(localCandidates(obsOf(village({ reserve: 300 }), { province: null }), mem()).candidates.find(x => x.id === 'muster:0').held.join(), /not read/);
   const w = localCandidates(obsOf(village({ stores: [0, 0, 0, 0, 0, 0, 0, 0] })), mem({ lastTouchBell: 9 }));
   assert.equal(localRule(w).choice, 'wait');
   const h = localCandidates(obsOf(village({ stores: [0, 0, 0, 0, 0, 0, 0, 0] })), mem({ lastTouchBell: 10 - LOCAL_LIMITS.touchEveryBells }));
@@ -224,12 +228,13 @@ test('LR14 the halt file pauses new orders (open lines are still followed) and t
   assert.equal((await localStep({ store, observe: w.observe, send: async () => assert.fail('max'), follow: async () => null, bellNow: async () => 10 })).did, 'max-turns');
 });
 
-test('LR15 the observer reads the Season once, the clock, its OWN /h/me, and province pages only before it has a village', async () => {
+test('LR15 the observer reads the Season once, the clock, its OWN /h/me, its nation\'s province pages before it has a village, then only its own province', async () => {
   const calls = [];
   const raw = village();
   let holdings = [];
   const herald = { season: async () => { calls.push('season'); return { ok: true, season: { genesisTs: NOW - 6000, programVersion: 1, seasonId: 11 } }; }, pin: () => {},
-    me: async wallet => { calls.push(`me:${wallet}`); return { ok: true, citizen: { faction: 3 }, holdings }; } };
+    me: async wallet => { calls.push(`me:${wallet}`); return { ok: true, citizen: { faction: 3 }, holdings }; },
+    province: async (p, q) => { calls.push(`province:${p},${q}`); return { ok: true, province: { resolvedNext: 9, passableMask: 1n } }; } };
   const obs = createObserver({ base: 'http://127.0.0.1:41551', wallet: 'MINE', deps: { herald, getJson: async u => { calls.push(new URL(u).pathname); return { live: [0, NOW] }; }, publicHomes: async (b, f) => { calls.push(`homes:${f}`); return [{ p: 2, q: 1, site: 0 }]; } } });
   const a = await obs();
   assert.equal(a.bell, 10); assert.equal(a.holding, null); assert.equal(a.homes.length, 1);
@@ -237,7 +242,8 @@ test('LR15 the observer reads the Season once, the clock, its OWN /h/me, and pro
   const b = await obs();
   assert.deepEqual(b.holding, { p: 2, q: 0, site: 3, tile: 7 });
   assert.equal(b.stores[0].value, 500);
-  assert.deepEqual(calls, ['season', '/h/status', 'me:MINE', 'homes:3', '/h/status', 'me:MINE']);
+  assert.equal(b.province.resolvedNext, 9);
+  assert.deepEqual(calls, ['season', '/h/status', 'me:MINE', 'homes:3', '/h/status', 'me:MINE', 'province:2,0']);
 });
 
 test('LR16 the client\'s arguments: loopback only, an absolute state directory, a known goal', () => {
