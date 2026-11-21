@@ -262,6 +262,7 @@ permutation-gateway/test/web-frontier-fix-b10-b11.test.mjs
 permutation-gateway/test/web-frontier-fix-b17-b21.test.mjs
 permutation-gateway/test/web-frontier-fix-b6-b9.test.mjs
 permutation-gateway/test/web-frontier-fix-loop5.test.mjs
+permutation-gateway/test/web-frontier-fix-loop7.test.mjs
 permutation-gateway/test/web-frontier-fix2.test.mjs
 permutation-gateway/test/web-frontier-fog-devnet-leak.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak.test.mjs
@@ -526,6 +527,7 @@ permutation-gateway/test/frontier-local-play-keeper-view.test.mjs
 permutation-gateway/test/frontier-local-play-operator-nations.test.mjs
 permutation-gateway/test/frontier-local-play-pair-guide.test.mjs
 permutation-gateway/test/frontier-local-play-persist.test.mjs
+permutation-gateway/test/frontier-local-play-runner-control.test.mjs
 permutation-gateway/test/frontier-local-play-world-guard.test.mjs
 permutation-gateway/test/frontier-outbound-snapshot.test.mjs
 permutation-gateway/test/web-frontier-conquest-identity.test.mjs
