@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-21 (through #122; loop-play6 corrections). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-21 (through #126; loop-play6 corrections). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -86,7 +86,9 @@ move only once its turn is settled: about 17 minutes later).
      keep is in sight from your village (common with `--random-map`; the guide counts unseen keeps too and still says
      「届く砦を見る」). Press 「進軍」 in the bottom bar, pick the ring-1 keep's tile on the map as the destination (you can
      press it while it is blank under the fog) and 「確認した命令で出発」 (the destination is called 「見えていない土地」).
-     A scouting march to some other blank tile spends 74 stamina, so the next departure is about 30 turns later.
+     A march spends 10 + 2 × tiles of stamina (28 for 9 tiles, 74 for 32; the cap is 120) and stamina returns 1 per turn:
+     after a scouting march to a far blank tile the host may have to wait for stamina before it can march on a keep
+     (loop-play6: about 30 turns).
 7. **Check the clash**: on the arrival turn 「戦闘 … 衝突が決着しました」 appears. 「報告」 → 「このブラウザで確かめる」;
    「一致：このブラウザで計算し直した結果はチェーンの記録と同じです」 means it was recomputed and agrees.
    After the notice is gone, the 「報告」 button stays in the list under 「その他」 in the bottom bar.
@@ -331,8 +333,10 @@ training are the same rules as devnet.
 
 `scripts/play-local.sh --coexist` runs the usual kept world (or `--demo --speed N`) on the ②+⑨+⑩ **coexist lane**
 (program version 0x7805, `RULESET_HASH_V4`; `scripts/build-frontier-localnet-coexist-sbf.sh`). Its runners, herald and
-tools are built with their `coexist-lane` feature into `.local/play-local/coexist-bin/`; the default world's binaries
-are untouched. It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. `--coexist-node` is the
+tools are built with their `coexist-lane` feature and copied into `.local/play-local/coexist-bin/`. They are built in the
+same `frontier-node/target/debug` as the default world's, so the first plain world after a `--coexist` build relinks its
+own binaries (a few seconds; on main through #126 it did not, and that world never started, the page staying on 「—」:
+there, pass `--rebuild`). It works with `--ai`, `--two`, `--random-map` and `--resume`, not with `--wide`. `--coexist-node` is the
 old page-less node.
 
 The village screen gets a **Rights (stock swap)** card (owner decision ② A):

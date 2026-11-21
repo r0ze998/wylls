@@ -86,7 +86,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   caravan, revoke. Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
                   one), and with --demo --speed N (the capture demo's TEST clock: at the natural clock a Vault's 200 wood
                   + 200 stone + 50 gold take most of a day); not with --wide. Its runners, herald and tools are built with their `coexist-lane`
-                  feature into $STATE/coexist-bin/ (the default world's binaries are untouched)
+                  feature into $STATE/coexist-bin/ (cargo links them in the shared target dir first, so the
+                  next plain world relinks its own binaries: a few seconds)
   --coexist-node  TEST-ONLY, no page: the node localnet-coexist-play alone serves a ②+⑨+⑩ chain on 127.0.0.1:BASE
                   (RPC) and BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its
                   metadata (one JSON line) and runs until Ctrl-C. Memory-only, alone (no other option but --port)
@@ -298,7 +299,8 @@ SO="$SO_DIR/permutation_frontier.so"
 BINS=(localnet-natural-play localnet-expedition-play frontier-herald frontier-experimental-expedition-depart-prepare frontier-original-expedition-preview frontier-experimental-expedition-prepare)
 STAMP="$STATE/build.stamp"
 # (--coexist: the coexist .so, and the same binaries built with their `coexist-lane` feature, kept apart in their own
-#  directory so the default world's binaries in $T stay exactly what they were)
+#  directory. cargo links them in the SHARED frontier-node/target/debug first — the default lane's own binaries are
+#  replaced there until its next build, which is why a coexist build drops the default stamp below)
 if [ "$COEXIST" = 1 ]; then
   T="$STATE/coexist-bin"
   SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-coexist-sbf"
@@ -495,11 +497,21 @@ src_key() {  # the sources the binaries come from: tree hashes at HEAD + any unc
   } | shasum -a 256 | cut -d' ' -f1
 }
 all_built() { [ -f "$SO" ] || return 1; for b in "${BINS[@]}"; do [ -x "$T/$b" ] || return 1; done; }
+# (loop-play6 LP6-2: the default lane runs its binaries straight from the shared target dir, and a coexist build links
+#  coexist-featured ones there. A coexist stamp newer than the default one — or a default stamp that is gone — says the
+#  last finished build in that dir was the coexist lane's: the default binaries are then NOT the default lane's, whatever
+#  the default stamp says. This also covers a checkout whose coexist build ran before that build dropped the stamp)
+shared_dir_is_this_lane() {
+  [ "$COEXIST" = 1 ] && return 0
+  if [ -f "$STATE/build-coexist-lane.stamp" ] && [ "$STATE/build-coexist-lane.stamp" -nt "$STAMP" ]; then return 1; fi
+  return 0
+}
 KEY="$(src_key)"
 if [ "$NOBUILD" = 1 ]; then
   all_built || { err "--no-build ですが、まだビルドされていないものがあります。--no-build を外してください。" "--no-build, but a binary is missing; drop --no-build."; exit 7; }
+  shared_dir_is_this_lane || { err "--no-build ですが、いまあるバイナリは --coexist の世界のものです (最後のビルドが --coexist でした)。--no-build を外してください (数秒で作り直します)。" "--no-build, but the binaries on disk are the --coexist world's (the last build was a --coexist one); drop --no-build (the rebuild takes a few seconds)."; exit 7; }
   say "   ビルドしません (--no-build)" "   not building (--no-build)"
-elif [ "$REBUILD" = 0 ] && all_built && [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$KEY" ]; then
+elif [ "$REBUILD" = 0 ] && all_built && [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$KEY" ] && shared_dir_is_this_lane; then
   say "   最新です。ビルドを省きます (やり直すなら --rebuild)" "   up to date; skipping the build (--rebuild to force)"
 else
   rm -f "$STAMP"
@@ -522,15 +534,16 @@ else
   if [ "$COEXIST" = 1 ]; then
     # (the coexist lane: its own program, and the same binaries with `coexist-lane`, copied out of the shared target
     #  dir into $T so a later default build — which rebuilds them without the feature — never mixes the two)
+    # (from the first cargo step on, the shared target dir holds coexist-featured binaries: the default lane's stamp
+    #  must not call them "up to date", or the next plain world runs them and CreateSeason fails with Custom(1) —
+    #  loop-play6. Dropped BEFORE the builds, so a failed or interrupted coexist build is covered too)
+    rm -f "$STATE/build.stamp"
     build_step program "$ROOT/scripts/build-frontier-localnet-coexist-sbf.sh"
     build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-coexist-lane-play --bin localnet-natural-play --bin localnet-expedition-play"
     build_step herald bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental,coexist-lane,rights-records --bin frontier-herald"
     build_step tools bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p keeper --features expedition-dispatch-experimental,coexist-lane --bin frontier-experimental-expedition-depart-prepare --bin frontier-original-expedition-preview --bin frontier-experimental-expedition-prepare"
     mkdir -p "$T"
     for b in "${BINS[@]}"; do cp -p "$ROOT/frontier-node/target/debug/$b" "$T/$b"; done
-    # (the shared target dir now holds the coexist-featured binaries: the default lane's stamp must not call them
-    #  "up to date", or the next plain world runs them and CreateSeason fails with Custom(1) — loop-play6)
-    rm -f "$STATE/build.stamp"
   else
   build_step program "$ROOT/scripts/build-frontier-localnet-land-sbf.sh"
   build_step runners bash -c "cd '$ROOT/frontier-node' && cargo build --locked -p itest --features localnet-land-play --bin localnet-natural-play --bin localnet-expedition-play"
