@@ -105,7 +105,7 @@ export function renderNations(FS) {
   const cards = factionCards(FS);
   const pick = cards.find(c => c.chosen) ?? null;
   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
-  const busy = !!FS.homeChoice?.busy || !!FS.homeChoice?.pending || FS.inFlight > 0;
+  const busy = !!FS.homeChoice?.busy || !!FS.homeChoice?.pending || FS.inFlight > 0 || !!FS.homeConfirmWait;
   // Before the first turn the program has no turn to place a village in (PlaceHome: WrongStatus): say so, no button to fail.
   const now = FS.chain?.now?.() ?? null, g = FS.clock?.genesisTs;
   const early = instant && now !== null && Number.isFinite(g) && now < g ? Math.max(1, Math.ceil((g - now) / 60)) : 0;
@@ -342,7 +342,7 @@ export function renderGrant(FS) {
 
 function renderInstantPlacing(FS) {
   const choice = FS.homeChoice ?? {};
-  const busy = !!choice.busy || !!choice.pending || FS.inFlight > 0;
+  const busy = !!choice.busy || !!choice.pending || FS.inFlight > 0 || !!FS.homeConfirmWait;
   const pending = {
     connecting: () => L`参加の準備をしています…`, joining: () => L`所属国への参加を確認しています…`,
     placing: () => L`選んだ土地に村を築いています…`, confirming: () => L`村の受け取りを確認しています…`,

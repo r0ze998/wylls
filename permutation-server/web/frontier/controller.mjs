@@ -2464,14 +2464,29 @@ export function ackHomeGrant() {
   return h;
 }
 
+/** Real milliseconds a press waits for a candidates reading already under way (then it reads itself). */
+export const HOME_READ_WAIT_MS = 20_000;
 export async function confirmHome() {
   if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;
+  // (fix-loop6, LP6-11 — B-8's real cause in the ×60 wide picker: a press made before the candidates were read started a
+  //  FORCED reading; the next press, three seconds later, started another, which superseded the first, and the first
+  //  press then found no selection and ended silently. Under load a reading outlasts the seconds between presses: 3–4
+  //  presses. Now the press that waits says so on the button — FS.homeConfirmWait, screens/join.mjs — and a press
+  //  meanwhile adds nothing; a reading already under way for this nation is waited for, not superseded)
+  if (FS.homeConfirmWait) return;
   // (corrected 2026-11-17: the press is of the context it was made in — viewer, herald, world — and that is taken
   //  BEFORE the first wait. A candidates reading that outlasts a change of wallet or world leaves a choice of the page
   //  as it has become: this press does not go on with it.)
   const pressed = contextSeq;
   const faction = wantedHomeFaction();
-  if (!FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction)) await refreshHomes({ force: true });
+  const unread = () => !FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction);
+  if (unread()) {
+    FS.homeConfirmWait = true; invalidate('panel');
+    try {
+      for (const until = Date.now() + HOME_READ_WAIT_MS; FS.homeChoice?.loading && FS.homeChoice.faction === faction && Date.now() < until && contextSeq === pressed;) await new Promise(r => setTimeout(r, 150));
+      if (contextSeq === pressed && unread()) await refreshHomes({ force: true });
+    } finally { FS.homeConfirmWait = false; invalidate('panel'); }
+  }
   if (contextSeq !== pressed) return;
   // (2026-11-18, ⑧ doc 31 §1-A: a visitor whose chosen nation has no free first home (the reading said NoFreeHome for
   //  that nation) is not left at a button that does nothing: this press joins the nation — Join and the in-game key,

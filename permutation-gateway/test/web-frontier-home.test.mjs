@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { homeSites, planHomes, homeKey, loadHome, saveHome } from '../../permutation-server/web/frontier/home.mjs';
 import { ringProvinces, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
@@ -113,4 +114,19 @@ test('LP6-12: a local contest pair of one nation is offered the same province fi
   assert.ok(new Set(own).size > 1, `wallet seeds spread the players: ${own}`);
   const src = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.mjs', import.meta.url), 'utf8');
   assert.match(src, /const playedAs = launcher && state\.pairRole \? Object\.freeze\(\{ \.\.\.playedWide, pair: state\.pairRole \}\) : playedWide;/);
+});
+
+// (fix-loop6, LP6-11) B-8's real cause: a press made before the candidates were read started a forced reading, the next
+// press superseded it, and the first press ended silently — 3–4 real presses in the ×60 wide picker. A press waiting
+// for the reading now marks the button busy, and a press meanwhile adds nothing.
+test('LP6-11: a press waiting for the candidates makes the button busy, and a second press neither restarts the reading nor ends the first', () => {
+  const src = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
+  const c = src('controller.mjs'), j = src('screens/join.mjs');
+  const body = c.slice(c.indexOf('export async function confirmHome() {'), c.indexOf('if (contextSeq !== pressed) return;', c.indexOf('export async function confirmHome() {')));
+  assert.match(body, /if \(FS\.homeConfirmWait\) return;/, 'a press while one waits adds nothing');
+  assert.match(body, /FS\.homeConfirmWait = true; invalidate\('panel'\);/);
+  assert.match(body, /FS\.homeChoice\?\.loading && FS\.homeChoice\.faction === faction && Date\.now\(\) < until/, 'a reading under way for this nation is waited for');
+  assert.match(body, /\} finally \{ FS\.homeConfirmWait = false; invalidate\('panel'\); \}/);
+  assert.ok(body.indexOf('if (FS.homeConfirmWait) return;') < body.indexOf('await refreshHomes({ force: true })'));
+  assert.equal(j.split('|| !!FS.homeConfirmWait;').length - 1, 2, 'both join screens show the wait as busy (「村を準備しています…」, the button disabled)');
 });

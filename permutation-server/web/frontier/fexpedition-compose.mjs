@@ -367,7 +367,8 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
 export const ARRIVAL_HEADROOM_WALL_SECS = 30;
 export function arrivalHeadroom(rate, lagBells = 0) {
   const r = Number(rate), lag = Number.isInteger(lagBells) && lagBells > 0 ? Math.min(lagBells, 24) : 0;
-  const clock = Number.isFinite(r) && r > 1 ? Math.ceil(ARRIVAL_HEADROOM_WALL_SECS * r / BELL_SECS) : 0;
+  // (rounded, not ceiled: the measured rate wobbles around the clock's own — 64.4 for ×60 — and 3 must stay 3)
+  const clock = Number.isFinite(r) && r > 1 ? Math.max(1, Math.round(ARRIVAL_HEADROOM_WALL_SECS * r / BELL_SECS)) : 0;
   return clock + lag;
 }
 export function outboundArrivalCandidate(fs) {

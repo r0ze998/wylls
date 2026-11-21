@@ -612,7 +612,8 @@ function outboundArrivalPick(pick, entered) {
   // (fix-loop6, LP6-1: on a fast clock the offer is the earliest turn plus the turns the send itself takes —
   //  fexpedition-compose arrivalHeadroom — and an entered turn still inside the observed range is kept, not re-offered)
   const n = /^(0|[1-9][0-9]{0,9})$/.test(entered) ? Number(entered) : null;
-  const inside = n !== null && n >= pick.min + (pick.headroom ?? 0) && n <= pick.max;
+  // (an entered turn with any room past the earliest stays — the offer moves with the clock and the measured rate, the field need not)
+  const inside = n !== null && n > pick.min && n <= pick.max;
   if (entered === pick.arriveBell || (inside && (pick.headroom ?? 0) > 0)) return html`<p class="pop-line outbound-arrival-set">${pick.headroom
     ? L`到着ターンの候補はターン ${entered} です（最も早いターン ${pick.min} に、送るまでに時計が進む分の余裕を足しています）。詳細で変更できます。`
     : L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;

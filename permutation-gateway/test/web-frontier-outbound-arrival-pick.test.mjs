@@ -338,7 +338,7 @@ test('at ×60 the offer leaves room for the send: the turn the next read (one tu
   const { arrivalHeadroom, ARRIVAL_HEADROOM_WALL_SECS } = await import('../../permutation-server/web/frontier/fexpedition-compose.mjs');
   assert.equal(ARRIVAL_HEADROOM_WALL_SECS, 30);
   assert.equal(arrivalHeadroom(undefined), 0, 'the chain\'s own clock: departMargin already covers it');
-  assert.equal(arrivalHeadroom(1), 0); assert.equal(arrivalHeadroom(15), 1); assert.equal(arrivalHeadroom(60), 3);
+  assert.equal(arrivalHeadroom(1), 0); assert.equal(arrivalHeadroom(15), 1); assert.equal(arrivalHeadroom(60), 3); assert.equal(arrivalHeadroom(64.4), 3, "the measured ×60 rate"); assert.equal(arrivalHeadroom(2), 1, "never 0 on a fast clock");
   assert.equal(arrivalHeadroom(60, 2), 5, 'a province two turns behind adds two'); assert.equal(arrivalHeadroom(60, 999), 27, 'the lag counted is bounded');
   const w = world(); w.fs.chain.rate = 60; reconcileOutbound(w.fs, w.ctx);
   // the range moves with the clock the read is made under: one turn later, every turn one later
