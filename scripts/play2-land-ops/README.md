@@ -7,7 +7,7 @@ below). The guard's SIGINT (free disk under the floor, loop-play) and the launch
 run's report is outside this repository; this file does not record them.
 
 Two limits of the starter as written (seen in loop-play2):
-- **One launcher per machine.** The "no other launcher" check matches any real launcher, even one on other ports.
+- **One launcher per machine.** The "no other launcher" check matches a launcher started as `node <path>local-play-launcher.mjs`, even one on other ports (one started with node flags, or from a path with a space, is not matched).
   A second world on this machine needs a copy of the starter whose check names its own port.
 - **No operator AI residents.** The launcher itself has them (`--operator-residents <1-4>`), but this starter does not
   pass the flag, and its fixed ports (`--port 41960 --world-port 41964`) cannot carry it: with residents the launcher
