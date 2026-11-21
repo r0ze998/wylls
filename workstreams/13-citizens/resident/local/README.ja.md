@@ -27,7 +27,7 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 | 決め方 | 料金のかからない規則（点数がいちばん高い保留なしの候補）。provider を差すときは ⑬ の `decideLive` の境界（`charges:false`、提示した候補だけ） | `brain.mjs` `decideLocal` |
 | 上限 `DEFAULT_LIMITS` | 1 ターン 1 回（世界の規則、設定ではない）。失敗ごとに保留が倍（4・8・16・32、最大 36 ターン）。待つと見る間隔が倍（最大 4 ターン）。判断回数 500。1 日 144 回。Harvest は他にすることがないとき 6 ターンに 1 回 | `brain.mjs` `LOCAL_LIMITS`、`runner.mjs` |
 | 記憶・再起動 | `intended` を保存 → 署名を保存（送る前）→ 送る → 署名で結果を追う。再起動で `intended` は「送っていない」。署名のある未決の行がある間は新しい命令を出さない | `journal.mjs`、`runner.mjs` |
-| 観測 | 公開の herald の自分の記録だけ（`/h/season`、`/h/status`、`/h/me/<自分>`、村が無い間だけ自分の国の州の空き地）。MCP は読み取りだけ（記録用に村の在庫を読む） | `observe.mjs` |
+| 観測 | 公開の herald の自分の記録だけ（`/h/season`、`/h/status`、`/h/me/<自分>`、村が無い間は自分の国の州の空き地、村ができたら自分の州だけ：`resolvedNext` を見て、世界の決着が前のターンに届くまで編成を保留する。プログラムの `resident_ok` と同じで、ページの「編成」ボタンも同じ理由で止まる）。MCP は読み取りだけ（記録用に村の在庫を読む） | `observe.mjs` |
 
 S1 の値から変えた上限（住民自身の設定。世界より厳しい側）：`wakeEveryBells` 3→1、`actionsPerDay` 12→144、`idleBackoffMaxBells` 24→4。
 S1 の値は S1 の 30/時のバケットに合わせたもので、1 ターン 1 回の世界では 30 ターンに 10 回しか動けないため。
