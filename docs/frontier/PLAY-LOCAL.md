@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-21 (through #131; checks up to loop-play6. fix-loop6's #130 is still a draft and is not in: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-21 (through #131 and #129; checks up to loop-play6. fix-loop6's #130 is still a draft and is not in: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -300,7 +300,7 @@ view (fog-devnet; runbook §7 P5).
 | Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
 | Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107) |
-| Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; keeper A's `expeditions` role sends every step after the departure (#121, checked offline). The page has no devnet route for the departure yet (runbook §7 P15) |
+| Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet (「送る内容を確認」 → 「ウォレットで署名して送る」; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120, checked offline; 12 hours of real time) |
@@ -311,7 +311,7 @@ view (fog-devnet; runbook §7 P5).
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.
 
-## 8. Known problems (2026-11-21, main through #131)
+## 8. Known problems (2026-11-21, main through #131 and #129)
 
 ### 8.1 Found by loop-play6 and still on main
 
@@ -329,7 +329,7 @@ once it is, the workarounds in §3, §4, §6 and §10 are no longer needed).
 | Wide village (W2) | the header says read-only while the card below sends orders (LP6-6); reason lines in English, the card Japanese on the English page (LP6-15) | the glossary in §4 step 4 |
 | March inside the wide land | after the departure its result (clash, hold progress) appears nowhere on the page (LP6-5) | none (`runner.out` has it) |
 | AI (`--wide`) | the AI's rim → wide expeditions do not land (0 of 454; LP6-7) | none |
-| `--two` (also with `--coexist`) | two players of one nation can get homes in opposite provinces (2 of 3 worlds; LP6-12) | start the world again (§10) |
+| `--two` (also with `--coexist`) | two players of one nation can get homes in opposite provinces (2 of 3 worlds in loop-play6, 4 of 5 in verify-pr133; LP6-12) | start the world again (§10) |
 | ② rights caravans | 「ここから隊商を送る」 on a storehouse opens the form with the same storehouse as destination, and the amount limits are the village's stock (LP6-13); 「隊商を届ける」 is offered before the province has settled and an early press is refused (LP6-14) | §10 steps 5 and 8 |
 
 Small ones (nothing blocks play):
@@ -430,14 +430,16 @@ scripts/play-local.sh --coexist --two                   # a kept world (natural 
 
 Steps (「」 are the page's buttons and texts as they are; the page's English mode has its own labels):
 
-1. **Get into one province**: A and B both press 「世界を開始」 → 「国を選ぶ」 and pick the **same nation** (one without
-   an AI: with `--ai 2`, not Borealis or Ember). Check on the village screens that both provinces (e.g. 「州 0,2」) are
+1. **Get into one province**: A and B both press 「世界を開始」 (with `--demo`: 「新しい世界を開始」) → 「国を選ぶ」 and pick the **same nation** (one without
+   an AI: with `--ai 2`, not Borealis or Ember). Open 「村の詳細」 at the bottom of each village screen: it shows the province (e.g. 「州 -2,0」). Check that both are
    the same. In different provinces (opposite sides of the centre) no caravan reaches (a path is at most 32 tiles / 4
-   provinces): stop with Ctrl-C and start the world again until they match (loop-play6: 2 of 3 worlds were opposite).
-2. **A: build a workshop**: in the village's build list, 「工房」 → 「建てる」 (60 food, 120 wood, 80 stone, 40 ore). The
+   provinces): stop with Ctrl-C and start the world again until they match (opposite in 2 of 3 worlds in loop-play6 and 4 of 5 in verify-pr133; one restart takes about 30 seconds).
+2. **A: build a workshop**: in the village's build list open 「ほかの建物（6）」, then 「工房」 → 「建てる」 (60 food, 120 wood, 80 stone, 40 ore).
+   The notice has an empty name: 「の建設を始めました」 (§8.1). The
    village is now a workshop village and makes 4 arms an hour (a workshop can be built only in a `--coexist` world).
 3. **B: build a storehouse**: select a free tile of A's province on the map, 「ここに建てる」 → 「貯蔵庫を建てる」
    (200 wood, 200 stone, 50 gold from the selected village). It says 「貯蔵庫を建てました」.
+   On a mountain or water tile it says 「この建物はこのマスに建てられません（通れない土地、…）」 and cannot be pressed: pick a flat tile.
 4. **B: bring ore and wood into the storehouse**: select the storehouse's tile → 「ここへ隊商を送る」 (or the village
    screen's 「交易と防備」 → 「隊商を送る」). Check that 「出発地」 is your village and 「行き先」 the storehouse, type the
    wood and ore, 「隊商を送る」. One arm takes 2 ore and 1 wood (e.g. 20 wood + 40 ore for up to 20 arms).
@@ -467,6 +469,7 @@ Good to know:
 - Issuing and revoking are for the wallet only (this browser's test key); AI residents and delegates cannot. (The
   program itself still accepts a session key for the revoke; locally the relay refuses it. To fix before devnet.)
 - Caravans can be raided on the road. The long notice after a delivery, 「…到着しましたが、入った量は確認できません…」,
-  is not a failure (it means stores cut off what exceeds their cap).
-- In a plain world (no `--coexist`) a workshop cannot be built and there is no deliver button (caravans stay "moving").
+  is not a failure (it means stores cut off what exceeds their cap). A caravan to a village can instead say
+  「…決着しました。入った量はまだ確かめられていません…」: not a failure either (the goods are in the village).
+- In a plain world (no `--coexist`) a workshop cannot be built and there is no deliver button (an arrived caravan is never delivered).
 - `--coexist-node` is the old page-less node (for development).
