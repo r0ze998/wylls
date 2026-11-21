@@ -19,6 +19,11 @@
 //! boundary), frontier_hold, frontier_release, frontier_holds,
 //! frontier_snapshot, frontier_restore, frontier_stateHash,
 //! frontier_setAccount (--allow-tamper only)`.
+//! A runner started with a time-control token ([`Policy::with_control_from_env`],
+//! `FRONTIER_CONTROL_TOKEN`, as the local-play launcher starts its worlds)
+//! refuses `frontier_pause`, `frontier_resume`, `frontier_setScale`,
+//! `frontier_hold` and `frontier_release` without that token in the
+//! `x-frontier-control` header.
 //!
 //! Conformance: `tests/conformance.rs` drives every method through
 //! web3.js 1.99 and `permutation-gateway/src/send.mjs` themselves.
