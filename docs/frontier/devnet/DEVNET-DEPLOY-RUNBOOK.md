@@ -39,7 +39,9 @@
 > keeper A's provinces on demand (#138, `provinces_reach`), the page's second / third village (#141, FileOutpost) and
 > the 3-wide-ring cost model (#136). **No owner decision is pending**: what r0ze still does is the deploy-day list
 > of §7.0 ("MUST at deploy") and the "deploy OK" for `67a33c92…06b3`. §4b now has every player step and every keeper A
-> role's season cost (incl. #138's opens and #129's wide Resolves), and §8's `keeper.toml` lists all 16 roles.
+> role's season cost (incl. #138's opens and #129's wide Resolves), and §8's `keeper.toml` lists the profile's 16 roles (13 of the keeper's `ROLES` and the 3 `WIDE_ROLES`; `explore`,
+> `dormancy` and `sweep` are not in the profile). Verified 2026-11-22 on main 6d0e91f6 (verify-pr144; #137, merged after
+> #139, changed the page, the launcher and the local chain only: nothing the devnet `.so`, the keeper or the planner links).
 
 ## 1. What gets deployed
 
@@ -290,8 +292,8 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | — so one keep held to its capture (72 bells) | about 0.47 [derived] | — | float | 72 × the line above |
 | Keeper A `skip`: SkipQuiet over every opened legacy province (79: genesis 37 + rim 42) | about 0.55 per 7-day season | same | spent (fees) | P9: 2,373 sends, 38,611,083 lamports; **not in §4a's total** |
 | Keeper A per rim → wide expedition | 0.046 | — | mostly rent (ClashInputs, ArrivalSlot / ArrivalDay, 19 wide Resolves) | P11, verify-pr121: 45,634,216 lamports |
-| Keeper A `rings` `provinces_reach = 3` (#138): OpenProvince next to the settled land, what its payer sends | at most 0.011 | at most 0.0006 | spent (fees): 26,332 lamports an open | PPROV; at most 413 opens before the wide rings open, 305 after (5,080), 23 / 0 at 6,960: the wedge-fund floor, not `provinces_max`, is the bound (verify-pr138) |
-| — their rent: 24,709,120 lamports a province, **out of the 36 SOL of wedge funds, not new money** | (at most 10.2) | (at most 0.78) | float | 413 × 24,709,120 [derived] |
+| Keeper A `rings` `provinces_reach = 3` (#138): OpenProvince next to the settled land, what its payer sends | at most 0.011 | at most 0.0074 as built (0.0006 with a floor rebuilt for 6,960) | spent (fees): 26,332 lamports an open | PPROV; a season total of at most 413 opens (305 once the wide rings are open) at 5,080: the wedge-fund floor, not `provinces_max`, is the bound, and keeper A stops opening in a wedge whose fund reached it (§6: what that means for play). At 6,960 the keeper as built would allow 281, not the 23 a rate-scaled floor gives (§6, F1) |
+| — their rent: 24,709,120 lamports a province, **out of the 36 SOL of wedge funds, not new money** | (at most 10.2) | (at most 9.5 as built; 0.78 with a floor rebuilt for 6,960) | float | 413 × 24,709,120; 281 × 33,853,440; 23 × 33,853,440 [derived] |
 | — SkipQuiet for those provinces | about 0.3–2.9 per 7-day season | — | spent (fees); **not in §4a's total** | verify-pr138: 0.00067 (idle) to 0.0070 (busy) SOL a province × 413 |
 | Keeper A `wide-resolve` (#129): the quiet wide Resolve of every known wide province, every bell | about 0.065 per known wide province per 7-day season; at most about 7.0 (all 108) | same | spent (fees): 64,331 lamports a bell and province (5,000 + the class-D starting bid on the role's 600,000 CU limit; a quiet Resolve uses about 84,000 CU) | verify-pr129; **not in §4a's total** |
 | Fees and tips over 7 days, 50 players | 0.625 | 0.625 | spent [model] | §4a |
@@ -446,9 +448,25 @@ legacy ring within 3 provinces of a settled one (`keeper::rings::demand_plan`), 
 scan and `provinces_max` (600) a run, never below a wedge fund's floor (`demand_fund_floor`: the largest balance check
 still ahead plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080) and never while the feed guard holds
 automatic writes. Rent from the wedge funds (24,709,120 lamports a province at 5,080), fees from keeper A's payer.
-The floor, not `provinces_max`, is the real bound (verify-pr138): at 5,080 at most 413 provinces on demand before the
-wide rings open and 305 after them (69 / 51 a wedge); at 6,960 at most 23 before and none after. `provinces_max` counts
-per keeper run.
+The floor, not `provinces_max`, is the real bound (verify-pr138, recomputed by verify-pr144): at 5,080 a season's
+on-demand opens total at most 413 (69 a wedge, 68 in wedge 0) if they all come before the wide rings open; once the
+108 wide provinces are open (about 21 h in) the total, counting the opens already made, is at most 305 (51 / 50 a
+wedge). `provinces_max` counts per keeper run. **What the floor means for play:** the bound is per wedge. When a
+wedge's fund is at its floor keeper A stops opening provinces in that sixth of the map for the rest of the season
+(nothing refills the funds; the other wedges go on). `GET /v1/status` then shows `provinces_demand.waiting` =
+"wedge fund N at its floor"; the page keeps saying 「この州はまだ開かれていません」 for those provinces (its
+"opens automatically" no longer holds there), and a FileOutpost into them is refused before signing
+(`LocalActProvinceAbsent`; on chain `BadAccount`, as for any act that needs the absent Province). Villages, marches and the wide claim on provinces already open
+are not affected. A heartland home's outposts lie on rings 4–6, whose reach is rings 4–9, 234 provinces, about 39 a wedge:
+under the floor; rim homes and R3 homes past the heartland are what can reach it [derived]. OpenProvince stays
+permissionless, so anyone may still open a province by hand from the same fund, below the floor too.
+**At 6,960 the figures "23 before, none after" hold only for a keeper rebuilt for that rate:** the floor is computed
+from the compile-time `frontier_abi::layout::RENT_PER_BYTE` = 5,080 (`demand_fund_floor`, `PROVINCE_RENT_V2`), not from
+the cluster's Rent sysvar, which the program charges. As built, on a 6,960 cluster the floor would stay 3.95 SOL while
+each open takes 33,853,440 lamports: up to 281 opens before the wide rings (173 after), leaving a fund 3.97 SOL, below
+what the program then checks for OpenRing 118–128 (3.99–4.33 SOL) and for the wide rings' seeds (4.48–4.55 SOL), so
+heavy early opening could stop the map's growth and the wide land [derived, not run]. Devnet was 5,080 on 2026-11-18;
+**if §3's re-check shows another rate, do not start a season with `provinces_reach` on** (open item F1, §7.0).
 OpenProvince stays permissionless: anyone may also send it. **Rim first villages (Q-W1):** once ring 128 is opened and seeded, the
 same duty's `rim_per_wedge = 6` opens the 42 ring-128 provinces beside the middle six ring-129 provinces of each wedge
 (`keeper::rings::rim_plan`, the local wide world's rim; 1.04 SOL of province rent at 5,080, 1.42 SOL at 6,960, out of
@@ -612,7 +630,7 @@ list; the table after it keeps each item's detail.
 
 | # | What is missing | Whose | State |
 |---|---|---|---|
-| P14 | Nothing left to decide. **The deploy confirmation is for the new `.so`** `67a33c92…06b3` (§1a; `da3dc1aa…b9741` must not be approved any more). Rebuilt twice by verify-pr139 on the merged tree with the same hash; nothing the build links changed after #139 (it is the last merge on main) | **r0ze** (the "deploy OK" only) | (a) #124 and (b) #139 merged |
+| P14 | Nothing left to decide. **The deploy confirmation is for the new `.so`** `67a33c92…06b3` (§1a; `da3dc1aa…b9741` must not be approved any more). Rebuilt twice by verify-pr139 on the merged tree with the same hash; nothing the build links changed after #139 (#137, merged after it, touches the page, the launcher and the local chain only) | **r0ze** (the "deploy OK" only) | (a) #124 and (b) #139 merged |
 | P11 (O11) | Who pays a player's fees and rent. Today the player's wallet (about 0.02 SOL, §4b) | **r0ze** (not blocking) | wallet-paid is implemented; sponsoring is not wired |
 | Q-W3 | `outpost_tier_min` 0 lets every Hamlet file an outpost, in the heartland too (as local wide play) | **r0ze** (not blocking) | implemented as 0; reverting is one preset byte, the `.so` is unaffected |
 | W1 | **The verifier's witness endpoint.** A PASS on a public-RPC season needs a second, independent RPC that serves the whole season. The only free no-sign-up second provider found (OnFinality) keeps about 7 days of history; a season is 7 days + the 24 h lead + about 21 h of map growth, so after the season ends such a witness reads UNVERIFIABLE (fail-safe, never PASS). Choices: an archival provider (sign-up), an own node, Old Faithful, or verifying while the season is still inside the witness's window | **r0ze** | measured read-only on 2026-11-21 (devnet-readonly-rpc) |
@@ -626,6 +644,7 @@ list; the table after it keeps each item's detail.
 | R3 | SIMD-0500 (inactive on 2026-11-18) would refuse a deploy or upgrade of this SBPF v2 `.so` once active (§3) | risk | re-check right before the deploy |
 | P17 | **The wide village's own acts are not on the devnet page.** WideEconomy (Harvest / Build / Train), WideGarrison and WideMuster are sent only by local play's relay / page lane (`flocalplay-wide-host.mjs`, the host card needs `FS.localPlay.wideLand`); `DEVNET_ACT_COMMANDS` has none of them. On chain they are allowed, and keeper A's `wide-resolve` keeps the province resident for them (P9; P11/P12's tail sends WideMuster from the TEST, not the page) | engineering | open; not needed for a first season (the claim itself is the goal there) |
 | C1 | Keeper A's fees outside §4a's total: `wide-resolve` (64,331 lamports a bell and known wide province; its 600,000 CU limit is about 7× a quiet Resolve's 84,000 CU, so a lower limit would cut the fee to about a quarter, a behaviour change proposed by verify-pr129, not made) and SkipQuiet over provinces opened on demand (#138) | engineering (optional) | §4b; budget +3 to +10 SOL |
+| F1 | Keeper A's on-demand fund floor is compiled for 5,080 lamports per byte (`RENT_PER_BYTE`; `rings.rs` `demand_fund_floor`), the program charges the cluster's Rent sysvar: at another rate the floor is wrong (§6; at 6,960 too low, so on-demand opens could starve OpenRing and the wide rings) | engineering | open; harmless at 5,080 (today's devnet rate). At another rate: run without `provinces_reach`, or make the floor read the rate first |
 | T1 | CI coverage: P14 (conquest reader) runs on the previous `.so` and in the manual key-tests only; P8's `AFTER_BELLS` is still 48 (< 72, so no capture in CI); the P12/PPOST/P7 page drivers race the declared map growth under load (D-devnet-page-outpost-3, D-verify-pr139-5) | engineering | open |
 
 A playable first season does not need any open engineering item above: Join, the rim village, second and third
@@ -637,7 +656,8 @@ are merged). What r0ze still has to do is the deploy-day list below; W1 matters 
 **MUST at deploy time, r0ze, in order:**
 
 1. Play-check locally (t341u): `scripts/play-local.sh`, then `--wide`.
-2. Approve one read-only devnet re-check right before (§3: rent rate, BLS, SBPF v2, SIMD-0500).
+2. Approve one read-only devnet re-check right before (§3: rent rate, BLS, SBPF v2, SIMD-0500). If the rent rate is
+   not 5,080, stop: the costs change (§4) and keeper A's `provinces_reach` floor is wrong (F1).
 3. Install a Solana CLI ≥ 4.0.0 beside 3.1.9 (3.1.9 cannot deploy this `.so`; §1a).
 4. Make 3 keys offline (deployer, program-playable, authority; never `--final`); put the 2 public keys into
    `scripts/devnet/devnet-playable-profile.json` (`programId`, `upgradeAuthority`).
@@ -796,7 +816,7 @@ rpc_min_gap_ms = 250
 
 `wide-tickets`, `expeditions`, `wide-resolve` and `wide_rings` need the keeper built with `--features playable-lane`
 (`config.rs` `check_wide`); `expeditions` needs `beacon`, `gather` and `resolve`; `wide-resolve` needs `beacon`;
-`provinces_reach` (at most 3) and `wide_rings` need `rings`. Unknown keys are refused.
+`provinces_reach` (at most 8, `PROVINCES_REACH_MAX`; 3 is the preset's `outpost_range`) and `wide_rings` (at most 8) need `rings`. Unknown keys are refused.
 
 Notes on what is **not** tested as written:
 
