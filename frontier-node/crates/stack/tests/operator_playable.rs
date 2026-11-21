@@ -68,6 +68,9 @@ const PFOG_PORT_BASE: u16 = 41_720;
 const PPROV_PORT_BASE: u16 = 41_540;
 /// PPROV: keeper A's `provinces_reach` (the devnet profile's value, the preset's `outpost_range`).
 const PPROV_REACH: u16 = 3;
+/// PFLOOR's (keeper-rent-floor; `OPERATOR_FLOOR_5080_PORT_BASE` / `OPERATOR_FLOOR_6960_PORT_BASE` move them).
+const PFLOOR_5080_PORT_BASE: u16 = 41_510;
+const PFLOOR_6960_PORT_BASE: u16 = 41_530;
 /// PPOST's (devnet-page-outpost; `OPERATOR_PAGE_OUTPOST_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection).
 const PPOST_PORT_BASE: u16 = 41_610;
 
@@ -704,6 +707,30 @@ async fn pprov_keeper_a_opens_the_provinces_a_nation_grows_into_offline() {
     .await;
 }
 
+/// PFLOOR (keeper-rent-floor, D-verify-pr144-1): PPROV's world on a localnet at the 5,080 rent rate; every wedge fund
+/// declared to its floor + 2½ provinces; keeper A opens exactly 2 a wedge (where wanted) and stops at the floor
+/// (`operator_playable/provinces.rs` `floor_flow`). Ports 41510+.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pfloor_5080_keeper_a_stops_opening_at_the_fund_floor_offline() {
+    playable_season(
+        ports("OPERATOR_FLOOR_5080_PORT_BASE", PFLOOR_5080_PORT_BASE),
+        Mode::Floor(5_080),
+    )
+    .await;
+}
+
+/// PFLOOR at 6,960 lamports/byte (the pre-SIMD-0194 rate): the floor and every rent keeper A compares are the
+/// cluster's, so the same 2-a-wedge stop holds (the fixed-5,080 floor would have opened every wanted province).
+/// Ports 41530+.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pfloor_6960_keeper_a_stops_opening_at_the_fund_floor_offline() {
+    playable_season(
+        ports("OPERATOR_FLOOR_6960_PORT_BASE", PFLOOR_6960_PORT_BASE),
+        Mode::Floor(6_960),
+    )
+    .await;
+}
+
 /// PPOST (devnet-page-outpost): P4's rim world with the WEB PAGE as the participant, founding its SECOND village by
 /// FileOutpost from the village screen's card (wallet-signed, wallet-paid, two presses: the SOL preview, then the send
 /// through `/gw/f/devnet-play/act/submit`); the card first says the absent neighbours are not opened yet, the test opens
@@ -754,6 +781,8 @@ enum Mode {
     Provinces,
     /// PPOST (devnet-page-outpost): P4's rim world with the WEB PAGE founding its second village (FileOutpost).
     PageOutpost,
+    /// PFLOOR (keeper-rent-floor): PPROV's world at this rent rate; opens stop at the fund floor.
+    Floor(u64),
     /// P14 (devnet-guard-conquest): P11, then a third party's wide Free City conquest.
     Conquest,
 }
@@ -774,6 +803,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Expedition => "p11",
         Mode::PageExpedition => "p12",
         Mode::Provinces => "pprov",
+        Mode::Floor(_) => "pfloor",
         Mode::PageOutpost => "ppost",
         Mode::Conquest => "p14",
     };
@@ -811,6 +841,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let t_create_min = align(genesis_round);
     let chain0 = localnet::Chain::new(localnet::Config {
         g0: t_create_min - 86_400 - 900,
+        // (PFLOOR: the cluster's rent rate under test)
+        lamports_per_byte: match mode {
+            Mode::Floor(rate) => rate,
+            _ => localnet::chain::LAMPORTS_PER_BYTE,
+        },
         ..localnet::Config::default()
     });
     let mut chain0 = chain0;
@@ -1062,7 +1097,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         // (P5: the profile's keeper A with P6/P7: `wide-tickets`, and the rings duty's wide rings)
         roles = match mode {
             Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
-            Mode::Rim | Mode::Provinces | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
+            Mode::Rim | Mode::Provinces | Mode::Floor(_) | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
@@ -1080,7 +1115,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::Setup => String::new(),
             Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             // (PPROV: the profile's rim and provinces on demand, `provinces_reach` = the preset's outpost_range)
-            Mode::Provinces => format!(
+            Mode::Provinces | Mode::Floor(_) => format!(
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
                 rim::PER_WEDGE
             ),
@@ -1498,10 +1533,21 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 expedition,
                 conquest: mode == Mode::Conquest,
                 page: page.clone(),
-                provinces: (mode == Mode::Provinces).then(|| rim::provinces::Input {
-                    player: player.insecure_clone(),
-                    home: (hp as i32, hq as i32, site),
-                    reach: PPROV_REACH as u32,
+                provinces: matches!(mode, Mode::Provinces | Mode::Floor(_)).then(|| {
+                    rim::provinces::Input {
+                        player: player.insecure_clone(),
+                        home: (hp as i32, hq as i32, site),
+                        reach: PPROV_REACH as u32,
+                        floor: match mode {
+                            Mode::Floor(rate) => Some(rim::provinces::Floor {
+                                rate,
+                                keeper_api: pt.keeper_api,
+                                token: "test-token-operator-playable".into(),
+                                keeper_toml: kdir.join("keeper.toml"),
+                            }),
+                            _ => None,
+                        },
+                    }
                 }),
                 war: (war || expedition).then(|| rim::War {
                     keeper_api: pt.keeper_api,

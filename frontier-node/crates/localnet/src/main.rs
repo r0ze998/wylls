@@ -4,6 +4,7 @@
 //! frontier-localnet [--port 41010] [--ws-port 41011] [--scale 20] [--g0 <unix>]
 //!                   [--data-dir DIR] [--snapshot-every-bells 36] [--keep-snapshots 3]
 //!                   [--no-fsync] [--allow-tamper] [--start-paused]
+//!                   [--lamports-per-byte 5080]
 //!                   [--program <id>=<path.so>[:<max_len>][@<authority>]]...
 //! ```
 //! Ports: 41000–41999 only, never a reserved one (§10.3). With `--data-dir`
@@ -23,7 +24,8 @@ fn usage() -> ! {
     eprintln!(
         "usage: frontier-localnet [--port 41010] [--ws-port P] [--scale S] [--g0 UNIX] \
          [--data-dir DIR] [--snapshot-every-bells N] [--keep-snapshots N] [--no-fsync] \
-         [--allow-tamper] [--start-paused] [--program ID=PATH[:MAXLEN][@AUTHORITY]]..."
+         [--allow-tamper] [--start-paused] [--lamports-per-byte N] \
+         [--program ID=PATH[:MAXLEN][@AUTHORITY]]..."
     );
     std::process::exit(2)
 }
@@ -55,6 +57,7 @@ async fn main() {
             "--no-fsync" => cfg.fsync = false,
             "--allow-tamper" => cfg.allow_tamper = true,
             "--start-paused" => start_paused = true,
+            "--lamports-per-byte" => cfg.lamports_per_byte = num(args.next()),
             "--program" => programs.push(args.next().unwrap_or_else(|| usage())),
             _ => usage(),
         }

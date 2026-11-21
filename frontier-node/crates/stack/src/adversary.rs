@@ -324,7 +324,14 @@ pub async fn probe_land_and_claims(
     if want_ring {
         let mut keys = vec![a.frontier()];
         keys.extend(a.province_funds());
+        keys.push(fclient::rent::rent_sysvar());
         if let Ok(got) = chain.accounts(&keys).await {
+            // The cluster's rent (the program checks the funds against it).
+            let rent = got
+                .get(7)
+                .and_then(|x| x.as_ref())
+                .and_then(|x| fclient::rent::RentSysvar::decode(&x.data))
+                .and_then(|r| fclient::land::LandRent::from_sysvar(&r));
             let fr = got
                 .first()
                 .and_then(|x| x.as_ref())
@@ -336,8 +343,8 @@ pub async fn probe_land_and_claims(
             }
             let on: std::collections::BTreeSet<(i32, i32)> =
                 ps.iter().map(|p| (p.p as i32, p.q as i32)).collect();
-            if let Some(fr) = fr {
-                ring = fclient::land::ring_opening(season, &fr, &funds, &on, now);
+            if let (Some(fr), Some(rent)) = (fr, rent) {
+                ring = fclient::land::ring_opening(season, &fr, &funds, &on, now, &rent);
             }
         }
     }

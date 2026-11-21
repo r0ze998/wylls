@@ -424,11 +424,18 @@ village (FileOutpost: ring > `heartland_max_ring` 3, within `outpost_range` 3 of
 heartland need a present Province, so the same duty's `provinces_reach = 3` opens every absent province of a seeded
 legacy ring within 3 provinces of a settled one (`keeper::rings::demand_plan`), at most `provinces_per_pass` (12) a
 scan and `provinces_max` (600) a run, never below a wedge fund's floor (`demand_fund_floor`: the largest balance check
-still ahead plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080) and never while the feed guard holds
-automatic writes. Rent from the wedge funds (24,709,120 lamports a province at 5,080), fees from keeper A's payer.
-The floor, not `provinces_max`, is the real bound (verify-pr138): at 5,080 at most 413 provinces on demand before the
-wide rings open and 305 after them (69 / 51 a wedge); at 6,960 at most 23 before and none after. `provinces_max` counts
-per keeper run.
+still ahead plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080, 5.41 SOL at 6,960) and never while the
+feed guard holds automatic writes. Rent from the wedge funds (24,709,120 lamports a province at 5,080, 33,853,440 at
+6,960), fees from keeper A's payer. **The floor and every rent it compares are the cluster's** (keeper-rent-floor):
+keeper A reads the Rent sysvar (one `getMultipleAccounts` key, re-read every 1,500 slots ≈ 10 min) and prices the floor,
+each open's rent and the crowding OpenRing check at that rate; it never uses the compile-time 5,080. If the sysvar cannot
+be read (never, or not for 9,000 slots ≈ 1 h) keeper A opens nothing on demand and no crowding ring, `/v1/status`
+`duties.rent.usable` is false and the `rent-unknown` alert is raised. The floor, not `provinces_max`, is the real bound
+(verify-pr138): at 5,080 at most 413 provinces on demand before the wide rings open and 305 after them (69 / 51 a
+wedge); at 6,960 at most 23 before and none after (keeper A now computes the 6,960 floor itself; before
+keeper-rent-floor it kept the 5,080 floor at any rate and could have opened 281 / 173 at 6,960, draining the funds below
+OpenRing's and the wide ring seeds' checks: D-verify-pr144-1, offline proof `operator_playable` PFLOOR at 5,080 and
+6,960). `provinces_max` counts per keeper run.
 OpenProvince stays permissionless: anyone may also send it. **Rim first villages (Q-W1):** once ring 128 is opened and seeded, the
 same duty's `rim_per_wedge = 6` opens the 42 ring-128 provinces beside the middle six ring-129 provinces of each wedge
 (`keeper::rings::rim_plan`, the local wide world's rim; 1.04 SOL of province rent at 5,080, 1.42 SOL at 6,960, out of

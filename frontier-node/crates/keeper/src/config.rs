@@ -345,7 +345,8 @@ pub struct KeeperConfig {
     /// rings duty still needs ([`crate::rings::demand_fund_floor`]); it
     /// sends nothing while the feed guard holds automatic writes. Rent
     /// from the wedge funds (24,709,120 lamports a province at 5,080
-    /// lamports/byte), fees from the keeper's payer. At most
+    /// lamports/byte; the floor and rents are priced at the cluster's
+    /// Rent sysvar, [`crate::rent`]), fees from the keeper's payer. At most
     /// [`PROVINCES_REACH_MAX`].
     pub provinces_reach: u16,
     /// `provinces_reach`: the most OpenProvince writes one scan plans

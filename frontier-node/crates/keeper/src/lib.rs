@@ -82,6 +82,7 @@ pub mod payerlist;
 pub mod play;
 pub mod playindex;
 pub mod pools;
+pub mod rent;
 pub mod reveal_accept;
 pub mod rings;
 pub mod rounds;
@@ -367,6 +368,11 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     pub genesis: GenesisDuty,
     pub archive: ArchiveDuty,
     pub rings: RingDuty,
+    /// The cluster's Rent sysvar, re-read every [`rent::RENT_REFRESH_SLOTS`]
+    /// (keeper-rent-floor): the rings duty's fund checks and the reveal floor.
+    pub rent: rent::RentCache,
+    /// A `rent-unknown` alert is up (raised once, cleared by a good read).
+    rent_alerted: bool,
     pub fold: FoldDuty,
     pub tickets: TicketDuty,
     /// P7 (`playable-lane`): the `wide-tickets` role.
@@ -549,6 +555,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             genesis: GenesisDuty::default(),
             archive: ArchiveDuty::default(),
             rings: RingDuty::default(),
+            rent: rent::RentCache::default(),
+            rent_alerted: false,
             fold: FoldDuty::default(),
             tickets: TicketDuty::default(),
             #[cfg(feature = "playable-lane")]
@@ -968,12 +976,48 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         if v & fclient::budgets::LANE_VERSION_BIT != 0 {
             crate::widelane::fill_budgets(&mut b);
         }
-        // The reveal floor follows the Reveal this table requests.
-        let fr = crate::pools::reveal_floor_for(&self.cfg, &b);
+        // The reveal floor follows the Reveal this table requests (and the
+        // cluster's rent, once read).
+        let fr = crate::pools::reveal_floor_for(&self.cfg, &b, self.rent.last().as_ref());
         self.payers.reveal.floor = fr;
         self.payers.reveal.ceiling = fr.saturating_mul(2);
         self.engine.budgets = b;
         self.budgets_version = v;
+    }
+
+    /// Re-reads the Rent sysvar when due; on a new rate reprices the
+    /// reveal floor; raises `rent-unknown` once while no usable rate is
+    /// known (rings: no on-demand OpenProvince, no crowding OpenRing).
+    async fn follow_rent(&mut self, slot: u64) {
+        if let Some((old, new)) = self.rent.refresh(&self.port, slot).await {
+            let budgets = self.engine.budgets.clone();
+            let fr = crate::pools::reveal_floor_for(&self.cfg, &budgets, Some(&new));
+            self.payers.reveal.floor = fr;
+            self.payers.reveal.ceiling = fr.saturating_mul(2);
+            if old.is_some() {
+                self.alert(
+                    slot,
+                    "rent-rate",
+                    format!(
+                        "the cluster's rent rate changed: {} -> {} lamports/byte",
+                        old.map_or(0, |o| o.per_byte()),
+                        new.per_byte()
+                    ),
+                );
+            }
+        }
+        match self.rent.current(slot) {
+            Ok(_) => self.rent_alerted = false,
+            Err(why) if !self.rent_alerted => {
+                self.rent_alerted = true;
+                self.alert(
+                    slot,
+                    "rent-unknown",
+                    format!("{why}; the rings duty opens no province on demand and no crowding ring until it is read"),
+                );
+            }
+            Err(_) => {}
+        }
     }
 
     fn expeditions_status(&self) -> Value {
@@ -1185,6 +1229,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             cfg.roles
                 .retain(|r| !self.unsupported_roles.contains(r.as_str()));
             let addrs = self.addrs.clone();
+            // The cluster's rent (keeper-rent-floor): read before the rings
+            // duty decides anything with it; never fails the tick.
+            if cfg.has_role("rings") || cfg.has_role("beacon") {
+                self.follow_rent(slot).await;
+            }
+            self.rings.rent = Some(self.rent.current(slot));
             let t = Tick {
                 slot,
                 now,
@@ -1890,6 +1940,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "contested_bells": self.beacon.contested_bells.iter().collect::<Vec<_>>(),
                 "anchor_latency_slots_p99": quantile(&self.beacon.anchor_latency, 0.99),
                 "seed_latency_slots_p99": quantile(&self.beacon.seed_latency, 0.99),
+                "rent": self.rent.status(slot),
                 "provinces_opened": self.rings.opened.len(),
                 "rings_complete": self.rings.complete.iter().collect::<Vec<_>>(),
                 "ring_waiting": self.rings.waiting.as_ref().map(|w| format!("{w:?}")),
