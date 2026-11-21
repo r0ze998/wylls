@@ -267,7 +267,7 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 
 | Line | SOL at 5,080 | at 6,960 | Kind | Source |
 |---|---|---|---|---|
-| Deploy, peak the deployer needs (23.24 / 31.85 stays locked) | 23.29 | 31.89 | locked rent | §4a |
+| Deploy, peak the deployer needs (21.89 / 29.99 stays locked; P14 b's `.so`, it was 23.29 / 31.89 for `da3dc1aa…`) | 21.93 | 30.03 | locked rent | §4a |
 | Season setup, 10 transactions from the upgrade authority | 57.14 | 57.19 | 57 float (1 bond returned, 36 wedge funds, 20 DefencePool returned if unspent) + rent | §6b, #101 |
 | Keeper A's pools: reveal 150 payers × up to 0.016, delay 32 × up to 0.1, beneficiary 0.1 | 5.7 | 5.7 | float | profile `season.lamports`, halved (it models keepers A and B) |
 | Keeper A `beacon` / `archive`: AnchorArchives, BellAnchors, SeedCaches | 20.89 | 28.62 | float [model] | §4a's season lines |
@@ -284,10 +284,10 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | Keeper B's pools (5.7) and the relay pool (7.5) | 13.2 | 13.2 | float, **optional**: a first devnet season runs keeper A alone, and the wallet-paid devnet routes are not funded routes (`app.mjs`: "wallet-paid, so not a funded route") | §4a |
 | Herald, gateway, page | 0 | 0 | they sign nothing on the devnet play path | |
 
-§4a's **121.50 SOL (138.13 at 6,960)** stays the figure to hold for the deploy and one season. It includes the
+§4a's **120.15 SOL (136.28 at 6,960)** (P14 b's `.so`; 121.50 / 138.13 for `da3dc1aa…`) stays the figure to hold for the deploy and one season. It includes the
 optional 13.2 SOL above and 0.49 SOL of player rent that the players now pay themselves, and it leaves out the
 SkipQuiet fees (0.55), the ClashInputs float of contested bells and the expeditions (0.046 each); for a small first
-season the two sides roughly cancel. Without keeper B and the relay pool the operator needs about **108 SOL plus
+season the two sides roughly cancel. Without keeper B and the relay pool the operator needs about **106.5 SOL plus
 the war's float** at 5,080 [sum of the lines above].
 
 ## 5. Deploy **[r0ze]**
@@ -633,7 +633,7 @@ node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile
 # ── 2. Keys [r0ze], offline, outside the repository (§2) ─────────────────────────────────────────────────────
 #   ~/wylls-devnet-keys/{deployer,program-playable,authority}.json, mode 600
 #   their two addresses → "programId" and "upgradeAuthority" of scripts/devnet/devnet-playable-profile.json
-#   faucet into the deployer (23.29 SOL at 5,080) and the authority (57.14 SOL); keeper A's funders in step 5
+#   faucet into the deployer (21.93 SOL at 5,080) and the authority (57.14 SOL); keeper A's funders in step 5
 
 # ── 3. Deploy [r0ze: "deploy OK" for H] (§5a) ────────────────────────────────────────────────────────────────
 export PATH="$HOME/solana-4x/bin:$PATH"                    # solana CLI ≥ 4.0.0, for this step only
