@@ -173,7 +173,10 @@ await shot('keep-march-card');
 // (the card's 封をして出発する stays disabled while the page's own read of the home province says it is not resolved
 //  through b − 2 yet (fmarch.mjs NotResident): the herald folds behind the chain. Wait for the real button, composing
 //  the order again every 30 s so the card reads the province anew; never dispatch a disabled send)
-const send = page.locator('button[data-act="march-send"]:visible:enabled').first();
+// (fog-devnet: since #122 a verified devnet page's card has ONE main button, 「確認した命令で出発」 — data-act
+//  march-send-wait, controller.mjs armMarchWait: ready → the ordinary single send — in place of 封をして出発する; either is
+//  the page's own send)
+const send = page.locator('button[data-act="march-send"]:visible:enabled, button[data-act="march-send-wait"]:visible:enabled').first();
 const t0send = Date.now();
 while (!(await send.count())) {
   if (Date.now() - t0send > 360_000) await hold('the 封をして出発する button never became enabled');

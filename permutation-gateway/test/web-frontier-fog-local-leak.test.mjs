@@ -133,7 +133,8 @@ test('LEAK: the chronicle tells no clash, march or keep event out of sight; the 
   F.resetFogNow();
   // without the fog the chronicle lists them as before
   assert.equal(chronicleRows(FS.chronicle, () => false, 60, FS).length > 0, true);
-  assert.match(String(renderSurveyHelp(FS)), /spectate\.html/);
+  // (fog-devnet: a fogged world says the fog from its first picture — fogActive — so the page without fog is a non-local one)
+  assert.match(String(renderSurveyHelp({ ...FS, localPlay: null })), /spectate\.html/);
 });
 
 test('the page\'s wiring: every surface that shows the map reads the fogged copies; the gate is the local world', async () => {

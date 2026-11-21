@@ -1,8 +1,10 @@
-// Fog of war for LOCAL TEST worlds (owner t387u / t387s1100, 2026-11-19): a Civ-style player view.
+// Fog of war for LOCAL TEST worlds (owner t387u / t387s1100, 2026-11-19) and, since fog-devnet, for the DEVNET page
+// path (a devnet wide season's play page): a Civ-style player view.
 //
 // Presentation only. Every account stays public on the chain and nothing here is a rule of the game: the page simply
 // does not SHOW what its viewer could not see. The survey (map/survey.mjs) already says, tile by tile, what the viewer
-// has in sight (L3), has seen before (L2), and has never seen (L1). This file adds, for local test worlds only:
+// has in sight (L3), has seen before (L2), and has never seen (L1). This file adds, for local test worlds and devnet play
+// pages (`fogModeOf`):
 //
 //   vision     the viewer's own villages and hosts (the survey's anchors) AND the viewer's own nation: every village of
 //              a nation-mate and every province the nation holds sees round itself (nationSources → survey anchors).
@@ -18,13 +20,23 @@
 // inspector, the minimap, feeds and alarms). The copies are made when the records or the survey change, never per frame
 // (cached per ring and per record object, keyed by the survey's `rev`).
 //
-// THE SWITCH: `LOCAL_FOG` below. false = local worlds look exactly as before (and non-local pages never use this file's
-// masks at all: `fogActive` is false without `FS.localPlay`).
+// THE SWITCHES, one per mode: `LOCAL_FOG` (local test worlds, `FS.localPlay`) and `DEVNET_FOG` (fog-devnet, owner t387u:
+// the DEVNET page path #110/#118/#121/#122 — a page whose pinned season is on the cluster 'devnet', its data read from
+// the herald and the gateway, not from a local relay). false = that mode looks exactly as before. Every other page (a
+// localnet or S1 season that is not local play, practice, spectate) never uses this file's masks: `fogActive` is false.
+// The fog's mode is `fogModeOf(FS)`: 'local' | 'devnet' | null.
 import { L2, L3, SIGHT, browserStorage, keyHex } from './survey.mjs';
 import { PROVINCE_RADIUS, PROVINCE_TILES, TILE_OFFSETS, locate, provinceCentre } from '../fgeo.mjs';
 
-/** THE switch of the local test world's fog of war (one constant; false turns every mask here off). */
+/** THE switch of the local test world's fog of war (one constant; false turns every mask here off in local worlds). */
 export const LOCAL_FOG = true;
+/**
+ * THE switch of the DEVNET page's fog of war (fog-devnet; one constant; false: a devnet page shows the full map as
+ * before). On for any play page whose pinned season (FS.pin, from the herald's season record) is on cluster 'devnet' and
+ * that is not local play — whether or not the gateway's devnet play routes answered (FS.devnetPlay): a viewer of a devnet
+ * season sees the same player view in either case.
+ */
+export const DEVNET_FOG = true;
 
 /**
  * The choices the owner left open (report fog-local.md, "choices for r0ze"), each in one place:
@@ -50,8 +62,20 @@ const int = Number.isInteger;
 const NONE = 7, NO_KEEP = null;
 const nation = f => int(f) && f >= 0 && f <= 5;
 
-/** Whether the fog of war applies to this page: the switch on, a local test world, the play page. */
-export const fogActive = fs => LOCAL_FOG && !!fs?.localPlay && (fs?.mode ?? 'play') === 'play';
+/**
+ * The fog's world of this page: 'local' (a local test world: `FS.localPlay`), 'devnet' (a play page pinned to a devnet
+ * season: `FS.pin.cluster`, else the herald record's `cluster`), or null. The play page only; the switches are not read.
+ */
+export function fogModeOf(fs) {
+  if ((fs?.mode ?? 'play') !== 'play') return null;
+  if (fs?.localPlay) return 'local';
+  const cluster = fs?.pin?.cluster ?? fs?.record?.cluster ?? null;
+  return cluster === 'devnet' ? 'devnet' : null;
+}
+/** Whether the mode's switch is on (`fogModeOf`'s answer). */
+export const fogSwitchOn = mode => (mode === 'local' ? LOCAL_FOG : mode === 'devnet' ? DEVNET_FOG : false);
+/** Whether the fog of war applies to this page: the play page of a local test world or of a devnet season, its switch on. */
+export const fogActive = fs => fogSwitchOn(fogModeOf(fs));
 
 // ------------------------------------------------------------------ vision: the viewer's nation
 /**
@@ -101,8 +125,11 @@ export function nationAnchors({ villages = [], territory = [] } = {}) {
 const tileAt = (p, q, idx, c = provinceCentre(p, q)) => { const o = TILE_OFFSETS[idx]; return o ? { q: c.q + o.q, r: c.r + o.r } : null; };
 
 // ------------------------------------------------------------------ last-known memory
-/** The storage key of a player's last-known records in one world (beside map/survey.mjs memoryKey). */
-export const fogMemoryKey = ({ cluster, programId, seasonId }, wallet) => `ps-ffog:v1:${cluster}:${programId}:${seasonId}:${wallet}`;
+/** The storage key of a player's last-known records in one world (beside map/survey.mjs memoryKey). `seasonAddress`
+ * (fog-devnet: the devnet page passes its pinned Season account) also keys a season re-created under the same program
+ * and Season id, so one season's memory never shows in another; local worlds key as before. */
+export const fogMemoryKey = ({ cluster, programId, seasonId }, wallet, seasonAddress = null) =>
+  `ps-ffog:v1:${cluster}:${programId}:${seasonId}${seasonAddress ? `@${seasonAddress}` : ''}:${wallet}`;
 
 /**
  * The device's last-known records: `{use(key), get(pk), put(pk, snap), rev(), save(), size()}`. A snapshot is plain
