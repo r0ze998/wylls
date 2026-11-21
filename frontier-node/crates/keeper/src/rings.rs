@@ -19,6 +19,18 @@
 //!   [`rim_plan`] not yet on chain, so a player can file a rim FileTicket
 //!   (which the `tickets` role settles) next to the wide land.
 //!
+//! - **Provinces on demand** (`provinces_reach` > 0; devnet-open-province,
+//!   D-devnet-rim-homes-2): with `lazy_provinces` nothing else opens the
+//!   provinces of rings past the genesis rings, yet a second village
+//!   (FileOutpost: ring > `heartland_max_ring`, within `outpost_range` of
+//!   the home) and a ⑭ R3 home past the heartland need a present Province.
+//!   Every `provinces_scan_slots` the duty reads the provinces it knows,
+//!   and OpenProvince for the absent provinces of seeded legacy rings past
+//!   the genesis within `provinces_reach` of a settled one ([`demand_plan`]),
+//!   at most `provinces_per_pass` a scan and `provinces_max` a run, never
+//!   below a wedge fund's floor ([`demand_fund_floor`]) and never while
+//!   the feed guard holds automatic writes.
+//!
 //! - **The wide rings** (`wide_rings` > 0, `playable-lane` build; devnet
 //!   runbook gap P6): once ring 128 is seeded, rings 129.. one at a time
 //!   ([`RingDuty::plan_wide`]): WideRequestRingSeed when the previous ring
@@ -37,9 +49,11 @@ use std::sync::Arc;
 use solana_address::Address;
 
 use fclient::abi::{status, tag, Class};
-use fclient::decode::{Frontier, RingSeed, Season};
+use fclient::decode::{Frontier, Province, RingSeed, Season};
 use fclient::ix;
-use fclient::land::{frontier_extend_check, ring_open_check, ExtendWait, RingWait};
+use fclient::land::{
+    frontier_extend_check, ring_open_check, ExtendWait, RingWait, FUND_RENT, PROVINCE_RENT_V2,
+};
 use fclient::ports::{ChainPort, DrandPort, PortResult};
 use permutation_rules::frontier::geometry::{ring_provinces, ProvinceCoord, R_MAX_HARD};
 
@@ -88,6 +102,25 @@ pub struct RingDuty {
     pub rim_present: usize,
     /// `wide_rings` (P6): where each wide ring stands (status, tests).
     pub wide: WideRings,
+    /// `provinces_reach`: provinces on demand (status, tests).
+    pub demand: Demand,
+}
+
+/// `provinces_reach` (devnet-open-province) as this keeper saw it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Demand {
+    /// Slot of the last scan (`None` before the first).
+    pub last_scan: Option<u64>,
+    /// Known provinces with a settled site at the last scan.
+    pub settled: usize,
+    /// Absent provinces the last scan wanted (before the caps).
+    pub wanted: usize,
+    /// Provinces this keeper planned an OpenProvince for on demand.
+    pub planned: BTreeSet<(i32, i32)>,
+    /// Of `planned`, those seen on chain since.
+    pub opened: usize,
+    /// Why the last scan planned less than it wanted (status).
+    pub waiting: Option<String>,
 }
 
 /// The P6 wide rings as this keeper saw them.
@@ -178,6 +211,76 @@ pub fn rim_plan(per_wedge: usize) -> Vec<(i32, i32)> {
         }
     }
     out
+}
+
+/// The bytes of a wide Province (`frontier_abi::world_index::land::province::SIZE`,
+/// a feature-gated module; pinned in a test of the `playable-lane` build).
+pub const WIDE_PROVINCE_BYTES: usize = 4_864;
+
+/// The lamports a wedge fund must keep above its own rent after an
+/// on-demand OpenProvince (`provinces_reach`): what the `rings` duty of this
+/// configuration may still ask of it. The largest balance check still ahead
+/// (OpenRing(d) checks `d × rent(4,736)` up to `extend_max_ring`;
+/// WideRequestRingSeed(r) checks `r × rent(4,864)` up to the last wide
+/// ring), plus the wedge's share of the rim plan and of every wide ring's
+/// plan. Conservative: it stays reserved after those openings are done.
+/// Pure.
+pub fn demand_fund_floor(cfg: &crate::config::KeeperConfig) -> u64 {
+    let wide_rent = frontier_abi::layout::rent(WIDE_PROVINCE_BYTES);
+    let legacy_check = if cfg.extend {
+        u64::from(cfg.extend_max_ring) * PROVINCE_RENT_V2
+    } else {
+        0
+    };
+    let wide_check = if cfg.wide_rings > 0 {
+        (u64::from(R_MAX_HARD) + u64::from(cfg.wide_rings)) * wide_rent
+    } else {
+        0
+    };
+    let rim_share =
+        rim_plan(cfg.rim_per_wedge as usize).len().div_ceil(6) as u64 * PROVINCE_RENT_V2;
+    let wide_share = u64::from(cfg.wide_rings) * u64::from(cfg.wide_per_wedge) * wide_rent;
+    legacy_check.max(wide_check) + rim_share + wide_share
+}
+
+/// The absent provinces `provinces_reach` wants (pure): every province
+/// within `reach` of a `settled` one, of a legacy ring `genesis < ring <
+/// rings_opened` (and ≤ 128) that `seeded` holds, not in `known`; each
+/// once, nearest to a settled province first, then by ring, then by
+/// coordinate.
+pub fn demand_plan(
+    settled: &[(i32, i32)],
+    known: &BTreeSet<(i32, i32)>,
+    seeded: &BTreeSet<u16>,
+    genesis: u16,
+    rings_opened: u16,
+    reach: u16,
+) -> Vec<(i32, i32)> {
+    let mut best: BTreeMap<(i32, i32), u32> = BTreeMap::new();
+    let r = i32::from(reach);
+    for &(sp, sq) in settled {
+        let s = ProvinceCoord::new(sp, sq);
+        for dp in -r..=r {
+            for dq in (-r).max(-dp - r)..=r.min(-dp + r) {
+                let c = ProvinceCoord::new(sp + dp, sq + dq);
+                let ring = c.ring();
+                if ring <= u32::from(genesis)
+                    || ring >= u32::from(rings_opened)
+                    || ring > u32::from(R_MAX_HARD)
+                    || !seeded.contains(&(ring as u16))
+                    || known.contains(&(c.p, c.q))
+                {
+                    continue;
+                }
+                let d = s.distance(c);
+                let e = best.entry((c.p, c.q)).or_insert(d);
+                *e = (*e).min(d);
+            }
+        }
+    }
+    let mut v: Vec<((i32, i32), u32)> = best.into_iter().collect();
+    v.sort_by_key(|&((p, q), d)| (d, ProvinceCoord::new(p, q).ring(), p, q));
+    v.into_iter().map(|x| x.0).collect()
 }
 
 /// Keeper policy for crowding rings (wave-3 review, W3-C D5/F1; the
@@ -311,6 +414,132 @@ impl RingDuty {
         }
         self.rim_present = plan.len() - missing;
         self.rim_done = missing == 0;
+        Ok(())
+    }
+
+    /// `provinces_reach`: one scan (module doc). Reads every province this
+    /// duty knows on chain, keeps those with a settled site, and plans
+    /// OpenProvince for [`demand_plan`]'s absent provinces within the caps.
+    async fn plan_demand<P: ChainPort>(
+        &mut self,
+        t: &Tick<'_>,
+        port: &P,
+        engine: &mut Engine,
+        rings_opened: u16,
+    ) -> PortResult<()> {
+        if !engine.feed_writes_allowed() {
+            self.demand.waiting = Some("feed guard: automatic writes held".into());
+            return Ok(());
+        }
+        if self
+            .demand
+            .last_scan
+            .is_some_and(|s| t.slot < s.saturating_add(t.cfg.provinces_scan_slots))
+        {
+            return Ok(());
+        }
+        self.demand.last_scan = Some(t.slot);
+        // The settled provinces among the known ones (rings ≥ 2: rings 0–1
+        // are reserved unless the season is centre-free, and are genesis).
+        let known: Vec<(i32, i32)> = self.opened.iter().copied().collect();
+        let keys: Vec<Address> = known.iter().map(|&(p, q)| t.addrs.province(p, q)).collect();
+        let mut got = vec![];
+        for chunk in keys.chunks(100) {
+            got.extend(port.accounts(chunk, 0).await?);
+        }
+        let settled: Vec<(i32, i32)> = known
+            .iter()
+            .zip(got)
+            .filter_map(|(&c, a)| {
+                a.and_then(|a| Province::decode(&a.data).ok())
+                    .filter(|pv| pv.n_sites_used > 0)
+                    .map(|_| c)
+            })
+            .collect();
+        self.demand.settled = settled.len();
+        self.demand.opened = self
+            .demand
+            .planned
+            .iter()
+            .filter(|c| self.opened.contains(c))
+            .count();
+        let want = demand_plan(
+            &settled,
+            &self.opened,
+            &self.seen_seeded,
+            t.season.genesis_ring as u16,
+            rings_opened,
+            t.cfg.provinces_reach,
+        );
+        self.demand.wanted = want.len();
+        if want.is_empty() {
+            self.demand.waiting = None;
+            return Ok(());
+        }
+        // Present already (someone else opened it): known from now on.
+        let keys: Vec<Address> = want.iter().map(|&(p, q)| t.addrs.province(p, q)).collect();
+        let mut got = vec![];
+        for chunk in keys.chunks(100) {
+            got.extend(port.accounts(chunk, 0).await?);
+        }
+        let mut missing = vec![];
+        for (&(p, q), acct) in want.iter().zip(got) {
+            if acct.is_some_and(|a| a.owner == t.addrs.program && !a.data.is_empty()) {
+                self.opened.insert((p, q));
+                engine.cancel(&province_key(p, q), CancelReason::ChainStateObserved);
+            } else {
+                missing.push((p, q));
+            }
+        }
+        if missing.is_empty() {
+            self.demand.waiting = None;
+            return Ok(());
+        }
+        let funds = port.accounts(&t.addrs.province_funds(), 0).await?;
+        let mut lam: [u64; 6] =
+            core::array::from_fn(|w| funds[w].as_ref().map_or(0, |a| a.lamports));
+        let floor = demand_fund_floor(t.cfg);
+        let mut waiting = None;
+        let mut sent = 0u16;
+        for (p, q) in missing {
+            if sent >= t.cfg.provinces_per_pass {
+                waiting = Some(format!("per-pass cap {}", t.cfg.provinces_per_pass));
+                break;
+            }
+            let fresh = !self.demand.planned.contains(&(p, q));
+            if fresh && self.demand.planned.len() >= t.cfg.provinces_max as usize {
+                waiting = Some(format!("run cap {} reached", t.cfg.provinces_max));
+                break;
+            }
+            let w = ix::wedge_of(p, q) as usize;
+            if lam[w].saturating_sub(FUND_RENT) < floor.saturating_add(PROVINCE_RENT_V2) {
+                waiting = Some(format!("wedge fund {w} at its floor ({floor} lamports)"));
+                continue;
+            }
+            lam[w] -= PROVINCE_RENT_V2;
+            self.demand.planned.insert((p, q));
+            sent += 1;
+            let a = t.addrs.clone();
+            let (pi, qi) = (p as i16, q as i16);
+            engine.ensure(
+                WriteSpec {
+                    key: province_key(p, q),
+                    kind: "open-province",
+                    tag: tag::OPEN_PROVINCE,
+                    class: Class::D,
+                    bell: None,
+                    region: Some(ix::region_of(p, q)),
+                    build: Arc::new(move |c: &BuildCtx| {
+                        vec![ix::open_province(&a, c.payer, pi, qi)]
+                    }),
+                    deadline_slot: None,
+                    not_before_slot: 0,
+                    fixed_payer: None,
+                },
+                t.slot,
+            );
+        }
+        self.demand.waiting = waiting;
         Ok(())
     }
 
@@ -448,6 +677,10 @@ impl RingDuty {
         {
             self.plan_wide(t, port, drand, rounds, engine, now_bell)
                 .await?;
+        }
+        // Provinces on demand (`provinces_reach`), next to the settled land.
+        if t.cfg.provinces_reach > 0 {
+            self.plan_demand(t, port, engine, opened).await?;
         }
         // Seeds and provinces of the opened rings not complete yet.
         let rings: Vec<u16> = (0..opened).filter(|d| !self.complete.contains(d)).collect();
@@ -767,6 +1000,102 @@ impl RingDuty {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// devnet-open-province: the on-demand plan is next to the settled land
+    /// only, on seeded legacy rings past the genesis, nearest first.
+    #[test]
+    fn the_demand_plan_opens_next_to_settled_provinces_only() {
+        let seeded: BTreeSet<u16> = (0..=6).collect();
+        let known: BTreeSet<(i32, i32)> = (0..=3u32)
+            .flat_map(ring_provinces)
+            .map(|c| (c.p, c.q))
+            .collect();
+        // nothing settled: nothing wanted
+        assert!(demand_plan(&[], &known, &seeded, 3, 129, 3).is_empty());
+        // a settled ring-3 province, reach 3, rings 4..=6 seeded
+        let home = ring_provinces(3)[0];
+        let plan = demand_plan(&[(home.p, home.q)], &known, &seeded, 3, 129, 3);
+        assert!(!plan.is_empty());
+        let rings: Vec<u32> = plan
+            .iter()
+            .map(|&(p, q)| ProvinceCoord::new(p, q).ring())
+            .collect();
+        assert!(rings.iter().all(|r| (4..=6).contains(r)), "{rings:?}");
+        let dists: Vec<u32> = plan
+            .iter()
+            .map(|&(p, q)| home.distance(ProvinceCoord::new(p, q)))
+            .collect();
+        assert!(dists.iter().all(|&d| (1..=3).contains(&d)));
+        assert!(
+            dists.windows(2).all(|w| w[0] <= w[1]),
+            "nearest first: {dists:?}"
+        );
+        let set: BTreeSet<_> = plan.iter().collect();
+        assert_eq!(set.len(), plan.len(), "each once");
+        // exactly the hex disc of radius 3 outside rings 0..=3
+        let disc = (-3i32..=3)
+            .flat_map(|dp| ((-3).max(-dp - 3)..=3.min(-dp + 3)).map(move |dq| (dp, dq)))
+            .map(|(dp, dq)| ProvinceCoord::new(home.p + dp, home.q + dq))
+            .filter(|c| c.ring() > 3)
+            .count();
+        assert_eq!(plan.len(), disc);
+        // an unseeded ring (5) and the opened-ring bound (rings_opened 6) are left out
+        let partial: BTreeSet<u16> = [0, 1, 2, 3, 4, 6].into_iter().collect();
+        let p2 = demand_plan(&[(home.p, home.q)], &known, &partial, 3, 6, 3);
+        assert!(
+            p2.iter()
+                .all(|&(p, q)| ProvinceCoord::new(p, q).ring() == 4),
+            "{p2:?}"
+        );
+        // known provinces are not wanted again; two settled provinces share the overlap once
+        let mut k2 = known.clone();
+        k2.extend(plan.iter().take(5).copied());
+        let p3 = demand_plan(&[(home.p, home.q)], &k2, &seeded, 3, 129, 3);
+        assert_eq!(p3.len(), plan.len() - 5);
+        let other = ring_provinces(3)[1];
+        let both = demand_plan(
+            &[(home.p, home.q), (other.p, other.q)],
+            &known,
+            &seeded,
+            3,
+            129,
+            3,
+        );
+        assert_eq!(both.iter().collect::<BTreeSet<_>>().len(), both.len());
+        assert!(both.len() > plan.len());
+        // never past the legacy rim
+        let rim = (128, 0);
+        let all: BTreeSet<u16> = (0..=128).collect();
+        let p4 = demand_plan(&[rim], &BTreeSet::new(), &all, 3, 200, 2);
+        assert!(p4
+            .iter()
+            .all(|&(p, q)| ProvinceCoord::new(p, q).ring() <= 128));
+    }
+
+    /// devnet-open-province: the fund floor of the devnet profile's keeper A
+    /// (extend to 128, rim 6, wide rings 3 × 6) keeps ring 131's balance
+    /// check, the rim's and the wide rings' shares; off duties add nothing.
+    #[test]
+    fn the_demand_fund_floor_keeps_what_the_rings_duty_still_needs() {
+        let b = Address::new_from_array([2; 32]);
+        let mut c = crate::config::KeeperConfig::new(Address::new_from_array([1; 32]), 1, b);
+        assert_eq!(demand_fund_floor(&c), 0);
+        c.extend = true;
+        c.extend_max_ring = 128;
+        assert_eq!(demand_fund_floor(&c), 128 * 24_709_120);
+        c.rim_per_wedge = 6;
+        c.wide_rings = 3;
+        c.wide_per_wedge = 6;
+        let wide = frontier_abi::layout::rent(WIDE_PROVINCE_BYTES);
+        assert_eq!(wide, 25_359_360);
+        assert_eq!(rim_plan(6).len(), 42);
+        assert_eq!(
+            demand_fund_floor(&c),
+            131 * wide + 7 * 24_709_120 + 18 * wide
+        );
+        // 3,951,477,120 lamports: below a 6 SOL wedge fund less its genesis provinces
+        assert!(demand_fund_floor(&c) < 5_500_000_000);
+    }
 
     /// Q-W1: the rim plan is on ring 128, each province once, every one beside a planned ring-129 province, in
     /// every wedge; 0 opens nothing; it grows with `n`.
