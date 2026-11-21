@@ -42,6 +42,7 @@ export const FS = {
   overviewsBooted: false, // the boot's own overview load is done: later season polls load the rings that newly want one
   world: null,           // the world's extent from the season record (map/world.mjs worldOf): set by applySeasonRecord only
   worldRings: null,      // ring → Set of "p,q" on chain, for a ring only partly created (map/world.mjs)
+  worldRingTaken: null,  // ring → the count (and herald) its list was asked at: asked again only when it moved (map/world.mjs)
   provinces: new Map(),  // "P,Q" → parsed envelope
   view: { lod: 'world', fog: true, showAll: false },
   selected: null,        // {kind: 'province'|'tile', p, q, idx?}

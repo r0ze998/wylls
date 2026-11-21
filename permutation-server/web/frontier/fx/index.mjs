@@ -41,7 +41,7 @@ export function startFx({ map = null, canvas = null, effects = null, search = gl
   // and shares its transform: it draws through the ground canvas's own flat view and size (larger than the map's box).
   // HUD effects are placed in the map's box (`stage`) through `map.project`.
   const tilted = !!map?.stage && map.ground && map.ground !== canvas;
-  fx.mount({ map, canvas: tilted ? map.ground : canvas, stage: stage ?? (tilted ? canvas : null), ...(map ? { camera: () => (tilted ? map.groundView() : map.shown ?? map.view), invalidate: () => (map.tick ? map.tick() : map.invalidate?.()), groundInPainter: tileArt } : {}),
+  fx.mount({ map, canvas: tilted ? map.ground : canvas, stage: stage ?? (tilted ? canvas : null), ...(map ? { camera: () => (tilted ? map.groundView() : map.shown ?? map.view), invalidate: () => (map.ambient ? map.ambient() : map.tick ? map.tick() : map.invalidate?.()), groundInPainter: tileArt } : {}),
     // (`ratio`: the top canvas is as fine as the ground it lies over: figures on it are magnified by the tilt as the ground's are)
     ...(tilted ? { size: () => map.groundSize(), toViewport: (x, y) => map.project(x, y), ratio: () => map.groundRatio?.() ?? null } : {}) });
   if (map) map.between = (ctx, { zoom }) => paintGround(ctx, { zoom, tiles: map.art?.tiles ?? null });

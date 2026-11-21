@@ -284,6 +284,17 @@ class Refusals(unittest.TestCase):
             code, out, err = run('--print-plan', *args)
             self.assertEqual((code, out), (2, ''), args)
             self.assertIn('--wide', err)
+        # (local-perf: the refusal names what was given with --wide and says the wide version starts with --wide alone, in
+        #  both languages)
+        for args in [('--wide', '--fresh'), ('--demo', '--wide'), ('--wide', '--two', '--fresh')]:
+            code, out, err = run('--print-plan', *args, env_extra={'LANG': 'ja_JP.UTF-8'})
+            self.assertEqual((code, out), (2, ''), args)
+            self.assertIn('広い版は `--wide` だけで起動します', err, args)
+            for a in args:
+                if a != '--wide':
+                    self.assertIn(f'--wide は ', err); self.assertIn(a, err.split('と一緒には')[0], args)
+            code, out, err = run('--print-plan', *args)
+            self.assertIn('started with `--wide` alone', err, args)
         code, out, err = run('--print-plan', '--wide', '--resume', env_extra={'PLAY_LOCAL_STATE': st})
         self.assertEqual((code, out), (2, ''))
         # (the word is the launcher's own, read from its source; the help names the flag; the herald serves the wide view)

@@ -55,6 +55,10 @@ import { setCentreLand } from './map/sprites.mjs';
 const worldNow = () => FS.world ?? worldOf(FS.record);
 const ringsOpenNow = () => Math.max(1, worldNow().ringsOpen);
 const seededNow = () => seededRings(worldNow());
+// (local-perf, 2026-11-21: the rings whose roster is asked — only a seeded ring with a Province on chain has anyone to name.
+//  A wide world seeds all 129 rings and has Provinces in a few of them: each seeded ring's roster was asked once a minute,
+//  ~130 reads a minute, nearly all of them 404. A record without counts asks every seeded ring, as before)
+const rosterRingsNow = () => { const counts = worldNow().ringProvinces; return seededNow().filter(d => !Number.isInteger(counts?.[d]) || counts[d] > 0); };
 import { readOverviews, forgetOverviewRefusals, ringMissMarks } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
@@ -931,7 +935,7 @@ export function peopleSource() {
   const sec = Math.floor(Date.now() / 1000);
   if (peopleCache.at === sec && peopleCache.lang === lang() && peopleCache.value) { peopleCache.value.battles = (FS.battles ?? []).filter(b => battleLive(b, performance.now() / 1000)); return peopleCache.value; }
   if (rosterRef) {
-    for (const d of seededNow()) rosterRef.ensure(d);
+    for (const d of rosterRingsNow()) rosterRef.ensure(d);
     scene.seedOwn(rosterRef, FS.holdings);
   }
   // the labels inside (construction names, tiers) are in the page's language: a switch rebuilds them
@@ -2855,6 +2859,9 @@ const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VA
 const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
 /** The away head notice's words: what the summary covers and what "seen" will do (or why it is not offered). */
 const awayHeadText = (s, saved = undefined) => `${returnWords.headText(s)} ${saved === undefined ? returnWords.confirmText(s) : returnWords.confirmedText(saved)}`;
+/** The shortest time between two reads of the away pages after the last one read (awayPump). */
+const AWAY_MORE_MS = 2000;
+let awayMoreAt = 0;
 function awayPump() {
   if (awayBusy || !heraldRef || !s1On()) return;
   const sc = awayScopeNow();
@@ -2881,6 +2888,12 @@ function awayPump() {
         ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
     }).catch(() => {}).finally(() => { awayBusy = false; });
   } else {
+    // (local-perf, 2026-11-21: the pages after the last one read are asked at most every AWAY_MORE_MS. The pump runs with
+    //  every drawing of the HUD — the dial's each second, every panel render — and asked the herald up to four times a
+    //  second, nearly always for nothing new)
+    const t = Date.now();
+    if (t - awayMoreAt < AWAY_MORE_MS) { awayBusy = false; return; }
+    awayMoreAt = t;
     awayReader.more().then(r => {
       if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
       awayEnds(r.records);
@@ -4827,7 +4840,7 @@ export async function boot() {
     setOreExtraProvider((p, q, tile) => map?.art?.oreAround?.(p, q, tile)?.total ?? null);
     map = new FrontierMap(canvas, {
       source: () => {
-        if (rosterRef) for (const d of seededNow()) rosterRef.ensure(d);
+        if (rosterRef) for (const d of rosterRingsNow()) rosterRef.ensure(d);
         const own = ownNow(), survey = surveyNow();
         // A feed or clock can change while the pointer stays still. Refresh
         // its ribbon from the same inputs as a tap, without scheduling a draw

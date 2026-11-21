@@ -29,6 +29,9 @@ scripts/play-local.sh --demo          # the 15-minute capture demo (×60, a turn
 scripts/play-local.sh --wide          # the wide version (the rim and the wide land; ×60; not kept) → §4
 ```
 
+The wide version is started with `--wide` alone (given with `--demo`, `--resume`, `--fresh` or `--two` it stops and names
+which; `--ai`, `--ai-peaceful`, `--random-map`, `--speed`, `--minutes` and `--port` go with it).
+
 There are three worlds. All of them have fog of war (§5), and the AI residents are at war by default.
 
 | World | Clock | Kept | Good for checking |
@@ -50,7 +53,7 @@ Options:
 | `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
 | `--two` | two people in one world (§3.1) | `--wide` |
 | `--speed N` | the clock of `--demo` / `--wide`, 10–60 (default 60) | a kept world |
-| `--minutes N` | minutes until the world's processes stop, 15–240 (default 90) | |
+| `--minutes N` | minutes until the world's processes stop, 15–240 (default 90). A `--wide` world stops then too (before the local-perf fix a long-running wide world could run past it) | |
 | `--port BASE` | the page's port (default 41920). It uses 22 ports from BASE (14 with `--ai 0`), all within 41000–41999 and clear of 41904–41907 and 41970 | |
 | `--lang ja\|en` | the language of the script's messages (the page: its top-right button) | |
 | `--no-open` `--no-build` `--rebuild` `--check-only` `--print-plan` | do not open / never build / always build / check only / print the settings and the launcher command, and exit | |
@@ -132,6 +135,8 @@ scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
 ```bash
 scripts/play-local.sh --wide --ai 4 --minutes 180
 ```
+
+The wide version is started with `--wide` alone (no `--fresh`, `--resume`, `--demo` or `--two`; the table in §2).
 
 During the world's setup (about 20 seconds) the program's own instructions grow the map to ring 128 (the rim) and open
 the wide land beyond it (rings 129–131, 108 provinces). The game starts around turn 140, at ×60 (a turn is 10 s).
