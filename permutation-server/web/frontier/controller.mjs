@@ -49,6 +49,8 @@ import { kernelRulesetFor } from './flocalplay-lane.mjs';
 // (TEST-ONLY, a coexist local world only: ② rights — flocalplay-rights.mjs, screens/rights.mjs)
 import { localLane, COEXIST_LANE } from './flocalplay-lane.mjs';
 import { decodeGrant, grantAddress, issuerTagOf, partyGrants, HERALD_GRANTS_SCHEMA, KIND_STOCK_SWAP } from './flocalplay-rights.mjs';
+// (TEST-ONLY, a coexist local world only: a preview of ⑨ capacity and ⑩ custody — flocalplay-custody.mjs, screens/custody.mjs)
+import * as cust from './flocalplay-custody.mjs';
 import { fromBase64 as rightsB64 } from '../sdk/bytes.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -69,6 +71,7 @@ import { fromBase64 } from '../sdk/bytes.mjs';
 import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
+import { custodyLosses } from './screens/custody.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
@@ -2233,6 +2236,7 @@ async function refreshS1(current, world, { caravanProvinces = true } = {}) {
   //  are the regular load's, with the map's own waits and places)
   // (TEST-ONLY, a coexist world: the ② Grants this viewer is party to, beside the S1 feeds; not awaited)
   if (rightsLaneOn()) refreshRights(current).catch(e => console.error('frontier rights:', e));
+  if (rightsLaneOn()) refreshCustody(current).catch(e => console.error('frontier custody:', e));
   if (!caravanProvinces) return;
   const me = ownTag(FS);
   for (const c of s1.caravans?.moving ?? []) {
@@ -3693,6 +3697,157 @@ function rightsIssueFromForm(f) {
     after: x => { if (x?.ok !== false && FS.rights) { FS.rights.issued.push({ address: grantAddress(pin.addresses.season, pin.programId, issuerTagOf(me), nonce), issuerTag: issuerTagOf(me), nonce }); } return refreshRights(); } });
 }
 
+// ------------------------------------------------------------------ ⑨ capacity · ⑩ custody (TEST-ONLY preview, a coexist local world only)
+/**
+ * Read-only account reads through the relay (the wide read). → Map(address → Uint8Array | null). Six addresses a call:
+ * the page takes at most LOCAL_ACT_MAX_BYTES (16 KiB) of answer, and the largest account read here — a pool, 1,580 B —
+ * is about 2.2 KB in base64 (twelve Holdings at once were refused, LocalActTooLarge).
+ */
+const CUSTODY_READ_BATCH = 6;
+async function custodyRead(addrs) {
+  const g = localDepartGate(), out = new Map();
+  if (!g?.ok) return out;
+  const list = [...new Set(addrs)];
+  for (let i = 0; i < list.length; i += CUSTODY_READ_BATCH) {
+    const part = list.slice(i, i + CUSTODY_READ_BATCH);
+    const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: RIGHTS_WIDE_READ, addresses: part });
+    (j?.accounts ?? []).forEach((a, k) => out.set(part[k], a ? rightsB64(a.data_b64) : null));
+  }
+  return out;
+}
+/**
+ * What the preview card needs (FOG RULE, flocalplay-custody.mjs): the villages of the viewer's own Provinces (their
+ * Holdings), the pools of the workshop villages there, the jobs the viewer is a party to, the lots in the viewer's
+ * storehouses and the viewer's own lots, and the viewer's custody caravans those lots expect. Only reads. A loss seen
+ * for the first time is told once, from the viewer's side (`FS.custody.told`).
+ */
+async function refreshCustody(current = () => true) {
+  if (!rightsLaneOn() || !FS.wallet || !io.pinned()) { FS.custody = undefined; return; }
+  const viewer = viewerCitizen(), pin = io.pinned(), A = pin.addresses;
+  if (!FS.custody || FS.custody.viewer !== viewer) FS.custody = { on: true, viewer, myTag: cust.tagOf(viewer), read: 'unread', holdings: [], pools: new Map(), jobs: new Map(), lots: new Map(), caravans: new Map(), told: new Set(), custodySeqs: new Set() };
+  const c = FS.custody;
+  if (c.read === 'unread') c.read = 'loading';
+  try {
+    const provs = [...new Map((FS.holdings ?? []).map(h => [`${h.p},${h.q}`, { p: h.p, q: h.q }])).values()];
+    const hAddr = provs.flatMap(pq => Array.from({ length: 12 }, (_, site) => A.of('Holding', { p: pq.p, q: pq.q, site })));
+    const hs = await custodyRead(hAddr);
+    if (!current() || FS.custody !== c) return;
+    const holdings = [...hs.values()].map(b => (b ? cust.decodeHoldingBrief(b) : null)).filter(h => h && h.state !== 0);
+    const vaults = (FS.s1?.caravans?.vaults ?? []).filter(v => provs.some(pq => pq.p === v.p && pq.q === v.q) && typeof v.ownerCitizen === 'string');
+    const lotAt = [];
+    for (const v of vaults) {
+      if (v.ownerCitizen === viewer) { for (const h of holdings) if (h.ownerCitizen !== viewer && h.p === v.p && h.q === v.q) lotAt.push({ vault: v, owner: h.ownerCitizen }); }
+      else lotAt.push({ vault: v, owner: viewer });
+    }
+    const lotAddr = lotAt.map(x => cust.lotAddress(A.season, pin.programId, x.vault, cust.tagOf(x.owner)));
+    const poolOf = holdings.filter(h => h.workshops > 0 || h.lent > 0);
+    const poolAddr = poolOf.map(h => cust.poolAddress(A.season, pin.programId, h));
+    const got = await custodyRead([...lotAddr, ...poolAddr]);
+    if (!current() || FS.custody !== c) return;
+    const lots = new Map();
+    lotAt.forEach((x, i) => { const b = got.get(lotAddr[i]); const l = b ? cust.decodeLot(b) : null; if (l) lots.set(lotAddr[i], { vault: x.vault, owner: x.owner, lot: l }); else if (c.lots.has(lotAddr[i])) lots.set(lotAddr[i], { ...c.lots.get(lotAddr[i]), gone: true }); });
+    const pools = new Map();
+    poolOf.forEach((h, i) => { const b = got.get(poolAddr[i]); const pl = b ? cust.decodePool(b) : null; if (pl) pools.set(poolAddr[i], { holding: h, pool: pl }); });
+    // jobs: every job of the viewer's own pools, and the viewer's own jobs in others' pools
+    const jobAt = [];
+    for (const [, e] of pools) {
+      const mine = e.pool.owner === viewer, myGrants = new Set(e.pool.grants.filter(g => g.user === viewer).map(g => g.seq));
+      for (const o of e.pool.occ) if (mine || myGrants.has(o.grant)) jobAt.push({ facility: e.pool.facility, grant: o.grant, job: o.job, pool: e.pool });
+    }
+    const jobAddr = jobAt.map(x => cust.jobAddress(A.season, pin.programId, x.facility, x.grant, x.job));
+    const caravanAt = [...lots.values()].filter(e => e.owner === viewer).flatMap(e => e.lot.inbound.filter(x => x.tag === c.myTag).map(x => ({ seq: x.seq, vault: e.vault, qty: x.qty })));
+    for (const s of c.sent ?? []) if (!caravanAt.some(x => x.seq === s.seq)) caravanAt.push(s);
+    const cvAddr = caravanAt.map(x => A.of('Caravan', { ownerTag: BigInt(c.myTag), seq: x.seq }));
+    const got2 = await custodyRead([...jobAddr, ...cvAddr]);
+    if (!current() || FS.custody !== c) return;
+    const jobs = new Map();
+    jobAt.forEach((x, i) => { const b = got2.get(jobAddr[i]); const j = b ? cust.decodeJob(b) : null; if (j) jobs.set(jobAddr[i], { facility: x.facility, job: j, owner: x.pool.owner }); });
+    const caravans = new Map();
+    caravanAt.forEach((x, i) => { const b = got2.get(cvAddr[i]); const cv = b ? cust.decodeCaravan(b) : null; if (cv && cv.custody !== 0) caravans.set(cvAddr[i], { ...cv, vault: x.vault, qtyLeft: x.qty ?? null }); });
+    Object.assign(c, { holdings, vaults, lots, pools, jobs, caravans, read: 'ok' });
+    for (const [, cv] of caravans) c.custodySeqs.add(cv.seq);
+    for (const s of c.sent ?? []) c.custodySeqs.add(s.seq);
+    custodyTellLosses(c);
+  } catch (e) { console.error('frontier custody read:', e); if (c.read !== 'ok') c.read = 'failed'; }
+  invalidate('panel');
+}
+/** A loss the viewer has not been told of yet: one notice, from the viewer's side (the card keeps saying it). */
+function custodyTellLosses(c) {
+  for (const x of custodyLosses(FS)) {
+    if (c.told.has(x.key)) continue;
+    c.told.add(x.key);
+    setNotice({ ok: false, loss: true, retry: false, text: x.text });
+  }
+}
+const cplace = d => ({ p: dnum(d, 'p'), q: dnum(d, 'q'), tile: dnum(d, 'tile'), gen: dnum(d, 'gen') });
+const cfac = d => ({ p: dnum(d, 'p'), q: dnum(d, 'q'), site: dnum(d, 'site'), gen: dnum(d, 'gen') });
+const custodyOff = () => (!rightsLaneOn() ? failed({ code: 'LocalActNotAllowed' }) : null);
+const custodyAct = (name, v, fields, say) => act(name, { v, fields, say, after: () => refreshCustody() });
+/** A custody caravan (DepositLot) or a withdrawal (WithdrawLot): the route from `from` to `to`, as SendCaravan plans it. */
+async function custodyWalk(from, to) {
+  if (!Number.isInteger(from.tile) || !Number.isInteger(to.tile)) return null;
+  busy(() => L`道を探しています…`);
+  const plan = fastestPath({ p: from.p, q: from.q, tile: from.tile }, { p: to.p, q: to.q, tile: to.tile }, await landsFor(from, to));
+  return plan && plan.dirs.length ? plan : null;
+}
+async function custodyDeposit(f) {
+  const off = custodyOff(); if (off) return off;
+  const d = f.dataset, qty = Math.trunc(formNum(f, 'qty')), h = activeHolding(FS);
+  if (!h || !Number.isInteger(h.tile)) return s1Refused(L`鉱石を出す村を選んでください`);
+  if (!(qty > 0)) return s1Refused(L`運ぶ鉱石の量を入れてください`);
+  const vault = cplace(d);
+  const plan = await custodyWalk(h, vault);
+  if (!plan) return s1Refused(L`そこまで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）`);
+  const seq = Number(FS.citizen?.caravans ?? 0);
+  const src = { kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 };
+  return act('DepositLot', { v: { seq, src, vault, provinces: plan.provinces }, fields: { seq, qty, steps: plan.dirs.length, path: pack(plan.dirs), fee: CARAVAN_FEE },
+    say: () => L`鉱石を預けに隊商が出発しました`, after: x => { if (x?.ok !== false && FS.custody) (FS.custody.sent ??= []).push({ seq, vault }); return refreshCustody(); } });
+}
+async function custodyWithdraw(f) {
+  const off = custodyOff(); if (off) return off;
+  const d = f.dataset, qty = Math.trunc(formNum(f, 'qty')), h = activeHolding(FS);
+  if (!h || !Number.isInteger(h.tile)) return s1Refused(L`鉱石を受け取る村を選んでください`);
+  if (!(qty > 0)) return s1Refused(L`運ぶ鉱石の量を入れてください`);
+  const vault = cplace(d);
+  const plan = await custodyWalk(vault, h);
+  if (!plan) return s1Refused(L`そこまで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）`);
+  const seq = Number(FS.citizen?.caravans ?? 0);
+  const dst = { kind: 'holding', p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 };
+  return custodyAct('WithdrawLot', { seq, vault, dst, provinces: plan.provinces }, { seq, qty, steps: plan.dirs.length, path: pack(plan.dirs), fee: CARAVAN_FEE },
+    () => L`預けた鉱石を引き取る隊商が出発しました`);
+}
+function custodyOpenLot(f) {
+  const off = custodyOff(); if (off) return off;
+  const o = f?.elements?.pair?.selectedOptions?.[0]?.dataset;
+  if (!o) return s1Refused(L`貯蔵庫と預ける人を選んでください`);
+  return custodyAct('OpenLot', { vault: cplace(o), owner: o.owner }, { quota: Math.trunc(formNum(f, 'quota')) }, () => L`預かりの枠を開きました`);
+}
+function capacityLend(f) {
+  const off = custodyOff(); if (off) return off;
+  const d = f.dataset;
+  return custodyAct('OpenCapacityPool', { facility: cfac(d), open: d.open === '1' }, { policies: [...cust.POLICIES], lend: Math.trunc(formNum(f, 'units')), seq: dnum(d, 'seq') },
+    () => L`工房を貸し出しました`);
+}
+function capacityGrant(f) {
+  const off = custodyOff(); if (off) return off;
+  const d = f.dataset, o = f?.elements?.user?.selectedOptions?.[0]?.dataset;
+  if (!o) return s1Refused(L`工房を使わせる相手を選んでください`);
+  const days = Math.max(1, Math.trunc(formNum(f, 'days'))), units = Math.trunc(formNum(f, 'units')), arms = Math.trunc(formNum(f, 'arms'));
+  const from = Math.floor(now()), until = from + days * 86_400;
+  return custodyAct('GrantCapacity', { facility: cfac(d), user: o.user }, { grant: dnum(d, 'grant'), max_units: units, max_output: String(arms * cust.MILLI), from: String(from), until: String(until) },
+    () => L`工房を使う権利を出しました`);
+}
+function capacityReserve(f) {
+  const off = custodyOff(); if (off) return off;
+  const d = f.dataset, units = Math.trunc(formNum(f, 'units')), arms = Math.trunc(formNum(f, 'arms'));
+  if (!(units > 0 && arms > 0)) return s1Refused(L`工房の数と兵器の数を入れてください`);
+  const plan = cust.jobPlan({ units, arms, now: now() });
+  return custodyAct('ReserveCapacity', { facility: cfac(d), vault: { p: dnum(d, 'p'), q: dnum(d, 'q'), tile: dnum(d, 'vtile'), gen: dnum(d, 'vgen') } },
+    { grant: dnum(d, 'grant'), job: dnum(d, 'job'), units, start: String(plan.start), end: String(plan.end), max_output: String(plan.maxOutput), ore: plan.ore, wood: plan.wood, deposit: 0 },
+    () => L`工房を予約し、鉱石と木材を入れました`);
+}
+const capJob = (name, d, say, extra = {}) => { const off = custodyOff(); if (off) return off; return custodyAct(name, { facility: cfac(d), ...extra }, { grant: dnum(d, 'grant'), job: dnum(d, 'job') }, say); };
+
 async function wideHostStep(e, mem) {
     const g = localDepartGate();
     if (!g?.ok) return failed({ code: g?.code ?? 'LocalActNotAllowed' });
@@ -3764,6 +3919,17 @@ export const ACTIONS = {
   'rights-revoke': d => rightsUse('RevokeGrant', d),
   'rights-close': d => rightsUse('CloseGrant', d),
   'rights-deliver': d => rightsDeliver(d),
+  // ⑨ capacity · ⑩ custody (TEST-ONLY preview, a coexist local world only: screens/custody.mjs)
+  'custody-read': () => refreshCustody(),
+  'cap-reclaim': d => { const off = custodyOff(); if (off) return off; return custodyAct('ReclaimCapacity', { facility: cfac(d) }, { units: dnum(d, 'units'), seq: dnum(d, 'seq') }, () => L`工房を取り戻しました`); },
+  'cap-revoke': d => { const off = custodyOff(); if (off) return off; return custodyAct('RevokeCapacity', { facility: cfac(d) }, { grant: dnum(d, 'grant') }, () => L`工房を使う権利を取り消しました`); },
+  'cap-settle': d => capJob('SettleJob', d, () => L`作業の進みを記録しました`),
+  'cap-cancel': d => capJob('CancelJob', d, () => L`作業を取り消しました`),
+  'cap-claim': d => capJob('ClaimJob', d, () => L`兵器と残りの材料が貯蔵庫に入りました`, { vault: { p: dnum(d, 'p'), q: dnum(d, 'q'), tile: dnum(d, 'vtile'), gen: dnum(d, 'vgen') } }),
+  'cap-loss': d => { const off = custodyOff(); if (off) return off; return custodyAct('RecordFacilityLoss', { facility: cfac(d), jobs: String(d.jobs ?? '').split('.').filter(Boolean).map(x => { const [g, j] = x.split('_').map(Number); return { grant: g, job: j }; }) }, {}, () => L`工房の村が失われたことを記録しました`); },
+  'lot-deliver': d => { const off = custodyOff(); if (off) return off; return custodyAct('SettleCustody', { seq: dnum(d, 'seq'), vault: cplace(d), owner_tag: String(d.owner), provinces: String(d.path ?? '').split('.').filter(Boolean).map(x => { const [p, q] = x.split('_').map(Number); return { p, q }; }) }, {}, () => L`預ける鉱石が届きました`); },
+  'lot-reconcile': d => { const off = custodyOff(); if (off) return off; return custodyAct('ReconcileLot', { vault: cplace(d), owner_tag: String(d.owner), caravans: String(d.caravans ?? '').split('.').filter(Boolean).map(x => { const [t, q] = x.split('_'); return { tag: t, seq: Number(q) }; }) }, {}, () => L`預かりの帳簿を確かめました`); },
+  'lot-close': d => { const off = custodyOff(); if (off) return off; return custodyAct('CloseLot', { vault: cplace(d), owner_tag: String(d.owner), rent_to: String(d.rent) }, {}, () => L`預かりの枠を閉じました`); },
   'cq-refresh': () => refreshConquest(),
   // (the stale banner on local play: a read of the latest state — never a reload, never a send)
   'state-reread': () => rereadState(),
@@ -4165,6 +4331,13 @@ export const FORMS = {
   // ② rights (TEST-ONLY, a coexist local world only: screens/rights.mjs)
   'rights-issue': f => rightsIssueFromForm(f),
   'rights-reserve': f => rightsUse('ReserveSwap', f.dataset, { units: Math.trunc(formNum(f, 'units')), seq: dnum(f.dataset, 'seq') }),
+  // ⑨ capacity · ⑩ custody (TEST-ONLY preview, a coexist local world only: screens/custody.mjs)
+  'lot-open': f => custodyOpenLot(f),
+  'lot-deposit': f => custodyDeposit(f),
+  'lot-withdraw': f => custodyWithdraw(f),
+  'cap-lend': f => capacityLend(f),
+  'cap-grant': f => capacityGrant(f),
+  'cap-reserve': f => capacityReserve(f),
   // S1 (screens/s1.mjs)
   // (the form's own indexes and amounts, as before; an accepted caravan lets go of the plan it began with — s1CaravanFromForm)
   's1-caravan': f => s1CaravanFromForm(f),

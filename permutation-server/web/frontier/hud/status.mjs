@@ -82,6 +82,8 @@ export function statusOf(FS, { age = 0, canRetry = false } = {}) {
   //  the last control pressed (the wait's own button is not one of the page's sends); `retry: false`: "Try again" would
   //  re-run that last control — another order —, so it is not offered)
   if (n.waiting) return { state: 'busy', text: textOf(n) ?? L`送信待ち`, share: null, step: null, steps: null, retry: false };
+  // (⑨/⑩ preview, screens/custody.mjs: a LOSS the viewer suffered — told as what happened, never as a refused action, no retry)
+  if (n.loss) return { state: 'loss', text: textOf(n), share: null, step: null, steps: null, retry: false };
   if (n.ok) return age > DONE_MS ? null : { state: 'done', text: textOf(n) ?? L`完了しました`, share: 1, step: null, steps: null, retry: false };
   // (2026-11-17) SENT, OUTCOME NOT KNOWN: not a refusal and not "not sent" — its own state, with its own words (the
   // code's text, or the page's line with the signature), never "できませんでした" nor what a refused action left undone.
@@ -110,6 +112,13 @@ export function renderStatus(st) {
       <span class="toast-text"><span class="tx-why">${st.text}</span></span>
       <button type="button" class="toast-x" data-act="notice-close" aria-label="${L`閉じる`}">${icon('close')}</button>
       ${st.retry ? html`<span class="toast-acts"><button type="button" class="btn small primary" data-act="notice-retry">${icon('return')}${L`もう一度`}</button></span>` : ''}
+    </div>`;
+  }
+  if (st.state === 'loss') {
+    return html`<div class="toast tx tx-unconfirmed tx-loss" role="alert">
+      <span class="toast-icon">${icon('alert')}</span>
+      <span class="toast-text"><span class="tx-why">${st.text}</span></span>
+      <button type="button" class="toast-x" data-act="notice-close" aria-label="${L`閉じる`}">${icon('close')}</button>
     </div>`;
   }
   const done = st.state === 'done';

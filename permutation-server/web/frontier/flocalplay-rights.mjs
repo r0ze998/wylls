@@ -35,6 +35,9 @@ import { setComputeUnitLimit, setComputeUnitPrice, setLoadedAccountsDataSizeLimi
 import { compileMessage } from '../sdk/solana-tx.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 import { toHex } from '../sdk/bytes.mjs';
+// (TEST-ONLY preview of ⑨ capacity and ⑩ custody on the same Vault and caravans: flocalplay-custody.mjs builds them; they
+//  ride the coexist acts' one checked path — the page signs, the relay rebuilds — and nothing else)
+import { PREVIEW_ACTS, PREVIEW_WALLET_ONLY, previewIntent, previewIntentOf, previewMessage } from './flocalplay-custody.mjs';
 
 export const RIGHTS_TAGS = Object.freeze({ IssueGrant: 0xd0, ReserveSwap: 0xd1, ExecuteSwap: 0xd2, ReleaseSwap: 0xd3, RevokeGrant: 0xd4, CloseGrant: 0xd5 });
 export const RIGHTS_ACTS = Object.freeze(Object.keys(RIGHTS_TAGS));
@@ -45,9 +48,9 @@ export const RIGHTS_ACTS = Object.freeze(Object.keys(RIGHTS_TAGS));
 //  the caravan's rent goes to its RENT_TO, the wallet that sent it on this path. The program checks arrival and raids.)
 export const COEXIST_S1_ACTS = Object.freeze(['BuildVault', 'SendCaravan', 'SettleCaravan']);
 export const SETTLE_CARAVAN_TAG = 0xb2;
-export const COEXIST_ACTS = Object.freeze([...RIGHTS_ACTS, ...COEXIST_S1_ACTS]);
+export const COEXIST_ACTS = Object.freeze([...RIGHTS_ACTS, ...COEXIST_S1_ACTS, ...PREVIEW_ACTS]);
 /** Wallet-only and never delegated (MCP NEVER_DELEGATED; refused on a resident's relay: `LocalActWalletOnly`). */
-export const RIGHTS_WALLET_ONLY = Object.freeze(['IssueGrant', 'RevokeGrant']);
+export const RIGHTS_WALLET_ONLY = Object.freeze(['IssueGrant', 'RevokeGrant', ...PREVIEW_WALLET_ONLY]);
 /**
  * CU limits: the coexist itest's measured totals (IssueGrant 20,275 · ReserveSwap 14,854 · ExecuteSwap 16,636) and
  * ws02's LiteSVM rights build (Issue 20,944 · Reserve 12,419 · Execute 14,172 · Release 11,459 · Revoke 12,908 ·
@@ -183,6 +186,7 @@ const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
  */
 export function rightsIntent(name, subject, fields, code = 'LocalActShape') {
   check(COEXIST_ACTS.includes(name), 'LocalActNotAllowed');
+  if (PREVIEW_ACTS.includes(name)) return previewIntent(name, subject, fields, code);
   const s = subject, f = fields;
   check(s !== null && typeof s === 'object' && !Array.isArray(s) && f !== null && typeof f === 'object' && !Array.isArray(f), code);
   const out = (subj, flds) => Object.freeze({ name, subject: Object.freeze(subj), fields: Object.freeze(flds) });
@@ -234,6 +238,7 @@ export function rightsIntent(name, subject, fields, code = 'LocalActShape') {
  * are converted to the wire form (bytes as arrays, the fee and expiry as decimal text), then checked as above.
  */
 export function rightsIntentOf(name, v, fields) {
+  if (PREVIEW_ACTS.includes(name)) return previewIntentOf(name, v, fields);
   const f = { ...(fields ?? {}) };
   if (name === 'SendCaravan') {
     if (f.path instanceof Uint8Array) f.path = Array.from(f.path);
@@ -326,6 +331,7 @@ function s1Built(intent, { programId, seasonId, wallet, blockhash, profile }) {
  */
 export function rightsMessage(intent, { programId, seasonId, wallet, blockhash, loadedLimit, profile = 3 }) {
   check(COEXIST_ACTS.includes(intent.name), 'LocalActNotAllowed');
+  if (PREVIEW_ACTS.includes(intent.name)) return previewMessage(intent, { programId, seasonId, wallet, blockhash, loadedLimit, profile });
   let ix, prefix;
   if (RIGHTS_ACTS.includes(intent.name)) {
     ix = rightsInstruction(intent, { programId, seasonId, wallet });
