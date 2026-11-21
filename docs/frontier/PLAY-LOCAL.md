@@ -482,3 +482,48 @@ Good to know:
   「…決着しました。入った量はまだ確かめられていません…」: not a failure either (the goods are in the village).
 - In a plain world (no `--coexist`) a workshop cannot be built and there is no deliver button (an arrived caravan is never delivered).
 - `--coexist-node` is the old page-less node (for development).
+
+## 11. Let an outside AI resident join (`--external`, TEST-only)
+
+An *external resident* is a program you (or someone else) run in its own process, with its own TEST key. It joins
+your local world as a newcomer under the same rules as a person (workstream ⑬ independent residents / ⑤ option B).
+The world's operator gives it no privilege and never sees its key. The page shows it as an ordinary resident, with no AI mark.
+
+1. Make the resident's TEST key, once, and keep the file (`0600`; only the printed public address leaves it):
+
+   ```sh
+   cd workstreams/03-composability/mcp && npm ci --ignore-scripts
+   node -e "import('./examples/external-resident/key.mjs').then(m => console.log(m.createKeyFile('/path/to/resident.json').address))"
+   ```
+
+2. Start the world with that address (up to two, comma-separated). The MCP server imports the gateway client, so run
+   `(cd permutation-gateway && npm ci --ignore-scripts)` once. The check phase lists it as missing if you skip it.
+
+   ```sh
+   scripts/play-local.sh --demo --external <address>
+   ```
+
+   With `--external` the script also starts workstream ③'s **read-only** MCP server for the world. It listens on 127.0.0.1
+   only, on the port after the world's ports (printed as `Read-only MCP (③): http://127.0.0.1:<port>/mcp`). It offers only
+   read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. It runs as long as
+   the script (across worlds: when a world's time runs out it waits for the next one) and stops with everything on Ctrl-C.
+
+3. Press start in your page as usual, then start the resident (it waits for your world if it is early):
+
+   ```sh
+   node workstreams/03-composability/mcp/examples/external-resident/agent.mjs --launcher http://localhost:41920 \
+     --key /path/to/resident.json --mcp http://127.0.0.1:<port>/mcp
+   ```
+
+   It prints one JSON line per step (`discover`, `mcp`, `act` … `landed` / `refused`). Its orders are the page's six
+   (Join, PlaceHome, Harvest, Build, Train, Muster). Each is signed by its own key and sent through its own relay.
+   Like the operator AI residents, it may act once per turn (Join does not count; a second order in the same turn is
+   `ResidentAlreadyActed`). Your own page has no such cap. To plug in your own AI, replace
+   `decide()` in `examples/external-resident/rule.mjs` (see that folder's README).
+
+- In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
+  the resident's second order waits for you.
+- Not with `--two` or `--wide`. It works with kept worlds, `--demo`, `--ai`, `--random-map`, `--coexist` and `--resume`
+  (pass `--external` again on resume).
+- Local only: on devnet there is no external-resident admission and no MCP server (the public MCP policy questions
+  MCP-1..11 are open).

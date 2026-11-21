@@ -64,6 +64,10 @@ const P14_PORT_BASE: u16 = 41_670;
 const P12_PORT_BASE: u16 = 41_520;
 /// PFOG's (fog-devnet; `OPERATOR_PAGE_FOG_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
 const PFOG_PORT_BASE: u16 = 41_720;
+/// PPROV's (devnet-open-province; `OPERATOR_PROVINCES_PORT_BASE` moves them).
+const PPROV_PORT_BASE: u16 = 41_540;
+/// PPROV: keeper A's `provinces_reach` (the devnet profile's value, the preset's `outpost_range`).
+const PPROV_REACH: u16 = 3;
 /// PPOST's (devnet-page-outpost; `OPERATOR_PAGE_OUTPOST_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection).
 const PPOST_PORT_BASE: u16 = 41_610;
 
@@ -686,6 +690,20 @@ async fn pfog_two_players_see_only_their_own_vision_on_the_devnet_page_offline()
     .await;
 }
 
+/// PPROV (devnet-open-province, D-devnet-rim-homes-2): on the lazy devnet map nothing opened the provinces of rings
+/// 4..=127, so no nation could found a second village (FileOutpost: ring > 3, within 3 of the home, its Province
+/// present). keeper A configured as the devnet profile now says (rings duty `provinces_reach` 3) opens the provinces
+/// within reach of every settled province; the participant's FileOutpost, refused before, lands and keeper A's
+/// `tickets` role settles it (`operator_playable/provinces.rs`). Ports 41540+.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pprov_keeper_a_opens_the_provinces_a_nation_grows_into_offline() {
+    playable_season(
+        ports("OPERATOR_PROVINCES_PORT_BASE", PPROV_PORT_BASE),
+        Mode::Provinces,
+    )
+    .await;
+}
+
 /// PPOST (devnet-page-outpost): P4's rim world with the WEB PAGE as the participant, founding its SECOND village by
 /// FileOutpost from the village screen's card (wallet-signed, wallet-paid, two presses: the SOL preview, then the send
 /// through `/gw/f/devnet-play/act/submit`); the card first says the absent neighbours are not opened yet, the test opens
@@ -732,6 +750,8 @@ enum Mode {
     /// P12 (devnet-p15-p9, gap P15): P11 with the WEB PAGE sending the ExpeditionDepart (its boundary card, the
     /// wallet signs, `/gw/f/devnet-play/expedition/submit`).
     PageExpedition,
+    /// PPROV (devnet-open-province): keeper A's provinces on demand and a second village into one of them.
+    Provinces,
     /// PPOST (devnet-page-outpost): P4's rim world with the WEB PAGE founding its second village (FileOutpost).
     PageOutpost,
     /// P14 (devnet-guard-conquest): P11, then a third party's wide Free City conquest.
@@ -753,6 +773,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageWarFog => "pfog",
         Mode::Expedition => "p11",
         Mode::PageExpedition => "p12",
+        Mode::Provinces => "pprov",
         Mode::PageOutpost => "ppost",
         Mode::Conquest => "p14",
     };
@@ -1041,7 +1062,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         // (P5: the profile's keeper A with P6/P7: `wide-tickets`, and the rings duty's wide rings)
         roles = match mode {
             Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
-            Mode::Rim | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
+            Mode::Rim | Mode::Provinces | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
@@ -1058,6 +1079,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
         rim = match mode {
             Mode::Setup => String::new(),
             Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            // (PPROV: the profile's rim and provinces on demand, `provinces_reach` = the preset's outpost_range)
+            Mode::Provinces => format!(
+                "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
+                rim::PER_WEDGE
+            ),
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
@@ -1472,6 +1498,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 expedition,
                 conquest: mode == Mode::Conquest,
                 page: page.clone(),
+                provinces: (mode == Mode::Provinces).then(|| rim::provinces::Input {
+                    player: player.insecure_clone(),
+                    home: (hp as i32, hq as i32, site),
+                    reach: PPROV_REACH as u32,
+                }),
                 war: (war || expedition).then(|| rim::War {
                     keeper_api: pt.keeper_api,
                     token: "test-token-operator-playable".into(),

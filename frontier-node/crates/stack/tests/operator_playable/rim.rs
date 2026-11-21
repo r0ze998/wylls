@@ -105,6 +105,9 @@ pub mod expedition;
 /// PPOST (devnet-page-outpost): the page's second village ([`outpost_page`]).
 #[path = "outpost_page.rs"]
 pub mod outpost_page;
+/// PPROV (devnet-open-province): keeper A's provinces on demand ([`provinces`]).
+#[path = "provinces.rs"]
+pub mod provinces;
 
 /// P14 (devnet-guard-conquest): a third party's wide Free City conquest after P11's expedition.
 #[path = "conquest.rs"]
@@ -140,6 +143,8 @@ pub struct Ctx<'a> {
     pub page: Option<Page>,
     /// P8/P9: the legacy war (P9 with `page`).
     pub war: Option<War>,
+    /// PPROV (devnet-open-province): the participant's growth into provinces keeper A opens on demand.
+    pub provinces: Option<provinces::Input>,
     pub state: Arc<Mutex<localnet::Chain>>,
     pub a: Addresses,
     pub program: Address,
@@ -716,6 +721,10 @@ pub async fn run(c: Ctx<'_>) -> Value {
         &format!("RingSeed(128) seeded (the genesis ring's seed, opened_bell {rim_bell})"),
     );
     let patched_slot = r.lock().slot();
+    // PPROV: the provinces a nation grows into (keeper A's `provinces_reach`), from the heartland home.
+    if let Some(inp) = r.c.provinces.take() {
+        return provinces::flow(&mut r, inp).await;
+    }
     let seed_of = |r: &Run<'_>, ring: u64| {
         r.data(&adr(wl::ring_seed_address(&r.ctx(), ring)))
             .and_then(|d| wl::WideRingSeed::read(&d).ok())
