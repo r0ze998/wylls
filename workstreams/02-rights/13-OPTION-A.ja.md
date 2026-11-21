@@ -14,7 +14,7 @@
 | 受取口（station） | 利用者の**村**（Holding） | 利用者の**倉**（Vault）。施設の州のタイルにあり、利用者のもの・生きていること | `permutation-frontier/src/proc/rights.rs` `issue_grant` |
 | 鉱石・木材の出どころ | 村の倉庫 | 倉の `STORES`（倉には隊商でしか入らない） | `reserve_swap` |
 | 武具の行き先 | 村の倉庫 | 倉の `STORES`。`CAP − CUSTODY_QUOTA` を超えるなら交換全体を拒否（`VaultFull` 214、新設） | `execute_swap` |
-| 戻し（解放・取消） | 村へ（上限超えも可） | 倉へ。入らない分は Grant に**凍結**（焼かない） | `unwind` |
+| 戻し（解放・取消） | 村へ（上限超えも可） | 倉へ。鉱石・木材のどちらかが入らなければ両方とも Grant に**凍結**（焼かない） | `unwind` |
 | 受取口の固定 | 村の世代・所有者 | 倉の世代・所有者（SeizeVault で世代+1、所有者が変わる → `StaleHolding`） | `pinned_vault` |
 | 発行の費用 | なし | `GRANT_ISSUE_COST` = 金 25（**調整可能な仮の値**）。施設の村から払う（所有者の行為として touch する） | `frontier-abi/src/v2/rights.rs` |
 | 発行の署名 | 財布だけ | 財布だけ（変更なし。費用を払う前に拒否） | `issue_grant` |

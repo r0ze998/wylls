@@ -4,7 +4,7 @@
 
 > **2026-11-20（ws12-next、コードが正）：** 鍵なしで走る試験を 8→20 ファイル（77→204 件）に広げた（`fixtures/presigned.mjs`）。`check-integration.sh --here` でこの checkout の⑬と照合できる。⑤B 向けの任意の公開証拠リーダーを足した（[13-optional-reader-5b.ja.md](13-optional-reader-5b.ja.md)、⑤A には入れない）。数と手順は下の「実行」。
 
-> **2026-11-18 の確認（main `de781916`、コードが正）：** 隔離した試作のまま。遊べるゲームからは呼ばれない（⑤ A の運営 AI 住人 `permutation-gateway/src/frontier/local-play-operator-policy.mjs` は⑫を使わない）。試験の数は下の「100 件」より増えた：`node --test test/*.test.mjs`（Node 23）は **198 件中 195 通過・0 失敗・3 skip**。CI の `memory12` job（Node 22、`tools/keyfree-tests.txt` の 8 ファイル）は **77 件中 76 通過・1 skip**。
+> **2026-11-18 の確認（main `de781916`、コードが正）：** 隔離した試作のまま。成果物は main にある（下の「復元」の「push していない」は古い）。遊べるゲームからは呼ばれない（⑤ A の運営 AI 住人 `permutation-gateway/src/frontier/local-play-operator-policy.mjs` は⑫を使わない）。試験の数は下の「100 件」より増えた：`node --test test/*.test.mjs`（Node 23）は **198 件中 195 通過・0 失敗・3 skip**。CI の `memory12` job（Node 22、`tools/keyfree-tests.txt` の 8 ファイル）は **77 件中 76 通過・1 skip**。
 
 会話を保存するだけでなく、**過去の協力・約束・不履行を根拠付きで覚え、次の取引相手の選択に効かせる**ための module と、決定的な fixture によるデモ・回帰テスト。実 LLM への通信・課金はしない。
 

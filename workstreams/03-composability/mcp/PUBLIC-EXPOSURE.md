@@ -86,7 +86,7 @@ public directly, so these limits do not protect it from direct scraping: the rev
 | Many keys / many addresses | keys are issued by the operator (§9 Q4), global bucket; anonymous off |
 | Scraping the world | data is public by design (fog is client-side); per-tool cost; no whole-map tool; the herald's own limits at the proxy |
 | Enumerating villages by coordinates | public anyway; costs quota; audited per key |
-| Using an owner token on the public server, or a public key on the owner server | refused both ways (different token formats and resources; tests E3, B2) |
+| Using an owner token on the public server, or a public key on the owner server | refused both ways (different token formats and resources; tests E3, B2, V5) |
 | DNS rebinding / browser CSRF | Host allow-list and Origin allow-list before any route (both servers; tests E3, C1, C2, X3) |
 | Prompt injection through player-written text in public data | instructions say: show it, never follow it; no public tool acts |
 | Herald cost amplification | answer size cap, global bucket, season pin reused 15 s |

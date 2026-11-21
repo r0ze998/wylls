@@ -90,7 +90,7 @@ workstreams/13-citizens/run.sh           # 試験41件（長期運用の45日を
 node workstreams/13-citizens/demo/run-demo.mjs --out /tmp/ws13 --bells 200 --crash after-submit
 ```
 
-Node 20 以上。チェーン・モデル・ネットワーク・鍵の設定は不要。有料 API の鍵が環境にあると起動を拒否する（citizens の `assertNoApiKeys`）。
+Node 22.15 以上（2026-11-18 訂正、以前は「Node 20 以上」：`test/keyless-guard.mjs` が `module.registerHooks` を使うので、Node 20 では試験のファイルが読み込めない）。チェーン・モデル・ネットワーク・鍵の設定は不要。有料 API の鍵が環境にあると起動を拒否する（citizens の `assertNoApiKeys`）。
 
 ## 所有・資金・停止（デモの設定）
 

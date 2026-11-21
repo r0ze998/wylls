@@ -102,7 +102,7 @@ change: four new instructions, and none of the shares, claim or operator code ch
 - **Program, host:** `cd permutation-prize && cargo test --features epochs` (9 tests, 3 of them new: the Pay close,
   the account tail, the continuous-season check) and `cargo test` (6, the default build).
 - **Program, LiteSVM** (`scripts/build-prize.sh --features epochs` first):
-  `cd permutation-prize/svm-tests && cargo test --release --test epoch` (10; round 3 added the operator-member refusal,
+  `cd permutation-prize/svm-tests && cargo test --release --test epoch` (13, the last three being the pre-funding tests; round 3 added the operator-member refusal,
   the per-window entry and the ring-17 limit). These cover the full cycle across two
   windows, the snapshot rule, a tie, refund mode, InitEpochPool's guards, Sweep's guards and the default build refusing
   the epoch tags. A path given in `PRIZE_EPOCH_SO` must exist (CI's key-tests job names it); with the default path
