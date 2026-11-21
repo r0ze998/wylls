@@ -1477,7 +1477,7 @@ export class SpriteArt {
       const byKey = new Map();
       for (const key of survey.reveals.keys()) byKey.set(key, null);
       for (const t of tiles) { const key = hexKey(t.q, t.r); if (byKey.has(key)) byKey.set(key, t); }
-      if (paintReveal(ctx, { reveals: survey.reveals, byKey: key => byKey.get(key), res: s.r / RADIUS, now: fxNow(), nameAt: chartName }) > 0 && !this.revealTimer) this.revealTimer = setTimeout(() => { this.revealTimer = null; this.onTick(); }, 33);
+      if (paintReveal(ctx, { reveals: survey.reveals, byKey: key => byKey.get(key), res: s.r / RADIUS, now: fxNow(), nameAt: chartName }) > 0 && !this.revealTimer) this.revealTimer = setTimeout(() => { this.revealTimer = null; this.onTick(true); }, 33);
     }
     // (the survey is in the ground and the sprites already: muted land, the chart and their edge; nothing veils the frame)
     // a tile whose battle is playing shows the scene's figures, not the hosts' sprites (UI plan D4)
@@ -1666,7 +1666,7 @@ export class SpriteArt {
     // (the selected tile's ring is drawn by the map: bright, on the ground and again over what stands there: map/actions.mjs)
     void selected;
     // the next animation frame while figures move: only the animated layers repaint (onTick)
-    if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onTick(); }, fighting ? 33 : PEOPLE_FRAME_MS);
+    if ((moving || fighting || this.tokensMoving) && !this.peopleTimer) this.peopleTimer = setTimeout(() => { this.peopleTimer = null; this.onTick(fighting); }, fighting ? 33 : PEOPLE_FRAME_MS);
     // what the labels need of this frame (labels()); a whole painting draws them now
     this.liveNow = { hosts, pills, tiles, constructions: builds };
     if (part === null) this.labels(ctx, { zoom, people });
