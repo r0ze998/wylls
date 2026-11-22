@@ -884,7 +884,8 @@ Notes on what is **not** tested as written:
   ≈ 13 s of finality. On the public endpoint (≈ 1 call/method/s) neither setting fits: it is for a provider endpoint.
   Paid cost (from these call counts; price sheets were not read in that run): idle ≈ 4.8 M calls per 30 days, plus
   ≈ 2 calls per program transaction (50 players acting 6 times a bell ≈ +2.6 M per 30 days); on a plan that counts
-  a standard call as one credit, budget ≈ 8 M credits per 30-day season for the herald alone (the gateway adds
+  a standard call as one credit, budget ≈ 8 M credits per 30 days for the herald alone — a devnet season (7 days + the 24 h lead + about 21 h of
+  map growth, ≈ 9 days of herald uptime, players acting for 7 of them) is ≈ 2 M (verify-pr172) (the gateway adds
   ≈ 1 call/s + ≈ 6.5 per player act, herald-load-50 §5; keeper A not measured).
 - The page waits for the herald up to 3 minutes after its own Join / rim village request / PlaceHome
   (`frontier/fown-wait.mjs`, fix-devnet-join-wait), with the wait said on the card and a 「もう一度確かめる」 button after

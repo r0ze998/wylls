@@ -423,7 +423,11 @@ export function render(FS) {
   // (loop-play4 B-7: local play's page-signed economy signs with the page's own test wallet — there is no in-game key to
   //  make or fix (controller.mjs asks for none in local play); while a wide world's rim request settled, this card read as
   //  a key failure for about a minute. The request's own wait view is shown instead)
-  if (!FS.resident && !FS.localPlay && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
+  // (verify-pr172: devnet play likewise — the connected wallet is the Join's session key and signs every command, the
+  //  page makes no in-game key there (controller.mjs confirmHome `!devnetPlay`; the nation card says 「ゲーム内の鍵は作り
+  //  ません」). This card stood over the rim request's wait — its 「記録を待っています…」 line and 「もう一度確かめる」 — and
+  //  over the whole ticket turn, offering 「鍵を作り直す」 for a key devnet never uses)
+  if (!FS.resident && !FS.localPlay && !FS.devnetPlay && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;

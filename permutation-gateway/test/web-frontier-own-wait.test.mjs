@@ -86,6 +86,28 @@ test('a wait that ended without the record says why and offers 「もう一度�
   setLang('ja');
 });
 
+// verify-pr172: on devnet the page makes no in-game key (the wallet signs every command), so the card the player sees
+// while the rim request is waited for — and through the whole ticket turn — is the request's own view, never the key
+// card 「ゲーム内の鍵…鍵を作り直す」 (seen live in P7 behind a 60 s ingest delay: it hid the wait line and the retry).
+test('devnet play, no in-game key: the rim request\'s wait, its retry and the ticket view are shown, not the key card', () => {
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    const keyCard = lang === 'ja' ? /ゲーム内の鍵|鍵を作り直す/ : /in-game key|Make the key again/i;
+    const joined = { ...base, land: { stage: 'joined' }, citizen: { faction: 2, flags: 0 }, session: null };
+    const waiting = String(render({ ...joined, homeChoice: { faction: 2, busy: true, pending: 'ticket', ownWait: { what: 'ticket', secs: 42 }, candidates: [] } }));
+    assert.match(waiting, /data-own-wait="ticket"/); assert.doesNotMatch(waiting, keyCard);
+    const retry = String(render({ ...joined, homeChoice: { faction: 2, error: { code: 'PendingHome', text: 'x', retry: true, waited: 'ticket' }, candidates: [] } }));
+    assert.match(retry, /data-own-retry="ticket"/); assert.doesNotMatch(retry, keyCard);
+    const ticket = String(render({ ...joined, land: { stage: 'ticket', ticket: { sites: [{ p: -128, q: 66, site: 10 }], next: 0, bell: 6 } }, nowBell: 6 }));
+    assert.match(ticket, lang === 'ja' ? /村の申し込みは済んでいます/ : /request/i);
+    assert.doesNotMatch(ticket, keyCard);
+    // (outside devnet and local play a wallet Citizen without its key still gets the key card)
+    const { devnetPlay, ...plain } = joined;
+    assert.match(String(render({ ...plain, homeChoice: { faction: 2, candidates: [] } })), keyCard);
+  }
+  setLang('ja');
+});
+
 // ---------------------------------------------------------------- the controller's wiring
 const fn = head => { const i = ctl.indexOf(head); assert.ok(i >= 0, head); return ctl.slice(i, ctl.indexOf('\n}\n', i)); };
 test('confirmHome: every wait for the own record is the lag-tolerant one, scoped to its confirm; a timeout is said with a retry', () => {
