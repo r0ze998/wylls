@@ -187,6 +187,11 @@ pub const OUTPOST_AFTER_CLOSE: &str = "OutpostAfterClose";
 pub const MISSING_DATA: &str = "MissingData";
 /// Informational: pre-funded addresses seen, never a failure (V9).
 pub const PREFUNDED: &str = "PrefundedAddress";
+/// WARN (rent-live-rest): VX / VG found a mismatch while re-executing at
+/// the ASSUMED 5,080 lamports per byte (no Rent sysvar was read and none
+/// was declared): the mismatch may come from another rate. Never a FAIL by
+/// itself and never lifts one.
+pub const RENT_ASSUMED: &str = "RentAssumed";
 
 /// Every FAIL code of §8.5 (the report's legend and a completeness test).
 pub const FAIL_CODES: &[&str] = &[

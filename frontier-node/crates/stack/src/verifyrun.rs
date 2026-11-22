@@ -104,6 +104,15 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             vec![]
         }
     };
+    // rent-live-rest: the node's Rent sysvar for VX's / VG's re-execution
+    // (never a silent 5,080: unread, the report says `assumed`).
+    let rent = match input::fetch_rent(&rpc, final_slot).await {
+        Ok(r) => Some(r),
+        Err(e) => {
+            eprintln!("frontier-stack: the node's Rent sysvar: {e}");
+            None
+        }
+    };
     // ⑲: the history and the final states at one ledger point, or
     // `point_in_time_unverified` stays (never PASS).
     let mut history = history;
@@ -136,7 +145,10 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         resident_feed,
         program_so: None,
         declared: vec![],
-        chain: Default::default(),
+        chain: input::ChainWitness {
+            rent,
+            ..Default::default()
+        },
     })
 }
 

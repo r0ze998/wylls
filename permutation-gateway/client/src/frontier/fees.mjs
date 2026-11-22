@@ -24,7 +24,13 @@ export const REVEAL_SIGS = 1;
 export const REVEAL_WRITES = 2;
 /** The base fee per signature (lamports); sponsored shapes pay no priority fee (CU price 0). */
 export const LAMPORTS_PER_SIGNATURE = 5_000n;
-/** Rent (§4.2): `(128 + size) × 5,080` lamports. */
+/**
+ * Rent (§4.2): `(128 + size) × lamports_per_byte`. `RENT_PER_BYTE` is a MODEL rate — the local node's default and
+ * devnet's as measured 2026-11-18 (SIMD-0437-2) — never the cluster's own word: a cluster may charge another rate (the
+ * pre-SIMD-0194 6,960, a later SIMD-0437 step). A figure a wallet really pays is `rentAt(size, rate)` at the rate the
+ * cluster states (its `getMinimumBalanceForRentExemption`, or its Rent sysvar); `rent(size)` is that model at 5,080
+ * and must be labelled as a model wherever a person reads it (rent-live-rest).
+ */
 export const RENT_PER_BYTE = 5_080n;
 export const ACCOUNT_OVERHEAD = 128n;
 
@@ -33,8 +39,21 @@ const ceilDiv = (a, b) => (a + b - 1n) / b;
 const U64_MAX = (1n << 64n) - 1n;
 const cap64 = v => (v > U64_MAX ? U64_MAX : v);
 
-/** Rent-exempt minimum of an account of `size` data bytes. */
-export const rent = size => (ACCOUNT_OVERHEAD + B(size)) * RENT_PER_BYTE;
+/** Rent-exempt minimum of an account of `size` data bytes at `perByte` lamports per byte (the cluster's rate). */
+export const rentAt = (size, perByte) => (ACCOUNT_OVERHEAD + B(size)) * B(perByte);
+
+/** The MODEL rent-exempt minimum of an account of `size` data bytes (at `RENT_PER_BYTE`, 5,080: see above). */
+export const rent = size => rentAt(size, RENT_PER_BYTE);
+
+/**
+ * The lamports-per-byte rate a cluster's rent-exempt minimum `minimum` of an account of `size` data bytes states
+ * (`getMinimumBalanceForRentExemption(size)` = `(128 + size) × rate`, also for the old `3,480 × 2.0` form), or null
+ * when it is not a whole multiple (not a SIMD-0194 / threshold-1-or-2 cluster: never guessed).
+ */
+export function rateOfMinimum(minimum, size) {
+  const m = B(minimum), bytes = ACCOUNT_OVERHEAD + B(size);
+  return m > 0n && m % bytes === 0n ? m / bytes : null;
+}
 
 export const loadedUnits = loaded => ceilDiv(B(loaded), LOADED_UNIT);
 

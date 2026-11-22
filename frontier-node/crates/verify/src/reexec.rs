@@ -41,18 +41,29 @@ use crate::world::Key;
 pub struct Program {
     /// The `.so` bytes (sha256 must equal the pinned `program_hash`).
     pub so: std::sync::Arc<Vec<u8>>,
-    /// Rent: lamports per byte (with `exemption_threshold` 1.0, as the
-    /// local node and devnet run it: 5,080 on both, 2026-11-18).
-    pub lamports_per_byte: u64,
+    /// The Rent sysvar the re-execution installs: the cluster's own
+    /// (`Input::chain.rent`, [`rent_of`]) or, when no source stated it, the
+    /// ASSUMED local-node default (5,080 lamports per byte, threshold 1.0),
+    /// which the report says (rent-live-rest: never a silent constant).
+    pub rent: fclient::rent::RentSysvar,
 }
 
 impl Program {
-    /// The binary and the local node's / devnet's rent.
+    /// The binary with the ASSUMED local-node rent ([`assumed_rent`]):
+    /// tests, and callers that state the rent with [`Program::with_rent`].
     pub fn new(so: Vec<u8>) -> Program {
+        Program::with_rent(so, assumed_rent())
+    }
+    /// The binary and the Rent sysvar the season ran under.
+    pub fn with_rent(so: Vec<u8>, rent: fclient::rent::RentSysvar) -> Program {
         Program {
             so: std::sync::Arc::new(so),
-            lamports_per_byte: LAMPORTS_PER_BYTE,
+            rent,
         }
+    }
+    /// Lamports per byte of the installed rent (`minimum_balance(0) / 128`).
+    pub fn lamports_per_byte(&self) -> Option<u64> {
+        rent_per_byte(&self.rent)
     }
     pub fn sha256(&self) -> [u8; 32] {
         permutation_rules::hash::sha256(&[&self.so])
@@ -74,8 +85,16 @@ impl Program {
     }
 }
 
-/// `localnet::chain::LAMPORTS_PER_BYTE` (and devnet's, read 2026-11-18).
-pub const LAMPORTS_PER_BYTE: u64 = 5_080;
+pub use crate::rent::{assumed_rent, rent_of, rent_per_byte, RentBasis, LAMPORTS_PER_BYTE};
+
+/// The pinned binary of `input` (`--program-so`) with the rent it ran under.
+pub fn program_of(input: &crate::input::Input) -> Option<Program> {
+    let rent = rent_of(input).0;
+    input
+        .program_so
+        .as_ref()
+        .map(|so| Program::with_rent(so.as_ref().clone(), rent))
+}
 
 /// What a signer or another wallet the archive does not show is funded
 /// with (its balance is never compared; only program-owned accounts are).
@@ -150,11 +169,14 @@ impl Svm {
             .with_blockhash_check(false)
             .with_log_bytes_limit(None)
             .with_transaction_history(0);
+        // The season's Rent sysvar exactly (rent-live-rest): its rate, its
+        // threshold and its burn share, as the program reads it.
         let mut rent: solana_rent::Rent = svm.get_sysvar();
-        rent.lamports_per_byte = p.lamports_per_byte;
+        rent.lamports_per_byte = p.rent.lamports_per_byte_year;
         #[allow(deprecated)]
         {
-            rent.exemption_threshold = 1.0f64.to_le_bytes();
+            rent.exemption_threshold = p.rent.exemption_threshold.to_le_bytes();
+            rent.burn_percent = p.rent.burn_percent;
         }
         svm.set_sysvar(&rent);
         let loader = loader_v3();
