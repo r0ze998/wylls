@@ -39,6 +39,34 @@ pub const DEPART_BELL: u32 = ARRIVE_BELL - 2;
 pub const TROOPS: u32 = 400;
 /// The bells after the arrival the run waits for the capture and the return, at most.
 pub const AFTER_BELLS: u32 = 48;
+/// PCAP (devnet-72bell-pair): the bells after the arrival the capture run waits, at most (`OPERATOR_PCAP_AFTER_BELLS`
+/// moves it). A keep is taken after 72 held bells counted from the arrival's resolve (keep contest from bell 21, taken
+/// at province bell 92); keeper A ran the held keep at ~88 % of the ×40 clock in verify-pr120, so 110 leaves room.
+pub const PCAP_AFTER_BELLS: u32 = 110;
+/// PCAP: the chain clock's speed while the keep is held (`OPERATOR_PCAP_HOLD_SCALE` moves it; P8/P9 use 40). The season
+/// keeps the devnet preset's real 600-s bells and reveal windows; only the clock runs faster.
+pub const PCAP_HOLD_SCALE: f64 = 40.0;
+/// PPAIR (devnet-72bell-pair): why the HOME leg is sealed to the TEST beacon key. Offline only ONE arrival bell of a
+/// season can have a real quicknet round: the committed rounds (`fclient/fixtures/quicknet`, 32 rounds
+/// 32,551,361–32,553,016) plus the S-TLOCK vectors' 32,556,136/137/349/350 hold no genesis round g with two later rounds
+/// g + 200·(b+2) (PR CI test `pkf_offline_a_season_has_at_most_one_real_arrival_round`). And one host cannot march twice
+/// within ~28 bells: a sealed Depart charges the worst-case 74 stamina (cap 120, +1 a bell). So the OUT leg takes the
+/// real T(21) (the page's card; keeper A anchors and opens it as on devnet) and the HOME leg, ~28 bells later, arrives
+/// over a declared, TEST-signed anchor ([`Run::stage_signed`]).
+pub const PAIR_REST_BELLS: u32 = 2 * PAIR_STAMINA - STAMINA_CAP;
+/// (the program's and the page's sealed-Depart stamina, and the cap)
+const PAIR_STAMINA: u32 = permutation_rules::frontier::travel::MARCH_STAMINA_BASE as u32
+    + permutation_rules::frontier::travel::MARCH_STAMINA_PER_HEX as u32
+        * permutation_rules::frontier::travel::MAX_PATH_STEPS as u32;
+const STAMINA_CAP: u32 = permutation_rules::frontier::host::STAMINA_CAP as u32;
+
+/// An env override of a number, else `default`.
+pub fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
 
 /// P10 (devnet-page-war-2): how the test stops and restarts keeper A (the same binary, config and journal) and
 /// drand-replay (the full archive, or the one without T(21)), on the same ports.
@@ -160,6 +188,8 @@ pub(super) struct Beacon {
     pub(super) regions: Vec<u8>,
     pub(super) staged: std::collections::BTreeSet<(u32, u8)>,
     pub(super) from_bell: u32,
+    /// (PPAIR) bells whose declared anchor carries a TEST-key signature ([`Run::stage_signed`]), by `(bell, region)`.
+    pub(super) signed: std::collections::BTreeMap<(u32, u8), [u8; 48]>,
 }
 
 impl Beacon {
@@ -185,7 +215,10 @@ impl Beacon {
                     continue;
                 }
                 if r.data(&adr(ctx.bell_anchor(b, reg))).is_none() {
-                    r.stage_seed(b, reg, seed);
+                    match self.signed.get(&(b, reg)) {
+                        Some(sig) => r.stage_signed(b, reg, *sig, seed),
+                        None => r.stage_seed(b, reg, seed),
+                    }
                 }
                 self.staged.insert((b, reg));
             }
@@ -354,12 +387,16 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
         regions: (0..r.season()[S::REGIONS]).collect(),
         staged: Default::default(),
         from_bell: 0,
+        signed: Default::default(),
     };
     let war_plan = json!({"home": [hp, hq], "site": site, "nation": nation, "target": [tp, tq], "keep": format!("{keep0:?}"),
         "route": {"start_tile": start, "dirs": dirs}});
     if let Some(pg) = r.c.page.clone() {
         if r.c.war.as_ref().is_some_and(|w| w.outage.is_some()) {
             return page::flow_home(r, &pg, plan, war_plan, extra).await;
+        }
+        if pg.pair {
+            return page::flow_pair(r, &pg, plan, war_plan, extra).await;
         }
         return page::flow(r, &pg, plan, nation, war_plan, extra).await;
     }
@@ -558,6 +595,10 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
         nation,
         since,
         None,
+        Hold {
+            after_bells: AFTER_BELLS,
+            scale: 40.0,
+        },
     )
     .await;
     let participant_txs = r.rows.clone();
@@ -570,6 +611,78 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
     json!({"verifier_season": verifier, "p8_war": "a test participant's legacy war on the devnet .so: rim village, Muster, ONE sealed Depart onto a keep; keeper A does the rest",
         "plan": war_plan, "muster": muster, "depart": depart, "keeper_war": war, "rows": participant_txs,
         "declared_patches": r.patches, "setup": extra})
+}
+
+/// How long and how fast [`keeper_war`] runs the held keep.
+#[derive(Clone, Copy)]
+pub(super) struct Hold {
+    /// The bells after the arrival the run waits for the capture and the return, at most.
+    pub after_bells: u32,
+    /// The chain clock's speed meanwhile.
+    pub scale: f64,
+}
+
+/// (devnet-72bell-pair) keeper A's lag behind the chain clock while a keep is held.
+#[derive(Default)]
+pub(super) struct Lag {
+    /// One row per clock bell: `[clock bell, chain ts, wall s, keep rn, home rn, progress, contender, holder]`.
+    samples: Vec<Value>,
+    last_clock_bell: Option<u32>,
+    /// The keep province's bell b → `(clock bell, wall s)` when it was first seen resolved past b.
+    resolved: std::collections::BTreeMap<u32, (u32, f64)>,
+    last_rn: Option<u32>,
+}
+
+impl Lag {
+    #[allow(clippy::too_many_arguments)]
+    fn sample(
+        &mut self,
+        clock_bell: u32,
+        now: i64,
+        wall: f64,
+        keep_rn: Option<u32>,
+        home_rn: Option<u32>,
+        k: &permutation_rules::frontier::keep::Keep,
+    ) {
+        if let Some(rn) = keep_rn {
+            let from = self.last_rn.unwrap_or(rn);
+            for b in from..rn {
+                self.resolved.entry(b).or_insert((clock_bell, wall));
+            }
+            self.last_rn = Some(rn);
+        }
+        if self.last_clock_bell != Some(clock_bell) {
+            self.last_clock_bell = Some(clock_bell);
+            self.samples.push(json!([
+                clock_bell,
+                now,
+                (wall * 10.0).round() / 10.0,
+                keep_rn,
+                home_rn,
+                k.progress,
+                k.contender,
+                k.holder
+            ]));
+        }
+    }
+    /// `{per_bell: [[bell, clock bell seen, lag bells, wall s]], lag_bells: {min, median, p90, max}, samples}` — a
+    /// bell b's lag is `clock bell seen − (b + 1)`: 0 = resolved inside the bell after it ended.
+    fn report(&self) -> Value {
+        let per: Vec<(u32, u32, i64, f64)> = self
+            .resolved
+            .iter()
+            .map(|(&b, &(c, w))| (b, c, c as i64 - (b as i64 + 1), w))
+            .collect();
+        let mut lags: Vec<i64> = per.iter().map(|x| x.2).collect();
+        lags.sort_unstable();
+        let pick = |q: f64| -> Option<i64> {
+            (!lags.is_empty()).then(|| lags[((lags.len() - 1) as f64 * q).round() as usize])
+        };
+        json!({"per_bell": per.iter().map(|x| json!([x.0, x.1, x.2, (x.3 * 10.0).round() / 10.0])).collect::<Vec<_>>(),
+            "lag_bells": {"n": lags.len(), "min": pick(0.0), "median": pick(0.5), "p90": pick(0.9), "max": pick(1.0)},
+            "samples_cols": ["clock_bell", "chain_ts", "wall_s", "keep_rn", "home_rn", "progress", "contender", "holder"],
+            "samples": self.samples})
+    }
 }
 
 /// After the Depart: keeper A settles the departure, anchors the arrival bell from the real round, reveals from the
@@ -585,6 +698,7 @@ pub(super) async fn keeper_war(
     nation: u8,
     since: u64,
     observers: Option<&mut fog::Obs>,
+    hold: Hold,
 ) -> Value {
     use fclient::abi::tag as T;
     let ctx = r.ctx();
@@ -655,23 +769,37 @@ pub(super) async fn keeper_war(
         fog::snap_with(r, o, beacon, "settled", Some((tp, tq, nation))).await;
     }
     // the keep's held bells, the capture and the donor's return (as long as the Season's keep rules take)
-    let last = ARRIVE_BELL + AFTER_BELLS;
+    let last = ARRIVE_BELL + hold.after_bells;
     let mut taken: Option<Value> = None;
     let mut returned: Option<Value> = None;
     let entry_of = |r: &Run<'_>| {
         r.province_of(tp, tq)
             .and_then(|v| v.entries.into_iter().find(|e| e.id == host))
     };
+    // (devnet-72bell-pair) keeper A's lag per bell while the keep is held: for every bell b of the keep's province, the
+    // clock bell (and the wall time since the hold began) at which the province was first seen resolved past b; and
+    // one sample per clock bell (the keep's progress, the two provinces' resolved_next).
+    let hold_t0 = Instant::now();
+    let mut lag = Lag::default();
     drive(
         r,
         beacon,
-        40.0,
-        3600,
+        hold.scale,
+        // (a 110-bell window at ×40 is ~28 chain-clock minutes; keeper A under the machine's load may need longer)
+        5400,
         "the keep's bells: capture and return (or the bell limit)",
         |r| {
             let k = keep_of(r);
+            lag.sample(
+                r.bell(),
+                r.now(),
+                hold_t0.elapsed().as_secs_f64(),
+                r.province_of(tp, tq).map(|v| v.resolved_next),
+                r.province_of(hp, hq).map(|v| v.resolved_next),
+                &k,
+            );
             if taken.is_none() && k.holder == nation {
-                taken = Some(json!({"bell": r.bell(), "keep": format!("{k:?}")}));
+                taken = Some(json!({"bell": r.bell(), "keep": format!("{k:?}"), "wall_s_since_hold": hold_t0.elapsed().as_secs_f64(), "chain_ts": r.now()}));
             }
             let res = Holding::decode(&r.data(&holding).unwrap()).unwrap().reserve[0];
             if returned.is_none() && res > 0 && entry_of(r).is_none() {
@@ -718,7 +846,6 @@ pub(super) async fn keeper_war(
     ] {
         assert!(landed(tag) > 0, "keeper A landed no {name}: {rows:#?}");
     }
-    let _ = (hp, hq);
     // keeper A's own counters of the play duty (its `/v1/status`)
     let play_status =
         r.c.war
@@ -726,7 +853,8 @@ pub(super) async fn keeper_war(
             .and_then(|w| keeper_status(w.keeper_api, &w.token))
             .map(|s| s["play"].clone())
             .unwrap_or(Value::Null);
-    json!({"keeper_play_status": play_status, "arrival_anchor_round": anchor_round, "keep_before": format!("{keep0:?}"), "keep_after_arrival": format!("{after_arrival:?}"),
+    json!({"keeper_lag": lag.report(), "hold": {"after_bells": hold.after_bells, "scale": hold.scale},
+        "keeper_play_status": play_status, "arrival_anchor_round": anchor_round, "keep_before": format!("{keep0:?}"), "keep_after_arrival": format!("{after_arrival:?}"),
         "keep_final": format!("{:?}", keep_of(r)), "taken": taken, "returned": returned, "keeper_txs": rows,
         "counts": {"settle_departure": landed(T::SETTLE_DEPARTURE), "reveal": landed(T::REVEAL), "gather": landed(T::GATHER_CLASH),
                    "resolve": landed(T::RESOLVE_FROM_INPUTS), "skip": landed(T::SKIP_QUIET), "settle_transit": landed(T::SETTLE_TRANSIT),
@@ -738,3 +866,44 @@ pub(super) async fn keeper_war(
 pub(super) mod fog;
 #[path = "war_page.rs"]
 mod page;
+
+/// PKF (devnet-72bell-pair; key-free): keeper A's lag per bell as PCAP reports it — a bell resolved inside the next
+/// clock bell is lag 0; a sample per clock bell; the province's catch-up of several bells at once is credited to the
+/// clock bell it was seen in.
+#[test]
+fn pkf_lag_counts_each_province_bell_once_at_the_clock_bell_it_was_seen() {
+    let k = permutation_rules::frontier::keep::Keep {
+        tile: 1,
+        holder: 3,
+        contender: 2,
+        progress: 0,
+        required: 72,
+        heartland_safe: false,
+        paused: false,
+        changes: 0,
+        troops: 100,
+        since_bell: 0,
+        consolidated_until_bell: 0,
+        contest_from_bell: 21,
+        gen: 1,
+        last_taken_from: 255,
+    };
+    let mut l = Lag::default();
+    l.sample(22, 0, 0.0, Some(22), Some(22), &k); // rn 22: bells < 22 resolved (first sight: no history credited)
+    l.sample(22, 1, 0.5, Some(22), Some(22), &k); // same clock bell: no second sample
+    l.sample(23, 2, 1.0, Some(23), Some(23), &k); // bell 22 resolved in clock bell 23: lag 0
+    l.sample(26, 3, 2.0, Some(26), Some(26), &k); // bells 23..25 seen at clock 26: lags 2, 1, 0
+    let v = l.report();
+    assert_eq!(v["samples"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        v["per_bell"],
+        json!([
+            [22, 23, 0, 1.0],
+            [23, 26, 2, 2.0],
+            [24, 26, 1, 2.0],
+            [25, 26, 0, 2.0]
+        ])
+    );
+    assert_eq!(v["lag_bells"]["max"], 2);
+    assert_eq!(v["lag_bells"]["median"], 1);
+}
