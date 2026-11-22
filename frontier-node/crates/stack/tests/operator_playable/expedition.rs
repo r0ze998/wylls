@@ -99,6 +99,7 @@ pub(super) async fn flow(
         regions: (0..r.season()[S::REGIONS]).collect(),
         staged: Default::default(),
         from_bell: 0,
+        signed: Default::default(),
     };
     let war =
         r.c.war
