@@ -205,18 +205,33 @@ export function wideHostSayText(say) {
   const at = x => (x ? `${x.p},${x.q}` : '?');
   // (fix-loop7, LP7-5: the hold's end, once known, is what the card says — whatever the planner waits for next)
   const ended = wideHoldOutcomeText(say.hold);
+  // (verify-pr162: at the TEST cap the last result AND why no more — before the plain result below, which returned
+  //  first and hid the cap's words whenever the last march's hold had ended, taken or lost: seen live at turn 601)
+  if (say.wait === 'cap' && say.kind !== 'decision') {
+    const m = say.march;
+    const last = ended || (m?.phase === 'gone' ? L`結果：軍勢は州 ${at(m.to)} に残れませんでした（戦いに敗れました）。` : '');
+    return [last, L`この村からの広い土地の中の進軍は、テスト世界では ${fmtNum(Number(say.cap ?? 2))} 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。`].filter(Boolean).join(' ');
+  }
   if (ended && say.kind !== 'decision') return ended;
   // (and while the hold counts, a wait for the village's own province does not hide it)
   const counting = say.hold && !say.hold.outcome && say.hold.to && Number.isFinite(Number(say.hold.progress))
     ? L`あなたの国が州 ${say.hold.to.p},${say.hold.to.q} の砦を占拠中です：${fmtNum(Number(say.hold.progress))} / ${fmtNum(Number(say.hold.required))} ターン。` : '';
   if (counting && say.kind === 'wait' && say.wait === 'lag') return L`この村の州の決着が ${fmtNum(Number(say.lag ?? 0))} ターン遅れています。` + ' ' + counting;
   if (say.kind === 'decision') {
+    // (fix-loop9, LP9-1: a new host after a lost march — the result first, then the step that starts the new host)
+    if (say.rebuild && (say.name === 'WideTrain' || say.name === 'WideMuster')) {
+      const lost = say.march?.phase === 'gone' && !ended ? L`結果：軍勢は州 ${at(say.march.to)} に残れませんでした（戦いに敗れました）。` : '';
+      const home = Number(say.home?.troops ?? 0) > 0 ? L`生き残った兵 ${fmtNum(Number(say.home.troops))} が村に戻っています。兵 100 未満の軍勢は進軍できないため、新しい軍勢を作ります。` : L`進軍できる軍勢が村にいないため、新しい軍勢を作ります。`;
+      const step = say.name === 'WideTrain' ? L`次の一手：槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練します（兵 100 そろうと編成できます）。` : L`次の一手：槍兵 ${fmtNum(Number(say.troops ?? 0))} の新しい軍勢を編成します。`;
+      return [lost, home, step].filter(Boolean).join(' ');
+    }
     if (say.name === 'WideTrain') return L`広い土地の村で槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練します。`;
     if (say.name === 'WideMuster') return L`広い土地の村で槍兵 ${fmtNum(Number(say.troops ?? 0))} の軍勢を編成します。`;
     if (say.name === 'WideDepart') return L`軍勢（兵 ${fmtNum(Number(say.troops ?? 0))}）が州 ${at(say.to)} の砦へ進軍します（${factionName(say.to?.holder)}が保持）。到着はターン ${fmtNum(Number(say.arrive ?? 0))} です。`;
     return L`次の一手を送ります。`;
   }
   const m = say.march;
+  // (fix-loop9, LP9-1: this village has sent the TEST cap of wide marches — said above, before the hold's own result)
   if (m) {
     if (m.phase === 'out') return L`軍勢は州 ${at(m.to)} の砦へ進軍中です。到着はターン ${fmtNum(m.arrive)} です（いまはターン ${fmtNum(m.nowBell)}）。`;
     if (m.phase === 'stands') {
@@ -261,7 +276,7 @@ export function render(FS) {
     <p>${L`押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。`}</p>
     ${FS.ui?.wideHostSay ? html`<p class="wide-host-why" role="status" title="${FS.ui.wideHostWhy ?? ''}">${wideHostSayText(FS.ui.wideHostSay)}</p>` : FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
     ${FS.ui?.wideHostSay?.kind === 'decision' && FS.ui.wideHostSay.hold?.outcome ? html`<p class="wide-host-held" role="status">${wideHoldOutcomeText(FS.ui.wideHostSay.hold)}</p>` : ''}
-    ${FS.ui?.wideHostReady && !FS.ui?.wideHost?.waiting ? html`<p class="wide-host-ready" role="status">${L`次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。`}</p>` : ''}
+    ${FS.ui?.wideHostReady && !FS.ui?.wideHost?.waiting ? html`<p class="wide-host-ready" role="status" data-wide-host-ready="${FS.ui.wideHostReady === 'rebuild' ? 'rebuild' : 'next'}">${FS.ui.wideHostReady === 'rebuild' ? L`次の一手を送れます（新しい軍勢づくり）。自動では送りません。押すと上の一手を送ります。` : L`次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。`}</p>` : ''}
     ${wideHostWaitLine(FS.ui?.wideHost?.waiting)}
     <div class="actions">${FS.ui?.wideHost?.waiting
       ? html`<button type="button" class="btn" data-act="wide-host-step" disabled aria-disabled="true">${L`待っています…（押す必要はありません）`}</button><button type="button" class="btn ghost" data-act="wide-host-stop">${L`待つのをやめる`}</button>`

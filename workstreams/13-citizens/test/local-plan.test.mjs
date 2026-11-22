@@ -16,7 +16,11 @@ import { freshState, settleIntendedOnOpen, OPEN_LINE_MS } from '../resident/loca
 import { parseArgs } from '../resident/local/client.mjs';
 import { createPlansClient } from '../../04-execution/clients/plans.mjs';
 import { GOALS } from '../resident/goals.mjs';
-import { settled, storesAt } from '../resident/local/brain.mjs';
+import { settled, storesAt, noteOutcome, localCandidates, trackVillage, villageOre, knowVillageOre, terrainOreExtra, refusalHold, refusedForResources } from '../resident/local/brain.mjs';
+import { createObserver } from '../resident/local/observe.mjs';
+import { enterWorld } from '../resident/local/journal.mjs';
+import { setS1 } from '../../../permutation-server/web/frontier/fs1.mjs';
+import { copyNumber } from '../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { BUILD_ITEMS } from '../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 import { LOCAL_ACT_NAMES } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
@@ -350,4 +354,124 @@ test('LP12 (verify-pr148) a plan whose first step is already past the patience i
     assert.ok(logs.some(l => l.what === 'not-made'));
     assert.equal(st.planActive, false, 'the brain has the turn');
   } finally { t.done(); }
+});
+
+// ------------------------------------------------------------------ LP9-4 (fix-loop9): S1 ore copies, record lag, resource refusals
+// loop-play9 LP9-4 (evidence/loop-play9/resident/decisions.jsonl): an S1 village (-1,2) site 0 with no terrain ore
+// (base 4/h) built mines at turns 3, 4 and 44 (ore 22/h). The resident counted them over the TIER's base (15/h), so it
+// read copy 2 where the program counts copy 4 (wood 440, not 120); at turn 160 (Food 933 · Wood 420 · Stone 639 ·
+// Ore 586, empty queue) it sent the mine, refused Custom(21) Insufficient, 8 times, and never reached the Muster.
+const S1_SEASON = { genesisTs: NOW - 6000, programVersion: 18436, layoutVersion: 2, seasonId: 11 };
+const S1_PROD = [40, 30, 28, 22, 0, 27, 5, 0];   // 3 mines over 4/h, 1 quarry, 2 gold mines (turns 3, 4, 44; 58; 5, 76)
+const S1_STORES = [933, 420, 639, 586, 0, 691, 0, 0];
+function s1Village({ terrainOre = 4000n, production = S1_PROD, stores = S1_STORES } = {}) {
+  const v = { ...village({ stores, production }), p: -1, q: 2, site: 0, tile: 12 };
+  if (terrainOre !== null) v.terrainOre = terrainOre;
+  return v;
+}
+const s1Obs = (raw, extra = {}) => ({ ...obsOf(raw), bell: 160, programVersion: 18436, layoutVersion: 2, s1: true, holding: { p: -1, q: 2, site: 0, tile: 12, ...(extra.oreExtra !== undefined ? { oreExtra: extra.oreExtra } : {}) } });
+const s1Off = () => { setS1(null); knowVillageOre({ p: -1, q: 2, tile: 12 }, null); knowVillageOre({ p: 2, q: 0, tile: 7 }, null); };
+const MINE_REFUSED = { outcome: 'refused', code: 'LocalActRejected', detail: JSON.stringify({ error: 'the local-play runner rejected the transaction before running it: it was not sent', code: 'LocalActRejected', detail: { code: -32002, message: 'Transaction simulation failed: InstructionError(3, Custom(21))' } }) };
+
+test('LP9-4a S1: the observer turns the S1 rules on and reads the village\'s own TERRAIN_ORE, so a mine is counted as the program counts it (copy 4, not 2)', async () => {
+  try {
+    const herald = { season: async () => ({ ok: true, season: S1_SEASON }), pin: () => {}, me: async () => ({ ok: true, citizen: { faction: 0 }, holdings: [s1Village()] }),
+      province: async () => ({ ok: true, province: { resolvedNext: 159, passableMask: 1n } }) };
+    const observe = createObserver({ base: 'http://127.0.0.1:41551', wallet: 'MINE', deps: { herald, getJson: async () => ({ live: [0, NOW] }), publicHomes: async () => [] } });
+    const o = await observe();
+    assert.equal(copyNumber(o.settled, 3), 4, 'three mines over 4/h: the next is copy 4 (the tier\'s 15/h base read it as copy 2)');
+    assert.equal(o.s1, true); assert.equal(o.layoutVersion, 2);
+    assert.equal(o.holding.oreExtra, 0, 'TERRAIN_ORE 4,000 milli/h = the 4/h of every village, no terrain part');
+    // the plan's old step (copy 2) is a changed world, never a send; the step for copy 4 waits for wood 440 > 420
+    assert.match(checkStep({ idx: 0, name: 'Build', fields: { item: 3 }, expect: { copy: 2 } }, o, mem()).replan ?? '', /copy 4, the plan expected copy 2/);
+    assert.match(checkStep({ idx: 0, name: 'Build', fields: { item: 3 }, expect: { copy: 4 } }, o, mem()).wait ?? '', /short \{"Wood":20\}/);
+    for (const s of makePlanSteps(o, GOALS['village-first']).filter(x => x.name === 'Build' && x.fields.item === 3)) assert.ok(s.expect.copy >= 4, `a new plan prices the mine from copy 4 (${s.note})`);
+    // a terrain with 7 extra (11/h) and three mines (29/h): copy 4 too (the tier's base would say copy 3)
+    knowVillageOre({ p: -1, q: 2, tile: 12 }, null);
+    const raw7 = s1Village({ terrainOre: 11000n, production: [40, 30, 28, 29, 0, 27, 5, 0] });
+    assert.equal(terrainOreExtra(raw7), 7);
+    knowVillageOre({ p: -1, q: 2, tile: 12 }, terrainOreExtra(raw7));
+    assert.equal(copyNumber(s1Obs(raw7).settled, 3), 4);
+    assert.equal(terrainOreExtra({}), null); assert.equal(terrainOreExtra({ terrainOre: 4500n }), null);
+  } finally { s1Off(); }
+});
+
+test('LP9-4b S1 without TERRAIN_ORE: my own landed mines (a record begun by my PlaceHome) tell the terrain ore from the mines', () => {
+  try {
+    setS1(S1_SEASON);
+    const st = mem();
+    noteOutcome(st, { kind: 'home', order: { name: 'PlaceHome', fields: { p: -1, q: 2, site: 0 } } }, 'landed', { bell: 2 });
+    for (const [bell, item] of [[3, 3], [4, 3], [5, 4], [44, 3], [58, 2], [76, 4]]) noteOutcome(st, { kind: 'build', order: { name: 'Build', fields: { item } } }, 'landed', { bell });
+    assert.deepEqual(st.village, { key: '-1,2,0', complete: true, builds: { 3: 3, 4: 2, 2: 1 } });
+    for (const [terrain, ore] of [[0, 22], [7, 29], [30, 52]]) {
+      const o = s1Obs(s1Village({ terrainOre: null, production: [40, 30, 28, ore, 0, 27, 5, 0] }), { oreExtra: null });
+      assert.equal(trackVillage(st, o), null, 'the same village: the record is kept');
+      assert.deepEqual(villageOre(o, st), { extra: terrain, by: 'landed' });
+      assert.equal(copyNumber(o.settled, 3), 4, `terrain ${terrain}: copy 4`);
+    }
+    // a village this memory did not place: counted from now on, not complete, no guess
+    const other = mem();
+    assert.match(trackVillage(other, s1Obs(s1Village({ terrainOre: null }), { oreExtra: null })), /not placed by me/);
+    assert.deepEqual(villageOre(s1Obs(s1Village({ terrainOre: null }), { oreExtra: null }), other), { extra: null, by: null });
+    // a new world starts the village's record again
+    enterWorld(st, 'another:world');
+    assert.equal(st.village, null); assert.deepEqual(st.refusals, {});
+  } finally { s1Off(); }
+});
+
+test('LP9-4c a build of mine that landed but is not in the record yet is a wait, never a replan or a plan priced from it; a copy above the plan\'s is a replan', async () => {
+  const st = mem();
+  noteOutcome(st, { kind: 'home', order: { name: 'PlaceHome', fields: { p: 2, q: 0, site: 3 } } }, 'landed', { bell: 2 });
+  noteOutcome(st, { kind: 'build', order: { name: 'Build', fields: { item: 3 } } }, 'landed', { bell: 3 });
+  const lag = obsOf(village());   // the herald has not folded the mine yet: production at the base
+  const step = { idx: 1, name: 'Build', fields: { item: 3 }, expect: { copy: 2 } };
+  const r = checkStep(step, lag, st);
+  assert.equal(r.replan, undefined, `was: ${r.replan}`);
+  assert.match(r.wait, /1 build\(s\) of my Ore landed; my village's record shows copy 1 next, not 2/);
+  assert.ok(localCandidates(lag, st).candidates.find(c => c.id === 'build:3').held.some(h => /record shows copy 1/.test(h)), 'the brain holds it too');
+  // the record catches up: the step goes
+  const caught = obsOf(village({ production: [40, 30, 20, 21, 10, 15, 5, 0] }));
+  assert.ok(checkStep(step, caught, st).go);
+  // a copy the plan did not expect (another mine than mine): replan, as before
+  assert.match(checkStep(step, obsOf(village({ production: [40, 30, 20, 27, 10, 15, 5, 0] })), st).replan, /copy 3, the plan expected copy 2/);
+  // no plan is made from a record behind my builds (its copy numbers would be low and it would stop at once)
+  const accepted = [];
+  const plans = { current: async () => ({ open: [], active: null, plans: 0, latest: null }), accept: async spec => { accepted.push(spec); throw new Error('not in this test'); } };
+  const ex = createPlanExecutor({ plans, owner: OWNER, holder: 'h1', goal: GOALS['village-first'], goalName: 'village-first' });
+  const n = await ex.next({ obs: lag, mem: st });
+  assert.match(n.wait ?? '', /no plan yet: 1 build\(s\) of my Ore landed/);
+  assert.equal(accepted.length, 0);
+});
+
+test('LP9-4d a Build the chain refused for resources (Custom(21)) is not sent again until the stock has grown in every resource it costs, and a new plan does not start with it', async () => {
+  const st = mem(); const store = memStore(st);
+  const w = world();
+  let sends = 0;
+  const send = async (order, { onSigned }) => { sends++; onSigned(fakeSig(sends)); return { ...MINE_REFUSED, signature: fakeSig(sends) }; };
+  const r = await localStep({ store, observe: w.observe, send, follow: async () => null, bellNow: async () => w.bell });
+  assert.equal(r.order, 'Build');
+  assert.equal(st.journal.b10.fields.item, 3, 'the brain\'s next build in this fixture is the mine');
+  assert.equal(sends, 1);
+  assert.ok(st.refusals['Build:3'], 'the refusal for resources is remembered');
+  assert.deepEqual(st.refusals['Build:3'].stock.slice(0, 3), [5000, 5000, 5000]);
+  assert.equal(st.refusals['Build:3'].copy, 1);
+  // only the refusal hold (the doubling failure hold set aside): same stock → wait, and the brain holds it
+  const only = { ...st, failures: {} };
+  const o = obsOf(w.raw);
+  assert.match(checkStep({ idx: 0, name: 'Build', fields: { item: 3 }, expect: { copy: 1 } }, o, only).wait ?? '', /refused this Ore build \(copy 1\) for resources at turn 10/);
+  assert.ok(localCandidates(o, only).candidates.find(c => c.id === 'build:3').held.some(h => /refused this Ore build/.test(h)));
+  const steps = makePlanSteps(o, GOALS['village-first'], { mem: only });
+  assert.ok(!(steps[0].name === 'Build' && steps[0].fields.item === 3), `the first step is not the refused mine: ${steps[0].name} ${steps[0].fields.item ?? ''}`);
+  assert.equal(steps.length, 12);
+  // the stock grows in food, wood and stone (what a mine costs): the hold is gone
+  const grown = obsOf(village({ stores: [5001, 5001, 5001, 5000, 5000, 5000, 0, 0] }));
+  assert.equal(refusalHold(only, grown, 3), null);
+  assert.match(refusalHold(only, obsOf(village({ stores: [5001, 5001, 5000, 5000, 5000, 5000, 0, 0] })), 3), /Stone grows past 5000/);
+  // a landing of the mine clears it; a refusal for another reason does not set it
+  noteOutcome(only, { kind: 'build', order: { name: 'Build', fields: { item: 3 } } }, 'landed', { bell: 20 });
+  assert.equal(only.refusals['Build:3'], undefined);
+  assert.equal(refusedForResources(MINE_REFUSED), true);
+  assert.equal(refusedForResources({ outcome: 'refused', code: 'LocalActRejected', detail: '... InstructionError(3, Custom(26))' }), false);
+  assert.equal(refusedForResources({ code: 'Insufficient' }), true);
+  assert.equal(refusedForResources({ programCode: 21 }), true);
 });

@@ -22,7 +22,10 @@ import { shown } from './lang.mjs';   // 表示の言語（日本語か英語）
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = a => (a ? `${String(a).slice(0, 4)}…${String(a).slice(-4)}` : '?');
-const nationName = n => `国${Number(n) + 1}`;
+// (fix-loop9, LP9-8: the nations by their names — the game page's (permutation-server/web/i18n.mjs CIV_NAMES), in the
+//  program's order — not 「国1…国6」, which read as a different nation: Borealis was listed as 「…（国1）」)
+export const NATION_JA = Object.freeze(['アステル', 'ボレアリス', 'シンダー', 'ダンマール', 'エンバー', 'フィヨルダル']);
+const nationName = n => NATION_JA[Number(n)] ?? `国${Number(n) + 1}`;
 const needText = o => Object.entries(o ?? {}).map(([r, v]) => `${RESOURCE_JA[r] ?? r} ${v}`).join('・') || '—';
 const VERIFICATION_JA = { RuleDerived: '規則から', Recorded: '記録から', Unverifiable: '確認できない', KnownZero: '0 と分かっている' };
 const REQ_JA = { open: '受付中', cancelled: '取り消し', expired: '期限切れ' };
@@ -189,8 +192,12 @@ function onNav(e) {
 }
 for (const id of ['joint', 'personal', 'requests']) $(id).addEventListener('click', onNav);
 
+// (fix-loop9, LP9-8: the self-declared nation follows the chain's Citizen once it is known — unless the person chose
+//  one: it is still only a declaration, never used to judge — so a request no longer says 「国1」 by default)
+let nationChosen = false;
 function renderNation() {
   const n = view.nation;
+  if (n && Number.isInteger(n.nation) && !nationChosen && $('nation').value !== String(n.nation)) $('nation').value = String(n.nation);
   $('nationPanel').querySelector('.body').innerHTML = !n ? '<div class="note">署名する人を接続すると出る</div>'
     : n.nation === null ? `<div class="warn" data-testid="my-nation">国籍未検証：${esc(n.why)}</div><div class="note">${esc(n.note)}</div>`
     : `<div data-testid="my-nation">${esc(nationName(n.nation))}（チェーンの Citizen で確かめた）：依頼 ${n.requests} 件、この国の人が届けた証明できる到着 ${n.deliveredFromNation} 本</div>
@@ -662,7 +669,7 @@ $('send').addEventListener('click', () => {
 $('leave').addEventListener('click', () => post({ kind: 'leave', goalId }, 'この目的から抜けた。自分の依頼は取り消し、応じた答えは取り下げた。送った隊商はそのまま届く'));
 $('connect').addEventListener('click', connectWallet);
 $('wallet').addEventListener('change', () => { walletPicked = true; });
-$('nation').addEventListener('change', refresh);
+$('nation').addEventListener('change', () => { nationChosen = true; refresh(); });
 $('judge').addEventListener('change', refresh);
 
 (async () => {

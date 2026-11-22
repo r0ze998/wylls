@@ -76,6 +76,7 @@ import { fromBase64 } from '../sdk/bytes.mjs';
 import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
+import { expeditionHoldText } from './screens/tracker.mjs';
 import { custodyLosses } from './screens/custody.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
@@ -1475,6 +1476,8 @@ async function readMarches() {
       await localExpedition.readExpeditions(FS, { relay: gate.relay, pin: { programId: localPlay.programId, seasonAddress: localPlay.seasonAddress },
         faction: Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : null, nowBell: b }).catch(() => null);
       if (!same()) return;
+      await followExpeditionHolds(gate, b).catch(() => null);
+      if (!same()) return;
     }
     marches.push(...localExpedition.expeditionRows(FS));
   }
@@ -1490,6 +1493,31 @@ async function readMarches() {
     ...marches.filter(m => !m.expedition).map(m => ({ bell: m.entry?.arriveBell ?? m.transit?.arriveBell, region: m.region, why: 'arrival', facts: {} })),
   ];
 }
+
+/**
+ * (fix-loop9, LP9-2) The hold of a wide keep by a kept expedition that stays on its tile, followed to its end: one read of
+ * the province its own host stands in (the relay's wide read), the count shown on the march card, and the end — taken or
+ * lost — said once as a notice. loop-play9: the keep was taken on chain at turn 550 and the page said nothing.
+ */
+async function followExpeditionHolds(gate, nowBell) {
+  const faction = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : null;
+  if (faction === null || !localPlay?.programId || !localPlay?.seasonAddress) return;
+  const holds = localExpedition.expeditionHoldsOf(FS);
+  const [{ readWideProvince }, { fromBase64 }, { wideProvinceAddress }] = await Promise.all([import('./flocalplay-wide-host.mjs'), import('../sdk/bytes.mjs'), import('./flocalplay-wide.mjs')]);
+  const read = async addresses => {
+    const j = await localAct.postLocalAct(gate.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
+    return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
+  };
+  await localExpedition.readExpeditionHolds(FS, { read, parse: readWideProvince, address: (p, q) => wideProvinceAddress(localPlay.seasonAddress, localPlay.programId, p, q), faction, nowBell });
+  // (an end is told once — and only counted as told when it was said: the fix-loop9 live run's capture came while a
+  //  harvest's 「送信中…」 was up, the notice was skipped and never said; it now waits for the next refresh)
+  for (const [k, h] of holds) {
+    if (!h?.outcome || expeditionHoldTold.get(k) === h.outcome || FS.notice?.busy) continue;
+    expeditionHoldTold.set(k, h.outcome);
+    done(() => expeditionHoldText(h));
+  }
+}
+const expeditionHoldTold = new Map();
 
 /**
  * Read again what the tracker shows of ONE march whose reads did not come (2026-11-17, ⑦) — a pure read. It asks the
@@ -4028,7 +4056,9 @@ async function custodyWithdraw(f) {
 function custodyOpenLot(f) {
   const off = custodyOff(); if (off) return off;
   const o = f?.elements?.pair?.selectedOptions?.[0]?.dataset;
-  if (!o) return s1Refused(L`貯蔵庫と預ける人を選んでください`);
+  // (fix-loop9, LP9-7: the select starts empty when there are several people to choose from)
+  if (!o?.owner) return s1Refused(L`貯蔵庫と預ける人を選んでください`);
+  FS.ui = { ...FS.ui, custodyPair: o.owner };
   return custodyAct('OpenLot', { vault: cplace(o), owner: o.owner }, { quota: Math.trunc(formNum(f, 'quota')) }, () => L`預かりの枠を開きました`);
 }
 function capacityLend(f) {
@@ -4082,6 +4112,14 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     //  the person's to start: when the planner has a step again, nothing is sent by itself; the button comes back with
     //  「次の一手を送れます」. loop-play8: the button re-enabled 26 times after the capture and each press sent nothing)
     if (w.decision && auto && mem.waiting?.reason === 'captured') { wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: true }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
+    // (fix-loop9, LP9-1: after a lost march — every host at home under the march minimum — the card says the result and
+    //  OFFERS the new host's first step once (train, then muster): it is not sent by itself while the card waits. A press
+    //  sends it; the later steps of that new host go on as the first host's did. loop-play9: stuck for good on 「整列中」)
+    if (w.decision?.rebuild) {
+      const key = `${mem.lastWideDepart?.arrive ?? 'none'}`;
+      if (auto && mem.rebuildOffered !== key) { mem.rebuildOffered = key; wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: 'rebuild' }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
+      mem.rebuildOffered = key;
+    }
     FS.ui = { ...FS.ui, wideHostReady: false };
     if (!w.decision && w.wait === 'march' && mem.wideHold?.outcome === 'taken') { wideHostWait(mem, { reason: 'captured', lag: w.lag ?? null, hold: mem.wideHold }); return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null }; }
     if (!w.decision) {
@@ -4116,8 +4154,10 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
 function wideHostSayOf(w) {
   const d = w?.decision;
   if (d) return { kind: 'decision', name: d.name, n: d.fields?.n ?? null, troops: d.fields?.troops ?? d.troops ?? null, arrive: d.fields?.arrive_bell ?? null,
-    to: d.to ? { p: String(d.to.p), q: String(d.to.q), holder: d.to.holder ?? null } : null, village: d.v?.wide ? { p: String(d.v.wide.p), q: String(d.v.wide.q) } : null };
-  return { kind: 'wait', wait: w?.wait ?? null, lag: w?.lag ?? null, march: w?.march ?? null, why: w?.why ?? null };
+    to: d.to ? { p: String(d.to.p), q: String(d.to.q), holder: d.to.holder ?? null } : null, village: d.v?.wide ? { p: String(d.v.wide.p), q: String(d.v.wide.q) } : null,
+    // (fix-loop9, LP9-1: a new host after a lost march — the last march's result and the troops that came home)
+    ...(d.rebuild ? { rebuild: true, march: w.march ?? null, home: w.home ?? null } : {}) };
+  return { kind: 'wait', wait: w?.wait ?? null, lag: w?.lag ?? null, march: w?.march ?? null, why: w?.why ?? null, ...(w?.cap ? { cap: w.cap } : {}) };
 }
 // (fix-loop5, L5-1) the wide village card's waiting (TEST-ONLY wide -> wide play): one timer, about one turn apart
 // (10–60 s of real time), at most WIDE_HOST_WAIT_MAX asks; stopped by 「待つのをやめる」, a sent step, or another answer.

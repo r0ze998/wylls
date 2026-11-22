@@ -87,7 +87,7 @@ move only once its turn is settled: about 17 minutes later).
    「地形の鉱石なし」 can only grow to about 600 troops.
 3. **Build**: 「最初の建設を選ぶ」 → the farm's 「建てる」. It finishes in about one (in-game) minute.
 4. **Train**: 「訓練」 in the bottom bar → 「最大 500」 → 「槍兵 500 を訓練する」. It finishes at once.
-5. **Muster**: 「編成」 in the bottom bar (or the guide at the top right when it says 「軍勢を編成する」) → 「全部」 →
+5. **Muster**: 「編成」 in the bottom bar (or the guide at the top right when it says 「軍勢を編成する」) → 「全部」 (the whole reserve when the order goes, including a training batch that lands after the card opened; fix-loop9 LP9-5) →
    「槍兵 N をここに集める」. When it says 「この州はまだ前のターンの決着が済んでいません」 you **may press anyway**: the
    muster waits and is sent once, as soon as the province is ready (no need to press again; it is withdrawn if the
    unit or the number changes). Even in `--demo` at ×60 this wait is now rare (#146: your province is ready for a muster
@@ -216,6 +216,12 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      待っています」 → 「到着 · 封は開きました · 結果の確定を待っています」, and once the target province has caught up the
      march screen says 「結果を受け取りました　留まる：軍勢は広い土地の州に立っています（兵 500）」. Just wait (in fix-loop5,
      verify-pr117 and loop-play6 the keeper opened it inside the window every time).
+   - **An expedition that lands on a wide keep's tile holds it** (72 turns take it). The march card follows the hold
+     (fix-loop9 LP9-2; it reads that one province about once a turn): 「遠征の軍勢が州 P,Q の砦を占拠中です：n / 72 ターン。…」,
+     then 「砦を奪いました：軍勢は砦の守備兵になりました」 and 「結果：遠征の軍勢が州 P,Q の砦を奪いました。…」 (said once as a
+     notice too), or 「結果：州 P,Q の砦は奪えませんでした。…」. The host sees from its tile, so the province is drawn on the map
+     (the wide land draws no keep icon or host figure yet: verify-pr162), and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
+     said nothing.)
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
      「封を開く（ローカルプレイ）」). Before #105, at ×60 on a loaded machine, the keeper did miss the window of about 10 s
      (§8). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition will never settle.
@@ -247,7 +253,12 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      決着を待っています（州の決着が遅れると数ターンかかります）。」 → 「結果：軍勢（兵 N）は州 P,Q に立っています。」 plus
      the keep's state (「砦は（国）が保持しています（あなたの国は占拠できていません）。」, 「あなたの国が砦を占拠中です：
      n / 72 ターン。」 or 「砦はあなたの国のものです。」). A lost march says 「結果：軍勢は州 P,Q に残れませんでした
-     （戦いに敗れました）。」 (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
+     （戦いに敗れました）。」. When the beaten host comes home under 100 troops (a host under 100 cannot march, and a local
+     page cannot dissolve it), the card adds 「生き残った兵 N が村に戻っています。…新しい軍勢を作ります。 次の一手：槍兵 100 を
+     訓練します（兵 100 そろうと編成できます）。」 and 「次の一手を送れます（新しい軍勢づくり）。自動では送りません。…」: press
+     to train, press again to muster; the new host then marches as the first did (fix-loop9 LP9-1; before, the card waited
+     for good on 「軍勢が整列中か休んでいます。」). A village sends at most 2 marches inside the wide land in a test world; after
+     the second the card says the last result and 「…テスト世界では 2 回までです。…」. (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
      立っています」).
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
   have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
@@ -486,6 +497,7 @@ Steps (「」 are the page's buttons and texts as they are; the page's English m
    bottom of each village screen (e.g. 「州 -2,0」). With different nations the provinces are apart and no caravan
    reaches (a path is at most 32 tiles / 4 provinces).
 2. **A: build a workshop**: in the village's build list open 「ほかの建物（6）」, then 「工房」 → 「建てる」 (60 food, 120 wood, 80 stone, 40 ore).
+   Only a `--coexist` world offers 工房; a plain world's list says 「工房はこの試験世界では建てられません（…--coexist でだけ建てられます）。」 instead (fix-loop9 LP9-3: it was offered and refused).
    The notice says 「工房の建設を始めました」. The
    build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60). Once it stands, the village is a workshop village
    and makes 4 arms an hour (a workshop can be built only in a `--coexist` world).
@@ -600,6 +612,10 @@ The world's operator gives it no privilege and never sees its key. The page show
      continues from there and never sends an order twice (verify-pr148: all 12 steps landed up to the muster, 0 double acts).
    - A second process on the same `--dir` cannot act; a restarted process waits until the previous one's lease (20 s) runs out.
    - A refusal by the chain or a changed world stops the plan and remakes it from the village as it is (at most 24 plans per world).
+     A building the chain refused for lack of resources is not sent again until the village's stock has grown in every resource
+     it costs, and a new plan does not start with it. A building of its own that landed but is not in the herald's record yet
+     makes the resident wait for the record, not replan (fix-loop9, LP9-4). On S1 worlds a mine is counted above the village's own
+     terrain ore, as the program counts it (LP9-4: before, the resident priced a 4th mine as a 2nd and was refused 8 times).
    - Plans hold the six orders only: no caravans, no marches (caravans wait on r0ze, Q4).
 
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
@@ -647,7 +663,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 5. A: 「取り消す」 ends the grant (a booked job keeps running), 「空いた工房を戻す」 gives the copies back to the village.
 
 ⑩ store ore (B keeps the storehouse, A deposits):
-1. B: open 「鉱石を預かる」, choose A's village (since #149 each option names the village, its tile and the owner's short address: 「マス (storehouse) → (nation) の村 (name)（マス N · 63hY…y3Qe）」), the
+1. B: open 「鉱石を預かる」, choose A's village (since #149 each option names the village, its tile and the owner's short address: 「マス (storehouse) → (nation) の村 (name)（マス N · 63hY…y3Qe）」; with more than one person to choose from the list starts on 「（預ける人を選んでください）」, or on the one picked last — fix-loop9 LP9-7), the
    「鉱石の枠」, then 「預かりの枠を開く」 (wallet). 「預かりの枠を開きました」.
 2. A: 「預けた鉱石」 lists the storehouse. Type an amount, 「鉱石を預ける」: A's own caravan leaves with A's ore. When it has
    arrived and the province it crossed has resolved, 「鉱石を届ける」: 「預ける鉱石が届きました」 (the ② card does not offer
@@ -674,7 +690,7 @@ At ×60 there are only about 20 s between stopping and deciding, so `scripts/pla
   presses 「隊商を止める（ターン N まで）」 → 「隊商を止めました。…」, then 「奪って運ぶ」 or 「焼き払う」 in the same panel (six turns
   from the turn it stood there). A is told 「預けに向かった鉱石 N は道中で奪われました。」 (or 「…焼き払われました。」) and presses
   「帳簿を確かめる」 (ReconcileLot) to free the room. A taken caravan goes to B's village; B delivers it with the ② card's
-  「奪った隊商」 → 「隊商を届ける」 (the ore goes into B's village). A burned one goes on empty; A delivers it with 「鉱石を届ける」.
+  「奪った隊商」 → 「隊商を届ける」 (the ore goes into B's village). While it is still on its way the ② card lists it under 「奪った隊商（あなたの村へ向かっています）」 with 「ターン N に着きます。…」, and the map tag says its arrival turn (a short road home arrives at once and shows only under 「着いた隊商」: in verify-pr162 it showed there the turn after the take, map tag 「略奪された隊商 ターン 108 着」) (fix-loop9 LP9-6: it said 「ターン 0 着」 and nothing showed for ~65 turns). A burned one goes on empty; A delivers it with 「鉱石を届ける」.
 - **A storehouse seized**: the other player forms a host on the storehouse tile (none of the owner's hosts may stand there),
   taps the tile → ⓘ → 「貯蔵庫を奪う」 (the button can be pressed with an owner's host there, but the program refuses). The keeper is told 「あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。」. With two
   players the captor is the depositor itself: its card says 「あなたが奪った貯蔵庫」 and no loss; 「帳簿を確かめる」 then forfeits
@@ -702,7 +718,9 @@ road is at most 32 tiles and 4 provinces).
 
 1. **A (asks)**: 村 → 交易と防備 → 「国をまたぐ依頼を開く». The board opens in another window. 「このウォレットで署名する」
    (the page's test wallet signs the board's records only) → enter wood and stone → 「依頼を出す（署名）」. The destination
-   is A's village (e.g. 「木材 20・石材 20 → … の村 (-1,2) 村5 受付中」).
+   is A's village (e.g. 「木材 20・石材 20 → …（アステル・申告。判定には使わない）の村 (-1,2) 村5 受付中」). The board's 「自分の国」 select names
+   the nations as the game does and, once the wallet is connected, follows the nation checked on chain (it is still only a
+   declaration; fix-loop9 LP9-8: it offered 「国1…国6」 and defaulted to 「国1」).
 2. **B (delivers)**: open the board the same way, 「このウォレットで署名する」 → the request's 「応じる（送るつもり。義務はない）」.
 3. **B**: in the game, 村 → 交易と防備 → 隊商を送る. Within about 15 s the destinations include 「① 依頼の届け先：村（-1, 2 · マス 28）」
    (followed by the nation, e.g. 「 · アステル」). **Only someone who answered 「応じる」 to that request gets this destination**:

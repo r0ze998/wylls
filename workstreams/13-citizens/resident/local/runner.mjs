@@ -15,7 +15,7 @@
 //                                  signature are written to the plan store BEFORE the journal's and before the
 //                                  submit, and its outcome after. Without a plan (no village yet, the cap) the brain
 //                                  decides as before.
-import { localCandidates, decideLocal, noteOutcome, seenOf, LOCAL_LIMITS, BELLS_PER_DAY } from './brain.mjs';
+import { localCandidates, decideLocal, noteOutcome, seenOf, trackVillage, villageOre, refusedForResources, LOCAL_LIMITS, BELLS_PER_DAY } from './brain.mjs';
 import { blockedWhy, beginLine, openLines, enterWorld, prune, OPEN_LINE_MS } from './journal.mjs';
 
 /** Relay codes that prove nothing reached the chain for a passing reason: no hold, the turn stays open. */
@@ -44,6 +44,19 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   }
   // (the plan store's open steps too: the same signatures, read again, settled there)
   if (plan) { try { await plan.reconcile({ obs, follow }); } catch (e) { log('plan', { what: 'reconcile-failed', code: e.code ?? null, why: String(e.message ?? e).slice(0, 200) }); } }
+  // (LP9-4: my village's record of landed builds, after the reconcile has counted what landed; on S1 its terrain ore
+  //  said to the rulebook before any copy is counted — said in the log once, when it changes)
+  const vnote = trackVillage(st, obs);
+  if (vnote) log('village', { why: vnote });
+  const ore = villageOre(obs, st);
+  if (ore) {
+    const seen = `${st.village?.key}:${ore.extra}:${ore.by}`;
+    if (st.oreSeen !== seen) {
+      st.oreSeen = seen;
+      log('village', { what: 'terrain-ore', village: st.village?.key ?? null, extra: ore.extra, by: ore.by,
+        why: ore.by === 'record' ? 'S1: mines are counted above my Holding\'s own terrain ore' : ore.by === 'landed' ? 'S1: my Holding does not say its terrain ore; mines are counted from my own landed builds' : 'S1: my terrain ore is not known (no TERRAIN_ORE, no complete record of my builds): ore copies are counted above the tier\'s base and may read low; a refusal for resources holds the build' });
+    }
+  }
   store.save();
   if (halted()) { log('stop', { why: 'halted-by-operator', bell: obs.bell }); return { did: 'halted' }; }
   if (st.decisions >= limits.maxTurns) { log('stop', { why: 'max-turns', decisions: st.decisions }); return { did: 'max-turns' }; }
@@ -112,7 +125,7 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   // (nothing reached the chain: the turn stays open for another attempt, journal.mjs MAX_ATTEMPTS_PER_TURN)
   if (line.state === 'not-sent') st.nextDecisionBell = obs.bell;
   if (r.signature && line.signature && r.signature !== line.signature) log('warning', { why: 'the relay named another signature than the one saved', saved: line.signature, relay: r.signature });
-  if (outcome !== 'refused-turn-used') noteOutcome(st, cand, line.state === 'unknown' ? 'unknown' : outcome, { bell: obs.bell, code: r.code ?? null, limits });
+  if (outcome !== 'refused-turn-used') noteOutcome(st, cand, line.state === 'unknown' ? 'unknown' : outcome, { bell: obs.bell, code: r.code ?? null, limits, resources: refusedForResources(r), obs });
   if (planned) {
     const outcome4 = line.state === 'refused' && r.code === 'ResidentAlreadyActed' ? 'not-sent' : line.state;
     try { await plan.settle(planned, { outcome: outcome4, signature: line.signature ?? null, code: r.code ?? null, bookedBell: line.signature ? st.lastActBell : null }); }

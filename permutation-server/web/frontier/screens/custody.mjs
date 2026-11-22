@@ -58,6 +58,17 @@ export function jobPhase(j, row, now) {
 }
 const rowOf = (pool, j) => pool?.occ?.find(o => o.grant === j.grant && o.job === j.seq) ?? null;
 
+/**
+ * (fix-loop9, LP9-7) Which depositor the 「預かりの枠を開く」 select starts on: the only one, or the one this page picked
+ * last (`last`: their address), else none (null: the person chooses; the press refuses an empty choice).
+ */
+export function openPairPick(choices, last = null) {
+  if (!choices?.length) return null;
+  if (choices.length === 1) return 0;
+  const i = last ? choices.findIndex(x => x.owner === last) : -1;
+  return i >= 0 ? i : null;
+}
+
 /** The card's model (pure): `{on, read, losses, myLots, keptLots, openChoices, arrivals, pools, lendable, grants, jobs}`. */
 export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   const c = FS.custody;
@@ -202,8 +213,11 @@ export function renderCustody(FS) {
       ${e.canClose ? btn('lot-close', { ...d, rent: e.lot.rentTo }, L`枠を閉じる`) : ''}</span></li>`;
   })}</ul>` : '';
   const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? chip(L`奪われた`, 'warn') : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
+  // (fix-loop9, LP9-7: the select chose the province's FIRST village — an AI's or a test village — and a lot opened for
+  //  the wrong person unless one noticed: one choice is chosen; more are left to the person, except the one picked last)
+  const pairPick = openPairPick(m.openChoices, FS.ui?.custodyPair ?? null);
   const openLot = m.openChoices.length ? html`<form class="vform" data-form="lot-open">
-    <label class="field">${L`貯蔵庫と預ける人`}<select name="pair">${m.openChoices.map((x, i) => html`<option value="${i}" ${data({ ...vd(x.vault), owner: x.owner })}>${L`マス ${x.vault.tile} → ${factionName(x.faction)} の村 ${x.name}（マス ${x.at} · ${x.who}）`}</option>`)}</select></label>
+    <label class="field">${L`貯蔵庫と預ける人`}<select name="pair">${pairPick === null ? html`<option value="" selected>${L`（預ける人を選んでください）`}</option>` : ''}${m.openChoices.map((x, i) => html`<option value="${i}" ${data({ ...vd(x.vault), owner: x.owner })} ${raw(i === pairPick ? 'selected' : '')}>${L`マス ${x.vault.tile} → ${factionName(x.faction)} の村 ${x.name}（マス ${x.at} · ${x.who}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="lot-q">${L`鉱石の枠`}</label><input id="lot-q" name="quota" type="number" min="1" max="10000" step="1" value="50" inputmode="numeric"></div>
     <p class="muted">${L`預かるのは鉱石だけ。中身は預けた人のものですが、貯蔵庫を守るのはあなたの兵だけです。奪われたら中身は奪った側のものになります。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`預かりの枠を開く`}</button></div></form>`
