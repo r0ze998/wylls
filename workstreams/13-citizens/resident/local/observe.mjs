@@ -4,6 +4,9 @@
 //   /h/status          the chain's clock
 //   /h/me/<own wallet> its own Citizen and Holdings (never another wallet's)
 //   /h/province/P,Q    before it has a village: the free home sites of its own nation (the page's homeSites);
+//   /h/overview/*      (external-wide: in a local wide-land world only, before it has a village) the public ring
+//                      overviews the page reads there for its outward first-village candidates (public.mjs
+//                      publicWideHomes = home.mjs planHomes), read once per turn;
 //                      with a village: its OWN province only (how far the world has resolved it: a Muster needs
 //                      resolvedNext + 1 >= the turn, frontier-abi prologue.rs resident_ok)
 // No other village, no world-wide list, no operator route, no event feed: under fog it knows what a person knows.
@@ -13,19 +16,22 @@ import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/reso
 import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { bellOf } from '../../../../permutation-gateway/src/frontier/local-play-operator-policy.mjs';
-import { chainSecondsOf, publicHomes, getJson } from '../../../03-composability/mcp/examples/external-resident/public.mjs';
+import { chainSecondsOf, publicHomes, publicWideHomes, getJson } from '../../../03-composability/mcp/examples/external-resident/public.mjs';
 
 const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
 
 /**
  * → `observe()` returning `{bell, nowSecs, genesisTs, programVersion, seasonId, joined, faction, holding, settled,
- * stores, homes, reads}` or `{unreadable: why}`. `deps` (tests): `{herald, getJson, publicHomes}`.
+ * stores, homes, reads, wide}` or `{unreadable: why}`. `deps` (tests): `{herald, getJson, publicHomes, publicWideHomes}`.
+ * `wide` (external-wide): the launcher said this world is a local wide-land world (its start answer's `wideLand`, as
+ * the page is told): the first-village candidates are the page's outward ones there, each `{p, q, site, ticket}`.
  */
-export function createObserver({ base, wallet, deps = {} }) {
+export function createObserver({ base, wallet, wide = false, deps = {} }) {
   const h = deps.herald ?? createHerald({ base, fetch: (...a) => globalThis.fetch(...a) });
   const get = deps.getJson ?? getJson;
   const homesOf = deps.publicHomes ?? publicHomes;
-  let season = null;
+  const wideHomesOf = deps.publicWideHomes ?? publicWideHomes;
+  let season = null, wideRead = null;   // (wideRead: {bell, homes} — the outward candidates, read once per turn)
   return async function observe() {
     const reads = [];
     if (!season) {
@@ -45,15 +51,21 @@ export function createObserver({ base, wallet, deps = {} }) {
     reads.push('/h/me/<own>');
     const me = await h.me(wallet);
     if (!me.ok) return { unreadable: `me: ${me.code ?? me.error ?? 'no answer'}`, reads };
-    const base0 = { bell, nowSecs, ...season, reads };
+    const base0 = { bell, nowSecs, ...season, reads, ...(wide ? { wide: true } : {}) };
     if (!me.citizen) return { ...base0, joined: false, faction: null, holding: null };
     const faction = Number(me.citizen.faction);
     // (a wide village, ring 129+, is another family of orders: not this resident's six)
     const raw = me.holdings.find(x => ring(Number(x.p), Number(x.q)) <= 128) ?? null;
     if (!raw) {
-      reads.push('/h/province/* (own nation, home sites)');
       let homes = [];
-      try { homes = await homesOf(base, faction); } catch { homes = []; }
+      if (wide) {
+        reads.push('/h/overview/* + /h/province/* (outward first-village candidates, once per turn)');
+        if (wideRead?.bell !== bell) { try { wideRead = { bell, homes: await wideHomesOf(base, faction, { seed: wallet, nowBell: bell }) }; } catch { wideRead = null; } }
+        homes = wideRead?.homes ?? [];
+      } else {
+        reads.push('/h/province/* (own nation, home sites)');
+        try { homes = await homesOf(base, faction); } catch { homes = []; }
+      }
       return { ...base0, joined: true, faction, holding: null, homes };
     }
     const tile = Number(raw.tile);

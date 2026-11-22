@@ -87,7 +87,10 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     catch (e) { out('mcp', { outcome: 'failed', why: String(e?.message ?? e).slice(0, 200) }); mcp = null; }
   }
   const signer = walletShaped(key);
-  const observeRaw = createObserver({ base: herald, wallet: key.address });
+  // (external-wide: a local wide-land world — the launcher's start answer says so as it says so to the page)
+  const wide = !!found.world?.wideLand;
+  if (wide) out('world', { what: 'wide-land', scale: found.world.wideLand.scale ?? null, firstVillage: 'outward, a rim site by request (FileTicket) past the heartland, as the page' });
+  const observeRaw = createObserver({ base: herald, wallet: key.address, wide });
   let lastObs = null;
   const observe = async () => { const x = await observeRaw(); if (!x.unreadable) lastObs = x; return x; };
   // the signing step: the page's own signer, and the signature saved (onSigned) before submitLocalAct's one submit

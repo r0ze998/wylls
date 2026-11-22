@@ -92,7 +92,7 @@ const ACT_PATHS = [LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STAT
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
-  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant', 'LocalActProvinceAbsent']);
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant', 'LocalActProvinceAbsent', 'LocalActWideOrderRefused']);
 /**
  * (2026-11-19, fix-march-held) The relay's answer that the RUNNER did not take the transaction (gateway
  * local-play-act.mjs `runnerRejection`: its preflight failed, its blockhash was unknown, its signature did not verify):

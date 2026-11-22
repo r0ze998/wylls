@@ -10,6 +10,13 @@
 //     [--conquest-bin <abs path of the conquest prepare CLI>]   (refused at start while the dispatch kind is unpinned)
 //     [--resident-turns <abs dir>]   a RESIDENT's relay: one action per bell for its wallet's Citizen on every send
 //                                    route (local-play-turns.mjs; the launcher gives it to operator residents' relays)
+//     [--no-wide-orders]             (verify-pr163, needs --resident-turns) an EXTERNAL resident's relay in a wide world:
+//                                    none of the wide land's orders — the wide claim 0xD9 and a wide village's
+//                                    Train/Muster/Depart are refused (LocalActWideOrderRefused, before anything is read)
+//                                    and the expedition routes (depart, reveal, expedition preview, Return/Dissolve) are
+//                                    not served (404); /f/local-play/info, the six orders, FileTicket and the ordinary
+//                                    (legacy-disk) march stay as for the page. The launcher passes it for external
+//                                    residents of a --wide-land world only (plain and demo worlds: unchanged)
 //
 // Binds 127.0.0.1 only, answers loopback peers only (Host = this listener's own address, no Origin: no DNS
 // rebinding), bodies ≤ 16 KiB of JSON.
@@ -59,13 +66,16 @@ function readJson(req) {
  * closing the listener closes it. `resident` (local-play-resident.mjs): the return's two player-signed steps
  * (prepare, submit, status), likewise only when given and closed with the listener.
  */
-export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null, resident = null, conquest = null, act = null, march = null } = {}) {
+export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null, resident = null, conquest = null, act = null, march = null, depart = true } = {}) {
   if (port !== 0 && (!(port >= 41_000 && port <= 41_999) || port === LOCAL_PLAY_REFUSED_PORT)) throw new Error('listen port must be 41000-41999 and not 41970');
   const handlers = {
     [ROUTES.info]: async () => relay.info(),
-    [ROUTES.prepare]: async (body, signal) => relay.prepare(body, { signal }),
-    [ROUTES.submit]: async body => relay.submit(body),
-    [ROUTES.status]: async body => relay.status(body),
+    // (`depart: false` — verify-pr163, `--no-wide-orders`: the expedition's Depart is not served; info stays)
+    ...(depart !== false ? {
+      [ROUTES.prepare]: async (body, signal) => relay.prepare(body, { signal }),
+      [ROUTES.submit]: async body => relay.submit(body),
+      [ROUTES.status]: async body => relay.status(body),
+    } : {}),
     ...(reveal ? {
       [REVEAL_ROUTES.context]: async body => reveal.context(body),
       [REVEAL_ROUTES.submit]: async body => reveal.submit(body),
@@ -189,9 +199,11 @@ export function readConquestCapability(file, read = readBounded) {
 }
 /** The command line: `--local-play` and each flag exactly once; `--preview-bin` and `--resident-bin` may each be left out (then that route is not served). */
 export function parseArgs(argv) {
-  const cfg = {}; let localPlay = false, coexist = false;
+  const cfg = {}; let localPlay = false, coexist = false, noWideOrders = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--local-play') { if (localPlay) throw new Error('--local-play twice'); localPlay = true; continue; }
+    // (verify-pr163: an external resident's relay in a wide world — no wide-land orders; see the header)
+    if (argv[i] === '--no-wide-orders') { if (noWideOrders) throw new Error('--no-wide-orders twice'); noWideOrders = true; continue; }
     // (TEST-ONLY: the ②+⑨+⑩ coexist lane — the launcher's `--coexist`; the relay's ruleset pin is then RULESET_HASH_V4)
     if (argv[i] === '--coexist') { if (coexist) throw new Error('--coexist twice'); coexist = true; continue; }
     const k = FLAGS[argv[i]] ?? OPTIONAL[argv[i]];
@@ -216,8 +228,10 @@ export function parseArgs(argv) {
   if (trialWord !== null && economyWord === null) throw new Error('--march-trial needs --economy');
   const residentTurns = cfg.residentTurns ?? null; delete cfg.residentTurns;   // (apart from the relay's closed configuration)
   if (residentTurns !== null && (!path.isAbsolute(residentTurns) || residentTurns.includes('\0'))) throw new Error('--resident-turns must be an absolute path');
+  if (noWideOrders && residentTurns === null) throw new Error('--no-wide-orders needs --resident-turns (a resident\'s relay)');
+  if (noWideOrders && conquestBin !== null) throw new Error('--no-wide-orders is not accepted with --conquest-bin');
   if (String(port) !== String(Number.parseInt(port, 10))) throw new Error('--listen-port');
-  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy: economyWord !== null, marchTrial: trialWord !== null, ...(residentTurns === null ? {} : { residentTurns }), ...(coexist ? { coexist: true } : {}) };
+  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy: economyWord !== null, marchTrial: trialWord !== null, ...(residentTurns === null ? {} : { residentTurns }), ...(coexist ? { coexist: true } : {}), ...(noWideOrders ? { noWideOrders: true } : {}) };
 }
 
 /**
@@ -225,9 +239,9 @@ export function parseArgs(argv) {
  * otherwise `createLocalPlayAct` over the relay's own configuration, with the one runner instance when there is one.
  * `create` is for tests.
  */
-export function actFromArgs({ cfg, economy = false, runnerInstance = null, turns = null }, { create = createLocalPlayAct } = {}) {
+export function actFromArgs({ cfg, economy = false, runnerInstance = null, turns = null, noWideOrders = false }, { create = createLocalPlayAct } = {}) {
   if (economy !== true) return null;
-  return create({ cfg, ...(runnerInstance === null ? {} : { runnerInstance }), ...(turns === null ? {} : { turns }) });
+  return create({ cfg, ...(runnerInstance === null ? {} : { runnerInstance }), ...(turns === null ? {} : { turns }), ...(noWideOrders === true ? { noWideOrders: true } : {}) });
 }
 
 /**
@@ -275,21 +289,22 @@ export function relaysFromArgs({ cfg, residentBin = null, conquestBin = null, co
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try {
-    const { port, cfg, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy, marchTrial, residentTurns, coexist } = parseArgs(process.argv.slice(2));
+    const { port, cfg, previewBin, residentBin, conquestBin, conquestCapability, runnerInstance, economy, marchTrial, residentTurns, coexist, noWideOrders = false } = parseArgs(process.argv.slice(2));
     // (TEST-ONLY coexist lane: selected before anything is built, so every pin of this process follows it)
     if (coexist === true) selectLocalLane(COEXIST_LANE);
     // (a resident's relay: one action per bell on every send route — the same lease for all of them)
     const turns = residentTurnsFromArgs(residentTurns);
     // (the three relays that SEND: depart, resident, conquest — with the one runner instance when the command line
     //  gives one. The conquest routes throw while an opening condition is not established: asking does not open them)
-    const { relay, resident, conquest } = relaysFromArgs({ cfg, residentBin, conquestBin, conquestCapability, runnerInstance, turns });
+    // (`--no-wide-orders`, verify-pr163: no Return/Dissolve relay, no Reveal, no expedition preview, no Depart route)
+    const { relay, resident, conquest } = relaysFromArgs({ cfg, residentBin: noWideOrders ? null : residentBin, conquestBin, conquestCapability, runnerInstance, turns });
     // (the Reveal routes over the same pins: the same wallet, program, Season and loopback runner)
-    const reveal = createLocalPlayReveal({ cfg });
-    const preview = previewBin === null ? null : createLocalPlayPreview({ cfg, previewBin });
+    const reveal = noWideOrders ? null : createLocalPlayReveal({ cfg });
+    const preview = previewBin === null || noWideOrders ? null : createLocalPlayPreview({ cfg, previewBin });
     // (the page-signed economy commands: only when the command line asks for them in words)
-    const act = actFromArgs({ cfg, economy, runnerInstance, turns });
+    const act = actFromArgs({ cfg, economy, runnerInstance, turns, noWideOrders });
     const march = marchFromArgs({ cfg, economy, runnerInstance, marchTrial, turns });
-    const s = await serveLocalPlayRelay(relay, port, { reveal, preview, resident, conquest, act, march });
+    const s = await serveLocalPlayRelay(relay, port, { reveal, preview, resident, conquest, act, march, depart: !noWideOrders });
     console.log(JSON.stringify({ schema: 'frontier-local-play-relay-v1', listen: `127.0.0.1:${s.port}`, ...relay.info() }));
     const stop = () => s.close().then(() => process.exit(0));
     process.on('SIGINT', stop); process.on('SIGTERM', stop);
