@@ -155,6 +155,7 @@ impl B {
                     )
                 })
                 .collect(),
+            loaded: Default::default(),
         });
     }
 }

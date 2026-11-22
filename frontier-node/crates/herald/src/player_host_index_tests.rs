@@ -285,6 +285,7 @@ fn player_host_wide_interception_indexes_surviving_capture_only() {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     };
     for legacy in [province(0, &[(host(1, 1), 1)]), arrival(TAG)] {
         put(&mut f, key, legacy.clone());

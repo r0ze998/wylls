@@ -231,29 +231,41 @@ fn status_json(l: &Landed) -> Value {
     }
 }
 
-/// A legacy transaction in the RPC's `json` encoding.
+/// A transaction in the RPC's `json` encoding (legacy, v0 with its
+/// `addressTableLookups`, v1).
 fn tx_json(wire: &[u8]) -> Value {
-    let Ok(t) = fclient::tx::from_wire(wire) else {
+    let Ok(t) = fclient::vtx::decode(wire) else {
         return Value::Null;
     };
-    let m = &t.message;
+    let mut m = json!({
+        "header": {
+            "numRequiredSignatures": t.header.num_required_signatures,
+            "numReadonlySignedAccounts": t.header.num_readonly_signed_accounts,
+            "numReadonlyUnsignedAccounts": t.header.num_readonly_unsigned_accounts,
+        },
+        "accountKeys": t.static_keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+        "recentBlockhash": t.blockhash.to_string(),
+        "instructions": t.instructions.iter().map(|ci| json!({
+            "programIdIndex": ci.program_id_index,
+            "accounts": ci.accounts,
+            "data": bs58_encode(&ci.data),
+            "stackHeight": null,
+        })).collect::<Vec<_>>(),
+    });
+    if t.version == fclient::vtx::Version::V0 {
+        m["addressTableLookups"] = json!(t
+            .lookups
+            .iter()
+            .map(|l| json!({
+                "accountKey": l.account_key.to_string(),
+                "writableIndexes": l.writable_indexes,
+                "readonlyIndexes": l.readonly_indexes,
+            }))
+            .collect::<Vec<_>>());
+    }
     json!({
         "signatures": t.signatures.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
-        "message": {
-            "header": {
-                "numRequiredSignatures": m.header.num_required_signatures,
-                "numReadonlySignedAccounts": m.header.num_readonly_signed_accounts,
-                "numReadonlyUnsignedAccounts": m.header.num_readonly_unsigned_accounts,
-            },
-            "accountKeys": m.account_keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
-            "recentBlockhash": m.recent_blockhash.to_string(),
-            "instructions": m.instructions.iter().map(|ci| json!({
-                "programIdIndex": ci.program_id_index,
-                "accounts": ci.accounts,
-                "data": bs58_encode(&ci.data),
-                "stackHeight": null,
-            })).collect::<Vec<_>>(),
-        },
+        "message": m,
     })
 }
 
@@ -559,23 +571,45 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
                 .and_then(|c| c.get("encoding"))
                 .and_then(|e| e.as_str())
                 .unwrap_or("json");
+            // herald-v0v1-decode: as agave, a versioned transaction is served
+            // only to a client that says it reads that version (-32015
+            // otherwise; B5 measured it on devnet for v1).
+            let max = p
+                .get(1)
+                .and_then(|c| c.get("maxSupportedTransactionVersion"))
+                .and_then(|x| x.as_u64());
             let c = lock(state);
             Ok(match c.transaction(&s) {
                 None => Value::Null,
                 Some(l) => {
+                    let version = fclient::vtx::decode(&l.wire)
+                        .map_or(fclient::vtx::Version::Legacy, |t| t.version);
+                    let n = match version {
+                        fclient::vtx::Version::Legacy => None,
+                        fclient::vtx::Version::V0 => Some(0),
+                        fclient::vtx::Version::V1 => Some(1),
+                    };
+                    if let Some(n) = n {
+                        if max.is_none_or(|m| m < n) {
+                            return Err(err(
+                                -32015,
+                                format!("Transaction version ({n}) is not supported by the requesting client. Please try the request again with the following configuration parameter: \"maxSupportedTransactionVersion\": {n}"),
+                            ));
+                        }
+                    }
                     let transaction = match enc {
                         "base64" => json!([B64.encode(&l.wire), "base64"]),
                         "base58" => json!([bs58_encode(&l.wire), "base58"]),
                         _ => tx_json(&l.wire),
                     };
                     json!({
-                        "slot": l.slot, "blockTime": l.block_time, "version": "legacy",
+                        "slot": l.slot, "blockTime": l.block_time, "version": version.json(),
                         "transaction": transaction,
                         "meta": {"err": l.err_json, "fee": l.fee, "logMessages": l.logs, "computeUnitsConsumed": l.units,
                             "status": status_json(l),
                             "preBalances": l.pre_balances, "postBalances": l.post_balances,
                             "innerInstructions": [], "preTokenBalances": [], "postTokenBalances": [], "rewards": [],
-                            "loadedAddresses": {"writable": [], "readonly": []},
+                            "loadedAddresses": fclient::vtx::loaded_json(&l.loaded),
                             "returnData": if l.return_data.is_empty() { Value::Null } else {
                                 let pid = l.keys.get(tx_program_index(&l.wire)).map(|k| k.to_string()).unwrap_or_default();
                                 json!({"programId": pid, "data": [B64.encode(&l.return_data), "base64"]}) }},
@@ -643,11 +677,19 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
             let (records, extent) = c.feed_scan(after, limit, prog.as_ref());
             let v: Vec<Value> = records
                 .into_iter()
-                .map(|l| json!({
-                    "seq": l.seq, "slot": l.slot, "signature": l.signature.to_string(), "blockTime": l.block_time,
-                    "tx": B64.encode(&l.wire), "logs": l.logs, "err": l.err_json, "units": l.units, "fee": l.fee,
-                    "post": l.post.iter().map(|(k, a)| json!({"key": k.to_string(), "account": a.as_ref().map(account_json)})).collect::<Vec<_>>(),
-                }))
+                .map(|l| {
+                    let mut v = json!({
+                        "seq": l.seq, "slot": l.slot, "signature": l.signature.to_string(), "blockTime": l.block_time,
+                        "tx": B64.encode(&l.wire), "logs": l.logs, "err": l.err_json, "units": l.units, "fee": l.fee,
+                        "post": l.post.iter().map(|(k, a)| json!({"key": k.to_string(), "account": a.as_ref().map(account_json)})).collect::<Vec<_>>(),
+                    });
+                    // herald-v0v1-decode: a v0 transaction's lookup addresses
+                    // (absent for every other record, as before)
+                    if !l.loaded.writable.is_empty() || !l.loaded.readonly.is_empty() {
+                        v["loaded"] = fclient::vtx::loaded_json(&l.loaded);
+                    }
+                    v
+                })
                 .collect();
             if scan {
                 Ok(json!({
@@ -780,14 +822,13 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
 /// Index of the first non-ComputeBudget instruction's program in the keys.
 fn tx_program_index(wire: &[u8]) -> usize {
     let cbp = fclient::addr::compute_budget_program();
-    fclient::tx::from_wire(wire)
+    fclient::vtx::decode(wire)
         .ok()
         .and_then(|t| {
-            t.message
-                .instructions
+            t.instructions
                 .iter()
                 .map(|ci| ci.program_id_index as usize)
-                .find(|&i| t.message.account_keys.get(i) != Some(&cbp))
+                .find(|&i| t.static_keys.get(i) != Some(&cbp))
         })
         .unwrap_or(usize::MAX)
 }

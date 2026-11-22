@@ -59,6 +59,7 @@ fn tx(seq: u64, lines: Vec<String>) -> TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 fn legacy(seq: u64) -> TxRecord {

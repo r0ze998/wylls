@@ -126,7 +126,9 @@ pub struct TxRecord {
     pub signature: Signature,
     /// Clock `unix_timestamp` of the slot (game time on localnet).
     pub block_time: i64,
-    /// Legacy wire bytes.
+    /// Wire bytes as the cluster served them: legacy, v0 or v1
+    /// (`crate::vtx::decode` reads all three; `crate::tx::from_wire`
+    /// legacy only).
     pub tx: Vec<u8>,
     pub logs: Vec<String>,
     pub err: Option<String>,
@@ -136,6 +138,9 @@ pub struct TxRecord {
     /// Post-transaction bytes of the accounts it wrote (localnet only;
     /// empty from a public RPC).
     pub post: Vec<(Address, Option<Account>)>,
+    /// herald-v0v1-decode: the addresses a v0 transaction's lookups
+    /// resolved to (`meta.loadedAddresses`; empty for legacy and v1).
+    pub loaded: crate::vtx::LoadedAddresses,
 }
 
 /// A drand round.

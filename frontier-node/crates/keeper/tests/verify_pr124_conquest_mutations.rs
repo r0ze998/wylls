@@ -74,6 +74,7 @@ fn load_path(p: &std::path::Path) -> (Addresses, Vec<TxRecord>) {
             units: t["units"].as_u64().unwrap_or(0),
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         })
         .collect();
     (addrs, txs)

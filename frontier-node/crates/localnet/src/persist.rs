@@ -204,6 +204,17 @@ pub struct TxEntry {
     pub return_data: Vec<u8>,
     pub pre_balances: Vec<u64>,
     pub post_balances: Vec<u64>,
+    /// herald-v0v1-decode: a v0 transaction's lookup addresses. Written
+    /// after the balances ONLY for a wire that is v0 with lookups (their
+    /// counts come from the wire), so every other entry's bytes are as
+    /// before.
+    pub loaded: fclient::vtx::LoadedAddresses,
+}
+
+/// The lookup counts of a wire (0, 0 for legacy, v1, and anything that
+/// does not decode).
+fn lookup_counts(wire: &[u8]) -> (usize, usize) {
+    fclient::vtx::decode(wire).map_or((0, 0), |d| d.lookup_counts())
 }
 
 impl TxEntry {
@@ -231,6 +242,14 @@ impl TxEntry {
         w.u32(self.post_balances.len() as u32);
         for b in &self.post_balances {
             w.u64(*b);
+        }
+        let (nw, nr) = lookup_counts(&self.wire);
+        assert!(
+            self.loaded.writable.len() == nw && self.loaded.readonly.len() == nr,
+            "a ledger entry's loaded addresses fit its lookups"
+        );
+        for k in self.loaded.writable.iter().chain(&self.loaded.readonly) {
+            w.key(k);
         }
     }
 
@@ -266,6 +285,14 @@ impl TxEntry {
         for _ in 0..n {
             post_balances.push(r.u64()?);
         }
+        let (nw, nr) = lookup_counts(&wire);
+        let mut loaded = fclient::vtx::LoadedAddresses::default();
+        for _ in 0..nw {
+            loaded.writable.push(r.key()?);
+        }
+        for _ in 0..nr {
+            loaded.readonly.push(r.key()?);
+        }
         Ok(TxEntry {
             signature,
             wire,
@@ -279,6 +306,7 @@ impl TxEntry {
             return_data,
             pre_balances,
             post_balances,
+            loaded,
         })
     }
 }
@@ -760,6 +788,7 @@ mod tests {
             return_data: vec![7; 5],
             pre_balances: vec![10, 20],
             post_balances: vec![5, 25],
+            loaded: Default::default(),
         }
     }
 

@@ -9,6 +9,7 @@
 //! | [`log`] | the PS2 log parser, encoder and head chains |
 //! | [`fees`], [`budgets`] | §10.1 formulas incl. `L(kind)`; per-kind CU and loaded-data limits |
 //! | [`tx`] | compute budget, legacy messages, signing, shapes, priority |
+//! | [`vtx`] | legacy / v0 / v1 wire decoding with lookup-table addresses (ingest side) |
 //! | [`http`], [`rpc`] | loopback HTTP client, JSON-RPC client and `ChainPort` over it |
 //! | [`ports`] | `ChainPort`, `DrandPort` and their types |
 //! | [`beacon`] | quicknet info, blstrs verify, SP-V2 hints, seeds, the test-beacon key, drand backends |
@@ -56,6 +57,8 @@ pub mod typed_log;
 /// Keyless legacy-message shape and external blockhash observation checks.
 pub mod unsigned_message_preflight;
 pub mod vectors;
+/// Legacy, v0 (lookup tables) and v1 wire decoding for the readers of history.
+pub mod vtx;
 /// Closed account/byte proposal of the one player-signed conquest step
 /// (wide DeclareSiege by an original host); never an executable instruction.
 #[cfg(feature = "wide-records-experimental")]

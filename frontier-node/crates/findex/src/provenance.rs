@@ -171,6 +171,7 @@ mod tests {
             units: 0,
             fee: 0,
             post,
+            loaded: Default::default(),
         };
         let got: Vec<PostCheck> = post_checks(&r, &program, false)
             .into_iter()

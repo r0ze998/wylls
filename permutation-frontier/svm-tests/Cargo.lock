@@ -1279,6 +1279,7 @@ dependencies = [
  "solana-transaction",
  "tlock",
  "tokio",
+ "wincode",
 ]
 
 [[package]]

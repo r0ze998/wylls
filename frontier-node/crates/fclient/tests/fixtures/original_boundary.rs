@@ -56,6 +56,7 @@ pub fn trace() -> (AddrCtx, Vec<fclient::ports::TxRecord>) {
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         });
     }
     assert!(b.is_empty());

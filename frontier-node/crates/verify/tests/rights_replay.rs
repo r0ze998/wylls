@@ -286,6 +286,7 @@ impl Flow {
                     )
                 })
                 .collect(),
+            loaded: Default::default(),
         });
         for k in written {
             self.inp

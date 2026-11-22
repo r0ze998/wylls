@@ -43,6 +43,7 @@ fn with_ix(mut inp: Input, data: Vec<u8>) -> Input {
         units: 1_000,
         fee: 5_000,
         post: vec![],
+        loaded: Default::default(),
     });
     inp
 }

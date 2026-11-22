@@ -55,8 +55,9 @@ pub struct ExpTrack {
     pub depart_bell: u32,
     /// The wire of every landed transaction with a Depart or Reveal record of
     /// this transit (the evidence `expedition_steps::evidence_of` checks
-    /// against the bridge record's seal root), at most [`EXP_WIRES`].
-    pub wires: Vec<Vec<u8>>,
+    /// against the bridge record's seal root), at most [`EXP_WIRES`], each
+    /// with a v0 transaction's looked-up addresses (herald-v0v1-decode).
+    pub wires: Vec<(Vec<u8>, fclient::vtx::LoadedAddresses)>,
     /// A settlement, failure or terminal record of this transit was seen.
     pub ended: bool,
     /// Slot of the latest record.
@@ -257,7 +258,7 @@ impl PlayIndex {
                     }
                     e.depart_bell = *bell;
                     if e.wires.len() < EXP_WIRES {
-                        e.wires.push(tx.tx.clone());
+                        e.wires.push((tx.tx.clone(), tx.loaded.clone()));
                     }
                 }
                 e.slot_seen = tx.slot;
@@ -268,7 +269,7 @@ impl PlayIndex {
             } => {
                 if let Some(e) = self.expeditions.get_mut(external) {
                     if e.wires.len() < EXP_WIRES {
-                        e.wires.push(tx.tx.clone());
+                        e.wires.push((tx.tx.clone(), tx.loaded.clone()));
                     }
                     e.slot_seen = tx.slot;
                 }

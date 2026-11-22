@@ -304,6 +304,7 @@ fn archive_bytes_per_transaction() {
         units: 50_000,
         fee: 5_000,
         post,
+        loaded: Default::default(),
     };
     let acct = |len: usize| {
         Some(Account {

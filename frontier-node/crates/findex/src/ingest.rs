@@ -288,8 +288,9 @@ impl<P: ChainPort> LocalnetFeed<P> {
                     )));
                 }
                 if let Some(p) = &self.program {
-                    let mentions =
-                        fclient::tx::from_wire(&r.tx).map(|t| t.message.account_keys.contains(p));
+                    // herald-v0v1-decode: legacy, v0 (static or looked-up
+                    // key) and v1 transactions alike.
+                    let mentions = fclient::vtx::decode(&r.tx).map(|t| t.mentions(p, &r.loaded));
                     if mentions != Ok(true) {
                         return Err(PortError::Decode(format!(
                             "feed: seq {} ({}) does not mention the program {p}: the node did not filter the feed",
@@ -1020,16 +1021,27 @@ impl<S: Source> Enriched<S> {
         }
     }
 
-    /// The writable accounts of a wire transaction (fee payer excluded).
-    pub fn writable_keys(&self, wire: &[u8]) -> Vec<Address> {
-        let Ok(t) = fclient::tx::from_wire(wire) else {
+    /// The writable accounts of a wire transaction (fee payer excluded):
+    /// legacy, v1, and v0 with its lookups' writable addresses from
+    /// `loaded` (`meta.loadedAddresses`; herald-v0v1-decode). Empty when the
+    /// wire does not decode or a v0 transaction's lookups are unresolved
+    /// (the herald's `badRecords` alarm then names it).
+    pub fn writable_keys(
+        &self,
+        wire: &[u8],
+        loaded: &fclient::vtx::LoadedAddresses,
+    ) -> Vec<Address> {
+        let Ok(t) = fclient::vtx::decode(wire) else {
             return vec![];
         };
-        let m = &t.message;
-        (1..m.account_keys.len())
-            .filter(|&i| fclient::tx::is_writable_index(m, i))
-            .map(|i| m.account_keys[i])
-            .filter(|k| !self.skip.contains(k))
+        let Ok(keys) = t.keys(loaded) else {
+            return vec![];
+        };
+        let mut seen = HashSet::new();
+        (1..keys.len())
+            .filter(|&i| t.is_writable_index(i, loaded))
+            .map(|i| keys[i])
+            .filter(|k| !self.skip.contains(k) && seen.insert(*k))
             .collect()
     }
 }
@@ -1048,7 +1060,7 @@ impl<S: Source> Source for Enriched<S> {
             if r.err.is_some() || !r.post.is_empty() {
                 continue;
             }
-            let keys = self.writable_keys(&r.tx);
+            let keys = self.writable_keys(&r.tx, &r.loaded);
             if keys.is_empty() {
                 continue;
             }

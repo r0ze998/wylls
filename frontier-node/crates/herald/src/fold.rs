@@ -571,12 +571,16 @@ impl Fold {
             self.st.folded_through = tx.seq;
             return;
         }
-        // verify-pr123: a successful v0/v1 transaction (legacy decoding
-        // refuses its wire, so the feed fetched no post-state for it) that
-        // ran this program wrote accounts this fold never sees: an alarm,
-        // not a silent gap (B5: devnet carries v1 transactions).
+        // verify-pr123: a successful transaction that ran this program but
+        // whose writes the feed could not name (so it fetched no
+        // post-state) wrote accounts this fold never sees: an alarm, not a
+        // silent gap. herald-v0v1-decode: legacy, v0 and v1 wires all
+        // decode now (`fclient::vtx`); what remains is a wire that decodes
+        // as none of them, or a v0 one whose lookups the record does not
+        // resolve (`meta.loadedAddresses` missing or not matching).
         if tx.post.is_empty() && runs_program(&tx.logs, &self.cfg.program) {
-            if let Err(e) = fclient::tx::from_wire(&tx.tx) {
+            if let Err(e) = fclient::vtx::decode(&tx.tx).and_then(|t| t.keys(&tx.loaded).map(drop))
+            {
                 self.st.alarms.bad_records += 1;
                 eprintln!(
                     "herald: ALARM tx #{} ({}) ran the program but does not decode ({e}): its post-state is not folded",
@@ -1528,13 +1532,15 @@ mod v1_record_tests {
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         }
     }
 
-    /// verify-pr123: a successful v1 transaction that ran the program (its
-    /// wire starts 0x81, as devnet serves them; legacy decoding refuses
-    /// it, so the feed fetched no post-state) raises `bad_records`; one
-    /// that did not run it, a failed one, and a decodable legacy one do not.
+    /// verify-pr123: a successful transaction that ran the program but does
+    /// not decode (here a v1 prefix cut short; the feed then fetched no
+    /// post-state) raises `bad_records`; one that did not run it, a failed
+    /// one, and a decodable legacy one do not. herald-v0v1-decode: whole v0
+    /// and v1 transactions decode too.
     #[test]
     fn an_undecodable_transaction_of_the_program_is_an_alarm() {
         let program = Address::new_from_array([0x51; 32]);
@@ -1575,8 +1581,59 @@ mod v1_record_tests {
         f.apply(&rec(3, legacy, ran(&program)));
         assert_eq!(f.st.alarms.bad_records, 0, "a legacy one decodes");
         f.apply(&rec(4, v1, ran(&program)));
-        assert_eq!(f.st.alarms.bad_records, 1, "the v1 one of the program");
+        assert_eq!(
+            f.st.alarms.bad_records, 1,
+            "an undecodable one of the program"
+        );
         assert_eq!(f.st.folded_through, 4);
+        // herald-v0v1-decode: a whole v1 transaction and a v0 one whose
+        // lookups the record resolves decode (no alarm); a v0 one whose
+        // record lacks `meta.loadedAddresses` cannot name its writes (alarm).
+        use solana_message::{v0, v1, AddressLookupTableAccount, VersionedMessage};
+        // (key-free: a fixed payer address and placeholder signatures; the
+        // fold never verifies one)
+        let payer = Address::new_from_array([0x61; 32]);
+        let unsigned = |m: VersionedMessage| fclient::vtx::VersionedTransaction {
+            signatures: vec![fclient::ports::Signature::from([0x5a; 64])],
+            message: m,
+        };
+        let ix = fclient::Instruction {
+            program_id: program,
+            accounts: vec![
+                fclient::AccountMeta::new(payer, true),
+                fclient::AccountMeta::new(other, false),
+            ],
+            data: vec![1],
+        };
+        let bh = fclient::Hash::new_from_array([7; 32]);
+        let m1 = v1::Message::try_compile(&payer, std::slice::from_ref(&ix), bh).unwrap();
+        let w1 = fclient::vtx::wire(&unsigned(VersionedMessage::V1(m1))).unwrap();
+        f.apply(&rec(5, w1, ran(&program)));
+        assert_eq!(f.st.alarms.bad_records, 1, "a whole v1 transaction decodes");
+        let bh = fclient::Hash::new_from_array([7; 32]);
+        let m0 = v0::Message::try_compile(
+            &payer,
+            &[ix],
+            &[AddressLookupTableAccount {
+                key: Address::new_from_array([0x60; 32]),
+                addresses: vec![other],
+            }],
+            bh,
+        )
+        .unwrap();
+        let w0 = fclient::vtx::wire(&unsigned(VersionedMessage::V0(m0))).unwrap();
+        let mut resolved = rec(6, w0.clone(), ran(&program));
+        resolved.loaded.writable = vec![other];
+        f.apply(&resolved);
+        assert_eq!(
+            f.st.alarms.bad_records, 1,
+            "a v0 one with its loaded addresses"
+        );
+        f.apply(&rec(7, w0, ran(&program)));
+        assert_eq!(
+            f.st.alarms.bad_records, 2,
+            "a v0 one whose lookups the record does not resolve"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -95,23 +95,23 @@ pub enum Landed {
 /// transaction's wire (version-2 dispatch only; anything else is ignored),
 /// each with the instruction's own account keys in order. A dispatch kind
 /// whose inner bytes decode to another command is an error.
-pub fn commands_in(wire: &[u8], program: &Address) -> Result<Vec<(Landed, Vec<Address>)>, String> {
-    let t = fclient::tx::from_wire(wire)?;
-    let keys = &t.message.account_keys;
+/// herald-v0v1-decode: the wire may be legacy, v0 (its looked-up accounts
+/// from `loaded`, the record's `meta.loadedAddresses`) or v1.
+pub fn commands_in(
+    wire: &[u8],
+    loaded: &fclient::vtx::LoadedAddresses,
+    program: &Address,
+) -> Result<Vec<(Landed, Vec<Address>)>, String> {
+    let t = fclient::vtx::decode(wire)?;
     let mut out = vec![];
-    for ix in &t.message.instructions {
-        if keys.get(ix.program_id_index as usize) != Some(program) {
+    for (pid, accounts, data) in t.instructions_resolved(loaded)? {
+        if pid != *program {
             continue;
         }
-        let Ok(cmd) = dx::Command::decode(&ix.data) else {
+        let Ok(cmd) = dx::Command::decode(&data) else {
             continue;
         };
         if matches!(cmd.kind(), Kind::Depart | Kind::Reveal) {
-            let accounts = ix
-                .accounts
-                .iter()
-                .map(|&i| keys.get(i as usize).copied().ok_or("account index"))
-                .collect::<Result<Vec<_>, _>>()?;
             let landed = match (
                 cmd.kind(),
                 wix::WideCommand::decode(cmd.inner())
@@ -195,7 +195,7 @@ pub fn reveal_matches(
 /// between).
 #[allow(clippy::too_many_arguments)]
 pub fn evidence_of<'w>(
-    wires: impl IntoIterator<Item = &'w [u8]>,
+    wires: impl IntoIterator<Item = (&'w [u8], &'w fclient::vtx::LoadedAddresses)>,
     program: &Address,
     season: &Address,
     holding: &Address,
@@ -204,8 +204,8 @@ pub fn evidence_of<'w>(
     slot: u8,
 ) -> Result<Evidence, String> {
     let mut e = Evidence::default();
-    for wire in wires {
-        for (cmd, accounts) in commands_in(wire, program)? {
+    for (wire, loaded) in wires {
+        for (cmd, accounts) in commands_in(wire, loaded, program)? {
             match cmd {
                 Landed::Depart(d)
                     if depart_matches(&d, &accounts, t, slot, season, holding, external) =>

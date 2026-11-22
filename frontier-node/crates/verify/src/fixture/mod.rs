@@ -310,6 +310,7 @@ impl Gen {
             units: 0,
             fee: tx::fee_lamports(msg),
             post,
+            loaded: Default::default(),
         });
         self.txs.len() - 1
     }

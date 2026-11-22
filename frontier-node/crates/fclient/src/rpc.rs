@@ -534,6 +534,7 @@ pub fn parse_transaction(sig: &Signature, v: &Value) -> PortResult<TxRecord> {
             .unwrap_or(0),
         fee: meta.get("fee").and_then(|x| x.as_u64()).unwrap_or(0),
         post: vec![],
+        loaded: crate::vtx::loaded_from_meta(meta).map_err(PortError::Decode)?,
     })
 }
 
@@ -730,6 +731,12 @@ pub fn parse_feed_record(r: &Value) -> PortResult<TxRecord> {
                     .collect()
             })
             .unwrap_or_default(),
+        // herald-v0v1-decode: the node's `loaded` (a v0 transaction's
+        // lookup addresses); absent = none.
+        loaded: crate::vtx::loaded_from_meta(
+            &json!({"loadedAddresses": r.get("loaded").cloned().unwrap_or(Value::Null)}),
+        )
+        .map_err(PortError::Decode)?,
     })
 }
 

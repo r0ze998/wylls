@@ -70,6 +70,7 @@ fn post(f: &mut Fold, key: [u8; 32], data: Option<Vec<u8>>, owner: Address) {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     };
     let account = data.map(|data| Account {
         owner,
