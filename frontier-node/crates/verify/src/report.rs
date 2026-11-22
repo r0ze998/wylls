@@ -47,6 +47,9 @@ pub fn json(r: &Report) -> Value {
         "history": r.history,
         "mutated_build": crate::mutated(),
     });
+    if let Some(rent) = &r.rent {
+        out["rent"] = rent.clone();
+    }
     if r.checks_run.iter().any(|c| c.starts_with("CQ")) && !r.checks_run.contains(&"V5") {
         out["liveness"] = Value::Null;
     }
@@ -70,6 +73,23 @@ pub fn markdown(r: &Report) -> String {
     ));
     if !r.provenance.is_empty() {
         s.push_str(&format!("- Input: {}\n", r.provenance));
+    }
+    if let Some(rent) = &r.rent {
+        let src = rent["source"].as_str().unwrap_or("?");
+        s.push_str(&format!(
+            "- Rent for VX/VG re-execution: {} lamports per byte ({}{})\n",
+            rent["lamports_per_byte"]
+                .as_u64()
+                .map_or("a non-whole rate".to_string(), |n| n.to_string()),
+            if src == "assumed" {
+                "**ASSUMED**: no Rent sysvar was read or declared"
+            } else {
+                src
+            },
+            rent["slot"]
+                .as_u64()
+                .map_or(String::new(), |x| format!(", read at slot {x}"))
+        ));
     }
     if let Some(h) = &r.history {
         s.push_str(&format!(

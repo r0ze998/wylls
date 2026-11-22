@@ -199,7 +199,8 @@ pub fn derive(input: &Input) -> Derived {
         missing(&mut out, "the archive has no post-states; without the pinned program binary (`--program-so`) it is not re-executed from the Season's creation".into());
         return out;
     };
-    let so = Program::new(so.as_ref().clone());
+    // (the season's rent: chain / declared / assumed, reexec::rent_of — rent-live-rest)
+    let so = Program::with_rent(so.as_ref().clone(), crate::reexec::rent_of(input).0);
     if input.cfg.program_hash != Some(so.sha256()) {
         missing(
             &mut out,

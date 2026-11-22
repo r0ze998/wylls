@@ -146,11 +146,16 @@ pub fn run(cx: &mut Ctx) {
     // that already held lamports keeps them, so such an account ends above
     // its rent minimum; none of them blocked an init (the init that
     // created it landed, or V1 would miss its records).
+    // (at the season's rent: the chain's, declared or the assumed 5,080 —
+    //  rent-live-rest; at 6,960 every account is above a 5,080 minimum)
     let mut prefunded = 0u64;
     for a in w.finals.values().flatten() {
         if a.owner.to_bytes() == w.program {
             if let Some(kind) = kind_by_magic(&a.data) {
-                if kind != AccountKind::Season && a.lamports > kind.rent() && !is_pool(kind) {
+                if kind != AccountKind::Season
+                    && a.lamports > crate::rent::rent_for(cx.input, kind.size())
+                    && !is_pool(kind)
+                {
                     prefunded += 1;
                 }
             }

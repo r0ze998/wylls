@@ -686,10 +686,8 @@ fn debit_outside(
 }
 
 fn program_of(input: &Input) -> Option<Program> {
-    input
-        .program_so
-        .as_ref()
-        .map(|so| Program::new(so.as_ref().clone()))
+    // (the season's rent: chain / declared / assumed, reexec::rent_of — rent-live-rest)
+    crate::reexec::program_of(input)
 }
 
 pub fn run(cx: &mut Ctx) {

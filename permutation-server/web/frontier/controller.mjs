@@ -64,6 +64,7 @@ import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
 import * as devnetPlayMod from './fdevnetplay.mjs';
 import { outpostCost } from './fdevnet-outpost.mjs';
+import * as frent from './frent.mjs';
 import { outpostCandidates, OUTPOST_PREVIEW_MS } from './screens/outpostcard.mjs';
 import { nextOutpostSlot } from './fconquest.mjs';
 import { openDevnetBook } from './fdevnetbook.mjs';
@@ -1915,6 +1916,30 @@ export function applyMeResult(me) {
   return 'error';
 }
 
+/**
+ * rent-live-rest: the cluster's rent of one Holding (the village ticket's escrow the details show), asked of the
+ * page's own gateway route — devnet play: its RPC; local play: the runner — at most every RENT_RETRY_MS after a
+ * failure and every RENT_FRESH_MS after an answer (frent.mjs). With no route (the sponsored demo) or no answer the
+ * page shows the 5,080 MODEL figure and labels it so (app.mjs detailsMarkup). Nothing is sent.
+ */
+let rentAsking = false;
+function rentRoute() {
+  if (devnetPlay?.relay) return { relay: devnetPlay.relay, path: localAct.DEVNET_ACT_CONTEXT_PATH };
+  const g = localPlay ? localDepartGate() : null;
+  return g?.ok ? { relay: g.relay, path: localAct.LOCAL_ACT_CONTEXT_PATH } : null;
+}
+export function refreshRent(now = Date.now()) {
+  if (rentAsking || !frent.rentDue(FS.rent, now)) return null;
+  const route = rentRoute();
+  if (!route) { FS.rent = frent.rentFailed(FS.rent, 'NoRentRoute', now); return null; }
+  rentAsking = true;
+  const adopt = r => { FS.rent = r; invalidate('panel'); };
+  return localAct.postLocalAct(route.relay, route.path, { schema: frent.RENT_CONTEXT_SCHEMA })
+    .then(v => adopt(frent.rentOfAnswer(v) ?? frent.rentFailed(FS.rent, 'RentAnswerMalformed')))
+    .catch(e => adopt(frent.rentFailed(FS.rent, e?.code ?? 'Unavailable')))
+    .finally(() => { rentAsking = false; });
+}
+
 /** Refresh the viewer's accounts, provinces, marches, chronicle and quota. */
 export async function refresh() {
   // (2026-11-17, ⑦: counted while it runs, for rereadVillage — which adopts nothing while a refresh is under way, so a
@@ -1924,6 +1949,8 @@ export async function refresh() {
   if (!herald || !FS.clock) return;
   const request = ++viewerRefresh, world = providerWorld();
   FS.nowBell = nowBell();
+  // (rent-live-rest: the cluster's rent for the ticket escrow preview, cached; never awaited here — frent.mjs)
+  refreshRent();
   // A gated season shows the invite field before any refusal (I-51).
   FS.inviteRequired = FS.inviteRequired || inviteRequired(FS.season);
   await refreshPrize().catch(() => null);
@@ -4676,6 +4703,8 @@ export async function startPlay({ herald: h, cfg }) {
     if (!localPlay && io.pinned()?.cluster === 'devnet') {
       devnetPlay = await devnetPlayMod.readDevnetPlay({ origin: cfg.herald, pin: io.pinned(), rulesetHash: FS.season?.rulesetHash });
       FS.devnetPlay = devnetPlay;
+      // (rent-live-rest: the route is known now — ask the cluster's rent at once rather than after the model's retry)
+      if (devnetPlay && FS.rent?.source !== 'cluster') FS.rent = null;
       if (devnetPlay) { invalidate('panel'); await refresh(); }
     }
   } catch (e) { console.error('frontier first read:', e); }
