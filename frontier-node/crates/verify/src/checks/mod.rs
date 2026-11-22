@@ -418,6 +418,7 @@ pub fn run(input: &Input) -> Report {
         checks_run: ran,
         provenance: input.provenance.clone(),
         history: None,
+        rent: None,
     }
 }
 

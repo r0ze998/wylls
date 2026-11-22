@@ -10,6 +10,12 @@
 //!          --ruleset HEX                    expected ruleset hash (default: this build's)
 //!          --program-hash HEX               expected .so sha256 (V2)
 //!          --program-so FILE                the pinned .so (or .so.gz), for VX and VG (playable lane)
+//!          --lamports-per-byte N            the cluster's rent rate, when no Rent sysvar was read: VX and
+//!                                           VG re-execute under it (`declared` in the report). With --rpc
+//!                                           the sysvar is read with the final states (`chain`); a finals
+//!                                           file or fixture may carry it (`rent`). A declared rate that
+//!                                           disagrees with the chain's is refused. Neither: 5,080 is
+//!                                           ASSUMED and the report says so
 //!          --balances                       with --rpc: also read each transaction's pre/post
 //!                                           balances and the upgrade authority (VG: an archive
 //!                                           without post-states re-executed from genesis)
@@ -107,6 +113,7 @@ fn main() {
     let mut ruleset: Option<[u8; 32]> = None;
     let mut program_hash: Option<[u8; 32]> = None;
     let mut program_so: Option<PathBuf> = None;
+    let mut lamports_per_byte: Option<u64> = None;
     let mut out = PathBuf::from("verify-report");
     let mut json = false;
     let mut fallback: Option<PathBuf> = None;
@@ -139,6 +146,15 @@ fn main() {
             "--ruleset" => ruleset = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
             "--program-hash" => program_hash = Some(hex_arr(&val()).unwrap_or_else(|e| usage(&e))),
             "--program-so" => program_so = Some(val().into()),
+            "--lamports-per-byte" => {
+                lamports_per_byte = Some(
+                    val()
+                        .parse()
+                        .ok()
+                        .filter(|&n| n > 0)
+                        .unwrap_or_else(|| usage("bad --lamports-per-byte")),
+                )
+            }
             "--balances" => balances = true,
             "--out" => out = val().into(),
             "--json" => json = true,
@@ -189,11 +205,17 @@ fn main() {
                 .unwrap_or_else(|e| usage(&e)),
             (None, None) => usage("--archive or --rpc is required"),
         };
+        // (rent-live-rest: the Rent sysvar a finals file recorded beside its states)
+        let mut finals_rent: Option<input::RentRead> = None;
         let (finals, final_slot) = match (&finals, &rpc) {
             (Some(f), _) => {
                 let s = std::fs::read_to_string(f).unwrap_or_else(|e| usage(&e.to_string()));
                 let v: serde_json::Value =
                     serde_json::from_str(&s).unwrap_or_else(|e| usage(&e.to_string()));
+                finals_rent = match v.get("rent") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(r) => Some(input::RentRead::from_json(r).unwrap_or_else(|e| usage(&e))),
+                };
                 (
                     input::finals_from_json(v.get("finals").unwrap_or(&v))
                         .unwrap_or_else(|e| usage(&e)),
@@ -295,10 +317,24 @@ fn main() {
             (None, true) => usage("--balances needs --rpc"),
             _ => Default::default(),
         };
+        // rent-live-rest: the cluster's Rent sysvar for VX's / VG's
+        // re-execution — the finals file's, else read over RPC at the final
+        // states' slot. Unread: said here and in the report (5,080 assumed).
+        let mut chain = chain;
+        chain.rent = match (finals_rent, &rpc) {
+            (Some(r), _) => Some(r),
+            (None, Some(u)) => match rt.block_on(input::fetch_rent(u, final_slot)) {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    eprintln!("frontier-verify: the cluster's Rent sysvar: {e}");
+                    None
+                }
+            },
+            (None, None) => None,
+        };
         // ⑰ Q-P1 (b): the second source(s), read after everything else
         // (VS, witness.rs). Not for a local node's ledger feed (its history
         // has its own rule).
-        let mut chain = chain;
         match (&rpc, witnesses.is_empty(), localnet) {
             (_, true, _) => {}
             (Some(u), false, false) => {
@@ -367,7 +403,30 @@ fn main() {
     if program_hash.is_some() {
         inp.cfg.program_hash = program_hash;
     }
+    // rent-live-rest: a declared rate fills in an unread one; one that
+    // disagrees with the chain's is refused (never two rates for one season).
+    if let Some(n) = lamports_per_byte {
+        match inp.chain.rent.as_ref().filter(|r| !r.declared) {
+            Some(r) if r.lamports_per_byte() != Some(n) => usage(&format!(
+                "--lamports-per-byte {n} disagrees with the cluster's Rent sysvar ({:?} lamports per byte)",
+                r.lamports_per_byte()
+            )),
+            Some(_) => {}
+            None => inp.chain.rent = Some(input::RentRead::declared(n)),
+        }
+    }
     if let Some(p) = &program_so {
+        let (r, basis) = verify_core::rent::rent_of(&inp);
+        eprintln!(
+            "frontier-verify: VX/VG re-execute at {} lamports per byte ({})",
+            verify_core::rent::rent_per_byte(&r)
+                .map_or("a non-whole rate".to_string(), |n| n.to_string()),
+            match basis {
+                verify_core::rent::RentBasis::Assumed =>
+                    "ASSUMED: no Rent sysvar was read; pass --rpc or --lamports-per-byte",
+                b => b.name(),
+            }
+        );
         let raw = std::fs::read(p).unwrap_or_else(|e| usage(&format!("{}: {e}", p.display())));
         let so = if raw.starts_with(&[0x1f, 0x8b]) {
             use std::io::Read;

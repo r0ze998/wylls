@@ -148,11 +148,99 @@ pub struct ChainWitness {
     /// for the same season (`--witness`, [`crate::witness`]). `None`: no
     /// second source was asked.
     pub cross: Option<crate::witness::CrossCheck>,
+    /// The cluster's Rent sysvar the season ran under, for VX's and VG's
+    /// re-execution (rent-live-rest; [`crate::rent::rent_of`]): read over
+    /// RPC with the final states, recorded with a fixture or a finals file,
+    /// or declared by the operator (`--lamports-per-byte`). `None`: no
+    /// source stated it — the re-execution then ASSUMES the local node's
+    /// 5,080 and the report says so (never a silent constant).
+    pub rent: Option<RentRead>,
+}
+
+/// See [`ChainWitness::rent`]: the Rent sysvar's 17 bytes as read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RentRead {
+    /// `lamports_per_byte_year u64 ‖ exemption_threshold f64 ‖ burn_percent u8`.
+    pub data: [u8; fclient::rent::RENT_LEN],
+    /// The slot it was read at (`None`: declared, or not said).
+    pub slot: Option<u64>,
+    /// Stated by the operator, not read from a chain.
+    pub declared: bool,
+}
+
+impl RentRead {
+    /// Rent stated as a whole rate per byte (threshold 1.0, the local
+    /// node's burn share): the operator's `--lamports-per-byte`.
+    pub fn declared(lamports_per_byte: u64) -> RentRead {
+        let mut r = crate::rent::assumed_rent();
+        r.lamports_per_byte_year = lamports_per_byte;
+        RentRead {
+            data: r.encode(),
+            slot: None,
+            declared: true,
+        }
+    }
+    /// The sysvar's own bytes as an RPC served them at `slot`.
+    pub fn from_chain(data: &[u8], slot: u64) -> Result<RentRead, String> {
+        fclient::rent::RentSysvar::decode(data)
+            .ok_or("the Rent sysvar is not 17 well-formed bytes")?;
+        Ok(RentRead {
+            data: data.try_into().map_err(|_| "the Rent sysvar length")?,
+            slot: Some(slot),
+            declared: false,
+        })
+    }
+    /// The decoded sysvar (`None`: malformed, never used).
+    pub fn sysvar(&self) -> Option<fclient::rent::RentSysvar> {
+        fclient::rent::RentSysvar::decode(&self.data)
+    }
+    /// Lamports per byte it charges (`None`: no whole rate).
+    pub fn lamports_per_byte(&self) -> Option<u64> {
+        crate::rent::rent_per_byte(&self.sysvar()?)
+    }
+    pub fn to_json(&self) -> Value {
+        json!({
+            "data": hex::encode(self.data),
+            "slot": self.slot,
+            "source": if self.declared { "declared" } else { "chain" },
+            "lamports_per_byte": self.lamports_per_byte(),
+        })
+    }
+    /// Strict: present but unreadable is an error, never silently absent.
+    pub fn from_json(v: &Value) -> Result<RentRead, String> {
+        let data: [u8; fclient::rent::RENT_LEN] =
+            hex_arr(v.get("data").and_then(|x| x.as_str()).ok_or("rent.data")?)?;
+        fclient::rent::RentSysvar::decode(&data).ok_or("rent.data: not a Rent sysvar")?;
+        let declared = match v.get("source").and_then(|x| x.as_str()) {
+            Some("chain") => false,
+            Some("declared") => true,
+            _ => return Err("rent.source: chain or declared".into()),
+        };
+        let slot = match v.get("slot") {
+            None | Some(Value::Null) => None,
+            Some(x) => Some(x.as_u64().ok_or("rent.slot")?),
+        };
+        let r = RentRead {
+            data,
+            slot,
+            declared,
+        };
+        // A stated rate that disagrees with the bytes is refused.
+        if let Some(n) = v.get("lamports_per_byte").filter(|x| !x.is_null()) {
+            if n.as_u64() != r.lamports_per_byte() {
+                return Err("rent.lamports_per_byte disagrees with rent.data".into());
+            }
+        }
+        Ok(r)
+    }
 }
 
 impl ChainWitness {
     pub fn is_empty(&self) -> bool {
-        self.balances.is_empty() && self.upgrade_authority.is_none() && self.cross.is_none()
+        self.balances.is_empty()
+            && self.upgrade_authority.is_none()
+            && self.cross.is_none()
+            && self.rent.is_none()
     }
     /// The balances of the transaction `t`, if archived.
     pub fn of(&self, t: &TxRecord) -> Option<&Balances> {
@@ -165,6 +253,9 @@ impl ChainWitness {
         });
         if let Some(c) = &self.cross {
             v["cross"] = c.to_json();
+        }
+        if let Some(r) = &self.rent {
+            v["rent"] = r.to_json();
         }
         v
     }
@@ -209,6 +300,10 @@ impl ChainWitness {
             cross: match v.get("cross") {
                 None | Some(Value::Null) => None,
                 Some(c) => Some(crate::witness::CrossCheck::from_json(c)?),
+            },
+            rent: match v.get("rent") {
+                None | Some(Value::Null) => None,
+                Some(r) => Some(RentRead::from_json(r)?),
             },
         })
     }
@@ -844,7 +939,32 @@ pub async fn fetch_chain(
         balances,
         upgrade_authority: upgrade_authority(url, program).await?,
         cross: None,
+        rent: None,
     })
+}
+
+/// The cluster's Rent sysvar at `slot` or later, over RPC (one
+/// `getMultipleAccounts`; rent-live-rest): what VX / VG re-execute under.
+/// An absent or malformed sysvar is an error (the caller says so; the
+/// re-execution then assumes 5,080 and the report labels it).
+pub async fn fetch_rent(url: &str, slot: u64) -> Result<RentRead, String> {
+    use fclient::ports::ChainPort;
+    let mut port = fclient::rpc::RpcPort::new(url, Address::default());
+    port.rpc = rpc_client(url);
+    let key = fclient::rent::rent_sysvar();
+    let got = port
+        .accounts(&[key], slot)
+        .await
+        .map_err(|e| e.to_string())?;
+    let a = got
+        .into_iter()
+        .next()
+        .flatten()
+        .ok_or("the Rent sysvar is absent")?;
+    if a.owner != fclient::rent::sysvar_owner() {
+        return Err("the Rent sysvar is not owned by the sysvar program".into());
+    }
+    RentRead::from_chain(&a.data, slot)
 }
 
 /// The upgrade authority the program's ProgramData names (`None`: none, or
