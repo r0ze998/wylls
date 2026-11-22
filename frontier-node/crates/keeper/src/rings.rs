@@ -29,7 +29,9 @@
 //!   the genesis within `provinces_reach` of a settled one ([`demand_plan`]),
 //!   at most `provinces_per_pass` a scan and `provinces_max` a run, never
 //!   below a wedge fund's floor ([`demand_fund_floor`]) and never while
-//!   the feed guard holds automatic writes.
+//!   the feed guard holds automatic writes. The floor and every rent it
+//!   compares are the cluster's (the Rent sysvar, [`crate::rent`]); with
+//!   the rate unknown or stale nothing opens on demand (fail safe).
 //!
 //! - **The wide rings** (`wide_rings` > 0, `playable-lane` build; devnet
 //!   runbook gap P6): once ring 128 is seeded, rings 129.. one at a time
@@ -38,6 +40,14 @@
 //!   WideConsumeRingSeed once the bound round is published; then
 //!   WideOpenProvince for every province of [`wide_plan`] not on chain.
 //!   A `NotImplemented` there (no WideSetRules yet) ends only the wide part.
+//!
+//! Rent: every rent figure a decision here compares fund balances with
+//! comes from [`RingDuty::rent`], the cluster's Rent sysvar as the keeper
+//! last read it ([`crate::rent::RentCache`]), never the compile-time
+//! 5,080 lamports/byte (keeper-rent-floor, D-verify-pr144-1). Without a
+//! usable rate a crowding OpenRing waits (`RingWait::RentUnknown`) and no
+//! province opens on demand; the genesis rings, the rim and the wide plan
+//! (no keeper-side balance prediction) are unaffected.
 //!
 //! A program that answers `NotImplemented` (99) for a land instruction
 //! ends this duty with an alert (the W2 program); the beacon duties keep
@@ -51,13 +61,12 @@ use solana_address::Address;
 use fclient::abi::{status, tag, Class};
 use fclient::decode::{Frontier, Province, RingSeed, Season};
 use fclient::ix;
-use fclient::land::{
-    frontier_extend_check, ring_open_check, ExtendWait, RingWait, FUND_RENT, PROVINCE_RENT_V2,
-};
+use fclient::land::{frontier_extend_check, ring_open_check, ExtendWait, RingWait};
 use fclient::ports::{ChainPort, DrandPort, PortResult};
 use permutation_rules::frontier::geometry::{ring_provinces, ProvinceCoord, R_MAX_HARD};
 
 use crate::engine::{BuildCtx, CancelReason, Engine, WriteSpec};
+use crate::rent::KeeperRent;
 use crate::rounds::Rounds;
 use crate::Tick;
 
@@ -104,6 +113,10 @@ pub struct RingDuty {
     pub wide: WideRings,
     /// `provinces_reach`: provinces on demand (status, tests).
     pub demand: Demand,
+    /// The cluster's rent as the keeper last read it (set before every
+    /// plan from [`crate::rent::RentCache::current`]); `Err` (or `None`,
+    /// before the first tick) = unknown or stale: rent decisions stop.
+    pub rent: Option<Result<KeeperRent, String>>,
 }
 
 /// `provinces_reach` (devnet-open-province) as this keeper saw it.
@@ -224,11 +237,14 @@ pub const WIDE_PROVINCE_BYTES: usize = 4_864;
 /// WideRequestRingSeed(r) checks `r × rent(4,864)` up to the last wide
 /// ring), plus the wedge's share of the rim plan and of every wide ring's
 /// plan. Conservative: it stays reserved after those openings are done.
-/// Pure.
-pub fn demand_fund_floor(cfg: &crate::config::KeeperConfig) -> u64 {
-    let wide_rent = frontier_abi::layout::rent(WIDE_PROVINCE_BYTES);
+/// Every rent at the cluster's rate `rent` (the program's checks use the
+/// Rent sysvar): 3,951,508,480 lamports for the devnet keeper A profile
+/// at 5,080, 5,413,877,760 at 6,960. Pure.
+pub fn demand_fund_floor(cfg: &crate::config::KeeperConfig, rent: &KeeperRent) -> u64 {
+    let wide_rent = rent.wide_province;
+    let province_rent_v2 = rent.land.province_v2;
     let legacy_check = if cfg.extend {
-        u64::from(cfg.extend_max_ring) * PROVINCE_RENT_V2
+        u64::from(cfg.extend_max_ring) * province_rent_v2
     } else {
         0
     };
@@ -238,7 +254,7 @@ pub fn demand_fund_floor(cfg: &crate::config::KeeperConfig) -> u64 {
         0
     };
     let rim_share =
-        rim_plan(cfg.rim_per_wedge as usize).len().div_ceil(6) as u64 * PROVINCE_RENT_V2;
+        rim_plan(cfg.rim_per_wedge as usize).len().div_ceil(6) as u64 * province_rent_v2;
     let wide_share = u64::from(cfg.wide_rings) * u64::from(cfg.wide_per_wedge) * wide_rent;
     legacy_check.max(wide_check) + rim_share + wide_share
 }
@@ -495,10 +511,23 @@ impl RingDuty {
             self.demand.waiting = None;
             return Ok(());
         }
+        // Fail safe: without the cluster's rate the floor is unknown.
+        let rent = match &self.rent {
+            Some(Ok(r)) => *r,
+            Some(Err(why)) => {
+                self.demand.waiting = Some(format!("{why}: not opening provinces"));
+                return Ok(());
+            }
+            None => {
+                self.demand.waiting = Some("rent rate not read: not opening provinces".into());
+                return Ok(());
+            }
+        };
         let funds = port.accounts(&t.addrs.province_funds(), 0).await?;
         let mut lam: [u64; 6] =
             core::array::from_fn(|w| funds[w].as_ref().map_or(0, |a| a.lamports));
-        let floor = demand_fund_floor(t.cfg);
+        let floor = demand_fund_floor(t.cfg, &rent);
+        let (fund_rent, province_rent) = (rent.land.fund, rent.land.province_v2);
         let mut waiting = None;
         let mut sent = 0u16;
         for (p, q) in missing {
@@ -512,11 +541,14 @@ impl RingDuty {
                 break;
             }
             let w = ix::wedge_of(p, q) as usize;
-            if lam[w].saturating_sub(FUND_RENT) < floor.saturating_add(PROVINCE_RENT_V2) {
-                waiting = Some(format!("wedge fund {w} at its floor ({floor} lamports)"));
+            if lam[w].saturating_sub(fund_rent) < floor.saturating_add(province_rent) {
+                waiting = Some(format!(
+                    "wedge fund {w} at its floor ({floor} lamports at {} lamports/byte)",
+                    rent.per_byte()
+                ));
                 continue;
             }
-            lam[w] -= PROVINCE_RENT_V2;
+            lam[w] -= province_rent;
             self.demand.planned.insert((p, q));
             sent += 1;
             let a = t.addrs.clone();
@@ -591,11 +623,18 @@ impl RingDuty {
         {
             self.waiting = Some(RingWait::TooSoon);
             false
+        } else if d <= r_max && !matches!(self.rent, Some(Ok(_))) {
+            // Fail safe: the funds' check needs the cluster's rent.
+            self.waiting = Some(RingWait::RentUnknown);
+            false
         } else if d <= r_max {
+            let Some(Ok(rent)) = self.rent else {
+                unreachable!("checked above")
+            };
             let funds = port.accounts(&t.addrs.province_funds(), 0).await?;
             let lam: [u64; 6] =
                 core::array::from_fn(|w| funds[w].as_ref().map_or(0, |a| a.lamports));
-            match ring_open_check(s, &fr, &lam, t.now) {
+            match ring_open_check(s, &fr, &lam, t.now, &rent.land) {
                 Ok(()) => {
                     self.waiting = None;
                     true
@@ -1077,17 +1116,18 @@ mod tests {
     /// check, the rim's and the wide rings' shares; off duties add nothing.
     #[test]
     fn the_demand_fund_floor_keeps_what_the_rings_duty_still_needs() {
-        let b = Address::new_from_array([2; 32]);
-        let mut c = crate::config::KeeperConfig::new(Address::new_from_array([1; 32]), 1, b);
-        assert_eq!(demand_fund_floor(&c), 0);
+        let r5080 = KeeperRent::at_rate(5_080);
+        let mut c = devnet_keeper_a();
+        c.extend = false;
+        c.rim_per_wedge = 0;
+        c.wide_rings = 0;
+        assert_eq!(demand_fund_floor(&c, &r5080), 0);
         c.extend = true;
-        c.extend_max_ring = 128;
-        assert_eq!(demand_fund_floor(&c), 128 * 24_709_120);
-        c.rim_per_wedge = 6;
-        c.wide_rings = 3;
-        c.wide_per_wedge = 6;
+        assert_eq!(demand_fund_floor(&c, &r5080), 128 * 24_709_120);
+        let c = devnet_keeper_a();
         let wide = frontier_abi::layout::rent(WIDE_PROVINCE_BYTES);
         assert_eq!(wide, 25_359_360);
+        assert_eq!(r5080.wide_province, wide);
         // (verify-pr138: the pin the constant's doc promises)
         #[cfg(feature = "playable-lane")]
         assert_eq!(
@@ -1096,11 +1136,170 @@ mod tests {
         );
         assert_eq!(rim_plan(6).len(), 42);
         assert_eq!(
-            demand_fund_floor(&c),
+            demand_fund_floor(&c, &r5080),
             131 * wide + 7 * 24_709_120 + 18 * wide
         );
         // 3,951,508,480 lamports: below a 6 SOL wedge fund less its genesis provinces
-        assert!(demand_fund_floor(&c) < 5_500_000_000);
+        assert_eq!(demand_fund_floor(&c, &r5080), 3_951_508_480);
+        assert!(demand_fund_floor(&c, &r5080) < 5_500_000_000);
+    }
+
+    /// keeper A's devnet profile rings duty (extend to 128, rim 6, wide
+    /// rings 3 × 6, provinces_reach 3).
+    fn devnet_keeper_a() -> crate::config::KeeperConfig {
+        let b = Address::new_from_array([2; 32]);
+        let mut c = crate::config::KeeperConfig::new(Address::new_from_array([1; 32]), 1, b);
+        c.extend = true;
+        c.extend_max_ring = 128;
+        c.rim_per_wedge = 6;
+        c.wide_rings = 3;
+        c.wide_per_wedge = 6;
+        c.provinces_reach = 3;
+        c
+    }
+
+    /// keeper-rent-floor (D-verify-pr144-1): the floor scales with the
+    /// cluster's rate. At 6,960 every term is 6,960/5,080 of the 5,080
+    /// floor (5.41 SOL), not the compile-time 3.95 SOL.
+    #[test]
+    fn the_demand_fund_floor_follows_the_cluster_rate() {
+        let c = devnet_keeper_a();
+        let f5080 = demand_fund_floor(&c, &KeeperRent::at_rate(5_080));
+        let f6960 = demand_fund_floor(&c, &KeeperRent::at_rate(6_960));
+        assert_eq!(f6960, 5_413_877_760);
+        assert_eq!(f6960, f5080 / 5_080 * 6_960);
+        // The SIMD-0194 sysvar (6,960 × 1.0) and the older one (3,480 × 2.0)
+        // give the same floor.
+        let old = KeeperRent::from_sysvar(fclient::rent::RentSysvar {
+            lamports_per_byte_year: 3_480,
+            exemption_threshold: 2.0,
+            burn_percent: 50,
+        })
+        .unwrap();
+        assert_eq!(demand_fund_floor(&c, &old), f6960);
+    }
+
+    /// One scan of the on-demand duty against funds `lam` at `rent`:
+    /// `(OpenProvince writes planned per wedge, waiting)`.
+    async fn one_demand_scan(
+        rent: Option<Result<KeeperRent, String>>,
+        lam: u64,
+    ) -> ([usize; 6], Option<String>) {
+        use crate::engine::EngineParams;
+        use crate::testkit::{self, FakeDrand, FakePort};
+        use fclient::addr::Addresses;
+        use fclient::budgets::Budgets;
+        use fclient::clock::SeasonClock;
+        let drand = FakeDrand::new();
+        let info = drand.key.info();
+        let g = info.genesis_time + 3_000;
+        let mut season = testkit::season_v2(g, 1_000, &info);
+        season.genesis_ring = 3;
+        let program = Address::new_from_array([0x5F; 32]);
+        let mut cfg = devnet_keeper_a();
+        cfg.program = program;
+        cfg.provinces_per_pass = 1_000;
+        let addrs = Addresses::new(program, 7);
+        let port = FakePort::default();
+        // Six settled ring-3 provinces, one a wedge: the provinces within 3
+        // of them on rings 4–6 are wanted (dozens a wedge).
+        let mut duty = RingDuty {
+            rent,
+            ..RingDuty::default()
+        };
+        for w in 0..6usize {
+            let pc = ring_provinces(3)[w * 3 + 1];
+            let mut d = testkit::province_v2(pc.p as i16, pc.q as i16, 0);
+            d[121] = 1; // N_SITES_USED
+            port.put(addrs.province(pc.p, pc.q), testkit::acct(program, d));
+            duty.opened.insert((pc.p, pc.q));
+        }
+        duty.seen_seeded = (0..=10).collect();
+        for f in addrs.province_funds() {
+            port.put(
+                f,
+                fclient::ports::Account {
+                    lamports: lam,
+                    data: vec![0; fclient::abi::size::PROVINCE_FUND],
+                    owner: program,
+                    executable: false,
+                },
+            );
+        }
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        let t = Tick {
+            slot: 5_000,
+            now: g + 600,
+            season: &season,
+            clock: SeasonClock::from_season(&season),
+            addrs: &addrs,
+            cfg: &cfg,
+        };
+        duty.plan_demand(&t, &port, &mut engine, 11).await.unwrap();
+        let mut per = [0usize; 6];
+        for k in engine.pending_keys() {
+            if let Some(c) = k.strip_prefix("open-province:") {
+                let (p, q) = c.split_once(',').unwrap();
+                per[ix::wedge_of(p.parse().unwrap(), q.parse().unwrap()) as usize] += 1;
+            }
+        }
+        assert_eq!(per.iter().sum::<usize>(), duty.demand.planned.len());
+        (per, duty.demand.waiting.clone())
+    }
+
+    /// keeper-rent-floor: the same funds, two cluster rates. A fund that
+    /// holds its rent + the floor + 2½ provinces at the cluster's rate
+    /// opens exactly 2 provinces a wedge, then waits "at its floor". At
+    /// 6,960 the old fixed-5,080 floor would have let the same balance open
+    /// 62 a wedge (and drained the fund below OpenRing's and the wide ring
+    /// seeds' checks).
+    #[tokio::test]
+    async fn on_demand_opens_stop_at_the_floor_of_the_cluster_rate() {
+        let c = devnet_keeper_a();
+        for rate in [5_080u64, 6_960] {
+            let r = KeeperRent::at_rate(rate);
+            let floor = demand_fund_floor(&c, &r);
+            let lam = r.land.fund + floor + 2 * r.land.province_v2 + r.land.province_v2 / 2;
+            let (per, waiting) = one_demand_scan(Some(Ok(r)), lam).await;
+            assert_eq!(per, [2; 6], "rate {rate}");
+            let w = waiting.unwrap();
+            assert!(
+                w.contains("at its floor") && w.contains(&format!("{floor} lamports at {rate}")),
+                "{w}"
+            );
+        }
+        // The 6,960 balance under the old compile-time figures: 62 a wedge.
+        let r = KeeperRent::at_rate(6_960);
+        let lam = r.land.fund
+            + demand_fund_floor(&c, &r)
+            + 2 * r.land.province_v2
+            + r.land.province_v2 / 2;
+        let old = KeeperRent::at_rate(5_080);
+        let old_floor = demand_fund_floor(&c, &old);
+        assert_eq!((lam - old.land.fund - old_floor) / old.land.province_v2, 62);
+        // At 5,080 with the 6,960 balance: more opens (the rate decides).
+        let (per, _) = one_demand_scan(Some(Ok(old)), lam).await;
+        assert!(per.iter().all(|&n| n > 2), "{per:?}");
+    }
+
+    /// keeper-rent-floor: fail safe. With the rate unknown or stale nothing
+    /// opens on demand, however rich the funds, and the status says why.
+    #[tokio::test]
+    async fn on_demand_opens_nothing_without_a_rent_rate() {
+        let rich = 100_000_000_000;
+        let (per, waiting) = one_demand_scan(None, rich).await;
+        assert_eq!(per, [0; 6]);
+        assert!(waiting.unwrap().contains("rent rate not read"));
+        let (per, waiting) = one_demand_scan(
+            Some(Err("rent rate stale: last read at slot 1".into())),
+            rich,
+        )
+        .await;
+        assert_eq!(per, [0; 6]);
+        assert!(waiting.unwrap().contains("stale"));
+        // (and with a rate, the same rich funds do open)
+        let (per, _) = one_demand_scan(Some(Ok(KeeperRent::at_rate(6_960))), rich).await;
+        assert!(per.iter().all(|&n| n > 0), "{per:?}");
     }
 
     /// Q-W1: the rim plan is on ring 128, each province once, every one beside a planned ring-129 province, in

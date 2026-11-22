@@ -56,10 +56,20 @@ pub enum PoolError {
 
 /// The reveal floor `F_r = 3 × ⌈R99 / N⌉ × (rent(slot) + rent(day) + fee(P_def, reveal))`
 /// (≈ 0.215 SOL at R99 = 4,000, N = 150).
+/// At the compile-time 5,080 lamports/byte; [`reveal_floor_at`] takes the
+/// cluster's rents.
 pub fn reveal_floor(r99: u64, n: usize, reveal_cost: u64) -> u64 {
-    let per = rent(size::ARRIVAL_SLOT)
-        + rent(size::ARRIVAL_DAY)
-        + fees::fee_for(P_DEF_MILLI, reveal_cost);
+    reveal_floor_at(
+        r99,
+        n,
+        reveal_cost,
+        rent(size::ARRIVAL_SLOT) + rent(size::ARRIVAL_DAY),
+    )
+}
+
+/// `F_r` with `arrival_rents` = rent(slot) + rent(day) at the cluster's rate.
+pub fn reveal_floor_at(r99: u64, n: usize, reveal_cost: u64, arrival_rents: u64) -> u64 {
+    let per = arrival_rents + fees::fee_for(P_DEF_MILLI, reveal_cost);
     3 * r99.div_ceil(n.max(1) as u64) * per
 }
 
