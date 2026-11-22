@@ -38,6 +38,8 @@ S1 の値は S1 の 30/時のバケットに合わせたもので、1 ターン 
 
 ```sh
 (cd workstreams/04-execution && cargo build --release --locked --bin runexec)
+(cd workstreams/03-composability/mcp && npm ci)   # client.mjs は --mcp が無くても mcp-client.mjs を読み込む
+(cd permutation-gateway && npm ci --ignore-scripts)
 node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41550 --key /path/r13.json --dir /絶対パス/r13 \
   --plan --runexec "$PWD/workstreams/04-execution/target/release/runexec" [--plan-db /絶対パス/plans.sqlite] [--plan-steps 12]
 ```
@@ -48,7 +50,8 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 | 着地・失敗は、記録した署名をチェーンで読んで決める。署名が残ったまま止まったら、再起動で署名を読む。二度と送らない | `executor.mjs` `reconcile`、④ `settle` |
 | 1 ターン 1 手（Join は数えない）を ④ の記録でも守る（計画をまたいで） | ④ `intend` の `TurnUsed` |
 | 2 つ目のプロセスは動けない：lease と epoch。新しいプロセスは前の lease（20 秒）が切れるまで待つ。古いプロセスの署名は `Fenced` で断られ、送られない。署名のない意図は `not-sent` に戻る | ④ `claim` |
-| チェーンが断った（failed・refused）、署名の行方が有効期間内に分からない（expired-unknown）、世界が変わった（建物の数が計画と違う、ページが出さない、待っても足りない、48 ターン待った）→ 計画を止め、次のターンに今の村から作り直す（`replaces`） | ④ `settle` / `stop`、`plan.mjs` `checkStep` |
+| チェーンが断った（failed・refused）、署名の行方が有効期間内に分からない（expired-unknown）、世界が変わった（建物の数が計画と違う、ページが出さない、待っても足りない、48 ターン待った）→ 計画を止め、今の村から作り直す（`replaces`）。ただし最初の手が同じ確かめですぐ止まる計画は作らない（作って止めてを繰り返すと計画の上限 24 個を使い切るため）。そのターンは住民の頭脳が決め、次の回にまた計画を試す | ④ `settle` / `stop`、`plan.mjs` `checkStep`、`executor.mjs` `next` |
+| 自分のプロセスの、署名のない意図が残った（署名の記録とその後の `not-sent` の記録の両方が失敗した）→ 何も送っていないので `not-sent` に戻して続ける（前は再起動まで止まっていた） | `executor.mjs` `next` |
 | 送る前の確かめは、ページが人に対して行うものと同じ（`buildOffers`・`trainCost`・部隊の規則・`resident_ok`） | `plan.mjs` |
 
 計画の待ち方は住民自身の設定（`PLAN_LIMITS`：手数 12、1 手の待ち 48 ターン、1 つの世界で計画 24 個まで、訓練 100、部隊 100）。
