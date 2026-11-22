@@ -351,3 +351,15 @@ pub const LOOKUP_MISMATCH: &str = "LookupMismatch";
 /// slot: its looked-up addresses rest on the archive's own claim
 /// (UNVERIFIABLE, never PASS).
 pub const LOOKUP_TABLE_UNREAD: &str = "LookupTableUnread";
+// VT snapshots and stale reads (verifier-alt-archive, 2026-11-22)
+/// A v0 transaction's lookup is past the end of its table as read at the
+/// pinned slot, which is BEFORE the transaction's slot (an index appended
+/// in between is honestly missing), and no snapshot settles it
+/// (UNVERIFIABLE, never PASS; F3 of verify-pr155).
+pub const LOOKUP_TABLE_STALE: &str = "LookupTableStale";
+/// A v0 transaction's lookup table is closed (or not read) at the pinned
+/// slot and the archive's snapshots of it do not settle the lookup: none
+/// holds the index, or the table's own transactions replay to another
+/// address / do not replay (UNVERIFIABLE, never PASS: a history served
+/// short shifts later indexes).
+pub const LOOKUP_SNAPSHOT_UNPROVEN: &str = "LookupSnapshotUnproven";

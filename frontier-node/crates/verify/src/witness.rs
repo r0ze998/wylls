@@ -40,7 +40,21 @@
 //!    season id at offset 8) and the final state of every program-owned
 //!    account (data, owner, lamports, executable);
 //! 6. the deployed binary (the ProgramData's ELF sha256) and its upgrade
-//!    authority.
+//!    authority;
+//! 7. (verifier-alt-archive, F1 / F2 of verify-pr155) when the archive has
+//!    v0 transactions with lookups: the witness's own read of every lookup
+//!    table they name, at its final-state slot, whose body must agree with
+//!    the primary's read (two reads of an append-only table are
+//!    prefix-compatible, the same at one slot, never reopened once closed,
+//!    the authority never changed but to none) — and **every lookup
+//!    confirmed on the witness's own reads**: its table read holds the
+//!    archived address at the index, or (a table closed since) the
+//!    snapshot's create / extend transactions, as the WITNESS serves them
+//!    (the same bytes, slot and error as archived), replay to it
+//!    ([`fclient::alt::replay`]). A lookup no witness read confirms is
+//!    `WitnessUnavailable`: an account-only snapshot of a closed table can
+//!    never be confirmed (no RPC serves an old account state), so such a
+//!    season stays `unproven`.
 //!
 //! Every item the witness could not serve (unreachable, behind the primary,
 //! a block not available, a page served twice) is `WitnessUnavailable`;
@@ -161,6 +175,83 @@ pub struct SourceRead {
     pub upgrade_authority: Option<String>,
     /// What could not be read, each said.
     pub errors: Vec<String>,
+    /// verifier-alt-archive (7.): the lookup tables the archive's v0
+    /// transactions name, as this source reads them (`None`: not read).
+    pub lookup_tables: Option<crate::input::LookupTables>,
+    /// The lookup table snapshots' create / extend transactions as this
+    /// source serves them (by signature; `None`: not served).
+    pub table_txs: BTreeMap<String, Option<Served>>,
+}
+
+/// What VS asks a witness about lookup tables (verifier-alt-archive): the
+/// tables the archive's v0 transactions name and the signatures of the
+/// snapshots' create / extend transactions of those tables.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableAsk {
+    pub keys: Vec<Address>,
+    pub sigs: Vec<fclient::ports::Signature>,
+}
+
+impl TableAsk {
+    pub fn of(txs: &[TxRecord], snaps: &[fclient::alt::Snapshot]) -> TableAsk {
+        let keys = crate::input::lookup_table_keys(txs);
+        let mut sigs = vec![];
+        for s in snaps.iter().filter(|s| keys.contains(&s.table)) {
+            for r in s.history.iter().flatten() {
+                if !sigs.contains(&r.signature) {
+                    sigs.push(r.signature);
+                }
+            }
+        }
+        TableAsk { keys, sigs }
+    }
+}
+
+fn served_json(t: &Served) -> Value {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let mut o = json!({
+    "slot": t.slot, "block_time": t.block_time, "tx": b64.encode(&t.tx), "logs": t.logs,
+    "err": t.err, "fee": t.fee, "units": t.units, "balances": bal_json(&t.balances)});
+    // (verifier-v0v1: only a v0 transaction with lookups has it; others stay byte-identical)
+    if !t.loaded.writable.is_empty() || !t.loaded.readonly.is_empty() {
+        o["loaded"] = fclient::vtx::loaded_json(&t.loaded);
+    }
+    o
+}
+
+fn served_from(s: &Value) -> Result<Served, String> {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let e = |m: &str| format!("witness {m}");
+    let str_of = |x: &Value| x.as_str().map(String::from);
+    Ok(Served {
+        slot: s
+            .get("slot")
+            .and_then(|x| x.as_u64())
+            .ok_or_else(|| e("slot"))?,
+        block_time: s.get("block_time").and_then(|x| x.as_i64()).unwrap_or(0),
+        tx: b64
+            .decode(
+                s.get("tx")
+                    .and_then(|x| x.as_str())
+                    .ok_or_else(|| e("tx"))?,
+            )
+            .map_err(|x| e(&x.to_string()))?,
+        logs: s
+            .get("logs")
+            .and_then(|x| x.as_array())
+            .map(|a| a.iter().filter_map(str_of).collect())
+            .unwrap_or_default(),
+        err: s.get("err").and_then(str_of),
+        fee: s.get("fee").and_then(|x| x.as_u64()).unwrap_or(0),
+        units: s.get("units").and_then(|x| x.as_u64()).unwrap_or(0),
+        balances: bal_from(s.get("balances").unwrap_or(&Value::Null))?,
+        loaded: fclient::vtx::loaded_from_meta(
+            &json!({"loadedAddresses": s.get("loaded").cloned().unwrap_or(Value::Null)}),
+        )
+        .map_err(|x| e(&x))?,
+    })
 }
 
 /// The primary's extra reads and the witnesses' (`Input::chain.cross`).
@@ -193,23 +284,12 @@ fn bal_from(v: &Value) -> Result<Option<Balances>, String> {
 
 impl SourceRead {
     pub fn to_json(&self) -> Value {
-        use base64::Engine as _;
-        let b64 = base64::engine::general_purpose::STANDARD;
-        json!({
+        let mut v = json!({
             "url": self.url,
             "genesis": self.genesis,
             "finalized_slot": self.finalized_slot,
             "signatures": self.signatures.as_ref().map(|s| s.iter().map(|(g, sl, f)| json!([g, sl, f])).collect::<Vec<_>>()),
-            "txs": self.txs.iter().map(|(s, t)| json!([s, t.as_ref().map(|t| {
-                let mut o = json!({
-                "slot": t.slot, "block_time": t.block_time, "tx": b64.encode(&t.tx), "logs": t.logs,
-                "err": t.err, "fee": t.fee, "units": t.units, "balances": bal_json(&t.balances)});
-                // (verifier-v0v1: only a v0 transaction with lookups has it; others stay byte-identical)
-                if !t.loaded.writable.is_empty() || !t.loaded.readonly.is_empty() {
-                    o["loaded"] = fclient::vtx::loaded_json(&t.loaded);
-                }
-                o
-            })])).collect::<Vec<_>>(),
+            "txs": self.txs.iter().map(|(s, t)| json!([s, t.as_ref().map(served_json)])).collect::<Vec<_>>(),
             "blocks": self.blocks.iter().map(|(s, b)| json!([s, b.as_ref().map(|b| json!({
                 "blockhash": b.blockhash, "previous": b.previous, "parent_slot": b.parent_slot,
                 "height": b.height, "signatures": b.signatures}))])).collect::<Vec<_>>(),
@@ -219,12 +299,23 @@ impl SourceRead {
             "program_hash": self.program_hash.map(hex::encode),
             "upgrade_authority": self.upgrade_authority,
             "errors": self.errors,
-        })
+        });
+        // (verifier-alt-archive: only when read; earlier cross-checks stay byte-identical)
+        if let Some(t) = &self.lookup_tables {
+            v["lookup_tables"] = t.to_json();
+        }
+        if !self.table_txs.is_empty() {
+            v["table_txs"] = Value::Array(
+                self.table_txs
+                    .iter()
+                    .map(|(s, t)| json!([s, t.as_ref().map(served_json)]))
+                    .collect(),
+            );
+        }
+        v
     }
 
     pub fn from_json(v: &Value) -> Result<SourceRead, String> {
-        use base64::Engine as _;
-        let b64 = base64::engine::general_purpose::STANDARD;
         let e = |m: &str| format!("witness {m}");
         let arr = |k: &str| v.get(k).and_then(|x| x.as_array()).cloned();
         let str_of = |x: &Value| x.as_str().map(String::from);
@@ -233,33 +324,7 @@ impl SourceRead {
             let sig = t.get(0).and_then(str_of).ok_or_else(|| e("txs"))?;
             let served = match t.get(1) {
                 None | Some(Value::Null) => None,
-                Some(s) => Some(Served {
-                    slot: s
-                        .get("slot")
-                        .and_then(|x| x.as_u64())
-                        .ok_or_else(|| e("slot"))?,
-                    block_time: s.get("block_time").and_then(|x| x.as_i64()).unwrap_or(0),
-                    tx: b64
-                        .decode(
-                            s.get("tx")
-                                .and_then(|x| x.as_str())
-                                .ok_or_else(|| e("tx"))?,
-                        )
-                        .map_err(|x| e(&x.to_string()))?,
-                    logs: s
-                        .get("logs")
-                        .and_then(|x| x.as_array())
-                        .map(|a| a.iter().filter_map(str_of).collect())
-                        .unwrap_or_default(),
-                    err: s.get("err").and_then(str_of),
-                    fee: s.get("fee").and_then(|x| x.as_u64()).unwrap_or(0),
-                    units: s.get("units").and_then(|x| x.as_u64()).unwrap_or(0),
-                    balances: bal_from(s.get("balances").unwrap_or(&Value::Null))?,
-                    loaded: fclient::vtx::loaded_from_meta(
-                        &json!({"loadedAddresses": s.get("loaded").cloned().unwrap_or(Value::Null)}),
-                    )
-                    .map_err(|x| e(&x))?,
-                }),
+                Some(s) => Some(served_from(s)?),
             };
             txs.insert(sig, served);
         }
@@ -329,6 +394,22 @@ impl SourceRead {
             errors: arr("errors")
                 .map(|a| a.iter().filter_map(str_of).collect())
                 .unwrap_or_default(),
+            lookup_tables: match v.get("lookup_tables") {
+                None | Some(Value::Null) => None,
+                Some(t) => Some(crate::input::LookupTables::from_json(t)?),
+            },
+            table_txs: {
+                let mut m = BTreeMap::new();
+                for t in arr("table_txs").unwrap_or_default() {
+                    let sig = t.get(0).and_then(str_of).ok_or_else(|| e("table_txs"))?;
+                    let served = match t.get(1) {
+                        None | Some(Value::Null) => None,
+                        Some(s) => Some(served_from(s)?),
+                    };
+                    m.insert(sig, served);
+                }
+                m
+            },
         })
     }
 }
@@ -870,6 +951,9 @@ pub fn judge(input: &Input) -> (Vec<Finding>, Option<Outcome>) {
                 );
             }
         }
+        // 7. lookup tables (verifier-alt-archive): the bodies (F1) and every
+        //    lookup confirmed on the witness's own reads (F2)
+        tables_judge(input, w, &who, &mut push);
         // 6. the deployed binary and its authority
         match (input.program_hashes.last().map(|(_, h)| *h), w.program_hash) {
             (Some(a), Some(b)) if a != b => push(
@@ -923,6 +1007,229 @@ pub fn judge(input: &Input) -> (Vec<Finding>, Option<Outcome>) {
         findings: out.len(),
     };
     (out, Some(outcome))
+}
+
+/// Item 7 (verifier-alt-archive): the lookup tables on witness `w`: F1, the
+/// table bodies against the primary's read; F2, every lookup of the
+/// archive's v0 transactions confirmed on the witness's own reads. Nothing
+/// when the archive has no lookups (a legacy / v1 cross-check is unchanged).
+fn tables_judge(
+    input: &Input,
+    w: &SourceRead,
+    who: &str,
+    push: &mut impl FnMut(&str, String, String, String),
+) {
+    use fclient::alt::{classify, prefix_compatible, replay, Read};
+    let keys = crate::input::lookup_table_keys(&input.txs);
+    if keys.is_empty() {
+        return;
+    }
+    let Some(wt) = w.lookup_tables.as_ref() else {
+        push(
+            WITNESS_UNAVAILABLE,
+            who.to_string(),
+            String::new(),
+            "the lookup tables the archive's v0 transactions name were not read from the witness"
+                .into(),
+        );
+        return;
+    };
+    // F1: the bodies.
+    if let Some(pt) = input.chain.lookup_tables.as_ref() {
+        for k in &keys {
+            let (Some(pa), Some(wa)) = (
+                pt.accounts.get(&k.to_bytes()),
+                wt.accounts.get(&k.to_bytes()),
+            ) else {
+                continue;
+            };
+            let later_is_witness = match (pt.slot, wt.slot) {
+                (Some(p), Some(q)) => Some(q >= p),
+                _ => None,
+            };
+            let d: Option<String> = match (classify(pa.as_ref()), classify(wa.as_ref())) {
+                (Read::Table(a), Read::Table(b)) => {
+                    let mut d = vec![];
+                    if !prefix_compatible(&a.addresses, &b.addresses) {
+                        d.push(format!(
+                            "addresses differ at index {}",
+                            a.addresses
+                                .iter()
+                                .zip(&b.addresses)
+                                .position(|(x, y)| x != y)
+                                .unwrap_or(0)
+                        ));
+                    } else if pt.slot.is_some() && pt.slot == wt.slot && a != b {
+                        d.push("the state differs at one slot".into());
+                    }
+                    // Grows only with the later read; deactivates and freezes
+                    // only forward.
+                    let (early, late) = match later_is_witness {
+                        Some(true) => (&a, &b),
+                        Some(false) => (&b, &a),
+                        None => (&a, &b),
+                    };
+                    if later_is_witness.is_some() && late.addresses.len() < early.addresses.len() {
+                        d.push(format!(
+                            "the later read holds {} addresses, the earlier {}",
+                            late.addresses.len(),
+                            early.addresses.len()
+                        ));
+                    }
+                    if a.authority.is_some() && b.authority.is_some() && a.authority != b.authority
+                    {
+                        d.push("the authority differs".into());
+                    }
+                    if later_is_witness.is_some()
+                        && early.authority.is_none()
+                        && late.authority.is_some()
+                    {
+                        d.push("the authority comes back after a freeze".into());
+                    }
+                    if later_is_witness.is_some()
+                        && early.deactivation_slot != u64::MAX
+                        && late.deactivation_slot != early.deactivation_slot
+                    {
+                        d.push("the deactivation slot changes after deactivation".into());
+                    }
+                    (!d.is_empty()).then(|| d.join(", "))
+                }
+                (Read::Closed, Read::Closed) => None,
+                // A closed table never reopens: a table read later than a
+                // closed read is a lie of one source.
+                (Read::Closed, Read::Table(_)) if later_is_witness != Some(false) => {
+                    Some("closed on the primary, a table on the witness's later read".into())
+                }
+                (Read::Table(_), Read::Closed) if later_is_witness == Some(false) => {
+                    Some("closed on the witness, a table on the primary's later read".into())
+                }
+                (Read::Closed, Read::Table(_)) | (Read::Table(_), Read::Closed) => None,
+                _ => account_diff(pa, wa),
+            };
+            if let Some(d) = d {
+                push(
+                    WITNESS_MISMATCH,
+                    format!("LookupTable:{k}"),
+                    String::new(),
+                    format!("the lookup table's state: {d} ({who})"),
+                );
+            }
+        }
+    }
+    // F2: every lookup confirmed on the witness's own reads.
+    let mut replays: BTreeMap<Address, Result<fclient::alt::Built, fclient::alt::Refused>> =
+        BTreeMap::new();
+    let mut said: BTreeSet<Address> = BTreeSet::new();
+    for (i, rec) in input.txs.iter().enumerate() {
+        let Ok(m) = crate::vmsg::Msg::of(rec) else {
+            continue;
+        };
+        for (t, idx, addr, _) in m.lookups() {
+            if said.contains(&t) {
+                continue;
+            }
+            let read = wt.accounts.get(&t.to_bytes()).map(|a| classify(a.as_ref()));
+            if let Some(Read::Table(tb)) = &read {
+                match tb.addresses.get(idx as usize) {
+                    Some(a) if *a == addr => continue,
+                    Some(a) => {
+                        said.insert(t);
+                        push(
+                            WITNESS_MISMATCH,
+                            format!("LookupTable:{t}"),
+                            rec.signature.to_string(),
+                            format!("tx#{i}: the witness's table holds {a} at index {idx}, the archive's meta.loadedAddresses {addr} ({who})"),
+                        );
+                        continue;
+                    }
+                    None => {}
+                }
+            }
+            // The snapshots' history of `t`, as the witness serves it.
+            let built = replays.entry(t).or_insert_with(|| {
+                let mut hist: Vec<TxRecord> = vec![];
+                let mut sigs: BTreeSet<String> = BTreeSet::new();
+                for sn in input.chain.lookup_snapshots.iter().filter(|s| s.table == t) {
+                    for r in sn.history.iter().flatten() {
+                        if !sigs.insert(r.signature.to_string()) {
+                            continue;
+                        }
+                        match w.table_txs.get(&r.signature.to_string()) {
+                            Some(Some(sv)) => {
+                                if sv.tx != r.tx || sv.slot != r.slot || sv.err != r.err {
+                                    return Err(fclient::alt::Refused::from(format!(
+                                        "the witness serves its transaction {} otherwise than the archive (bytes, slot or error)",
+                                        r.signature
+                                    )));
+                                }
+                                hist.push(TxRecord {
+                                    signature: r.signature,
+                                    slot: sv.slot,
+                                    tx: sv.tx.clone(),
+                                    err: sv.err.clone(),
+                                    loaded: sv.loaded.clone(),
+                                    ..TxRecord::default()
+                                });
+                            }
+                            _ => {
+                                return Err(fclient::alt::Refused::from(format!(
+                                    "the witness did not serve its transaction {}",
+                                    r.signature
+                                )))
+                            }
+                        }
+                    }
+                }
+                if hist.is_empty() {
+                    return Err(fclient::alt::Refused::from(
+                        "no snapshot of it carries its create / extend transactions".to_string(),
+                    ));
+                }
+                hist.sort_by_key(|r| r.slot);
+                replay(&t, &hist)
+            });
+            match crate::lookup::history_says(
+                "its transactions as the witness serves them",
+                Some(built),
+                idx,
+                &addr,
+                rec.slot,
+            ) {
+                crate::lookup::Settle::Same => {}
+                crate::lookup::Settle::Differs { why, .. } => {
+                    said.insert(t);
+                    let mismatch = built.is_ok();
+                    push(
+                        if mismatch {
+                            WITNESS_MISMATCH
+                        } else {
+                            WITNESS_UNAVAILABLE
+                        },
+                        format!("LookupTable:{t}"),
+                        rec.signature.to_string(),
+                        format!("tx#{i}: index {idx}: {why} ({who})"),
+                    );
+                }
+                crate::lookup::Settle::Silent(why) => {
+                    said.insert(t);
+                    push(
+                        WITNESS_UNAVAILABLE,
+                        format!("LookupTable:{t}"),
+                        rec.signature.to_string(),
+                        format!(
+                            "tx#{i}: the witness confirms no lookup of index {idx} in table {t}: its table read {}; {why} ({who})",
+                            match read {
+                                None => "is missing".to_string(),
+                                Some(Read::Closed) => "shows it closed".to_string(),
+                                Some(Read::Table(tb)) => format!("holds {} addresses", tb.addresses.len()),
+                                Some(Read::Foreign(_)) => "is not a lookup table".to_string(),
+                            }
+                        ),
+                    );
+                }
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------ the reads
@@ -1039,6 +1346,7 @@ pub async fn read_primary(
 /// accounts) and, after them, the program's whole signature list, each
 /// listed or archived transaction, the archive's blocks and the binary.
 /// Nothing fails: what is not read is said in `errors` (UNVERIFIABLE).
+#[allow(clippy::too_many_arguments)]
 pub async fn read_witness(
     url: &str,
     program: &Address,
@@ -1046,6 +1354,7 @@ pub async fn read_witness(
     txs: &[TxRecord],
     final_keys: &[Address],
     final_slot: u64,
+    tables: &TableAsk,
 ) -> SourceRead {
     let rpc = crate::input::rpc_client(url);
     let mut r = SourceRead {
@@ -1165,6 +1474,24 @@ pub async fn read_witness(
     }
     let slots: BTreeSet<u64> = txs.iter().map(|t| t.slot).collect();
     r.blocks = blocks(&rpc, &slots, &mut r.errors).await;
+    // 7. the lookup tables and the snapshots' table transactions
+    if !tables.keys.is_empty() {
+        match crate::input::fetch_lookup_tables(url, &tables.keys, final_slot).await {
+            Ok(t) => r.lookup_tables = Some(t),
+            Err(e) => r.errors.push(format!("the lookup tables: {e}")),
+        }
+    }
+    for sig in &tables.sigs {
+        let served = match rpc.get_finalized_transaction(sig).await {
+            Ok(t) => t.map(|t| Served::of(&t, None)),
+            Err(e) => {
+                r.errors
+                    .push(format!("getTransaction {sig} (a lookup table's): {e}"));
+                None
+            }
+        };
+        r.table_txs.insert(sig.to_string(), served);
+    }
     match crate::input::program_hash(url, program).await {
         Ok((_, h)) => r.program_hash = Some(h),
         Err(e) => r.errors.push(format!("the deployed .so hash: {e}")),
@@ -1178,6 +1505,7 @@ pub async fn read_witness(
 
 /// The cross-check of `txs` (and the finals read at `final_slot`) against
 /// every witness.
+#[allow(clippy::too_many_arguments)]
 pub async fn cross_check(
     primary: &str,
     witnesses: &[String],
@@ -1186,6 +1514,7 @@ pub async fn cross_check(
     txs: &[TxRecord],
     final_keys: &[Address],
     final_slot: u64,
+    tables: &TableAsk,
 ) -> CrossCheck {
     let mut c = CrossCheck {
         primary: read_primary(primary, program, season_id, txs).await,
@@ -1193,7 +1522,7 @@ pub async fn cross_check(
     };
     for w in witnesses {
         c.witnesses
-            .push(read_witness(w, program, season_id, txs, final_keys, final_slot).await);
+            .push(read_witness(w, program, season_id, txs, final_keys, final_slot, tables).await);
     }
     c
 }
@@ -1280,6 +1609,25 @@ pub fn mirror(input: &Input, url: &str) -> CrossCheck {
                 .map_or("none".into(), |a| a.to_string()),
         ),
         errors: vec![],
+        // (verifier-alt-archive: an honest witness reads the same tables and
+        //  serves the snapshots' table transactions as archived)
+        lookup_tables: if crate::input::lookup_table_keys(&input.txs).is_empty() {
+            None
+        } else {
+            input.chain.lookup_tables.clone()
+        },
+        table_txs: {
+            let ask = TableAsk::of(&input.txs, &input.chain.lookup_snapshots);
+            let mut m = BTreeMap::new();
+            for sn in &input.chain.lookup_snapshots {
+                for r in sn.history.iter().flatten() {
+                    if ask.sigs.contains(&r.signature) {
+                        m.insert(r.signature.to_string(), Some(Served::of(r, None)));
+                    }
+                }
+            }
+            m
+        },
     };
     CrossCheck {
         primary,

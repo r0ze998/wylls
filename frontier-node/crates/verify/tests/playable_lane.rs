@@ -464,6 +464,7 @@ fn record_natural(lamports_per_byte: u64) {
     // What getTransaction serves beside them (`meta.preBalances` /
     // `postBalances`) and the ProgramData's upgrade authority: VG's input.
     let chain = verify_core::input::ChainWitness {
+        lookup_snapshots: vec![],
         balances: landed
             .iter()
             .map(|l| {
@@ -1214,7 +1215,14 @@ async fn read_witnessed(
     let (_, h) = vi::program_hash(primary, program).await?;
     chain.cross = Some(
         verify_core::witness::cross_check(
-            primary, witnesses, program, SEASON_ID, &txs, &keys, final_slot,
+            primary,
+            witnesses,
+            program,
+            SEASON_ID,
+            &txs,
+            &keys,
+            final_slot,
+            &verify_core::witness::TableAsk::of(&txs, &[]),
         )
         .await,
     );
