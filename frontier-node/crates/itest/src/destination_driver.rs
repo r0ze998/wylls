@@ -96,14 +96,13 @@ pub fn evidence(
     t: &WideTransit,
     slot: u8,
 ) -> Result<Evidence, String> {
-    let landed: Vec<Vec<u8>> = c
+    let landed: Vec<_> = c
         .signatures_for(external, 256, None, None)
         .into_iter()
         .filter(|l| l.err.is_none())
-        .map(|l| l.wire.clone())
         .collect();
     keeper_core::expedition_steps::evidence_of(
-        landed.iter().map(|w| w.as_slice()),
+        landed.iter().map(|l| (l.wire.as_slice(), &l.loaded)),
         program,
         season,
         holding,
