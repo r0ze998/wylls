@@ -8,7 +8,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { promises as fsp } from 'node:fs';
 import { createLauncherServer, parseConfig } from '../src/frontier/local-play-launcher.mjs';
-import { COOP_BOARD_MODE, BOARD_PAGE_CSP, coopMount, coopRouteOf, openWorldBoard } from '../src/frontier/local-play-coop-board.mjs';
+import { COOP_BOARD_MODE, BOARD_PAGE_CSP, coopMount, coopRouteOf, openWorldBoard, chainWallClock, wallClockReader } from '../src/frontier/local-play-coop-board.mjs';
 import { createBoard, fixedSigner, unsignedRecord } from '../../workstreams/01-national-strategy/test/nokey.mjs';
 import { PAGE } from '../../workstreams/01-national-strategy/coop/board.mjs';
 import * as LP from '../../permutation-server/web/frontier/flocalplay.mjs';
@@ -76,8 +76,10 @@ test("a world's board is opened for the runner's own program and Season, its rec
   const deps = { createBoard: o => { made.push(o); return { o }; }, rpcReader: url => ({ url }) };
   const e = await openWorldBoard({ dir: tmp, meta: { program: PROGRAM, season_id: 11, rpc_url: 'http://127.0.0.1:41284' }, heraldPort: WORLD, pairPort: PAIR, deps });
   assert.deepEqual(e.ports, [WORLD, PAIR]);
-  assert.deepEqual([made[0].herald, made[0].programId, made[0].seasonId, made[0].dataDir, made[0].rpc, made[0].reader, made[0].cluster],
-    [`http://127.0.0.1:${WORLD}`, PROGRAM, '11', path.join(tmp, 'coop'), 'http://127.0.0.1:41284', { url: 'http://127.0.0.1:41284' }, 'localnet']);
+  // (fix-loop8, LP8-3: the reader is ①'s rpcReader of the world's RPC with its blockTime put on the board's clock)
+  assert.deepEqual([made[0].herald, made[0].programId, made[0].seasonId, made[0].dataDir, made[0].rpc, made[0].reader.url, typeof made[0].reader.transaction, made[0].cluster],
+    [`http://127.0.0.1:${WORLD}`, PROGRAM, '11', path.join(tmp, 'coop'), 'http://127.0.0.1:41284', 'http://127.0.0.1:41284', 'function', 'localnet']);
+  e.stop();
   await assert.rejects(openWorldBoard({ dir: tmp, meta: { program: PROGRAM, season_id: 11, rpc_url: 'http://example.com:1' }, heraldPort: WORLD, deps }), e2 => e2.code === 'CoopBoardNotReady');
 });
 
@@ -137,4 +139,37 @@ test('a launcher started without --coop-board serves no board (the page hides it
   await world(t, { coopBoard: false });
   const r = await raw({ path: `${coopMount(WORLD)}/coop/config` });
   assert.equal(r.status, 404);
+});
+
+// (fix-loop8, LP8-3 — live: a ×60 local world's chain blockTime was ~112 days behind the board's wall clock, so ①'s
+//  timing rule — sent after the answer, ±5 s — read every caravan as 「応じる前に送った隊商」 and none was ever counted)
+test('fix-loop8 LP8-3: the chain\'s blockTime is put on the board\'s wall clock by interpolating (chain, wall) samples; ①\'s rule is unchanged', async () => {
+  // a ×60 chain: chain = C0 + 60 × (wall − W0)
+  const C0 = 1785649416, W0 = 1795309161;
+  let wall = W0;
+  const call = async (method, params) => (method === 'getSlot' ? 9872 + Math.round((wall - W0) / 0.4) : C0 + 60 * (wall - W0));
+  const clock = chainWallClock({ call, now: () => wall });
+  assert.equal(clock.wallOf(C0 + 600), C0 + 600, 'no sample yet: as the chain gave it');
+  await clock.sample();
+  assert.equal(clock.wallOf(C0), W0, 'one sample: the offset');
+  for (let i = 0; i < 30; i++) { wall += 2; await clock.sample(); }
+  assert.equal(clock.samples, 31);
+  // a caravan sent 41 s of wall time after the first sample
+  assert.equal(clock.wallOf(C0 + 60 * 41), W0 + 41, 'inside the samples: interpolated');
+  assert.equal(clock.wallOf(C0 + 60 * 70), W0 + 70, 'past the last sample: the last rate');
+  assert.equal(clock.wallOf(C0 - 60 * 10), W0 - 10, 'before the first: the first rate');
+  // a chain that stalls (the runner under load) gives no backward or repeated samples
+  const before = clock.samples; assert.equal(await clock.sample(), false); assert.equal(clock.samples, before, 'the same chain time again: not kept');
+  const failing = chainWallClock({ call: async () => { throw new Error('down'); } });
+  assert.equal(await failing.sample(), false); assert.equal(failing.wallOf(5), 5);
+  // the reader: only a transaction's blockTime moves; null and absent stay
+  const r = wallClockReader({ account: async () => 'acc', transaction: async s => (s === 'none' ? null : { slot: 1, blockTime: s === 'nobt' ? null : C0 + 60 * 41, err: null }) }, clock);
+  assert.equal(await r.account('x'), 'acc');
+  assert.equal((await r.transaction('sig')).blockTime, W0 + 41);
+  assert.equal(await r.transaction('none'), null);
+  assert.equal((await r.transaction('nobt')).blockTime, null);
+  // ①'s own rule, unchanged: an answer received at W0 + 30 and that caravan → after
+  const { timingOf } = await import('../../workstreams/01-national-strategy/coop/goal.mjs');
+  assert.equal(timingOf((await r.transaction('sig')).blockTime, W0 + 30).status, 'after');
+  assert.equal(timingOf(C0 + 60 * 41, W0 + 30).status, 'before', 'the raw chain time read "before" (the bug)');
 });

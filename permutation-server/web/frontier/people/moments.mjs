@@ -89,6 +89,29 @@ export function detectMoments(prev, next, now) {
   return out;
 }
 
+/**
+ * One caption for many new villages of one nation in one province read at once (fix-loop8, LP8-9: a --demo
+ * world's turn filed seven homes in the province next door, and seven 「ボレアリスの新しい村」 tags stood over one
+ * another). Of each such group the first keeps its caption and carries `count` (the group's size); the rest play
+ * their flag without a caption (`caption: false`). Only what the list holds is counted: the page passes the moments
+ * it is about to show, already cut to what the viewer can see, so the count never says more than is in sight.
+ * The viewer's own, a village lost or taken, and every other moment are left as they are.
+ */
+export function mergeNewVillages(list) {
+  const isNew = m => m?.kind === 'village' && !m.own && !m.lost && !m.taken && (m.from === null || m.from === undefined) && Number.isInteger(m.to) && m.to < 6;
+  const groups = new Map();
+  for (const m of list) if (isNew(m)) { const k = `${m.p},${m.q}|${m.to}`; groups.set(k, (groups.get(k) ?? 0) + 1); }
+  const said = new Set();
+  return list.map(m => {
+    if (!isNew(m)) return m;
+    const k = `${m.p},${m.q}|${m.to}`, n = groups.get(k);
+    if (n < 2) return m;
+    if (said.has(k)) return { ...m, caption: false };
+    said.add(k);
+    return { ...m, count: n };
+  });
+}
+
 /** Keep the moments still playing (and at most MOMENT_MAX). */
 export const liveMoments = (list, now) => list.filter(m => now - m.t0 <= (MOMENT_SECS[m.kind] ?? 2)).slice(-MOMENT_MAX);   // (a moment still to come stays)
 

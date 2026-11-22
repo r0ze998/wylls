@@ -104,6 +104,10 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   Reference resident: workstreams/03-composability/mcp/examples/external-resident/ (README "plug in
                   your own AI"). Kept worlds, --demo, --ai, --random-map, --coexist, --resume; not --two or --wide
   --no-mcp        with --external: do not start the read-only MCP server
+  --no-coop-board do not attach workstream 01's co-op board (requests across nations; launcher option
+                  --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, 村 → 交易と防備 →
+                  「国をまたぐ依頼を開く」 opens it; a caravan to a request you accepted (「① 依頼の届け先」) is sent from
+                  the game in --coexist worlds (the lane that carries caravans); see PLAY-LOCAL §13
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -115,7 +119,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0
+AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0 COOP=1
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -148,6 +152,7 @@ while [ $# -gt 0 ]; do
     --coexist-node) COEXIST_NODE=1; shift ;;
     --external) need_val "$@"; EXTERNAL="$2"; shift 2 ;;
     --no-mcp) NO_MCP=1; shift ;;
+    --no-coop-board) COOP=0; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --no-build) NOBUILD=1; shift ;;
     --no-open) NOOPEN=1; shift ;;
@@ -390,6 +395,9 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   if [ "$TWO" = 1 ]; then printf '%s\n' --contest-pair "$PAIR_WORD"; fi
   if [ "$COEXIST" = 1 ]; then printf '%s\n' --coexist local-coexist-v1; fi
   if [ "$EXTERNAL_SET" = 1 ]; then printf '%s\n' --external-residents "$EXTERNAL"; fi
+  # (fix-loop8, LP8-3: workstream 01's co-op board — requests across nations — and the ⑮ titles card come with every world
+  #  unless --no-coop-board; only when this checkout's launcher knows the option)
+  if [ "$COOP" = 1 ] && grep -q "COOP_BOARD_MODE" "$LAUNCHER" 2>/dev/null; then printf '%s\n' --coop-board ws01-board-v1; fi
 }
 # (the read-only MCP server reads the first world slot's first external resident's public proxy: its own /h/* and /gw)
 MCP_HERALD="http://localhost:$EXT_BASE"

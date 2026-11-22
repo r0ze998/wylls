@@ -11,7 +11,8 @@
 //   2. discovers its world as a page does: `POST <launcher>/local-play/start {wallet}` — the operator must have
 //      admitted that public address (`--external-residents`); the answer names ITS world proxy. Funding is the world's
 //      newcomer set-up (the launcher's, the same amount as the player's); this client asks for nothing else.
-//   3. observes: the public herald through its proxy (`/h/me`, `/h/status`, `/h/season`, `/h/province`), and — with
+//   3. observes: the public herald through its proxy (`/h/me`, `/h/status`, `/h/season`, `/h/province` — with a
+//      village, its own province's resolved turn: a Muster waits until the program's resident_ok holds), and — with
 //      `--mcp` — the read-only MCP server's tools over its own OAuth link (it signs the link statement itself; read
 //      scope only; MCP has no write tool there).
 //   4. decides with rule.mjs (fixed, offline; replace it with your own AI) ONE of the page's six orders.
@@ -25,8 +26,8 @@ import { pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 import { submitLocalAct, followLocalAct } from '../../../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { createKeyFile, loadKeyFile } from './key.mjs';
-import { createMemory, decide, note } from './rule.mjs';
-import { askWorld, getJson, selfView, chainSecondsOf, publicHomes, pagePost, walletShaped } from './public.mjs';
+import { createMemory, decide, note, RETRY_LATER } from './rule.mjs';
+import { askWorld, getJson, selfView, chainSecondsOf, publicHomes, provinceFacts, programRefusal, pagePost, walletShaped } from './public.mjs';
 import { connectMcp } from './mcp-client.mjs';
 
 const loopback = u => { try { const x = new URL(u); return x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname) && x.pathname.replace(/\/$/, '') === (x.pathname.endsWith('/mcp') ? '/mcp' : ''); } catch { return false; } };
@@ -76,7 +77,8 @@ export async function discoverWorld({ launcher, wallet, admitWaitMs = 600000, si
  * Step 5 as a function: ONE order `d` = `{name, v, fields}` through the page's own `submitLocalAct` (one signature by
  * `signer`, one submit) and `followLocalAct` (never sent again). `sign` (optional) replaces the wallet call, as the
  * page's `sign` option: a caller that must record the signature before the submit (a restart-safe journal) passes it.
- * → `{outcome: 'landed' | 'failed' | 'refused' | 'unknown', code, signature, detail}`.
+ * → `{outcome: 'landed' | 'failed' | 'refused' | 'unknown', code, signature, detail, programCode?, programError?}` —
+ * `programError`: the program's error NAME (e.g. NotResident for Custom(26)) when the relay's refusal carried its code.
  */
 export async function sendOrder(d, { herald, info, identity, signer, launcher, signal, sign = null, follow = { tries: 20, every: 1000 } }) {
   let lastRefusal = null;
@@ -91,7 +93,8 @@ export async function sendOrder(d, { herald, info, identity, signer, launcher, s
     //  it is still followed by its signature and never sent again)
     outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown'; code = f.code ?? sent.relayCode ?? null;
   }
-  return { outcome, code, signature, detail: lastRefusal ? JSON.stringify(lastRefusal).slice(0, 300) : null };
+  const named = outcome === 'landed' ? null : programRefusal({ sent, refusal: lastRefusal });
+  return { outcome, code, signature, detail: lastRefusal ? JSON.stringify(lastRefusal).slice(0, 300) : null, ...(named ?? {}) };
 }
 
 export async function main(argv = process.argv.slice(2), { print = s => process.stdout.write(`${s}\n`) } = {}) {
@@ -122,12 +125,13 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   const tally = { sends: 0, landed: 0, failed: 0, refused: 0, unknown: 0, signatures: [] };
   let last = -Infinity, misses = 0;
   for (let round = 0; !stop.signal.aborted && (o.rounds === 0 || round < o.rounds); round++) {
-    let obs = null, nowSecs = null, homes = [], village = null;
+    let obs = null, nowSecs = null, homes = [], village = null, province = null;
     try { obs = selfView(await getJson(`${herald}/h/me/${key.address}`)); misses = 0; } catch (e) {
       if (++misses >= 5) { out('observe', { outcome: 'world-gone', why: e.message }); break; }
       out('observe', { outcome: 'no-answer', why: e.message }); await delay(o.cadenceMs, stop.signal); continue;
     }
-    if (obs && !obs.joined) { try { nowSecs = chainSecondsOf(await getJson(`${herald}/h/status`)); } catch { nowSecs = null; } }
+    if (obs && (!obs.joined || obs.holding)) { try { nowSecs = chainSecondsOf(await getJson(`${herald}/h/status`)); } catch { nowSecs = null; } }
+    if (obs?.holding) { try { province = await provinceFacts(herald, obs.holding, nowSecs); } catch { province = null; } }
     if (obs?.joined && !obs.holding) { try { homes = await publicHomes(herald, obs.faction); } catch { homes = []; } }
     if (obs?.holding && mcp) {
       try {
@@ -136,16 +140,18 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
         out('mcp', { tool: 'get_village_status', round, isError: r.isError, ...(r.isError ? { error: r.value?.error ?? null } : { village: village?.village ? { p: village.village.p, q: village.village.q, site: village.village.site } : null, stores: (village?.village?.stores ?? []).map(s => `${s.resource}:${s.have}`) }) });
       } catch (e) { out('mcp', { tool: 'get_village_status', round, outcome: 'failed', why: String(e?.message ?? e).slice(0, 120) }); }
     }
-    const d = decide(mem, { obs, homes, nowSecs, village });
+    const d = decide(mem, { obs, homes, nowSecs, village, province });
     const seen = { joined: obs?.joined ?? null, faction: obs?.faction ?? null, village: obs?.holding ? `${obs.holding.p},${obs.holding.q},${obs.holding.site}` : null, homesSeen: homes.length };
-    if (d.wait) { note(mem, d, 'wait'); out('decide', { round, outcome: 'wait', why: d.why, seen }); await delay(o.cadenceMs, stop.signal); continue; }
+    if (province) seen.province = province;
+    if (d.wait) { note(mem, d, 'wait'); out('decide', { round, outcome: 'wait', why: d.why, ...(d.hold ? { hold: d.hold } : {}), seen }); await delay(o.cadenceMs, stop.signal); continue; }
     if (tally.sends >= o.maxSends) { out('budget', { round, outcome: 'spent', why: `my own limit of ${o.maxSends} sends` }); break; }
     if (Date.now() - last < o.minGapMs) { await delay(o.minGapMs - (Date.now() - last), stop.signal); }
-    const { outcome, code, signature, detail } = await sendOrder(d, { herald, info, identity, signer, launcher: o.launcher, signal: stop.signal });
+    const { outcome, code, signature, detail, programCode, programError } = await sendOrder(d, { herald, info, identity, signer, launcher: o.launcher, signal: stop.signal });
     if (signature) { tally.sends += 1; last = Date.now(); tally.signatures.push(signature); }
     tally[outcome] += 1;
-    note(mem, d, outcome);
-    out('act', { round, act: d.name, fields: plain(d.fields), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail } : {}), ...(signature ? { signature } : {}), seen });
+    note(mem, d, outcome, programError ?? null);
+    out('act', { round, act: d.name, fields: plain(d.fields), why: d.why, outcome, ...(code ? { code } : {}), ...(Number.isInteger(programCode) ? { programCode, programError: programError ?? null } : {}),
+      ...(RETRY_LATER.includes(programError) ? { retry: 'later turn' } : {}), ...(detail ? { detail } : {}), ...(signature ? { signature } : {}), seen });
     await delay(o.cadenceMs, stop.signal);
   }
   await mcp?.close().catch(() => {});

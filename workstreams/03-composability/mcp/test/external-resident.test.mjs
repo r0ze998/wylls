@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync, chmodSync, writeFileSync, readFileSync, statSync, symlinkSync } from 'node:fs';
 import { createKeyFile, loadKeyFile, KEY_SCHEMA } from '../examples/external-resident/key.mjs';
-import { createMemory, decide, note, ROTATION, SESSION_SECONDS } from '../examples/external-resident/rule.mjs';
+import { createMemory, decide, note, ROTATION, SESSION_SECONDS, MUSTER_HOLD_ROUNDS } from '../examples/external-resident/rule.mjs';
 import { parseArgs } from '../examples/external-resident/agent.mjs';
-import { walletShaped, chainSecondsOf, selfView } from '../examples/external-resident/public.mjs';
+import { walletShaped, chainSecondsOf, selfView, provinceFacts, residentOk, programErrorName, programRefusal } from '../examples/external-resident/public.mjs';
 import { LOCAL_ACT_NAMES } from '../../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { parseTransaction } from '../../../../permutation-server/web/sdk/solana-tx.mjs';
 
@@ -74,7 +74,7 @@ test('X4 the rule: Join with the page\'s expiry, then a seen free home, then the
   assert.deepEqual(decide(m, { obs: { joined: true, faction: 3, holding: null }, homes }).fields, { p: -2, q: 0, site: 1 }, 'a refused site is not asked again');
   const obs = { joined: true, faction: 3, holding: { p: -2, q: 0, site: 1, tile: 17 } };
   const seen = [];
-  for (let i = 0; i < ROTATION.length * 2; i++) { const d = decide(m, { obs }); seen.push(d.name); note(m, d, d.name === 'Build' ? 'failed' : 'landed'); }
+  for (let i = 0; i < ROTATION.length * 2; i++) { const d = decide(m, { obs, province: { bell: 10, resolvedNext: 9 } }); seen.push(d.name); note(m, d, d.name === 'Build' ? 'failed' : 'landed'); }
   assert.ok(seen.every(n => LOCAL_ACT_NAMES.includes(n)));
   const m3 = createMemory({ nation: 3 }); m3.step = 1;
   const b = decide(m3, { obs }); assert.deepEqual([b.name, b.fields.item], ['Build', 0]);
@@ -95,4 +95,76 @@ test('X5 the public reads: the chain clock from /h/status; an unreadable /h/me i
   assert.equal(selfView({ v: 1, citizen: { bytes_b64: 'AAAA' }, holdings: [] }), null);
   assert.equal(selfView({ v: 2 }), null);
   assert.equal(selfView(null), null);
+});
+
+// LP8-11 (loop-play8): the reference client sent Muster while its province had not been resolved for the turn and was
+// refused LocalActRejected / Custom(26) = NotResident, unnamed, then cooled the Muster down as a plain failure.
+const MUSTER_STEP = ROTATION.findIndex(a => a.name === 'Muster');
+const villageObs = { joined: true, faction: 3, holding: { p: -2, q: 0, site: 1, tile: 17 } };
+
+test('X6 a Muster waits for its province (resident_ok: resolvedNext + 1 >= turn); unread is held; long lag skips it this pass', () => {
+  const m = createMemory({ nation: 3 }); m.step = MUSTER_STEP;
+  // ready: resolved through turn 8 (resolvedNext 9) at turn 10
+  const ok = decide(m, { obs: villageObs, province: { bell: 10, resolvedNext: 9 } });
+  assert.deepEqual([ok.name, ok.fields], ['Muster', { unit: 0, troops: 100, tile: 17 }]);
+  // behind: resolvedNext 8 at turn 10 → the program would refuse NotResident: not sent
+  const w = decide(m, { obs: villageObs, province: { bell: 10, resolvedNext: 8 } });
+  assert.equal(w.wait, true); assert.equal(w.hold, 'Muster'); assert.match(w.why, /NotResident/);
+  assert.equal(decide(m, { obs: villageObs, province: null }).wait, true, 'no province read: held, never guessed');
+  assert.equal(decide(m, { obs: villageObs, province: { bell: null, resolvedNext: 9 } }).wait, true, 'no turn: held');
+  // the wait keeps the rotation on Muster; once the province catches up the Muster goes
+  note(m, w, 'wait');
+  assert.equal(m.step, MUSTER_STEP);
+  assert.equal(decide(m, { obs: villageObs, province: { bell: 10, resolvedNext: 9 } }).name, 'Muster');
+  // a lag of MUSTER_HOLD_ROUNDS rounds: this pass goes on without it (one order per round, as before) ...
+  const m2 = createMemory({ nation: 3 }); m2.step = MUSTER_STEP;
+  for (let i = 0; i < MUSTER_HOLD_ROUNDS; i++) { const d = decide(m2, { obs: villageObs, province: { bell: 10, resolvedNext: 3 } }); assert.equal(d.hold, 'Muster'); note(m2, d, 'wait'); }
+  const next = decide(m2, { obs: villageObs, province: { bell: 10, resolvedNext: 3 } });
+  assert.notEqual(next.name, 'Muster'); assert.equal(next.wait, undefined);
+  note(m2, next, 'landed');
+  // ... and the next pass waits for it again
+  m2.step = MUSTER_STEP;
+  assert.equal(decide(m2, { obs: villageObs, province: { bell: 10, resolvedNext: 3 } }).hold, 'Muster');
+  // the other five orders never wait for the province (the program checks resident_ok only for Muster of the six)
+  for (const step of ROTATION.keys()) if (step !== MUSTER_STEP) {
+    const mm = createMemory({ nation: 3 }); mm.step = step;
+    assert.equal(decide(mm, { obs: villageObs, province: { bell: 10, resolvedNext: 0 } }).name, ROTATION[step].name);
+  }
+  assert.equal(residentOk({ bell: 10, resolvedNext: 9 }), true);
+  assert.equal(residentOk({ bell: 10, resolvedNext: 8 }), false);
+  assert.equal(residentOk({ bell: 10, resolvedNext: null }), null);
+});
+
+test('X7 a refusal with a program code is logged by NAME (Custom(26) → NotResident) and NotResident is retried later, not cooled down', () => {
+  assert.equal(programErrorName(26), 'NotResident');
+  assert.equal(programErrorName(21), 'Insufficient');
+  assert.equal(programErrorName(999999), null);
+  // the relay's answer as loop-play8 logged it (no program_code: the code is in the runner's message)
+  const refusal = { error: 'the local-play runner rejected the transaction before running it: it was not sent', code: 'LocalActRejected',
+    detail: { code: -32002, message: 'Transaction simulation failed: InstructionError(3, Custom(26))', signature: 'x' } };
+  assert.deepEqual(programRefusal({ sent: { ok: false, code: 'LocalActRejected' }, refusal }), { programCode: 26, programError: 'NotResident' });
+  assert.deepEqual(programRefusal({ sent: { ok: false, code: 'LocalActRejected', programCode: 27 } }), { programCode: 27, programError: 'ProvinceFull' });
+  assert.deepEqual(programRefusal({ refusal: { code: 'LocalActRejected', detail: { program_code: 26 } } }), { programCode: 26, programError: 'NotResident' });
+  assert.equal(programRefusal({ refusal: { code: 'ResidentAlreadyActed', detail: { bell: 13 } } }), null);
+  // NotResident: the rotation stays on Muster with no cooldown; the next round checks the province again first
+  const m = createMemory({ nation: 3 }); m.step = MUSTER_STEP;
+  const d = decide(m, { obs: villageObs, province: { bell: 10, resolvedNext: 9 } });
+  note(m, d, 'refused', 'NotResident');
+  assert.equal(m.step, MUSTER_STEP); assert.equal(m.cooldown.Muster, undefined);
+  assert.equal(decide(m, { obs: villageObs, province: { bell: 11, resolvedNext: 9 } }).hold, 'Muster');
+  assert.equal(decide(m, { obs: villageObs, province: { bell: 11, resolvedNext: 10 } }).name, 'Muster');
+  // any other code: as before, the order cools down and the rotation moves on
+  const m2 = createMemory({ nation: 3 }); m2.step = MUSTER_STEP;
+  note(m2, decide(m2, { obs: villageObs, province: { bell: 10, resolvedNext: 9 } }), 'refused', 'Insufficient');
+  assert.equal(m2.step, MUSTER_STEP + 1); assert.ok(m2.cooldown.Muster > m2.decisions);
+});
+
+test('X8 provinceFacts reads the turn (Season genesis + chain clock) and its own province\'s resolvedNext; unread is null', async () => {
+  const asked = [];
+  const herald = { season: async () => ({ ok: true, season: { genesisTs: 1_000_000 } }), province: async (p, q) => { asked.push([p, q]); return { ok: true, province: { resolvedNext: 7 } }; } };
+  assert.deepEqual(await provinceFacts('http://localhost:1', { p: -2, q: 0, site: 1 }, 1_000_000 + 600 * 8 + 5, { herald }), { bell: 8, resolvedNext: 7 });
+  assert.deepEqual(asked, [[-2, 0]], 'its own province only');
+  const down = { season: async () => ({ ok: false, code: 'NotFound' }), province: async () => { throw new Error('no answer'); } };
+  assert.deepEqual(await provinceFacts('http://localhost:1', { p: -2, q: 0, site: 1 }, 1_000_000, { herald: down }), { bell: null, resolvedNext: null });
+  assert.deepEqual(await provinceFacts('http://localhost:1', { p: -2, q: 0, site: 1 }, null, { herald }), { bell: null, resolvedNext: 7 });
 });

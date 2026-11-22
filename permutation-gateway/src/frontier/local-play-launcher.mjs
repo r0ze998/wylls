@@ -1142,8 +1142,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   }
   const dir = persist ? path.join(home, 'starts', `${Date.now()}-${randomUUID().slice(0, 8)}`) : path.join(c.data, randomUUID()); await fs.mkdir(dir, persist ? { mode: 0o700 } : undefined);
   const children = [], externalProxies = []; let stopping = null, timer, ready = false, proxy, pairProxy;
+  // (fix-loop8: the co-op board's chain-clock sampler, stopped with the world)
+  let coopStop = null;
   const stop = (reason = 'requested') => (stopping ??= (async () => {
     clearInterval(timer);
+    try { coopStop?.(); } catch { /* the sampler only reads */ }
     try {
       for (const p of children) if (!exited(p)) p.kill('SIGINT');
       const gone = Promise.all(children.map(p => (exited(p) ? null : new Promise(r => p.once('exit', r)))));
@@ -1284,6 +1287,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (B13, TEST-ONLY `--coop-board`: ①'s co-op board for this world, in this process, its records in the world's own
     //  directory; served on the launcher's origin under the mount of each of this world's proxies — local-play-coop-board.mjs)
     const coop = c.coopBoard === true ? await (limit.openWorldBoard ?? openWorldBoard)({ dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null }) : null;
+    coopStop = typeof coop?.stop === 'function' ? coop.stop : null;
     // (TEST-ONLY operator residents, ⑤ option A: only on a natural world whose launcher was started with
     //  `--operator-residents <n>`; each is an ordinary participant — its own memory-only TEST wallet, funded like the
     //  player's, its own relay — and the page is told nothing about them: they are shown as any other resident is)

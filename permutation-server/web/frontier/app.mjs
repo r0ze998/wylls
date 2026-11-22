@@ -202,7 +202,7 @@ import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { mountRadioKeys } from './hud/radiokeys.mjs';
 import { BUILD_ITEMS, buildItemOf, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
-import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
+import { momentSnapshot, detectMoments, liveMoments, mergeNewVillages } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
 import { battleScene, startBattle, battleLive, endBattle, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
 import { decode as decodeAccount } from './fcodec.mjs';
@@ -2603,6 +2603,7 @@ function checkMoments() {
   // site the viewer holds now that another nation held: the two largest things that happen to a player, which played
   // as small as a finished sawmill. The holdings no longer list a village just taken, so the last look's are kept)
   const mineNow = new Set((FS.holdings ?? []).map(h => `${h.p},${h.q},${h.site}`));
+  const shown = [];
   for (const m of fresh) {
     const key = `${m.p},${m.q},${m.site}`, village = m.kind === 'village';
     const lost = village && ownSitesSeen.has(key) && !mineNow.has(key);
@@ -2612,8 +2613,10 @@ function checkMoments() {
     //  gone — plays only where its tile is in sight now. The page reads whole provinces it cannot see: AI villages' were
     //  announced over blank, never-seen land)
     if (!own && !taken && !viewTile(m.p, m.q, m.tile)) continue;
-    fxEmit('moment', { ...m, lost, taken, own });
+    shown.push({ ...m, lost, taken, own });
   }
+  // (fix-loop8, LP8-9: many new villages of one nation in one province, all in sight, get one caption with their count)
+  for (const m of mergeNewVillages(shown)) fxEmit('moment', m);
   if (FS.holdings) ownSitesSeen = mineNow;
 }
 
@@ -4688,7 +4691,8 @@ async function loadSeason(herald) {
   // (boot also streams them progressively through the shared bounded queue)
   if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
-  setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
+  // (fix-loop8, LP8-10: null while a fast clock's pace is not known yet: the page then says no real time rather than a wrong one)
+  setTermsPace(() => (FS.chain?.accelerated ? (FS.chain.rateKnown === false ? null : FS.chain.rate) : 1));
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
   // (2026-11-17, ⑦: another pinned world's samples are not this world's: its chain time, slot and offset would hold

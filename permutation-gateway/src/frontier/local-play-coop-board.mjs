@@ -33,6 +33,60 @@ const SHIELD = Object.freeze({ 'x-content-type-options': 'nosniff', 'referrer-po
 const API_CSP = "default-src 'none'; frame-ancestors 'none'";
 
 /**
+ * (fix-loop8, LP8-3) A local world's chain clock is not the wall clock: the ×60 test clock (and a kept world's own
+ * genesis) put the chain's `blockTime` months away from the time the board stamps on what it receives (`receivedAt`,
+ * Date.now()). ①'s board compares the two to tell a caravan sent AFTER its answer (goal.mjs timingOf, ±5 s): every
+ * caravan of a local world read as 「応じる前に送った隊商」 and was never counted (fix-loop8 live, 2026-11-22). The board's
+ * rules are unchanged: what it reads of the chain is put on ITS clock — each `blockTime` becomes the wall time at which
+ * the chain showed that time, interpolated between samples of (chain time, wall time) taken every `every` ms through
+ * the world's own RPC (getSlot, getBlockTime). Outside the samples the nearest pair's rate extrapolates; no sample yet
+ * → the value is left as the chain gave it. TEST-ONLY local worlds; a devnet board is never built here.
+ */
+export function chainWallClock({ call, now = () => Date.now() / 1000, max = 8192 } = {}) {
+  const at = [];   // [{chain, wall}], chain strictly increasing
+  const rate = (a, b) => (b.chain > a.chain && b.wall > a.wall ? (b.chain - a.chain) / (b.wall - a.wall) : 1);
+  return Object.freeze({
+    /** One sample: the chain time of the latest slot, and the wall time it was read at. → whether it was kept. */
+    async sample() {
+      let chain;
+      try { const slot = await call('getSlot', [{ commitment: 'confirmed' }]); chain = await call('getBlockTime', [slot]); } catch { return false; }
+      const wall = now();
+      if (!Number.isFinite(chain) || !Number.isFinite(wall)) return false;
+      const last = at.at(-1);
+      if (last && chain <= last.chain) return false;
+      at.push({ chain, wall });
+      if (at.length > max) at.splice(0, at.length - max);
+      return true;
+    },
+    /** The wall time (seconds, whole) at which the chain showed `t`; `t` itself when there is no sample. */
+    wallOf(t) {
+      if (!Number.isFinite(t) || at.length === 0) return t;
+      if (at.length === 1) return Math.round(at[0].wall + (t - at[0].chain));
+      let i = at.findIndex(x => x.chain >= t);
+      if (i === 0) i = 1; else if (i < 0) i = at.length - 1;
+      const a = at[i - 1], b = at[i];
+      return Math.round(a.wall + (t - a.chain) / rate(a, b));
+    },
+    get samples() { return at.length; },
+  });
+}
+/** ①'s reader with every transaction's `blockTime` put on the board's clock (`clock.wallOf`); everything else as read. */
+export function wallClockReader(reader, clock) {
+  return Object.freeze({ ...reader, async transaction(signature) {
+    const t = await reader.transaction(signature);
+    return t && Number.isFinite(t.blockTime) ? { ...t, blockTime: clock.wallOf(t.blockTime) } : t;
+  } });
+}
+/** The JSON-RPC call of a loopback RPC (the world's runner). */
+const rpcCall = url => async (method, params) => {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(5000) });
+  const j = await r.json();
+  if (j.error) throw new Error(`rpc ${method}: ${j.error.message ?? j.error.code}`);
+  return j.result;
+};
+export const COOP_CLOCK_SAMPLE_MS = 2000;
+
+/**
  * One world's board: ①'s `createBoard` for the world's program and Season (the runner's own first line, `meta`),
  * reading the chain through the world's RPC and the herald through the world's proxy, its records in `<dir>/coop`.
  * → `{board, ports}`: `ports` the proxy ports whose mounts name it.
@@ -41,9 +95,14 @@ export async function openWorldBoard({ dir, meta, heraldPort, pairPort = null, d
   const { createBoard } = deps.createBoard ? deps : await import(BOARD_MODULE);
   const { rpcReader } = deps.rpcReader ? deps : await import(CHAIN_MODULE);
   if (typeof meta?.program !== 'string' || !Number.isSafeInteger(meta?.season_id) || typeof meta?.rpc_url !== 'string' || !/^http:\/\/127\.0\.0\.1:\d{4,5}$/.test(meta.rpc_url)) throw Object.assign(new Error('CoopBoardNotReady'), { code: 'CoopBoardNotReady', status: 503 });
+  // (fix-loop8, LP8-3: the chain's times on the board's clock — chainWallClock above; sampled until `stop`)
+  const clock = deps.clock ?? chainWallClock({ call: deps.call ?? rpcCall(meta.rpc_url) });
+  const timer = deps.clock ? null : setInterval(() => { clock.sample().catch(() => {}); }, COOP_CLOCK_SAMPLE_MS);
+  timer?.unref?.();
+  if (!deps.clock) await clock.sample().catch(() => {});
   const board = createBoard({ herald: `http://127.0.0.1:${heraldPort}`, programId: meta.program, seasonId: String(meta.season_id), dataDir: path.join(dir, 'coop'),
-    reader: rpcReader(meta.rpc_url), rpc: meta.rpc_url, cluster: 'localnet' });
-  return Object.freeze({ board, ports: Object.freeze([heraldPort, ...(pairPort !== null ? [pairPort] : [])]) });
+    reader: wallClockReader(rpcReader(meta.rpc_url), clock), rpc: meta.rpc_url, cluster: 'localnet' });
+  return Object.freeze({ board, clock, ports: Object.freeze([heraldPort, ...(pairPort !== null ? [pairPort] : [])]), stop: () => { if (timer) clearInterval(timer); } });
 }
 
 const reply = (res, status, body, type = 'application/json; charset=utf-8', csp = API_CSP) => {

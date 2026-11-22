@@ -289,7 +289,8 @@ export default {
   '詳細で到着ターンの候補を入力し、もう一度確認してください。': 'Enter a proposed arrival turn in Details, then check again.',
   '到着ターンの候補が、記録から計算した範囲に入りません。': 'The proposed arrival turn is outside the range calculated from these records.',
   'この記録では経路を計算できません。': 'These records do not support a route calculation.',
-  '記録上の移動時間 {0} 秒・塔の消耗 {1} bps': 'Recorded travel time: {0} seconds; tower wear: {1} bps',
+  '記録上の移動時間 {0} 秒・物見櫓に見張られる道で兵の {1}% を失います': 'Recorded travel time: {0} seconds; watchtowers along the road cost {1}% of the troops',
+  '記録上の移動時間 {0} 秒（物見櫓に見張られる区間はありません）': 'Recorded travel time: {0} seconds (no stretch watched by watchtowers)',
   '到着候補：ターン {0}〜{1}': 'Proposed arrival range: turns {0}–{1}',
   // (the earliest turn of that observed range, offered for the draft's own field: a proposal, not a departure)
   '最も早い候補（ターン {0}）を使う': 'Use the earliest proposed turn ({0})',

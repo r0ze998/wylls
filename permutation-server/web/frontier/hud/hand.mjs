@@ -545,15 +545,17 @@ function outboundLocalDepart(FS, ready) {
     : d.status === 'failed' ? html`<p class="pop-line local-depart-failed" role="alert">${L`出発は失敗しました（理由 ${d.code ?? '?'}）。軍勢は出発していません。署名 ${sig}`}</p>`
     : d.status === 'unknown' ? html`<p class="pop-line local-depart-unknown" role="alert">${L`結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
     : d.status === 'error' ? html`<p class="pop-line local-depart-error" role="alert">${L`出発できませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  // (fix-loop8, LP8-1: the page's own retry after a run ended unsent because the clock moved — controller sendLocalPlayDeparture)
+  const retry = FS.departRetry ? html`<p class="pop-line local-depart-retry" role="status">${L`出発の途中で世界の時計が進みました（何も送っていません）。条件を読み直して、もう一度送ります（${FS.departRetry.n} / ${FS.departRetry.of} 回目）…`}</p>` : '';
   const settle = d.status === 'unknown' || d.status === 'submitted';
   // (a departure was already sent on this observation of the conditions: it is used up until they are read again)
   const spent = localDepartSpent(FS);
   if (spent) ready = false;
   return html`<div class="outbound-local-depart"><p class="pop-line">${L`ローカルプレイ：この軍勢を、このページのテスト用ウォレットの署名で出発させます（このマシンの試験用の世界だけ）。封の中身はこのページのメモリにだけ残り、再読み込みすると失われます。`}</p>
-    ${line}
+    ${retry || line}
     <div class="pop-foot">${settle ? html`<button type="button" class="btn small" data-act="outbound-local-reconcile" ${raw(d.busy ? 'aria-disabled="true"' : '')}>${L`結果を照合する`}</button>`
-      : html`<button type="button" class="btn primary" data-act="outbound-local-depart" ${raw(d.busy || !ready ? 'aria-disabled="true"' : '')}>${d.busy ? L`出発を送っています…` : L`出発する（ローカルプレイ）`}</button>`}
-      ${!ready && !d.busy && !settle ? html`<span>${spent ? L`この確認結果ではすでに出発を送りました。もう一度出発するには「出発条件を確認」で最新の状態を読み直してください。` : L`先に「出発条件を確認」で条件を満たしてください。`}</span>` : ''}</div></div>`;
+      : html`<button type="button" class="btn primary" data-act="outbound-local-depart" ${raw(d.busy || FS.departRetry || !ready ? 'aria-disabled="true"' : '')}>${d.busy || FS.departRetry ? L`出発を送っています…` : L`出発する（ローカルプレイ）`}</button>`}
+      ${!ready && !d.busy && !FS.departRetry && !settle ? html`<span>${spent ? L`この確認結果ではすでに出発を送りました。もう一度出発するには「出発条件を確認」で最新の状態を読み直してください。` : L`先に「出発条件を確認」で条件を満たしてください。`}</span>` : ''}</div></div>`;
 }
 
 /**
@@ -690,9 +692,15 @@ function outboundRouteReport(check, pick = null, entered = '', directions = []) 
     : r.code === 'RoutePalisade' ? L`道の途中の柵を通れません。`
     : r.code === 'ArrivalRequired' ? L`詳細で到着ターンの候補を入力し、もう一度確認してください。`
     : ['ArrivalTooEarly', 'ArrivalTooLate', 'ArrivalAfterSeason', 'ArrivalWindowEmpty'].includes(r.code) ? L`到着ターンの候補が、記録から計算した範囲に入りません。`
+    // (fix-loop8, LP8-8: said as the card's own line for that draft error says it, not as 「経路を計算できません」)
+    : r.code === 'WideDestinationRequired' ? L`終点はまだリング 128 の内側です。境界の外まで道を続けてください。`
     : r.code ? L`この記録では経路を計算できません。` : null;
   return html`<div class="outbound-route-report" role="status">
-    ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
+    ${r.travelSecs !== null ? html`<p class="pop-line">${r.wearBps > 0
+      // (fix-loop8, LP8-8: the wear is the S1 WATCHTOWERS' (物見櫓, structure.rs wear_bps) — 「塔」 read as the central tower
+      //  that ⑭ abolished; said in percent, and only when there is some)
+      ? L`記録上の移動時間 ${r.travelSecs} 秒・物見櫓に見張られる道で兵の ${fmtNum(r.wearBps / 100)}% を失います`
+      : L`記録上の移動時間 ${r.travelSecs} 秒（物見櫓に見張られる区間はありません）`}</p>` : ''}
     ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
     ${ROUTE_WHY[r.code] ? outboundRefusalLine({ code: r.code, stepIndex: r.stepIndex, direction: Number.isInteger(r.stepIndex) ? directions[r.stepIndex] ?? null : null }, { steps: directions.length })
       : why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}

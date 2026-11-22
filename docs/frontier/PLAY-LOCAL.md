@@ -323,7 +323,14 @@ training are the same rules as devnet.
 
 ## 8. Known problems (2026-11-22, main through #142)
 
-### 8.1 Still on main (after #137)
+### 8.1 Still on main (after #137; loop-play8's LP8-1 … 11 are fixed by #149)
+
+Fixed by #149 (fix-loop8): the boundary card stuck on the DepartDraftChanged line (LP8-1: the page reads the conditions
+again and sends again up to 3 times, saying 「出発の途中で世界の時計が進みました…（n / 3 回目）」); the nation pick lost
+while loading (LP8-2: the press is made again automatically, or the card says 「…さきほどの「始める」は取り消しました…もう一度押してください。」);
+① co-op board deliveries (LP8-3, §13); the wide village's 「次の一手」 after a capture (LP8-5); telling ⑨/⑩ partners
+apart (LP8-6, 7); the 「塔の消耗」 wording (LP8-8); stacked new-village tags (LP8-9); the ×60 intro and remaining time
+(LP8-10); the outside AI resident's Muster (LP8-11); the 国と領土 list (LP7-6).
 
 The problems loop-play6 found (LP6-1 … 15) were fixed by #128 and #130, and verify-pr130 and verify-pr133 played them
 (only the rim village's long-wait text, LP6-9, was not seen: the load never got that high). What is left is below. None
@@ -331,7 +338,6 @@ is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Boundary card (×60) | when 「出発する」 is refused with 「出発できませんでした（DepartDraftChanged）。何も送っていません。」 the card stays on that line: the arrival field keeps a past turn, no 「間に合う候補」 button appears, and the results of 「地形・時間を確認」 and 「出発条件を確認」 vanish at once (loop-play8 LP8-B) | close the card with its × and reopen it from 「境界への道を準備」, then draw the road again (in loop-play8 it left 34 s after reopening) |
 | Boundary card (×60) | 「出発条件を確認」 is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
 | Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
@@ -341,11 +347,14 @@ is a rules question.
 
 Small ones (nothing blocks play):
 - The 「この試験世界について」 box covers the 「支配する州」 bar and the top of 「全体図」; 「たたむ」 folds it.
-- On the ×60 nation picker 「参加の受付は第 N ターンまで（あと約 2 時間）」 and 「（あと約 73 分）」 alternate. The `--demo`
-  picker's intro may say a turn is about 10 minutes of real time; at ×60 it is about 10 s (verify-pr119).
-- After a march, 「国と領土」's reach list offers the keep your host already stands on (above it: 「…進軍は到着のターン N を過ぎ、結果が出ています。…」).
+- For the first seconds of the ×60 nation picker the clock rate is not known yet: the intro says 「ゲーム内の 10 分」 and
+  the remaining time is not shown (#149; before, 「あと約 2 時間」 and 「あと約 73 分」 alternated and the intro said 10 minutes of real time).
 - Selecting a never-seen province says 「未測量 … 地形だけを図にしています。」 but the map draws it blank.
-- After a wide village (W2) takes a keep, 「次の一手（広い土地）」 becomes pressable but sends nothing; a while later it starts again from training, and the 「結果：…砦を奪いました。」 line is gone (loop-play8).
+- After a wide village (W2) takes a keep, the card waits with 「砦を奪った軍勢は、その砦に残って守っています。…（自動では送りません）」;
+  when the next step can be sent it says 「次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。」. The 「結果：…砦を奪いました。」
+  line stays after the next training is sent (#149, LP8-5).
+- Under heavy load (load average 12–31) a wide village's province can stay 200+ turns behind for tens of minutes
+  (loop-play8 LP8-4; a load matter, only measured in #149).
 
 ### 8.2 How ×60 behaves (after #102, #105, #109, #117, #120)
 
@@ -593,3 +602,33 @@ program's own SeizeVault, RaidDomestic and RaidCaravan; nothing changed on chain
   defend", need a third seat (not built).
 - The herald now drops a delivered custody caravan from the map (D-verify-pr140-5: it stayed as 「隊商 ターン N 着・位置は推定」).
 
+
+## 13. ① The cross-nation request board and ⑮ titles (TEST-only, #149)
+
+`play-local.sh` attaches workstream 01's co-op board to every world (launcher option `--coop-board ws01-board-v1`);
+add `--no-coop-board` to leave it out. With the board, the village's 「交易と防備」 card has 「国をまたぐ依頼を開く」 and the
+page shows ⑮'s 「称号と記録」 card.
+
+From request to delivery (only a `--coexist` world sends caravans; an ordinary world's village sends none):
+
+```bash
+scripts/play-local.sh --coexist --two --demo --ai 0      # ×60, two people in one world (as in §10)
+```
+
+1. **A (asks)**: 村 → 交易と防備 → 「国をまたぐ依頼を開く». The board opens in another window. 「このウォレットで署名する」
+   (the page's test wallet signs the board's records only) → enter wood and stone → 「依頼を出す（署名）」. The destination
+   is A's village (e.g. 「木材 20・石材 20 → … の村 (-1,2) 村5 受付中」).
+2. **B (delivers)**: open the board the same way, 「このウォレットで署名する」 → the request's 「応じる（送るつもり。義務はない）」.
+3. **B**: in the game, 村 → 交易と防備 → 隊商を送る. Within about 15 s the destinations include 「① 依頼の届け先：村（-1, 2 · マス 28）」:
+   only the place the requester published on the board; the land around it stays out of sight (fog unchanged). Enter
+   the amounts → 「隊商を送る」 → 「ほかの人の村か貯蔵庫へ送る隊商は、ウォレットで署名します…」 → 「隊商が出発しました」.
+   (Before #149 this was refused with 「ローカルプレイでは、まだ命令を送れません（読み取りのみ）」, LP8-3.)
+4. **B**: reload the board → 「隊商 #0（木材 20・石材 20）をこの依頼に結び付ける」 → 「結び付けた。数えるのは確定した到着だけ」.
+5. When it arrives, B's 「権利（在庫の交換）」 card shows 「隊商を届ける」 under 「着いた隊商（あなたが届けます）」 (after the
+   provinces on the way have settled past the arrival turn; tens of seconds at ×60). Press it → 「隊商が届きました」.
+6. The board's 「隊商と到着」 row says 「到着（確定）・届いた 木材 20 以上・石材 20 以上（規則から）・Fulfilled」 and the request's
+   fulfilment counts it.
+
+⑮ titles stay at 「まだ称号はありません」 locally: workstream 15's evaluator reads no ① request yet (which request counts
+toward which goal waits on r0ze; the first question in the fix-loop8 report). The only title earnable now is
+"raided a foreign caravan" (P-raider), which has nothing to do with requests.

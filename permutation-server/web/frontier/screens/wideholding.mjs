@@ -91,6 +91,8 @@ export function wideHostWaitLine(w) {
       ? L`砦の占拠を見守っています（あと ${fmtNum(Math.max(0, Number(w.hold.required) - Number(w.hold.progress)))} ターン）。奪えたか、占拠が止まったかを、ここに出します。`
       : L`砦の占拠を見守っています。奪えたか、占拠が止まったかを、ここに出します。`)
     : L`送るあいだにターンが変わりました（州の決着待ち）。次のターンにもう一度送ります。`;
+  // (fix-loop8, LP8-5: after a capture the page only LOOKS: the next cycle is the person's to start)
+  if (w.reason === 'captured') return html`<p class="wide-host-wait" role="status" data-wide-host-wait="captured">${icon('hourglass')}${L`砦を奪った軍勢は、その砦に残って守っています。この村から次の軍勢を出せるのは、その進軍の記録が締めくくられ、州の決着が追いついたあとです（負荷が高いと数十ターンかかります）。このページが約 1 ターンごとに確かめ、次の一手を送れるようになったらボタンでお知らせします（自動では送りません）。`}</p>`;
   return html`<p class="wide-host-wait" role="status" data-wide-host-wait="${w.reason}">${icon('hourglass')}${why} ${L`このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を送ります。押し直す必要はありません（押しても何も送りません）。`}</p>`;
 }
 
@@ -172,6 +174,8 @@ export function render(FS) {
     ${cardHead({ id: 'wide-host-h', ic: 'flag', title: L`広い土地の軍勢（テスト）`, side: stamp(L`ローカル専用`, 'warn') })}
     <p>${L`押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。`}</p>
     ${FS.ui?.wideHostSay ? html`<p class="wide-host-why" role="status" title="${FS.ui.wideHostWhy ?? ''}">${wideHostSayText(FS.ui.wideHostSay)}</p>` : FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
+    ${FS.ui?.wideHostSay?.kind === 'decision' && FS.ui.wideHostSay.hold?.outcome ? html`<p class="wide-host-held" role="status">${wideHoldOutcomeText(FS.ui.wideHostSay.hold)}</p>` : ''}
+    ${FS.ui?.wideHostReady && !FS.ui?.wideHost?.waiting ? html`<p class="wide-host-ready" role="status">${L`次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。`}</p>` : ''}
     ${wideHostWaitLine(FS.ui?.wideHost?.waiting)}
     <div class="actions">${FS.ui?.wideHost?.waiting
       ? html`<button type="button" class="btn" data-act="wide-host-step" disabled aria-disabled="true">${L`待っています…（押す必要はありません）`}</button><button type="button" class="btn ghost" data-act="wide-host-stop">${L`待つのをやめる`}</button>`
