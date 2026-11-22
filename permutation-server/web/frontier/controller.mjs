@@ -102,8 +102,13 @@ const nowBell = () => (FS.clock ? bellAt(FS.clock.genesisTs, now()) ?? 0 : 0);
 /** The margin a departure is planned with (fmarch.mjs `departMargin`): 90 s on the chain's clock, more game seconds on a clock that runs fast. */
 const margin = () => departMargin(FS.chain?.rate);
 const scope = () => io.scope();
-/** Save UI preferences once a season is pinned (convenience only). */
-const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = saveUi(uiStorage, uiKey(sc), patch); };
+/**
+ * Save UI preferences once a season is pinned (convenience only). The saved preferences are laid OVER `FS.ui`: it also
+ * holds this page's runtime memory (the wide host planner's `wideHost`, `wideHostSay`/`Ready`, `custodyPair`, …), which
+ * is not stored. loop-play10: a tab press replaced `FS.ui` with the stored preferences alone, and the W2 card forgot
+ * the march it had sent (it said 「軍勢は進軍に出ています。」 while its host held a keep, then offered a new host).
+ */
+const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = { ...(FS.ui ?? {}), ...saveUi(uiStorage, uiKey(sc), patch) }; };
 /**
  * The land record of this season and viewer (fui.mjs; the automatic site ticket's state), and the first home's record
  * (home.mjs): per Citizen, so keyed by the viewer (⑳: the NFT played, else the wallet — `viewerKey`; one wallet may
