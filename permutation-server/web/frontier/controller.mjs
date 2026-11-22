@@ -952,6 +952,14 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   if (walletChanged) FS.prizePayment = null;
   // the wide inventory and the wide village on the village screen were the previous viewer's (fwide.mjs)
   fwide.clearWide(FS);
+  // (verify-pr173: and the page's runtime memory in FS.ui was the previous viewer's too — the W2 planner's march, count
+  //  and wait timer, the ⑩ depositor picked, the wide sites tried. A tab press used to wipe it by accident (loop-play10
+  //  LP10-1); now that tab presses keep it, a viewer change drops it here. The stored preferences stay)
+  if (FS.ui) {
+    if (FS.ui.wideHost) wideHostStopWait(FS.ui.wideHost);
+    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ...kept } = FS.ui;
+    FS.ui = kept;
+  }
   FS.notice = null;
   // (⑳: the NFT played and the wallet's NFT list belong to the wallet: a resident NFT chosen under the previous wallet is not this wallet's)
   if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
