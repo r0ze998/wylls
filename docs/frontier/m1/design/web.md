@@ -500,7 +500,7 @@ The steps never gate play: every step can be skipped, and experienced players ca
 
 ## 12. Security and privacy
 
-- **CSP** on the Frontier pages: `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'`. No third-party scripts or fonts, no drand or RPC calls by default (sealing needs none); the optional "check with the chain" uses an RPC URL the player types, added to `connect-src` only through a same-origin proxy or skipped.
+- **CSP** on the Frontier pages: `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` (the last three directives added by the 2026-11-22 security audit). No third-party scripts or fonts, no drand or RPC calls by default (sealing needs none); the optional "check with the chain" uses an RPC URL the player types, added to `connect-src` only through a same-origin proxy or skipped.
 - **What never leaves the browser before its time:** the salt and plaintext of a march (until the arrival bell starts), `k` and `sigma` (never stored). Nothing is sent to the operator that it could use against a sealed order (design E3).
 - **What the client signs:** only messages it compiled, with every account recomputed; the wallet signs only Join; the session key never signs a transaction with an unexpected program or account.
 - **Pins:** program id, cluster, season id, drand chain hash and public key, ruleset hash; a mismatch stops the client with a clear message.

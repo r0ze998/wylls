@@ -66,13 +66,23 @@ use crate::views::{self, SeasonStatic};
 use crate::ws::{self, WsCfg, WsStats};
 use base64::Engine;
 
-/// The Frontier pages' policy (web design §12).
-pub const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'";
+/// The Frontier pages' policy (web design §12). security-audit (2026-11-22):
+/// plus `object-src 'none'`, `base-uri 'none'` and `form-action 'self'` —
+/// the last two do not fall back to `default-src`, so without them injected
+/// markup could re-base relative URLs or post a form off-site. The pages
+/// have no plugin, no `<base>` and only script-handled forms.
+pub const WEB_CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 /// Every other answer's policy.
 pub const API_CSP: &str = "default-src 'none'; frame-ancestors 'none'";
 pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// Events per `/h/events` page.
 pub const EVENTS_PAGE: usize = 500;
+/// Open `WS /h/ws` sockets one client address may hold (security-audit
+/// 2026-11-22): without it one client could take every socket of
+/// `WsCfg::max_sockets` and leave every player without live updates. The
+/// address is [`client_ip`]'s (behind the TLS proxy: the one it appended).
+/// Players behind one NAT share it, hence a generous number.
+pub const WS_PER_CLIENT: usize = 64;
 /// Largest `/gw/*` request body.
 pub const GW_MAX_BODY: usize = 64 * 1024;
 const GW_MAX_ANSWER: u64 = 16 << 20;
@@ -101,6 +111,45 @@ pub struct App {
     /// The hosts `Host` (and a WS `Origin`) may name (B13).
     pub hosts: HostPolicy,
     cache: Mutex<LiveCache>,
+    /// Open sockets per client address ([`WS_PER_CLIENT`]).
+    ws_clients: Mutex<std::collections::HashMap<IpAddr, usize>>,
+}
+
+/// One client's hold on a socket of [`WS_PER_CLIENT`]; given back on drop.
+struct WsClientSlot {
+    app: Shared,
+    ip: IpAddr,
+}
+
+impl WsClientSlot {
+    fn take(app: &Shared, ip: IpAddr) -> Option<WsClientSlot> {
+        let mut m = app.ws_clients.lock().unwrap_or_else(|e| e.into_inner());
+        let n = m.entry(ip).or_insert(0);
+        if *n >= WS_PER_CLIENT {
+            return None;
+        }
+        *n += 1;
+        Some(WsClientSlot {
+            app: app.clone(),
+            ip,
+        })
+    }
+}
+
+impl Drop for WsClientSlot {
+    fn drop(&mut self) {
+        let mut m = self
+            .app
+            .ws_clients
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = m.get_mut(&self.ip) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                m.remove(&self.ip);
+            }
+        }
+    }
 }
 
 /// The host names the herald answers to (B13): loopback and the operator's
@@ -236,6 +285,7 @@ impl App {
             local_play: None,
             hosts: HostPolicy::default(),
             cache: Mutex::new(LiveCache::default()),
+            ws_clients: Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -850,11 +900,25 @@ async fn ws_route(State(app): State<Shared>, req: Request) -> Response {
     if app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst) >= app.ws.max_sockets {
         return err(StatusCode::SERVICE_UNAVAILABLE, "TooManySockets");
     }
+    // security-audit: at most WS_PER_CLIENT sockets per client address
+    // (a server without connect info, as some tests build it, has no address).
+    let slot = match req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| client_ip(c.0.ip(), req.headers()))
+    {
+        Some(ip) => match WsClientSlot::take(&app, ip) {
+            Some(s) => Some(s),
+            None => return err(StatusCode::TOO_MANY_REQUESTS, "TooManySocketsFromClient"),
+        },
+        None => None,
+    };
     let rx = app.diffs.subscribe();
     let on = hyper::upgrade::on(req);
     let cfg = app.ws;
     let stats = app.ws_stats.clone();
     tokio::spawn(async move {
+        let _slot = slot;
         if let Ok(u) = on.await {
             ws::serve(hyper_util::rt::TokioIo::new(u), rx, cfg, stats).await;
         }
