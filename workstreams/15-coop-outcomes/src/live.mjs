@@ -20,6 +20,10 @@
 //     decision, not made here (reported as blocked on the owner)
 //   - so in the live world the personal goal P-raider and the national goals
 //     can be judged; joint/supplier/founder/cross-user need a mapped goal
+//   - (2026-11-22, owner decision 11:56 on Q1-⑮) ①'s board's proof that a request REACHED its requested amount
+//     (`fulfilled`, contract ws01-fulfilled v1, coop/export.mjs fulfilmentsForEvaluators) feeds P-board-helper, the
+//     「依頼に応えた」 title: to each deliverer of another nation whose own proven lower bound counted. GOAL_MAP stays
+//     empty: the request's vault is still no project of B. The line is shown to its holder only (audience 'subject')
 import { RULESETS } from './rulesets.mjs';
 import { evaluate } from './evaluate.mjs';
 import { hashOf } from './canon.mjs';
@@ -101,10 +105,16 @@ export const TITLES = Object.freeze({
     reason: { ja: '物見櫓の目撃が、ほかの人に使われた', en: 'A sighting from their watchtower was used by someone else' },
   },
   'P-board-helper': {
-    title: { ja: '掲示の依頼に応えた人', en: 'Answered a posted request' },
-    reason: { ja: 'ほかの国の人の掲示の依頼に応え、交換が双方に届いた', en: 'Answered a request posted by someone of another nation, and the exchange arrived both ways' },
+    title: { ja: '依頼に応えた', en: 'Answered a request' },
+    reason: { ja: 'ほかの国の人の協力の依頼に、自分の隊商で荷を届け、その依頼が依頼量に届いた（数えた量の下限で証明）', en: 'Delivered goods by their own caravan to a co-op request from someone of another nation, and the request reached its amount (proven by the lower bound counted)' },
   },
 });
+
+/** Who may see an entry on the page: 'subject' = only the player it names (the request title); others: everyone. */
+export const AUDIENCE = Object.freeze({ 'P-board-helper': 'subject' });
+
+/** ①'s fulfilled-request proof (coop/export.mjs fulfilmentsForEvaluators) that this module reads. */
+export const WS01_FULFILLED_V = 1;
 
 /** The line every entry carries: what a title is, and what it is not. */
 export const RECORD_ONLY = Object.freeze({ ja: '称号と記録だけ。勝敗・得点・賞金には関わらない', en: 'A title and a record only: it does not affect who wins, scores or prizes' });
@@ -124,7 +134,7 @@ const placeKey = pl => `place:${pl.kind}:${pl.p},${pl.q},${pl.site}`;
  *   nowBell    the present turn: the one evaluation window is [0, max(nowBell, latest record's turn) + 1) unless `windows` is given
  * → `{input, notes}`.
  */
-export function liveInput({ rows = [], season = null, board = null, tagOf = () => null, nowBell = 0, windows = null, goalMap = GOAL_MAP }) {
+export function liveInput({ rows = [], season = null, board = null, fulfilled = null, tagOf = () => null, nowBell = 0, windows = null, goalMap = GOAL_MAP }) {
   const worldBell = b => (Number(b) >= NO_TURN ? 0 : Number(b));
   const decoded = rows.filter(r => !r.bad && r.record);
   const nation = new Map();   // actor → nation, first record that states it
@@ -156,6 +166,8 @@ export function liveInput({ rows = [], season = null, board = null, tagOf = () =
       bellOf,
     });
   }
+  const f1 = fulfilledEvents(fulfilled, { rows: decoded, actorOfWallet, worldBell });
+  for (const e of f1.events) { actors.add(e.actor); for (const d of e.deliverers) actors.add(d.actor); }
   const opened = new Set(w1.events.filter(e => e.kind === 'project.open').map(e => e.project));
   const link = w1.linkResolver(() => null);
   const sent = new Map();
@@ -171,7 +183,7 @@ export function liveInput({ rows = [], season = null, board = null, tagOf = () =
   const events = s1.events.map(e => (e.kind === 'ship.send' ? { ...e, fromOutside: true } : e));
   // A record the page does not read holds its position (it is not a gap); a body that could not be decoded is a gap.
   for (const r of rows) if (!r.bad && !r.record) events.push({ id: `chain:${r.seq}:0`, stream: 'chain', seq: Number(r.seq), sub: 0, at: worldBell(r.bell ?? 0), kind: 'position', verified: 'chain' });
-  events.push(...w1.events);
+  events.push(...w1.events, ...f1.events);
   const ids = [...actors].filter(Boolean).sort();
   const first = rows.length ? Number(rows[0].seq) : 0;
   const state = {
@@ -179,13 +191,57 @@ export function liveInput({ rows = [], season = null, board = null, tagOf = () =
     nations: [...NATIONS],
     actors: ids.map(id => ({ id, nation: nation.get(id) ?? null, kind: 'human' })),
     lots: [], keeps: [],
-    streams: { chain: { from: first }, ws01: { from: 0 } },
+    streams: { chain: { from: first }, ws01: { from: 0 }, 'ws01-fulfilled': { from: 0, kinds: ['request.fulfilled'] } },
   };
   // The one window runs to the present turn: the clock's, or the latest record's when the clock reads earlier (a record
   // is never from the future; a herald whose season clock has not started still has its records judged).
   const lastBell = rows.reduce((m, r) => (!r.bad && Number.isFinite(Number(r.bell)) && Number(r.bell) < NO_TURN ? Math.max(m, Number(r.bell)) : m), 0);
   const input = { state, windows: windows ?? [{ id: 'world-so-far', opensAt: 0, endsAt: Math.max(Number(nowBell) || 0, lastBell) + 1 }], events };
-  return { input, notes: { unresolved: s1.unresolved, skipped: s1.skipped.length, rejected: w1.rejected, bad: rows.filter(r => r.bad).map(r => String(r.seq)) } };
+  return { input, notes: { unresolved: s1.unresolved, skipped: s1.skipped.length, rejected: w1.rejected, bad: rows.filter(r => r.bad).map(r => String(r.seq)), fulfilled: f1.held } };
+}
+
+/**
+ * ①'s fulfilled requests → `request.fulfilled` events (stream 'ws01-fulfilled', verified 'derived').
+ *   fulfilled  `{v: 1, kind: 'ws01-fulfilled', requests: [{id, requester, need, deliverers: [{responder, counted,
+ *              arrivals: [{caravanKey, signature}]}]}]}` or null
+ * Re-checked here, not taken on trust: every requested resource's counted lower bounds add up to its amount; a
+ * deliverer counts only with a positive lower bound of a requested resource. The turn is the latest of the counted
+ * arrivals' CARAVAN_SETTLED records in the herald's rows (matched by signature): a request whose arrivals the rows do
+ * not show yet waits (`held`), so the title never dates from a turn the public records cannot show.
+ */
+export function fulfilledEvents(fulfilled, { rows = [], actorOfWallet, worldBell = b => Number(b) }) {
+  const events = [], held = [];
+  if (!fulfilled) return { events, held };
+  if (fulfilled.v !== WS01_FULFILLED_V || fulfilled.kind !== 'ws01-fulfilled' || !Array.isArray(fulfilled.requests)) return { events, held: [{ why: 'not ws01-fulfilled v1' }] };
+  const settledAt = new Map();
+  for (const r of rows) if (r.sig && r.record?.name === 'CARAVAN_SETTLED') settledAt.set(String(r.sig), worldBell(r.bell ?? 0));
+  const int = v => Number.isSafeInteger(v) && v >= 0;
+  const list = [];
+  for (const q of fulfilled.requests) {
+    const need = q?.need && typeof q.need === 'object' ? Object.fromEntries(Object.entries(q.need).filter(([, n]) => int(n) && n > 0)) : {};
+    const requester = actorOfWallet(q?.requester);
+    if (typeof q?.id !== 'string' || !Object.keys(need).length || !requester) { held.push({ request: q?.id ?? null, why: 'request or requester unknown' }); continue; }
+    const byActor = new Map(), sigs = [];
+    for (const d of q.deliverers ?? []) {
+      const actor = actorOfWallet(d?.responder);
+      const counted = Object.fromEntries(Object.entries(d?.counted ?? {}).filter(([r, v]) => Object.hasOwn(need, r) && int(v) && v > 0));
+      if (!actor || !Object.keys(counted).length) continue;
+      const c = byActor.get(actor) ?? {};
+      for (const [r, v] of Object.entries(counted)) c[r] = (c[r] ?? 0) + v;
+      byActor.set(actor, c);
+      for (const a of d.arrivals ?? []) sigs.push(String(a?.signature ?? ''));
+    }
+    const total = {};
+    for (const c of byActor.values()) for (const [r, v] of Object.entries(c)) total[r] = (total[r] ?? 0) + v;
+    if (!Object.entries(need).every(([r, n]) => (total[r] ?? 0) >= n)) { held.push({ request: q.id, why: 'counted lower bounds below the requested amount' }); continue; }
+    if (!sigs.length || sigs.some(x => !settledAt.has(x))) { held.push({ request: q.id, why: 'arrival not in the herald rows yet' }); continue; }
+    const at = Math.max(...sigs.map(x => settledAt.get(x)));
+    list.push({ at, req: q.id, actor: requester, need, deliverers: [...byActor].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([actor, counted]) => ({ actor, counted })), sigs: [...new Set(sigs)].sort() });
+  }
+  list.sort((x, y) => x.at - y.at || (x.req < y.req ? -1 : x.req > y.req ? 1 : 0));
+  list.forEach((x, i) => events.push({ id: `ws01-fulfilled:${x.req}`, stream: 'ws01-fulfilled', seq: i, at: x.at, kind: 'request.fulfilled', verified: 'derived',
+    req: x.req, actor: x.actor, need: x.need, deliverers: x.deliverers, src: { signatures: x.sigs } }));
+  return { events, held };
 }
 
 /**
@@ -211,7 +267,7 @@ export function outcomesOf(verdict, input) {
     // (an achievement belongs to the window that judged it: goods carried in from before it date the window's opening)
     at = Math.min(verdict.window.closeAt - 1, Math.max(verdict.window.opensAt, at));
     const subject = a.track === 'national' ? { kind: 'nation', id: a.beneficiary, nation: a.beneficiary } : { kind: 'actor', id: a.beneficiary, nation: nationOf.get(a.beneficiary) ?? null };
-    entries.push({ id: a.slot, goal: a.goal, track: a.track, at, subject, title: { ...t.title }, reason: { ...t.reason }, recordOnly: { ...RECORD_ONLY }, evidence: evidence.slice(0, 20) });
+    entries.push({ id: a.slot, goal: a.goal, track: a.track, at, subject, audience: AUDIENCE[a.goal] ?? 'all', title: { ...t.title }, reason: { ...t.reason }, recordOnly: { ...RECORD_ONLY }, evidence: evidence.slice(0, 20) });
   }
   entries.sort((x, y) => y.at - x.at || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
   const all = [...A.joint, ...A.national, ...A.personal];
@@ -232,5 +288,5 @@ export function evaluateLive(args) {
   const { input, notes } = liveInput(args);
   const verdict = evaluate(productionRuleset(), input);
   const out = outcomesOf(verdict, input);
-  return { ...out, notes: { unresolved: notes.unresolved.length, skipped: notes.skipped, rejected: notes.rejected.length, bad: notes.bad.length }, outcomesHash: hashOf(out) };
+  return { ...out, notes: { unresolved: notes.unresolved.length, skipped: notes.skipped, rejected: notes.rejected.length, bad: notes.bad.length, fulfilledHeld: notes.fulfilled.length }, outcomesHash: hashOf(out) };
 }

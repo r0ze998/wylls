@@ -31,7 +31,7 @@ import { caravanKeyOf } from './arrival.mjs';
 import { pendingSendOf } from './pending.mjs';
 import { openStore, loadStore, readLines, DEFAULT_SEGMENT_BYTES } from './store.mjs';
 import { addressesOf } from './ids.mjs';
-import { boardForEvaluators } from './export.mjs';
+import { boardForEvaluators, fulfilmentsForEvaluators } from './export.mjs';
 import { decodePage } from '../../../permutation-server/web/frontier/flog.mjs';
 import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
 
@@ -270,10 +270,14 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
       if (!r.json.full) { complete = true; break; }
     }
     const nowBell = Math.max(0, Math.floor((now() - genesisTs) / bellSecs));
-    const key = `${ev.cursor}|${records.length}|${nowBell}`;
+    // ①の依頼で、依頼量に届いた（下限で証明）ものと、その届けた人（⑮の「依頼に応えた」の材料。2026-11-22 持ち主の決定）。
+    // 板の表示と同じ確かめ（checks：受取人・応じた後の送信・規則の版）を使う。チェーンを読めない板では何も数えないので空
+    let fulfilled = { v: 1, kind: 'ws01-fulfilled', requests: [] };
+    try { const st = state(); fulfilled = fulfilmentsForEvaluators(coopView({ state: st, file: await caravans(), obs, checks: await checks(st, null), viewer: null, now: now(), judgeId: judge, season })); } catch { /* 読めないときは空（称号は出ないだけ） */ }
+    const key = `${ev.cursor}|${records.length}|${nowBell}|${JSON.stringify(fulfilled)}`;
     if (outcomeCache?.key === key) return outcomeCache.value;
     const tagOf = w => { try { return ownerTagOf(season, typeof w === 'string' ? w : toBase58(w)); } catch { return null; } };
-    const out = evaluateLive({ rows: ev.rows, season: { genesisTs, bellSecs }, board: boardForEvaluators(state(), { contexts }), tagOf, nowBell });
+    const out = evaluateLive({ rows: ev.rows, season: { genesisTs, bellSecs }, board: boardForEvaluators(state(), { contexts }), fulfilled, tagOf, nowBell });
     const value = { ok: true, season, complete, nowBell, ...out };
     outcomeCache = { key, value };
     return value;

@@ -10,6 +10,8 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
+import { tagOf } from '../people/identity.mjs';
+import { decode as fromBase58 } from '../../sdk/base58.mjs';
 
 /** A turn's stamp, as the chronicle says it (screens/chronicle.mjs stampOf; not imported: that module reaches the march
  * sealing code, which this read-only card has no use for). u32::MAX marks a record from before the first turn. */
@@ -30,7 +32,8 @@ const str = x => typeof x === 'string' && x.length > 0 && x.length <= 400;
 const pair = x => x && typeof x === 'object' && str(x.ja) && str(x.en);
 const goodEntry = e => e && typeof e === 'object' && str(e.id) && str(e.goal) && Number.isSafeInteger(e.at) && e.at >= 0
   && pair(e.title) && pair(e.reason) && e.subject && typeof e.subject === 'object' && ['nation', 'actor'].includes(e.subject.kind)
-  && (e.subject.nation === null || /^n[0-5]$/.test(String(e.subject.nation)));
+  && (e.subject.nation === null || /^n[0-5]$/.test(String(e.subject.nation)))
+  && (e.audience === undefined || e.audience === 'all' || e.audience === 'subject');
 
 /**
  * Read the board's outcomes: `{read: 'ok', outcomes}` | `{read: 'absent'}` (no board, or no evaluator, on this server) |
@@ -70,15 +73,36 @@ export function whoOf(e) {
   return n === null ? L`所属の分からない領主` : L`${factionName(n)}の領主`;
 }
 
-/** The card's rows, newest first: `[{id, at, text, reason, mine}]` (`mine`: of the viewer's nation). */
-export function outcomeRows(o, FS = null) {
-  const faction = FS?.citizen?.faction ?? null;
-  return o.entries.map(e => ({ id: e.id, at: e.at, text: L`${whoOf(e)}が称号「${pick(e.title)}」を得た`, reason: pick(e.reason),
-    mine: faction !== null && nationIndex(e.subject.nation) === Number(faction) }));
+/**
+ * The viewer's Citizen as the evaluator names actors (`tag:<u64 decimal>`), or null. As people/ui.mjs ownTag (not
+ * imported: that module draws portraits): a held village's owner, else the wallet's Citizen address.
+ */
+export function viewerActor(FS) {
+  try {
+    const h = FS?.holdings?.find?.(x => x?.ownerCitizen);
+    if (h) return `tag:${tagOf(h.ownerCitizen).toString()}`;
+    const a = FS?.wallet && FS.pin?.addresses?.of?.('Citizen', { wallet: FS.wallet.address });
+    return a ? `tag:${tagOf(fromBase58(a)).toString()}` : null;
+  } catch { return null; }
 }
 
-const rowMarkup = r => html`<li class="chron-turn coop-title-row${r.mine ? ' mine' : ''}" data-title="${r.id}"><h4 class="chron-stamp">${stampOf(r.at)}</h4>
-  <ol class="chron-lines"><li><span class="chron-text">${r.text}${r.mine ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''}<br><small class="muted coop-title-reason">${L`理由：${r.reason}`}</small></span></li></ol></li>`;
+/**
+ * The card's rows, newest first: `[{id, at, text, reason, mine, own}]` (`mine`: of the viewer's nation; `own`: the
+ * viewer's own title). An entry for its holder only (`audience: 'subject'` — ⑮'s 「依頼に応えた」, owner decision
+ * 2026-11-22) is drawn for that player alone: other players' pages leave it out (it is a line of their own chronicle).
+ */
+export function outcomeRows(o, FS = null) {
+  const faction = FS?.citizen?.faction ?? null;
+  const me = viewerActor(FS);
+  return o.entries.filter(e => e.audience !== 'subject' || (me !== null && e.subject.kind === 'actor' && e.subject.id === me)).map(e => {
+    const own = me !== null && e.subject.kind === 'actor' && e.subject.id === me;
+    return { id: e.id, at: e.at, text: own ? L`あなたが称号「${pick(e.title)}」を得た` : L`${whoOf(e)}が称号「${pick(e.title)}」を得た`, reason: pick(e.reason),
+      mine: own || (faction !== null && nationIndex(e.subject.nation) === Number(faction)), own };
+  });
+}
+
+const rowMarkup = r => html`<li class="chron-turn coop-title-row${r.mine ? ' mine' : ''}${r.own ? ' own' : ''}" data-title="${r.id}"><h4 class="chron-stamp">${stampOf(r.at)}</h4>
+  <ol class="chron-lines"><li><span class="chron-text">${r.text}${r.mine && !r.own ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''}<br><small class="muted coop-title-reason">${L`理由：${r.reason}`}</small></span></li></ol></li>`;
 
 /** The card for a read `b` (probeOutcomes' answer, or null before the first read): '' when there is nothing to show. */
 export function render(FS, b) {

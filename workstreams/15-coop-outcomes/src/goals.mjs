@@ -31,6 +31,11 @@ function undecide(W, r, at, kinds) {
   return { ...r, status: 'indeterminate', decidedAt: at, reasons: [...r.reasons, R('missing_records', [], { streams: gaps, was: r.status })] };
 }
 
+/** The source of ①'s fulfilled requests (`request.fulfilled`); a board_helper goal reads it only when it says so. */
+export const WS01_FULFILLED = 'ws01-fulfilled';
+const reads = (g, src) => Array.isArray(g.sources) && g.sources.includes(src);
+/** The board facts a goal reads: ⑭'s always (as before), ①'s fulfilled requests only when the goal names that source. */
+const boardOf = (W, g) => W.board.filter(b => b.source !== 'ws01' || reads(g, WS01_FULFILLED));
 const R = (code, evidence = [], detail = undefined) => ({ code, evidence: [...new Set(evidence)].sort(), ...(detail === undefined ? {} : { detail }) });
 const sortBy = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
 /**
@@ -324,7 +329,7 @@ export function judgePersonal(W, personalRules, joint, ctx) {
       out.push({ goal: g.id, track: 'personal', subject: null, status: 'not_offered', reasons: [R('no_sighting_source')] });
       continue;
     }
-    if (g.kind === 'board_helper' && !W.board.length) {
+    if (g.kind === 'board_helper' && !boardOf(W, g).length) {
       out.push({ goal: g.id, track: 'personal', subject: null, status: 'not_offered', reasons: [R('goal_not_in_ruleset', [], '掲示板（⑭の塔の案 B）の事実がないので、この目標は出さない')] });
       continue;
     }
@@ -384,22 +389,42 @@ function judgePersonalGoal(W, g, a, credited) {
     return { status: tainted(mine) ? 'indeterminate' : hit.length ? 'achieved' : 'not_achieved', perResource: per,
       reasons: [R(hit.length ? 'achieved' : mine.every(r => r.domestic) ? 'domestic' : 'below_min', mine.map(r => r.id), { resources: hit })] };
   }
-  if (g.kind === 'board_helper') {
-    // Answering another nation's posted request counts once the exchange has arrived both ways
-    // (fulfilled). Posting is not helping; taking alone is a send, not an arrival. Model facts (⑭)
-    // are never a fact of the game: they give 'model_only', never 'achieved'.
-    const mine = W.board.filter(b => b.taken.some(t => t.actor === a.id));
-    if (!mine.length) return null;
-    // ⑭ v1 names the responder whose goods arrived; without it (v0) any of the actor's takes stands in.
-    const answered = b => (b.fulfilled.responder !== undefined ? b.fulfilled.responder === a.id : true);
-    const done = mine.filter(b => b.fulfilled && inWindow(W, b.fulfilled.at) && answered(b) && b.taken.some(t => t.actor === a.id && t.cross === true && t.cluster !== b.posted?.cluster));
-    const evidence = mine.flatMap(b => [b.posted?.id, ...b.taken.filter(t => t.actor === a.id).map(t => t.id), b.fulfilled?.id].filter(Boolean));
-    if (!done.length) return { status: 'not_achieved', reasons: [R('taken_not_arrived', evidence)] };
-    const model = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x && x.verified === 'model'));
-    const t = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x?.tainted));
-    return { status: t ? 'indeterminate' : model ? 'model_only' : 'achieved', requests: done.map(b => b.req).sort(),
-      reasons: [R(model ? 'model_only' : 'achieved', evidence, { requests: done.map(b => b.req).sort() })] };
+  if (g.kind === 'board_helper' && reads(g, WS01_FULFILLED)) {
+    // ①'s co-op requests (2026-11-22 owner decision, Q1-⑮): the title goes to whoever ACTUALLY delivered — their own
+    // proven lower bound counted (①: verified, recipient = the requester, sent after answering) — to a request that
+    // REACHED its requested amount. Accepting without delivering, a partial request, answering one's own request and
+    // a request of one's own nation give nothing. ⑭'s model facts (if any) are judged below as before.
+    const ws01 = boardOf(W, g).filter(b => b.source === 'ws01' && inWindow(W, b.fulfilled.at) && b.deliverers.some(d => d.actor === a.id));
+    const legacy = judgeTowerBoard(W, a, boardOf(W, g).filter(b => b.source !== 'ws01'));
+    if (!ws01.length) return legacy;
+    const nationOf = x => W.actors.get(x.actor)?.nation ?? x.nation ?? null;
+    const clusterOf = x => W.actors.get(x.actor)?.cluster ?? x.cluster ?? x.actor;
+    const results = ws01.map(b => {
+      const mine = b.deliverers.filter(d => d.actor === a.id);
+      const own = {};
+      for (const d of mine) for (const [r, q] of Object.entries(d.counted)) if (Object.hasOwn(b.need, r)) own[r] = (own[r] ?? 0) + q;
+      const total = {};
+      for (const d of b.deliverers) for (const [r, q] of Object.entries(d.counted)) total[r] = (total[r] ?? 0) + q;
+      const ev = [b.fulfilled.id];
+      if (a.id === b.requester.actor || clusterOf(a) === clusterOf(b.requester)) return { code: 'self_request', ev };
+      if (!Object.values(own).some(q => q > 0)) return { code: 'below_min', ev };
+      if (!Object.entries(b.need).every(([r, n]) => (total[r] ?? 0) >= n)) return { code: 'request_short', ev };
+      const hn = nationOf(b.requester), mn = a.nation ?? null;
+      if (hn === null || mn === null) return { code: 'nation_unverified', ev };
+      if (hn === mn) return { code: 'same_nation', ev };
+      return { code: 'achieved', ev, req: b.req.slice(5), own, tainted: b.fulfilled.tainted };
+    });
+    const done = results.filter(x => x.code === 'achieved');
+    const evidence = results.flatMap(x => x.ev);
+    if (done.length) {
+      return { status: done.some(x => x.tainted) ? 'indeterminate' : 'achieved', requests: done.map(x => x.req).sort(),
+        reasons: [R('achieved', done.flatMap(x => x.ev), { requests: done.map(x => x.req).sort(), source: 'ws01' })] };
+    }
+    if (legacy && legacy.status !== 'not_achieved') return legacy;
+    const unknown = results.some(x => x.code === 'nation_unverified');
+    return { status: unknown ? 'indeterminate' : 'not_achieved', reasons: [R(unknown ? 'nation_unverified' : results[0].code, evidence, { source: 'ws01', codes: results.map(x => x.code) })] };
   }
+  if (g.kind === 'board_helper') return judgeTowerBoard(W, a, boardOf(W, g).filter(b => b.source !== 'ws01'));
   if (g.kind === 'scout') {
     const mine = [...W.sightings.values()].filter(s => s.actor === a.id && s.at < W.closeAt);
     if (!mine.length) return null;
@@ -408,4 +433,22 @@ function judgePersonalGoal(W, g, a, credited) {
       reasons: [R(used.length ? 'achieved' : 'stage_use', mine.flatMap(s => [...s.evidence, ...s.usedBy.map(u => u.id)]), { sightings: used.map(s => s.id) })] };
   }
   return null;
+}
+
+/** ⑭'s notice board (model facts, the tower is abolished): unchanged from ruleset version 3. */
+function judgeTowerBoard(W, a, board) {
+  // Answering another nation's posted request counts once the exchange has arrived both ways
+  // (fulfilled). Posting is not helping; taking alone is a send, not an arrival. Model facts (⑭)
+  // are never a fact of the game: they give 'model_only', never 'achieved'.
+  const mine = board.filter(b => b.taken.some(t => t.actor === a.id));
+  if (!mine.length) return null;
+  // ⑭ v1 names the responder whose goods arrived; without it (v0) any of the actor's takes stands in.
+  const answered = b => (b.fulfilled.responder !== undefined ? b.fulfilled.responder === a.id : true);
+  const done = mine.filter(b => b.fulfilled && inWindow(W, b.fulfilled.at) && answered(b) && b.taken.some(t => t.actor === a.id && t.cross === true && t.cluster !== b.posted?.cluster));
+  const evidence = mine.flatMap(b => [b.posted?.id, ...b.taken.filter(t => t.actor === a.id).map(t => t.id), b.fulfilled?.id].filter(Boolean));
+  if (!done.length) return { status: 'not_achieved', reasons: [R('taken_not_arrived', evidence)] };
+  const model = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x && x.verified === 'model'));
+  const t = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x?.tainted));
+  return { status: t ? 'indeterminate' : model ? 'model_only' : 'achieved', requests: done.map(b => b.req).sort(),
+    reasons: [R(model ? 'model_only' : 'achieved', evidence, { requests: done.map(b => b.req).sort() })] };
 }

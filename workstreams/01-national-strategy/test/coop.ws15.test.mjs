@@ -134,3 +134,36 @@ test('二重に数えない：記録が欠けた板・別の板を混ぜて、�
   const dup = allocate(c.r.after.arrivals.filter(a => a.requestId === c.r.ids.r2).slice(0, 1).flatMap(a => [a, { ...a, requestId: c.r.ids.r5 }]), st);
   assert.equal(dup.filter(a => a.duplicateOf).length, 1, '①の allocate も二つ目を数えない');
 });
+
+// ⑮「依頼に応えた」（2026-11-22 持ち主の決定 11:56、Q1-⑮）：①の板が依頼量に届いた（下限で証明）と示した依頼の、自分の到着が数えられた
+// 他国の人にだけ称号。台本の r1（A：国 0 の依頼 木材 200・石材 200）には B（国 2）と C（国 1）が届けて fulfilled。ほかの依頼は届いていない。
+test('⑮「依頼に応えた」：fulfilled の依頼の届けた人（B・C）だけが称号を得る。依頼した A、届いていない依頼の人は得ない', { skip }, async () => {
+  const c = await connect();
+  const { fulfilmentsForEvaluators } = await import('../coop/export.mjs');
+  const { evaluateLive } = await load('src/live.mjs');
+  const { ownerTagOf } = await import('../coop/ids.mjs');
+  const view = await c.r.board.view();
+  const f = fulfilmentsForEvaluators(view);
+  assert.deepEqual(f.requests.map(q => q.id), [c.r.ids.r1], 'fulfilled は r1 だけ（undetermined・not-reached は出さない）');
+  assert.deepEqual(f.requests[0].deliverers.map(d => d.responder).sort(), [W.B.address, W.C.address].sort());
+  for (const d of f.requests[0].deliverers) assert.ok(d.arrivals.every(a => c.r.ch.txs.has(a.signature)), '署名はチェーンの取引のもの');
+  // ⑮の入力：ヘラルドの /h/events の行の形（seq, bell, sig, record）。台本の Citizen の国は送った隊商の記録から
+  const raw = [];
+  for (const [sig, t] of c.r.ch.txs) for (const l of t.logs) if (l.startsWith('Program data: UFMy ')) raw.push({ seq: String(raw.length + 1), sig, body_b64: l.slice('Program data: UFMy '.length) });
+  // 台本の偽のチェーンは隊商の記録の faction を 0 で書く（①は国を Citizen の口座で確かめる）。⑮は記録から国を読むので、
+  // 台本の国（A 0・B 2・C 1、ACTOR と同じ）を JOIN の行として先頭に置く（本物のチェーンでは JOIN と CARAVAN_SENT が国を書く）
+  const joins = [['A', 0], ['B', 2], ['C', 1]].map(([k, f], i) => ({ seq: String(i + 1), bell: 0, sig: `join-${k}`, record: { name: 'JOIN', kind: 10, bell: 0, logBell: 0, wallet: W[k].address, faction: f } }));
+  const rows = [...joins, ...raw.map(x => { const d = decodePage([x]); const rec = d.records[0]?.record ?? null; const seq = String(Number(x.seq) + joins.length); return d.bad ? { seq, bad: true } : { seq, bell: rec?.bell ?? 0, sig: x.sig, record: rec }; })];
+  const ctx = view.requests[0].ctx;
+  const tagOf = w => { try { return ownerTagOf(ctx, typeof w === 'string' ? w : null); } catch { return null; } };
+  const o = evaluateLive({ rows, tagOf, nowBell: 10_000, fulfilled: f });
+  const got = o.entries.filter(e => e.goal === 'P-board-helper');
+  const tag = w => `tag:${ownerTagOf(ctx, w)}`;
+  assert.deepEqual(got.map(e => e.subject.id).sort(), [tag(W.B.address), tag(W.C.address)].sort());
+  assert.ok(got.every(e => e.audience === 'subject' && e.title.ja === '依頼に応えた'));
+  assert.ok(!o.entries.some(e => e.subject.id === tag(W.A.address)), '依頼した A には出ない');
+  assert.deepEqual(o.effects, { win: 'none', score: 'none', prize: 'none', seasonEnd: 'none' });
+  // 台本の記録の国のまま（全員 0）なら、同じ国の依頼として称号は出ない（国をまたがない）
+  const same = evaluateLive({ rows: rows.slice(joins.length).map((r, i) => ({ ...r, seq: String(i + 1) })), tagOf, nowBell: 10_000, fulfilled: f });
+  assert.equal(same.entries.filter(e => e.goal === 'P-board-helper').length, 0);
+});

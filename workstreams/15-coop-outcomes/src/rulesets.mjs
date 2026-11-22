@@ -1,5 +1,6 @@
 // The three rulesets compared (docs/04-variants.ja.md). Every number is a
-// placeholder for comparison, not a decision. A ruleset is data: its hash
+// placeholder for comparison, not a decision (B is in production since the owner's
+// decision of 2026-11-18 as titles and chronicle only; its numbers are still placeholders). A ruleset is data: its hash
 // (`rulesetHash`) goes into every verdict, so changing a number changes the
 // version a replay must name.
 
@@ -49,6 +50,18 @@ const PERSONAL = Object.freeze([
   { id: 'P-board-helper', kind: 'board_helper', label: '他国の人の掲示の依頼に応え、交換が双方に届いた（⑭の塔の案 B。模型の事実だけなら数えない）' },
 ]);
 
+/**
+ * Ruleset B from version 4 (owner decision 2026-11-22 11:56, Q1-⑮): P-board-helper is the 「依頼に応えた」 title, earned
+ * by DELIVERING to a ① co-op request of someone of another nation that REACHED its requested amount (①'s board's proof,
+ * `request.fulfilled`, source 'ws01-fulfilled'). ⑭'s model facts are still read the old way (never a fact of the game).
+ * A and C keep version 3 unchanged (C is frozen; its P-board-helper does not read ①).
+ */
+const PERSONAL_B = Object.freeze(PERSONAL.map(g => (g.id !== 'P-board-helper' ? g : Object.freeze({
+  id: 'P-board-helper', kind: 'board_helper',
+  label: '他国の人の①の協力の依頼に、自分の隊商で届け、その依頼が依頼量に届いた（①の板の、数えた量の下限での証明。応じただけ・届かなかった依頼・自分や同じ国の依頼は数えない）',
+  sources: ['ws01-fulfilled'],
+}))));
+
 /** What carries on past any window's close, in every variant: the world has no end. */
 const CONTINUES = ['村・土地・建物・倉と中身（荷）', '移動中の隊商（次の評価期間に着く）', '未完成の計画とそこに入れた材料', '国の所属と国の設定', '記録・実績・履歴'];
 const UNDECIDED = '戦期に何を集計するか、要塞や戦争の状態を戻すか、賞金をどう扱うかは未決定（この評価器は決めない）';
@@ -64,10 +77,12 @@ export const RULESETS = Object.freeze({
     slotBy: 'cluster',
   }),
   B: Object.freeze({
-    id: 'B-separate-tracks', version: 3, variant: 'B', status: 'comparison-only',
-    note: '共同・国・個人を別々に判定。共同達成では評価期間も世界も閉じない',
+    // version 4 (2026-11-22): P-board-helper reads ①'s fulfilled requests (PERSONAL_B), and the status says what the
+    // owner decided on 2026-11-18 (production: titles and chronicle only). Both change the hash (D-verify-pr31-1).
+    id: 'B-separate-tracks', version: 4, variant: 'B', status: 'production-titles-only',
+    note: '共同・国・個人を別々に判定。共同達成では評価期間も世界も閉じない。結果は称号と年代記だけ（勝敗・得点・賞金に関わらない）',
     costs: S1_COSTS, prize: null,
-    joint: [JOINT_NORTH_FORT], national: NATIONAL, personal: PERSONAL,
+    joint: [JOINT_NORTH_FORT], national: NATIONAL, personal: PERSONAL_B,
     close: { kind: 'schedule' },
     scope: { ends: ['この評価期間の目標の判定（与えられた期間の終わりで）', UNDECIDED], continues: CONTINUES },
     slotBy: 'cluster',
