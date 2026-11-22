@@ -329,7 +329,7 @@ Fixed by #149 (fix-loop8): the boundary card stuck on the DepartDraftChanged lin
 again and sends again up to 3 times, saying 「出発の途中で世界の時計が進みました…（n / 3 回目）」); the nation pick lost
 while loading (LP8-2: the press is made again automatically, or the card says 「…さきほどの「始める」は取り消しました…もう一度押してください。」);
 ① co-op board deliveries (LP8-3, §13); the wide village's 「次の一手」 after a capture (LP8-5); telling ⑨/⑩ partners
-apart (LP8-6, 7); the 「塔の消耗」 wording (LP8-8); stacked new-village tags (LP8-9); the ×60 intro and remaining time
+apart (LP8-6, 7); the watchtower wear once worded 「塔の消耗」 (LP8-8, old wording); stacked new-village tags (LP8-9); the ×60 intro and remaining time
 (LP8-10); the outside AI resident's Muster (LP8-11); the 国と領土 list (LP7-6).
 
 The problems loop-play6 found (LP6-1 … 15) were fixed by #128 and #130, and verify-pr130 and verify-pr133 played them
@@ -562,7 +562,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 ⑨ lend a workshop (A owns the workshop village, B has a storehouse in that province):
 1. A: open 「工房を貸す」, type how many workshops, 「工房を貸し出す」 (the pool opens and the copies leave the village's own
    arms production). 「工房を貸し出しました」.
-2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」, the workshops, 「兵器の上限」 and 「有効な日数」, then
+2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」 (since #149 each option names the village, the storehouse tile and the owner's short address), the workshops, 「兵器の上限」 and 「有効な日数」, then
    「工房を使わせる」 (the wallet signs). 「工房を使う権利を出しました」.
 3. B: under 「使える工房」, set 「使う工房の数」 and 「作る兵器の数」, then 「予約して材料を入れる」: one transaction books the job
    and takes 2 ore + 1 wood per arm from B's storehouse. The job starts two minutes of chain time later.
@@ -571,7 +571,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 5. A: 「取り消す」 ends the grant (a booked job keeps running), 「空いた工房を戻す」 gives the copies back to the village.
 
 ⑩ store ore (B keeps the storehouse, A deposits):
-1. B: open 「鉱石を預かる」, choose 「マス (storehouse) → (nation) の村（マス N）」 (A's village is the one on its tile), the
+1. B: open 「鉱石を預かる」, choose A's village (since #149 each option names the village, its tile and the owner's short address: 「マス (storehouse) → (nation) の村 (name)（マス N · 63hY…y3Qe）」), the
    「鉱石の枠」, then 「預かりの枠を開く」 (wallet). 「預かりの枠を開きました」.
 2. A: 「預けた鉱石」 lists the storehouse. Type an amount, 「鉱石を預ける」: A's own caravan leaves with A's ore. When it has
    arrived and the province it crossed has resolved, 「鉱石を届ける」: 「預ける鉱石が届きました」 (the ② card does not offer
@@ -630,5 +630,5 @@ scripts/play-local.sh --coexist --two --demo --ai 0      # ×60, two people in o
    fulfilment counts it.
 
 ⑮ titles stay at 「まだ称号はありません」 locally: workstream 15's evaluator reads no ① request yet (which request counts
-toward which goal waits on r0ze; the first question in the fix-loop8 report). The only title earnable now is
-"raided a foreign caravan" (P-raider), which has nothing to do with requests.
+toward which goal waits on r0ze; the first question in the fix-loop8 report). The only title earnable now is P-raider
+(「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.
