@@ -1,5 +1,7 @@
 # ④ 数ターンにまたがる処理を安全につなぐ実行基盤
 
+> **追記 2026-11-22（⑬ の住民の中の計画の実行器）：** `runexec plan accept|claim|intend|signed|settle|stop|view|current`（`src/plans.rs`、`clients/plans.mjs`）。⑬ の外部の住民（`workstreams/13-citizens/resident/local/`、`--plan`）が自分のプロセスの中で、ローカルの 6 つの命令の数ターンの計画を、この記録で 1 ターン 1 手ずつ実行する。隊商と同じ 5 つの規則（識別・先に記録・正本で確認・重複の拒否・fence）を 1 取引の手に当てた。隊商の命令は `NotLocalOrder`（Q4）。試験は `tests/plans.rs`（10 件）と ⑬ の `test/local-plan.test.mjs`。
+
 > **追記 2026-11-20（main `760a92b4`）：** native の `runexec` を macOS（rustc 1.89.0、cargo 1.89.0、C コンパイラ。Solana の道具は不要）で build し、`cargo test --release` は 144 件通過・10 件 ignored（`tests/gateway.rs` の 9 件は `permutation-gateway` の `npm ci` 後に `--ignored` で通過。もう 1 件は `tools/chain-flow.sh` の段階 B）。⑥ の `connect-live` 7 件は `WS03_ROOT`・`WS04_ROOT`・`RUNEXEC_BIN`・`WS06_RUN4_STORE` を付けて 7 件とも通過（Node 20 と 23）。手順は `scripts/ci/ws04-runexec-live.sh`、CI の `runexec-live` 職。下の `observe` の試験（`tests/observe_cli.rs`、`tests/store_observation.rs`）もこのとき初めて走り、通過した。
 >
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** Node のクライアントと HTTP の橋は確認済み（PR #28）。frontier-node の試験の修正は PR #41。CI の `exec-native` が `e2e-native` を走らせる。成果物は main にある（下の「main への統合を前提にしていない」は古い）。native の `runexec` は 11-18〜19 の作業では build も実行もしていない。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
