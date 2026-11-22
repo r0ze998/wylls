@@ -26,6 +26,20 @@ const WEB = fileURLToPath(new URL('../../permutation-server/web/', import.meta.u
 afterEach(() => setLang('ja'));
 
 // ================================================================== L, Lh, t
+test('en-a11y-sweep: a count of one reads as one (the play screen showed "held 1 turns", "1 workshops", "1 workshop(s)")', () => {
+  setLang('en');
+  assert.equal(t('占拠 {0} ターン', 1), 'held for 1 turn'); assert.equal(t('占拠 {0} ターン', 12), 'held for 12 turns');
+  assert.equal(t('村 {0} の工房 {1}', 'Nemar', 1), 'Village Nemar: 1 workshop'); assert.equal(t('村 {0} の工房 {1}', 'Nemar', 2), 'Village Nemar: 2 workshops');
+  assert.equal(t('{0} の村 {1} の工房 {2} まで（兵器あと {3}）', 'Aster', 'Nemar', 1, 40), 'Aster village Nemar: up to 1 workshop (40 arms left)');
+  assert.equal(t('この村の州の決着が {0} ターン遅れています。', 1), "This village's province is 1 turn behind.");
+  assert.equal(t('読めない記録が {0} 件ありました。その中身は推測しません。', 1), '1 record could not be read; what is in it is not guessed.');
+  // (⑨⑩: 枠 is space for ore, not a "room"; 砦 is a keep — a fort is another structure)
+  for (const k of ['預かりの枠を開く', '枠を閉じる', '鉱石の枠', '預かりの枠を開きました', '預かりの枠を閉じました', '鉱石 {0} / 枠 {1}', '{0} / 枠 {1}']) assert.doesNotMatch(String(EN[k]), /\broom\b/i, k);
+  assert.match(EN['二人の対戦の国と砦を確認'], /keep/);
+  // (the boundary card names its button as the button reads)
+  assert.ok(EN['地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。'].includes(EN['地形・時間を確認']));
+});
+
 test('L: Japanese is exactly the template literal; the key numbers the values', () => {
   assert.equal(lang.lang(), 'ja', 'node starts in the source language');
   for (const v of [3, 0, 'x', null, undefined, 1.5, true]) assert.equal(L`国民 ${v}人`, `国民 ${v}人`);
