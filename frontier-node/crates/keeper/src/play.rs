@@ -256,6 +256,8 @@ pub struct PlayDuty {
     /// The bell each nudge was taken at: it expires
     /// [`crate::api_guard::NUDGE_TTL_BELLS`] later (fix-gw-highs, H-2).
     nudge_taken: BTreeMap<(i16, i16), u32>,
+    /// Nudges dropped by the per-bell cap (status `play.nudges_capped`).
+    nudges_capped: u64,
     /// The index sizes `(departs, settled, provinces)` the published
     /// admission was built from, and its sets (rebuilt only on a change).
     admission_of: Option<(usize, usize, usize)>,
@@ -801,6 +803,21 @@ impl PlayDuty {
                         Some(now) => bell.min(now.saturating_add(1)),
                         None => bell,
                     };
+                    // One taken nudge per province per bell, and at most
+                    // NUDGE_PER_BELL_MAX provinces newly nudged a bell: a
+                    // nudge splits the province's SkipQuiet batch, so
+                    // re-nudging every idle province each bell would cost a
+                    // SkipQuiet per province per bell instead of per 24.
+                    if let Some(now) = now_bell {
+                        if self.nudge_taken.get(&(p, q)) == Some(&now) {
+                            continue;
+                        }
+                        let this_bell = self.nudge_taken.values().filter(|&&b| b == now).count();
+                        if this_bell >= crate::api_guard::NUDGE_PER_BELL_MAX {
+                            self.nudges_capped += 1;
+                            continue;
+                        }
+                    }
                     let e = self.nudged.entry((p, q)).or_insert(0);
                     *e = (*e).max(bell);
                     if let Some(now) = now_bell {
@@ -3151,6 +3168,7 @@ impl PlayDuty {
             "claims": s.claims, "returns": s.returns,
             "provinces_tracked": self.provinces.len(),
             "findings": self.findings.len(),
+            "nudges_capped": self.nudges_capped,
             "nudges_recent": self.nudge_log.iter().map(|(p, q, b)| json!([p, q, b])).collect::<Vec<_>>(),
         })
     }
@@ -3380,6 +3398,17 @@ mod review_tests {
         d.expire_nudges(Some(111 + ttl));
         assert!(d.nudged.is_empty(), "expired");
         assert!(d.nudge_taken.is_empty());
+        // At most NUDGE_PER_BELL_MAX provinces newly nudged a bell.
+        let max = crate::api_guard::NUDGE_PER_BELL_MAX;
+        for i in 0..(max + 10) {
+            shared
+                .nudges
+                .push(json!({"province": [i as i64, 0], "bell": 200}));
+        }
+        d.take_shared_at(&mut shared, None, Some(200));
+        assert_eq!(d.nudged.len(), max);
+        assert_eq!(d.nudges_capped, 10);
+        assert_eq!(d.status()["nudges_capped"], 10);
     }
 
     /// The admission the API reads: live DEPARTs' seal roots (not the

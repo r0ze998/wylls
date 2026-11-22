@@ -40,10 +40,12 @@ async function standInKeeper(answer = url => (url === '/v1/reveal' ? [202, { acc
   return { seen, link: new KeeperLink({ url: `http://127.0.0.1:${srv.address().port}`, token: 'kpr' }), close: () => new Promise(r => srv.close(r)) };
 }
 
-function relay({ keeper, cfg = {}, now = Date.now, log = () => {} }) {
+function relay({ keeper, cfg = {}, now = Date.now, log = () => {}, limits = null }) {
   const pool = {}; // (the keeper routes never touch the relay pool)
   const config = { cluster: 'localnet', programId: PROGRAM, seasonId: '5', heraldPeer: '127.0.0.1', heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: OPERATOR, ...cfg };
-  return createFrontierApps({ cfg: config, connection: {}, pool, keeper, store: { state: {}, save() {} }, log, now });
+  const apps = createFrontierApps({ cfg: config, connection: {}, pool, keeper, store: { state: {}, save() {} }, log, now });
+  if (limits) apps.ctx.keeperGuard.limits = limits; // (small buckets: the test counts what passes)
+  return apps;
 }
 
 const material = (i, salt = 2) => revealMaterial({
@@ -53,11 +55,11 @@ const material = (i, salt = 2) => revealMaterial({
 });
 const fromHerald = ip => ({ ip: '127.0.0.1', headers: { 'x-forwarded-for': ip } });
 
-test('H-1: forged reveals from many addresses share one global bucket; the rest never reach the keeper (503 KeeperUnavailable, reason KeeperBusy)', async () => {
+test('H-1: forged reveals from many addresses share one global bucket (here shrunk to 30 / 2 per s); the rest never reach the keeper (503 KeeperUnavailable, reason KeeperBusy)', async () => {
   const k = await standInKeeper();
   let t = 1_000_000;
   try {
-    const r = relay({ keeper: k.link, now: () => t });
+    const r = relay({ keeper: k.link, now: () => t, limits: { 'POST /f/reveal': { burst: 30, perSecond: 2 }, 'POST /f/nudge': { burst: 60, perSecond: 4 } } });
     const answers = [];
     for (let i = 0; i < 80; i++) {
       // a fresh holding and a fresh address each time: the per-holding and per-address buckets never fill
@@ -74,6 +76,8 @@ test('H-1: forged reveals from many addresses share one global bucket; the rest 
     const op = await call(r.operator, 'GET', '/f/operator/keeper-guard', { headers: { authorization: `Bearer ${OPERATOR}` } });
     assert.equal(op.json.events.reveal_busy_global, 60);
     assert.equal(op.json.events.reveal_forwarded_ok, 40);
+    const KG = (await import('../src/frontier/keeper-guard.mjs')).KEEPER_GLOBAL_LIMITS;
+    assert.ok(KG['POST /f/reveal'].perSecond >= 100, 'the shipped bucket caps raw volume only (keeper A filters forgeries)');
     assert.equal((await call(r.public, 'GET', '/f/operator/keeper-guard', { ...fromHerald('198.51.100.1') })).status, 404, 'operator listener only');
   } finally { await k.close(); }
 });

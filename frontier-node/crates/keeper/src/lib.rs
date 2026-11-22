@@ -1580,6 +1580,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     s.nudges.extend(newer_nudges);
                     s.tracks.extend(std::mem::take(&mut shared.tracks));
                     s.blocking = blocking;
+                    // fix-gw-highs: the admission the play duty published
+                    // on this tick's copy (the API's zero-RPC checks).
+                    if let Some(a) = shared.admission.take() {
+                        s.admission = Some(a);
+                    }
                 }
                 for (sig, units, meter) in self.play.index.failed_meta.drain(..) {
                     self.engine.note_tx_meta(sig, units, meter);

@@ -1567,6 +1567,18 @@ async fn play_bell_pipeline() {
     )
     .unwrap();
     assert!(d.resolved_next + 2 >= now_bell, "destination at the head");
+    // fix-gw-highs: the play duty's admission (the API's zero-RPC checks)
+    // reaches the API's state; the tick ran the duty on a copy of `Shared`
+    // and the first offline flood replay showed it lost.
+    {
+        let sh = k.shared.lock().unwrap();
+        let adm = sh
+            .admission
+            .as_ref()
+            .expect("the play duty publishes the admission");
+        assert!(adm.now_bell.is_some());
+        assert!(!adm.provinces.is_empty());
+    }
     // Owner tracks moved.
     let tracks = k.shared.lock().unwrap().tracks.clone();
     assert!(

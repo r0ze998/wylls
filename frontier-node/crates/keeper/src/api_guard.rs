@@ -45,6 +45,9 @@ pub const NUDGE_AHEAD_BELLS: u32 = 2;
 /// A taken nudge holds its province at most this many bells (the longest
 /// SkipQuiet batch it splits), then the skip role batches as usual.
 pub const NUDGE_TTL_BELLS: u32 = 24;
+/// Provinces newly nudged per bell at most (play duty; one taken nudge
+/// per province per bell).
+pub const NUDGE_PER_BELL_MAX: usize = 64;
 /// Nudges queued between two ticks at most (one per province is kept).
 pub const NUDGE_QUEUE_MAX: usize = 1_024;
 /// Reveal material queued between two ticks at most.

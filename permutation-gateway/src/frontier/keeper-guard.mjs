@@ -22,10 +22,15 @@
 import { createHash } from 'node:crypto';
 import { RouteError } from '../routes/errors.mjs';
 
-/** Per route, all client addresses together (burst, then a steady rate). */
+/**
+ * Per route, all client addresses together (burst, then a steady rate). A cap on RAW VOLUME only: keeper A tells
+ * forged material from an owner's at zero RPC cost (its seal-root index), the gateway cannot, so a tight global
+ * bucket would let a flood lock real players out (the first offline replay, 30 / 2 per s: the owner's reveal got ten
+ * 503s while keeper A would have admitted it). Over this rate keeper A's process is protected; the page asks again.
+ */
 export const KEEPER_GLOBAL_LIMITS = Object.freeze({
-  'POST /f/reveal': { burst: 30, perSecond: 2 },
-  'POST /f/nudge': { burst: 60, perSecond: 4 },
+  'POST /f/reveal': { burst: 1_000, perSecond: 300 },
+  'POST /f/nudge': { burst: 1_000, perSecond: 300 },
 });
 
 /** How long an identical body is answered from the last answer. */
