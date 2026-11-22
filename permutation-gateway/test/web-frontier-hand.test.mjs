@@ -321,10 +321,10 @@ test('the cards above the bar: the fan with real numbers, training with what eac
   // a new host: the whole reserve of the kind by default, on the village's tile until another is picked
   FS.hand = { pop: 'muster' };
   const mm = hand.handModel(FS);
-  assert.deepEqual(hand.musterDraft(FS, mm), { unit: 0, troops: 400, max: 400, tile: null });
+  assert.deepEqual(hand.musterDraft(FS, mm), { unit: 0, troops: 400, max: 400, all: true, tile: null });   // (fix-loop9 LP9-5: `all` — 「全部」, the whole reserve when it goes)
   assert.match(flat(hand.renderPop(FS, mm)), /data-act="muster" data-unit="0" data-troops="400" data-tile="30"/);
   FS.hand = { pop: 'muster', unit: 6, tile: 31 };
-  assert.deepEqual(hand.musterDraft(FS, hand.handModel(FS)), { unit: 6, troops: 100, max: 100, tile: 31 });
+  assert.deepEqual(hand.musterDraft(FS, hand.handModel(FS)), { unit: 6, troops: 100, max: 100, all: true, tile: 31 });
   assert.equal(hand.musterTiles(FS, FS.holdings[0]).length, 61, 'every passable tile of the village\'s own province');
   FS.hand = { pop: 'promote' };
   const promo = flat(hand.renderPop(FS, hand.handModel(FS)));
