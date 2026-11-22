@@ -90,10 +90,11 @@ const homeReread = (FS, busy) => (FS.mode === 'play' ? html`<div class="actions"
 // without the record). The wait is said with what it waits for and how long, and a wait that ended offers to look
 // again (home-confirm: the press asks about the noted send and never sends it again) instead of the candidates' reread.
 const OWN_WAIT_WHAT = { join: () => L`参加`, ticket: () => L`村の申し込み`, home: () => L`村の確定` };
-const ownWaitLine = FS => {
+// (cls: `nc-early` on the nation choice's dark confirm plate — readable there, as its other status lines; `home-status` on the placing card)
+const ownWaitLine = (FS, cls = 'home-status') => {
   const w = FS.homeChoice?.ownWait;
   if (!w) return '';
-  return html`<p class="home-status" role="status" data-own-wait="${w.what}">${L`記録を待っています…（${OWN_WAIT_WHAT[w.what]?.() ?? ''}、${fmtNum(w.secs)} 秒）命令は受け付けられました。このページの読み取り先は確定した記録だけを読むので、devnet では反映まで数十秒かかることがあります。押し直す必要はありません。`}</p>`;
+  return html`<p class="${cls}" role="status" data-own-wait="${w.what}">${L`記録を待っています…（${OWN_WAIT_WHAT[w.what]?.() ?? ''}、${fmtNum(w.secs)} 秒）命令は受け付けられました。このページの読み取り先は確定した記録だけを読むので、devnet では反映まで数十秒かかることがあります。押し直す必要はありません。`}</p>`;
 };
 const homeErrorActions = (FS, busy) => (FS.homeChoice?.error?.retry
   ? html`<div class="actions"><button type="button" class="btn small" data-act="home-confirm" data-own-retry="${FS.homeChoice.error.waited ?? ''}" ${raw(busy ? 'disabled' : '')}>${icon('return')}${L`もう一度確かめる`}</button></div>`
@@ -145,7 +146,7 @@ export function renderNations(FS) {
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeErrorActions(FS, busy)}` : ''}
-    ${instant ? ownWaitLine(FS) : ''}
+    ${instant ? ownWaitLine(FS, 'nc-early') : ''}
     ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     ${instant && FS.homeDropped && !busy && !FS.citizen ? html`<p class="notice" role="status" data-home-dropped="${FS.homeDropped.why ?? 'context'}">${FS.homeDropped.why === 'unread'
       ? L`土地の候補を読み終えられなかったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。`
