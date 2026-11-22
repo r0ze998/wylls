@@ -2358,4 +2358,6 @@ export default {
   "着くターンはまだ読めていません。着いたら、ここで届けられます。": "The arrival turn has not been read yet. Once it arrives, you can deliver it here.",
   // (fix-loop9: LP9-7 the depositor is chosen, not the first village)
   "（預ける人を選んでください）": "(choose who deposits)",
+  // (fix-loop9: LP9-2 国と領土, a wide keep the viewer's expedition holds)
+  "占拠 {0} / {1} ターン": "Hold {0} / {1} turns",
 };

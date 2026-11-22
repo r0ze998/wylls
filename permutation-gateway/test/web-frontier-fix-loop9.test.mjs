@@ -292,3 +292,16 @@ test('LP9-3: the workshop is offered only where the order can go — not in a pl
   lane.selectLocalLane(lane.COEXIST_LANE);
   assert.equal(workshopOffered({ localPlay: { programId: 'x' } }), true, 'the --coexist world offers it as before');
 });
+
+// fix-loop9 live run (wide, turn 181): the expedition counted 6/72 on the keep of (-68,-61) and 国と領土 still said
+// 「見えている他国の砦で、いま届くものはありません。」 — a wide keep is in no reach list (rings ≤ 128 only).
+test('LP9-2 (国と領土, live finding): a wide keep the expedition holds is listed under 「あなたの軍勢が着いている他国の砦」 with its count', async () => {
+  const { expeditionKeeps, renderReach } = await import('../../permutation-server/web/frontier/screens/conquest.mjs');
+  const exp = hold => ({ expedition: { stage: 'settled', fate: 'stays', dest: { p: -68, q: -61, tile: 60 }, hold }, dest: { p: -68, q: -61, tile: 60 } });
+  assert.deepEqual(expeditionKeeps({ marches: [exp({ outcome: null, progress: 6, required: 72 })] }), [{ p: -68, q: -61, tile: 60, progress: 6, required: 72 }]);
+  assert.deepEqual(expeditionKeeps({ marches: [exp({ outcome: 'taken' })] }), [], 'taken: the nation\'s own keep now');
+  assert.deepEqual(expeditionKeeps({ marches: [exp(null)] }), [], 'not followed (not on a keep)');
+  const c = src('screens/conquest.mjs');
+  assert.ok(c.includes('${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4>'));
+  assert.equal(typeof renderReach, 'function');
+});

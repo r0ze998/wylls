@@ -293,6 +293,21 @@ export function ownHostOnKeep(FS, x) {
   });
 }
 
+/**
+ * (fix-loop9, LP9-2) The wide keeps the viewer's kept expeditions stand on and still hold (not taken, not lost):
+ * `[{p, q, tile, progress, required}]`, from the march rows (flocalplay-expedition.mjs, followed holds).
+ */
+export function expeditionKeeps(FS) {
+  const out = [];
+  for (const m of FS?.marches ?? []) {
+    const x = m?.expedition, h = x?.hold;
+    if (!x || x.stage !== 'settled' || x.fate !== 'stays' || !h || h.outcome || !x.dest) continue;
+    if (out.some(y => y.p === x.dest.p && y.q === x.dest.q)) continue;
+    out.push({ p: x.dest.p, q: x.dest.q, tile: x.dest.tile, progress: h.progress ?? null, required: h.required ?? null });
+  }
+  return out;
+}
+
 /** The keeps of other nations a march of the viewer can reach now, nearest first. */
 export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
@@ -310,6 +325,13 @@ export function renderReach(FS) {
   const defends = r?.ok ? r.rows.filter(x => x.defend === true) : [], rest = r?.ok ? r.rows.filter(x => x.defend !== true) : [];
   // (fix-loop8, LP7-6: a keep the viewer's own host is on is said apart — held, not to be reached)
   const held = rest.filter(x => ownHostOnKeep(FS, x)), others = rest.filter(x => !held.includes(x));
+  // (fix-loop9, LP9-2: a wide keep is in no reach list — the reach covers the rings up to 128 — so a keep the viewer's
+  //  expedition holds in the wide land is added here from the expedition itself: verify run, 「見えている他国の砦で、
+  //  いま届くものはありません。」 while 1 host counted the hold)
+  const wideHeld = expeditionKeeps(FS).filter(x => !held.some(y => y.p === x.p && y.q === x.q));
+  const wideRow = x => html`<li class="kr-row kr-row-held" data-keep-held="${x.p},${x.q}" data-keep-wide="1"><span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`広い土地`}${Number.isFinite(x.progress) && Number.isFinite(x.required) ? html` · ${L`占拠 ${fmtNum(x.progress)} / ${fmtNum(x.required)} ターン`}` : ''}
+      <span class="muted">${L`あなたの軍勢がこの砦に着いています。占拠の進み具合と結果は「進軍」で確かめられます。`}</span></span>
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
   const heldRow = x => html`<li class="kr-row kr-row-held kh-n${x.holder}" data-keep-held="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}
       <span class="muted">${L`あなたの軍勢がこの砦に着いています。占拠の進み具合と結果は「進軍」で確かめられます。`}</span></span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
@@ -325,7 +347,7 @@ export function renderReach(FS) {
   // (the keeps to defend come first, under their own heading; then the other nations' keeps under theirs)
   return html`<section class="conquest-reach hpanel" aria-labelledby="conquest-reach-title">
     ${defends.length || far.length ? html`<h4 class="kr-defend-title" id="conquest-defend-title">${L`他国が占拠を進めている、あなたの国の砦`}</h4><ul class="list kr-rows kr-rows-defend" aria-labelledby="conquest-defend-title">${defends.map(defendRow)}${far.map(farRow)}</ul>` : ''}
-    ${held.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4><ul class="list kr-rows kr-rows-held" aria-labelledby="conquest-held-title">${held.map(heldRow)}</ul>` : ''}
+    ${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4><ul class="list kr-rows kr-rows-held" aria-labelledby="conquest-held-title">${held.map(heldRow)}${wideHeld.map(wideRow)}</ul>` : ''}
     <h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
     ${!r ? html`<p class="muted">${L`届く砦を調べています…`}</p>` : !r.ok ? html`<p class="muted">${clientText(r.code)}</p>` : html`
       ${r.home ? (waits.length ? html`${renderWaits(FS, waits)}<p class="muted">${L`そのあいだは、村からの道のりで調べています。`}</p>` : html`<p class="muted">${L`出発できる戦闘部隊がいないため、村からの道のりで調べています。`}</p>`) : ''}
