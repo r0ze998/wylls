@@ -22,6 +22,8 @@ const require = createRequire(path.join(here, '../../../../../permutation-gatewa
 const { chromium } = require('playwright-core');
 const arg = name => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const SCENARIO = arg('scenario') ?? 'keep';   // 'keep' (P9) | 'home' (P10, devnet-page-war-2: the return march, keeper outages)
+// | 'capture' (PCAP, devnet-72bell-pair: P9, then the page's own words for the capture after 72 held bells)
+// | 'pair' (PPAIR, devnet-72bell-pair: the test sends the OUT leg with this wallet's key; the page marches HOME as P10)
 const URL0 = arg('url'), OUT = arg('out'), SEED = fs.readFileSync(arg('seed-file'), 'utf8').trim(), NATION = Number(arg('nation')), INSPECT = Number(arg('inspect')), SYNC = arg('sync');
 fs.mkdirSync(OUT, { recursive: true });
 const t0 = Date.now();
@@ -119,15 +121,25 @@ const marchesNow = () => ev(async () => {
   return (FS.marches ?? []).map(m => ({ host: String(m.entry?.host ?? ''), arriveBell: m.entry?.arriveBell ?? null, state: m.entry?.state ?? null, pipeline: m.facts?.pipeline ?? null, slotPresent: !!m.facts?.slotPresent, transit: m.transit ? { state: m.transit.state, slot: m.transit.slot } : null }));
 });
 
-await page.goto(URL0, { waitUntil: 'load' });
-await wait(2500);
-let s = await connect();
-log('devnet play', s.devnetPlay, 'wide', s.devnetWide, 'wallet', s.wallet);
-await shot('devnet-season-connected');
-await page.getByText(/^(国を選ぶ|Choose a nation)$/).first().click({ timeout: 8000 }).catch(() => log('no 国を選ぶ button (continuing)'));
-await wait(1000);
-await act('pick-faction', { f: String(NATION) });
-s = await until('the home planner offers a rim site', x => x.homeChoice?.sel, { secs: 180, note: x => x.homeChoice });
+// (devnet-72bell-pair: as PPOST's driver — under load the page can read the season before the herald's record says the
+//  map has grown to the rim (devnetWide false) and offer a HEARTLAND home; the test needs a rim village (its war plan
+//  is over the rim's provinces). Such a choice is never confirmed: the page is loaded again, up to 5 times)
+const ringOf = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(-p - q));
+let s;
+for (let attempt = 0; ; attempt++) {
+  await page.goto(URL0, { waitUntil: 'load' });
+  await wait(2500);
+  s = await connect();
+  log('devnet play', s.devnetPlay, 'wide', s.devnetWide, 'wallet', s.wallet, 'attempt', attempt);
+  if (attempt === 0) await shot('devnet-season-connected');
+  await page.getByText(/^(国を選ぶ|Choose a nation)$/).first().click({ timeout: 8000 }).catch(() => log('no 国を選ぶ button (continuing)'));
+  await wait(1000);
+  await act('pick-faction', { f: String(NATION) });
+  s = await until('the home planner offers a rim site', x => x.homeChoice?.sel, { secs: 180, note: x => x.homeChoice });
+  if (ringOf(s.homeChoice.sel.p, s.homeChoice.sel.q) >= 126 || attempt >= 4) break;
+  log('home choice in the heartland: loading the page again', s.homeChoice.sel, 'devnetWide', s.devnetWide);
+  await wait(15000);
+}
 log('home choice', s.homeChoice);
 const confirm = page.locator('button[data-act="home-confirm"]:visible').first();
 if (await confirm.count()) await confirm.click({ timeout: 8000 }); else await act('home-confirm');
@@ -156,7 +168,7 @@ await wait(5000);
 s = await state(); log('after muster', { notice: s.notice });
 await shot('muster-sent');
 fs.writeFileSync(path.join(SYNC, 'mustered.json'), JSON.stringify({ notice: s.notice }));
-if (SCENARIO === 'home') await home();
+if (SCENARIO === 'home' || SCENARIO === 'pair') await home();
 const g = await syncWait('go-march');
 log('go-march', g);
 // the page's own keep march: compose onto the keep (stance by the keep's holder), the destination's route, the card
@@ -208,7 +220,9 @@ fs.writeFileSync(path.join(SYNC, 'reloaded.json'), JSON.stringify({ before: b1, 
 await shot('after-reload');
 // the march's stages as the page shows them, until the test says the war is settled
 let lastShot = 0;
+let captureRead = false;
 while (!fs.existsSync(path.join(SYNC, 'go-final'))) {
+  if (SCENARIO === 'capture' && !captureRead && fs.existsSync(path.join(SYNC, 'go-capture'))) { captureRead = true; await readCapture(); }
   const ms = await marchesNow(); s = await state();
   const bk = await bookNow().catch(() => null);
   log('marches', { bell: s.bell, marches: ms, book: bk?.entries ?? null });
@@ -230,6 +244,38 @@ log('done');
 await wait(1000);
 await browser.close();
 process.exit(0);
+
+// ------------------------------------------------------------------ PCAP (devnet-72bell-pair): the page's words for the capture
+// The test says go once the chain and the herald show the keep taken: the page must say it too, by itself — its conquest
+// guide (「ガイド：州を奪いました」 / 「第Nターンに、あなたの国（…）が州 P,Q を奪いました。」) from the herald's keep_taken
+// record. Reads what the page shows (no press but opening the guide), every 5 s for up to 10 minutes; writes
+// <sync>/capture-page.json with the matching lines either way.
+async function readCapture() {
+  const g = JSON.parse(fs.readFileSync(path.join(SYNC, 'go-capture'), 'utf8'));
+  log('go-capture', g);
+  const want = `州 ${g.p},${g.q} を奪いました`;
+  const end = Date.now() + 600_000; let last = null, n = 0;
+  while (Date.now() < end) {
+    // the guide drawer (its own button 'guide-open' in the HUD; dispatched like the HUD's press)
+    await act('guide-open'); await wait(1500);
+    const seen = await ev(async () => {
+      const { FS } = await import('/frontier/frontier/fstate.mjs');
+      const lines = document.body.innerText.split('\n').map(x => x.trim()).filter(x => x.includes('奪いました') || x.includes('奪'));
+      const events = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken').map(e => ({ p: e.p, q: e.q, from: e.from, to: e.to, bell: e.bell }));
+      return { nowBell: FS.nowBell ?? null, faction: FS.citizen?.faction ?? null, lines, events, guideOpen: !!FS.guideOpen };
+    });
+    last = seen;
+    if (n++ % 6 === 0) log('capture read', seen);
+    if (seen.lines.some(x => x.includes(want))) {
+      const still = await shot('capture-guide');
+      fs.writeFileSync(path.join(SYNC, 'capture-page.json'), JSON.stringify({ ok: true, want, texts: seen.lines, events: seen.events, nowBell: seen.nowBell, still }, null, 2));
+      return;
+    }
+    await wait(5000);
+  }
+  const still = await shot('capture-not-said');
+  fs.writeFileSync(path.join(SYNC, 'capture-page.json'), JSON.stringify({ ok: false, want, texts: last?.lines ?? [], events: last?.events ?? [], nowBell: last?.nowBell ?? null, still }, null, 2));
+}
 
 // ------------------------------------------------------------------ P10 (devnet-page-war-2): the return march home
 async function home() {
