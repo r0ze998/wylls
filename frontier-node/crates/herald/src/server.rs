@@ -995,7 +995,11 @@ fn web_file(p: &std::path::Path) -> Option<Arc<WebFile>> {
     );
     let gz = match std::fs::read(gz_path(p)) {
         Ok(z) => Some(Bytes::from(z)),
-        Err(_) if compressible && body.len() >= 512 => Some(Bytes::from(crate::files::gzip(&body))),
+        // (verify-pr170: only a file the cache keeps is gzipped here — an uncached large file is not compressed
+        //  again on every request)
+        Err(_) if compressible && body.len() >= 512 && len <= WEB_CACHE_FILE_MAX => {
+            Some(Bytes::from(crate::files::gzip(&body)))
+        }
         Err(_) => None,
     };
     let f = Arc::new(WebFile {
