@@ -9,6 +9,9 @@
 //        [--port 41030 --public-port 41033]     operator and public listeners (both 127.0.0.1;
 //                                               M1 ports only: 41000–41999, never a reserved one)
 //        [--herald-peer 127.0.0.1]              the herald's loopback address (its X-Forwarded-For is trusted)
+//        [--public-proxy xff|none]              what faces the browsers in front of the herald: a TLS proxy that sets
+//                                               X-Forwarded-For to the client's address, or the herald itself;
+//                                               required off localnet without --dev (fix-gw-highs, audit M-2)
 //        [--herald http://127.0.0.1:41040]      published in GET /f/season
 //        [--keeper http://127.0.0.1:41050 --keeper-token-file F]   the keeper link (/f/reveal, /f/nudge)
 //        [--pool-size 150 --master-seed-file F] the relay pool (pool_id "relay"; < 150 only with --dev)

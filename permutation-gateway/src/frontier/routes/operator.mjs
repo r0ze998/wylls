@@ -2,6 +2,7 @@
 //
 //   POST /f/operator/invites {count}   one-time invites for a gated season (I-51) → {invites: [...]}
 //   GET  /f/operator/pool              the relay pool's balances → {size, total, floor, eligible, payers: [{key, lamports}]}
+//   GET  /f/operator/keeper-guard      keeper A's public routes: refusal / dedupe / forward counters (fix-gw-highs)
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { RouteError } from '../../routes/errors.mjs';
 
@@ -32,6 +33,11 @@ export const operatorRoutes = {
     const n = b.count ?? 1;
     if (!Number.isInteger(n) || n < 1 || n > 1000) throw new RouteError(400, 'count: 1–1,000', 'BadRequest');
     return { body: { invites: ctx.invites.issue(n) } };
+  },
+
+  'GET /f/operator/keeper-guard': async (ctx, req) => {
+    requireFrontierOperator(ctx, req);
+    return { body: ctx.keeperGuard?.snapshot() ?? null };
   },
 
   'GET /f/operator/pool': async (ctx, req) => {

@@ -179,6 +179,12 @@ async fn reveal_accept_over_localnet() {
     let mut bad = good.clone();
     bad["holding"] = json!(Address::new_from_array([0x77; 32]).to_string());
     assert_eq!(call(a, &token, bad).await.0, 409);
+    // fix-gw-highs (audit H-1): acknowledged material again is answered with
+    // its track before any chain read (the material is public once its
+    // Reveal lands: replays must cost nothing). The judgements below are of
+    // material this keeper has not acknowledged yet, so each forgets it first.
+    let shared = k.shared.clone();
+    let forget = move || shared.lock().unwrap().reveal_keys.clear();
     // The latch: the destination resolved past the arrival bell.
     let pa = w.addrs.province(dp as i32, dq as i32);
     let saved = w.ip.lock().account(&pa);
@@ -189,6 +195,13 @@ async fn reveal_accept_over_localnet() {
             &(arrive + 1).to_le_bytes(),
         );
         w.ip.lock().set_account(pa, acct).unwrap();
+        let (c, v) = call(a, &token, good.clone()).await;
+        assert_eq!(
+            (c, v["track"].as_str()),
+            (202, Some(track.as_str())),
+            "acknowledged: its track, no read"
+        );
+        forget();
         let (c, v) = call(a, &token, good.clone()).await;
         assert_eq!((c, v["code"].as_str()), (410, Some("WindowClosed")));
         assert!(v["detail"].as_str().unwrap().contains("Latch"));
@@ -206,6 +219,7 @@ async fn reveal_accept_over_localnet() {
         if let Some(an) = k.beacon.anchors.get(&(arrive, r)).copied() {
             let close = sc.reveal_close(arrive, an.a);
             if w.now() < close {
+                forget();
                 assert_eq!(
                     call(a, &token, good.clone()).await.0,
                     202,
@@ -216,6 +230,7 @@ async fn reveal_accept_over_localnet() {
             }
         }
     }
+    forget();
     let (c, v) = call(a, &token, good.clone()).await;
     assert_eq!((c, v["code"].as_str()), (410, Some("WindowClosed")));
     println!(
