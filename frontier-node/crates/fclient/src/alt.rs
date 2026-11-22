@@ -219,6 +219,7 @@ pub fn decode_ix(d: &[u8]) -> Option<Ix> {
 /// exactly:
 /// - a record whose wire does not decode, whose first signature is not its
 ///   signature, or whose signatures do not verify;
+/// - one signature listed twice (not genuine: `forged`);
 /// - records out of slot order;
 /// - a successful transaction that names the table writable while holding
 ///   any instruction other than the lookup table program's and the
@@ -233,7 +234,17 @@ pub fn replay(table: &Address, history: &[TxRecord]) -> Result<Built, Refused> {
     let budget = compute_budget();
     let mut b: Option<Built> = None;
     let mut last_slot = 0u64;
+    let mut seen: std::collections::HashSet<Signature> = std::collections::HashSet::new();
     for r in history {
+        // (verify-pr158) One transaction listed twice: no ledger holds a
+        // signature twice, and replaying an Extend twice would append its
+        // addresses twice (shifting every later index).
+        if !seen.insert(r.signature) {
+            return Err(Refused {
+                forged: true,
+                why: format!("its transaction {} is listed twice", r.signature),
+            });
+        }
         if r.slot < last_slot {
             return Err(format!(
                 "its transaction {} (slot {}) comes after slot {last_slot}: not in ledger order",
@@ -835,6 +846,12 @@ mod tests {
         let mut h6 = h.clone();
         h6[1].signature = h6[4].signature;
         assert!(replay(&t, &h6).unwrap_err().forged);
+        // one Extend listed twice (verify-pr158): it would append `a`
+        // again and shift `b` to index 2; refused as not genuine
+        let mut h8 = h.clone();
+        h8.insert(2, h[1].clone());
+        let e = replay(&t, &h8).unwrap_err();
+        assert!(e.forged, "{e}");
         // out of slot order
         let mut h7 = h.clone();
         h7.swap(1, 4);
