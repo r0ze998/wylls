@@ -478,6 +478,26 @@ jobs:
           cargo test --locked -p fclient --test rpc_devnet_replay
           cargo test --locked -p keeper --test cluster_feed_v1
           cargo test --locked -p verify --test devnet_b5_witness --test devnet_b5_program_accounts
+      # verify-pr157: `scripts/play-local.sh` builds itest, herald and keeper with feature sets that no other
+      # step compiles (the workspace lint above builds itest without features, so its feature-gated modules,
+      # e.g. destination_driver, are never compiled). #154 changed keeper_core's evidence_of / commands_in and
+      # main stayed green while play-local could not build. Compile (never run) every target of each feature
+      # set play-local and the itest harnesses use: `cargo check` runs nothing, so no key is generated,
+      # derived or signed. No SBF build (play-local's own program step is not here).
+      - name: Local-play builds (play-local's feature sets compile; key-free)
+        if: hashFiles('frontier-node/Cargo.toml') != ''
+        working-directory: frontier-node
+        run: |
+          cargo check --locked -p itest --features localnet-land-play --all-targets
+          cargo check --locked -p itest --features localnet-coexist-lane-play --all-targets
+          cargo check --locked -p itest --features localnet-coexist-harness --all-targets
+          cargo check --locked -p itest --features localnet-conquest-play --all-targets
+          cargo check --locked -p itest --features localnet-nft-harness --all-targets
+          cargo check --locked -p itest --features localnet-expedition-harness --all-targets
+          cargo check --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental --all-targets
+          cargo check --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental,coexist-lane,rights-records --all-targets
+          cargo check --locked -p keeper --features expedition-dispatch-experimental --all-targets
+          cargo check --locked -p keeper --features expedition-dispatch-experimental,coexist-lane --all-targets
       # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
       # 0x4804) is behind the `playable-lane` feature, which no other step
       # builds. Lint it, and run its checks over the committed recordings
