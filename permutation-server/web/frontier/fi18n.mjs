@@ -409,6 +409,15 @@ const CLIENT_TEXT = {
   LocalActGrant: () => L`この権利は、いまこの命令に使えません（ないか、相手や場所が違います）。送っていません。`,
   // (devnet-page-outpost: the gateway read no Province at the outpost's target: the keeper has not opened it yet)
   LocalActProvinceAbsent: () => L`この州はまだ開かれていません。開かれるまで村は出せません。送っていません。`,
+  // (devnet-p17: a wide village's own acts on the devnet page — the page's refusals before anything is signed)
+  WideVillageStale: () => L`確認の内容が古くなりました。もう一度「費用を確認」を押してください。`,
+  WideVillageUnread: () => L`遠方の村の記録をまだ読めていません。少し待ってからもう一度押してください。`,
+  WideVillageNotLive: () => L`この遠方の村は、いま命令を受けられる状態ではありません。`,
+  WideVillageTroops: () => L`軍勢は 100〜30,000 の兵で編成します。`,
+  WideProvinceUnread: () => L`この村の州の記録（通れるマス）をまだ読めていません。少し待ってからもう一度押してください。`,
+  WideVillageTile: () => L`そのマスには軍勢を置けません（通れないマスです）。別のマスを選んでください。`,
+  WideVillageShape: () => L`入力の値を確かめてください。`,
+  LocalActNotYourVillage: () => L`この村はあなたの村ではありません。送っていません。`,
   LocalMarchShape: () => L`命令の内容の形が正しくありません。送っていません。`,
   LocalActNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
   LocalMarchNoAnswer: () => CLIENT_TEXT.Unavailable(),   // (the page's own notice for a server that did not answer: HTTP 503)
