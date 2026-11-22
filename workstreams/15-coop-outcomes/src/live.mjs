@@ -86,7 +86,7 @@ export const TITLES = Object.freeze({
   },
   'P-supplier': {
     title: { ja: '材料の届け手', en: 'Supplier' },
-    reason: { ja: '完成した計画に、自分の材料を最小量以上入れた（資源ごとに数え、合計しない）', en: 'Put at least the minimum of one resource of their own into a completed plan (each resource counted on its own)' },
+    reason: { ja: '完成した計画に、自分の材料を最小量以上入れた（資源ごとに数え、合計しない）', en: 'Put at least the minimum of one resource from one\'s own stores into a completed plan (each resource counted on its own)' },
   },
   'P-cross-user': {
     title: { ja: '他国の建物の利用者', en: 'Guest of another nation' },
@@ -94,7 +94,7 @@ export const TITLES = Object.freeze({
   },
   'P-founder': {
     title: { ja: '計画の発起人', en: 'Founder' },
-    reason: { ja: '開いた計画が、ほかの二人以上の材料で完成した', en: 'A plan they opened was completed with materials from two or more others' },
+    reason: { ja: '開いた計画が、ほかの二人以上の材料で完成した', en: 'Opened a plan that was completed with materials from two or more others' },
   },
   'P-raider': {
     title: { ja: '他国の隊商を襲った者', en: 'Raider of foreign caravans' },
@@ -102,11 +102,12 @@ export const TITLES = Object.freeze({
   },
   'P-scout': {
     title: { ja: '物見', en: 'Scout' },
-    reason: { ja: '物見櫓の目撃が、ほかの人に使われた', en: 'A sighting from their watchtower was used by someone else' },
+    reason: { ja: '物見櫓の目撃が、ほかの人に使われた', en: 'Kept a watchtower whose sighting was used by someone else' },
   },
+  // (fix-loop9, LP9-8: the English reasons name no person — "their own caravan" read wrong after "You earned the title")
   'P-board-helper': {
     title: { ja: '依頼に応えた', en: 'Answered a request' },
-    reason: { ja: 'ほかの国の人の協力の依頼に、自分の隊商で荷を届け、その依頼が依頼量に届いた（数えた量の下限で証明）', en: 'Delivered goods by their own caravan to a co-op request from someone of another nation, and the request reached its amount (proven by the lower bound counted)' },
+    reason: { ja: 'ほかの国の人の協力の依頼に、自分の隊商で荷を届け、その依頼が依頼量に届いた（数えた量の下限で証明）', en: 'Sent the caravan that delivered goods to a co-op request from someone of another nation, and the request reached its amount (proven by the lower bound counted)' },
   },
 });
 

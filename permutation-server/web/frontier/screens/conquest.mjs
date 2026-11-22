@@ -282,6 +282,9 @@ export function ownHostOnKeep(FS, x) {
   let rows = [];
   try { rows = hostRows(FS); } catch { rows = []; }
   return (FS.marches ?? []).some(m => {
+    // (fix-loop9, LP9-2: a kept expedition standing on the keep's tile — 進軍 follows its hold)
+    const xp = m?.expedition;
+    if (xp) return xp.stage === 'settled' && xp.fate === 'stays' && xp.dest?.p === x.p && xp.dest?.q === x.q && (!Number.isInteger(x.tile) || xp.dest.tile === x.tile) && !(xp.hold?.outcome === 'lost' && xp.hold.why === 'gone');
     const d = m?.dest, arrive = m?.entry?.arriveBell ?? m?.transit?.arriveBell, id = String(m?.entry?.host ?? m?.transit?.hostId ?? '');
     if (!d || d.p !== x.p || d.q !== x.q || (Number.isInteger(d.tile) && Number.isInteger(x.tile) && d.tile !== x.tile)) return false;
     if (!Number.isInteger(arrive) || bell < arrive || !id) return false;
@@ -290,39 +293,61 @@ export function ownHostOnKeep(FS, x) {
   });
 }
 
+/**
+ * (fix-loop9, LP9-2) The wide keeps the viewer's kept expeditions stand on and still hold (not taken, not lost):
+ * `[{p, q, tile, progress, required}]`, from the march rows (flocalplay-expedition.mjs, followed holds).
+ */
+export function expeditionKeeps(FS) {
+  const out = [];
+  for (const m of FS?.marches ?? []) {
+    const x = m?.expedition, h = x?.hold;
+    if (!x || x.stage !== 'settled' || x.fate !== 'stays' || !h || h.outcome || !x.dest) continue;
+    if (out.some(y => y.p === x.dest.p && y.q === x.dest.q)) continue;
+    out.push({ p: x.dest.p, q: x.dest.q, tile: x.dest.tile, progress: h.progress ?? null, required: h.required ?? null });
+  }
+  return out;
+}
+
 /** The keeps of other nations a march of the viewer can reach now, nearest first. */
 export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
   if ((!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity))) return '';
   const r = FS.conquest?.reach;
   const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
-    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   // (the loop-play report B7: a keep of the viewer's OWN nation that another nation is counting on is in this list so
   //  that a host can go and defend it (fkeepreach.mjs defendableKeeps, `defend: true`; the host's forts card says
   //  「守りに向かう」). Here it stood under "keeps of other nations", named by its own nation, with nothing saying
   //  it is to be defended. It has its own list and its own words now; the list of other nations' keeps is theirs alone)
   const defendRow = x => html`<li class="kr-row kr-row-defend kh-n${x.holder}" data-keep-defend="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`あなたの国が保持`}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}
       <span class="kr-defend">${icon('shield')}<strong>${L`守りに向かう`}</strong> · ${L`マスに残れば占拠を止めます`}</span></span>
-    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   const defends = r?.ok ? r.rows.filter(x => x.defend === true) : [], rest = r?.ok ? r.rows.filter(x => x.defend !== true) : [];
   // (fix-loop8, LP7-6: a keep the viewer's own host is on is said apart — held, not to be reached)
   const held = rest.filter(x => ownHostOnKeep(FS, x)), others = rest.filter(x => !held.includes(x));
-  const heldRow = x => html`<li class="kr-row kr-row-held kh-n${x.holder}" data-keep-held="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}
+  // (fix-loop9, LP9-2: a wide keep is in no reach list — the reach covers the rings up to 128 — so a keep the viewer's
+  //  expedition holds in the wide land is added here from the expedition itself: verify run, 「見えている他国の砦で、
+  //  いま届くものはありません。」 while 1 host counted the hold)
+  const wideHeld = expeditionKeeps(FS).filter(x => !held.some(y => y.p === x.p && y.q === x.q));
+  const wideRow = x => html`<li class="kr-row kr-row-held" data-keep-held="${x.p},${x.q}" data-keep-wide="1"><span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`広い土地`}${Number.isFinite(x.progress) && Number.isFinite(x.required) ? html` · ${L`占拠 ${fmtNum(x.progress)} / ${fmtNum(x.required)} ターン`}` : ''}
       <span class="muted">${L`あなたの軍勢がこの砦に着いています。占拠の進み具合と結果は「進軍」で確かめられます。`}</span></span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
+  const heldRow = x => html`<li class="kr-row kr-row-held kh-n${x.holder}" data-keep-held="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}
+      <span class="muted">${L`あなたの軍勢がこの砦に着いています。占拠の進み具合と結果は「進軍」で確かめられます。`}</span></span>
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   // (fix-loop6, LP6-10: the nation's keeps under attack that no host of the viewer reaches are said too, with where to look)
   const reached = new Set(defends.map(x => `${x.p},${x.q}`));
   const far = besiegedOwnKeeps(FS).filter(x => !reached.has(`${x.p},${x.q}`));
   const farRow = x => html`<li class="kr-row kr-row-defend kh-n${FS.citizen.faction}" data-keep-defend-far="${x.p},${x.q}">${crest(FS.citizen.faction, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`${factionName(x.by)}が第${fmtNum(x.since)}ターンから占拠を進めています`}${Number.isFinite(x.progress) ? html` · ${L`占拠 ${fmtNum(x.progress)} ターン`}` : ''}
       <span class="muted">${L`いまのあなたの軍勢では届きません。`}</span></span>
-    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`そこへ移動`}</button></li>`;
+    <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   // (measured from the village because no host can depart this moment: a host that is on its way to being ready says so,
   // with the turn from which it can depart; only a player without any combat host is told to train one)
   const waits = r?.ok && r.home ? hostWaits(FS) : [];
   // (the keeps to defend come first, under their own heading; then the other nations' keeps under theirs)
   return html`<section class="conquest-reach hpanel" aria-labelledby="conquest-reach-title">
     ${defends.length || far.length ? html`<h4 class="kr-defend-title" id="conquest-defend-title">${L`他国が占拠を進めている、あなたの国の砦`}</h4><ul class="list kr-rows kr-rows-defend" aria-labelledby="conquest-defend-title">${defends.map(defendRow)}${far.map(farRow)}</ul>` : ''}
-    ${held.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4><ul class="list kr-rows kr-rows-held" aria-labelledby="conquest-held-title">${held.map(heldRow)}</ul>` : ''}
+    ${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4><ul class="list kr-rows kr-rows-held" aria-labelledby="conquest-held-title">${held.map(heldRow)}${wideHeld.map(wideRow)}</ul>` : ''}
     <h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
     ${!r ? html`<p class="muted">${L`届く砦を調べています…`}</p>` : !r.ok ? html`<p class="muted">${clientText(r.code)}</p>` : html`
       ${r.home ? (waits.length ? html`${renderWaits(FS, waits)}<p class="muted">${L`そのあいだは、村からの道のりで調べています。`}</p>` : html`<p class="muted">${L`出発できる戦闘部隊がいないため、村からの道のりで調べています。`}</p>`) : ''}

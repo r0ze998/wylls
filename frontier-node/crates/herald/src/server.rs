@@ -8,7 +8,10 @@
 //! (archived and resolved everywhere), `max-age=5` before; `/h/season` is
 //! `max-age=30` with an ETag; `/h/me` is `no-store`; a full `/h/events`
 //! page (500) is `immutable`. Precompressed `.gz` siblings are sent to
-//! clients that accept gzip (`Vary: Accept-Encoding`).
+//! clients that accept gzip (`Vary: Accept-Encoding`). The web client
+//! (`/frontier/*`) has no siblings: each file is read, hashed (ETag) and
+//! gzipped once per (path, size, mtime, ctime) and kept in memory
+//! (herald-load-50, [`web_file`]).
 //!
 //! **Security headers** (as `permutation-server/src/play/http.rs`) on
 //! every answer: `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
@@ -957,6 +960,84 @@ fn hashed(name: &str) -> bool {
         .any(|s| s.len() >= 8 && s.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
+/// herald-load-50: one web client file as served — its bytes, its ETag (the first 32 hex of its sha256, as before) and
+/// its gzip body (the precompressed `.gz` sibling when there is one, else gzipped here once for a compressible type).
+struct WebFile {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    /// verify-pr170: the inode change time too — a same-size rewrite whose mtime was put back (`touch -r`, `cp -p`, an
+    /// archive's extract) still moves it, and no program can set it.
+    changed: Option<(i64, i64)>,
+    etag: String,
+    body: Bytes,
+    gz: Option<Bytes>,
+}
+
+/// Files larger than this are read per request, as before (the web client's largest is ~0.4 MB).
+const WEB_CACHE_FILE_MAX: u64 = 8 << 20;
+/// Entries kept; past it the cache starts over (the client has ~400 files).
+const WEB_CACHE_ENTRIES: usize = 4096;
+
+/// herald-load-50 (the devnet 50-player load test): every `/frontier/*` request — a 304 revalidation too — used to
+/// read the whole file and hash it, and the client went out uncompressed (no `.gz` siblings in the web tree): 353
+/// requests and 8.2 MB per page load, 3.1 MB gzipped. Now each file is read, hashed and gzipped ONCE per (path, size,
+/// modification time); a request costs one `stat`. A changed file is read again on its next request (same ETag rule).
+fn web_file(p: &std::path::Path) -> Option<Arc<WebFile>> {
+    static CACHE: std::sync::OnceLock<Mutex<std::collections::HashMap<PathBuf, Arc<WebFile>>>> =
+        std::sync::OnceLock::new();
+    let meta = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
+    let (len, modified, changed) = (meta.len(), meta.modified().ok(), inode_changed(&meta));
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(f) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(p) {
+        if f.len == len && f.modified == modified && modified.is_some() && f.changed == changed {
+            return Some(f.clone());
+        }
+    }
+    let body = std::fs::read(p).ok()?;
+    let etag = format!("\"{}\"", &hex::encode(Sha256::digest(&body))[..32]);
+    let compressible = !matches!(
+        p.extension().and_then(|e| e.to_str()),
+        Some("webp" | "png" | "woff2" | "ico" | "gz")
+    );
+    let gz = match std::fs::read(gz_path(p)) {
+        Ok(z) => Some(Bytes::from(z)),
+        // (verify-pr170: only a file the cache keeps is gzipped here — an uncached large file is not compressed
+        //  again on every request)
+        Err(_) if compressible && body.len() >= 512 && len <= WEB_CACHE_FILE_MAX => {
+            Some(Bytes::from(crate::files::gzip(&body)))
+        }
+        Err(_) => None,
+    };
+    let f = Arc::new(WebFile {
+        len: body.len() as u64,
+        modified,
+        changed,
+        etag,
+        body: Bytes::from(body),
+        gz,
+    });
+    // (only a file whose size still matches its stat is kept: a file being rewritten is served, not cached)
+    if f.len == len && len <= WEB_CACHE_FILE_MAX {
+        let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if c.len() >= WEB_CACHE_ENTRIES {
+            c.clear();
+        }
+        c.insert(p.to_path_buf(), f.clone());
+    }
+    Some(f)
+}
+
+#[cfg(unix)]
+fn inode_changed(m: &std::fs::Metadata) -> Option<(i64, i64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((m.ctime(), m.ctime_nsec()))
+}
+
+#[cfg(not(unix))]
+fn inode_changed(_: &std::fs::Metadata) -> Option<(i64, i64)> {
+    None
+}
+
 async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
     let Some(root) = &app.web else {
         return err(StatusCode::NOT_FOUND, "NoWebClient");
@@ -977,11 +1058,11 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
         return err(StatusCode::NOT_FOUND, "NotFound");
     }
     let p = root.join(&rel);
-    let Ok(body) = std::fs::read(&p) else {
+    let Some(f) = web_file(&p) else {
         return err(StatusCode::NOT_FOUND, "NotFound");
     };
     let name = rel.rsplit('/').next().unwrap_or(&rel);
-    let etag = format!("\"{}\"", &hex::encode(Sha256::digest(&body))[..32]);
+    let etag = f.etag.clone();
     let cache = if hashed(name) { IMMUTABLE } else { "no-cache" };
     if h.get(header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
@@ -993,10 +1074,9 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
         )
             .into_response();
     }
-    let gz = gz_path(&p);
-    let (body, enc) = match (accepts_gzip(&h), std::fs::read(&gz)) {
-        (true, Ok(z)) => (z, Some("gzip")),
-        _ => (body, None),
+    let (body, enc) = match (accepts_gzip(&h), &f.gz) {
+        (true, Some(z)) => (z.clone(), Some("gzip")),
+        _ => (f.body.clone(), None),
     };
     let mut r = Response::builder()
         .status(StatusCode::OK)
@@ -1173,6 +1253,81 @@ async fn wide_index_events(State(_app): State<Shared>) -> Response {
 #[cfg(test)]
 #[path = "wide_route_http_tests.rs"]
 mod wide_route_http_tests;
+
+/// herald-load-50: the web client's file cache (read, hashed and gzipped once per path, size and modification time).
+#[cfg(test)]
+mod web_file_tests {
+    use super::web_file;
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    #[test]
+    fn a_file_is_hashed_and_gzipped_once_and_read_again_when_it_changes() {
+        let dir = std::env::temp_dir().join(format!("herald-web-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let js = dir.join("app.mjs");
+        let text = "export const x = 1;\n".repeat(200);
+        std::fs::write(&js, &text).unwrap();
+        let f = web_file(&js).expect("a file");
+        let want = format!(
+            "\"{}\"",
+            &hex::encode(Sha256::digest(text.as_bytes()))[..32]
+        );
+        assert_eq!(f.etag, want, "the ETag rule is unchanged");
+        assert_eq!(&f.body[..], text.as_bytes());
+        let mut back = String::new();
+        flate2::read::GzDecoder::new(&f.gz.as_ref().expect("gzipped")[..])
+            .read_to_string(&mut back)
+            .unwrap();
+        assert_eq!(back, text, "the gzip body is the file");
+        assert!(f.gz.as_ref().unwrap().len() < text.len() / 4);
+        let again = web_file(&js).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&f, &again), "served from the cache");
+        // a new version (other size; then same size, later mtime) is read again
+        std::fs::write(&js, "export const y = 2;\n".repeat(300)).unwrap();
+        let g = web_file(&js).unwrap();
+        assert_ne!(g.etag, f.etag);
+        let same_len = "export const z = 3;\n".repeat(300);
+        std::fs::write(&js, &same_len).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&js)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        let h = web_file(&js).unwrap();
+        assert_eq!(&h.body[..], same_len.as_bytes());
+        assert_ne!(h.etag, g.etag);
+        // verify-pr170: a same-size rewrite with its modification time put back (`touch -r`, `cp -p`) is read again
+        let mtime = std::fs::metadata(&js).unwrap().modified().unwrap();
+        let back_dated = "export const w = 4;\n".repeat(300);
+        std::fs::write(&js, &back_dated).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&js)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        assert_eq!(std::fs::metadata(&js).unwrap().modified().unwrap(), mtime);
+        let k = web_file(&js).unwrap();
+        assert_eq!(
+            &k.body[..],
+            back_dated.as_bytes(),
+            "not the cached same-size version"
+        );
+        // already-compressed images and tiny files go as they are; a directory or a missing file is no file
+        let img = dir.join("a.webp");
+        std::fs::write(&img, vec![7u8; 4096]).unwrap();
+        assert!(web_file(&img).unwrap().gz.is_none());
+        let tiny = dir.join("t.mjs");
+        std::fs::write(&tiny, "export {};").unwrap();
+        assert!(web_file(&tiny).unwrap().gz.is_none());
+        assert!(web_file(&dir).is_none());
+        assert!(web_file(&dir.join("absent.mjs")).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
 
 /// verify-pr166: the client address behind a loopback proxy is the last
 /// entry over every `X-Forwarded-For` line, never a client-written one.

@@ -58,6 +58,15 @@ export function surveyInput(fs, { terrainOf = null, ready = true, scope = null }
     for (const t of Array.from(r.tiles ?? []).slice(0, Number(r.n ?? 0))) explored.push({ p: Number(r.p), q: Number(r.q), tile: Number(t) });
   }
   const destinations = (fs.marches ?? []).map(m => m?.dest).filter(d => d && int(d.p) && int(d.q) && int(d.tile)).map(d => ({ p: d.p, q: d.q, tile: d.tile }));
+  // (fix-loop9, LP9-2: a kept expedition that STAYS in the wide land is the viewer's own host standing there — it sees
+  //  from its tile like any host (a destination alone is only "seen before"): loop-play9, the province where 1,189 of
+  //  the viewer's own troops held a keep was blank parchment, its keep not drawn. Not once it is followed off the tile.)
+  for (const m of fs.marches ?? []) {
+    const x = m?.expedition;
+    if (!x || x.stage !== 'settled' || x.fate !== 'stays' || !x.dest || !int(x.dest.p) || !int(x.dest.q) || !int(x.dest.tile)) continue;
+    if (x.hold?.outcome === 'lost' && x.hold.why === 'gone') continue;
+    hosts.push({ p: x.dest.p, q: x.dest.q, tile: x.dest.tile, unit: 0 });
+  }
   const a = activeHolding(fs);
   // the viewer's own records for the board (map/board.mjs); a host whose seal is open sees from its destination
   let board = null;

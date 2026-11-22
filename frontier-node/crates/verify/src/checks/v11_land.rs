@@ -113,6 +113,71 @@ pub fn terrain_digest(t: &ProvinceTerrain) -> [u8; 32] {
     sha256(&[TERRAIN_DOMAIN, &d[PV::TERRAIN..PV::SITE_MIRROR]])
 }
 
+/// V11's reader of the states before a transaction: the last archived
+/// post-state or the recorder's declared patch in force
+/// (`Input::declared`), whichever is later — the rule of
+/// `vx_reexec::before` and VWL's `acct_before` (verifier-v11-patches:
+/// V11 read only archived post-states and FAILed an honest rim FileTicket
+/// whose Frontier patch, `r_max_ext 128`, no archived write had carried
+/// forward yet; D-verify-pr166-5). A judgement that read a declared state
+/// is never a PASS ([`Before::soften`]): `MissingData`, as VWL rules. A
+/// FAIL stays a FAIL: the program ran on the declared state, so an
+/// honest archive's declared state can never contradict a success.
+struct Before<'a> {
+    w: &'a crate::world::World,
+    declared: &'a [crate::input::Declared],
+    read_declared: std::cell::Cell<bool>,
+}
+
+impl<'a> Before<'a> {
+    fn new(cx: &Ctx<'a>) -> Self {
+        let input = cx.input;
+        Before {
+            w: cx.w,
+            declared: &input.declared,
+            read_declared: std::cell::Cell::new(false),
+        }
+    }
+
+    /// The data of `k` before transaction `tx` (`None`: absent or unknown).
+    fn data(&self, k: &Key, tx: usize) -> Option<&'a [u8]> {
+        let posted = self.w.posts.get(k).and_then(|v| {
+            let i = v.partition_point(|&t| t < tx);
+            i.checked_sub(1).and_then(|i| v.get(i)).copied()
+        });
+        // (a patch made after the last write, before this transaction)
+        let decl = self
+            .declared
+            .iter()
+            .rfind(|d| d.key == *k && d.at <= tx)
+            .filter(|d| posted.is_none_or(|t| d.at > t));
+        if let Some(d) = decl {
+            self.read_declared.set(true);
+            return d.account.as_ref().map(|a| a.data.as_slice());
+        }
+        self.w.state_before(k, tx)
+    }
+
+    /// A judgement's verdict once its states are known: a PASS from a
+    /// declared state is `MissingData`.
+    fn soften(&self, j: Judgement) -> Judgement {
+        match j {
+            Judgement::Pass if self.read_declared.get() => Judgement::Missing(
+                "judged exactly, but from a state the archive only declares (a recorder's patch, not an archived transaction's write)".into(),
+            ),
+            j => j,
+        }
+    }
+}
+
+/// A check of record `r` that passed: `MissingData` if it read a declared
+/// state ([`Before::soften`]).
+fn declared_pass(cx: &mut Ctx, pre: &Before, what: String, r: &crate::world::Rec) {
+    if let Judgement::Missing(why) = pre.soften(Judgement::Pass) {
+        cx.missing(V, what, r.bell, Some(r.tx), why);
+    }
+}
+
 /// The ticket of a citizen: `(TICKET record, distinct provinces, n sites)`.
 struct Ticket {
     bell: u32,
@@ -233,7 +298,8 @@ pub fn run(cx: &mut Ctx) {
         let (p, q) = r.pq();
         let what = format!("camp ({p}, {q})");
         let pk = f.ctx.province(p, q);
-        let Some(before) = w.state_before(&pk, r.tx) else {
+        let pre = Before::new(cx);
+        let Some(before) = pre.data(&pk, r.tx) else {
             cx.missing(
                 V,
                 what,
@@ -283,6 +349,8 @@ pub fn run(cx: &mut Ctx) {
                     Some(r.tx),
                     format!("a clear (troops 0) of a camp in state {at_clash:?} → {after:?}"),
                 );
+            } else if !spawned_here {
+                declared_pass(cx, &pre, what, r);
             }
             continue;
         }
@@ -325,6 +393,8 @@ pub fn run(cx: &mut Ctx) {
                     r.pu32("day")
                 ),
             );
+        } else {
+            declared_pass(cx, &pre, what, r);
         }
     }
     if !w.has_post && w.of(Kind::TICKET).next().is_some() {
@@ -469,8 +539,9 @@ fn settle(
     // earlier ticket cohort of the same Province is open (filed > settled,
     // within its 24 bells), as the Province stood before.
     if outcome == settle_outcome::FRESH && r.bell != NO_BELL {
-        if let Some(pv) = w
-            .state_before(&f.ctx.province(p, q), r.tx)
+        let pre = Before::new(cx);
+        if let Some(pv) = pre
+            .data(&f.ctx.province(p, q), r.tx)
             .and_then(|d| fclient::decode::Province::decode(d).ok())
         {
             let open = pv.cohorts.iter().any(|c| {
@@ -485,6 +556,8 @@ fn settle(
                     Some(r.tx),
                     format!("a fresh settlement of cohort {tb} while an earlier cohort was open"),
                 );
+            } else {
+                declared_pass(cx, &pre, what.clone(), r);
             }
         }
     }
@@ -605,6 +678,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
     let tx = &w.txs[r.tx];
     let (p, q, site) = r.pqs();
     let what = format!("home ({p}, {q}, {site})");
+    let pre = Before::new(cx);
     let check = || -> Result<bool, String> {
         let ix = tx
             .ix(Ix::PlaceHome.tag())
@@ -614,7 +688,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
         let pk = f.ctx.province(p, q);
         let hk = f.ctx.holding(p, q, site);
         let decode_err = |_| "invalid account bytes".to_owned();
-        let cbd = w.state_before(&ck, r.tx).ok_or("no citizen pre-state")?;
+        let cbd = pre.data(&ck, r.tx).ok_or("no citizen pre-state")?;
         let cb = Citizen::decode(cbd).map_err(decode_err)?;
         // S1 1e: an expelled citizen's home carries the expelled flag
         // (`nation::mark_holding`), beside the intro build.
@@ -625,24 +699,21 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             H::FLAG_INTRO_BUILD_AVAILABLE | if expelled { H2::FLAG_EXPELLED } else { 0 };
         let ca = Citizen::decode(tx.post_data(&ck).ok_or("no citizen post-state")?)
             .map_err(decode_err)?;
-        let pb = Province::decode(w.state_before(&pk, r.tx).ok_or("no province pre-state")?)
+        let pb = Province::decode(pre.data(&pk, r.tx).ok_or("no province pre-state")?)
             .map_err(decode_err)?;
         let pa = Province::decode(tx.post_data(&pk).ok_or("no province post-state")?)
             .map_err(decode_err)?;
         let h = Holding::decode(tx.post_data(&hk).ok_or("no holding post-state")?)
             .map_err(decode_err)?;
         let frontier = Frontier::decode(
-            w.state_before(&f.ctx.frontier(), r.tx)
+            pre.data(&f.ctx.frontier(), r.tx)
                 .ok_or("no frontier pre-state")?,
         )
         .map_err(decode_err)?;
-        let season = Season::decode(
-            w.state_before(&f.ctx.season, r.tx)
-                .ok_or("no season pre-state")?,
-        )
-        .map_err(decode_err)?;
+        let season = Season::decode(pre.data(&f.ctx.season, r.tx).ok_or("no season pre-state")?)
+            .map_err(decode_err)?;
         let sk = f.ctx.join_shard(cb.faction, cb.join_shard);
-        let sb = JoinShard::decode(w.state_before(&sk, r.tx).ok_or("no shard pre-state")?)
+        let sb = JoinShard::decode(pre.data(&sk, r.tx).ok_or("no shard pre-state")?)
             .map_err(decode_err)?;
         let sa = JoinShard::decode(tx.post_data(&sk).ok_or("no shard post-state")?)
             .map_err(decode_err)?;
@@ -667,9 +738,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             9 => None,
             10 => {
                 let wk = ix.key(9).ok_or("no witness account")?;
-                let wd = w
-                    .state_before(&wk, r.tx)
-                    .ok_or("no witness province pre-state")?;
+                let wd = pre.data(&wk, r.tx).ok_or("no witness province pre-state")?;
                 let wp = Province::decode(wd).map_err(decode_err)?;
                 if f.ctx.province(wp.p as i32, wp.q as i32) != wk {
                     return Ok(false);
@@ -754,17 +823,17 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && r.pi64("final_ts") == tx.time
             && Some(r.p32("funder")) == ix.key(1))
     };
-    match check() {
-        Ok(true) => {}
-        Ok(false) => cx.fail(
-            V,
-            HOME_PLACEMENT_MISMATCH,
-            what,
-            r.bell,
-            Some(r.tx),
-            "first-home entitlement, selected site, ownership or mirror mismatch",
+    let judged = match check() {
+        Ok(true) => Judgement::Pass,
+        Ok(false) => Judgement::Fail(
+            "first-home entitlement, selected site, ownership or mirror mismatch".into(),
         ),
-        Err(e) => cx.missing(V, what, r.bell, Some(r.tx), e),
+        Err(e) => Judgement::Missing(e),
+    };
+    match pre.soften(judged) {
+        Judgement::Pass => {}
+        Judgement::Fail(why) => cx.fail(V, HOME_PLACEMENT_MISMATCH, what, r.bell, Some(r.tx), why),
+        Judgement::Missing(why) => cx.missing(V, what, r.bell, Some(r.tx), why),
     }
 }
 
@@ -1138,6 +1207,7 @@ fn filed_ticket(cx: &mut Ctx, r: &crate::world::Rec) {
         .iter()
         .filter(|&&n| w.recs[n].kind == Kind::TICKET && w.recs[n].k("citizen_tag15") == &tag15[..])
         .count();
+    let pre = Before::new(cx);
     let judged = (|| -> Judgement {
         let ix = match route_ticket(&tx.ixs, &ck, &f.ctx.frontier(), n_records) {
             TicketRoute::Isolated(ix) => ix,
@@ -1159,16 +1229,16 @@ fn filed_ticket(cx: &mut Ctx, r: &crate::world::Rec) {
             genesis_seed: f.genesis_seed.as_ref(),
             r_max: f.params.as_ref().map(|p| p.r_max),
             data: &ix.data,
-            citizen_before: w.state_before(&ck, r.tx),
+            citizen_before: pre.data(&ck, r.tx),
             citizen_after: tx.post_data(&ck),
-            frontier_before: w.state_before(&f.ctx.frontier(), r.tx),
+            frontier_before: pre.data(&f.ctx.frontier(), r.tx),
             bell: r.bell,
             ticket_bell: r.pu32("ticket_bell"),
             n: r.pu8("n"),
             sites: r.p("sites"),
         })
     })();
-    match judged {
+    match pre.soften(judged) {
         Judgement::Pass => {}
         Judgement::Fail(why) => {
             cx.fail(V, TICKET_PLACEMENT_MISMATCH, what, r.bell, Some(r.tx), why)

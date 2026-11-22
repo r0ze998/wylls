@@ -2363,13 +2363,15 @@ function waitNow() {
 const landingBook = createLandingBook();
 // the S1 marks, rebuilt when a feed or the bell changes (the map asks for its source every frame)
 let s1Memo = null;
+// (fix-loop9, LP9-6: a caravan's arrival time as a turn of the season, for a route the feed gives without runs)
+const caravanBellOfTs = ts => (FS.season ? bellAt(seasonClock(FS.season).genesisTs, ts) : null);
 function s1MarksNow() {
   const s1 = FS.s1;
   if (!s1) return null;
   const bell = FS.nowBell ?? null;
   if (s1Memo?.c !== s1.caravans || s1Memo.s !== s1.structures || s1Memo.bell !== bell || s1Memo.n !== FS.holdings?.length) {
     // (the provinces' caravan slots say which caravans an open raid holds; they are read again at the next bell)
-    s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell, provinces: FS.provinces }) };
+    s1Memo = { c: s1.caravans, s: s1.structures, bell, n: FS.holdings?.length, marks: s1Marks(s1, { own: ownTag(FS), bell, provinces: FS.provinces, bellOfTs: caravanBellOfTs }) };
   }
   // (the fog of war of a local test world, map/fog.mjs: another's vault, structure or caravan only where the viewer sees now)
   if (FS.fog?.on) {
@@ -3859,7 +3861,7 @@ export const HUD_ACTIONS = {
   },
   'hand-unit': d => { FS.hand = { ...(FS.hand ?? {}), unit: num(d.unit), n: undefined, troops: undefined }; invalidate('panel'); },
   'hand-n': d => { FS.hand = { ...(FS.hand ?? {}), n: num(d.n) }; invalidate('panel'); },
-  'hand-troops': d => { FS.hand = { ...(FS.hand ?? {}), troops: num(d.n) }; invalidate('panel'); },
+  'hand-troops': d => { FS.hand = { ...(FS.hand ?? {}), troops: num(d.n), troopsAll: d.all === '1' }; invalidate('panel'); },
   'hand-info': () => { clearInspection(FS); clearOutbound(FS); endPick(); FS.inspectOpen = true; FS.hand = { ...(FS.hand ?? {}), pop: null }; FS.tab = 'map'; invalidate('map', 'panel', 'tabs', 'rail'); },
   'hand-close': () => { clearInspection(FS); clearOutbound(FS); endPick(); FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel', 'tabs', 'rail'); $('frontier-map')?.focus?.({ preventScroll: true }); },
   'hand-turn': () => { FS.dialOpen = true; closeTermPop(); renderDialPop(); $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },

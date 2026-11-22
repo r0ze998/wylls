@@ -82,6 +82,8 @@ const P17_PORT_BASE: u16 = 41_500;
 const PCAP_PORT_BASE: u16 = 41_780;
 /// PPAIR's (devnet-72bell-pair; `OPERATOR_PAGE_PAIR_PORT_BASE` moves them): as P9.
 const PPAIR_PORT_BASE: u16 = 41_790;
+/// PLOAD (herald-load-50): ports 41500–41508 (`OPERATOR_LOAD_PORT_BASE`).
+const PLOAD_PORT_BASE: u16 = 41_500;
 /// PGWF's (fix-gw-highs; `OPERATOR_GW_FLOOD_PORT_BASE` moves them): as P8 plus the gateway (+6 operator, +7 public).
 const PGWF_PORT_BASE: u16 = 41_600;
 
@@ -642,6 +644,22 @@ async fn pv0_a_wallets_v0_and_v1_transactions_reach_the_herald_on_the_devnet_so_
     .await;
 }
 
+/// PLOAD (herald-load-50): P7's devnet stack held open for a load test of the herald and the gateway (50–100
+/// players). TEST/local only, `OPERATOR_LOAD_HOLD=1` (skipped otherwise): writes `$OPERATOR_LOAD_DIR/stack.json`
+/// (ports, program, TEST wallet seeds) and runs until `$OPERATOR_LOAD_DIR/stop` exists ([`rim::load`]).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pload_the_devnet_stack_held_open_for_a_load_test_offline() {
+    if std::env::var("OPERATOR_LOAD_HOLD").ok().as_deref() != Some("1") {
+        eprintln!("pload: skipped (set OPERATOR_LOAD_HOLD=1 and OPERATOR_LOAD_DIR)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_LOAD_PORT_BASE", PLOAD_PORT_BASE),
+        Mode::Load,
+    )
+    .await;
+}
+
 /// P4 (owner Q-W1, 2026-11-20): P3, then a FIRST VILLAGE ON THE RIM and a wide claim from it, on the devnet `.so`
 /// with the keeper roles a devnet season would run (module doc of [`rim`]).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -992,6 +1010,9 @@ enum Mode {
     Floor(u64),
     /// P14 (devnet-guard-conquest): P11, then a third party's wide Free City conquest.
     Conquest,
+    /// PLOAD (herald-load-50): P7's devnet stack (herald `--web`, gateway `--devnet-play`, keeper A) held open for an
+    /// external load generator; the test only makes TEST wallets and keeps the bells moving ([`rim::load`]).
+    Load,
     /// PV0 (herald-v0v1-decode): P3 with the participant's Join as v1 and PlaceHome as v0 through its own table.
     Versioned,
     /// PGWF (fix-gw-highs): P8 (keeper A on its default 150 ms pacer), the gateway behind the herald's `/gw`,
@@ -1023,6 +1044,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageOutpost => "ppost",
         Mode::Conquest => "p14",
         Mode::Versioned => "pv0",
+        Mode::Load => "pload",
     };
     let war = matches!(
         mode,
@@ -1045,6 +1067,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             | Mode::PagePair
             | Mode::PageExpedition
             | Mode::PageOutpost
+            | Mode::Load
     );
     let expedition = matches!(
         mode,
@@ -1337,7 +1360,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
             }
             // (PCAP / PPAIR, devnet-72bell-pair: keeper A exactly as scripts/devnet/devnet-playable-profile.json's
             //  services.keeperA.roles)
-            Mode::PageCapture | Mode::PagePair => {
+            // (PLOAD: the devnet profile's keeper A roles too, so the herald folds a devnet season's keeper traffic)
+            Mode::PageCapture | Mode::PagePair | Mode::Load => {
                 "\"beacon\", \"archive\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\", \"wide-resolve\""
             }
             // (P11 / P14: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
@@ -1357,7 +1381,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
                 rim::PER_WEDGE
             ),
-            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs => format!(
+            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs | Mode::Load => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
@@ -1621,7 +1645,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let herald_bin = sibling_bin("FRONTIER_HERALD_BIN", "frontier-herald");
     // (fix-devnet-join-wait, TEST-ONLY: the herald as devnet runs it — behind an RPC that shows transactions late
     //  (a delaying proxy in front of this node: `OPERATOR_HERALD_RPC_URL`, loopback only), with the runbook's gap
-    //  (`OPERATOR_HERALD_RPC_GAP_MS`) and poll (`OPERATOR_HERALD_POLL_MS`). Unset: as before, the node itself, gap 0.)
+    //  (`OPERATOR_HERALD_RPC_GAP_MS`) and poll (`OPERATOR_HERALD_POLL_MS`). Unset: as before, the node itself, gap 0.
+    //  PLOAD (herald-load-50) sets the same two for its counting proxy and the runbook's 250 ms.)
     let herald_rpc = std::env::var("OPERATOR_HERALD_RPC_URL")
         .ok()
         .filter(|u| u.starts_with("http://127.0.0.1:"))
@@ -1773,8 +1798,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
                         .unwrap_or_else(|_| repo_root().join("permutation-gateway"))
                         .join("src/frontier/server.mjs"),
                 )
-                // (PGWF: behind a TLS proxy that sets X-Forwarded-For, fix-gw-highs M-2; an older gateway ignores it)
-                .args(if mode == Mode::Flood {
+                // (PGWF / PLOAD: behind a TLS proxy that sets X-Forwarded-For, fix-gw-highs M-2; an older gateway ignores it)
+                .args(if matches!(mode, Mode::Flood | Mode::Load) {
                     vec!["--public-proxy", "xff"]
                 } else {
                     vec![]
@@ -1783,7 +1808,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
                     "--cluster",
                     "devnet",
                     "--rpc",
-                    &url,
+                    // (PLOAD: through a counting proxy, as the herald's)
+                    &std::env::var("OPERATOR_GATEWAY_RPC_URL").unwrap_or_else(|_| url.clone()),
                     "--program",
                     &prog_s,
                     "--season",
@@ -1854,6 +1880,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         wide_acts: mode == Mode::PageWideActs,
         capture: mode == Mode::PageCapture,
         pair: mode == Mode::PagePair,
+        load: mode == Mode::Load,
     });
     // P4: the rim first village and the wide claim (keeper and herald still running).
     let rim_summary = if rim_run {
@@ -1865,6 +1892,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                         | Mode::AfterWide
                         | Mode::Page
                         | Mode::PageWideActs
+                        | Mode::Load
                         | Mode::Expedition
                         | Mode::PageExpedition
                         | Mode::Conquest

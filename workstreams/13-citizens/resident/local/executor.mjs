@@ -18,6 +18,7 @@
 //   settle(use, fact)         the outcome the runner read (landed / failed by signature; refused; not-sent; unknown)
 import { makePlanSteps, planSpec, checkStep, PLAN_LIMITS } from './plan.mjs';
 import { OPEN_LINE_MS } from './journal.mjs';
+import { PLAN_ITEMS, recordBehind } from './brain.mjs';
 
 const codeText = c => (typeof c === 'string' && c ? c.replace(/[^A-Za-z0-9_()]/g, '').slice(0, 64) || null : null);
 
@@ -71,7 +72,11 @@ export function createPlanExecutor({ plans, owner, holder, goal, goalName, limit
       if (!active) {
         if (!obs.holding) return { none: 'no village yet: my brain joins and places the home; plans start after' };
         if (cur.plans >= limits.maxPlans) return { none: `${cur.plans} plans made in this world (my cap ${limits.maxPlans})` };
-        const steps = makePlanSteps(obs, goal, { limits });
+        // (LP9-4: a plan is made from the record; while it does not show a build of mine that landed, its copy numbers
+        //  would be low and the plan would stop at once when the record catches up)
+        const lag = PLAN_ITEMS.map(i => recordBehind(obs, mem, i)).find(Boolean);
+        if (lag) return { wait: `no plan yet: ${lag}` };
+        const steps = makePlanSteps(obs, goal, { limits, mem });
         if (!steps) return { wait: 'my village\'s record is not readable: no plan yet' };
         // (verify-pr148) a plan whose first step the same checks would stop at once is not made: making it would stop
         // it, and remake it the next round, until the plan cap is spent (seen live: 3 plans in 7 s on a wood shortfall

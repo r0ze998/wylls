@@ -278,7 +278,7 @@ export default {
   '結果は、探索したターンの決着のあとに出ます。': 'The result comes once the turn it was sent in is resolved. ',
   '結果は、探索したターンの決着のあとに出ます': 'The result comes once the turn it was sent in is resolved',
   'いまは納めるものがありません（命令のたびに蔵は納められます）。蔵は毎時 +{0} 増えています': 'Nothing to store now (every order stores it). The stores are growing by +{0} an hour',
-  '{0}が終わります（あと {1}）': '{0} is finished ({1} left)',
+  '{0}が終わります（あと {1}）': '{0} finishes ({1} left)',
 
   // ---- the map's answers while an order is placed (app.mjs)
   '地形・時間を確認': 'Check terrain and time',
@@ -448,7 +448,7 @@ export default {
   '到着ターンの候補は未入力です': 'No proposed arrival turn entered',
   '到着ターンの候補はターン {0}（観測した範囲で最も早い候補）です。詳細で変更できます。': 'The proposed arrival turn is turn {0}, the earliest in the observed range. You can change it in Details.',
   '取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。': 'Calculated from captured records and an estimated departure time. Current passage, arrival and successful departure remain unverified.',
-  '地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。': 'Press an outlined map tile to add one step. Use “Check terrain and timing” to read the recorded route.',
+  '地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。': 'Press an outlined map tile to add one step. Use “Check terrain and time” to read the recorded route.',
   '拡大した地図で、終点に隣り合う破線のマスを押してください。': 'On the zoomed-in map, press an outlined tile next to the endpoint.',
   '道に一歩追加しました。地形・移動時間は未検証です。': 'Added one step. Terrain and travel time remain unverified.',
   '出発点の情報が変わりました。境界への道を開き直してください。': 'The source information changed. Reopen the boundary route to start again.',

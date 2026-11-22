@@ -79,6 +79,7 @@ test('launcher mode says what it is before anything is pressed: a memory-only ke
   await made(gate);
   assert.deepEqual(make.made.map(m => m.options), [{ cluster: 'localnet', hostname: '127.0.0.1', localPlay: true }], 'one wallet, made for local play on this host');
   assert.equal(make.made[0].wallet.announced, 1);
+  assert.equal(doc.focused, doc.byId('local-play-connect'), 'the panel is a modal dialog: once it can be used the keyboard is on its start key, not on the page behind it');
   assert.equal(doc.byId('local-play-title').textContent, '新しい世界で遊ぶ'); assert.equal(doc.byId('local-play-connect').textContent, '新しい世界を開始');
   assert.equal(doc.byId('local-play-address').textContent, ME, 'the PUBLIC address is what the panel shows');
   const points = doc.byClass('local-play-note').filter(doc.shown);

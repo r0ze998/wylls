@@ -105,11 +105,16 @@ pub struct Page {
     /// PPAIR (devnet-72bell-pair): an out-and-back march pair — out to a neighbouring province, then the page's march
     /// home ([`war`] `pair`).
     pub pair: bool,
+    /// PLOAD (herald-load-50): the stack is held open for an external load generator ([`load`]).
+    pub load: bool,
 }
 
 /// P11 (devnet-expedition-keeper): the rim → wide expedition.
 #[path = "expedition.rs"]
 pub mod expedition;
+/// PLOAD (herald-load-50): the devnet stack held open for a load test.
+#[path = "load.rs"]
+pub mod load;
 /// PPOST (devnet-page-outpost): the page's second village ([`outpost_page`]).
 #[path = "outpost_page.rs"]
 pub mod outpost_page;
@@ -1027,6 +1032,9 @@ pub async fn run(c: Ctx<'_>) -> Value {
         // (PPOST: the second village by FileOutpost instead of the wide claim)
         if pg.outpost {
             return outpost_page::flow(&mut r, &pg, &plan, nation, extra).await;
+        }
+        if pg.load {
+            return load::flow(&mut r, &pg, &plan, extra).await;
         }
         return page_flow(&mut r, &pg, &plan, nation, extra).await;
     }
