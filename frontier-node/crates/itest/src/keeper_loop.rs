@@ -93,6 +93,12 @@ pub fn village_rounds(pace: Pace) -> (u32, Duration) {
 pub fn home_first(pace: Pace) -> bool {
     matches!(pace, Pace::Wide { .. })
 }
+/// Whether the loop resolves every player home first, together, and wakes at their deadlines (pure; runner-throughput-2,
+/// BREAK-143-1): on every compressed clock (the TEST-ONLY demo and wide paces), never in natural play (a 10-s tick is
+/// 1.7 % of a natural 600-s turn).
+pub fn homes_first(pace: Pace) -> bool {
+    !matches!(pace, Pace::Natural)
+}
 
 /// TEST-ONLY capture demo: how many steps in a row one driver may take in one pass while each of them LANDS (each its
 /// own fresh read, its own simulation and its own awaited receipt — exactly the step the next pass would take, minus the
@@ -907,6 +913,114 @@ pub struct Pilot {
     pub rounds: (u32, Duration),
     /// Whether the first village's keeper and origin go again before every further village ([`home_first`]).
     pub home_first: bool,
+    /// runner-throughput-2: every village's legacy world sweep and stands go as same-block batches (the compressed
+    /// clocks: the wide pace, and now the demo pace too). Off in natural play.
+    pub batch: bool,
+    /// runner-throughput-2: the loop's player homes (the first village's, then every other village's that has not ended),
+    /// kept current every pass ([`Pilot::tick`]); read by the census and, on the compressed clocks, by `homes`.
+    pub gate: crate::home_gate::SharedGate,
+    /// runner-throughput-2 (compressed clocks only): the player homes' same-block batch ([`HomesCrank`]). `None` in
+    /// natural play and for a village that is not a legacy one.
+    pub homes: Option<HomesCrank>,
+}
+
+/// runner-throughput-2 (BREAK-143-1; compressed clocks only): the player homes of one keeper loop resolved together — a
+/// legacy march driver of its own (own funded fee payer, world sweep off) whose `homes_batch` sends every home's next
+/// step into the same block, as the [`Interlude`] of the loop's passes (`home_gate`). One rule for every home: the
+/// person's, a pair's second, an operator resident's and an external resident's are in one batch, none before another.
+pub struct HomesCrank {
+    pub crank: crate::legacy_march::LegacyMarchDriver,
+    pub gate: crate::home_gate::SharedGate,
+    a: Addresses,
+    /// Measurement (census line): batches run, batches that landed something, refusals (each kept to the census).
+    pub batches: u64,
+    pub landed: u64,
+    pub stops: u64,
+    last_stop: Option<String>,
+}
+
+impl HomesCrank {
+    /// A homes crank for the loop whose first village is the legacy Holding `holding` (`None` for any other village).
+    pub async fn new(
+        state: &Shared,
+        holding: Address,
+        gate: crate::home_gate::SharedGate,
+        stop: &mut tokio::sync::watch::Receiver<bool>,
+    ) -> Result<Option<HomesCrank>, String> {
+        let a = Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID);
+        let Some(href) = crate::legacy_march::legacy_village(&lock(state), &a, &holding) else {
+            return Ok(None);
+        };
+        let payer = fund_fresh(state, stop).await?;
+        let mut crank = crate::legacy_march::LegacyMarchDriver::new(href, payer, stop.clone());
+        crank.world_crank = false;
+        crank.batch = true;
+        Ok(Some(HomesCrank {
+            crank,
+            gate,
+            a,
+            batches: 0,
+            landed: 0,
+            stops: 0,
+            last_stop: None,
+        }))
+    }
+
+    /// The census fields (measurement).
+    pub fn json(&self) -> Value {
+        json!({"batches": self.batches, "landed": self.landed, "stops": self.stops, "last_stop": self.last_stop, "terminal": self.crank.terminal().map(|t| format!("{t:?}"))})
+    }
+}
+
+impl Interlude for HomesCrank {
+    fn run<'a>(
+        &'a mut self,
+        state: &'a Shared,
+        force: bool,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+        Box::pin(async move {
+            // (an unknown outcome is terminal: never resent, and the homes go back to their villages' own drivers)
+            if self.crank.terminal().is_some() {
+                return None;
+            }
+            let homes: Vec<(i32, i32)> = {
+                let g = self.gate.lock().ok()?;
+                if g.homes.is_empty() || (!force && !g.due(state, &self.a)) {
+                    return None;
+                }
+                g.homes.iter().map(|h| (h.0 as i32, h.1 as i32)).collect()
+            };
+            let st = self.crank.homes_batch(state, &homes).await;
+            if let Ok(mut g) = self.gate.lock() {
+                g.served(state, &self.a);
+            }
+            self.batches += 1;
+            let text = format!("{st:?}");
+            match &st {
+                crate::origin_driver::Step::Landed(..) => self.landed += 1,
+                crate::origin_driver::Step::Stopped(e) => {
+                    // (a refusal is never sent: the batch's other homes landed, this one is left to its village's own
+                    //  drivers; reported once per distinct reason, on stderr)
+                    self.stops += 1;
+                    if self.last_stop.as_deref() != Some(e.as_str()) {
+                        eprintln!("{}", json!({"homes_batch_refused": e}));
+                        self.last_stop = Some(e.clone());
+                    }
+                }
+                _ => {}
+            }
+            let out = match origin_out(st) {
+                // (a refusal here ends nothing: the village's own drivers still serve its home)
+                Out::Stopped(_) => Out::Quiet,
+                o => o,
+            };
+            Some(Report {
+                field: Field::Homes,
+                out,
+                text,
+            })
+        })
+    }
 }
 
 /// Which status field a step's line goes to.
@@ -918,6 +1032,9 @@ pub enum Field {
     Origin,
     /// The wide destination driver beside a legacy march driver (TEST-ONLY wide world): its own status field.
     Expedition,
+    /// runner-throughput-2: the player homes' batch ([`Interlude`]). No status text (its counts go to the census line on
+    /// stderr); only an unknown outcome is kept, as `unknown_signature` (the pair rule then halts every village).
+    Homes,
 }
 /// One step's outcome, as the sequencer needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -975,11 +1092,56 @@ pub async fn run_steps_bounded(
     pair: bool,
     per_step: u32,
 ) -> RunOut {
+    run_steps_with(state, steps, pair, per_step, None).await
+}
+
+/// runner-throughput-2 (compressed clocks): what a pass calls between its steps — the player homes' batch when one of
+/// them has a new due step (`home_gate`). `None` = nothing due (nothing was sent); `Some(report)` = what the batch did
+/// (field [`Field::Homes`]).
+pub trait Interlude: Send {
+    fn run<'a>(
+        &'a mut self,
+        state: &'a Shared,
+        force: bool,
+    ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>>;
+}
+
+/// Folds an interlude's report into a pass: whether the pass must end (a pair's unknown outcome, as for any step).
+fn take_interlude(out: &mut RunOut, rep: Report, pair: bool) -> bool {
+    out.landed |= rep.out == Out::Landed;
+    out.reports.push(rep.clone());
+    if pair && matches!(rep.out, Out::Unknown { .. }) {
+        out.stopped = Some(rep);
+        return true;
+    }
+    false
+}
+
+/// [`run_steps_bounded`], and (runner-throughput-2, compressed clocks) before every step after the pass's first, the
+/// `interlude` (the player homes' batch, only when one has a new due step). `None` is exactly `run_steps_bounded`.
+pub async fn run_steps_with(
+    state: &Shared,
+    steps: &mut [&mut dyn TickStep],
+    pair: bool,
+    per_step: u32,
+    mut interlude: Option<&mut (dyn Interlude + 'static)>,
+) -> RunOut {
     let mut out = RunOut::default();
+    let mut ran = false;
     for s in steps.iter_mut() {
         if s.done() {
             continue;
         }
+        if ran {
+            if let Some(i) = interlude.as_mut() {
+                if let Some(rep) = i.run(state, false).await {
+                    if take_interlude(&mut out, rep, pair) {
+                        return out;
+                    }
+                }
+            }
+        }
+        ran = true;
         let t0 = Instant::now();
         let mut r = s.run(state).await;
         crate::prof::phase(phase_label(&r), t0);
@@ -991,6 +1153,13 @@ pub async fn run_steps_bounded(
             && taken < per_step.max(1)
             && !s.done()
         {
+            if let Some(i) = interlude.as_mut() {
+                if let Some(rep) = i.run(state, false).await {
+                    if take_interlude(&mut out, rep, pair) {
+                        return out;
+                    }
+                }
+            }
             let t0 = Instant::now();
             r = s.run(state).await;
             crate::prof::phase(phase_label(&r), t0);
@@ -1029,16 +1198,30 @@ pub async fn run_rounds(
     rounds: u32,
     budget: Duration,
 ) -> RunOut {
+    run_rounds_with(state, steps, pair, per_step, rounds, budget, None).await
+}
+
+/// [`run_rounds`] with [`run_steps_with`]'s interlude between steps.
+pub async fn run_rounds_with(
+    state: &Shared,
+    steps: &mut [&mut dyn TickStep],
+    pair: bool,
+    per_step: u32,
+    rounds: u32,
+    budget: Duration,
+    mut interlude: Option<&mut (dyn Interlude + 'static)>,
+) -> RunOut {
     let began = Instant::now();
     let mut out = RunOut::default();
     for _ in 0..rounds.max(1) {
-        let r = run_steps_bounded(state, steps, pair, per_step).await;
+        let r = run_steps_with(state, steps, pair, per_step, interlude.as_deref_mut()).await;
         out.landed |= r.landed;
         out.reports.extend(r.reports);
         if r.stopped.is_some() {
             out.stopped = r.stopped;
             break;
         }
+
         if !r.landed || began.elapsed() >= budget {
             break;
         }
@@ -1200,6 +1383,7 @@ fn apply(keeper: &mut Keeper, r: &RunOut) {
             Field::Resident => keeper.status.resident_step = Some(rep.text.clone()),
             Field::Origin => keeper.status.origin_step = Some(rep.text.clone()),
             Field::Expedition => keeper.status.expedition_step = Some(rep.text.clone()),
+            Field::Homes => {}
         }
         if rep.field != Field::Keeper {
             if let Out::Unknown { signature, .. } = &rep.out {
@@ -1227,6 +1411,16 @@ pub trait PassVillage: Send {
         state: &'a Shared,
         pair: bool,
     ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>>;
+    /// [`PassVillage::pass`] with the player homes' interlude between its steps (runner-throughput-2; only the first
+    /// village overrides it: its pass holds the world sweep). The default ignores the interlude.
+    fn pass_with<'a>(
+        &'a mut self,
+        state: &'a Shared,
+        pair: bool,
+        _interlude: Option<&'a mut (dyn Interlude + 'static)>,
+    ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
+        self.pass(state, pair)
+    }
     /// Writes a pass into its status (the signature of an unknown outcome; the origin's end halts it).
     fn record(&mut self, r: &RunOut);
     fn status(&self) -> &Status;
@@ -1384,6 +1578,19 @@ pub async fn orchestrate(
     first: &mut dyn PassVillage,
     others: &mut [&mut dyn PassVillage],
 ) -> (bool, bool) {
+    orchestrate_with(state, first, others, None).await
+}
+
+/// [`orchestrate`], and (runner-throughput-2, compressed clocks) the player homes' batch ([`Interlude`]): after the
+/// reveal sweep (reveals first, before any anchor) always, then between the first village's steps and before every
+/// further village's round whenever a home has a new due step. Its unknown outcome is recorded on the first village (the
+/// pair rule then halts every village, as for any step). `None` is exactly `orchestrate`.
+pub async fn orchestrate_with(
+    state: &Shared,
+    first: &mut dyn PassVillage,
+    others: &mut [&mut dyn PassVillage],
+    mut interlude: Option<&mut (dyn Interlude + 'static)>,
+) -> (bool, bool) {
     let pair = !others.is_empty();
     fn must(first: &dyn PassVillage, others: &[&mut dyn PassVillage]) -> bool {
         let st: Vec<&Status> = others.iter().map(|v| v.status()).collect();
@@ -1419,8 +1626,23 @@ pub async fn orchestrate(
         halt_all(first, others);
         return (false, landed);
     }
+    // (runner-throughput-2: the player homes, every one in one batch, before any village's pass)
+    if let Some(i) = interlude.as_mut() {
+        let t0 = Instant::now();
+        if let Some(rep) = i.run(state, true).await {
+            crate::prof::phase("homes", t0);
+            let mut r = RunOut::default();
+            let ends = take_interlude(&mut r, rep, pair);
+            landed |= r.landed;
+            first.record(&r);
+            if ends || (pair && must(first, others)) {
+                halt_all(first, others);
+                return (false, landed);
+            }
+        }
+    }
     let t0 = Instant::now();
-    let r = first.pass(state, pair).await;
+    let r = first.pass_with(state, pair, interlude.as_deref_mut()).await;
     crate::prof::phase("village 1", t0);
     first.record(&r);
     landed |= r.landed;
@@ -1454,6 +1676,21 @@ pub async fn orchestrate(
             if must(first, others) {
                 halt_all(first, others);
                 return (false, landed);
+            }
+            // (runner-throughput-2: after the sweep, the player homes' batch when one has a new due step)
+            if let Some(i) = interlude.as_mut() {
+                let t0 = Instant::now();
+                if let Some(rep) = i.run(state, false).await {
+                    crate::prof::phase("homes", t0);
+                    let mut r = RunOut::default();
+                    let ends = take_interlude(&mut r, rep, pair);
+                    landed |= r.landed;
+                    first.record(&r);
+                    if ends || must(first, others) {
+                        halt_all(first, others);
+                        return (false, landed);
+                    }
+                }
             }
             // (runner-throughput, wide pace: after the sweep — reveals first, before any keeper posts an anchor — the
             //  person's home again: its keeper and origin driver, by the same rules as the first village's pass: a keeper
@@ -1538,6 +1775,14 @@ impl PassVillage for FirstVillage<'_> {
         state: &'a Shared,
         pair: bool,
     ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
+        self.pass_with(state, pair, None)
+    }
+    fn pass_with<'a>(
+        &'a mut self,
+        state: &'a Shared,
+        pair: bool,
+        interlude: Option<&'a mut (dyn Interlude + 'static)>,
+    ) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
         Box::pin(async move {
             let per = self.per_step;
             let (rounds, budget) = self.rounds;
@@ -1548,7 +1793,7 @@ impl PassVillage for FirstVillage<'_> {
                 self.resident,
                 self.origin,
             );
-            run_rounds(state, &mut steps, pair, per, rounds, budget).await
+            run_rounds_with(state, &mut steps, pair, per, rounds, budget, interlude).await
         })
     }
     fn home<'a>(
@@ -1802,6 +2047,9 @@ impl Pilot {
             per_step: 1,
             rounds: (1, Duration::MAX),
             home_first: false,
+            batch: false,
+            gate: std::sync::Arc::new(std::sync::Mutex::new(crate::home_gate::HomeGate::new())),
+            homes: None,
         })
     }
 
@@ -1822,7 +2070,7 @@ impl Pilot {
             village_drivers(state, &keeper, holding, home, false, &mut stop).await?;
         // (runner-throughput: the wide pace's stands go as same-block batches)
         if let Some(l) = legacy.as_mut() {
-            l.batch = self.home_first;
+            l.batch = self.batch;
         }
         self.others.push(Village {
             home: (home.0 as i32, home.1 as i32),
@@ -1851,6 +2099,20 @@ impl Pilot {
                 .flat_map(|v| v.provinces())
                 .collect();
         }
+        // (runner-throughput-2: the loop's player homes, the first village's first, then every other one still served)
+        {
+            let homes: Vec<(i16, i16)> = std::iter::once(self.keeper.home)
+                .chain(
+                    self.others
+                        .iter()
+                        .filter(|v| !v.ended)
+                        .map(|v| (v.home.0 as i16, v.home.1 as i16)),
+                )
+                .collect();
+            if let Ok(mut g) = self.gate.lock() {
+                g.set_homes(homes);
+            }
+        }
         let Pilot {
             keeper,
             destination,
@@ -1861,6 +2123,7 @@ impl Pilot {
             per_step,
             rounds,
             home_first,
+            homes,
             ..
         } = self;
         let mut first = FirstVillage {
@@ -1877,7 +2140,8 @@ impl Pilot {
             .iter_mut()
             .map(|v| v as &mut dyn PassVillage)
             .collect();
-        let (alive, landed) = orchestrate(state, &mut first, &mut rest).await;
+        let interlude = homes.as_mut().map(|h| h as &mut (dyn Interlude + 'static));
+        let (alive, landed) = orchestrate_with(state, &mut first, &mut rest, interlude).await;
         self.landed = landed;
         alive
     }
@@ -1979,17 +2243,46 @@ pub async fn run_paced_with(
     p.per_step = steps_per_pass(pace);
     p.rounds = village_rounds(pace);
     p.home_first = home_first(pace);
-    // (runner-throughput: at the wide pace the first village's world phase and stands go as same-block batches)
+    // (runner-throughput: at the wide pace the first village's world phase and stands go as same-block batches;
+    //  runner-throughput-2: on every compressed clock — the demo's too)
+    p.batch = homes_first(pace);
     if let Some(l) = p.legacy.as_mut() {
-        l.batch = home_first(pace);
+        l.batch = p.batch;
+    }
+    // (runner-throughput-2, BREAK-143-1: on a compressed clock every player home is resolved by one batch before and
+    //  between the passes' other work, and the world sweep yields to it; the loop wakes at the homes' next deadline)
+    if homes_first(pace) {
+        if let Some(h) = holding {
+            match HomesCrank::new(&state, h, p.gate.clone(), &mut stop).await {
+                Ok(c) => {
+                    if c.is_some() {
+                        if let Some(l) = p.legacy.as_mut() {
+                            l.preempt = Some(p.gate.clone());
+                        }
+                    }
+                    p.homes = c;
+                }
+                Err(e) => eprintln!("{}", json!({"homes_batch": "off", "why": e})),
+            }
+        }
     }
     let mut last_census = Instant::now();
     // (runner-throughput measurement: the person's home lag `bell_now − resolved_next`, sampled every 2 s by its own
     //  read-only task — uniform in time, not at pass ends — and written with the census line as a histogram)
     let home_lag: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, u32>>> =
         Default::default();
+    // (runner-throughput-2 measurement: every player home's readiness — program `resident_ok`, `resolved_next + 1 ≥
+    //  bell` — sampled by the same task: `"p,q": [ready samples, samples]`, written with the census line)
+    let home_ready: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<String, [u32; 2]>>> =
+        Default::default();
     {
-        let (st, hl, mut stop2) = (state.clone(), home_lag.clone(), stop.clone());
+        let (st, hl, hr, gate, mut stop2) = (
+            state.clone(),
+            home_lag.clone(),
+            home_ready.clone(),
+            p.gate.clone(),
+            stop.clone(),
+        );
         let a = Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID);
         tokio::spawn(async move {
             loop {
@@ -2001,6 +2294,25 @@ pub async fn run_paced_with(
                 if let (Ok(v), Ok(mut h)) = (v, hl.lock()) {
                     *h.entry(v.bell_now.saturating_sub(v.resolved_next))
                         .or_default() += 1;
+                }
+                let homes = gate.lock().map(|g| g.homes.clone()).unwrap_or_default();
+                let homes = if homes.is_empty() { vec![home] } else { homes };
+                let views: Vec<_> = {
+                    let c = lock(&st);
+                    homes
+                        .iter()
+                        .map(|h| (*h, lk::view(&c, &a, h.0, h.1)))
+                        .collect()
+                };
+                if let Ok(mut r) = hr.lock() {
+                    for (h, v) in views {
+                        if let Ok(v) = v {
+                            let e = r.entry(format!("{},{}", h.0, h.1)).or_default();
+                            e[0] += frontier_abi::prologue::resident_ok(v.resolved_next, v.bell_now)
+                                as u32;
+                            e[1] += 1;
+                        }
+                    }
                 }
             }
         });
@@ -2048,6 +2360,12 @@ pub async fn run_paced_with(
             if let Ok(mut h) = home_lag.lock() {
                 line["world_census"]["home_lag"] = json!(std::mem::take(&mut *h));
             }
+            if let Ok(mut r) = home_ready.lock() {
+                line["world_census"]["home_ready"] = json!(std::mem::take(&mut *r));
+            }
+            if let Some(h) = &p.homes {
+                line["world_census"]["homes_batch"] = h.json();
+            }
             eprintln!("{line}");
         }
         if p.keeper.status != last {
@@ -2067,7 +2385,17 @@ pub async fn run_paced_with(
         if !alive {
             return;
         }
-        let wait = next_wait(pace, p.landed, &mut run);
+        let mut wait = next_wait(pace, p.landed, &mut run);
+        // (runner-throughput-2: on a compressed clock, no longer than until the player homes' next deadline)
+        if p.homes.is_some() {
+            let a = Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID);
+            let d = p
+                .gate
+                .lock()
+                .ok()
+                .and_then(|g| g.wall_to_deadline(&state, &a));
+            wait = crate::home_gate::wait_until_next(wait, d);
+        }
         tokio::select! {
             _ = tokio::time::sleep(wait) => {}
             _ = stopped(&mut stop) => {
@@ -4113,5 +4441,185 @@ mod pair_tests {
         assert_eq!(count(&log, "B legacy"), 4);
         let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b as &mut dyn PassVillage];
         assert_eq!(orchestrate(&st, &mut a, &mut rest).await, (true, true));
+    }
+
+    // ---- runner-throughput-2 (BREAK-143-1): the player homes' batch as the passes' interlude
+    struct MockHomes {
+        /// whether a home has a new due step (a forced call runs whatever this says)
+        due: bool,
+        out: Out,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+    impl Interlude for MockHomes {
+        fn run<'a>(
+            &'a mut self,
+            _state: &'a Shared,
+            force: bool,
+        ) -> Pin<Box<dyn Future<Output = Option<Report>> + Send + 'a>> {
+            let run = force || self.due;
+            if run {
+                self.log
+                    .lock()
+                    .unwrap()
+                    .push(if force { "H forced" } else { "H due" }.to_string());
+                if !force {
+                    self.due = false;
+                }
+            }
+            let out = self.out.clone();
+            Box::pin(async move {
+                run.then(|| Report {
+                    field: Field::Homes,
+                    out,
+                    text: "homes".into(),
+                })
+            })
+        }
+    }
+    #[tokio::test]
+    async fn the_homes_go_after_the_sweep_before_any_pass_and_again_only_when_due() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        let mut b = sv("B", None, &log);
+        let mut c = sv("C", None, &log);
+        let mut h = MockHomes {
+            due: false,
+            out: Out::Landed,
+            log: log.clone(),
+        };
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b, &mut c];
+        let (alive, landed) = orchestrate_with(&st, &mut a, &mut rest, Some(&mut h)).await;
+        assert!(alive && landed, "the homes' landing is the pass's landing");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec![
+                "A reveal", "B reveal", "C reveal", "H forced", "A pass", "A reveal", "B reveal", "C reveal",
+                "B pass", "A reveal", "B reveal", "C reveal", "C pass"
+            ],
+            "reveals first (before any anchor), then every home in one batch, then the passes; nothing due: not again"
+        );
+        // a home with a new due step: served after the sweep, before the next village's round, once
+        log.lock().unwrap().clear();
+        h.due = true;
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b, &mut c];
+        orchestrate_with(&st, &mut a, &mut rest, Some(&mut h)).await;
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec![
+                "A reveal", "B reveal", "C reveal", "H forced", "A pass", "A reveal", "B reveal",
+                "C reveal", "H due", "B pass", "A reveal", "B reveal", "C reveal", "C pass"
+            ]
+        );
+        // without the interlude: exactly `orchestrate`
+        let (st2, log2) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a2 = sv("A", None, &log2);
+        let mut b2 = sv("B", None, &log2);
+        let mut rest2: Vec<&mut dyn PassVillage> = vec![&mut b2];
+        orchestrate_with(&st2, &mut a2, &mut rest2, None).await;
+        assert_eq!(
+            *log2.lock().unwrap(),
+            vec!["A reveal", "B reveal", "A pass", "A reveal", "B reveal", "B pass"]
+        );
+    }
+    #[tokio::test]
+    async fn an_unknown_homes_batch_halts_every_village_of_a_pair_and_a_refusal_ends_nothing() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        let mut b = sv("B", None, &log);
+        let mut h = MockHomes {
+            due: false,
+            out: unk(),
+            log: log.clone(),
+        };
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        let (alive, _) = orchestrate_with(&st, &mut a, &mut rest, Some(&mut h)).await;
+        assert!(!alive);
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal", "B reveal", "H forced"],
+            "no pass after it"
+        );
+        assert_eq!(a.status.unknown_signature.as_deref(), Some("sig"));
+        assert!(b.status.stopped.is_some(), "every village halted");
+        // (HomesCrank maps a refusal to Quiet: the batch never sent it, and the villages' own drivers go on)
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = sv("A", None, &log);
+        let mut b = sv("B", None, &log);
+        let mut h = MockHomes {
+            due: false,
+            out: Out::Quiet,
+            log: log.clone(),
+        };
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
+        assert!(
+            orchestrate_with(&st, &mut a, &mut rest, Some(&mut h))
+                .await
+                .0
+        );
+        assert_eq!(calls_s(&log, "pass"), 2);
+    }
+    fn calls_s(log: &Arc<Mutex<Vec<String>>>, what: &str) -> usize {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|n| n.ends_with(what))
+            .count()
+    }
+    #[tokio::test]
+    async fn inside_a_pass_the_homes_go_between_steps_never_before_the_first_and_only_when_due() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let slog: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+        let mut ms = village(&A, [Out::Landed, Out::Landed, Out::Quiet, Out::Quiet], &log);
+        let mut h = MockHomes {
+            due: true,
+            out: Out::Landed,
+            log: slog.clone(),
+        };
+        let mut steps: Vec<&mut dyn TickStep> =
+            ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
+        let r = run_steps_with(&st, &mut steps, false, 1, Some(&mut h)).await;
+        assert!(r.landed);
+        assert_eq!(log.lock().unwrap().len(), 4, "every step still runs");
+        assert_eq!(
+            *slog.lock().unwrap(),
+            vec!["H due"],
+            "once, after the first step (then nothing was due)"
+        );
+        assert_eq!(
+            r.reports[1].field,
+            Field::Homes,
+            "between the keeper and the next step"
+        );
+        // a pair: an unknown homes batch ends the pass before the next step is called
+        let (log2, slog2) = (Arc::new(Mutex::new(vec![])), Arc::new(Mutex::new(vec![])));
+        let mut ms = village(
+            &A,
+            [Out::Landed, Out::Landed, Out::Quiet, Out::Quiet],
+            &log2,
+        );
+        let mut h = MockHomes {
+            due: true,
+            out: unk(),
+            log: slog2.clone(),
+        };
+        let mut steps: Vec<&mut dyn TickStep> =
+            ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
+        let r = run_steps_with(&st, &mut steps, true, 1, Some(&mut h)).await;
+        assert_eq!(log2.lock().unwrap().len(), 1, "only the keeper ran");
+        assert_eq!(r.stopped.unwrap().field, Field::Homes);
+    }
+    #[test]
+    fn the_homes_go_first_on_every_compressed_clock_never_in_natural_play() {
+        assert!(!homes_first(Pace::Natural));
+        assert!(homes_first(DEMO_PACE));
+        assert!(homes_first(WIDE_PACE));
+        // (the wiring: the homes crank only behind `homes_first`, the world sweep batched with it, and the wait shortened
+        //  to the homes' next deadline only when the crank exists)
+        let src = include_str!("keeper_loop.rs");
+        let body = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(body.contains("    p.batch = homes_first(pace);\n"));
+        assert!(body.contains("    if homes_first(pace) {\n        if let Some(h) = holding {\n            match HomesCrank::new("));
+        assert!(body.contains("        if p.homes.is_some() {\n"));
+        assert!(body.contains("            wait = crate::home_gate::wait_until_next(wait, d);"));
     }
 }
