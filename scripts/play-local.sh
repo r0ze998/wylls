@@ -58,7 +58,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --speed N       with --demo or --wide: the compressed TEST clock, 10-60 (default 60: a turn is 10 s; the faster
                   the clock, the further a loaded machine's provinces trail the chain: try 15 to watch a war)
   --minutes N     the world's life in minutes, 15-240 (default 90)
-  --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999).
+  --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999):
+                  22 ports from BASE (14 with --ai 0), 8 more with --external and 1 for its MCP server.
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.
   --lang ja|en    language of this script's messages (default: from $LANG). The page itself follows the
                   browser's language; its top-right button switches 日本語 ⇄ English.
@@ -87,10 +88,12 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   caravan, revoke. The grantee must be another player, so the whole loop needs --two (two browser
                   windows will do): `--coexist --demo --two`, about 10 minutes, step by step in docs/frontier/PLAY-LOCAL.md
                   §10 (日本語: PLAY-LOCAL.ja.md §10). Works with --ai, --two, --random-map and --resume (a kept coexist world resumes as
-                  one), and with --demo --speed N (the capture demo's TEST clock: at the natural clock a Vault's 200 wood
+                  one), with --external, and with --demo --speed N (the capture demo's TEST clock: at the natural clock a Vault's 200 wood
                   + 200 stone + 50 gold take most of a day); not with --wide. Its runners, herald and tools are built with their `coexist-lane`
                   feature into $STATE/coexist-bin/ (cargo links them in the shared target dir first, so the
-                  next plain world relinks its own binaries: a few seconds)
+                  next plain world relinks its own binaries: a few seconds). The same world has the preview card
+                  「預かりと工房貸し（試験）」: ⑨ lend a workshop, ⑩ keep another's ore, and the losses as real orders
+                  (seize a storehouse, stop a caravan and take or burn it): PLAY-LOCAL §12
   --coexist-node  TEST-ONLY, no page: the node localnet-coexist-play alone serves a ②+⑨+⑩ chain on 127.0.0.1:BASE
                   (RPC) and BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its
                   metadata (one JSON line) and runs until Ctrl-C. Memory-only, alone (no other option but --port)
@@ -102,12 +105,16 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   refusals, no AI mark on the page. With it the ③ MCP server for the world starts READ-ONLY on
                   loopback (127.0.0.1, after the world's ports; only read tools, a link is the resident's own wallet).
                   Reference resident: workstreams/03-composability/mcp/examples/external-resident/ (README "plug in
-                  your own AI"). Kept worlds, --demo, --ai, --random-map, --coexist, --resume; not --two or --wide
+                  your own AI"). Workstream ⑬'s resident is another client of the same path, and its own option
+                  --plan lets ④'s plan store run multi-turn plans (workstreams/13-citizens/resident/local/client.mjs;
+                  PLAY-LOCAL §11). Kept worlds, --demo, --ai, --random-map, --coexist, --resume; not --two or --wide
   --no-mcp        with --external: do not start the read-only MCP server
   --no-coop-board do not attach workstream 01's co-op board (requests across nations; launcher option
                   --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, 村 → 交易と防備 →
                   「国をまたぐ依頼を開く」 opens it; a caravan to a request you accepted (「① 依頼の届け先」) is sent from
-                  the game in --coexist worlds (the lane that carries caravans); see PLAY-LOCAL §13
+                  the game in --coexist worlds (the lane that carries caravans); delivering to another nation's
+                  request that reaches its amount earns the ⑮ title 「依頼に応えた」 (no win, score or prize effect);
+                  see PLAY-LOCAL §13
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
