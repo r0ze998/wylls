@@ -164,6 +164,7 @@ export function s1TileModel(FS, sel) {
     seize: seizeOffer(FS, prov, idx, v, 'vault') ?? seizeOffer(FS, prov, idx, st, 'structure'),
     build: { vault: { cost: VAULT_COST, blocks: vaultBlocks }, structures },
     raids: raidOffers(FS).filter(r => r.p === p && r.q === q && r.tile === idx),
+    stops: domesticRaidOffers(FS).filter(r => r.p === p && r.q === q && r.tile === idx),
   };
 }
 
@@ -289,6 +290,49 @@ export function raidOffers(FS) {
       const raidBell = Number(s.firstBell) + off;
       out.push({ p: prov.p, q: prov.q, tile: Number(s.tiles?.[off] ?? s.tiles?.[String(off)]), slot, raidBell, decideBy: raidBell + RAID_DECIDE_BELLS, open: bell <= raidBell + RAID_DECIDE_BELLS,
         raider: { p: raider.p, q: raider.q, site: raider.site, gen: raider.gen }, caravan });
+    });
+  }
+  return out;
+}
+
+/**
+ * (fix-9-10-followups, the local coexist lane only — `FS.custody.on`, which only refreshCustody sets there) Stopping a
+ * caravan of the viewer's own nation (caravan.rs RaidDomestic, 0xBE): a clash never raids a caravan of the raider's own
+ * faction, so a `--two` pair — always one nation — could never lose a caravan on the road. The program opens the raid
+ * when one of the viewer's hosts stood, in the roster, on the tile where the caravan stood at the start of a resolved
+ * turn (`bell < resolved_next`), from that turn or earlier, at most RAID_DECIDE_BELLS turns ago, the raid not opened
+ * there before, and none of the caravan owner's hosts on that tile (the program checks that one: NotOnTile). Then the
+ * usual decision (raidOffers) takes it home or burns its load.
+ * `[{p, q, tile, slot, bell, entry, hostHolding: {p, q, site, gen}, caravan}]` — `caravan` the feed's entry.
+ */
+export function domesticRaidOffers(FS) {
+  if (!FS.custody?.on) return [];
+  const out = [];
+  const moving = FS.s1?.caravans?.moving ?? [];
+  const bell = Number(FS.nowBell ?? 0), me = viewerTag(FS), faction = Number(FS.citizen?.faction);
+  for (const env of FS.provinces?.values?.() ?? []) {
+    const prov = env.province;
+    if (!prov) continue;
+    const rn = Number(prov.resolvedNext ?? 0);
+    const entries = Array.from(prov.entries ?? []);
+    (prov.caravans ?? []).forEach((s, slot) => {
+      const id = BigInt(s.id ?? 0);
+      if (id === 0n || Number(s.raidOff) !== RAID_NONE || Number(s.faction) !== faction) return;
+      const caravan = moving.find(c => caravanId(c.ownerTag, c.seq) === id);
+      if (!caravan || isMine(caravan.holderTag ?? caravan.ownerTag, me)) return;
+      const first = Number(s.firstBell), n = Math.min(Number(s.n ?? 0), 8);
+      for (let k = n - 1; k >= 0; k--) {
+        const b = first + k;
+        if (b >= rn || bell > b + RAID_DECIDE_BELLS) continue;
+        const tile = Number(s.tiles?.[k] ?? s.tiles?.[String(k)]);
+        let entry = -1, hostHolding = null;
+        entries.forEach((e, i) => {
+          if (entry >= 0 || Number(e.state) !== 1 || Number(e.tile) !== tile || Number(e.fromBell) > b) return;
+          const h = (FS.holdings ?? []).find(x => hostOfHolding(e.id, x));
+          if (h) { entry = i; hostHolding = { p: h.p, q: h.q, site: h.site, gen: h.gen ?? 0 }; }
+        });
+        if (entry >= 0) { out.push({ p: prov.p, q: prov.q, tile, slot, bell: b, entry, hostHolding, caravan }); break; }
+      }
     });
   }
   return out;
@@ -532,6 +576,10 @@ export function renderS1Tile(FS, sel) {
     <p>${L`あなたの軍勢がこの隊商に勝ちました。荷を奪って自分の村へ運ぶか、焼き払うかを決めてください。`}</p>
     <p class="muted">${r.open ? '' : L`決める期限を過ぎました。`}${L`決めずに期限を過ぎると、村まで隊商の道があれば荷は村へ運ばれ、道がなければターン ${fmtNum(r.decideBy + RAID_BURN_AFTER_BELLS)} 以降に焼かれます。`}</p>
     <div class="actions">${btn('s1-raid', { p: r.p, q: r.q, slot: r.slot, choice: 'take' }, L`奪って運ぶ`, { primary: true, disabled: !r.open })}${btn('s1-raid', { p: r.p, q: r.q, slot: r.slot, choice: 'burn' }, L`焼き払う`, { disabled: !r.open })}</div></div>`);
+  // (fix-9-10-followups: a caravan of the viewer's nation that stood here while the viewer's host did — local coexist only)
+  const stops = (m.stops ?? []).map(r => html`<div class="s1-stop">${label(L`隊商を止める（ターン ${fmtNum(r.bell + RAID_DECIDE_BELLS)} まで）`)}
+    <p>${L`ターン ${fmtNum(r.bell)} に、同じ国の${factionName(r.caravan.faction)}の隊商がこのマスにいて、あなたの軍勢も立っていました。止めると、荷を奪うか焼き払うかを決められます。持ち主の軍勢がこのマスにいると止められません。`}</p>
+    <div class="actions">${btn('s1-raid-open', { p: r.p, q: r.q, slot: r.slot }, L`隊商を止める`, { primary: true })}</div></div>`);
   const offer = (act, data, text, o) => html`<li class="s1-offer">${btn(act, data, text, { disabled: o.blocks.length > 0 })}<span class="muted">${costLine(o.cost)}</span>${o.blocks.length ? html`<span class="blocked">${o.blocks.map(b => (b === 'Insufficient' ? shortText(o.cost, m.have) : blockText(b))).join(' / ')}</span>` : ''}</li>`;
   const target = m.vault && !m.vault.mine ? { word: S1_WORDS.vault(), kind: 'vault' } : m.structure && !m.structure.mine ? { word: kindWord(m.structure.kind), kind: 'structure' } : null;
   const seize = m.seize && target ? html`<div class="s1-seize">${label(L`${target.word}を奪う`)}
@@ -562,7 +610,7 @@ export function renderS1Tile(FS, sel) {
     ${offer('s1-vault', { p: m.p, q: m.q, tile: m.idx }, L`${S1_WORDS.vault()}を建てる`, m.build.vault)}
     ${m.build.structures.map(o => offer('s1-structure', { p: m.p, q: m.q, tile: m.idx, kind: o.kind }, L`${kindWord(o.kind)}を建てる`, o))}</ul>
     <p class="muted">${L`費用は選んでいる村の蔵から払います。物見櫓はまわりの動きを知らせ、柵と要塞は通る敵を止めます。`}</p>`)}`;
-  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${plan}${raids}${seize}${siege}${expel}${build}</div>`;
+  return html`<div class="s1-tile">${here.length ? html`<ul class="list s1-here">${here}</ul>` : ''}${plan}${stops}${raids}${seize}${siege}${expel}${build}</div>`;
 }
 
 /** The village's S1 card (screens/holding.mjs). */

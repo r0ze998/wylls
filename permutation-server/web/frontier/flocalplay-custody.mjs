@@ -173,6 +173,7 @@ export function decodeCaravan(bytes) {
   for (let i = 0; i < 4; i++) { const p = r.i16(), q = r.i16(); if (i < Math.min(c.nProv, 4)) provinces.push({ p, q }); }
   r.at(180); c.arriveTs = n(r.i64());
   r.at(192); c.cargo = Array.from({ length: 8 }, () => n(r.i64()));
+  r.at(264); c.rentTo = r.key();
   r.at(296); c.custody = r.u8(); c.custodyResource = r.u8();
   r.at(304); c.custodyOwnerTag = r.u64().toString(); c.takenByTag = r.u64().toString();
   return Object.freeze({ ...c, provinces });
