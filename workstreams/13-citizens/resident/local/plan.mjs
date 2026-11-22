@@ -9,8 +9,10 @@
 //   checkStep(step, obs, mem)  → {go: candidate} | {wait: why} | {replan: why} — the same checks the page makes
 //                                (buildOffers, trainCost, the host rules, resident_ok); a step whose world changed under
 //                                it (a copy that exists already, a building the page no longer offers, a shortfall
-//                                production will not cover in the goal's patience) is a replan, never a blind send.
-import { planBuildsReal, PLAN_ITEMS, LOCAL_LIMITS } from './brain.mjs';
+//                                production will not cover in the goal's patience) is a replan, never a blind send;
+//                                a copy my landed builds say exists but the record does not show yet is a wait, and
+//                                a Build the chain refused for resources waits until the stock has grown (LP9-4).
+import { planBuildsReal, PLAN_ITEMS, LOCAL_LIMITS, recordBehind, refusalHold } from './brain.mjs';
 import { buildOffers, trainCost, HOST_TROOPS, TRANSIT_SLOTS, copyNumber } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { BUILD_ITEMS } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
@@ -40,7 +42,7 @@ const vOf = obs => ({ holding: { p: obs.holding.p, q: obs.holding.q, site: obs.h
  *   B B B Harvest Train B B Train B … Muster
  * → `[{name, fields, expect, note}]` (p04-plan/0.1 steps), or null when the village is not readable.
  */
-export function makePlanSteps(obs, goal, { limits = PLAN_LIMITS } = {}) {
+export function makePlanSteps(obs, goal, { limits = PLAN_LIMITS, mem = null } = {}) {
   if (!obs?.holding || !obs.settled || !Array.isArray(obs.stores) || obs.stores.length < 6) return null;
   const n = Math.max(4, limits.steps);
   const builds = n - 4;   // + Harvest, Train, Train, Muster
@@ -56,6 +58,10 @@ export function makePlanSteps(obs, goal, { limits = PLAN_LIMITS } = {}) {
   steps.push({ ...train });
   take(b.length);
   steps.push({ name: 'Muster', fields: { unit: 0, troops: limits.musterTroops, tile: obs.holding.tile ?? null }, expect: { reserveAtLeast: limits.musterTroops }, note: `a host of ${limits.musterTroops} guards the village` });
+  // (LP9-4: a Build the chain refused for resources, still held, is not the plan's first step: the first step that
+  //  is not such a Build goes first — each replan began with the same refused mine, sent at once)
+  const held = st => st.name === 'Build' && refusalHold(mem, obs, st.fields.item);
+  if (held(steps[0])) { const i = steps.findIndex(st => !held(st)); if (i > 0) steps.unshift(...steps.splice(i, 1)); }
   return steps;
 }
 
@@ -104,7 +110,14 @@ export function checkStep(step, obs, mem, { patience = 36 } = {}) {
     case 'Build': {
       const item = step.fields.item;
       if (!PLAN_ITEMS.includes(item)) return { replan: `build item ${item} is not one of my plan's` };
+      const rh = refusalHold(mem, obs, item);
+      if (rh) return { wait: rh };
+      // (LP9-4: reconcile with my own landed builds before replanning. The herald trails the chain: a build that
+      //  landed and is not in the record yet reads as one copy fewer — wait for it, never replan or price from it)
+      const behind = recordBehind(obs, mem, item);
+      if (behind) return { wait: behind };
       const now = copyNumber(obs.settled, item);
+      // (a copy above the plan's: one exists already, replan; below it with my landed builds covering it: waited above)
       if (Number.isInteger(step.expect?.copy) && now !== step.expect.copy) return { replan: `state changed: ${BUILD_ITEMS[item].resource} would be copy ${now}, the plan expected copy ${step.expect.copy}` };
       const o = buildOffers(obs.settled, { now: obs.nowSecs, have: stockOf(obs), faction: obs.faction }).find(x => x.item === item);
       if (!o) return { replan: `the page no longer offers ${BUILD_ITEMS[item].resource}` };

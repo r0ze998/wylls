@@ -7,19 +7,23 @@
 //                      with a village: its OWN province only (how far the world has resolved it: a Muster needs
 //                      resolvedNext + 1 >= the turn, frontier-abi prologue.rs resident_ok)
 // No other village, no world-wide list, no operator route, no event feed: under fog it knows what a person knows.
+// S1 (LP9-4): the Season turns the page's S1 rules on (fs1.mjs setS1, as app.mjs loadSeason does), and the village's
+// own Holding says its terrain ore (TERRAIN_ORE, `holding.oreExtra`): the rulebook counts mines above it, as the program.
 // KEY-FREE.
 import { createHerald } from '../../../../permutation-server/web/frontier/herald.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
 import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
+import { setS1, s1On } from '../../../../permutation-server/web/frontier/fs1.mjs';
+import { knowVillageOre, terrainOreExtra } from './brain.mjs';
 import { bellOf } from '../../../../permutation-gateway/src/frontier/local-play-operator-policy.mjs';
 import { chainSecondsOf, publicHomes, getJson } from '../../../03-composability/mcp/examples/external-resident/public.mjs';
 
 const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
 
 /**
- * → `observe()` returning `{bell, nowSecs, genesisTs, programVersion, seasonId, joined, faction, holding, settled,
- * stores, homes, reads}` or `{unreadable: why}`. `deps` (tests): `{herald, getJson, publicHomes}`.
+ * → `observe()` returning `{bell, nowSecs, genesisTs, programVersion, layoutVersion, s1, seasonId, joined, faction,
+ * holding: {p, q, site, tile?, oreExtra? (S1)}, settled, stores, homes, reads}` or `{unreadable: why}`. `deps` (tests): `{herald, getJson, publicHomes}`.
  */
 export function createObserver({ base, wallet, deps = {} }) {
   const h = deps.herald ?? createHerald({ base, fetch: (...a) => globalThis.fetch(...a) });
@@ -34,7 +38,8 @@ export function createObserver({ base, wallet, deps = {} }) {
       if (!s.ok) return { unreadable: `season: ${s.code ?? s.error ?? 'no answer'}`, reads };
       const g = Number(s.season.genesisTs);
       if (!Number.isSafeInteger(g)) return { unreadable: 'season: no genesis', reads };
-      season = { genesisTs: g, programVersion: Number(s.season.programVersion ?? 1), seasonId: String(s.season.seasonId) };
+      setS1(s.season);
+      season = { genesisTs: g, programVersion: Number(s.season.programVersion ?? 1), layoutVersion: Number(s.season.layoutVersion ?? 1), seasonId: String(s.season.seasonId), s1: s1On() };
       h.pin?.(season.seasonId);
     }
     reads.push('/h/status');
@@ -58,6 +63,8 @@ export function createObserver({ base, wallet, deps = {} }) {
     }
     const tile = Number(raw.tile);
     const holding = { p: Number(raw.p), q: Number(raw.q), site: Number(raw.site), ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) };
+    // (S1: the terrain ore is said before the record is projected: a promotion's base change reads it too)
+    if (season.s1) { holding.oreExtra = terrainOreExtra(raw); if (holding.oreExtra !== null) knowVillageOre(holding, holding.oreExtra); }
     let stores = null, st = null;
     try { st = settled(raw, nowSecs); stores = storesAt(raw, nowSecs, RESOURCE_ORDER).map(s => ({ resource: s.resource, value: s.value, perHour: s.perHour, cap: s.cap })); } catch { stores = null; }
     reads.push('/h/province/<own>');

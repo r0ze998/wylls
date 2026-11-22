@@ -252,6 +252,21 @@ test('LP9-8: the ① board names nations as the game does and follows the chain-
   assert.match(readFileSync(new URL('../../workstreams/15-coop-outcomes/src/live.mjs', import.meta.url), 'utf8'), /en: 'Sent the caravan that delivered goods to a co-op request from someone of another nation/);
 });
 
+// loop-play9 LP9-4 (page side): S1 counts mines above the village's TERRAIN ore; without the map's terrain the page fell
+// back to the tier's base (15/h), so a village with no terrain ore and three mines (22/h) read as one mine.
+test('LP9-4: copyNumber counts S1 mines above the Holding\'s own terrain ore when the map has not given it', async () => {
+  const { setS1, holdingOreExtra } = await import('../../permutation-server/web/frontier/fs1.mjs');
+  const { copyNumber } = await import('../../permutation-server/web/frontier/hud/rulebook.mjs');
+  assert.equal(holdingOreExtra({ terrainOre: '4000' }), 0);
+  assert.equal(holdingOreExtra({ terrainOre: '9000' }), 5);
+  assert.equal(holdingOreExtra({ terrainOre: '1500' }), null);
+  assert.equal(holdingOreExtra({}), null);
+  const h = { p: 1, q: -2, tile: 30, tier: 0, terrainOre: '4000', production: [0, 0, 0, '22000', 0, 0, 0, 0], queue: [] };
+  setS1({ layoutVersion: 2, programVersion: 18436 });
+  try { assert.equal(copyNumber(h, 3), 4, 'three mines over 4/h: the next is copy 4 (loop-play9 priced it as copy 2)'); }
+  finally { setS1(null); }
+});
+
 // loop-play9 LP9-3: every plain local world offered 「工房」 (S1 build item 8); the plain relay takes Build items 0-7 only,
 // so the press was refused 「命令の内容の形が正しくありません」 with a 「もう一度」 that could never work (LocalActShape).
 test('LP9-3: the workshop is offered only where the order can go — not in a plain local world (the relay\'s Build range), as before elsewhere', async () => {

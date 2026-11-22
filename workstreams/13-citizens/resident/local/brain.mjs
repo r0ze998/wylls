@@ -21,8 +21,9 @@ import { GOALS } from '../goals.mjs';
 import { DEFAULT_LIMITS } from '../resident.mjs';
 import { decideLive } from '../live/decide.mjs';
 import { buildOffers, trainCost, maxTrain, settled, HOST_TROOPS, TRANSIT_SLOTS, duplicateCost, copyNumber } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
-import { BUILD_ITEMS, storesAt, queueItem } from '../../../../permutation-server/web/frontier/fland.mjs';
+import { BUILD_ITEMS, storesAt, queueItem, TIER_BONUS_PCT } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
+import { s1On, s1OreBase, setOreExtraProvider, holdingOreExtra } from '../../../../permutation-server/web/frontier/fs1.mjs';
 
 export const BRAIN_KIND = 'ws13-local-brain/1';
 /** The six orders of a local-play page (flocalplay-act.mjs LOCAL_ACT_NAMES' first six): the only ones asked for. */
@@ -97,6 +98,111 @@ export function assessReal(obs, goal) {
   return { plan, next, needed, idle, shortfall, waitBells, affordable: Object.keys(shortfall).length === 0 };
 }
 
+// ------------------------------------------------------------------ S1: my village's terrain ore (LP9-4)
+// On S1 (fs1.mjs s1Season: layout 2, program ≥ 4) the program counts a mine as the ore ABOVE the village's terrain ore
+// (proc/holding.rs copy_number with arms::base_production), not above the tier's base (15/h). The page tells the two
+// apart with the map's terrain (app.mjs setOreExtraProvider); this resident has no map, so it says its own village's
+// terrain ore here. Without it copyNumber used the tier's base: a village whose terrain gives 4/h with three mines
+// (22/h) read as one mine, so its plan priced the 4th mine as the 2nd (wood 120, not 440) and the chain refused it
+// Insufficient, again and again (loop-play9 LP9-4).
+const ORE_KNOWN = new Map();   // "p,q,tile" → extra (0–30) of fs1.mjs s1OreBase
+let oreProvider = false;
+/** Register what the terrain adds to the ore of the village on tile (p, q, tile) (null: not known). */
+export function knowVillageOre(holding, extra) {
+  if (!holding || !Number.isInteger(holding.tile)) return;
+  if (!oreProvider) { setOreExtraProvider((p, q, tile) => ORE_KNOWN.get(`${p},${q},${tile}`) ?? null); oreProvider = true; }
+  const k = `${holding.p},${holding.q},${holding.tile}`;
+  if (Number.isInteger(extra)) ORE_KNOWN.set(k, extra); else ORE_KNOWN.delete(k);
+}
+/**
+ * The terrain part of a v2 Holding's own TERRAIN_ORE (holding2::TERRAIN_ORE, milli per hour, written at founding or
+ * capture: (4 + min(extra, 30)) × 1000, arms.rs terrain_ore_per_hour) → extra 0–30, or null (unread, or not of that form).
+ */
+export const terrainOreExtra = raw => holdingOreExtra(raw);   // (the page's own reading: fs1.mjs holdingOreExtra)
+
+const villageKey = h => (h ? `${h.p},${h.q},${h.site}` : null);
+/**
+ * My village's landed builds, kept in my memory (journal lines are pruned at 96): `mem.village = {key, complete,
+ * builds: {item: n}}`. `complete` when the record began with my own PlaceHome landing (every build of the village is
+ * then mine and counted); a village first seen otherwise (an older state) is counted from then on, not complete.
+ * → a note when the record changed (a new or another village), else null.
+ */
+export function trackVillage(mem, obs) {
+  const k = villageKey(obs?.holding);
+  if (!k || mem.village?.key === k) return null;
+  const was = mem.village?.key ?? null;
+  mem.village = { key: k, complete: false, builds: {} };
+  return `my village ${k} was not placed by me in this memory${was ? ` (it was ${was})` : ''}: its builds are counted from now on`;
+}
+/** Builds of `item` that landed for my village (all of them: the record is complete) → n, or null when not known. */
+export function landedCopies(mem, obs, item) {
+  const v = mem?.village;
+  return v && v.complete && v.key === villageKey(obs?.holding) ? Number(v.builds?.[item] ?? 0) : null;
+}
+/**
+ * S1, the terrain ore not read: my landed mines tell the ore base apart from the mines. Every landed mine is either
+ * built (in `production`) or still queued; with `done` built ones the base is at most production − done × 6/h, and
+ * the largest terrain extra under that bound gives copyNumber exactly done + queued + 1 (each extra step is ≤ 2.75/h,
+ * under a mine's 6/h). A build that landed but is not in the record yet counts as built: the copy reads high, never low.
+ */
+export function oreExtraFromLanded(obs, mem) {
+  const mines = landedCopies(mem, obs, 3);
+  if (mines === null || !obs?.settled?.production) return null;
+  const now = obs.nowSecs ?? 0;
+  const queued = (obs.settled.queue ?? []).filter(q => q && Number(q.doneAt) > now && queueItem(q) === 3).length;
+  const done = Math.max(0, mines - queued);
+  let prod; try { prod = BigInt(obs.settled.production[RESOURCE_ORDER.indexOf('Ore')]); } catch { return null; }
+  const bonus = TIER_BONUS_PCT[Number(obs.settled.tier ?? 0)] ?? 0;
+  const bound = prod - BigInt(done * BUILD_ITEMS[3].perHour * 1000);
+  let e = 0;
+  for (let x = 0; x <= 30; x++) if (s1OreBase(x, bonus) <= bound) e = x;
+  return e;
+}
+/**
+ * Say my village's terrain ore to the page's rulebook (copyNumber, buildOffers, the stores' projection) before any
+ * build is counted: from the Holding's own TERRAIN_ORE (observe.mjs `holding.oreExtra`), else from my landed mines.
+ * → `{extra, by: 'record' | 'landed' | null}`, or null off S1.
+ */
+export function villageOre(obs, mem) {
+  if (!s1On() || !obs?.holding || !obs.settled) return null;
+  let extra = Number.isInteger(obs.holding.oreExtra) ? obs.holding.oreExtra : null, by = extra === null ? null : 'record';
+  if (extra === null) { extra = oreExtraFromLanded(obs, mem); by = extra === null ? null : 'landed'; }
+  knowVillageOre(obs.holding, extra);
+  return { extra, by };
+}
+/**
+ * The record does not show all my landed builds of `item` yet (the herald trails the chain): the copy it reads is
+ * lower than my landed builds + 1, so a cost read from it is too low. → why (wait), or null.
+ */
+export function recordBehind(obs, mem, item) {
+  const mine = landedCopies(mem, obs, item);
+  if (mine === null || !obs?.settled) return null;
+  const now = copyNumber(obs.settled, item);
+  return mine + 1 > now ? `${mine} build(s) of my ${BUILD_ITEMS[item].resource} landed; my village's record shows copy ${now} next, not ${mine + 1}: waiting for the record` : null;
+}
+
+/** The chain refused an order for resources (frontier-abi error.rs Insufficient = 21, the runner's `Custom(21)`). */
+export function refusedForResources(r) {
+  if (!r) return false;
+  if (r.code === 'Insufficient' || r.programCode === 21 || r.detail?.program_code === 21) return true;
+  let text = r.detail ?? r.message ?? '';
+  if (typeof text !== 'string') { try { text = JSON.stringify(text); } catch { text = ''; } }
+  return /Custom\(21\)/.test(text) || /"program_code"\s*:\s*21\b/.test(text);
+}
+/**
+ * A Build the chain refused for resources is not sent again until the stock has grown past what it was at the refusal
+ * in every resource the building costs (a landing of that building clears it). → why (held), or null.
+ */
+export function refusalHold(mem, obs, item) {
+  const rec = mem?.refusals?.[`Build:${item}`];
+  if (!rec || !Array.isArray(rec.stock)) return null;
+  const stock = have(obs);
+  const need = (BUILD_ITEMS[item]?.cost ?? []).map((c, r) => (c > 0 ? r : -1)).filter(r => r >= 0);
+  const behind = need.filter(r => !((stock[r] ?? 0) > (rec.stock[r] ?? 0)));
+  if (!behind.length) return null;
+  return `the chain refused this ${BUILD_ITEMS[item].resource} build (copy ${rec.copy}) for resources at turn ${rec.bell}: not sent again until ${behind.map(r => `${RESOURCE_ORDER[r]} grows past ${rec.stock[r] ?? 0}`).join(', ')}`;
+}
+
 const failKey = c => (c.kind === 'build' ? `Build:${c.order.fields.item}` : c.kind === 'home' ? 'PlaceHome' : c.order.name);
 
 /** A held reason from the failure memory (the doubling hold), or null. */
@@ -149,6 +255,8 @@ export function localCandidates(obs, mem, { limits = LOCAL_LIMITS } = {}) {
     if (!o) held.push('not offered by the page'); else if (o.blocks.length) held.push(`the page says ${o.blocks.join(', ')}${o.short.length ? ` (short ${o.short.map(s => `${RESOURCE_ORDER[s.r]} ${s.need}`).join(', ')})` : ''}`);
     const isNext = item === a.next.item, inPlan = a.plan.some(p => p.item === item);
     const fh = failureHold(mem, `Build:${item}`, bell); if (fh) held.push(fh);
+    const rh = refusalHold(mem, obs, item); if (rh) held.push(rh);
+    const rb = recordBehind(obs, mem, item); if (rb) held.push(rb);
     out.push({ id: `build:${item}`, kind: 'build', order: { name: 'Build', v: { ...v, item }, fields: { item } }, ...(held.length ? { held } : {}),
       score: goal.growth * (isNext ? 1 : inPlan ? 0.6 : 0.3) + 0.1,
       why: `${BUILD_ITEMS[item].resource} building copy ${o?.n ?? '?'}: ${isNext ? 'the next of my plan (what my village makes least of)' : inPlan ? 'in my plan' : 'not in my plan'}` });
@@ -211,15 +319,31 @@ export function decideLocal({ candidates, obs }, provider = null, { allow = {} }
 /**
  * After an order: the failure memory (⑬ resident.mjs: each failure doubles the hold — 4, 8, 16, 32, at most 36 turns;
  * a landing clears it), the tried home sites, the last touch. `outcome`: landed | failed | refused | unknown | not-sent.
- * `not-sent` (nothing reached the chain: a transport failure before the submit) holds nothing.
+ * `not-sent` (nothing reached the chain: a transport failure before the submit) holds nothing. A landed PlaceHome starts
+ * my village's record of landed builds, a landed Build counts in it (`mem.village`); a Build refused for resources
+ * (`resources`, refusedForResources) is remembered with the copy and the stock of `obs` (`mem.refusals`, refusalHold).
  */
-export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LOCAL_LIMITS } = {}) {
+export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LOCAL_LIMITS, resources = false, obs = null } = {}) {
   const key = failKey(cand);
   mem.failures = mem.failures ?? {};
+  mem.refusals = mem.refusals ?? {};
   if (outcome === 'landed') {
     delete mem.failures[key];
     if (cand.kind !== 'join') mem.lastTouchBell = bell;
+    // (LP9-4: my village's landed builds, counted here — the order's own landing, read once — on the send and on the
+    //  reconcile alike; a PlaceHome of mine starts a complete record)
+    if (cand.kind === 'home') mem.village = { key: `${cand.order.fields.p},${cand.order.fields.q},${cand.order.fields.site}`, complete: true, builds: {} };
+    if (cand.kind === 'build' && mem.village) {
+      const item = cand.order.fields.item;
+      mem.village.builds = { ...(mem.village.builds ?? {}), [item]: Number(mem.village.builds?.[item] ?? 0) + 1 };
+      delete mem.refusals[key];
+    }
     return mem;
+  }
+  // (LP9-4: refused for resources: remember the copy and the stock, refusalHold keeps the same Build back)
+  if (cand.kind === 'build' && (outcome === 'refused' || outcome === 'failed') && resources) {
+    const item = cand.order.fields.item;
+    mem.refusals[key] = { item, copy: obs?.settled ? copyNumber(obs.settled, item) : null, stock: have(obs), bell, code };
   }
   if (cand.kind === 'home' && outcome !== 'unknown' && outcome !== 'not-sent') mem.triedHomes = [...(mem.triedHomes ?? []), `${cand.order.fields.p},${cand.order.fields.q},${cand.order.fields.site}`];
   if (outcome === 'failed' || outcome === 'refused') {

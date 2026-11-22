@@ -53,6 +53,9 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 | チェーンが断った（failed・refused）、署名の行方が有効期間内に分からない（expired-unknown）、世界が変わった（建物の数が計画と違う、ページが出さない、待っても足りない、48 ターン待った）→ 計画を止め、今の村から作り直す（`replaces`）。ただし最初の手が同じ確かめですぐ止まる計画は作らない（作って止めてを繰り返すと計画の上限 24 個を使い切るため）。そのターンは住民の頭脳が決め、次の回にまた計画を試す | ④ `settle` / `stop`、`plan.mjs` `checkStep`、`executor.mjs` `next` |
 | 自分のプロセスの、署名のない意図が残った（署名の記録とその後の `not-sent` の記録の両方が失敗した）→ 何も送っていないので `not-sent` に戻して続ける（前は再起動まで止まっていた） | `executor.mjs` `next` |
 | 送る前の確かめは、ページが人に対して行うものと同じ（`buildOffers`・`trainCost`・部隊の規則・`resident_ok`） | `plan.mjs` |
+| S1 の世界（Season の layoutVersion 2・programVersion 4 以上）では、ページと同じく S1 の規則を有効にし（`setS1`）、鉱山を村の**地形の鉱石**より上の分で数える（プログラムの `copy_number` と同じ）。地形の鉱石は自分の Holding の `TERRAIN_ORE` で読む。読めないときは、自分の PlaceHome から数えた着地済みの鉱山の数から決める。どちらも無いと段の基準（15/時）で数え、少なく見えることがあると記録に書く（前は常に段の基準で数え、4 つめの鉱山を 2 つめの値段で見積もって 8 回 `Insufficient` で断られた。LP9-4） | `observe.mjs`、`brain.mjs` `villageOre` |
+| 自分の村で着地した建物を記憶に数える（`state.json` の `village`。日誌の行は 96 で消えるため）。herald の記録がまだ自分の着地した建物を見せていない（記録の数 < 着地した数 + 1）間は、計画を作り直さず、その建物を送らず、新しい計画も作らずに待つ。記録の数が計画より多い（別の建物がある）ときは作り直す | `brain.mjs` `recordBehind`、`plan.mjs` `checkStep`、`executor.mjs` `next` |
+| チェーンが資源不足（`Custom(21)` = `Insufficient`）で断った建物は、断られたときの在庫を覚え、その建物にかかる資源（Build の基本の値段で 0 でないもの）がどれも増えるまで送り直さない。新しい計画の最初の手にもしない。その建物が着地すると消える。失敗の保留（倍になる保留）はそのまま | `brain.mjs` `refusalHold`、`plan.mjs` |
 
 計画の待ち方は住民自身の設定（`PLAN_LIMITS`：手数 12、1 手の待ち 48 ターン、1 つの世界で計画 24 個まで、訓練 100、部隊 100）。
 

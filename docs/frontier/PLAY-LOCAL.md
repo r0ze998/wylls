@@ -612,6 +612,10 @@ The world's operator gives it no privilege and never sees its key. The page show
      continues from there and never sends an order twice (verify-pr148: all 12 steps landed up to the muster, 0 double acts).
    - A second process on the same `--dir` cannot act; a restarted process waits until the previous one's lease (20 s) runs out.
    - A refusal by the chain or a changed world stops the plan and remakes it from the village as it is (at most 24 plans per world).
+     A building the chain refused for lack of resources is not sent again until the village's stock has grown in every resource
+     it costs, and a new plan does not start with it. A building of its own that landed but is not in the herald's record yet
+     makes the resident wait for the record, not replan (fix-loop9, LP9-4). On S1 worlds a mine is counted above the village's own
+     terrain ore, as the program counts it (LP9-4: before, the resident priced a 4th mine as a 2nd and was refused 8 times).
    - Plans hold the six orders only: no caravans, no marches (caravans wait on r0ze, Q4).
 
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
