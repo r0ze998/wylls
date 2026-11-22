@@ -1229,6 +1229,8 @@ mod tests {
         let (_, d, r) = sealed_transit();
         let program = Address::new_from_array(PROGRAM);
         let payer = Keypair::new();
+        // (legacy wires: no lookup table, so nothing loaded — herald-v0v1-decode's `commands_in` argument)
+        let none = fclient::vtx::LoadedAddresses::default();
         let wire = |data: Vec<u8>, pid: Address| {
             let ix = Instruction {
                 program_id: pid,
@@ -1247,30 +1249,34 @@ mod tests {
         let dep = dx::encode(Kind::Depart, &d.to_bytes()).unwrap();
         let rev = dx::encode(Kind::Reveal, &r.to_bytes()).unwrap();
         assert_eq!(
-            commands_in(&wire(dep.clone(), program), &program).unwrap(),
+            commands_in(&wire(dep.clone(), program), &none, &program).unwrap(),
             vec![(Landed::Depart(d), vec![payer.pubkey()])]
         );
         assert_eq!(
-            commands_in(&wire(rev, program), &program).unwrap(),
+            commands_in(&wire(rev, program), &none, &program).unwrap(),
             vec![(Landed::Reveal(r), vec![payer.pubkey()])]
         );
         // a Reveal kind wrapping a Depart's bytes is never taken as either
         // (refused by the wrapper or by the kind check)
         if let Ok(bytes) = dx::encode(Kind::Reveal, &d.to_bytes()) {
-            let got = commands_in(&wire(bytes, program), &program);
+            let got = commands_in(&wire(bytes, program), &none, &program);
             assert!(
                 !matches!(got, Ok(ref v) if !v.is_empty()),
                 "kind and inner command differ: {got:?}"
             );
         }
         assert!(
-            commands_in(&wire(dep, Address::new_from_array([9; 32])), &program)
-                .unwrap()
-                .is_empty(),
+            commands_in(
+                &wire(dep, Address::new_from_array([9; 32])),
+                &none,
+                &program
+            )
+            .unwrap()
+            .is_empty(),
             "another program"
         );
         assert!(
-            commands_in(&wire(d.to_bytes().to_vec(), program), &program)
+            commands_in(&wire(d.to_bytes().to_vec(), program), &none, &program)
                 .unwrap()
                 .is_empty(),
             "not the version-2 dispatch"
