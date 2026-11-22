@@ -581,7 +581,9 @@ The world's operator gives it no privilege and never sees its key. The page show
 
 4. **Multi-turn plans (`--plan`, run by ④, #148)**: give ⑬'s resident `--plan --runexec <absolute path of runexec>` and, once
    its village exists, it makes a 12-step plan of its own village's next orders (buildings → harvest → train → … → muster a
-   host); ④'s plan store (SQLite, `<dir>/plans.sqlite` by default) runs it one step per turn. `--plan` is an option of this
+   host); ④'s plan store (SQLite, `<dir>/plans.sqlite` by default) runs it at most one step per turn (a step the
+   village cannot pay for yet waits: the `"what":"wait"` lines in `decisions.jsonl` name the missing resource and about how many
+   turns it takes; in verify-pr156 the sixth step, a building, waited a dozen turns for wood). `--plan` is an option of this
    resident (`client.mjs`), not of `play-local.sh`.
 
    ```sh
@@ -606,7 +608,8 @@ The world's operator gives it no privilege and never sees its key. The page show
   (pass `--external` again on resume).
 - The keeper loop settles an external resident's home province in the same batch as yours (#146; in kept worlds too). In
   `--demo` at ×60 its province is ready for a muster 80–90 % of the time (before: 0–6 %; §8.2).
-- An external resident can send the six orders only (no caravans, no marches, no answers on the ① board). It cannot pause
+- An external resident can send the game the six orders only (no caravans, no marches; the two residents shipped here do not
+  use the ① board either). It cannot pause
   the world's clock or change its speed: those controls need the launcher's own token (#137).
 - Local only: on devnet there is no external-resident admission and no MCP server (the public MCP policy questions
   MCP-1..11 are open).
