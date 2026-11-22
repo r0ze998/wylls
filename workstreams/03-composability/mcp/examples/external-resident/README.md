@@ -78,6 +78,11 @@ Return one order `{name, v, fields}` (the page's shapes; see `rule.mjs`) or `{wa
 a script may sit here; keep any model call outside these TEST worlds' rules (no paid API is used by this repository's
 tests). Whatever it returns is only a request: your key signs it, and the relay and the program decide.
 
+A fuller example: workstream ⑬'s resident (`workstreams/13-citizens/resident/local/`) keeps this client's path —
+`agent.mjs` exports `discoverWorld` (step 2) and `sendOrder` (step 5, with an optional `sign` hook so a journal can
+save the signature before the one submit) — and replaces only the mind: ⑬'s goals and limits, a restart-safe journal
+(one action per turn, never sent twice), and reads of its own records from the public herald.
+
 ### Optional: workstream 12's public-evidence reader (off unless you call it)
 
 If your AI chooses between other residents (a partner, a trade), it MAY ask workstream 12 what the public records say

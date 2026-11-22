@@ -16,8 +16,11 @@ export const UNSUPPORTED = Object.freeze({
   'open-if-declined': "reopening a declined request to everyone: workstream 1's board has no such rule",
   'citizen-addressed-request': "a request addressed to one citizen: workstream 1's request names a destination village, not a recipient",
   'post-request': "the resident's own needs as a new request: no model of the resident's needs is mapped to workstream 1's goal and need",
-  join: 'joining the world: the operator-invite route is not adopted for residents (README: it conflicts with the design)',
-  build: "building and training: no mapping from the resident's choices to the S1 build and train actions",
+  // (2026-11-22) join, build and train are mapped for a LOCAL-PLAY TEST world by resident/local/ (the ⑤B newcomer path:
+  // the operator admits the public address, the resident signs its own Join, PlaceHome, Harvest, Build, Train, Muster);
+  // this S1 live step still has neither.
+  join: 'joining the S1 live world from this step: the operator-invite route is not adopted for residents (README: it conflicts with the design); in a local-play TEST world the resident joins as a newcomer by the ⑤B path (resident/local/)',
+  build: "building and training in the S1 live world: no mapping from the resident's choices to the S1 build and train actions here (local-play TEST worlds: resident/local/ maps them)",
   gift: 'gifts and returns between residents: no counterpart in workstream 1',
   'other-villages': "other villages' stock and owners: not read (no world-wide list); only the board's verified destinations are known",
   events: "the test world's event kinds (delivered, raided, …): not mapped from the herald's program records here",

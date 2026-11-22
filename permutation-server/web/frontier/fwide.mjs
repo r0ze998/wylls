@@ -403,10 +403,10 @@ export function clearWideSelect(FS) { if (FS.wideSelect) FS.wideSelect = null; }
  */
 export const GUARDED_ACTS = Object.freeze(['harvest', 'build', 'train', 'muster', 'garrison', 'nudge', 'dissolve', 'compose', 'march-send', 'march-home',
   'explore-open', 'explore-send', 'settle-explore', 'settle-transit', 'home-scout-train', 'home-scout-muster',
-  's1-vault', 's1-structure', 's1-raid', 's1-seize', 's1-siege', 'cq-march', 'cq-outpost', 'caravans']);
+  's1-vault', 's1-structure', 's1-raid', 's1-raid-open', 's1-seize', 's1-siege', 'cq-march', 'cq-outpost', 'caravans']);
 export const GUARDED_FORMS = Object.freeze(['train', 'muster', 'garrison', 's1-fort', 's1-caravan']);
 export const GUARDED_INSTRUCTIONS = Object.freeze(['Harvest', 'Build', 'Train', 'Muster', 'Garrison', 'Dissolve', 'Explore', 'Depart', 'SettleExplore', 'SettleTransit',
-  'FortGarrison', 'BuildVault', 'BuildStructure', 'SeizeVault', 'SeizeStructure', 'SendCaravan', 'RaidCaravan', 'DeclareSiege', 'FileOutpost', 'PlaceHome', 'FileTicket']);
+  'FortGarrison', 'BuildVault', 'BuildStructure', 'SeizeVault', 'SeizeStructure', 'SendCaravan', 'RaidCaravan', 'RaidDomestic', 'DeclareSiege', 'FileOutpost', 'PlaceHome', 'FileTicket']);
 const GUARDED = new Set([...GUARDED_ACTS, ...GUARDED_FORMS, ...GUARDED_INSTRUCTIONS]);
 
 /** Scan nested order subjects without recursion; cycles terminate, excessive object graphs fail closed. */

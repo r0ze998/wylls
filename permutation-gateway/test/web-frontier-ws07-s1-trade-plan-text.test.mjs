@@ -72,7 +72,8 @@ test('P2 what the tile card offers', () => {
     "return { place, dst, src, fort, why: place && !dst && !src ? 'SamePlace' : null };");
   order(tile, 'const po = s1PlanOffers(FS, sel);', "po.dst ? btn('s1-plan', planData('dst'), L`ここへ隊商を送る`) : ''", "po.src ? btn('s1-plan', planData('src'), L`ここから隊商を送る`) : ''",
     "po.fort ? btn('s1-plan', planData('fort'), L`この要塞に兵を入れる`) : ''", "po.why === 'NoHolding'", 'po.dst && po.place?.other', 'ここはほかの人の場所です。着いた荷はその人のものになります。', 'まだ何も送りません。');
-  assert.ok(tile.includes('${here}</ul>` : \'\'}${plan}${raids}${seize}${siege}${expel}${build}</div>`;'));
+  // (fix-9-10-followups: the local coexist lane's 「隊商を止める」 (stops) sits after the plan, before the raid decisions)
+  assert.ok(tile.includes('${here}</ul>` : \'\'}${plan}${stops}${raids}${seize}${siege}${expel}${build}</div>`;'));
 });
 
 test('P3 handing the place over reads, sends and saves nothing', () => {

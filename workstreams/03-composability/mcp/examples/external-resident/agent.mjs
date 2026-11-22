@@ -50,6 +50,50 @@ export function parseArgs(argv) {
 const delay = (ms, signal) => new Promise(r => { const t = setTimeout(r, ms); signal?.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 const plain = v => JSON.parse(JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x)));
 
+/**
+ * Step 2 as a function (shared with other residents' clients, e.g. ⑬'s workstreams/13-citizens/resident/local/):
+ * press the launcher's page route until the operator's admission hands this wallet a world, then read the world's
+ * relay pins. → `{herald, info, identity, world}` or null (logged with `out`). Nothing but the public address leaves.
+ */
+export async function discoverWorld({ launcher, wallet, admitWaitMs = 600000, signal, out = () => {} }) {
+  let world = null;
+  for (const until = Date.now() + admitWaitMs; !signal?.aborted && Date.now() < until;) {
+    try { world = await askWorld(launcher, wallet); } catch (e) { out('discover', { outcome: 'refused', code: e.code ?? null, why: e.message }); return null; }
+    if (typeof world?.herald === 'string') break;
+    out('discover', { outcome: 'waiting', answer: world }); world = null; await delay(3000, signal);
+  }
+  if (!world) { out('discover', { outcome: 'no-world' }); return null; }
+  const herald = world.herald.replace(/\/$/, '');
+  let info = null;
+  for (let i = 0; i < 30 && !signal?.aborted && !info; i++) { try { info = await getJson(`${herald}/gw/f/local-play/info`); } catch { await delay(1000, signal); } }
+  if (info?.localPlay !== true || info.cluster !== 'localnet' || info.wallet !== wallet) { out('discover', { outcome: 'refused', why: 'the world\'s relay is not pinned to my wallet on localnet' }); return null; }
+  const identity = Object.freeze({ address: wallet, programId: info.program, seasonAddress: info.season, cluster: 'localnet' });
+  out('discover', { outcome: 'admitted', herald, role: world.external?.role ?? null, program: info.program, season: info.season });
+  return { herald, info, identity, world };
+}
+
+/**
+ * Step 5 as a function: ONE order `d` = `{name, v, fields}` through the page's own `submitLocalAct` (one signature by
+ * `signer`, one submit) and `followLocalAct` (never sent again). `sign` (optional) replaces the wallet call, as the
+ * page's `sign` option: a caller that must record the signature before the submit (a restart-safe journal) passes it.
+ * → `{outcome: 'landed' | 'failed' | 'refused' | 'unknown', code, signature, detail}`.
+ */
+export async function sendOrder(d, { herald, info, identity, signer, launcher, signal, sign = null, follow = { tries: 20, every: 1000 } }) {
+  let lastRefusal = null;
+  const post = pagePost(launcher, { onRefusal: a => { lastRefusal = a; } });
+  const sent = await submitLocalAct({ name: d.name, v: d.v, fields: d.fields }, { allowed: () => ({ ok: true, relay: herald }), identity: () => identity, rulesetHash: () => info.rulesetHash, signer: () => signer, post, sign });
+  let outcome, code = null, signature = null;
+  if (!sent.ok) { outcome = 'refused'; code = sent.code; }
+  else {
+    signature = sent.signature;
+    const f = await followLocalAct(signature, { origin: herald, still: () => !signal?.aborted, post, tries: follow.tries, every: follow.every });
+    // (as the operator residents count it: a send the runner refused before execution is a failure of that order —
+    //  it is still followed by its signature and never sent again)
+    outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown'; code = f.code ?? sent.relayCode ?? null;
+  }
+  return { outcome, code, signature, detail: lastRefusal ? JSON.stringify(lastRefusal).slice(0, 300) : null };
+}
+
 export async function main(argv = process.argv.slice(2), { print = s => process.stdout.write(`${s}\n`) } = {}) {
   let o; try { o = parseArgs(argv); } catch (e) { process.stderr.write(`external resident: ${e.message}\n`); return 64; }
   const stop = new AbortController();
@@ -60,19 +104,9 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   try { key = o.newKey && !existsSync(o.key) ? createKeyFile(o.key) : loadKeyFile(o.key); } catch (e) { out('key', { outcome: 'refused', why: e.message }); return 2; }
   out('key', { wallet: key.address, file: 'own key file (0600, TEST-only); never sent' });
   // 2. its world, as a page finds it
-  let world = null;
-  for (const until = Date.now() + o.admitWaitMs; !stop.signal.aborted && Date.now() < until;) {
-    try { world = await askWorld(o.launcher, key.address); } catch (e) { out('discover', { outcome: 'refused', code: e.code ?? null, why: e.message }); return 3; }
-    if (typeof world?.herald === 'string') break;
-    out('discover', { outcome: 'waiting', answer: world }); world = null; await delay(3000, stop.signal);
-  }
-  if (!world) { out('discover', { outcome: 'no-world' }); return 3; }
-  const herald = world.herald.replace(/\/$/, '');
-  let info = null;
-  for (let i = 0; i < 30 && !stop.signal.aborted && !info; i++) { try { info = await getJson(`${herald}/gw/f/local-play/info`); } catch { await delay(1000, stop.signal); } }
-  if (info?.localPlay !== true || info.cluster !== 'localnet' || info.wallet !== key.address) { out('discover', { outcome: 'refused', why: 'the world\'s relay is not pinned to my wallet on localnet' }); return 3; }
-  const identity = Object.freeze({ address: key.address, programId: info.program, seasonAddress: info.season, cluster: 'localnet' });
-  out('discover', { outcome: 'admitted', herald, role: world.external?.role ?? null, program: info.program, season: info.season });
+  const found = await discoverWorld({ launcher: o.launcher, wallet: key.address, admitWaitMs: o.admitWaitMs, signal: stop.signal, out });
+  if (!found) return 3;
+  const { herald, info, identity } = found;
   // 3. MCP (read-only) over its own OAuth link
   let mcp = null;
   if (o.mcp) {
@@ -85,8 +119,6 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   }
   // 4-5. observe → decide → act
   const mem = createMemory({ nation: o.nation }), signer = walletShaped(key);
-  let lastRefusal = null;
-  const post = pagePost(o.launcher, { onRefusal: a => { lastRefusal = a; } });
   const tally = { sends: 0, landed: 0, failed: 0, refused: 0, unknown: 0, signatures: [] };
   let last = -Infinity, misses = 0;
   for (let round = 0; !stop.signal.aborted && (o.rounds === 0 || round < o.rounds); round++) {
@@ -109,20 +141,11 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     if (d.wait) { note(mem, d, 'wait'); out('decide', { round, outcome: 'wait', why: d.why, seen }); await delay(o.cadenceMs, stop.signal); continue; }
     if (tally.sends >= o.maxSends) { out('budget', { round, outcome: 'spent', why: `my own limit of ${o.maxSends} sends` }); break; }
     if (Date.now() - last < o.minGapMs) { await delay(o.minGapMs - (Date.now() - last), stop.signal); }
-    lastRefusal = null;
-    const sent = await submitLocalAct({ name: d.name, v: d.v, fields: d.fields }, { allowed: () => ({ ok: true, relay: herald }), identity: () => identity, rulesetHash: () => info.rulesetHash, signer: () => signer, post });
-    let outcome, code = null, signature = null;
-    if (!sent.ok) { outcome = 'refused'; code = sent.code; }
-    else {
-      signature = sent.signature; tally.sends += 1; last = Date.now(); tally.signatures.push(signature);
-      const f = await followLocalAct(signature, { origin: herald, still: () => !stop.signal.aborted, post, tries: 20, every: 1000 });
-      // (as the operator residents count it: a send the runner refused before execution is a failure of that order —
-      //  it is still followed by its signature and never sent again)
-      outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown'; code = f.code ?? sent.relayCode ?? null;
-    }
+    const { outcome, code, signature, detail } = await sendOrder(d, { herald, info, identity, signer, launcher: o.launcher, signal: stop.signal });
+    if (signature) { tally.sends += 1; last = Date.now(); tally.signatures.push(signature); }
     tally[outcome] += 1;
     note(mem, d, outcome);
-    out('act', { round, act: d.name, fields: plain(d.fields), why: d.why, outcome, ...(code ? { code } : {}), ...(lastRefusal ? { detail: JSON.stringify(lastRefusal).slice(0, 300) } : {}), ...(signature ? { signature } : {}), seen });
+    out('act', { round, act: d.name, fields: plain(d.fields), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail } : {}), ...(signature ? { signature } : {}), seen });
     await delay(o.cadenceMs, stop.signal);
   }
   await mcp?.close().catch(() => {});

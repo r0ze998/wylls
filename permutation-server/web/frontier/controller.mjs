@@ -79,7 +79,7 @@ import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
 import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
-import { raidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
+import { raidOffers, domesticRaidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
@@ -3526,9 +3526,11 @@ async function s1Raid(d) {
   if (!r) return s1Refused(L`この略奪はもう決められません`);
   const A = io.pinned().addresses;
   const caravan = A.of('Caravan', { ownerTag: BigInt(r.caravan.ownerTag), seq: r.caravan.seq });
+  // (fix-9-10-followups: the local coexist lane names the caravan by its seed — flocalplay-rights.mjs RaidCaravan)
+  const caravanRef = { ownerTag: String(r.caravan.ownerTag), seq: r.caravan.seq };
   const raid = { p: r.p, q: r.q };
   if (d.choice !== 'take') {
-    return act('RaidCaravan', { v: { caravan, raider: r.raider, raid, dst: null },
+    return act('RaidCaravan', { v: { caravan, caravanRef, raider: r.raider, raid, dst: null },
       fields: { p: r.p, q: r.q, choice: RAID_CHOICE.burn, n_path: 1, dst_kind: 0, dst_p: 0, dst_q: 0, dst_at: 0, dst_gen: 0, steps: 0, path: new Uint8Array(12) },
       order: orderOf('s1-raid', 'RaidCaravan', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商の荷を焼き払いました` }) });
   }
@@ -3540,9 +3542,28 @@ async function s1Raid(d) {
   if (!plan || !plan.dirs.length) return s1Refused(L`村まで隊商の道が届きません（${fmtNum(MAX_PATH_STEPS)} マス・${fmtNum(MAX_PATH_PROVINCES)} 州まで）。焼き払うことはできます`);
   const dst = { kind: 'holding', p: home.p, q: home.q, site: home.site, gen: home.gen ?? 0 };
   const route = { raid, dst, pathProvinces: plan.provinces, oldRoute: r.caravan.provinces };
-  return act('RaidCaravan', { v: { caravan, raider: r.raider, ...route },
+  return act('RaidCaravan', { v: { caravan, caravanRef, raider: r.raider, ...route },
     fields: { p: r.p, q: r.q, choice: RAID_CHOICE.take, n_path: raidProvinces(route).nPath, ...placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs) },
     order: orderOf('s1-raid', 'RaidCaravan', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商を奪い、村へ向かわせました` }) });
+}
+/**
+ * (fix-9-10-followups, local coexist lane only) RaidDomestic: the viewer's host stood where a caravan of its own nation
+ * stood (screens/s1.mjs domesticRaidOffers); the program opens the raid, then 「奪って運ぶ」/「焼き払う」 decide it. The
+ * caravan's owner Citizen is the account's own (`OWNER_CITIZEN`), read through the relay as the custody card reads.
+ */
+async function s1RaidOpen(d) {
+  if (!rightsLaneOn()) return failed({ code: 'LocalActNotAllowed' });
+  const r = domesticRaidOffers(FS).find(x => x.p === num(d.p) && x.q === num(d.q) && x.slot === num(d.slot));
+  if (!r) return s1Refused(L`この隊商はもう止められません`);
+  const A = io.pinned().addresses;
+  busy(() => L`隊商の持ち主を確かめています…`);
+  const at = A.of('Caravan', { ownerTag: BigInt(r.caravan.ownerTag), seq: r.caravan.seq });
+  const got = await custodyRead([at]).catch(() => new Map());
+  const cv = got.get(at) ? cust.decodeCaravan(got.get(at)) : null;
+  if (!cv || cv.state !== cust.CV_MOVING) return s1Refused(L`この隊商はもう道の上にいません`);
+  return act('RaidDomestic', { v: { caravanRef: { ownerTag: String(r.caravan.ownerTag), seq: r.caravan.seq }, province: { p: r.p, q: r.q }, hostHolding: r.hostHolding, ownerCitizen: cv.ownerCitizen },
+    fields: { bell: r.bell, entry: r.entry },
+    order: orderOf('s1-raid-open', 'RaidDomestic', { tile: { p: r.p, q: r.q, tile: r.tile }, say: () => L`隊商を止めました。荷を奪うか焼き払うかを決めてください` }) });
 }
 /**
  * SendCaravan from the village in hand or one of the viewer's storehouses to another of the viewer's places, or to
@@ -3710,12 +3731,20 @@ function rightsUse(name, d, fields = {}) {
     RevokeGrant: () => L`権利を取り消しました`, CloseGrant: () => L`権利を閉じました` }[name];
   return act(name, { v, fields, say, after: () => refreshRights() });
 }
-/** Deliver the viewer's own arrived caravan (screens/rights.mjs: local play has no keeper delivering S1 caravans). */
-function rightsDeliver(d) {
+/** Deliver the viewer's own arrived caravan, or one it took in a raid (screens/rights.mjs: local play has no keeper delivering S1 caravans). */
+async function rightsDeliver(d) {
   if (!rightsLaneOn()) return failed({ code: 'LocalActNotAllowed' });
   const dst = d.kind === 'vault' ? { kind: 'vault', p: dnum(d, 'dp'), q: dnum(d, 'dq'), tile: dnum(d, 'at'), gen: dnum(d, 'gen') } : { kind: 'holding', p: dnum(d, 'dp'), q: dnum(d, 'dq'), site: dnum(d, 'at'), gen: dnum(d, 'gen') };
   const provinces = String(d.path ?? '').split('.').filter(Boolean).map(x => { const [p, q] = x.split('_').map(Number); return { p, q }; });
-  return act('SettleCaravan', { v: { seq: dnum(d, 'seq'), dst, provinces }, fields: {}, say: () => L`隊商が届きました`, after: () => refreshRights() });
+  // (fix-9-10-followups: `owner` — a caravan the viewer took in a raid keeps its sender's seed)
+  const ownerTag = /^[0-9]{1,20}$/.test(String(d.owner ?? '')) ? String(d.owner) : null;
+  const seq = dnum(d, 'seq');
+  if (!ownerTag) return act('SettleCaravan', { v: { seq, dst, provinces }, fields: {}, say: () => L`隊商が届きました`, after: () => refreshRights() });
+  // (its rent goes back to whoever paid it at the send — the account's RENT_TO, read through the relay)
+  const at = io.pinned().addresses.of('Caravan', { ownerTag: BigInt(ownerTag), seq });
+  const cv = await custodyRead([at]).then(m => (m.get(at) ? cust.decodeCaravan(m.get(at)) : null)).catch(() => null);
+  if (!cv) return s1Refused(L`この隊商はもう道の上にいません`);
+  return act('SettleCaravan', { v: { seq, dst, provinces, ownerTag, rentTo: cv.rentTo }, fields: {}, say: () => L`隊商が届きました`, after: () => refreshRights() });
 }
 function rightsIssueFromForm(f) {
   if (!rightsLaneOn()) return failed({ code: 'LocalActNotAllowed' });
@@ -3794,8 +3823,11 @@ async function refreshCustody(current = () => true) {
     const jobs = new Map();
     jobAt.forEach((x, i) => { const b = got2.get(jobAddr[i]); const j = b ? cust.decodeJob(b) : null; if (j) jobs.set(jobAddr[i], { facility: x.facility, job: j, owner: x.pool.owner }); });
     const caravans = new Map();
-    caravanAt.forEach((x, i) => { const b = got2.get(cvAddr[i]); const cv = b ? cust.decodeCaravan(b) : null; if (cv && cv.custody !== 0) caravans.set(cvAddr[i], { ...cv, vault: x.vault, qtyLeft: x.qty ?? null }); });
-    Object.assign(c, { holdings, vaults, lots, pools, jobs, caravans, read: 'ok' });
+    // (fix-9-10-followups: an expected caravan read absent was closed on the road — a raider took it and delivered it —
+    //  the lot still expects it until ReconcileLot; screens/custody.mjs tells that loss)
+    const caravansGone = new Set();
+    caravanAt.forEach((x, i) => { const b = got2.get(cvAddr[i]); const cv = b ? cust.decodeCaravan(b) : null; if (cv && cv.custody !== 0) caravans.set(cvAddr[i], { ...cv, vault: x.vault, qtyLeft: x.qty ?? null }); else if (got2.has(cvAddr[i]) && b === null && x.vault) caravansGone.add(x.seq); });
+    Object.assign(c, { holdings, vaults, lots, pools, jobs, caravans, caravansGone, read: 'ok' });
     for (const [, cv] of caravans) c.custodySeqs.add(cv.seq);
     for (const s of c.sent ?? []) c.custodySeqs.add(s.seq);
     custodyTellLosses(c);
@@ -3977,6 +4009,7 @@ export const ACTIONS = {
   's1-vault': d => s1Build('BuildVault', 0, s1Tile(d)),
   's1-structure': d => s1Build('BuildStructure', num(d.kind), s1Tile(d)),
   's1-raid': d => s1Raid(d),
+  's1-raid-open': d => s1RaidOpen(d),
   's1-seize': d => s1Seize(d),
   's1-siege': d => s1Siege(d),
   's1-expel': d => {
