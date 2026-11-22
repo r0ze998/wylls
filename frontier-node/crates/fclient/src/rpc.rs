@@ -1107,23 +1107,15 @@ mod tests {
     use super::*;
 
     /// security-audit: one loopback JSON-RPC answer per connection (a thread); → the URL.
+    /// The server reads the whole request and outlives the client's read
+    /// (see `crate::http::serve_one_http`; fix-rpc-flake).
     fn rpc_answer_once(result: Value) -> String {
-        use std::io::{Read, Write};
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = l.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            if let Ok((mut c, _)) = l.accept() {
-                let mut buf = [0u8; 8192];
-                let _ = c.read(&mut buf);
-                let body = json!({"jsonrpc": "2.0", "id": 1, "result": result}).to_string();
-                let _ = write!(
-                    c,
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-            }
-        });
-        format!("http://127.0.0.1:{port}")
+        let body = json!({"jsonrpc": "2.0", "id": 1, "result": result}).to_string();
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        format!("http://{}", crate::http::serve_one_http(reply.into_bytes()))
     }
 
     fn run<F: std::future::Future>(f: F) -> F::Output {

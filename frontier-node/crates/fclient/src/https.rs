@@ -834,17 +834,9 @@ mod tests {
     }
 
     /// One loopback answer per connection, from a thread; → the URL.
+    /// (Reads the whole request first; see `crate::http::serve_one_http`.)
     fn serve_once(reply: Vec<u8>) -> String {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = l.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            if let Ok((mut c, _)) = l.accept() {
-                let mut buf = [0u8; 4096];
-                let _ = c.read(&mut buf);
-                let _ = c.write_all(&reply);
-            }
-        });
-        format!("http://127.0.0.1:{port}/s3cret/path")
+        format!("http://{}/s3cret/path", crate::http::serve_one_http(reply))
     }
 
     fn block_on<F: std::future::Future>(f: F) -> F::Output {
