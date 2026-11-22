@@ -282,6 +282,9 @@ export function ownHostOnKeep(FS, x) {
   let rows = [];
   try { rows = hostRows(FS); } catch { rows = []; }
   return (FS.marches ?? []).some(m => {
+    // (fix-loop9, LP9-2: a kept expedition standing on the keep's tile — 進軍 follows its hold)
+    const xp = m?.expedition;
+    if (xp) return xp.stage === 'settled' && xp.fate === 'stays' && xp.dest?.p === x.p && xp.dest?.q === x.q && (!Number.isInteger(x.tile) || xp.dest.tile === x.tile) && !(xp.hold?.outcome === 'lost' && xp.hold.why === 'gone');
     const d = m?.dest, arrive = m?.entry?.arriveBell ?? m?.transit?.arriveBell, id = String(m?.entry?.host ?? m?.transit?.hostId ?? '');
     if (!d || d.p !== x.p || d.q !== x.q || (Number.isInteger(d.tile) && Number.isInteger(x.tile) && d.tile !== x.tile)) return false;
     if (!Number.isInteger(arrive) || bell < arrive || !id) return false;

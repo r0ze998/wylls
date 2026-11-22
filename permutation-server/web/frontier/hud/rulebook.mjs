@@ -184,7 +184,7 @@ export const doneAfterQueue = (h, now, secs) => Math.max(now, ...(h?.queue ?? []
  * holding; `have` its stores in whole units by resource index. Codes: QueueFull (the tier's slots are taken; one
  * promotion at a time), Insufficient, AboveCap (walls at their most), TopTier.
  */
-export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, s1 = false, mirror = null, resolvedNext = null } = {}) {
+export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, s1 = false, mirror = null, resolvedNext = null, workshop = true } = {}) {
   const slots = queueSlots(h.tier);
   const under = (h.queue ?? []).filter(q => isQueuedAt(q, now));
   const full = under.length >= slots;
@@ -192,8 +192,9 @@ export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, 
     const short = shortOf(o.cost, have);
     return { ...o, short, doneIn: doneAfterQueue(h, now, o.secs) - now, blocks: [...(full ? ['QueueFull'] : []), ...extra, ...(short.length ? ['Insufficient'] : [])] };
   };
-  // S1: the workshop (item 8) after the six buildings.
-  const items = s1 ? [...BUILD_ITEMS, WORKSHOP] : BUILD_ITEMS;
+  // S1: the workshop (item 8) after the six buildings — where the place the order goes takes it (`workshop`; fix-loop9,
+  // LP9-3: a plain local world's relay takes Build items 0-7 only, so the page offered a workshop it could never send)
+  const items = s1 && workshop ? [...BUILD_ITEMS, WORKSHOP] : BUILD_ITEMS;
   const out = items.filter(b => b.cost).map(b => {
     const n = copyNumber(h, b.item);
     return offer({ item: b.item, kind: 'building', resource: b.resource, perHour: b.perHour, n, cost: b.cost.map(c => duplicateCost(c, n)), intro: !!(Number(h.flags ?? 0) & 2), secs: Number(h.flags ?? 0) & 2 ? 60 : buildSecs(n) }, n > MAX_COPIES ? ['AboveCap'] : []);

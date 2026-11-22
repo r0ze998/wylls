@@ -142,14 +142,72 @@ export function expeditionRows(fs, seals = localDepartReveals) {
     const origin = transit ? { p: marker.originP, q: marker.originQ, tile: marker.originTile } : record.origin ?? null;
     const got = m.get(record.commit) ?? null, stage = expeditionStage(record, got?.facts ?? null, nowBell);
     rows.push({ expedition: { stage, fate: got?.facts?.fate ?? null, troopsAfter: got?.facts?.troopsAfter ?? null, depMass: got?.facts?.depMass ?? null,
-      host: record.host, transitSlot: record.transitSlot, arriveBell: record.arriveBell, dest, origin, commit: record.commit },
+      host: record.host, transitSlot: record.transitSlot, arriveBell: record.arriveBell, dest, origin, commit: record.commit,
+      // (fix-loop9, LP9-2: the hold of the keep it stands on, when followed — readExpeditionHolds)
+      hold: holdsOf.get(fs)?.get(record.commit) ?? null },
     entry: null, transit, dest, region: null, facts: { nowBell, pipeline: null, slotPresent: stage === 'revealed', settleReady: false }, record: null, slot: null, env: null, unread: null });
   }
   return rows;
 }
 
 /** The kept expeditions whose host stands in the wide land now (settled with fate Stays): `[{dest, troops, arriveBell}]`. */
-export const standingExpeditions = (fs, seals = localDepartReveals) => expeditionRows(fs, seals).filter(r => r.expedition.stage === 'settled' && r.expedition.fate === 'stays')
+export const standingExpeditions = (fs, seals = localDepartReveals) => expeditionRows(fs, seals).filter(r => r.expedition.stage === 'settled' && r.expedition.fate === 'stays'
+  // (fix-loop9, LP9-2: a host followed off its keep — beaten, the hold lost — no longer stands there)
+  && !(r.expedition.hold?.outcome === 'lost' && r.expedition.hold.why === 'gone'))
   .map(r => ({ dest: r.expedition.dest, troops: r.expedition.troopsAfter, arriveBell: r.expedition.arriveBell, host: r.expedition.host }));
 /** Whether any kept expedition is still under way (not settled): its host is away. */
 export const expeditionsAway = (fs, seals = localDepartReveals) => expeditionRows(fs, seals).some(r => r.expedition.stage !== 'settled');
+
+// ------------------------------------------------------------------ (fix-loop9, LP9-2) the hold of a wide keep
+// loop-play9: an expedition of 1,189 landed on the keep tile of a wide province (fate Stays), held it 72 turns and TOOK
+// it on chain at turn 550 — and the page said nothing: the march entry stayed 「留まる：…（兵 1,189）」, no count, no
+// 「奪いました」. Like fix-loop7 did for a wide village's own march (flocalplay-wide-plan.mjs followWideHold), a kept
+// expedition that stays on the destination province's KEEP tile is followed to its end: the page reads that one province
+// — the province its own host stands in (the fog rule holds: nothing of a province without a host of the viewer's) —
+// and says the hold's count, then taken or lost. A capture turns the holding host into the keep's garrison, so it leaves
+// the province's entries: the keep held by the viewer's nation is the capture, not a loss.
+
+const holdsOf = new WeakMap();
+/** The followed holds of kept expeditions: Map `commit` → `{to, tile, progress, required, since, outcome, why?, holder?, at}`. */
+export const expeditionHoldsOf = fs => { let m = holdsOf.get(fs); if (!m) { m = new Map(); holdsOf.set(fs, m); } return m; };
+
+/**
+ * One step of an expedition's hold (pure): from the last hold `prev` (or null), the expedition's destination `dest`
+ * `{p, q, tile}`, the destination province as read (`{entries, keep}`, flocalplay-wide-host.mjs readWideProvince) and the
+ * viewer's nation. → the hold, or null when the expedition does not stand on that province's keep.
+ */
+export function followExpeditionHold(prev, { dest, province, faction, nowBell }) {
+  const k = province?.keep ?? null;
+  if (prev?.outcome) return prev;                       // (an ended hold stays ended: said once and kept)
+  if (!k || !dest || k.tile !== dest.tile) return prev ?? null;
+  const to = { p: String(dest.p), q: String(dest.q) };
+  const stands = (province.entries ?? []).some(e => e.faction === faction && e.tile === k.tile && e.state >= 1 && e.state <= 3);
+  const required = k.required ?? prev?.required ?? null;
+  if (k.holder === faction) return { to, tile: k.tile, progress: required, required, since: prev?.since ?? nowBell, outcome: 'taken', at: nowBell };
+  if (k.contender === faction) return { to, tile: k.tile, progress: k.progress, required: k.required, since: prev?.since ?? nowBell, outcome: null, at: nowBell };
+  if (prev) return { ...prev, outcome: 'lost', why: stands ? 'held-by-other' : 'gone', holder: k.holder, at: nowBell };
+  // (standing on the keep, the count not started yet: the arrival turn's own resolve starts it)
+  return stands ? { to, tile: k.tile, progress: 0, required: k.required, since: nowBell, outcome: null, at: nowBell, waiting: true } : null;
+}
+
+/**
+ * Read the destination province of every kept expedition that stays on its keep and whose hold has not ended (one read
+ * each; `read(addresses)` → bytes | null, the relay's wide read; `parse` readWideProvince; `address(p, q)` the wide
+ * province's address). A failed read keeps the last hold. → the holds map.
+ */
+export async function readExpeditionHolds(fs, { read, parse, address, faction, nowBell, seals = localDepartReveals }) {
+  const holds = expeditionHoldsOf(fs);
+  if (typeof read !== 'function' || typeof parse !== 'function' || !Number.isInteger(faction)) return holds;
+  for (const r of expeditionRows(fs, seals)) {
+    const x = r.expedition;
+    if (x.stage !== 'settled' || x.fate !== 'stays' || !x.dest) continue;
+    const prev = holds.get(x.commit) ?? null;
+    if (prev?.outcome) continue;
+    let province;
+    try { const [b] = await read([address(String(x.dest.p), String(x.dest.q))]); if (!b) continue; province = parse(b); } catch { continue; }
+    const h = followExpeditionHold(prev, { dest: x.dest, province, faction, nowBell });
+    if (h) holds.set(x.commit, h);
+  }
+  return holds;
+}
+

@@ -12,6 +12,7 @@
 // says why it cannot run now, with a "catch up" nudge when the province
 // lags (NotResident).
 import { s1On } from '../fs1.mjs';
+import { localLane, COEXIST_LANE } from '../flocalplay-lane.mjs';
 import { renderS1Village } from './s1.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
@@ -126,13 +127,21 @@ const blockedLineOf = blockedLine;
  * costs base × (1 + (n−1)²/2) and takes 60 + 30 n minutes; the queue is serial). `copies` = n − 1, the ones built
  * or under way. (The card showed the first copy's cost for every copy, and a first copy as 60 minutes: it takes 90.)
  */
-export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0, province = null } = {}) {
+export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0, province = null, workshop = true } = {}) {
   const have = stores.map(s => s.value);
   // the village's own site mirror (this holding's generation), for the walls' two items (rulebook wallItemsBusy)
   const m = province && province.p === h.p && province.q === h.q ? province.siteMirror?.[h.site] : null;
   const mirror = m && m.state === 1 && Number(m.gen) === Number(h.gen) ? m : null;
-  return buildOffers(h, { now, have, faction, s1: s1On(), mirror, resolvedNext: province?.resolvedNext ?? null }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
+  return buildOffers(h, { now, have, faction, s1: s1On(), mirror, resolvedNext: province?.resolvedNext ?? null, workshop }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
 }
+
+/**
+ * (fix-loop9, LP9-3) Whether this page may offer the S1 workshop (build item 8): everywhere but a local test world of the
+ * plain lane, whose relay takes Build items 0-7 only (permutation-gateway local-play-act.mjs: item 8 in the coexist lane
+ * alone) — loop-play9: offered in every plain world and refused 「命令の内容の形が正しくありません」 with a retry that could
+ * never work. The --coexist world (② rights, ⑨ workshops) offers it as before.
+ */
+export const workshopOffered = FS => !FS?.localPlay || localLane() === COEXIST_LANE;
 
 /** Compatibility view of the shared promotion offer; no second set of prices. */
 export function upgradeModel(h, stores, now) {
@@ -194,7 +203,7 @@ export function holdingModel(FS) {
     stores, have,
     facts: holdingFacts(h, FS.season, now),
     blocks: Object.fromEntries(['Harvest', 'Build', 'Train', 'Muster', 'Garrison'].map(n => [n, actionBlocks(n, ctx)])),
-    offers: buildCards(h, stores, { now, faction, province: env?.province ?? null }),
+    offers: buildCards(h, stores, { now, faction, province: env?.province ?? null, workshop: workshopOffered(FS) }),
     promotion: promo ? { ...promo, short: promo.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) } : null,
     queue: queueNow(h, now), slots: queueSlots(h.tier),
   };
@@ -442,7 +451,7 @@ export function render(FS) {
     ${first ? html`<p>${L`農場で食料を増やすか、伐採所で木材を増やすか。村の最初の仕事を選びましょう。`}</p><p class="muted">${L`最初の生産施設の工事は60秒です。ほかの工事があると順番を待ちます。資源の費用は通常どおりです。`}</p>` : ''}
     ${building.length ? html`<ul class="queue">${building.map(q => html`<li>${icon('hourglass')}<strong>${queueName(q)}</strong><span class="queue-t">${q.running ? L`あと ${span(q.doneIn)}` : L`順番待ち（あと ${span(q.doneIn)}）`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
     <ul class="build-list">${shown.map(c => buildRow(c, whyOf(c), m.have))}</ul>
-    ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, whyOf(c), m.have))}</ul>`) : ''}
+    ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, whyOf(c), m.have))}${s1On() && !workshopOffered(FS) ? html`<li class="muted" data-workshop="lane">${L`工房はこの試験世界では建てられません（工房を貸す・権利を出す試験世界 --coexist でだけ建てられます）。`}</li>` : ''}</ul>`) : ''}
     ${m.promotion ? html`<ul class="build-list">${promotionRow(m.promotion, whyOf(m.promotion), m.have)}</ul>` : ''}
     ${queueFull ? html`<p class="blocked">${whyText('QueueFull', { tier: Number(m.settled.tier ?? 0), freeIn })}</p>` : ''}
     ${blockedLine(m.blocks.Build)}</section>`;

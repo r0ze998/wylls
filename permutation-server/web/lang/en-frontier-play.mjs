@@ -2334,4 +2334,28 @@ export default {
   "{0}の新しい村 ×{1}": "New villages of {0} ×{1}",
   "ゲーム内の {0}": "{0} of game time",
   "次の一手を送れるようになりました。送っていません。押すと送ります。": "The next step can be sent now. Nothing was sent. Press to send it.",
+  // (fix-loop9: LP9-1 a new host after a lost wide march, the wide march cap)
+  "生き残った兵 {0} が村に戻っています。兵 100 未満の軍勢は進軍できないため、新しい軍勢を作ります。": "{0} surviving troops are back at the village. A host under 100 troops cannot march, so a new host is raised.",
+  "進軍できる軍勢が村にいないため、新しい軍勢を作ります。": "No host at the village can march, so a new host is raised.",
+  "次の一手：槍兵 {0} を訓練します（兵 100 そろうと編成できます）。": "Next step: train {0} Spearmen (a host can be mustered once 100 are ready).",
+  "次の一手：槍兵 {0} の新しい軍勢を編成します。": "Next step: muster a new host of {0} Spearmen.",
+  "この村からの広い土地の中の進軍は、テスト世界では {0} 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。": "A test world allows {0} marches inside the wide land from this village. No further march is planned (expeditions from a rim village still work).",
+  "次の一手を送れます（新しい軍勢づくり）。自動では送りません。押すと上の一手を送ります。": "The next step can be sent (raising a new host). It is not sent automatically. Press to send the step above.",
+  // (fix-loop9: LP9-2 the hold of a wide keep by an expedition)
+  "結果：遠征の軍勢が州 {0} の砦を奪いました。砦はあなたの国のものです（ターン {1} に確認）。軍勢は砦の守備兵として残っています。": "Result: the expedition took the keep of province {0}. The keep is your nation's (seen on turn {1}). The host stays as the keep's garrison.",
+  "結果：州 {0} の砦は奪えませんでした。占拠を進めているのはあなたの国ではなくなりました（砦は{1}が保持）。": "Result: the keep of province {0} was not taken. Your nation no longer holds the contest (the keep is held by {1}).",
+  "結果：州 {0} の砦は奪えませんでした。遠征の軍勢が砦のマスからいなくなり、占拠が止まりました（ターン {1} に確認）。": "Result: the keep of province {0} was not taken. The expedition left the keep's tile and the hold stopped (seen on turn {1}).",
+  "遠征の軍勢は州 {0} の砦のマスに立っています。占拠の数え始めを待っています。": "The expedition stands on the keep's tile in province {0}. Waiting for the hold count to start.",
+  "遠征の軍勢が州 {0} の砦を占拠中です：{1} / {2} ターン。奪えたか、占拠が止まったかを、ここに出します。": "The expedition is holding the keep of province {0}: {1} / {2} turns. Whether it is taken or the hold stops is shown here.",
+  "砦を奪いました：軍勢は砦の守備兵になりました": "Keep taken: the host became the keep's garrison",
+  // (fix-loop9: LP9-3 the workshop only where the lane takes it)
+  "工房はこの試験世界では建てられません（工房を貸す・権利を出す試験世界 --coexist でだけ建てられます）。": "Workshops cannot be built in this test world (only in the --coexist test world, where workshops are lent and rights issued).",
+  // (fix-loop9: LP9-6 a taken caravan's arrival)
+  "略奪された隊商（着くターンは不明）": "Raided caravan (arrival turn unknown)",
+  "隊商（着くターンは不明） · 位置は推定": "Caravan (arrival turn unknown) · position estimated",
+  "奪った隊商（あなたの村へ向かっています）": "Caravans you took (on their way to your village)",
+  "ターン {0} に着きます。着いたら、ここで届けられます。": "Arrives on turn {0}. Once it arrives, you can deliver it here.",
+  "着くターンはまだ読めていません。着いたら、ここで届けられます。": "The arrival turn has not been read yet. Once it arrives, you can deliver it here.",
+  // (fix-loop9: LP9-7 the depositor is chosen, not the first village)
+  "（預ける人を選んでください）": "(choose who deposits)",
 };

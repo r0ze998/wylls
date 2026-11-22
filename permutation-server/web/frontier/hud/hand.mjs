@@ -365,7 +365,7 @@ const countRow = (act, n, { min = 100, max = 0, presets = [], label }) => html`<
   <button type="button" class="step-btn" data-act="${act}" data-n="${Math.max(min, n - 100)}" aria-label="${L`100 減らす`}" ${raw(n <= min ? 'disabled' : '')}>${icon('minus')}</button>
   <output class="pop-n num">${fmtNum(n)}</output>
   <button type="button" class="step-btn" data-act="${act}" data-n="${Math.min(max, n + 100)}" aria-label="${L`100 増やす`}" ${raw(n >= max ? 'disabled' : '')}>${icon('plus')}</button>
-  <span class="pop-presets">${presets.filter(p => p.n >= min && p.n <= max).map(p => html`<button type="button" class="btn small" data-act="${act}" data-n="${p.n}" aria-pressed="${p.n === n ? 'true' : 'false'}">${p.text}</button>`)}</span></div>`;
+  <span class="pop-presets">${presets.filter(p => p.n >= min && p.n <= max).map(p => html`<button type="button" class="btn small" data-act="${act}" data-n="${p.n}"${p.all ? html` data-all="1"` : ''} aria-pressed="${(p.all ? p.pressed : p.n === n) ? 'true' : 'false'}">${p.text}</button>`)}</span></div>`;
 
 /** The draft of a training order: `{unit, n, max, cost, short}` (the kind chosen, the count within what the stores pay for). */
 export function trainDraft(FS, model) {
@@ -403,8 +403,11 @@ export function musterDraft(FS, model) {
   const res = model.reserve;
   const pick = res.find(r => r.unit === FS.hand?.unit) ?? res[0] ?? null;
   const max = pick ? Math.min(HOST_TROOPS.max, pick.troops) : 0;
-  const troops = Math.max(HOST_TROOPS.min, Math.min(max, int(FS.hand?.troops) ? FS.hand.troops : max));
-  return { unit: pick?.unit ?? null, troops, max, tile: int(FS.hand?.tile) ? FS.hand.tile : null };
+  // (fix-loop9, LP9-5: 「全部」 is ALL of the reserve when the order goes, not the number it was when the card was drawn —
+  //  at ×60 a training batch lands after the card is drawn: the bar said 「最大 500人」 and the muster sent 400)
+  const all = FS.hand?.troopsAll === true || !int(FS.hand?.troops);
+  const troops = Math.max(HOST_TROOPS.min, Math.min(max, all ? max : FS.hand.troops));
+  return { unit: pick?.unit ?? null, troops, max, all, tile: int(FS.hand?.tile) ? FS.hand.tile : null };
 }
 
 /** Where the new host of the open card would stand, as the prototype's preview is asked (proto/orders.mjs): `{p, q, tile, troops}`, or null for none or for Scouts. */
@@ -442,7 +445,7 @@ function musterPop(FS, model) {
     <div class="pop-foot pop-muster">
       <div class="unit-toks unit-toks-row" role="group" aria-label="${L`兵種`}">${model.reserve.map(r => html`<button type="button" class="unit-tok unit-tok-small${r.troops < HOST_TROOPS.min ? ' short' : ''}" data-act="hand-unit" data-unit="${r.unit}" aria-pressed="${r.unit === d.unit ? 'true' : 'false'}">
         ${unitPic(f, r.unit, 30)}<strong class="unit-tok-name">${UNITS[UNIT_ORDER[r.unit]]}</strong><span class="unit-tok-str num">${fmtNum(r.troops)}</span></button>`)}</div>
-      ${d.unit === null ? '' : countRow('hand-troops', d.troops, { min: HOST_TROOPS.min, max: d.max, presets: [{ n: d.max, text: L`全部` }], label: L`兵数` })}
+      ${d.unit === null ? '' : countRow('hand-troops', d.troops, { min: HOST_TROOPS.min, max: d.max, presets: [{ n: d.max, text: L`全部`, all: true, pressed: d.all }], label: L`兵数` })}
       ${go}
     </div>
     <p class="pop-line${why || line ? ' pop-why' : ' pop-rule'}">${line ?? why ?? musterRuleText()}</p>

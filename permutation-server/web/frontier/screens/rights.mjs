@@ -90,7 +90,12 @@ export function rightsModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   const deliveries = moving.filter(c => myTag !== null && Number(c.arriveTs) <= nowTs && (own(c) || took(c)))
     .map(c => ({ seq: Number(c.seq), ownerTag: took(c) ? String(c.ownerTag) : null, dst: c.dst, provinces: (c.provinces ?? []).map(x => (Array.isArray(x) ? { p: x[0], q: x[1] } : { p: x.p, q: x.q })), cargo: c.cargo ?? [], arriveTs: c.arriveTs }))
     .map(c => ({ ...c, ...settledFor(FS, c.provinces, c.arriveTs) }));
-  return { on: true, viewer, read: r.read ?? 'unread', grants, facilities, nextNonce, deliveries };
+  // (fix-loop9, LP9-6: a caravan the viewer TOOK that is still on its way to the viewer's village — loop-play9, the raider
+  //  saw nothing of it for ~65 turns, then 「奪った隊商 … 隊商を届ける」 appeared: its new route is the raider's own)
+  const genesis = FS.season ? Number(FS.season.genesisTs) : null;
+  const takenOnWay = moving.filter(c => myTag !== null && took(c) && Number(c.arriveTs) > nowTs)
+    .map(c => ({ seq: Number(c.seq), cargo: c.cargo ?? [], dst: c.dst, arriveBell: Number.isFinite(genesis) ? bellAt(genesis, Number(c.arriveTs)) : null }));
+  return { on: true, viewer, read: r.read ?? 'unread', grants, facilities, nextNonce, deliveries, takenOnWay };
 }
 
 const btn = (act, data, text, { disabled = false } = {}) => html`<button type="button" class="btn small" data-act="${act}" ${raw(Object.entries(data).map(([k, v]) => `data-${k}="${String(v).replace(/"/g, '')}"`).join(' '))} ${raw(disabled ? 'disabled' : '')}>${text}</button>`;
@@ -132,9 +137,10 @@ export function renderRights(FS) {
       ${c.settled === false ? html`<span class="muted rights-deliver-wait" role="status">${L`通った州（${c.waitP}, ${c.waitQ}）の決着が到着のターン ${fmtNum(c.waitBell)} を過ぎるのを待っています。過ぎると届けられます（数ターン）。`}</span>`
         : html`<span class="actions">${btn('rights-deliver', d, L`隊商を届ける`)}</span>`}</li>`;
   })}</ul><p class="muted">${L`この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。`}</p>` : '';
+  const onWay = (m.takenOnWay ?? []).length ? html`${label(L`奪った隊商（あなたの村へ向かっています）`)}<ul class="list rights-taken">${m.takenOnWay.map(c => html`<li data-taken="${c.seq}">${icon('scroll')}${chip(L`奪った隊商`, 'warn')} <span class="muted">${cargoText(c.cargo)}</span> ${Number.isInteger(c.arriveBell) ? L`ターン ${fmtNum(c.arriveBell)} に着きます。着いたら、ここで届けられます。` : L`着くターンはまだ読めていません。着いたら、ここで届けられます。`}</li>`)}</ul>` : '';
   return html`<section class="vcard vcard-folds rights-card" id="hp-rights" aria-labelledby="rights-title" data-rights-read="${m.read}">
     ${cardHead({ id: 'rights-title', ic: 'scroll', title: L`権利（在庫の交換）` })}
-    ${readNote}${list}${deliver}
+    ${readNote}${list}${onWay}${deliver}
     <div class="actions">${btn('rights-read', {}, L`権利の一覧を読み直す`)}</div>
     ${fold('rights-issue', html`${icon('scroll')}${L`権利を出す`}`, issue)}
     <p class="muted">${L`一覧に出るのは、あなたが出したか受けた権利だけです。ほかの人どうしの権利や、ほかの人の貯蔵庫の中身は表示しません。`}</p></section>`;

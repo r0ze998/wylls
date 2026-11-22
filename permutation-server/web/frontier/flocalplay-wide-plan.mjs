@@ -27,6 +27,9 @@ export const WIDE_HOST_TROOPS = 300;
 /** The longest path searched (hex steps; the program allows 32 and 4 provinces). */
 export const WIDE_HOST_PATH_MAX = 24;
 export const ARRIVAL_SLACK_BELLS = 2;
+/** The fewest troops a host marches with (the program's MIN_HOST_TROOPS, whole Spearmen; the province records thousandths). */
+export const WIDE_MIN_HOST_TROOPS = 100;
+const MIN_HOST_MILLI = WIDE_MIN_HOST_TROOPS * 1000;
 const STATE_FINAL = 2;
 
 const fail = (code, detail) => { throw Object.assign(new Error(detail ? `${code}: ${detail}` : code), { code }); };
@@ -142,7 +145,10 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
   }
   async function decide(id, memory, { wideTargets, villages }) {
     if (!villages?.length) return { why: 'no wide village yet' };
-    if ((memory.wideDeparts ?? 0) >= WIDE_DEPARTS_MAX) return { why: `${WIDE_DEPARTS_MAX} wide marches sent` };
+    // (fix-loop9, LP9-1: at the cap the last march is still followed — its result is said — and the card says why no
+    //  further march is planned, instead of 「いまは送れる一手がありません。」 alone)
+    const capped = (memory.wideDeparts ?? 0) >= WIDE_DEPARTS_MAX;
+    if (capped && !memory.lastWideDepart) return { why: `${WIDE_DEPARTS_MAX} wide marches sent`, wait: 'cap', cap: WIDE_DEPARTS_MAX };
     if ((memory.wideHostUntil ?? -1) > (memory.decisions ?? 0)) return { why: 'waiting for the last wide act to settle' };
     const program = id?.programId, seasonAddr = id?.seasonAddress;
     if (!program || !seasonAddr) return { why: 'the relay has not named its program and season yet' };
@@ -164,6 +170,12 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       if (province.resolvedNext + 1 < nowBell) return { why: `the province is resolved to ${province.resolvedNext}, the turn is ${nowBell}: the runner catches it up first`, wait: 'lag', lag: nowBell - province.resolvedNext };
       const hosts = wideHostsIn({ world, village, holding, province });
       const open = tb.filter(Boolean).length;
+      if (capped) {
+        const march = await marchState({ m: memory.lastWideDepart, nowBell, open: open > 0, world, village, holding, seasonAddr, program });
+        // (a march still on its way, being decided or holding is followed as before; only an ended one is the cap's)
+        if (march && ['out', 'settling', 'unread', 'stands'].includes(march.phase)) return { why: 'its host left: the march settles', wait: 'march', march };
+        return { why: `${WIDE_DEPARTS_MAX} wide marches sent`, wait: 'cap', cap: WIDE_DEPARTS_MAX, ...(march ? { march } : {}) };
+      }
       if (!hosts.length) {
         // (fix-loop6, LP6-5: where the march is — on its way, arrived and standing on the keep, settling, or gone — read
         //  from the destination province the host itself went to; loop-play6: 70+ turns of "its host is away" only)
@@ -179,7 +191,27 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
         const n = 100;
         return { decision: { name: WIDE_TRAIN, v: { wide: village }, fields: { unit: 0, n }, wideHostAct: true, why: `train ${n} Spearmen at the wide village ${village.p},${village.q} (reserve ${holding.reserve[0]})` } };
       }
-      const host = hosts.find(h => h.entry.state === 1 && h.entry.pendOp === 0 && h.entry.readyBell <= nowBell && h.entry.troops >= 100_000);
+      const host = hosts.find(h => h.entry.state === 1 && h.entry.pendOp === 0 && h.entry.readyBell <= nowBell && h.entry.troops >= MIN_HOST_MILLI);
+      // (fix-loop9, LP9-1: a host under the march minimum never marches — its troops do not grow, and a local page cannot
+      //  dissolve it — so waiting for it waited for ever: loop-play9, a beaten host came home with 87 of 100 and the card
+      //  said 「軍勢が整列中か休んでいます。」 from turn ~426 to 600. When EVERY host here is under the minimum, the village
+      //  raises a new one (the program allows several hosts of one nation in a province: proc/wide.rs muster_as,
+      //  FACTION_CAP): train up to the minimum, then muster. The last march's result rides along so the card says it.)
+      if (!host && hosts.every(h => h.entry.troops < MIN_HOST_MILLI)) {
+        const march = (memory.wideDeparts ?? 0) > 0 && memory.lastWideDepart
+          ? await marchState({ m: memory.lastWideDepart, nowBell, open: open > 0, world, village, holding, seasonAddr, program }) : null;
+        if (open) return { why: 'its host is away (a march is open)', wait: 'march', ...(march ? { march } : {}) };
+        const home = { hosts: hosts.length, troops: hosts.reduce((a, h) => a + Math.floor(h.entry.troops / 1000), 0) };
+        const after = { ...(march ? { march } : {}), home, rebuild: true };
+        if (holding.reserve[0] >= WIDE_MIN_HOST_TROOPS) {
+          const troops = Math.min(holding.reserve[0], WIDE_HOST_TROOPS);
+          return { ...after, decision: { name: WIDE_MUSTER, v: { wide: village }, fields: { unit: 0, troops, tile: holding.tile }, wideHostAct: true, rebuild: true,
+            why: `a new host of ${troops} Spearmen at the wide village ${village.p},${village.q} (the ${home.troops} at home are under the march minimum ${WIDE_MIN_HOST_TROOPS})` } };
+        }
+        const n = 100;
+        return { ...after, decision: { name: WIDE_TRAIN, v: { wide: village }, fields: { unit: 0, n }, wideHostAct: true, rebuild: true,
+          why: `train ${n} Spearmen at the wide village ${village.p},${village.q} toward a new host (reserve ${holding.reserve[0]}; the ${home.troops} at home are under the march minimum ${WIDE_MIN_HOST_TROOPS})` } };
+      }
       if (!host) return { why: `its host is forming or resting (${hosts.map(h => `state ${h.entry.state} op ${h.entry.pendOp} ready ${h.entry.readyBell}`).join('; ')})`, wait: 'host' };
       const slot = tb.findIndex(x => x === null);
       if (slot < 0) return { why: 'all four transit records are open' };
