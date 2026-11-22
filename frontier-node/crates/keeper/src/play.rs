@@ -210,6 +210,12 @@ pub struct PlayStats {
     pub resolve_latency: Vec<u64>,
 }
 
+/// The admission's shared sets: live seal roots → `(host, arrive)`, known provinces.
+type AdmissionSets = (
+    std::sync::Arc<std::collections::HashMap<[u8; 32], (u64, u32)>>,
+    std::sync::Arc<BTreeSet<(i16, i16)>>,
+);
+
 #[derive(Default)]
 pub struct PlayDuty {
     /// P13 (`playable-lane`, the `expeditions` role): the legacy home bells
@@ -247,6 +253,15 @@ pub struct PlayDuty {
     pub not_quiet: BTreeSet<(i16, i16, u32)>,
     /// Nudged provinces → the bell a player wants to act at (§8.2 `/v1/nudge`).
     nudged: BTreeMap<(i16, i16), u32>,
+    /// The bell each nudge was taken at: it expires
+    /// [`crate::api_guard::NUDGE_TTL_BELLS`] later (fix-gw-highs, H-2).
+    nudge_taken: BTreeMap<(i16, i16), u32>,
+    /// Nudges dropped by the per-bell cap (status `play.nudges_capped`).
+    nudges_capped: u64,
+    /// The index sizes `(departs, settled, provinces)` the published
+    /// admission was built from, and its sets (rebuilt only on a change).
+    admission_of: Option<(usize, usize, usize)>,
+    admission_sets: AdmissionSets,
     /// Nudges taken `(P, Q, bell)` over the last [`NUDGE_LOG_BELLS`]
     /// (integ-W6t review: published in `/v1/status` `play.nudges_recent`,
     /// so the stack report can tell a nudged province-day from an idle one,
@@ -653,8 +668,70 @@ impl PlayDuty {
         tracks
     }
 
-    /// Takes owner material queued by `/v1/reveal` and nudges.
+    /// What the loopback API may admit without a chain read (fix-gw-highs,
+    /// audit H-1/H-2): the current bell, the provinces the index knows and
+    /// the seal roots of every live (not settled) DEPART, as of this pull.
+    fn publish_admission(&mut self, now_bell: Option<u32>, shared: &mut Shared) {
+        let ix = &self.index;
+        let sig = (ix.departs.len(), ix.settled.len(), ix.provinces.len());
+        if self.admission_of != Some(sig) {
+            let seals = ix
+                .departs
+                .iter()
+                .filter(|(k, _)| !ix.settled.contains_key(k))
+                .map(|(_, d)| (d.seal_root, (d.host, d.arrive)))
+                .collect();
+            self.admission_sets = (
+                std::sync::Arc::new(seals),
+                std::sync::Arc::new(ix.provinces.clone()),
+            );
+            self.admission_of = Some(sig);
+        }
+        shared.admission = Some(crate::api_guard::Admission {
+            ready: ix.feed.ready(),
+            now_bell,
+            seals: self.admission_sets.0.clone(),
+            provinces: self.admission_sets.1.clone(),
+        });
+    }
+
+    /// Drops nudges taken more than [`crate::api_guard::NUDGE_TTL_BELLS`]
+    /// ago (a province still behind then is caught up by the skip role's
+    /// batches as any other).
+    fn expire_nudges(&mut self, now_bell: Option<u32>) {
+        let Some(now) = now_bell else { return };
+        let ttl = crate::api_guard::NUDGE_TTL_BELLS;
+        let old: Vec<_> = self
+            .nudge_taken
+            .iter()
+            .filter(|(_, &at)| now > at.saturating_add(ttl))
+            .map(|(pq, _)| *pq)
+            .collect();
+        for pq in old {
+            self.nudged.remove(&pq);
+            self.nudge_taken.remove(&pq);
+        }
+        self.nudge_taken
+            .retain(|pq, _| self.nudged.contains_key(pq));
+    }
+
+    /// Takes owner material queued by `/v1/reveal` and nudges (tests: no clock).
+    #[cfg(test)]
     fn take_shared(&mut self, shared: &mut Shared, journal: Option<&Journal>) {
+        self.take_shared_at(shared, journal, None)
+    }
+
+    /// [`Self::take_shared`] at the current bell `now_bell`: a nudge's bell
+    /// is clamped to `now + 1` (the page asks for the province's
+    /// `resolvedNext` or the current bell; a far-future bell held the
+    /// province's skip at one bell per SkipQuiet for the season, audit H-2)
+    /// and expires [`crate::api_guard::NUDGE_TTL_BELLS`] after it is taken.
+    fn take_shared_at(
+        &mut self,
+        shared: &mut Shared,
+        journal: Option<&Journal>,
+        now_bell: Option<u32>,
+    ) {
         for (track, v) in shared.reveals.drain(..) {
             let get = |k: &str, n: usize| -> Option<Vec<u8>> {
                 use base64::Engine as _;
@@ -719,10 +796,48 @@ impl PlayDuty {
         for n in shared.nudges.drain(..) {
             let bell = n.get("bell").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
             if let Some(a) = n.get("province").and_then(|p| p.as_array()) {
-                if let (Some(p), Some(q)) = (a[0].as_i64(), a[1].as_i64()) {
-                    let e = self.nudged.entry((p as i16, q as i16)).or_insert(0);
+                let i16_of = |x: &Value| x.as_i64().and_then(|n| i16::try_from(n).ok());
+                if let (Some(p), Some(q)) = (a.first().and_then(i16_of), a.get(1).and_then(i16_of))
+                {
+                    let bell = match now_bell {
+                        Some(now) => bell.min(now.saturating_add(1)),
+                        None => bell,
+                    };
+                    // One taken nudge per province per bell, and at most
+                    // NUDGE_PER_BELL_MAX provinces WITHOUT residents newly
+                    // nudged a bell: a nudge splits the province's SkipQuiet
+                    // batch, so re-nudging every idle province each bell
+                    // would cost a SkipQuiet per province per bell instead of
+                    // per 24. A province with residents is never capped
+                    // (verify-pr166: 64 anonymous nudges a bell, ~2 minutes
+                    // of one address's per-IP budget, filled the cap and
+                    // silently dropped every player's catch-up request for
+                    // the rest of the 600 s bell); those cost at most one
+                    // SkipQuiet per inhabited province per bell, which the
+                    // pages' own auto-nudges already ask for.
+                    if let Some(now) = now_bell {
+                        if self.nudge_taken.get(&(p, q)) == Some(&now) {
+                            continue;
+                        }
+                        let inhabited =
+                            |pq: &(i16, i16)| self.provinces.get(pq).is_some_and(|s| s.active);
+                        let this_bell = self
+                            .nudge_taken
+                            .iter()
+                            .filter(|(pq, &b)| b == now && !inhabited(pq))
+                            .count();
+                        if !inhabited(&(p, q)) && this_bell >= crate::api_guard::NUDGE_PER_BELL_MAX
+                        {
+                            self.nudges_capped += 1;
+                            continue;
+                        }
+                    }
+                    let e = self.nudged.entry((p, q)).or_insert(0);
                     *e = (*e).max(bell);
-                    self.log_nudge((p as i16, q as i16), bell);
+                    if let Some(now) = now_bell {
+                        self.nudge_taken.insert((p, q), now);
+                    }
+                    self.log_nudge((p, q), bell);
                 }
             }
         }
@@ -1156,7 +1271,10 @@ impl PlayDuty {
             return Ok(());
         }
         self.load_owner_materials(journal)?;
-        self.take_shared(shared, journal);
+        let now_bell = t.clock.bell_at(t.now);
+        self.publish_admission(now_bell, shared);
+        self.expire_nudges(now_bell);
+        self.take_shared_at(shared, journal, now_bell);
         self.owner_tracks_from_chain(shared);
         for (slot, log) in std::mem::take(&mut self.index.cq_logs) {
             self.conquest.on_log(&log, slot, journal);
@@ -3064,6 +3182,7 @@ impl PlayDuty {
             "claims": s.claims, "returns": s.returns,
             "provinces_tracked": self.provinces.len(),
             "findings": self.findings.len(),
+            "nudges_capped": self.nudges_capped,
             "nudges_recent": self.nudge_log.iter().map(|(p, q, b)| json!([p, q, b])).collect::<Vec<_>>(),
         })
     }
@@ -3253,6 +3372,119 @@ mod review_tests {
             d.status()["nudges_recent"],
             json!([[3, 4, 200], [3, 4, 10 + NUDGE_LOG_BELLS + 1]])
         );
+    }
+
+    /// fix-gw-highs (audit H-2): a taken nudge never names a bell past
+    /// now + 1, never wipes the status log, and expires
+    /// `NUDGE_TTL_BELLS` after it was taken; a nudge again refreshes it.
+    #[test]
+    fn nudges_are_clamped_to_the_next_bell_and_expire() {
+        let mut d = PlayDuty::default();
+        d.log_nudge((1, -2), 90);
+        let mut shared = Shared::default();
+        shared
+            .nudges
+            .push(json!({"province": [3, -2], "bell": 4_294_967_295u64}));
+        shared
+            .nudges
+            .push(json!({"province": [40_000, 1], "bell": 100}));
+        d.take_shared_at(&mut shared, None, Some(100));
+        assert_eq!(d.nudged.get(&(3, -2)), Some(&101), "clamped to now + 1");
+        assert_eq!(d.nudged.len(), 1, "a province outside i16 is not one");
+        assert_eq!(
+            d.status()["nudges_recent"],
+            json!([[1, -2, 90], [3, -2, 101]]),
+            "the log keeps the last two days"
+        );
+        let ttl = crate::api_guard::NUDGE_TTL_BELLS;
+        d.expire_nudges(Some(100 + ttl));
+        assert!(d.nudged.contains_key(&(3, -2)));
+        // Asked again at bell 110: held from there.
+        shared
+            .nudges
+            .push(json!({"province": [3, -2], "bell": 110}));
+        d.take_shared_at(&mut shared, None, Some(110));
+        d.expire_nudges(Some(101 + ttl));
+        assert!(
+            d.nudged.contains_key(&(3, -2)),
+            "refreshed by the second nudge"
+        );
+        d.expire_nudges(Some(111 + ttl));
+        assert!(d.nudged.is_empty(), "expired");
+        assert!(d.nudge_taken.is_empty());
+        // At most NUDGE_PER_BELL_MAX provinces newly nudged a bell.
+        let max = crate::api_guard::NUDGE_PER_BELL_MAX;
+        for i in 0..(max + 10) {
+            shared
+                .nudges
+                .push(json!({"province": [i as i64, 0], "bell": 200}));
+        }
+        d.take_shared_at(&mut shared, None, Some(200));
+        assert_eq!(d.nudged.len(), max);
+        assert_eq!(d.nudges_capped, 10);
+        assert_eq!(d.status()["nudges_capped"], 10);
+        // verify-pr166: the cap is full, but a province with residents is
+        // still caught up on its player's request (an attacker filling the
+        // cap with empty provinces no longer drops it).
+        let prov = |active: bool| ProvState {
+            region: 0,
+            rn: 0,
+            read_slot: 0,
+            pending_bells: BTreeSet::new(),
+            settle_bells: BTreeSet::new(),
+            active,
+            leaves: vec![],
+            leave_ops: vec![],
+            last_digest: [0; 32],
+            contested: false,
+            rest_to: 0,
+        };
+        d.provinces.insert((-5, 7), prov(true));
+        d.provinces.insert((-6, 7), prov(false));
+        shared
+            .nudges
+            .push(json!({"province": [-5, 7], "bell": 200}));
+        shared
+            .nudges
+            .push(json!({"province": [-6, 7], "bell": 200}));
+        d.take_shared_at(&mut shared, None, Some(200));
+        assert!(d.nudged.contains_key(&(-5, 7)), "inhabited: never capped");
+        assert!(!d.nudged.contains_key(&(-6, 7)), "empty: capped");
+        assert_eq!(d.nudges_capped, 11);
+    }
+
+    /// The admission the API reads: live DEPARTs' seal roots (not the
+    /// settled ones), the known provinces, the bell; rebuilt on a change.
+    #[test]
+    fn admission_lists_live_departures_and_known_provinces() {
+        let mut d = PlayDuty::default();
+        let dep = |host: u64, root: u8| DepartRec {
+            host,
+            origin: (2, 0),
+            origin_tile: 5,
+            depart_bell: 7,
+            arrive: 9,
+            dep_mass: 10,
+            tip: 0,
+            seal_root: [root; 32],
+            commit: [0; 32],
+            seal: [0; 165],
+            slot: 1,
+        };
+        d.index.departs.insert((1, 7), dep(1, 0xa1));
+        d.index.departs.insert((2, 7), dep(2, 0xa2));
+        d.index.settled.insert((2, 7), (0, 0, 5));
+        d.index.provinces.insert((2, 0));
+        let mut shared = Shared::default();
+        d.publish_admission(Some(12), &mut shared);
+        let a = shared.admission.clone().unwrap();
+        assert_eq!(a.now_bell, Some(12));
+        assert_eq!(a.seals.get(&[0xa1; 32]), Some(&(1, 9)));
+        assert!(!a.seals.contains_key(&[0xa2; 32]), "settled: no reveal");
+        assert!(a.provinces.contains(&(2, 0)));
+        d.index.departs.insert((3, 7), dep(3, 0xa3));
+        d.publish_admission(Some(13), &mut shared);
+        assert!(shared.admission.unwrap().seals.contains_key(&[0xa3; 32]));
     }
 
     #[test]

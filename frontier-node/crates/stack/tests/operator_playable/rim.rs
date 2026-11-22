@@ -134,6 +134,8 @@ pub struct War {
     pub token: String,
     /// P10 (devnet-page-war-2): how to stop and restart keeper A and drand-replay ([`war::Outage`]).
     pub outage: Option<war::Outage>,
+    /// PGWF (fix-gw-highs): the `/gw` flood during the war ([`war::Flood`]).
+    pub flood: Option<war::Flood>,
 }
 
 pub struct Ctx<'a> {

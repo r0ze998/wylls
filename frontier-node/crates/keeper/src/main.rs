@@ -286,11 +286,22 @@ async fn main() {
         cfg.feed,
         cfg.rpc_min_gap().as_millis()
     );
-    // The `/v1/reveal` accept path reads the chain through its own client.
+    // The `/v1/reveal` accept path reads the chain through its own client,
+    // on the shared pacer (one endpoint, one per-IP limit) but behind a
+    // budget of its own (fix-gw-highs, audit H-1: anonymous reveals reach
+    // this gate; it may take at most a fifth of the pacer by default).
+    let budget = std::sync::Arc::new(keeper_core::api_guard::ExternalBudget::for_config(&cfg));
+    eprintln!(
+        "frontier-keeper: external (API) chain reads at most {:.2}/s, burst {}",
+        budget.per_sec, budget.burst
+    );
     let gate: std::sync::Arc<dyn keeper_core::reveal_accept::RevealGate> =
-        std::sync::Arc::new(keeper_core::reveal_accept::ChainGate {
-            port: clusterfeed::read_port(&cfg, &rpc, &pacer),
-            addrs: fclient::addr::Addresses::new(cfg.program, cfg.season_id),
+        std::sync::Arc::new(keeper_core::api_guard::BudgetedGate {
+            inner: std::sync::Arc::new(keeper_core::reveal_accept::ChainGate {
+                port: clusterfeed::read_port(&cfg, &rpc, &pacer),
+                addrs: fclient::addr::Addresses::new(cfg.program, cfg.season_id),
+            }),
+            budget,
         });
     let drand = HttpDrand::new(cfg.drand.clone(), info);
     let api_addr = cfg.api;
