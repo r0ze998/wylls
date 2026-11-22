@@ -15,7 +15,7 @@ one at a time.
   **同じ兵数のとき「番号の小さいホスト」が勝つ**（砦の明け渡し先とDeclareSiegeの先導ホスト）。番号が小さい＝(0,0) に近い州。
   広い土地のキー（`WideHostRef`）も同じ輪の順で並ぶので、同じ偏りがある。
 - **devnet 前にできること（.so も ABI も変えない）:** herald の支配ファイルを「開いた州だけ」の疎な形式で出す
-  （輪 126 の縁の季節で 1 ベルあたり約 390 KB → 開いた州の数 × 約 12 B、広い土地も入る）、ページの読み込みを輪ごとから
+  （輪 126 の縁の季節で 1 ベルあたり約 390 KB → 開いた州の数 × 約 16 B、広い土地も入る）、ページの読み込みを輪ごとから
   座標の塊ごとへ、keeper の同点の並びから輪を外す。プレイヤーに効くのは「縁・広い土地で遊ぶ人の読み込みと、
   支配・順位表が輪 127 で止まる問題」。
 - **後でやること（最初の devnet 季節のあと、次の .so）:** R5a＝同点の決め方を「番号の小さい順」から
@@ -24,7 +24,7 @@ one at a time.
   R5b＝ホスト ID の州番号を「開いた順」に変える案は、チェーン上でホスト ID から (P,Q) を戻している箇所が多く、
   ABI の作り直しになる。⑰ の賞金を広い土地まで数えたいとき以外は勧めない。
 - **費用:** R5a は約 1 PR（カーネル・verifier・sim・エージェントの 4 か所、CU 増は 1 比較あたり数 CU、
-  G1 の余裕 853 CU 内）。R5b は ABI 全体（プログラムの約 50 呼び出し、ウェブ 51 ファイル、全フィクスチャ）で数週間。
+  G1 の余裕 853 CU 内）。R5b は ABI 全体（プログラムの約 50 呼び出し、ウェブ 35〜61 ファイル、全フィクスチャ）で数週間。
 - **r0ze に聞くこと:** Q1 R5a を次の季節で入れるか、Q2 ⑰ の賞金を輪 17 の外（広い土地）まで広げたいか（R5b か
   ⑰ 側の別案が要る）、Q3 herald の疎な支配ファイルを devnet 前に入れてよいか。
 
@@ -41,7 +41,7 @@ one at a time.
 | `geometry.rs:293-318` | `from_index` (inverse) |
 | `permutation-rules/src/frontier/addr.rs:410-469` | `host_id = index << 44 \| site << 40 \| gen << 32 \| seq`; `host_parts` splits it back to (P,Q) |
 | `frontier-abi/src/addr.rs:244-285` | `host_id`, `split_host_id`, `holding_key_of_host`, `province_index` (the ABI's copies) |
-| `permutation-server/web/frontier/fgeo.mjs:42-60` | JS mirror `provinceIndex` / `provinceFromIndex`; 51 non-test web files use index or host-id helpers |
+| `permutation-server/web/frontier/fgeo.mjs:42-60` | JS mirror `provinceIndex` / `provinceFromIndex`; 35 web `.mjs` files call the index / host-id helpers (`provinceIndex(`, `provinceFromIndex(`, `hostId(`, `hostParts(`), 61 name a host id or the index at all |
 
 Account addresses are **not** keyed by the index: Province, Holding, ArrivalSlot, ClashInputs, Posture are
 `with_seed(… P ‖ Q …)` (`addr.rs:320-366`). The only seed that takes a host id is the reserved
@@ -55,7 +55,7 @@ id after a 64-bit hash, so only on a hash collision). What still reads the raw i
 
 | Rule | Code | Effect |
 |---|---|---|
-| Keep donor (who takes a keep's troops when its contender holds it) | `permutation-rules/src/frontier/keep.rs:344-366` `lead_host` / `lead_pos` ("most troops, then the **lowest host id**"); called from `frontier-abi/src/conquest_model.rs:516-528` (Resolve step 3) | With equal troops, the host whose home province is nearer (0,0) wins. Musters come in round numbers (100-troop units), so exact ties are realistic. |
+| Keep donor (who takes a keep's troops when its contender holds it) | `permutation-rules/src/frontier/keep.rs:344-366` `lead_host` / `lead_pos` ("most troops, then the **lowest host id**"); called from `frontier-abi/src/conquest_model.rs:516-528` (Resolve step 3) | With equal troops, the host whose home province is on the lower ring from (0,0) wins (same ring: the lower wedge/position, then site, gen, seq). Muster takes any whole-troop count (`permutation-frontier/src/proc/host.rs:206-209`; no unit size on chain), but people and bots send round numbers, so exact ties are realistic. |
 | DeclareSiege lead host | `frontier-abi/src/v2/entry.rs:70-75` → `permutation-frontier/src/proc/conquest.rs:716`; verifier `frontier-node/crates/verify/src/checks/v14_sieges.rs:303` | Same tie. Not in the devnet `.so` (P14 b removed conquest kinds 12–18), live in localnet conquest lanes. |
 | Wide keep donor | `frontier-abi/src/world_index/resolve.rs:1003` `advance_with` over `WideHostRef` | `WideHostRef`'s `Ord` is `ProvinceKey` then site/gen/seq (`world_index/key.rs:109,166`); `ProvinceKey` orders by `WideCoord`, whose `Ord` is **ring from (0,0), wedge, position** (`world_index/coord.rs:12-18, 259-264`). Same centre bias on wide land. |
 | Mirrors | `frontier-node/crates/agents/src/cqbehave.rs:140`, `frontier-sim/src/sim_mc.rs:429` | bots / sim pick the lead the same way |
@@ -103,7 +103,7 @@ All three are off-chain; none changes a hash, a layout, an instruction or a fixt
 |---|---|---|---|
 | H1 | **Sparse control file** `PSFCT2`: a list of `(P i32, Q i32, record 8 B)` (≈ 16 B) for **opened provinces only**, in `(P,Q)` or open-bell order, served next to `PSFCT1` (`/h/control2/{bell}.bin`); WS delta keyed by `(P,Q)`. Rings past 127 (rim, wide) included. Keep PSFCT1 unchanged for old readers. | herald `cqfmt.rs`, `control.rs`, `standings.rs`; page `herald.mjs` decoder; vectors in `frontier-node/fixtures/cq/formats/` | Rim/wide players: control colours and standings stop freezing at ring 127; a rim season's control file drops from ≈ 390 KB/bell to `opened × 16 B` (e.g. 300 opened provinces ≈ 5 KB). |
 | H2 | **Coordinate-chunk province route** `/h/chunk/{cp},{cq}` (chunk = 8×8 provinces, CDDA style) over legacy + wide provinces; page map/全体図 loads chunks in view instead of `/h/world/ring/{d}` walks. | herald routes; page `map/world.mjs`, `map/wide.mjs` | Opening the map near a rim or wide home costs what is in view, not every ring from (0,0); one code path for legacy and wide land on the page. |
-| H3 | Keeper `provinces_reach` tie-break: `(distance, hash(season ‖ P ‖ Q))` instead of `(distance, ring, p, q)`. | `keeper/src/rings.rs:298` (+ its test at `rings.rs:1035-1311`) | Province openings on demand no longer favour the side nearer (0,0) on ties. Small. |
+| H3 | Keeper `provinces_reach` tie-break: `(distance, hash(season ‖ P ‖ Q))` instead of `(distance, ring, p, q)`. | `keeper/src/rings.rs:298` (+ its tests, `rings.rs:1046-1306`) | Province openings on demand no longer favour the side nearer (0,0) on ties. Small. |
 
 Cost/risk: H1 is the largest (a new binary format with shared Rust/JS vectors, the CF-x discipline in
 `cqfmt.rs` l.1-50); H2 needs a Playwright check of the map; H3 is a few lines. None needs cargo-build-sbf, a
@@ -168,7 +168,7 @@ distance), no ring cap, so legacy and wide hosts could share one `u64` id space.
 |---|---|
 | host ids past ring 128 → the wide alias/roster machinery could retire later (roster rent `(3,248 + 128) × rate` per mustering wide province = 0.0172 SOL at 5,080, 0.0235 at 6,960) | **the id no longer gives (P,Q)**: ≈ 26 on-chain `split_host_id` uses derive accounts from it (log entity addresses `log.rs:570`, `v2/log.rs:655`, caravans, conquest, transit). Each needs (P,Q) in instruction data + a check against the Province's stored sequence → instruction ABI change for most host-bearing instructions |
 | PSFCT1/overview could become arrays over opened provinces (H1 does this off-chain already) | every stored host id in Province entries (56 × 8 B), march/transit records, ArrivalSlot/ClashInputs, events changes meaning → new layout version, no migration of a live season |
-| prize bitmap by open sequence → wide land tallyable (needs `MAX_PROVINCES` raise or a bitmap per fund) | ~50 program call sites of `host_id(` in 18 proc files, 55 keeper, 29 fclient, 18 herald, 18 verifier, 51 web files, every fixture and vector |
+| prize bitmap by open sequence → wide land tallyable (needs `MAX_PROVINCES` raise or a bitmap per fund) | ~50 program call sites of `host_id(` in 18 proc files, 55 keeper, 29 fclient, 18 herald, 18 verifier (`host_id(` lines per crate, tests included), 35–61 web files (§1.1), every fixture and vector |
 | | clash/keep tie order becomes **open-time order** (earlier land wins ties) — still a bias, so R5a is needed anyway |
 
 Estimate: a multi-week ABI version (comparable to the wide-land write path), touching program, ABI, keeper,
@@ -225,6 +225,6 @@ per-province "tallied" marker account `with_seed(pool, "tl" ‖ P ‖ Q)` create
   order (`resolve.rs:1003`). The centre bias exists on wide land too.
 - `geometry.rs:146` / `:272` still call (0,0) "the Concord" (already listed as D-rules-r3-r5-4; still open).
 - `world_index/coord.rs:5-6` "ring = hex distance from the Concord" (same naming).
-- `UNBOUNDED-IDENTIFIERS.md` §1 calls the prize bitmap a ring-17 wall but does not note that the playable/devnet
-  presets (`r_max_ceiling` 128) are therefore refused by the prize InitPool; nothing in the devnet runbook says a
-  prize pool cannot be opened for the playable season.
+- `UNBOUNDED-IDENTIFIERS.md` §1 says InitPool refuses "`r_max` or a ceiling above 17" (l.11) but does not spell out
+  the consequence: the playable/devnet presets (`r_max_ceiling` 128) are refused by the prize InitPool; nothing in
+  the devnet runbook says a prize pool cannot be opened for the playable season.
