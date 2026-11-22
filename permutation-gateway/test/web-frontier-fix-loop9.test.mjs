@@ -238,7 +238,6 @@ test('LP9-7: the depositor select starts empty when several people could deposit
 // English reason said "You earned the title … Why: Delivered goods by their own caravan" (mixed person).
 test('LP9-8: the ① board names nations as the game does and follows the chain-verified nation; the ⑮ English reasons name no person', async () => {
   const { CIV_NAMES } = await import('../../permutation-server/web/i18n.mjs');
-  const { TITLES } = await import('../../workstreams/15-coop-outcomes/src/live.mjs');
   const coop = f => readFileSync(new URL(`../../workstreams/01-national-strategy/coop/${f}`, import.meta.url), 'utf8');
   const ui = coop('coop-ui.mjs'), page = coop('index.html');
   setLang('ja');
@@ -248,9 +247,9 @@ test('LP9-8: the ① board names nations as the game does and follows the chain-
   ja.forEach((n, i) => assert.ok(page.includes(`<option value="${i}">${n}</option>`)));
   assert.ok(ui.includes("if (n && Number.isInteger(n.nation) && !nationChosen && $('nation').value !== String(n.nation)) $('nation').value = String(n.nation);"));
   assert.ok(ui.includes("$('nation').addEventListener('change', () => { nationChosen = true; refresh(); });"));
-  // (a person's titles — P-…, shown as "You earned …" to the person — name no person; a nation's may say "its" / "their")
-  for (const [k, t] of Object.entries(TITLES).filter(([k]) => k.startsWith('P-'))) assert.doesNotMatch(t.reason.en, /\b(their|they|them)\b/i, `${k}: ${t.reason.en}`);
-  assert.match(TITLES['P-board-helper'].reason.en, /^Sent the caravan that delivered goods to a co-op request/);
+  // (⑮'s own test checks every person title's English reason: workstreams/15-coop-outcomes/test/request-title.test.mjs —
+  //  ⑮ is not imported from outside workstreams/, its live.test.mjs guard)
+  assert.match(readFileSync(new URL('../../workstreams/15-coop-outcomes/src/live.mjs', import.meta.url), 'utf8'), /en: 'Sent the caravan that delivered goods to a co-op request from someone of another nation/);
 });
 
 // loop-play9 LP9-3: every plain local world offered 「工房」 (S1 build item 8); the plain relay takes Build items 0-7 only,

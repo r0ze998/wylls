@@ -154,3 +154,11 @@ test('the proof is re-checked: a malformed or foreign proof is ignored', () => {
   assert.deepEqual(ev(F(req('r1', 'nobody', [del('B', { wood: 20, stone: 20 }, 'sig6')]))).held.map(h => h.why), ['request or requester unknown']);
   assert.equal(ev(F(req('r1', 'A', [del('B', { wood: 20, stone: 20 }, 'sig6')]))).events[0].verified, 'derived');
 });
+
+// (fix-loop9, loop-play9 LP9-8: the request title's English reason read "You earned the title … Why: Delivered goods by
+//  their own caravan" — a person's title is shown to that person, so its English reason names no person)
+test('a person\'s titles (P-…) give English reasons that name no person; the texts are not part of the ruleset hash', () => {
+  for (const [k, t] of Object.entries(TITLES).filter(([k]) => k.startsWith('P-'))) assert.doesNotMatch(t.reason.en, /\b(their|they|them)\b/i, `${k}: ${t.reason.en}`);
+  assert.match(TITLES['P-board-helper'].reason.en, /^Sent the caravan that delivered goods to a co-op request from someone of another nation/);
+  assert.equal(hashOf(RULESETS.B), '463e248750be17366358f55aec192d629f08ed7b58205e179cac2e78b577579a');
+});
