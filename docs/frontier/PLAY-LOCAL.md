@@ -219,8 +219,8 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    - **An expedition that lands on a wide keep's tile holds it** (72 turns take it). The march card follows the hold
      (fix-loop9 LP9-2; it reads that one province about once a turn): 「遠征の軍勢が州 P,Q の砦を占拠中です：n / 72 ターン。…」,
      then 「砦を奪いました：軍勢は砦の守備兵になりました」 and 「結果：遠征の軍勢が州 P,Q の砦を奪いました。…」 (said once as a
-     notice too), or 「結果：州 P,Q の砦は奪えませんでした。…」. The host sees from its tile, so the keep is drawn on the map,
-     and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
+     notice too), or 「結果：州 P,Q の砦は奪えませんでした。…」. The host sees from its tile, so the province is drawn on the map
+     (the wide land draws no keep icon or host figure yet: verify-pr162), and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
      said nothing.)
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
      「封を開く（ローカルプレイ）」). Before #105, at ×60 on a loaded machine, the keeper did miss the window of about 10 s
@@ -690,7 +690,7 @@ At ×60 there are only about 20 s between stopping and deciding, so `scripts/pla
   presses 「隊商を止める（ターン N まで）」 → 「隊商を止めました。…」, then 「奪って運ぶ」 or 「焼き払う」 in the same panel (six turns
   from the turn it stood there). A is told 「預けに向かった鉱石 N は道中で奪われました。」 (or 「…焼き払われました。」) and presses
   「帳簿を確かめる」 (ReconcileLot) to free the room. A taken caravan goes to B's village; B delivers it with the ② card's
-  「奪った隊商」 → 「隊商を届ける」 (the ore goes into B's village). Until it arrives the ② card lists it under 「奪った隊商（あなたの村へ向かっています）」 with 「ターン N に着きます。…」, and the map tag says its arrival turn (fix-loop9 LP9-6: it said 「ターン 0 着」 and nothing showed for ~65 turns). A burned one goes on empty; A delivers it with 「鉱石を届ける」.
+  「奪った隊商」 → 「隊商を届ける」 (the ore goes into B's village). While it is still on its way the ② card lists it under 「奪った隊商（あなたの村へ向かっています）」 with 「ターン N に着きます。…」, and the map tag says its arrival turn (a short road home arrives at once and shows only under 「着いた隊商」: in verify-pr162 it showed there the turn after the take, map tag 「略奪された隊商 ターン 108 着」) (fix-loop9 LP9-6: it said 「ターン 0 着」 and nothing showed for ~65 turns). A burned one goes on empty; A delivers it with 「鉱石を届ける」.
 - **A storehouse seized**: the other player forms a host on the storehouse tile (none of the owner's hosts may stand there),
   taps the tile → ⓘ → 「貯蔵庫を奪う」 (the button can be pressed with an owner's host there, but the program refuses). The keeper is told 「あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。」. With two
   players the captor is the depositor itself: its card says 「あなたが奪った貯蔵庫」 and no loss; 「帳簿を確かめる」 then forfeits
