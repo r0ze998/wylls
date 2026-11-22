@@ -620,7 +620,7 @@ async fn p8_keeper_a_plays_a_legacy_war_on_the_devnet_so_offline() {
 }
 
 /// PGWF (fix-gw-highs; security audit H-1, H-2): the offline attack replay. P8's legacy war on the devnet `.so` with
-/// keeper A at the devnet runbook's `rpc_min_gap_ms = 250` and the gateway behind the herald's `/gw` (as on devnet,
+/// keeper A on its default `feed = "rpc"` pacer (150 ms; the runbook's 250 ms cannot follow this test's clock) and the gateway behind the herald's `/gw` (as on devnet,
 /// `--public-proxy xff`). From the Depart on, `gw_flood.mjs` floods `/gw/f/reveal` with forged reveals and
 /// `/gw/f/nudge` with bell 4294967295 for a grid of provinces, first from ONE client address, then from a fresh one
 /// per request. Keeper A must still anchor, reveal, gather, resolve and settle the march (each step's wall time is
@@ -864,7 +864,7 @@ enum Mode {
     Conquest,
     /// PV0 (herald-v0v1-decode): P3 with the participant's Join as v1 and PlaceHome as v0 through its own table.
     Versioned,
-    /// PGWF (fix-gw-highs): P8 with keeper A at the runbook's 250 ms pacing, the gateway behind the herald's `/gw`,
+    /// PGWF (fix-gw-highs): P8 (keeper A on its default 150 ms pacer), the gateway behind the herald's `/gw`,
     /// and a flood of forged reveals and far-future nudges from one and many addresses ([`rim::war::Flood`]).
     Flood,
 }
@@ -1204,8 +1204,9 @@ async fn playable_season(pt: Ports, mode: Mode) {
         rim = match mode {
             Mode::Setup | Mode::Versioned => String::new(),
             Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
-            // (PGWF: P8's keeper A at the devnet runbook's pacing, `rpc_min_gap_ms = 250`: the budget H-1 drained)
-            Mode::Flood => format!("rim_per_wedge = {}\nrpc_min_gap_ms = 250\n", rim::PER_WEDGE),
+            // (PGWF: P8's keeper A as it is, `feed = "rpc"` with its default 150 ms pacer, the ONE pacer every duty shares;
+            //  the runbook's 250 ms is too slow for this test's ×10–×40 clock even without a flood, fix-gw-highs report)
+            Mode::Flood => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             // (PPROV: the profile's rim and provinces on demand, `provinces_reach` = the preset's outpost_range)
             Mode::Provinces | Mode::Floor(_) => format!(
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
