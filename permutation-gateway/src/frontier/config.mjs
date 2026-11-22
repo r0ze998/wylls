@@ -32,6 +32,9 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   publicHost: '127.0.0.1',
   /** The herald's loopback address: only its requests may carry a trusted X-Forwarded-For. */
   heraldPeer: '127.0.0.1',
+  /** What faces the browsers in front of the herald (fix-gw-highs, audit M-2): 'xff' (a TLS reverse proxy that sets
+   *  X-Forwarded-For to the client's address) or 'none' (the herald itself); null = not said (localnet / --dev only). */
+  publicProxy: null,
   heraldUrl: 'http://127.0.0.1:41040',
   keeperUrl: 'http://127.0.0.1:41050',
   keeperTokenFile: null,
@@ -165,6 +168,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     publicPort: int(pick('public-port', 'FRONTIER_RELAY_PUBLIC_PORT', d.publicPort), '--public-port'),
     publicHost: pick('public-host', 'FRONTIER_RELAY_PUBLIC_HOST', d.publicHost),
     heraldPeer: pick('herald-peer', 'FRONTIER_HERALD_PEER', d.heraldPeer),
+    publicProxy: pick('public-proxy', 'FRONTIER_PUBLIC_PROXY', d.publicProxy),
     heraldUrl: pick('herald', 'FRONTIER_HERALD_URL', d.heraldUrl),
     keeperUrl: pick('keeper', 'FRONTIER_KEEPER_URL', d.keeperUrl),
     keeperTokenFile: pick('keeper-token-file', 'FRONTIER_KEEPER_TOKEN_FILE', d.keeperTokenFile),
@@ -239,6 +243,10 @@ export function checkFrontierConfig(cfg) {
   // I-51: the public listener is reached through the herald's /gw proxy only.
   if (!LOOPBACK.has(cfg.publicHost)) out.push(`--public-host ${cfg.publicHost}: the public listener binds loopback only (the herald proxies it)`);
   if (!LOOPBACK.has(cfg.heraldPeer) && !/^127\./.test(cfg.heraldPeer)) out.push(`--herald-peer ${cfg.heraldPeer} must be a loopback address`);
+  // fix-gw-highs (audit M-2): per-address limits must never switch off silently behind a proxy that adds no
+  // X-Forwarded-For; on a live cluster the operator says what is in front of the herald.
+  if (cfg.publicProxy !== null && cfg.publicProxy !== undefined && !['xff', 'none'].includes(cfg.publicProxy)) out.push(`--public-proxy ${cfg.publicProxy}: 'xff' (a TLS proxy that sets X-Forwarded-For to the client's address) or 'none' (the herald faces the browsers)`);
+  if ((cfg.publicProxy === null || cfg.publicProxy === undefined) && cfg.cluster !== 'localnet' && !cfg.dev) out.push(`--public-proxy is required on cluster ${cfg.cluster}: 'xff' when a TLS proxy in front of the herald sets X-Forwarded-For $remote_addr (DEVNET-DEPLOY-RUNBOOK §8 step 6), 'none' when the herald faces the browsers itself`);
   if (!cfg.dev && cfg.poolSize < 150) out.push(`--pool-size ${cfg.poolSize}: the relay pool has at least 150 keys (--dev for less)`);
   if (cfg.poolSize < 1) out.push('--pool-size must be at least 1');
   if (!cfg.programId) out.push('--program is required');

@@ -801,6 +801,12 @@ frontier-node/target/release/frontier-herald --data herald/ --program <PROGRAM_I
   --listen 127.0.0.1:41040 --web permutation-server/web --relay 127.0.0.1:41033 \
   --public-host <the public host name> [--witness <a second RPC>]
 curl -s http://127.0.0.1:41040/h/season                    # "rulesetHash" → R (64 hex) for the gateway
+#   the TLS proxy in front MUST set the client's address as X-Forwarded-For (fix-gw-highs, audit M-2), e.g.
+#     nginx:  proxy_set_header X-Forwarded-For $remote_addr;      (NOT $http_x_forwarded_for: the client would choose it)
+#     Caddy:  reverse_proxy 127.0.0.1:41040                         (default: sets it, ignores the client's own header)
+#     HAProxy: http-request set-header X-Forwarded-For %[src]       (replace it; the herald reads the LAST entry over all lines, verify-pr166)
+#   check it: two posts with different client-written X-Forwarded-For through the proxy must share one per-address bucket
+#   and should cap header time and connections per client (client_header_timeout 10s; limit_conn), audit M-4
 
 # ── 7. Gateway with the devnet play routes ───────────────────────────────────────────────────────────────────
 FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mjs \
@@ -810,7 +816,8 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
   --keeper http://127.0.0.1:41050 --keeper-token-file keeper-a/keeper.token \
   --pool-size 150 --master-seed-file relay/relay-master.seed \
   --invite-secret-file relay/invite.secret --state-file relay/relay-state.json \
-  --devnet-play --devnet-play-ruleset-hash $R
+  --devnet-play --devnet-play-ruleset-hash $R \
+  --public-proxy xff        # required off localnet without --dev: a herald-forwarded loopback client is then limited, not exempt
 
 # ── 8. The page ──────────────────────────────────────────────────────────────────────────────────────────────
 #   players open https://<the public host name>/frontier/frontier/ (NOT /frontier/ and not the bare name: with step 6's
