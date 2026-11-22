@@ -106,7 +106,7 @@ test('install: a server without outcomes is asked once; one that answers is aske
 test('read only, and nowhere near win, score or prize: what the module reaches and what the page does with it', () => {
   const src = readFileSync(new URL('../../permutation-server/web/frontier/hud/coopoutcomes.mjs', import.meta.url), 'utf8');
   const code = src.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../../lang.mjs', '../../util.mjs', '../fi18n.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../../lang.mjs', '../../sdk/base58.mjs', '../../util.mjs', '../fi18n.mjs', '../people/identity.mjs'], 'the two added 2026-11-22 only name the viewer (a pure tag and base58 decode)');
   assert.deepEqual([...code.matchAll(/`\$\{base\}([^`]+)`/g)].map(m => m[1]), ['/coop/outcomes'], 'it asks for nothing else');
   assert.doesNotMatch(code, /method\s*:|POST|FS\.[A-Za-z_$]+\s*=[^=]|localStorage|sign/, 'no write, no state of the page changed, no signing');
   assert.doesNotMatch(code, /standings|fprize|FS\.(prize|score|standing|win)|winners?\b/i, 'no standing, score or prize is read or written');
@@ -120,4 +120,38 @@ test('read only, and nowhere near win, score or prize: what the module reaches a
     try { s = readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8'); } catch { continue; }
     assert.doesNotMatch(s, /coopoutcomes|coop\/outcomes|coopTitles/, f);
   }
+});
+
+// ⑮ 「依頼に応えた」 (owner decision 2026-11-22 11:56): the title of a delivery to a fulfilled ① request is shown to its
+// holder only (audience 'subject'). The deliverer sees 「あなたが称号「依頼に応えた」を得た」; the requester (and anyone
+// else) does not see that line. The viewer is named as the evaluator names actors: tag:<u64> of their Citizen.
+test('「依頼に応えた」: shown to the deliverer as their own title, not to the requester or anyone else; EN and JA', async () => {
+  const owner = n => { const b = new Uint8Array(32); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return b; };
+  const help = { ...entry('P-board-helper|w|tag:82', 'P-board-helper', 40, { kind: 'actor', id: 'tag:82', nation: 'n2' }, { ja: '依頼に応えた', en: 'Answered a request' }, { ja: 'ほかの国の人の協力の依頼に、自分の隊商で荷を届け、その依頼が依頼量に届いた（数えた量の下限で証明）', en: 'Delivered goods by their own caravan to a co-op request from someone of another nation, and the request reached its amount (proven by the lower bound counted)' }), audience: 'subject' };
+  const b = await T.probeOutcomes({ fetch: answer(200, OUT({ entries: [help, ...OUT().entries] })) });
+  assert.equal(b.read, 'ok');
+  const deliverer = { ...FS(7n, 2), holdings: [{ ownerCitizen: owner(82) }] };
+  const requester = { ...FS(7n, 1), holdings: [{ ownerCitizen: owner(65) }] };
+  assert.equal(T.viewerActor(deliverer), 'tag:82');
+  assert.equal(T.viewerActor(requester), 'tag:65');
+  assert.equal(T.viewerActor(FS()), null, 'no village and no wallet: nobody');
+  setLang('ja');
+  const mine = text(T.render(deliverer, b));
+  assert.match(mine, /ターン 40 あなたが称号「依頼に応えた」を得た 理由：ほかの国の人の協力の依頼に、自分の隊商で荷を届け/);
+  assert.doesNotMatch(mine, /依頼に応えた」を得た （あなたの国）/, 'one\'s own title is not marked as the nation\'s');
+  assert.match(String(T.render(deliverer, b)), /class="chron-turn coop-title-row mine own" data-title="P-board-helper\|w\|tag:82"/);
+  for (const other of [requester, FS(), { ...FS(7n, 2), holdings: [{ ownerCitizen: owner(83) }] }]) {
+    const t = text(T.render(other, b));
+    assert.doesNotMatch(t, /依頼に応えた/, 'not on the requester\'s page, nor a stranger\'s (same nation or not)');
+    assert.match(t, /他国の隊商を襲った者/, 'the public titles are still there');
+  }
+  setLang('en');
+  assert.match(text(T.render(deliverer, b)), /Turn 40 You earned the title “Answered a request” Why: Delivered goods by their own caravan/);
+  assert.doesNotMatch(text(T.render(requester, b)), /Answered a request/);
+  setLang('ja');
+  // a wallet whose Citizen address the pin derives (no village held yet)
+  const viaWallet = { ...FS(7n, 2), wallet: { address: 'W' }, pin: { programId: PROGRAM, addresses: { of: () => '11111111111111111111111111111111' } } };
+  assert.equal(T.viewerActor(viaWallet), 'tag:0');
+  // an audience the page does not know is refused as a whole
+  assert.deepEqual(await T.probeOutcomes({ fetch: answer(200, OUT({ entries: [{ ...help, audience: 'nation' }] })) }), { read: 'unread', code: 'BadOutcomes' });
 });

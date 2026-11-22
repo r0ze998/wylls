@@ -37,9 +37,27 @@ export const WIDE_TRAIN = 'WideTrain';
 export const WIDE_MUSTER = 'WideMuster';
 export const WIDE_DEPART = 'WideDepart';
 export const WIDE_HOST_ACTS = Object.freeze([WIDE_TRAIN, WIDE_MUSTER, WIDE_DEPART]);
+// (devnet-p17, devnet gap P17: the wide village's own Harvest and Build — 0xDA op 3, the same WideEconomy as WideTrain —
+//  carried ONLY by the devnet wallet-paid flow (gateway devnet-play-act.mjs); every local-play relay refuses them, as no
+//  local page sends them)
+export const WIDE_HARVEST = 'WideHarvest';
+export const WIDE_BUILD = 'WideBuild';
+export const WIDE_ECONOMY_ACTS = Object.freeze([WIDE_HARVEST, WIDE_BUILD]);
+/** devnet-p17: the wide village's own acts of the devnet page (never WideDepart: the devnet build keeps its debit closed). */
+export const WIDE_VILLAGE_ACTS = Object.freeze([WIDE_HARVEST, WIDE_BUILD, WIDE_TRAIN, WIDE_MUSTER]);
+/** Every name this module builds. */
+export const WIDE_BUILT_ACTS = Object.freeze([...WIDE_HOST_ACTS, ...WIDE_ECONOMY_ACTS]);
 export const WIDE_TAG = 0xda;
 export const OP_MUSTER = 1, OP_ECONOMY = 3;
-export const TAG_TRAIN = 2;
+export const TAG_HARVEST = 0, TAG_BUILD = 1, TAG_TRAIN = 2;
+/** frontier-abi economy.rs: walls (6) and the tier-up (7) write the province's site mirror (the province writable). */
+export const BUILD_ITEM_WALLS = 6, BUILD_ITEM_TIER_UP = 7;
+/** The Build items the page sends (0-5 the buildings, 6 walls, 7 the tier-up; the workshop 8 is not offered, as the legacy Build). */
+export const WIDE_BUILD_ITEM_MAX = 7;
+/** frontier-abi world_index roster.rs `wide_roster::SIZE`: the side table the FIRST WideMuster of a province creates from the payer. */
+export const WIDE_ROSTER_BYTES = 3248;
+/** permutation-rules host.rs MIN_HOST_TROOPS: the smallest host a muster raises. */
+export const WIDE_MIN_HOST_TROOPS = 100;
 /** The runtime's ceiling: none of the three was measured on the local lane before this change (see the report). */
 export const WIDE_HOST_CU = 1_400_000;
 export const WIDE_HOST_HEAP = 256 * 1024;
@@ -174,7 +192,7 @@ export function prepareWideOutboundPlain({ world, host, origin, directions, arri
  * and for WideDepart also `standing: {p, q}` (where the host stands). Throws a code.
  */
 export function wideHostIntent(name, subject, fields, code = 'LocalActShape') {
-  check(WIDE_HOST_ACTS.includes(name), 'LocalActNotAllowed');
+  check(WIDE_BUILT_ACTS.includes(name), 'LocalActNotAllowed');
   if (name === WIDE_DEPART) {
     check(exactKeys(subject, ['wide', 'standing']), code);
     const wide = wideVillage(subject.wide, code), standing = wideAt(subject.standing, code);
@@ -189,6 +207,15 @@ export function wideHostIntent(name, subject, fields, code = 'LocalActShape') {
   }
   check(exactKeys(subject, ['wide']), code);
   const wide = wideVillage(subject.wide, code);
+  // (devnet-p17: Harvest has no fields; Build names one item, 0-7)
+  if (name === WIDE_HARVEST) {
+    check(exactKeys(fields, []), code);
+    return Object.freeze({ name, subject: Object.freeze({ wide }), fields: Object.freeze({}) });
+  }
+  if (name === WIDE_BUILD) {
+    check(exactKeys(fields, ['item']) && int(fields.item, 0, WIDE_BUILD_ITEM_MAX), code);
+    return Object.freeze({ name, subject: Object.freeze({ wide }), fields: Object.freeze({ item: fields.item }) });
+  }
   if (name === WIDE_TRAIN) {
     check(exactKeys(fields, ['unit', 'n']) && int(fields.unit, 0, 6) && int(fields.n, 1, 0xffffffff), code);
     return Object.freeze({ name, subject: Object.freeze({ wide }), fields: Object.freeze({ unit: fields.unit, n: fields.n }) });
@@ -206,6 +233,15 @@ export function wideHostInstruction(intent, { programId, seasonId, wallet, world
   const k = (pubkey, isWritable, isSigner = false) => ({ pubkey, isSigner, isWritable });
   const head = [k(wallet, false, true), k(wallet, true, true), k(A.season, false), k(citizen, true)];
   const env = (op, n) => { const d = new Uint8Array(4 + n); d[0] = WIDE_TAG; d[1] = 0xff; d[2] = 1; d[3] = op; return d; };
+  // (devnet-p17: the action's six canonical bytes, zero padded; walls and the tier-up name the province writable —
+  //  frontier-abi wide_ix ECONOMY_MIRROR — every other action read-only, as WideTrain)
+  if (intent.name === WIDE_HARVEST || intent.name === WIDE_BUILD) {
+    const d = env(OP_ECONOMY, 6);
+    const item = intent.name === WIDE_BUILD ? intent.fields.item : null;
+    if (item === null) d[4] = TAG_HARVEST; else { d[4] = TAG_BUILD; d[5] = item; }
+    const mirror = item === BUILD_ITEM_WALLS || item === BUILD_ITEM_TIER_UP;
+    return { programId, keys: [...head, k(acc.holding, true), k(acc.province, mirror)], data: d };
+  }
   if (intent.name === WIDE_TRAIN) {
     const d = env(OP_ECONOMY, 6), v = dv(d);
     d[4] = TAG_TRAIN; d[5] = intent.fields.unit; v.setUint32(6, intent.fields.n, true);

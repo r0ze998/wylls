@@ -74,6 +74,11 @@ export const KINDS = Object.freeze({
   'tower.request.taken': ['req', 'actor'],
   'tower.request.fulfilled': ['req', 'actor'],
   'tower.relay.swap': ['actor'],
+  // ①'s board's proof that a co-op request REACHED its requested amount (2026-11-22, owner decision on Q1-⑮):
+  // `req` the request id, `actor` the requester, `need` {resource: amount}, `deliverers` [{actor, counted: {resource:
+  // proven lower bound}}] — only arrivals ① counted (verified, recipient = the requester, sent after answering).
+  // verified 'derived': computed by ①'s board from chain records. It feeds the personal goal P-board-helper only.
+  'request.fulfilled': ['req', 'actor', 'need', 'deliverers'],
   // A boundary a model was asked to mark (⑭'s `period.boundary`): recorded and reported only. It is not an
   // evaluation window and not a war period; it closes, resets and settles nothing.
   'model.boundary': ['index'],
@@ -126,6 +131,10 @@ export const REASONS = Object.freeze({
   model_only: '模型（⑭）の事実だけが根拠。模型の上では条件を満たすが、ゲームの事実として数えない',
   destination_mismatch: '別の場所に着いた。襲撃の記録がないので原因は未確認。量は述べず、誰の責任にもしない',
   taken_not_arrived: '掲示の依頼に応えて送り出しただけ（到着ではない）',
+  self_request: '自分の依頼に自分で届けた（応えたことにならない）',
+  same_nation: '依頼した人と同じ国の人の依頼（国をまたぐ協力ではない）',
+  nation_unverified: '依頼した人か届けた人の国が記録で確かめられない。国をまたぐかどうか決められない',
+  request_short: '届いた量の下限の合計が、依頼量に届いていない',
   no_sighting_source: '目撃の記録の出どころがない（S1 の物見櫓は目撃を記録せず、⑭の塔に目撃の働きはない）',
   achieved: '条件をすべて満たした',
   hold_short: '要塞を持った鐘数が目標に届かない',
@@ -148,6 +157,11 @@ export function shapeProblems(e) {
   for (const f of ['qty', 'taken', 'burned', 'bells', 'cargo']) if (f in e && !isQty(e[f])) return ['malformed'];
   if (e.qtyKind !== undefined && !QTY_KINDS.includes(e.qtyKind)) return ['malformed'];
   if (e.qtyKind === 'zero' && e.qty !== 0) return ['malformed'];
+  if (e.kind === 'request.fulfilled') {
+    const qtyMap = o => o && typeof o === 'object' && !Array.isArray(o) && Object.entries(o).every(([r, q]) => RESOURCES.includes(r) && isQty(q));
+    if (typeof e.req !== 'string' || typeof e.actor !== 'string' || !qtyMap(e.need) || !Array.isArray(e.deliverers) || !e.deliverers.length) return ['malformed'];
+    if (!e.deliverers.every(d => d && typeof d.actor === 'string' && qtyMap(d.counted))) return ['malformed'];
+  }
   if (e.verified === 'model' && !e.kind.startsWith('tower.') && !e.kind.startsWith('model.') && e.kind !== 'position') return ['malformed'];
   return [];
 }

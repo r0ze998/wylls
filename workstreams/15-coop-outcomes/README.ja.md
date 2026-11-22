@@ -36,6 +36,20 @@
 | ① | `coop/board.mjs` の `GET /coop/outcomes` | ヘラルドの `/h/season` と `/h/events`（最初から、読んだ所から続ける）を読み、`evaluateLive` に渡す。読むだけ。チェーンの状態・ABI は変えない |
 | ⑦（画面） | `permutation-server/web/frontier/hud/coopoutcomes.mjs` | 同じ入口の `/coop/outcomes` を読み、「その他」の年代記の下に「称号と記録」の札を出す。効果を名乗る答え・B 以外の答えは出さない。板の無いサーバーでは何も出さない |
 
+**2026-11-22 の持ち主の決定（11:56、Q1-⑮）：「依頼に応えた」の称号。** ①の協力の依頼が依頼量に届いた（①の板が、数えた量の下限で証明した）とき、その依頼に自分の隊商で届け、自分の到着が数えられた人に、個人の称号 P-board-helper「依頼に応えた」を与える。勝敗・得点・賞金には関わらない（称号と年代記だけ）。
+
+| 場所 | すること |
+|---|---|
+| ① `coop/export.mjs` `fulfilmentsForEvaluators` | 板の表示と同じ確かめ（`coopView`：到着時の受取人が依頼した人・応じた後の送信・規則の版）で、status `fulfilled` の依頼だけを、契約「ws01-fulfilled v1」で渡す。届けた人は、数えられた到着（counted が正）のある人だけ。到着ごとに CARAVAN_SETTLED の署名を付ける |
+| ① `coop/board.mjs` `outcomes()` | 上を `evaluateLive({ fulfilled })` に渡す。チェーンを読めない板では空 |
+| ⑮ `src/live.mjs` `fulfilledEvents` | やり直して確かめる：依頼の資源ごとに、届けた人の下限の和が依頼量以上か。到着の署名がヘラルドの `/h/events` の行にあるか（無ければ待つ。称号のターンはその行のターンの最大）。イベント `request.fulfilled`（流れ `ws01-fulfilled`、verified `derived`） |
+| ⑮ `src/goals.mjs` | B 版 4 の P-board-helper（`sources: ['ws01-fulfilled']`）：自分の下限が正・依頼が依頼量に届いた・依頼した人ではない（同じ cluster でもない）・依頼した人と国が違う（記録で確かめた国。分からなければ未判定）。一人一つの評価期間に一つ（報酬枠） |
+| ⑦ `hud/coopoutcomes.mjs` | この称号の行は `audience: 'subject'`：本人のページだけに「あなたが称号「依頼に応えた」を得た」と出す。依頼した人・ほかの人のページには出さない（`/coop/outcomes` の答えそのものは公開。板の結び付けも公開） |
+
+版：B は版 3 → **版 4**（hash `d3bd326d…` → `463e2487…`）。status も `comparison-only` → `production-titles-only`（D-verify-pr31-1 の食い違いを同じ版で直した）。A・C は版 3 のまま、hash も同じ（C は凍結。C の P-board-helper は①を読まない）。版 3 の判定を再生するには、版 3 の rulesets.mjs が要る。
+
+まだ決まっていないこと（持ち主の判断待ち）：別の国にいる自分の別アカウント（印のない sybil）は記録からは見分けられない。依頼量の下限が無いので、木材 1 の依頼でも称号になる（ただし一人一つの評価期間に一つ）。依頼量に届いた後に着いた分（余り）を届けた人にも称号が出る（①の板が数えるので）。
+
 今の記録で判定できるもの：①の目標 `crossing-storehouse-v1`（倉）には B の目標が対応しない（B の共同目標は砦）。対応を決めるのはルールの判断なので、`GOAL_MAP` は空（持ち主の判断待ち）。このため本番で今出る称号は、S1 の隊商の記録だけで判定できる個人目標 P-raider（他国の隊商を襲った）が中心。共同・材料・発起人・利用の称号は、対応と「どの記録で計画が完成したか」の結び付けが決まってから出る。試験（`test/live.test.mjs`）は、評価器の境界の場面（`boundary-crossing`）で共同・個人の称号が出ることも確かめる。
 
 ## 中身
@@ -53,7 +67,7 @@
 | `src/` | 評価器：`contract`（入力）・`ledger`（記録の検査と正準の並び）・`world`（荷・隊商・計画・建物）・`goals`（共同・国・個人）・`evaluate`（判定結果・賞金・選択肢）・`rulesets`（A/B/C）・`live`（本番の接続：案 B だけ、称号と年代記） |
 | `src/adapters/` | `s1-chain`（S1 の記録）、`ws01`（①の依頼の板）、`ws04`（④の Run Receipt）、`ws14`（⑭の塔、任意） |
 | `scenarios/` | 固定入力 16 件、`fixtures/` に①・④・⑭の出力（作り方と出どころの commit つき）。（`build.mjs` で生成、試験で一致を確認）。`long.mjs` は長期の世界を固定の種で作る |
-| `test/` | `node --test` の 153 件（2026-11-18：本番の接続の `live`（10 件）・`live-board`（4 件、①の板の `/coop/outcomes` と画面の読み手）を追加。同日、Node 20 で④の u64 を読む `parse-exact` の 5 件を追加。CI の `coop15` が Node 20 と 22 で実行。①の fold() と ws01-board v1・④の runexec と chain flow・⑭の tower-facts と centre-facts に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`・`live.browser.mjs`（ゲームの画面の称号の札。ヘラルドと Playwright が要る）、長期の確認 `long-run.mjs` |
+| `test/` | `node --test` の 165 件（2026-11-22：「依頼に応えた」の `request-title`（12 件）を追加。2026-11-18：本番の接続の `live`（10 件）・`live-board`（4 件、①の板の `/coop/outcomes` と画面の読み手）を追加。同日、Node 20 で④の u64 を読む `parse-exact` の 5 件を追加。CI の `coop15` が Node 20 と 22 で実行。①の fold() と ws01-board v1・④の runexec と chain flow・⑭の tower-facts と centre-facts に対する契約試験を含む）。もとの 70 件（境界・再開の確認、見直しで見つけた不具合の再現を含む）、画面の確認 `play.browser.mjs`・`live.browser.mjs`（ゲームの画面の称号の札。ヘラルドと Playwright が要る）、長期の確認 `long-run.mjs` |
 | `play/` | 手で遊べる比較の画面 |
 | `bin/` | `eval.mjs`（1件を判定）、`compare.mjs`（全件の比較表） |
 | `results/` | 実行ログ、比較表、画面の画像 |

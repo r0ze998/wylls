@@ -83,3 +83,8 @@ export function devnetIdentityOf(dp, wallet) {
 
 /** (devnet-page-outpost) Whether this devnet play carries the second/third village (the gateway listed FileOutpost). */
 export const devnetOutpostOn = dp => !!dp?.lane?.names?.includes?.('FileOutpost');
+/**
+ * (devnet-p17, devnet gap P17) Whether this devnet play carries a wide village's own acts — WideHarvest, WideBuild,
+ * WideTrain and WideMuster, all four (the gateway listed them; flocalplay-act.mjs devnetLane takes them only together).
+ */
+export const devnetWideVillageOn = dp => ['WideHarvest', 'WideBuild', 'WideTrain', 'WideMuster'].every(n => !!dp?.lane?.names?.includes?.(n));

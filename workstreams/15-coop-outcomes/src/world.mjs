@@ -279,6 +279,16 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
         out(e, true, e.verified === 'model' ? 'model_only' : null);
         break;
       }
+      case 'request.fulfilled': {
+        // ①'s board: a request that reached its amount, with each deliverer's proven lower bound. Kept apart from ⑭'s
+        // model facts (source 'ws01'); judged by P-board-helper only when the ruleset's goal reads that source.
+        const who = id => { const a = W.actors.get(id); return { actor: id, nation: a?.nation ?? null, cluster: a?.cluster ?? id }; };
+        W.board.push({ req: `ws01:${e.req}`, source: 'ws01', posted: null, taken: [], requester: who(e.actor), need: { ...e.need },
+          deliverers: e.deliverers.map(d => ({ ...who(d.actor), counted: { ...d.counted } })),
+          fulfilled: { id: e.id, at: e.at, verified: e.verified, tainted: tainted(taint, e) } });
+        out(e, true);
+        break;
+      }
       case 'tower.relay.swap': {
         W.towerInput = true;
         W.relaySwaps.push({ id: e.id, at: e.at, actor: e.actor, cross: e.cross ?? null, verified: e.verified });
