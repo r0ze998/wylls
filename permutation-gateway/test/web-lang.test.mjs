@@ -36,6 +36,8 @@ test('en-a11y-sweep: a count of one reads as one (the play screen showed "held 1
   // (⑨⑩: 枠 is space for ore, not a "room"; 砦 is a keep — a fort is another structure)
   for (const k of ['預かりの枠を開く', '枠を閉じる', '鉱石の枠', '預かりの枠を開きました', '預かりの枠を閉じました', '鉱石 {0} / 枠 {1}', '{0} / 枠 {1}']) assert.doesNotMatch(String(EN[k]), /\broom\b/i, k);
   assert.match(EN['二人の対戦の国と砦を確認'], /keep/);
+  // (verify-pr168: the answers to that key say keep too — they said "the fort of Province …" under a key that said keep)
+  for (const [k, v] of Object.entries(EN)) if (k.startsWith('二人用の') && k.includes('砦')) assert.doesNotMatch(String(v), /\bfort\b/, k);
   // (the boundary card names its button as the button reads)
   assert.ok(EN['地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。'].includes(EN['地形・時間を確認']));
 });
