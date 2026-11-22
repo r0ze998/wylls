@@ -72,16 +72,17 @@ feed, province envelopes, overview/roster binaries (whole-map reads: scraping co
 
 The global bucket is spent only by a caller that passed authentication (a key, or an allowed anonymous caller): a
 flood of requests without a valid key gets 401 and cannot starve key holders (verify-pr114; before, the bucket was
-charged first). **A flood by one valid key can** (security audit 2026-11-22, M-5, D-security-audit-4): on main the
-global bucket is charged before the caller's own (`public-mcp.mjs` `handler`), so every request of a key that is
-already over its own rate still takes one global token, and one key can empty the bucket for every other key
-(`429`, `reason: "global"`). After #164 the caller's bucket is charged first and a request it refuses takes no global
-token. Buckets and daily quotas live in memory: a restart of the server starts every key's day again.
+charged first). Nor can a flood by one valid key (security audit 2026-11-22, M-5, D-security-audit-4; fixed by #164):
+the caller's own bucket is charged before the global one (`public-mcp.mjs` `handler`), and a request it refuses
+takes no global token, so one key spends at most its own rate (default 1 a second after a burst of 30) of the global
+bucket. Before #164 the order was the other way round and one key over its rate could empty the global bucket for
+every other key (`429`, `reason: "global"`). Many anonymous addresses together, if anonymous access is on, can still
+empty it. Buckets and daily quotas live in memory: a restart of the server starts every key's day again.
 
 A refused call answers HTTP 429 with `retry-after` and `error.data.reason` (`rate`, `quota`, `global`). It is not
 always free (D-security-audit-4; the checks run in the order of `public-mcp.mjs`'s header): a call refused by the
-global bucket spends nothing; a call refused by the caller's bucket has spent one global token (on main; none after
-#164); a tool call refused by the daily quota has spent its global token and its bucket units — 1, or 2 for a
+caller's bucket spends nothing; a call refused by the global bucket has spent one unit of the caller's bucket; a
+tool call refused by the daily quota has spent its global token and its bucket units — 1, or 2 for a
 cost-2 tool, whose extra unit is taken before the quota is asked (`charge`) — and no quota units. Keys and
 anonymous addresses share one daily-quota table of 10,000 entries (least-recently-used forgotten), so a spray of
 anonymous addresses, if anonymous access is on, can push a key's count out and start its day again (audit L-10).

@@ -894,10 +894,13 @@ Notes on what is **not** tested as written:
   ring; a sealed march arrives 2–72 bells after its Depart; a keep falls after 72 held bells (12 h); the season
   ends at bell 1,008 (7 days).
 
-### 8a. Public endpoint checklist (security audit 2026-11-22; read from the code on `origin/main` 9d991f9b)
+### 8a. Public endpoint checklist (security audit 2026-11-22; read from the code on `origin/main` a193b633, i.e. with #164's fixes)
 
-Nothing here has been run: no TLS proxy is configured anywhere yet, and no test has one in front of the herald. Each
-line names the code it was read from. The `nginx` words are examples of the setting meant, not a tested file.
+No TLS proxy is configured anywhere yet, and no test has one in front of the herald: the proxy settings below have
+not been run. Each line names the code it was read from. The `nginx` words are examples of the setting meant, not a
+tested file. What the herald itself does (the redirects, the two pages, `HostNotAllowed` / `OriginNotAllowed`, the
+headers, no header-read timeout, the 64 KiB and 2 MiB body limits) was re-checked against a running herald on
+loopback (verify-pr165).
 
 **The one public address.** TLS port 443 on the proxy (80 only to redirect to https) → the herald on
 `127.0.0.1:41040`. Proxy these paths and nothing else: `/frontier/*` (the page), `/h/*` (reads; `WS /h/ws`),
@@ -932,10 +935,13 @@ exactly `/frontier/` with a redirect to `/frontier/frontier/` (a proxy rule; the
   second. The limit is counted before the route reads the body (`app.mjs` `handle`; 10 at once, then 1 a second,
   `FRONTIER_IP_LIMITS`): the first 10 get the route's own refusal, the rest must be `429`. If none is `429`, the
   header is wrong.
-- After #164 / fix-gw-highs (neither is on main today): #164 caps `WS /h/ws` at 64 sockets per client address (the
-  same `client_ip`), and fix-gw-highs makes the gateway refuse to start off localnet without `--public-proxy
-  xff|none` and, with it, limits a herald-forwarded loopback address instead of exempting it. The header rule above
-  stays the same.
+- The herald's own cap of 64 `WS /h/ws` sockets per client address (#164: `server.rs` `WS_PER_CLIENT`, `429
+  TooManySocketsFromClient`) uses the same `client_ip`: without the header every visitor is `127.0.0.1` and all of
+  them share one allowance of 64.
+- **After fix-gw-highs (a draft branch, NOT on main; nothing in this bullet exists today):** as drafted, the gateway
+  refuses to start off localnet without `--public-proxy xff|none` and, with it, limits a herald-forwarded loopback
+  address instead of exempting it. Until it is merged the gateway has no such setting and the "No header at all"
+  bullet above is what happens. The header rule above stays the same.
 
 **`Host`, `Origin`, CORS.**
 
@@ -964,9 +970,9 @@ holds an API key: it stays in the service command lines on the host and is never
 - A `/gw/*` answer may take up to 90 s (`server.rs` `GW_TIMEOUT`; connect 5 s): set the proxy's read timeout for
   `/gw/` above that (nginx `proxy_read_timeout 95s;`; its 60 s default would cut a slow answer the herald is still
   waiting for).
-- `/h/*` is public and has no rate limit in the herald: limit it per address at the proxy (`limit_req`). On main one
-  client can hold every one of the 8,192 `WS /h/ws` places (`ws.rs` `max_sockets`; audit M-3), so limit connections
-  per address at the proxy too (#164 adds the herald's own cap of 64).
+- `/h/*` is public and has no rate limit in the herald: limit it per address at the proxy (`limit_req`). `WS /h/ws`
+  has 8,192 places in all (`ws.rs` `max_sockets`) and, since #164, at most 64 per client address (audit M-3); 128
+  addresses can still fill it, so limit connections per address at the proxy too.
 
 **Body size.** Every public request with a body is a `/gw/*` POST of at most 64 KiB (`server.rs` `GW_MAX_BODY`;
 the gateway's own `FRONTIER_MAX_BODY_BYTES` is the same). The herald checks that only after axum has buffered the
@@ -978,7 +984,7 @@ body, up to axum's 2 MiB default (audit L-11). Set `client_max_body_size 64k;` a
 |---|---|---|
 | 41040 | herald | **nothing**: `--listen` takes any address (only the port range is checked, `herald/src/main.rs`). Keep `--listen 127.0.0.1:41040` |
 | 41050 | keeper A's API (`/v1/*`, bearer token) | refuses a non-loopback `api` (`keeper/src/config.rs`, `api.rs` `serve_full`) |
-| 41030 | gateway, operator listener (operator token) | always binds `127.0.0.1` (`gateway/src/frontier/server.mjs`) |
+| 41030 | gateway, operator listener (operator token) | always binds `127.0.0.1` (`permutation-gateway/src/frontier/server.mjs`) |
 | 41033 | gateway, public listener | refuses a non-loopback `--public-host` (`config.mjs` `checkFrontierConfig`); reached only through the herald's `/gw` |
 | — | ③ MCP servers | not started by anything; loopback only. The public one is default OFF and r0ze's decision (`workstreams/03-composability/mcp/PUBLIC-EXPOSURE.md` §7, §9); the owner one is never public |
 | 419xx and others | local-play services (launcher, runner RPC with time control, local relay, world proxy, `--external` MCP) | TEST only: never start `scripts/play-local.sh` or a `frontier-localnet` on the public host |
