@@ -80,6 +80,104 @@ pub struct Outage {
     pub drand_port: u16,
 }
 
+/// PGWF (fix-gw-highs): the `/gw` flood run beside the war, from the Depart to the end of [`keeper_war`]
+/// (`gw_flood.mjs`; `off`: its sampler only, the baseline). Its report goes to `out/pgwf-{flood,baseline}.json`.
+#[derive(Clone)]
+pub struct Flood {
+    pub herald: u16,
+    pub keeper_api: u16,
+    pub gw_op: u16,
+    pub script: std::path::PathBuf,
+    pub out: std::path::PathBuf,
+    pub off: bool,
+}
+
+/// The owner's genuine reveal material of the war's march (PGWF posts it through `/gw/f/reveal` mid-flood).
+static FLOOD_MATERIAL: std::sync::Mutex<Option<Value>> = std::sync::Mutex::new(None);
+
+/// A running flood: SIGTERM on drop (the script writes its report), then killed.
+pub struct FloodRun(std::process::Child);
+
+impl Flood {
+    fn start(&self, token: &str) -> FloodRun {
+        let out = self.out.join(if self.off {
+            "pgwf-baseline.json"
+        } else {
+            "pgwf-flood.json"
+        });
+        let mut cmd = std::process::Command::new("node");
+        cmd.arg(&self.script).args([
+            "--herald",
+            &self.herald.to_string(),
+            "--keeper",
+            &self.keeper_api.to_string(),
+            "--token",
+            token,
+            "--gw-op",
+            &self.gw_op.to_string(),
+            "--op-token",
+            "test-token-operator-playable-gateway",
+            "--out",
+            out.to_str().unwrap(),
+        ]);
+        if self.off {
+            cmd.arg("--off");
+        }
+        let child = cmd
+            .stdout(std::process::Stdio::null())
+            .stderr(std::fs::File::create(self.out.join("pgwf-flood.err.log")).unwrap())
+            .spawn()
+            .expect("node (gw_flood.mjs)");
+        eprintln!(
+            "pgwf: flood {} → {}",
+            if self.off { "OFF (sampler only)" } else { "ON" },
+            out.display()
+        );
+        FloodRun(child)
+    }
+}
+
+impl Drop for FloodRun {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &self.0.id().to_string()])
+            .status();
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_secs(10) {
+            if self.0.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// POST `body` to the herald's `path` from client address `xff` (raw HTTP/1.1, loopback): `(status, JSON body)`.
+fn post_gw(port: u16, path: &str, body: &Value, xff: &str) -> (u16, Value) {
+    use std::io::{Read, Write};
+    let Ok(mut c) = std::net::TcpStream::connect(("127.0.0.1", port)) else {
+        return (0, Value::Null);
+    };
+    let _ = c.set_read_timeout(Some(Duration::from_secs(30)));
+    let b = body.to_string();
+    let _ = write!(
+        c,
+        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nX-Forwarded-For: {xff}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+        b.len()
+    );
+    let mut out = vec![];
+    let _ = c.read_to_end(&mut out);
+    let text = String::from_utf8_lossy(&out).to_string();
+    let code = text.get(9..12).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
+    (
+        code,
+        serde_json::from_str(body).unwrap_or(Value::String(body.into())),
+    )
+}
+
 /// `(T(21), its real signature)`: the S-TLOCK q4 vector's previous round (as `verify/tests/playable_march.rs`).
 pub fn arrive_round() -> (u64, [u8; 48]) {
     let p = fclient::seal::fixture_dir().join("q4-vector.json");
@@ -585,6 +683,20 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
         &[&player],
         "participant",
     );
+    // (PGWF: the flood from the Depart on, and the owner's material for the mid-flood reveal through `/gw`)
+    let flood =
+        r.c.war
+            .as_ref()
+            .and_then(|w| w.flood.clone().map(|f| (f, w.token.clone())));
+    let flood_run = flood.as_ref().map(|(f, tok)| f.start(tok));
+    if flood.is_some() {
+        use base64::Engine as _;
+        let b = base64::engine::general_purpose::STANDARD;
+        *FLOOD_MATERIAL.lock().unwrap() = Some(json!({
+            "holding": holding.to_string(), "transit_slot": 0,
+            "plain_b64": b.encode(plain), "salt_b64": b.encode(sealed.salt), "ct_hash_b64": b.encode(sealed.ct_hash),
+        }));
+    }
     let war = keeper_war(
         r,
         &mut beacon,
@@ -601,6 +713,7 @@ pub(super) async fn flow(r: &mut Run<'_>, plan: &[(i32, i32)], extra: Value) -> 
         },
     )
     .await;
+    drop(flood_run);
     let participant_txs = r.rows.clone();
     // (verify-pr118) the verifier judges the whole season: no FAIL
     let verifier = r.judge_season("p8");
@@ -710,6 +823,27 @@ pub(super) async fn keeper_war(
     };
     let keep0 = keep_of(r);
     let reserve0 = Holding::decode(&r.data(&holding).unwrap()).unwrap().reserve[0];
+    // (PGWF: each step's wall time, written as it goes so that a starved run still leaves its numbers)
+    let flood_dir =
+        r.c.war
+            .as_ref()
+            .and_then(|w| w.flood.as_ref())
+            .map(|f| (f.out.clone(), f.off));
+    let mut steps: Vec<Value> = vec![];
+    let mut t_step = Instant::now();
+    let mut step = |name: &str, r: &Run<'_>, extra: Value| {
+        steps.push(json!({"step": name, "secs": t_step.elapsed().as_secs_f64(), "bell": r.bell(), "extra": extra}));
+        t_step = Instant::now();
+        if let Some((d, off)) = &flood_dir {
+            let f = d.join(if *off {
+                "pgwf-baseline-steps.json"
+            } else {
+                "pgwf-flood-steps.json"
+            });
+            let _ = std::fs::write(f, serde_json::to_string_pretty(&steps).unwrap());
+        }
+        steps.clone()
+    };
     // the arrival bell's REAL anchor (keeper A's beacon role, from the round drand-replay serves at T(21)'s time)
     let anchor = adr(ctx.bell_anchor(ARRIVE_BELL, dest_region));
     drive(
@@ -721,6 +855,29 @@ pub(super) async fn keeper_war(
         |r| r.data(&anchor).is_some(),
     )
     .await;
+    step("anchor", r, Value::Null);
+    // (PGWF: the owner's genuine material through `/gw/f/reveal` mid-flood, as the page's backup self-reveal: asked
+    //  again 5 s apart, ten times at most, as long as the keeper answers "unreached" (5xx))
+    let mut legit: Vec<Value> = vec![];
+    let mut legit_track: Option<String> = None;
+    if let (Some(m), Some(w)) = (FLOOD_MATERIAL.lock().unwrap().clone(), r.c.war.as_ref()) {
+        if let Some(f) = &w.flood {
+            for _ in 0..10 {
+                let t = Instant::now();
+                let (c, v) = post_gw(f.herald, "/gw/f/reveal", &m, "192.0.2.77");
+                legit.push(json!({"status": c, "body": v, "ms": t.elapsed().as_millis() as u64}));
+                if c == 202 {
+                    legit_track = v["track"].as_str().map(String::from);
+                    break;
+                }
+                if c != 0 && c < 500 {
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(5));
+            }
+        }
+    }
+    step("legit-reveal-posted", r, json!(legit));
     let ad = r.data(&anchor).unwrap();
     let anchor_round = u64::from_le_bytes(ad[BA::ROUND..BA::ROUND + 8].try_into().unwrap());
     assert_eq!(
@@ -738,6 +895,7 @@ pub(super) async fn keeper_war(
         |r| r.data(&slot).is_some(),
     )
     .await;
+    step("reveal", r, Value::Null);
     drive(
         r,
         beacon,
@@ -750,6 +908,7 @@ pub(super) async fn keeper_war(
         },
     )
     .await;
+    step("resolve", r, Value::Null);
     let after_arrival = keep_of(r);
     let settled = |r: &Run<'_>| {
         Holding::decode(&r.data(&holding).unwrap()).is_ok_and(|h| h.transit[0].state == 0)
@@ -763,6 +922,17 @@ pub(super) async fn keeper_war(
         |r| settled(r),
     )
     .await;
+    // (PGWF: the mid-flood reveal's track as keeper A tells it)
+    let legit_track_state = legit_track.as_ref().and_then(|id| {
+        r.c.war
+            .as_ref()
+            .and_then(|w| keeper_get(w.keeper_api, &w.token, &format!("/v1/track/{id}")))
+    });
+    step(
+        "settle-transit",
+        r,
+        json!({"legit_track": legit_track, "state": legit_track_state}),
+    );
     // (PFOG: A's host stands on the keep now — what each player's page shows of it)
     if let Some(o) = observers {
         o.host(host);
@@ -811,6 +981,11 @@ pub(super) async fn keeper_war(
         },
     )
     .await;
+    let steps = step(
+        "keep-bells",
+        r,
+        json!({"taken": taken, "returned": returned}),
+    );
     r.lock().set_paused(true);
     let rows = r.feed_rows(
         since,
@@ -853,7 +1028,7 @@ pub(super) async fn keeper_war(
             .and_then(|w| keeper_status(w.keeper_api, &w.token))
             .map(|s| s["play"].clone())
             .unwrap_or(Value::Null);
-    json!({"keeper_lag": lag.report(), "hold": {"after_bells": hold.after_bells, "scale": hold.scale},
+    json!({"steps": steps, "legit_reveal": legit, "keeper_lag": lag.report(), "hold": {"after_bells": hold.after_bells, "scale": hold.scale},
         "keeper_play_status": play_status, "arrival_anchor_round": anchor_round, "keep_before": format!("{keep0:?}"), "keep_after_arrival": format!("{after_arrival:?}"),
         "keep_final": format!("{:?}", keep_of(r)), "taken": taken, "returned": returned, "keeper_txs": rows,
         "counts": {"settle_departure": landed(T::SETTLE_DEPARTURE), "reveal": landed(T::REVEAL), "gather": landed(T::GATHER_CLASH),
