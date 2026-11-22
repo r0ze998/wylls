@@ -67,6 +67,10 @@ pub struct Findex {
     /// A failed archive or index write leaves the in-memory archive state
     /// unsuitable for another append. Reopen from the durable manifest.
     poisoned: bool,
+    /// verifier-alt-archive: the lookup tables this store snapshotted since
+    /// it was opened (a reopened store takes a table's snapshot again at its
+    /// next use: a later read, which VT checks like any other).
+    tables_seen: std::collections::HashSet<Address>,
 }
 
 impl Findex {
@@ -131,6 +135,7 @@ impl Findex {
             archive,
             index,
             poisoned: false,
+            tables_seen: Default::default(),
         })
     }
 
@@ -180,9 +185,42 @@ impl Findex {
             self.index.mark_incomplete().map_err(IngestError::Store)?;
             return Err(IngestError::Store("index is behind the archive; reopen and resolve the unreadable records before continuing".into()));
         }
+        let before = src.cursor();
         let got = src.pull().await.map_err(IngestError::Port)?;
         if got.is_empty() {
             return Ok(vec![]);
+        }
+        // verifier-alt-archive (F2): each lookup table's first use is
+        // archived with a snapshot of the table (read now, before the
+        // archive), so the verifier can check the record's
+        // `loadedAddresses` after the table is closed. A failed read archives
+        // nothing: the cursor goes back and the next pull retries.
+        let wants = ingest::first_table_uses(&got, &self.tables_seen);
+        let mut tables: Vec<Option<serde_json::Value>> = vec![];
+        let mut taken: Vec<Address> = vec![];
+        if !wants.is_empty() {
+            taken = wants.iter().map(|(t, _, _)| *t).collect();
+            match src.lookup_snapshots(wants).await {
+                Err(e) => {
+                    src.restore(&before);
+                    return Err(IngestError::Port(e));
+                }
+                Ok(None) => {}
+                Ok(Some(snaps)) => {
+                    tables = vec![None; got.len()];
+                    for s in snaps {
+                        let i = s
+                            .used_by
+                            .and_then(|(sig, _)| got.iter().position(|r| r.signature == sig));
+                        if let Some(i) = i {
+                            let slot = tables[i].get_or_insert_with(|| serde_json::json!([]));
+                            if let Some(a) = slot.as_array_mut() {
+                                a.push(s.to_json());
+                            }
+                        }
+                    }
+                }
+            }
         }
         // The archive first (the source a reopen catches the index up
         // from), then the index: its rows, `last_seq` and the complete mark
@@ -198,15 +236,14 @@ impl Findex {
         // which open() (it marks the coverage blocked while catching up)
         // and the check at the top of ingest() see. Every store write stops
         // this ingester on failure (reopen required).
-        let stored = if src.ledger_seq() {
-            self.archive.append_feed(&got, src.cursor())
-        } else {
-            self.archive.append(&got, src.cursor())
-        }
-        .map_err(|e| {
-            self.poisoned = true;
-            IngestError::Store(e.to_string())
-        })?;
+        let stored = self
+            .archive
+            .append_with_tables(&got, &tables, src.cursor(), src.ledger_seq())
+            .map_err(|e| {
+                self.poisoned = true;
+                IngestError::Store(e.to_string())
+            })?;
+        self.tables_seen.extend(taken);
         let through = self.archive.last_seq();
         self.index.add_complete(&stored, through).map_err(|e| {
             self.poisoned = true;

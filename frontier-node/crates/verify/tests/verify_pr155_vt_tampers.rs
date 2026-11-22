@@ -300,9 +300,20 @@ fn table_state_tampers_never_pass() {
                 .data
                 .truncate(verify_core::vmsg::TABLE_META + 32);
         }
-        never_pass(
+        let r = never_pass(
             &format!("{shape}: tables read at slot 1 (1 address each)"),
             &i,
+        );
+        // verifier-alt-archive F3: read before the transactions, the index
+        // is honestly past the end then: UNVERIFIABLE LookupTableStale (was
+        // FAIL LookupMismatch), never PASS.
+        assert_eq!(r.verdict, Verdict::Unverifiable, "{:#?}", show(&r));
+        assert!(
+            r.findings
+                .iter()
+                .any(|f| f.check == "VT" && f.code == verify_core::codes::LOOKUP_TABLE_STALE),
+            "{:#?}",
+            show(&r)
         );
     }
 }

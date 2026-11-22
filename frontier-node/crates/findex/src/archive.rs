@@ -376,7 +376,24 @@ impl Archive {
     /// the frames of one segment are written through one handle and synced
     /// once, before the segment is sealed or a manifest names them.
     pub fn append(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
-        self.append_inner(recs, cursor, false)
+        self.append_inner(recs, &[], cursor, false)
+    }
+
+    /// [`Archive::append`] / [`Archive::append_feed`] (`feed`) where record
+    /// `i`'s frame also carries `tables[i]` as `"tables"` when it is `Some`
+    /// (verifier-alt-archive: the lookup table snapshots taken for the
+    /// first record that uses each table, [`Archive::lookup_snapshots`]).
+    /// In the record's own frame, so the frame check and the sealed
+    /// segment's sha256 cover it and it is durable exactly with its record.
+    /// Records without one are byte-identical to [`Archive::append`]'s.
+    pub fn append_with_tables(
+        &mut self,
+        recs: &[TxRecord],
+        tables: &[Option<Value>],
+        cursor: Value,
+        feed: bool,
+    ) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, tables, cursor, feed)
     }
 
     /// [`Archive::append`] for an ordered feed whose `seq` is the node's
@@ -384,12 +401,13 @@ impl Archive {
     /// `feed_seq` ([`Archive::for_each_after_feed`]), since the archive
     /// renumbers `seq` with its own sequence.
     pub fn append_feed(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
-        self.append_inner(recs, cursor, true)
+        self.append_inner(recs, &[], cursor, true)
     }
 
     fn append_inner(
         &mut self,
         recs: &[TxRecord],
+        tables: &[Option<Value>],
         cursor: Value,
         keep_feed_seq: bool,
     ) -> io::Result<Vec<TxRecord>> {
@@ -405,6 +423,9 @@ impl Archive {
             let mut v = record_to_json(&r);
             if keep_feed_seq {
                 v["feed_seq"] = json!(feed_seq);
+            }
+            if let Some(Some(t)) = tables.get(i) {
+                v["tables"] = t.clone();
             }
             let raw = serde_json::to_vec(&v).map_err(io_err)?;
             if self.codec != Codec::Plain && raw.len() > self.frame_max {
@@ -553,6 +574,41 @@ impl Archive {
         after: u64,
         mut f: impl FnMut(TxRecord, Option<u64>) -> io::Result<()>,
     ) -> io::Result<u64> {
+        self.for_each_payload_after(after, |r, v| {
+            f(r, v.get("feed_seq").and_then(|x| x.as_u64()))
+        })
+    }
+
+    /// Every lookup table snapshot the archive holds (`"tables"` of a
+    /// record's frame, [`Archive::append_with_tables`]), in archive order,
+    /// each with the `seq` of the record it was archived with. A `tables`
+    /// value that does not read is an error (never silently dropped).
+    pub fn lookup_snapshots(&self) -> io::Result<Vec<(u64, fclient::alt::Snapshot)>> {
+        let mut out = vec![];
+        self.for_each_payload_after(0, |r, v| {
+            if let Some(t) = v.get("tables").filter(|t| !t.is_null()) {
+                let list = t
+                    .as_array()
+                    .ok_or_else(|| io_err(format!("seq {}: tables is not a list", r.seq)))?;
+                for s in list {
+                    out.push((
+                        r.seq,
+                        fclient::alt::Snapshot::from_json(s)
+                            .map_err(|e| io_err(format!("seq {}: {e}", r.seq)))?,
+                    ));
+                }
+            }
+            Ok(())
+        })?;
+        Ok(out)
+    }
+
+    /// [`Archive::for_each_after`] with each record's whole frame payload.
+    pub fn for_each_payload_after(
+        &self,
+        after: u64,
+        mut f: impl FnMut(TxRecord, &Value) -> io::Result<()>,
+    ) -> io::Result<u64> {
         let mut n = 0;
         for s in &self.manifest.segments {
             if s.records == 0 || s.last_seq <= after {
@@ -582,7 +638,7 @@ impl Archive {
                     )));
                 }
                 if r.seq > after {
-                    f(r, v.get("feed_seq").and_then(|x| x.as_u64()))?;
+                    f(r, &v)?;
                     n += 1;
                 }
             }

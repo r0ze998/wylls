@@ -118,7 +118,7 @@ pub struct FeedScan {
 }
 
 /// One transaction of the program, failed ones included, in slot order.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TxRecord {
     /// Feed sequence (1, 2, …).
     pub seq: u64,
