@@ -254,3 +254,83 @@ test('LR16 the client\'s arguments: loopback only, an absolute state directory, 
   assert.throws(() => parseArgs(['--launcher', 'http://localhost:41550', '--key', 'k', '--dir', '/tmp/x', '--goal', 'conquer']), /goal/);
   assert.throws(() => parseArgs(['--launcher', 'http://localhost:41550', '--key', 'k', '--dir', '/tmp/x', '--mcp', 'http://10.0.0.1:1/mcp']), /loopback/);
 });
+
+// ------------------------------------------------------------------ external-wide: a local wide-land world
+import { WIDE_HOME_ORDER, TICKET_WAIT_BELLS } from '../resident/local/brain.mjs';
+import { publicWideHomes } from '../../03-composability/mcp/examples/external-resident/public.mjs';
+import { homeNation } from '../../../permutation-server/web/frontier/fgeo.mjs';
+
+test('LW1 in a wide world a rim first village is the page\'s one-site request (FileTicket); a heartland one stays PlaceHome; never a wide order', () => {
+  const homes = [{ p: 68, q: 60, site: 1, ticket: true }, { p: 2, q: 1, site: 0, ticket: false }];
+  const c = localCandidates({ bell: 5, nowSecs: NOW, joined: true, faction: 3, holding: null, homes, wide: true }, mem());
+  assert.equal(localRule(c).choice, 'home:68,60,1');
+  assert.deepEqual(c.candidates.map(x => x.order.name), [WIDE_HOME_ORDER, 'PlaceHome']);
+  assert.deepEqual(c.candidates[0].order.fields, { sites: [{ p: 68, q: 60, site: 1 }] });
+  assert.deepEqual(c.candidates[0].order.v, { sites: [{ p: 68, q: 60, site: 1 }] });
+  assert.equal(WIDE_HOME_ORDER, LOCAL_ACT_NAMES[6], 'the page\'s seventh local order');
+  for (const x of c.candidates) assert.ok(LOCAL_ACT_NAMES.includes(x.order.name));
+  // (a `ticket` mark outside a wide world changes nothing: PlaceHome as before)
+  const plain = localCandidates({ bell: 5, nowSecs: NOW, joined: true, faction: 3, holding: null, homes }, mem());
+  assert.deepEqual(plain.candidates.map(x => x.order.name), ['PlaceHome', 'PlaceHome']);
+  // (with a village, in a wide world: the same six orders as anywhere — no wide claim, no wide host act)
+  for (const x of localCandidates(obsOf(village({ reserve: 300 }), { wide: true }), mem()).candidates) assert.ok(LOCAL_ORDERS.includes(x.order.name), x.order.name);
+});
+
+test('LW2 a landed rim request is waited for (no second request), its site never asked again; a refusal holds FileTicket only', () => {
+  const homes = [{ p: 68, q: 60, site: 1, ticket: true }, { p: 68, q: 60, site: 2, ticket: true }];
+  const m = mem();
+  const c = localCandidates({ bell: 5, nowSecs: NOW, joined: true, faction: 3, holding: null, homes, wide: true }, m);
+  noteOutcome(m, c.candidates[0], 'landed', { bell: 5 });
+  assert.deepEqual(m.ticket, { bell: 5, site: '68,60,1' });
+  assert.deepEqual(m.triedHomes, ['68,60,1']);
+  const w = localCandidates({ bell: 6, nowSecs: NOW, joined: true, faction: 3, holding: null, homes, wide: true }, m);
+  assert.equal(localRule(w).choice, 'wait');
+  assert.match(w.candidates[0].held.join(' '), /village request for 68,60,1 \(turn 5\) waits/);
+  // (past the wait, with no village: the next untried site)
+  const later = localCandidates({ bell: 5 + TICKET_WAIT_BELLS, nowSecs: NOW, joined: true, faction: 3, holding: null, homes, wide: true }, m);
+  assert.equal(localRule(later).choice, 'home:68,60,2');
+  // (a refused request: that site tried, FileTicket held by the doubling rule, PlaceHome not)
+  const r = mem();
+  const c2 = localCandidates({ bell: 5, nowSecs: NOW, joined: true, faction: 3, holding: null, homes: [...homes, { p: 2, q: 1, site: 0, ticket: false }], wide: true }, r);
+  noteOutcome(r, c2.candidates[0], 'failed', { bell: 5, code: 'Custom(9)' });
+  assert.deepEqual(r.triedHomes, ['68,60,1']);
+  assert.ok(r.failures.FileTicket && !r.failures.PlaceHome);
+  const c3 = localCandidates({ bell: 6, nowSecs: NOW, joined: true, faction: 3, holding: null, homes: [...homes, { p: 2, q: 1, site: 0, ticket: false }], wide: true }, r);
+  assert.equal(localRule(c3).choice, 'home:2,1,0');
+  // (a new world forgets the request)
+  enterWorld(m, 'other'); assert.equal(m.ticket, null);
+});
+
+test('LW3 the observer of a wide world reads the outward candidates once per turn (public reads only)', async () => {
+  const calls = [];
+  const herald = { season: async () => ({ ok: true, season: { genesisTs: NOW - 600, programVersion: 1, seasonId: 11 } }), me: async () => ({ ok: true, citizen: { faction: 3 }, holdings: [] }), pin() {} };
+  let t = NOW;
+  const obs = createObserver({ base: 'http://127.0.0.1:41551', wallet: 'MINE', wide: true, deps: { herald, getJson: async () => ({ live: [0, t] }),
+    publicHomes: async () => { calls.push('heartland'); return []; },
+    publicWideHomes: async (b, f, o) => { calls.push(`wide:${f}:${o.seed}:${o.nowBell}`); return [{ p: 68, q: 60, site: 1, ticket: true }]; } } });
+  const a = await obs(); const b = await obs();
+  assert.equal(a.wide, true); assert.deepEqual(a.homes, [{ p: 68, q: 60, site: 1, ticket: true }]); assert.deepEqual(b.homes, a.homes);
+  t += 600; await obs();
+  assert.deepEqual(calls, ['wide:3:MINE:1', 'wide:3:MINE:2']);
+});
+
+test('LW4 publicWideHomes = the page\'s planHomes of a wide local page: outward, settled rim provinces of my nation, read from the outermost ring in', async () => {
+  const seed = new Uint8Array(32);
+  const place = { placement: 2, heartlandMaxRing: 3, genesisSeed: seed };
+  const faction = homeNation(68, 60, place);
+  const reads = [];
+  const prov = { p: 68, q: 60, siteCount: 3, sites: [1, 2, 3], siteMirror: [{ state: 1, gen: 0 }, { state: 0, gen: 0 }, { state: 0, gen: 0 }], ticketCohorts: [] };
+  const herald = {
+    season: async () => ({ ok: true, season: { conquestParams: { placement: 2, heartlandMaxRing: 3 }, genesisSeed: seed }, record: { rings: Array.from({ length: 129 }, (_, d) => ({ d })) } }),
+    overview: async d => { reads.push(`ov:${d}`); return { ok: true, ring: d, provinces: d === 128 ? [{ p: 68, q: 60, sites: [1, 0, 0], owners: [faction, 7, 7] }] : [] }; },
+    province: async (p, q) => { reads.push(`pv:${p},${q}`); return { ok: true, province: prov }; },
+  };
+  const homes = await publicWideHomes('http://127.0.0.1:41551', faction, { herald, seed: 'MINE' });
+  assert.ok(homes.length >= 1);
+  assert.ok(homes.every(h => h.p === 68 && h.q === 60 && h.ticket === true && [1, 2].includes(h.site)), JSON.stringify(homes));
+  assert.deepEqual(reads.filter(r => r.startsWith('ov:')), Array.from({ length: 8 }, (_, i) => `ov:${128 - i}`), 'the outermost group only: the farthest ring wins');
+  // (another nation: nothing of mine on the rim → every ring read inward, still nothing)
+  reads.length = 0;
+  assert.deepEqual(await publicWideHomes('http://127.0.0.1:41551', (faction + 1) % 6, { herald }), []);
+  assert.equal(reads.filter(r => r.startsWith('ov:')).length, 127);
+});

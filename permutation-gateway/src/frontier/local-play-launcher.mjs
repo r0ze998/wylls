@@ -715,6 +715,8 @@ export class WorldManager {
    * looked up, never started as a world of its own: the world it was admitted to (the next one started after it was
    * free), answered with ITS proxy as the herald, once that world is ready; `{residentWaiting: true}` while no world
    * has it. It owns nothing of that world: stop, keeper and pair stay the owner's.
+   * (external-wide: in a `--wide-land` world it is told so as the person's page is — `wideLand: {scale, targets}`, the
+   * same public facts the owner's start answer carries — so its first village may take the rim route the page takes)
    */
   #externalStart(wallet) {
     const owner = this.externalOf.get(wallet);
@@ -724,7 +726,7 @@ export class WorldManager {
     return record.promise.then(view => {
       const herald = record.externalHerald?.get(wallet);
       if (typeof herald !== 'string') throw fault('WorldNotFound', 404);
-      return { herald, ...(view.natural ? { natural: true } : {}), ...(view.marchTrial ? { marchTrial: true } : {}), ...(view.captureDemo ? { captureDemo: view.captureDemo } : {}), ...(view.expiry ? { expiry: view.expiry } : {}), external: { role: 'resident', mode: EXTERNAL_RESIDENTS_MODE } };
+      return { herald, ...(view.natural ? { natural: true } : {}), ...(view.marchTrial ? { marchTrial: true } : {}), ...(view.captureDemo ? { captureDemo: view.captureDemo } : {}), ...(view.wideLand ? { wideLand: view.wideLand } : {}), ...(view.expiry ? { expiry: view.expiry } : {}), external: { role: 'resident', mode: EXTERNAL_RESIDENTS_MODE } };
     });
   }
   /**

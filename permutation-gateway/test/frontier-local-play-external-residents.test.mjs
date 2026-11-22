@@ -116,3 +116,23 @@ test('runner-throughput-2 (BREAK-143-1): the keeper loop serves an external resi
   assert.equal(EXTERNAL_RESIDENTS_MAX, 2);
   assert.ok(villages.includes('pub const MAX_EXTERNAL_VILLAGES: usize = 2;'));
 });
+
+test('external-wide: in a --wide-land world the resident is told so as the page is (wideLand), nothing more; the runner takes its villages there too', async () => {
+  const wideLand = { scale: 60, targets: [{ p: '65', q: '64' }] };
+  const launch = async (c, wallet, slot, onStop, signal, opts) => ({ herald: 'http://localhost:41412', natural: true, wideLand,
+    external: Object.fromEntries((opts.external ?? []).map((a, i) => [a, `http://localhost:${41500 + i}`])), stop: async () => { onStop(); } });
+  const m = new WorldManager({ externalResidents: EXT }, launch);
+  const owner = await m.start(OWNER);
+  assert.deepEqual(owner.wideLand, wideLand);
+  const r = await m.start(EXT[0]);
+  assert.deepEqual(r, { herald: 'http://localhost:41500', natural: true, wideLand, external: { role: 'resident', mode: EXTERNAL_RESIDENTS_MODE } });
+  await assert.rejects(m.stop(EXT[0]), e => e.code === 'NotWorldOwner' && e.status === 403);
+  // (a plain world: no wideLand in the resident's answer)
+  const { m: m2 } = manager();
+  await m2.start(OWNER);
+  assert.equal((await m2.start(EXT[0])).wideLand, undefined);
+  const { readFileSync } = await import('node:fs');
+  const runner = readFileSync(new URL('../../frontier-node/crates/itest/src/bin/localnet_natural_play.rs', import.meta.url), 'utf8');
+  assert.ok(runner.includes('if externals.is_some() && second.is_some() {'), 'refused only with the contest pair');
+  assert.ok(!runner.includes('--external-villages is not accepted with --wide-land'));
+});
