@@ -10,9 +10,9 @@
 //   3. who: a public API key (`Authorization: Bearer wylls_pk_…`, src/api-keys.mjs) or, only when the operator allowed
 //      it, an anonymous caller keyed by its address; anything else → 401. An owner-link token (or any other bearer) is
 //      refused: it was issued for another resource (MCP authorization, token audience / no token passthrough).
-//   4. the global bucket (protects the herald; spent only by a caller step 3 let in, so a keyless flood cannot
-//      starve key holders) → 429
-//   5. the caller's bucket (burst) → 429
+//   4. the caller's bucket (burst) → 429
+//   5. the global bucket (protects the herald; spent only by a caller steps 3 and 4 let in, so neither a keyless
+//      flood nor one key over its own rate can starve key holders; security audit M-5) → 429
 //   6. the body (≤ 16 KB, one message, no batch) → JSON-RPC errors
 //   7. tools/call: the tool exists and the key may call it (the key's `tools` list) → -32602; the caller holds the
 //      tool's scopes → 403 insufficient_scope with a `WWW-Authenticate … scope=` challenge (MCP 2025-11-25 step-up);

@@ -639,7 +639,7 @@ list; the table after it keeps each item's detail.
 | P11 (O11) | Who pays a player's fees and rent. Today the player's wallet (about 0.02 SOL, §4b) | **r0ze** (not blocking) | wallet-paid is implemented; sponsoring is not wired |
 | Q-W3 | `outpost_tier_min` 0 lets every Hamlet file an outpost, in the heartland too (as local wide play) | **r0ze** (not blocking) | implemented as 0; reverting is one preset byte, the `.so` is unaffected |
 | W1 | **The verifier's witness endpoint.** A PASS on a public-RPC season needs a second, independent RPC that serves the whole season. The only free no-sign-up second provider found (OnFinality) keeps about 7 days of history; a season is 7 days + the 24 h lead + about 21 h of map growth, so after the season ends such a witness reads UNVERIFIABLE (fail-safe, never PASS). Choices: an archival provider (sign-up), an own node, Old Faithful, or verifying while the season is still inside the witness's window | **r0ze** | measured read-only on 2026-11-21 (devnet-readonly-rpc) |
-| H1 (B11) | **Hosting and an RPC provider.** A host for keeper A, the herald and the gateway behind a TLS reverse proxy with a public name. The public `api.devnet.solana.com` allows about 10 calls of one method per 10 s per IP (HTTP 429, `Retry-After: 10`); an idle herald alone polls about 2 requests a second, so a season most likely needs a provider endpoint | **r0ze** (sign-ups) | not needed for the deploy itself |
+| H1 (B11) | **Hosting and an RPC provider.** A host for keeper A, the herald and the gateway behind a TLS reverse proxy with a public name (what the proxy must set and which ports stay closed: §8a). The public `api.devnet.solana.com` allows about 10 calls of one method per 10 s per IP (HTTP 429, `Retry-After: 10`); an idle herald alone polls about 2 requests a second, so a season most likely needs a provider endpoint | **r0ze** (sign-ups) | not needed for the deploy itself |
 | P12-cap | ~~The keep's capture on devnet's clock~~ **closed offline by devnet-72bell-pair (PCAP)**: the page's sealed march onto a neighbour's keep (its card, its wallet, its time-lock to the real T(21)), keeper A with the devnet profile's roles (`archive` included) and rings duty (`rim_per_wedge`, `provinces_reach` #138; live Rent sysvar #147; not `wide_rings`, which offline can only bind a shipped round), the preset's real 600 s bells with the chain clock at ×40: taken after exactly 72 held bells (contest from bell 21, `keep_taken` at bell 92, `since_bell` 93), the herald's `/h/keep` history and `/h/conquest/0.json` event, the page's guide 「第92ターンに、あなたの国（…）が州 -128,67 を奪いました」, the donor's return (reserve 0 → 191 at bell 106); keeper A's lag per held bell at ×40 under load 57–154: median 7, p90 10, max 11 bells (71 bells in 1,196 s of wall time, ~16.8 s per bell, i.e. about 3 % of a real 600 s bell). Verifier over the archive (#155): 0 FAIL, UNVERIFIABLE only from the declared beacon (R1). Browser test, not in CI (local recipe §7.0b) | engineering | closed offline; the real-clock run is the first devnet season |
 | P12-pair | ~~The second leg of an out-and-back pair~~ **closed offline by devnet-72bell-pair (PPAIR), one leg declared**: OUT = the page's own march card to the neighbour's tile on the real T(21) (keeper A anchors, opens, reveals, gathers, resolves, settles; the herald shows the host abroad); HOME = the same wallet's Depart at bell 48 — the first bell the host may leave again: a sealed Depart charges 74 stamina whatever its path (cap 120, +1 a bell, so ~28 bells' rest; the old line's plan of a return right after the arrival cannot exist) — sealed to the TEST beacon key over a declared TEST-signed anchor (offline only one bell a season can have a real round: PR CI `pkf_offline_a_season_has_at_most_one_real_arrival_round`), revealed by the wallet, settled by keeper A at the village tile (bell 51 arrival, settled by bell 54); the herald's records of both provinces agree with the chain. Verifier (#155): 0 FAIL, UNVERIFIABLE only from the declared beacon. What stays unproven offline: keeper A opening a SECOND real seal in one season (R1) | engineering | closed offline (one real leg); both legs real only on devnet |
 | P4 | Operator AI residents and the test-token faucet are localnet-only | engineering | open |
@@ -740,7 +740,8 @@ Every flag below was read from the code and, except where a line says otherwise,
 tests pass (`frontier-node/crates/stack/tests/operator_playable.rs`). **None of it has been run against devnet.**
 Steps marked **[r0ze]** need r0ze's confirmation at the time. `$RPC` is the https devnet RPC r0ze chose (H1; the
 public `https://api.devnet.solana.com` for the deploy and the operator). Ports stay in 41000–41999 on the operator
-host, and only the herald is public, behind a TLS reverse proxy.
+host, and only the herald is public, behind a TLS reverse proxy (what that proxy must do, and which ports must stay
+closed: §8a).
 
 ```sh
 # ── 0. Before anything [r0ze] ────────────────────────────────────────────────────────────────────────────────
@@ -812,7 +813,8 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
   --devnet-play --devnet-play-ruleset-hash $R
 
 # ── 8. The page ──────────────────────────────────────────────────────────────────────────────────────────────
-#   players open https://<the public host name>/frontier/ , connect a wallet set to devnet holding about 0.05 devnet SOL,
+#   players open https://<the public host name>/frontier/frontier/ (NOT /frontier/ and not the bare name: with step 6's
+#   --web permutation-server/web those show the old v9 lobby; §8a), connect a wallet set to devnet holding about 0.05 devnet SOL,
 #   and play: Join → first village (heartland, or the rim once ring 128 is open, about 21 h after the genesis)
 #   → Harvest / Build / Train → Muster → sealed march → wide claim (once keeper A opened ring 129)
 #   → 2nd / 3rd village by FileOutpost (once keeper A's provinces_reach opened the provinces next to the home)
@@ -891,3 +893,107 @@ Notes on what is **not** tested as written:
   map growth (one ring per 10-minute bell) to ring 128, when rim villages become possible; one more bell per wide
   ring; a sealed march arrives 2–72 bells after its Depart; a keep falls after 72 held bells (12 h); the season
   ends at bell 1,008 (7 days).
+
+### 8a. Public endpoint checklist (security audit 2026-11-22; read from the code on `origin/main` a193b633, i.e. with #164's fixes)
+
+No TLS proxy is configured anywhere yet, and no test has one in front of the herald: the proxy settings below have
+not been run. Each line names the code it was read from. The `nginx` words are examples of the setting meant, not a
+tested file. What the herald itself does (the redirects, the two pages, `HostNotAllowed` / `OriginNotAllowed`, the
+headers, no header-read timeout, the 64 KiB and 2 MiB body limits) was re-checked against a running herald on
+loopback (verify-pr165).
+
+**The one public address.** TLS port 443 on the proxy (80 only to redirect to https) → the herald on
+`127.0.0.1:41040`. Proxy these paths and nothing else: `/frontier/*` (the page), `/h/*` (reads; `WS /h/ws`),
+`/gw/*` (the gateway's public routes, which the herald itself forwards to `--relay 127.0.0.1:41033`), and `/`.
+
+**The page's address is `https://<host>/frontier/frontier/`.** The herald serves `--web DIR` under `/frontier/`
+and answers `/` and `/frontier` with a 302 to `/frontier/` (`herald/src/server.rs` `router`, `web`). With step 6's
+`--web permutation-server/web`, `/frontier/` is `permutation-server/web/index.html`, the old v9 lobby (it calls
+`/api/*`, which this stack does not serve); the game is `permutation-server/web/frontier/index.html`, one level
+down. Every offline page test opens `/frontier/frontier/` (`operator_playable/war_page.rs`, `expedition.rs`,
+`war_fog.rs`). Give players that address; to make the bare name work too, let the proxy answer exactly `/` and
+exactly `/frontier/` with a redirect to `/frontier/frontier/` (a proxy rule; the herald has no such redirect).
+
+**Client address: the proxy MUST set `X-Forwarded-For`, and its last entry must be the address the proxy itself saw.**
+
+- Run the proxy on the same host as the herald, so the herald's peer is loopback. Only then does the herald read
+  the header, and it reads the **last** entry (`server.rs` `client_ip`). It forwards that address to the gateway
+  (`/gw/*`, and the quota read of `/h/me`), and the gateway trusts it only from the herald's loopback address
+  (`permutation-gateway/src/frontier/app.mjs` `clientAddress`).
+- Right: `proxy_set_header X-Forwarded-For $remote_addr;` or `$proxy_add_x_forwarded_for` (it appends the address
+  the proxy saw, so the last entry is right). Caddy's `reverse_proxy` default does the same [Caddy's documented
+  default; not tested here].
+- **No header at all** (nginx sends none unless told to): every request reaches the gateway as `127.0.0.1`, and
+  the gateway exempts loopback addresses from every per-address limit (`app.mjs`: `!isLoopback(ip)` before
+  `FRONTIER_IP_LIMITS`). All of them switch off at once and nothing logs it (audit M-2: 60 of 60 nudges passed).
+- **Passing the client's own header through** (`proxy_set_header X-Forwarded-For $http_x_forwarded_for;`): a
+  client writes `127.0.0.1` itself and is exempt (audit M-2, 60 of 60).
+- No other header is read: `X-Real-IP` and `Forwarded` do nothing. A proxy on another host is itself the "client"
+  for everyone (one shared bucket). With a CDN in front of the proxy, `$remote_addr` is the CDN's address: restore
+  the real one first (nginx `set_real_ip_from` + `real_ip_header`, the CDN's ranges only).
+- Check before the season opens: from an outside address send 15 `POST /gw/f/nudge` with an empty JSON body in one
+  second. The limit is counted before the route reads the body (`app.mjs` `handle`; 10 at once, then 1 a second,
+  `FRONTIER_IP_LIMITS`): the first 10 get the route's own refusal, the rest must be `429`. If none is `429`, the
+  header is wrong.
+- The herald's own cap of 64 `WS /h/ws` sockets per client address (#164: `server.rs` `WS_PER_CLIENT`, `429
+  TooManySocketsFromClient`) uses the same `client_ip`: without the header every visitor is `127.0.0.1` and all of
+  them share one allowance of 64.
+- **After fix-gw-highs (a draft branch, NOT on main; nothing in this bullet exists today):** as drafted, the gateway
+  refuses to start off localnet without `--public-proxy xff|none` and, with it, limits a herald-forwarded loopback
+  address instead of exempting it. Until it is merged the gateway has no such setting and the "No header at all"
+  bullet above is what happens. The header rule above stays the same.
+
+**`Host`, `Origin`, CORS.**
+
+- Every request's `Host` must be loopback or a `--public-host` name, else `403 HostNotAllowed` (`server.rs`
+  `HostPolicy`; no opt-out). Either pass the public name on (`proxy_set_header Host $host;`) and give it as
+  `--public-host`, or leave nginx's default (`127.0.0.1:41040`, a loopback name). `--public-host` is needed in both
+  cases: `WS /h/ws` checks a browser's `Origin` against the same list (`403 OriginNotAllowed`).
+- `WS /h/ws` needs the upgrade passed on (`proxy_http_version 1.1`, `Upgrade` and `Connection` headers) and a read
+  timeout above the herald's 15 s ping (`ws.rs`; nginx's 60 s default is enough).
+- The herald sets the security headers itself on every answer: the CSP (`connect-src 'self'` on the page, so the
+  page, `/h` and `/gw` must be one origin), `X-Frame-Options`, `Referrer-Policy`, `X-Content-Type-Options`. The
+  proxy must not remove or replace them and must not add CORS headers. `/h/*` already answers
+  `Access-Control-Allow-Origin: *` (public data); `/gw/*` and `/frontier/*` answer none, on purpose. Only `WS /h/ws`
+  checks `Origin`; `/gw/*` does not, and its acting routes need a wallet signature instead.
+
+**TLS.** The herald speaks plain HTTP only; TLS ends at the proxy. Redirect 80 → 443 and add
+`Strict-Transport-Security` at the proxy (the herald does not send it). The RPC provider's URL (`$RPC`) usually
+holds an API key: it stays in the service command lines on the host and is never served.
+
+**Timeouts and connection limits (the herald has none of its own for these; audit M-4).**
+
+- The herald has no header-read timeout and no connection cap (`axum::serve` defaults): 300 connections sending
+  one header line every 5 s all stayed open. The proxy must end slow requests and buffer them:
+  `client_header_timeout 10s; client_body_timeout 10s; proxy_request_buffering on;` and a per-address connection
+  limit (`limit_conn`). Never expose the herald's port without such a proxy.
+- A `/gw/*` answer may take up to 90 s (`server.rs` `GW_TIMEOUT`; connect 5 s): set the proxy's read timeout for
+  `/gw/` above that (nginx `proxy_read_timeout 95s;`; its 60 s default would cut a slow answer the herald is still
+  waiting for).
+- `/h/*` is public and has no rate limit in the herald: limit it per address at the proxy (`limit_req`). `WS /h/ws`
+  has 8,192 places in all (`ws.rs` `max_sockets`) and, since #164, at most 64 per client address (audit M-3); 128
+  addresses can still fill it, so limit connections per address at the proxy too.
+
+**Body size.** Every public request with a body is a `/gw/*` POST of at most 64 KiB (`server.rs` `GW_MAX_BODY`;
+the gateway's own `FRONTIER_MAX_BODY_BYTES` is the same). The herald checks that only after axum has buffered the
+body, up to axum's 2 MiB default (audit L-11). Set `client_max_body_size 64k;` at the proxy.
+
+**Ports that must NOT be public** (firewall: inbound 443 and 80 only; everything below stays on loopback):
+
+| Port (step 5–7 values) | What | What the code enforces |
+|---|---|---|
+| 41040 | herald | **nothing**: `--listen` takes any address (only the port range is checked, `herald/src/main.rs`). Keep `--listen 127.0.0.1:41040` |
+| 41050 | keeper A's API (`/v1/*`, bearer token) | refuses a non-loopback `api` (`keeper/src/config.rs`, `api.rs` `serve_full`) |
+| 41030 | gateway, operator listener (operator token) | always binds `127.0.0.1` (`permutation-gateway/src/frontier/server.mjs`) |
+| 41033 | gateway, public listener | refuses a non-loopback `--public-host` (`config.mjs` `checkFrontierConfig`); reached only through the herald's `/gw` |
+| — | ③ MCP servers | not started by anything; loopback only. The public one is default OFF and r0ze's decision (`workstreams/03-composability/mcp/PUBLIC-EXPOSURE.md` §7, §9); the owner one is never public |
+| 419xx and others | local-play services (launcher, runner RPC with time control, local relay, world proxy, `--external` MCP) | TEST only: never start `scripts/play-local.sh` or a `frontier-localnet` on the public host |
+
+Also never public: the key files of steps 2 and 5 (`keeper.seed`, `keeper.token`, the relay's seed and invite
+secret, `FRONTIER_OPERATOR_TOKEN`) and the directories `keeper-a/`, `relay/`, `herald/`. Everything under
+`--web DIR` is served: point it at `permutation-server/web` and nothing wider, and keep no key file below it.
+
+**Still open in the code (not closed by any proxy setting):** audit H-1 and H-2 (anyone can make keeper A spend
+its RPC budget through `/gw/f/reveal` and `/gw/f/nudge`; fix-gw-highs, not merged) — do not open a season to the
+public before they are merged; keeper A ends on a panic or a fatal journal error and needs a supervisor
+(RUN-A-KEEPER §6).

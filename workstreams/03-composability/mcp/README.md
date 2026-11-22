@@ -52,7 +52,9 @@ The server listens on loopback only (`WYLLS_MCP_HOST` must be `127.0.0.1`, `loca
 issuer its codes and tokens would cross the network in plaintext. A tunnel (an `https` issuer) still connects to
 `127.0.0.1` and needs no opt-in. The `Host` header is checked against the loopback names, the issuer's host name and
 `WYLLS_MCP_ALLOWED_HOSTS` (DNS rebinding, as the MCP SDKs' `hostHeaderValidation` / `TransportSecuritySettings` do);
-any other `Host` is answered 403 before a route runs. See `test/exposure.test.mjs`.
+any other `Host` is answered 403 before a route runs. See `test/exposure.test.mjs`. A browser `Origin`, when a request
+carries one, must be the issuer's own origin or `https://chatgpt.com`: that second origin is always allowed
+(`src/http.mjs` `createHandler`), and no setting adds or removes one (security audit 2026-11-22, D-security-audit-7).
 
 ### Public read-only server and audit (2026-11-20)
 

@@ -480,8 +480,9 @@ impl KeeperConfig {
     }
 
     /// The `rpc`/`feed` combination is one the keeper can run: every
-    /// `rpc` (and `feed_witness`) URL is a loopback `http://` or a checked
-    /// `https://` one (`fclient::https::check_post_url`); `feed =
+    /// `rpc` (and `feed_witness`) URL is a plain `http://` one to ANY host
+    /// (not only loopback; security audit L-4) or a checked `https://` one
+    /// (`fclient::https::check_post_url`); `feed =
     /// "localnet"` never names an `https://` RPC (no `frontier-localnet`
     /// serves TLS: a public cluster needs `feed = "rpc"`); the `feed = "rpc"`
     /// pacing is sane; `feed_origin`/`feed_witness` only with `"rpc"`.

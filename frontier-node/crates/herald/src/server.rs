@@ -19,7 +19,8 @@
 //!
 //! **`/gw/*`** is the relay's public listener (§8.3) on this origin, as
 //! `permutation-server/src/play/proxy.rs`: GET/POST/OPTIONS only, a safe
-//! path and query, a body ≤ 64 KiB; of the browser's headers only
+//! path and query, a body ≤ 64 KiB (checked after axum buffered it, up to
+//! its 2 MiB default; audit L-11); of the browser's headers only
 //! `Content-Type` goes on; `X-Forwarded-For` is set to the browser's
 //! address (the peer, or — when the peer is this machine, a reverse proxy
 //! in front — the last address in its `X-Forwarded-For`), which the relay

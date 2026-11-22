@@ -19,7 +19,7 @@
 //   WYLLS_MCP_PUBLIC_AUDIT_IP=hash|off        client addresses as salted hashes (default) or not at all
 //   WYLLS_MCP_PUBLIC_AUDIT_SALT=<text>        a fixed salt (hashes link across restarts); default random per process
 //   WYLLS_MCP_PUBLIC_TRUST_PROXY=1            the client address is the right-most X-Forwarded-For entry. Off
-//   WYLLS_MCP_PUBLIC_ORIGINS=https://a,…      browser Origins allowed besides the public origin
+//   WYLLS_MCP_PUBLIC_ORIGINS=https://a,…      browser Origins not refused 403 besides the public origin (no CORS headers are sent: PUBLIC-EXPOSURE §5)
 import { mcpSettings } from './mcp-settings.mjs';
 import { parseRate } from '../src/rate-limit.mjs';
 import { PUBLIC_DEFAULTS } from '../src/public-mcp.mjs';
