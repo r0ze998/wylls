@@ -51,6 +51,9 @@ test('four forms, each its own first press (「費用を確認」); the muster o
   assert.doesNotMatch(h, /<option value="8">/, 'the workshop is not offered');
   assert.match(h, /控えの兵 250/); assert.match(h, /name="troops"[^>]*value="250"/);
   assert.doesNotMatch(h, /wide-act-send/, 'nothing to send before a preview');
+  // (verify-pr151: another wide village's province, read earlier, is not this village's tile list)
+  const other = text(wideActsCard(FSof({ wideActProvince: { p: '131', q: '-60', passable: [3, 17] } }), M({ reserve: [250] })));
+  assert.match(other, /<option value="-1">自動（通れる最初のマス）<\/option><\/select>/);
 });
 
 test('the preview (first press): what the wallet pays in SOL — the fee, and the roster\'s rent on the province\'s first muster — and the send; a lag is said', () => {

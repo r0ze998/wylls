@@ -170,7 +170,7 @@ async function wideActs() {
       pv: pv ? { step: pv.step, name: pv.name, fields: j(pv.fields), total: pv.cost ? String(pv.cost.total) : null, deposit: pv.cost ? String(pv.cost.deposit) : null, rosterNew: pv.rosterNew ?? null,
         warn: pv.warn ?? null, signature: pv.signature ?? null, result: j(pv.result) } : null,
       notice: FS.notice ? { ok: FS.notice.ok, code: FS.notice.code ?? null, text: typeof FS.notice.text === 'function' ? FS.notice.text() : FS.notice.text ?? null } : null,
-      busy: !!FS.homeActionBusy, inFlight: FS.inFlight ?? 0, cardText: document.querySelector('#wide-acts')?.innerText?.slice(0, 2000) ?? null };
+      toastText: document.querySelector('.toast.tx-refused .toast-text')?.innerText ?? null, busy: !!FS.homeActionBusy, inFlight: FS.inFlight ?? 0, cardText: document.querySelector('#wide-acts')?.innerText?.slice(0, 2000) ?? null };
   });
   const untilW = async (what, ok, { secs = 120, every = 1000 } = {}) => {
     const end = Date.now() + secs * 1000; let x, n = 0;
@@ -238,11 +238,37 @@ async function wideActs() {
   await doAct('WideBuild', 'build-farm', async f => { await f.locator('select[name="wide_item"]').selectOption('0'); });
   await doAct('WideBuild', 'build-walls', async f => { await f.locator('select[name="wide_item"]').selectOption('6'); });
   await doAct('WideTrain', 'train-100', async f => { await f.locator('select[name="unit"]').selectOption('0'); await f.locator('input[name="n"]').fill('100'); });
+  // (verify-pr151) a muster while the province's previous turn is NOT resolved (the test declares it two bells behind):
+  // the page's own checks pass (a lag warning only), the second press is refused by the chain's preflight — not sent,
+  // nothing paid — and said in Japanese and in English
+  fs.writeFileSync(path.join(SYNC, 'ready-chain-refusal'), String(Date.now()));
+  while (!exists('go-chain-refusal')) await wait(500);
+  const chainRefusal = {};
+  for (const lang of ['ja', 'en']) {
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, lang]);
+    await wait(1000); await clear();
+    await selectWide();
+    const f = form('WideMuster');
+    await f.locator('select[name="unit"]').selectOption('0'); await f.locator('input[name="troops"]').fill('100'); await f.locator('select[name="tile"]').selectOption('-1');
+    await f.locator('button[type="submit"]').click({ timeout: 8000 });
+    const p = await untilW(`the ${lang} preview of a muster on an unresolved province`, z => (z.pv?.step === 'preview' && z.pv.name === 'WideMuster') || (z.notice?.ok === false && !z.busy), { secs: 120 });
+    if (p.pv?.step !== 'preview') { chainRefusal[lang] = { stage: 'page', code: p.notice?.code ?? null, text: p.notice?.text ?? null }; log('chain-refusal: page refused', lang, p.notice); continue; }
+    await page.locator('#wide-acts').scrollIntoViewIfNeeded().catch(() => {});
+    await shot(`wide-chain-refusal-preview-${lang}`);
+    await clear();
+    await page.locator('#wide-acts button[data-act="wide-act-send"]').click({ timeout: 8000 });
+    const r = await untilW(`the ${lang} chain refusal of that muster`, z => (z.notice?.ok === false && !z.busy && z.pv?.step !== 'preview' && (z.notice.text || z.toastText)) || z.pv?.step === 'sent', { secs: 180, every: 1500 });
+    chainRefusal[lang] = { stage: r.pv?.step === 'sent' ? 'sent' : 'send', warn: p.pv.warn, code: r.notice?.code ?? null, text: r.notice?.text ?? r.toastText ?? null, toastText: r.toastText, pv: r.pv };
+    log('chain-refusal', lang, chainRefusal[lang]);
+    await shot(`wide-chain-refusal-${lang}`);
+  }
+  await ev(async m => { (await import(m)).setLang('ja'); }, Lg);
+  await wait(1000); await clear();
   // (the muster reads the province's turn: the test declares it resolved now, then says go)
   fs.writeFileSync(path.join(SYNC, 'ready-muster'), String(Date.now()));
   while (!exists('go-muster')) await wait(500);
   await doAct('WideMuster', 'muster-100', async f => { await f.locator('select[name="unit"]').selectOption('0'); await f.locator('input[name="troops"]').fill('100'); await f.locator('select[name="tile"]').selectOption('-1'); });
   const end = await ws();
-  fs.writeFileSync(path.join(SYNC, 'done-wide.json'), JSON.stringify({ refusal, acts, end, stills: shotN }, null, 2));
+  fs.writeFileSync(path.join(SYNC, 'done-wide.json'), JSON.stringify({ refusal, chainRefusal, acts, end, stills: shotN }, null, 2));
   log('done-wide');
 }

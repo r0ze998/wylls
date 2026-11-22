@@ -17,9 +17,14 @@
 //!    Spearmen on its province's first passable tile: the preview names the fee PLUS the rent of the province's wide
 //!    roster (3,248 bytes, its first muster), at this chain's rent rate.
 //!
+//! 2b. (verify-pr151) **Declared**: the wide province's `resolved_next` = two bells behind; the page's Muster of 100
+//!    Spearmen passes the page's own checks (a lag warning) and is refused by the chain's preflight (NotResident) — not
+//!    sent, nothing paid — in JA and EN.
+//!
 //! Asserted on chain: every page act landed with one signature, the wallet as fee payer; the wallet's lamports for each
-//! act are exactly the preview's total; the roster exists, the program's, holding its rent; the village's reserve went
-//! +100 then −100 and it issued one host; the walls are up.
+//! act are exactly the preview's total, and the refused sends cost nothing; the roster exists, the program's, holding
+//! its rent; the village's reserve went +100 then −100 and it issued one host. (The walls Build is queued — the card
+//! reads the queue grow back — its completion is not waited for.)
 
 use super::*;
 
@@ -94,9 +99,33 @@ pub(super) async fn phase(
     // 2./3. The page's acts; before its muster, the declared province cursor.
     let t0 = Instant::now();
     let mut mustered_at_bell = None;
+    let mut behind_at_bell = None;
     let done = loop {
         if let Ok(t) = std::fs::read_to_string(sync.join("done-wide.json")) {
             break serde_json::from_str::<Value>(&t).unwrap_or(json!({"raw": t}));
+        }
+        // (verify-pr151) before the muster: the province declared two bells behind — the page's muster must then be
+        // refused by the chain's preflight (not sent, nothing paid), in JA and EN
+        if behind_at_bell.is_none() && sync.join("ready-chain-refusal").exists() {
+            let now_b = r.bell();
+            let behind = now_b.saturating_sub(2);
+            edit(
+                r,
+                wprov,
+                &format!(
+                    "wide province ({}, {}) resolved_next = bell {behind} (two behind bell {now_b}: the muster is refused)",
+                    target.p(),
+                    target.q()
+                ),
+                &|d| d[PV1::RESOLVED_NEXT..PV1::RESOLVED_NEXT + 4].copy_from_slice(&behind.to_le_bytes()),
+            );
+            {
+                let mut c = r.lock();
+                c.set_scale(1.0);
+                c.set_paused(false);
+            }
+            behind_at_bell = Some(now_b);
+            std::fs::write(sync.join("go-chain-refusal"), behind.to_string()).unwrap();
         }
         if mustered_at_bell.is_none() && sync.join("ready-muster").exists() {
             let now_b = r.bell();
@@ -188,6 +217,38 @@ pub(super) async fn phase(
             "{lang}: {done:#}"
         );
     }
+    // (verify-pr151) The chain's refusal of a muster on an unresolved province: the page's checks passed (a preview), the
+    // send was refused before landing (NotResident), said in plain words in both languages; nothing was sent (the 0xDA
+    // rows above are the five acts) and nothing was paid (below: the wallet spent exactly the five rows' debits).
+    for lang in ["ja", "en"] {
+        let c = &done["chainRefusal"][lang];
+        assert_eq!(
+            c["stage"], "send",
+            "{lang}: the page's checks pass, the chain refuses: {done:#}"
+        );
+        // (the node's preflight "not taken" — LocalActRejected, program code 26 NotResident — or the program's name)
+        assert!(
+            c["code"] == "LocalActRejected" || c["code"] == "NotResident",
+            "{lang}: {c:#}"
+        );
+        let text = c["text"].as_str().unwrap_or("");
+        assert!(
+            !text.is_empty() && !text.contains("NotResident") && !text.contains("Custom"),
+            "{lang}: a plain sentence: {c:#}"
+        );
+    }
+    assert!(
+        done["chainRefusal"]["ja"]["text"]
+            .as_str()
+            .is_some_and(|t| t.chars().any(|ch| ('\u{3040}'..='\u{30ff}').contains(&ch))),
+        "the Japanese refusal is Japanese: {done:#}"
+    );
+    assert!(
+        done["chainRefusal"]["en"]["text"]
+            .as_str()
+            .is_some_and(|t| !t.chars().any(|ch| ('\u{3040}'..='\u{9fff}').contains(&ch))),
+        "the English refusal is English: {done:#}"
+    );
     // The chain: the reserve, the host, the walls, the roster.
     let after = r.data(&wholding).expect("the wide village");
     assert_eq!(
@@ -212,6 +273,11 @@ pub(super) async fn phase(
         "the preview named the roster's rent"
     );
     let post_lamports = r.lock().account(&w).map(|x| x.lamports).unwrap_or(0);
+    assert_eq!(
+        pre_lamports.saturating_sub(post_lamports),
+        rows.iter().filter_map(|x| x.1).sum::<u64>(),
+        "the wallet paid for the five acts and nothing else (the refused sends cost nothing)"
+    );
     json!({
         "p17_wide_acts": "the web page as the participant: its WIDE village's Harvest, Build (item 0, walls), Train and Muster — each two presses (the SOL preview, then ONE wallet-signed send through the gateway's devnet play routes) and its result read back",
         "wide_village": {"p": target.p(), "q": target.q(), "site": site, "holding": wholding.to_string(), "province": wprov.to_string()},
@@ -221,6 +287,7 @@ pub(super) async fn phase(
         "reserve0": {"before": reserve0, "after": le_u32(&after, H::reserve(0))}, "host_seq": {"before": seq0, "after": le_u32(&after, H::HOST_SEQ)},
         "walls": {"before": walls0, "after": walls1},
         "declared_resolved_next_bell": mustered_at_bell,
+        "declared_behind_at_bell": behind_at_bell,
         "driver": done,
     })
 }

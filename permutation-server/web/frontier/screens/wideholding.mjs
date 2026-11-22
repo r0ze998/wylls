@@ -123,7 +123,8 @@ export function wideActsCard(FS, m) {
   const dis = busy || pv?.step === 'preview' ? 'disabled' : '';
   const reserve = WIDE_UNITS.map(u => ({ unit: u, troops: Number(x.reserve?.[u] ?? 0) }));
   const musterUnit = reserve.find(r => r.troops >= WIDE_MIN_HOST_TROOPS)?.unit ?? 0;
-  const tiles = FS.wideActProvince?.passable ?? null;
+  // (verify-pr151: only THIS village's province's tiles — another wide village's province read earlier is not offered)
+  const wp = FS.wideActProvince, tiles = wp && wp.p === String(m.holding.p) && wp.q === String(m.holding.q) ? wp.passable : null;
   const unitSelect = (id, sel, list = WIDE_UNITS) => html`<select id="${id}" name="unit">${list.map(u => html`<option value="${u}" ${raw(u === sel ? 'selected' : '')}>${unitName(u)}</option>`)}</select>`;
   const form = (act, body, hint) => html`<form class="vform wide-act" data-form="wide-act-preview" data-wide-act="${act}"><input type="hidden" name="act" value="${act}">${body}
     <div class="actions"><button type="submit" class="btn" data-wide-preview="${act}" ${raw(dis)}>${L`費用を確認`}</button>${hint ? html`<span class="muted">${hint}</span>` : ''}</div></form>`;
