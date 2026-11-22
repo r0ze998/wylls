@@ -86,7 +86,10 @@ export class KeeperLink {
     let json;
     try { json = await r.json(); } catch { json = null; }
     if (r.status >= 500 || json === null || typeof json !== 'object') {
-      throw new RouteError(502, `the keeper answered HTTP ${r.status}`, 'KeeperUnavailable');
+      // (fix-gw-highs: the keeper's own code rides along as `reason` — RevealNotIndexed, KeeperBusy,
+      //  JournalUnavailable…; the page still reads KeeperUnavailable, an attempt that never reached a keeper)
+      const reason = typeof json?.code === 'string' && /^[A-Za-z]{1,40}$/.test(json.code) ? json.code : undefined;
+      throw new RouteError(502, `the keeper answered HTTP ${r.status}`, 'KeeperUnavailable', reason ? { reason } : {});
     }
     return { status: r.status, body: json };
   }

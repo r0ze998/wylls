@@ -102,6 +102,7 @@ test('the same body again is answered from the last answer (in flight too); a 5x
       const a = await call(r.public, 'POST', '/f/reveal', { body: material(9), ...fromHerald(`198.51.100.${i + 50}`) });
       assert.equal(a.status, 502);
       assert.equal(a.json.code, 'KeeperUnavailable');
+      assert.equal(a.json.reason, 'KeeperBusy', "the keeper's own code rides along");
     }
     assert.equal(k.seen.length, 6, 'a keeper 5xx is asked again');
   } finally { await k.close(); }

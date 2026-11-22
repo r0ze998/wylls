@@ -117,7 +117,6 @@ async function flush() {
 }
 
 process.on('SIGTERM', async () => { stop = true; await flush(); process.exit(0); });
-const sampler = setInterval(() => { sample().then(flush).catch(() => {}); }, 2_000);
-sampler.unref?.();
+// (the interval keeps the process alive in --off mode, until SIGTERM)
+setInterval(() => { sample().then(flush).catch(() => {}); }, 2_000);
 if (!off) await Promise.all(Array.from({ length: workers }, (_, k) => worker(k)));
-else await new Promise(() => {});
