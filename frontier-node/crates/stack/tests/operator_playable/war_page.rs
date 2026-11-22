@@ -419,7 +419,7 @@ pub(super) async fn flow(
         "the page's Depart: {page_txs:#?}"
     );
     // (verify-pr118) the verifier judges the whole season: no FAIL
-    let verifier = r.judge_season("p9");
+    let verifier = r.judge_season(if pg.capture { "pcap" } else { "p9" });
     assert_eq!(
         verifier["fails"], 0,
         "the verifier FAILs the season: {verifier:#}"
@@ -1308,8 +1308,10 @@ fn herald_province(port: u16, p: i32, q: i32) -> Option<fclient::decode::Provinc
     let v = crate::http_get(port, &format!("/h/province/{p},{q}/latest"))?;
     fn b64(v: &Value) -> Option<String> {
         match v {
+            // (`/h/province/{P},{Q}/latest` answers `{bell, bytes, …}`; other envelopes name it `bytes_b64`)
             Value::Object(m) => m
-                .get("bytes_b64")
+                .get("bytes")
+                .or_else(|| m.get("bytes_b64"))
                 .and_then(|x| x.as_str().map(str::to_string))
                 .or_else(|| m.values().find_map(b64)),
             Value::Array(a) => a.iter().find_map(b64),
@@ -1756,7 +1758,12 @@ pub(super) async fn flow_pair(
         ],
         "OUT leg",
     );
-    // the herald sees the host abroad
+    // the herald sees the host abroad (the chain running, as on a cluster)
+    {
+        let mut c = r.lock();
+        c.set_scale(1.0);
+        c.set_paused(false);
+    }
     let t0 = Instant::now();
     let herald_out = loop {
         let hv = herald_province(r.c.herald, tp, tq);

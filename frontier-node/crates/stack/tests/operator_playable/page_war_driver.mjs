@@ -123,7 +123,7 @@ const marchesNow = () => ev(async () => {
 
 // (devnet-72bell-pair: as PPOST's driver — under load the page can read the season before the herald's record says the
 //  map has grown to the rim (devnetWide false) and offer a HEARTLAND home; the test needs a rim village (its war plan
-//  is over the rim's provinces). Such a choice is never confirmed: the page is loaded again, up to 5 times)
+//  is over the rim's provinces). Such a choice is never confirmed: the page is loaded again every 30 s, up to 20 times)
 const ringOf = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(-p - q));
 let s;
 for (let attempt = 0; ; attempt++) {
@@ -136,9 +136,9 @@ for (let attempt = 0; ; attempt++) {
   await wait(1000);
   await act('pick-faction', { f: String(NATION) });
   s = await until('the home planner offers a rim site', x => x.homeChoice?.sel, { secs: 180, note: x => x.homeChoice });
-  if (ringOf(s.homeChoice.sel.p, s.homeChoice.sel.q) >= 126 || attempt >= 4) break;
+  if (ringOf(s.homeChoice.sel.p, s.homeChoice.sel.q) >= 126 || attempt >= 19) break;
   log('home choice in the heartland: loading the page again', s.homeChoice.sel, 'devnetWide', s.devnetWide);
-  await wait(15000);
+  await wait(30000);
 }
 log('home choice', s.homeChoice);
 const confirm = page.locator('button[data-act="home-confirm"]:visible').first();
