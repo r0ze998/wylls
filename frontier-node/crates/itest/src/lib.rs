@@ -38,6 +38,9 @@ pub mod expedition_play;
 pub mod coexist_play;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod keeper_loop;
+// TEST-ONLY player homes first on the compressed local clocks (runner-throughput-2, BREAK-143-1)
+#[cfg(feature = "localnet-expedition-play")]
+pub mod home_gate;
 // TEST-ONLY runner throughput measurement (counters of landing waits, simulations, drand fetches; per-pass phases)
 #[cfg(feature = "localnet-expedition-play")]
 pub mod local_keeper;
