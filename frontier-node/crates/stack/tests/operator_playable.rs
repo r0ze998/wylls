@@ -73,6 +73,9 @@ const PFLOOR_5080_PORT_BASE: u16 = 41_510;
 const PFLOOR_6960_PORT_BASE: u16 = 41_530;
 /// PPOST's (devnet-page-outpost; `OPERATOR_PAGE_OUTPOST_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection).
 const PPOST_PORT_BASE: u16 = 41_610;
+/// P17's (devnet-p17; `OPERATOR_PAGE_WIDE_ACTS_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection). Shares
+/// P11's default base: set the variable to run both at once.
+const P17_PORT_BASE: u16 = 41_500;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -749,6 +752,24 @@ async fn ppost_the_page_founds_a_second_village_on_the_devnet_so_offline() {
     .await;
 }
 
+/// P17 (devnet-p17; devnet gap P17): P7's page — Join, the rim FileTicket, Harvest, the wide claim, keeper A settling
+/// and finalizing its wide village — and then that WIDE village's own acts from the page's card 「この遠方の村への命令」:
+/// Harvest, Build (a building, the walls), Train and Muster, each two presses (the SOL preview, then ONE wallet-signed
+/// send through `/gw/f/devnet-play/act/submit`) and its result read back; a refused muster (empty reserve) in JA and
+/// EN first (`operator_playable/wide_acts_page.rs`). `DEVNET_PAGE_DRIVER=1` only (as P7).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p17_the_page_sends_its_wide_villages_own_acts_on_the_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("p17: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_WIDE_ACTS_PORT_BASE", P17_PORT_BASE),
+        Mode::PageWideActs,
+    )
+    .await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// P3: the season's setup only.
@@ -761,6 +782,8 @@ enum Mode {
     AfterWide,
     /// P7 (devnet gap P1): P5 with the web page as the participant.
     Page,
+    /// P17 (devnet-p17): P7, then the page's wide village's own acts.
+    PageWideActs,
     /// P8 (devnet-page-war): the rim world of P4, keeper A with the play roles, and a legacy war (muster, sealed
     /// Depart onto a keep, reveal, clash, capture, return) by a test participant.
     War,
@@ -796,6 +819,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::KeeperWide => "p5",
         Mode::AfterWide => "p6",
         Mode::Page => "p7",
+        Mode::PageWideActs => "p17",
         Mode::War => "p8",
         Mode::PageWar => "p9",
         Mode::PageWarHome => "p10",
@@ -814,6 +838,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let page_mode = matches!(
         mode,
         Mode::Page
+            | Mode::PageWideActs
             | Mode::PageWar
             | Mode::PageWarHome
             | Mode::PageWarFog
@@ -1098,7 +1123,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         roles = match mode {
             Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
             Mode::Rim | Mode::Provinces | Mode::Floor(_) | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
-            Mode::KeeperWide | Mode::AfterWide | Mode::Page => {
+            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
             // (P8/P9: the devnet profile's keeper A with the play roles of the S1 playtest's keeper A)
@@ -1119,7 +1144,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
                 rim::PER_WEDGE
             ),
-            Mode::KeeperWide | Mode::AfterWide | Mode::Page => format!(
+            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
@@ -1515,6 +1540,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             .unwrap_or_else(|_| dir.join("page-out")),
         fog: mode == Mode::PageWarFog,
         outpost: mode == Mode::PageOutpost,
+        wide_acts: mode == Mode::PageWideActs,
     });
     // P4: the rim first village and the wide claim (keeper and herald still running).
     let rim_summary = if rim_run {
@@ -1525,6 +1551,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                     Mode::KeeperWide
                         | Mode::AfterWide
                         | Mode::Page
+                        | Mode::PageWideActs
                         | Mode::Expedition
                         | Mode::PageExpedition
                         | Mode::Conquest

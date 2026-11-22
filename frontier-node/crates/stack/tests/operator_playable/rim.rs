@@ -97,6 +97,8 @@ pub struct Page {
     /// PPOST (devnet-page-outpost): the page founds its second village (FileOutpost) instead of the wide claim
     /// ([`outpost_page`]).
     pub outpost: bool,
+    /// P17 (devnet-p17): after the wide village is final, the page sends its own acts ([`wide_acts_page`]).
+    pub wide_acts: bool,
 }
 
 /// P11 (devnet-expedition-keeper): the rim → wide expedition.
@@ -108,6 +110,9 @@ pub mod outpost_page;
 /// PPROV (devnet-open-province): keeper A's provinces on demand ([`provinces`]).
 #[path = "provinces.rs"]
 pub mod provinces;
+/// P17 (devnet-p17): the page's wide village's own acts ([`wide_acts_page`]).
+#[path = "wide_acts_page.rs"]
+pub mod wide_acts_page;
 
 /// P14 (devnet-guard-conquest): a third party's wide Free City conquest after P11's expedition.
 #[path = "conquest.rs"]
@@ -2200,6 +2205,7 @@ async fn page_flow(
                 "--sync",
                 sync.to_str().unwrap(),
             ])
+            .args(pg.wide_acts.then_some("--wide-acts"))
             .stdout(std::fs::File::create(pg.out.join("driver.out.log")).unwrap())
             .stderr(std::fs::File::create(pg.out.join("driver.err.log")).unwrap())
             .spawn()
@@ -2390,6 +2396,12 @@ async fn page_flow(
         tokio::time::sleep(Duration::from_millis(500)).await;
     };
     assert_eq!(done["wideVillageFinal"], true, "{done}");
+    // P17 (devnet-p17): the wide village's own acts, from the page.
+    let p17 = if pg.wide_acts {
+        wide_acts_page::phase(r, &sync, &mut || alive(&mut driver), w, rec.coord, rec.site).await
+    } else {
+        Value::Null
+    };
     drop(driver);
     // Every page transaction: the participant wallet is fee payer and the only signer.
     let page_txs: Vec<Value> = r
@@ -2420,5 +2432,6 @@ async fn page_flow(
         "wide_village": {"p": rec.coord.p(), "q": rec.coord.q(), "site": rec.site, "ring": rec.coord.ring(), "slot": rec.slot, "ticket_bell": rec.bell},
         "keeper_wide_settle": ws, "keeper_wide_finalize": wf,
         "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "setup": extra,
+        "p17": p17,
     })
 }

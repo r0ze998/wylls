@@ -27,7 +27,7 @@ import { profileForHash } from '../../../permutation-server/web/sdk/frontier/pro
 import { budgetPrefix } from '../../../permutation-server/web/sdk/frontier/budgets.mjs';
 import { compileMessage } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
-import { WIDE_HOST_ACTS, wideHostIntent, wideHostMessage } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
+import { WIDE_HOST_ACTS, WIDE_BUILT_ACTS, WIDE_ECONOMY_ACTS, wideHostIntent, wideHostMessage } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
 import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { COEXIST_ACTS, RIGHTS_ACTS, RIGHTS_WALLET_ONLY, rightsIntent, rightsMessage, grantOfIntent, decodeGrant } from '../../../permutation-server/web/frontier/flocalplay-rights.mjs';
 import { COEXIST_LANE } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
@@ -146,10 +146,15 @@ function village(h) {
  */
 // (`outpost`: the caller's own flow carries FileOutpost — the devnet wallet-paid flow, devnet-play-act.mjs, never the
 //  request's word; every local-play relay refuses it as before: not one local play sends)
-export function localActIntent(value, { wallet, coexist = false, outpost = false }) {
+// (`wideVillage`: devnet-p17 — the devnet flow carries a wide village's Harvest and Build as well; no local-play relay
+//  passes it, so every local play refuses them as before)
+export function localActIntent(value, { wallet, coexist = false, outpost = false, wideVillage = false }) {
   check(exact(value, ['name', 'subject', 'fields']) && typeof value.name === 'string');
   if (outpost && value.name === OUTPOST_ACT) {
     try { return outpostIntent(value.subject, value.fields, 'LocalActInvalid'); } catch { fail('LocalActInvalid'); }
+  }
+  if (wideVillage && WIDE_ECONOMY_ACTS.includes(value.name)) {
+    try { return wideHostIntent(value.name, value.subject, value.fields, 'LocalActInvalid'); } catch { fail('LocalActInvalid'); }
   }
   // (TEST-ONLY, the coexist lane only — `coexist` is the relay's own pins, never the request's word: ② rights' six and
   //  the S1 Vault and caravan, flocalplay-rights.mjs. Every other relay refuses them as before: not one local play sends)
@@ -208,7 +213,7 @@ export function localActMessage(intent, pins, blockhash) {
   if (intent.name === WIDE_CLAIM) {
     try { return { message: wideClaimMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
   }
-  if (WIDE_HOST_ACTS.includes(intent.name)) {
+  if (WIDE_BUILT_ACTS.includes(intent.name)) {
     try { return { message: wideHostMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, world: worldIdOf(A.season, pins.program), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
   }
   if (COEXIST_ACTS.includes(intent.name)) {
@@ -236,10 +241,11 @@ export function localActMessage(intent, pins, blockhash) {
  */
 // (`schema`: the submit schema of the flow; devnet-play-act.mjs, the devnet wallet-paid flow, states its own)
 // (`outpost`: devnet-page-outpost — the devnet flow carries FileOutpost; no local-play relay passes it)
-export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA, outpost = false } = {}) {
+// (`wideVillage`: devnet-p17 — the devnet flow carries a wide village's Harvest and Build; no local-play relay passes it)
+export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA, outpost = false, wideVillage = false } = {}) {
   check(exact(body, ['schema', 'name', 'subject', 'fields', 'transaction_b64']) && body.schema === schema
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
-  const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet, coexist: coexistPins(pins), outpost });
+  const intent = localActIntent({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet, coexist: coexistPins(pins), outpost, wideVillage });
   const wire = Buffer.from(body.transaction_b64, 'base64');
   check(wire.toString('base64') === body.transaction_b64 && wire.length <= 1232);
   let tx; try { tx = parseTransaction(wire); } catch { fail('LocalActInvalid'); }
@@ -370,7 +376,7 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
   if (intent.name === 'FileTicket') return;
   // (a wide village's own act: the Citizen above is this relay's check; the program authenticates the wide holding,
   //  its owner and its provinces — a legacy Holding cannot stand at a wide address)
-  if (WIDE_HOST_ACTS.includes(intent.name)) return;
+  if (WIDE_BUILT_ACTS.includes(intent.name)) return;
   // (TEST-ONLY, the coexist lane: a use of a Grant is checked against the Grant itself, `localActGrantCheck`; a caravan
   //  names places the program authenticates — the Citizen above is this relay's check)
   if (COEXIST_ACTS.includes(intent.name) && intent.name !== 'IssueGrant' && intent.name !== 'BuildVault') return;

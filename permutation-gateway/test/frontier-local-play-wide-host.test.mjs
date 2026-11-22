@@ -253,7 +253,9 @@ test('LP6-5: the wide host card follows its march — on its way, standing on th
 test('LP6-6: in a local wide-land world the header says the card below sends; elsewhere it stays read-only', async () => {
   const fs = await import('node:fs');
   const card = fs.readFileSync(new URL('../../permutation-server/web/frontier/screens/wideholding.mjs', import.meta.url), 'utf8');
-  assert.match(card, /\$\{hostCard \? localWideNote\(\) : noExecutionNote\(\)\}/);
+  // (devnet-p17: a third notice — the devnet page's wide village acts card, devnetWideNote — stands where that card does;
+  //  the local wide-land host card keeps localWideNote first, everything else noExecutionNote)
+  assert.match(card, /\$\{hostCard \? localWideNote\(\) : actsCard \? devnetWideNote\(\) : noExecutionNote\(\)\}/);
   const { localWideNote, noExecutionNote } = await import('../../permutation-server/web/frontier/screens/wideholding.mjs');
   assert.match(String(localWideNote()), /命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）/);
   assert.doesNotMatch(String(localWideNote()), /この村には命令を送れません（収穫・建設・訓練・編成・進軍/);

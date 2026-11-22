@@ -48,6 +48,13 @@
 // one (`LocalActProvinceAbsent`, before any send: the program would answer BadAccount). Its context
 // (`…-outpost-context-v1`) adds the cluster's rent of the Holding the ticket escrows, so the page's preview names what
 // the wallet pays. Keeper A's `tickets` role settles the ticket, as a rim first village's.
+// devnet-p17 (devnet gap P17): a WIDE village's own acts — WideHarvest, WideBuild, WideTrain, WideMuster (0xDA op 3 /
+// op 1, the shared builder web/frontier/flocalplay-wide-host.mjs) — are acts too (DEVNET_ACT_COMMANDS), checked by the
+// same core; the submit also reads the wide holding and its own wide province in the same call: the holding must be
+// this program's wide holding (magic, Season) owned by the wallet's Citizen (`LocalActNotYourVillage`), the province
+// present (`LocalActProvinceAbsent`), before any send. WideDepart is NOT here (the devnet build keeps its debit closed:
+// NotImplemented). Its context (`…-wide-village-context-v1`, with the village) adds the cluster's rent of the wide
+// roster a FIRST WideMuster of the province creates from the payer, and whether that roster is there already.
 // No key is held, nothing is signed here. Off unless the operator starts the gateway with `--devnet-play`
 // (config.mjs devnetPlayConfigProblems: cluster devnet, an https RPC; the offline test form only on loopback).
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
@@ -63,10 +70,17 @@ import { departUnsignedMessage, DEVNET_DEPART_CU_LIMIT, DEVNET_DEPART_LOADED_LIM
 import { singleSigned } from './local-play-relay.mjs';
 import { LocalMarchError, localMarchAccountOf, localMarchAccountsCheck, localMarchSubmit, sealBinding } from './local-play-march.mjs';
 import { OUTPOST_ACT, OUTPOST_HOLDING_BYTES } from '../../../permutation-server/web/frontier/fdevnet-outpost.mjs';
+import { WIDE_VILLAGE_ACTS, WIDE_ROSTER_BYTES, wideVillageAccounts } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
+import { worldIdOf, ringPosition } from '../../../permutation-server/web/frontier/map/wide.mjs';
 
 /** The commands a devnet page sends itself (the first village, its economy, the wide claim). */
 // (devnet-page-outpost: and FileOutpost, the second and third village)
-export const DEVNET_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, OUTPOST_ACT]);
+// (devnet-p17: and a wide village's own Harvest, Build, Train and Muster)
+export const DEVNET_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, OUTPOST_ACT, ...WIDE_VILLAGE_ACTS]);
+/** devnet-p17: the context of a wide village's act — the blockhash, the cluster's rent of the wide roster, and whether it is there. */
+export const DEVNET_WIDE_VILLAGE_CONTEXT_SCHEMA = 'frontier-devnet-play-wide-village-context-v1';
+/** devnet-p17: a wide holding as the submit checks it (fwide.mjs: size, magic, the Season id at 8, the owner Citizen at 72). */
+export const DEVNET_WIDE_HOLDING = Object.freeze({ SIZE: 1344, MAGIC: 'PSFXWHL1', SEASON_ID: 8, OWNER_CITIZEN: 72 });
 /** devnet-page-outpost: the context of a FileOutpost — the blockhash, and the cluster's rent of the Holding it escrows. */
 export const DEVNET_OUTPOST_CONTEXT_SCHEMA = 'frontier-devnet-play-outpost-context-v1';
 export const DEVNET_ACT_ROUTES = Object.freeze({ context: 'POST /f/devnet-play/act/context', submit: 'POST /f/devnet-play/act/submit', status: 'POST /f/devnet-play/act/status' });
@@ -154,16 +168,52 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
   const seen = new Map();   // digest → {signature, name, at}; also the status route's list
   const remember = (digest, e) => { seen.set(digest, e); while (seen.size > DEVNET_ACT_MAX_HISTORY) seen.delete(seen.keys().next().value); };
   const ask = async (method, params) => { let r; try { r = await rpc(method, params); } catch { fail('LocalActRpcUnavailable'); } if (!r || r.error !== undefined) fail('LocalActRpcUnavailable'); return r; };
+  const world = worldIdOf(A.season, cfg.programId);
+  /** devnet-p17: the wide accounts of `village` `{p, q, site}` (decimal p/q strings, ring 129+), or LocalActInvalid. */
+  const wideOf = village => {
+    check(exact(village, ['p', 'q', 'site']) && typeof village.p === 'string' && typeof village.q === 'string' && /^-?(0|[1-9][0-9]{0,17})$/.test(village.p)
+      && /^-?(0|[1-9][0-9]{0,17})$/.test(village.q) && Number.isInteger(village.site) && village.site >= 0 && village.site <= 11);
+    let ring; try { ring = ringPosition(BigInt(village.p), BigInt(village.q)).ring; } catch { fail('LocalActInvalid'); }
+    check(ring >= 129n);
+    return wideVillageAccounts({ programId: cfg.programId, seasonId, world, village });
+  };
+  /** devnet-p17: the wide-village context — a blockhash, the roster's rent on this cluster, and whether the roster is there. */
+  const wideVillageContext = async body => {
+    check(exact(body, ['schema', 'wallet', 'village']) && address(body.wallet));
+    const acc = wideOf(body.village);
+    const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);
+    const v = r.result?.value, slot = r.result?.context?.slot;
+    if (!address(v?.blockhash) || !Number.isSafeInteger(v.lastValidBlockHeight) || v.lastValidBlockHeight < 0 || !Number.isSafeInteger(slot) || slot < 0) fail('LocalActRpcUnavailable');
+    const rent = (await ask('getMinimumBalanceForRentExemption', [WIDE_ROSTER_BYTES, { commitment: 'confirmed' }])).result;
+    if (!Number.isSafeInteger(rent) || rent < 0) fail('LocalActRpcUnavailable');
+    const got = await ask('getMultipleAccounts', [[acc.roster], { encoding: 'base64', commitment: 'confirmed' }]);
+    const rows = got.result?.value;
+    if (!Array.isArray(rows) || rows.length !== 1) fail('LocalActRpcUnavailable');
+    const roster = localActAccountOf(rows[0]);
+    return { wallet: body.wallet, blockhash: { hash: v.blockhash, last_valid_block_height: String(v.lastValidBlockHeight), context_slot: String(slot) },
+      roster_rent: String(rent), roster_present: roster !== null && roster.owner === cfg.programId };
+  };
+  /** devnet-p17: the wide holding as read — this program's, of this Season, the Citizen's own (refused before the send otherwise). */
+  const wideHoldingCheck = (row, citizenAt) => {
+    const h = localActAccountOf(row);
+    check(h !== null && h.owner === cfg.programId, 'LocalActHolding');
+    const b = Buffer.from(h.bytes);
+    check(b.length === DEVNET_WIDE_HOLDING.SIZE && b.subarray(0, 8).toString('latin1') === DEVNET_WIDE_HOLDING.MAGIC
+      && b.readBigUInt64LE(DEVNET_WIDE_HOLDING.SEASON_ID).toString() === seasonId, 'LocalActHolding');
+    check(encode(b.subarray(DEVNET_WIDE_HOLDING.OWNER_CITIZEN, DEVNET_WIDE_HOLDING.OWNER_CITIZEN + 32)) === citizenAt, 'LocalActNotYourVillage');
+  };
   return Object.freeze({
     routes: DEVNET_ACT_ROUTES,
     /** The lane this gateway serves (its own configuration; nothing is read). */
     info: () => ({ schema: DEVNET_ACT_INFO_SCHEMA, cluster: 'devnet', program: base.program, season: base.season, season_id: seasonId, ruleset_hash: base.rulesetHash, commands: [...DEVNET_ACT_COMMANDS],
       march: { commands: [...DEVNET_MARCH_COMMANDS], reveal: 'keeper' },
       outpost: { commands: [OUTPOST_ACT], settle: 'keeper', holding_bytes: OUTPOST_HOLDING_BYTES },
+      wide_village: { commands: [...WIDE_VILLAGE_ACTS], roster_bytes: WIDE_ROSTER_BYTES, resolve: 'keeper' },
       expedition: { commands: [...DEVNET_EXPEDITION_COMMANDS], reveal: 'keeper', cu_limit: DEVNET_DEPART_CU_LIMIT, loaded_limit: DEVNET_DEPART_LOADED_LIMIT } }),
 
     async context(body) {
       if (exact(body, ['schema']) && body.schema === DEVNET_ACT_INFO_SCHEMA) return this.info();
+      if (body?.schema === DEVNET_WIDE_VILLAGE_CONTEXT_SCHEMA) return wideVillageContext(body);
       check(exact(body, ['schema', 'wallet']) && [DEVNET_ACT_CONTEXT_SCHEMA, DEVNET_EXPEDITION_CONTEXT_SCHEMA, DEVNET_OUTPOST_CONTEXT_SCHEMA].includes(body.schema) && address(body.wallet));
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);
       const v = r.result?.value, slot = r.result?.context?.slot;
@@ -188,7 +238,7 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       try { const t = parseTransaction(Buffer.from(body.transaction_b64, 'base64')); if (t.signers.length === 1) signer = t.signers[0]; } catch { fail('LocalActInvalid'); }
       check(address(signer), 'LocalActSigner');
       const pins = Object.freeze({ ...base, wallet: signer });
-      const ok = localActSubmit(body, pins, { schema: DEVNET_ACT_SUBMIT_SCHEMA, outpost: true }), digest = sha(ok.message);
+      const ok = localActSubmit(body, pins, { schema: DEVNET_ACT_SUBMIT_SCHEMA, outpost: true, wideVillage: true }), digest = sha(ok.message);
       check(!seen.has(digest), 'LocalActMessageUsed');
       const { intent } = ok;
       const citizenAt = A.of('Citizen', { wallet: pins.wallet });
@@ -196,13 +246,20 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       const holdingAt = intent.subject.holding ? A.of('Holding', intent.subject.holding) : null;
       // (devnet-page-outpost: a FileOutpost's target Province too, read in the same call — absent: refused before the send)
       const provinceAt = intent.name === OUTPOST_ACT ? A.of('Province', intent.subject.sites[0]) : null;
-      const asked = [citizenAt, ...(holdingAt === null ? [] : [holdingAt]), ...(provinceAt === null ? [] : [provinceAt])];
+      // (devnet-p17: a wide village's act — its wide holding and its own wide province, read in the same call)
+      const wide = WIDE_VILLAGE_ACTS.includes(intent.name) ? wideOf(intent.subject.wide) : null;
+      const asked = [citizenAt, ...(holdingAt === null ? [] : [holdingAt]), ...(provinceAt === null ? [] : [provinceAt]), ...(wide === null ? [] : [wide.holding, wide.province])];
       const got = await ask('getMultipleAccounts', [asked, { encoding: 'base64', commitment: 'confirmed' }]);
       const slot = got.result?.context?.slot, rows = got.result?.value;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== asked.length) fail('LocalActRpcUnavailable');
       localActAccountsCheck(intent, pins, { citizenAt, holdingAt },
         [localActAccountOf(rows[0]), holdingAt === null ? undefined : localActAccountOf(rows[1])]);
       if (provinceAt !== null) { const pv = localActAccountOf(rows[2]); check(pv !== null && pv.owner === pins.program, 'LocalActProvinceAbsent'); }
+      if (wide !== null) {
+        const at = asked.length - 2;
+        wideHoldingCheck(rows[at], citizenAt);
+        const pv = localActAccountOf(rows[at + 1]); check(pv !== null && pv.owner === pins.program, 'LocalActProvinceAbsent');
+      }
       check(!seen.has(digest), 'LocalActMessageUsed');   // (re-checked after the await; synchronous from here to the send)
       remember(digest, Object.freeze({ signature: ok.signature, name: intent.name, at: now() }));
       let sent;

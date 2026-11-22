@@ -96,6 +96,7 @@ permutation-gateway/test/web-frontier-devnet-depart.test.mjs
 permutation-gateway/test/web-frontier-devnet-march.test.mjs
 permutation-gateway/test/web-frontier-devnet-outpost.test.mjs
 permutation-gateway/test/web-frontier-devnet-play.test.mjs
+permutation-gateway/test/web-frontier-devnet-wide-village.test.mjs
 permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs
 permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs
 permutation-gateway/test/web-frontier-fplay-profile.test.mjs
@@ -240,6 +241,7 @@ permutation-gateway/test/web-frontier-cq-march-other-village.test.mjs
 permutation-gateway/test/web-frontier-defend-keep.test.mjs
 permutation-gateway/test/web-frontier-design-pass.test.mjs
 permutation-gateway/test/web-frontier-devnet-march-wait.test.mjs
+permutation-gateway/test/web-frontier-devnet-wide-village-card.test.mjs
 permutation-gateway/test/web-frontier-dispersed-map.test.mjs
 permutation-gateway/test/web-frontier-dissolve-other-village.test.mjs
 permutation-gateway/test/web-frontier-drawer-order-first.test.mjs

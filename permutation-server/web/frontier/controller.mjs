@@ -64,6 +64,7 @@ import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
 import * as devnetPlayMod from './fdevnetplay.mjs';
 import { outpostCost } from './fdevnet-outpost.mjs';
+import * as wideVillage from './fdevnet-wide-village.mjs';
 import { outpostCandidates, OUTPOST_PREVIEW_MS } from './screens/outpostcard.mjs';
 import { nextOutpostSlot } from './fconquest.mjs';
 import { openDevnetBook } from './fdevnetbook.mjs';
@@ -3440,6 +3441,78 @@ async function outpostRecheck(target, walletAddress) {
   return offer.eligible ? { ok: true, offer } : { ok: false, code: offer.code ?? 'OutpostRule', text: offer.reason };
 }
 
+/**
+ * (devnet-p17) The checks of one wide village act, made again from fresh reads: the Citizen's record (`/h/me`, which
+ * carries the wide village's captured bytes), the village's own province from the herald's wide route (a muster's
+ * passable tiles and the province's turn cursor), then fdevnet-wide-village.mjs wideVillageCheck. Only the player's
+ * own village and province are read (fog). → `{ok: true, entry, village, province, warn}` or a refusal.
+ */
+async function wideActRecheck(name, fields, walletAddress) {
+  if (!walletAddress || !devnetPlay || !devnetPlayMod.devnetWideVillageOn(devnetPlay) || devnetGate().ok !== true) return { ok: false, code: devnetGate().code ?? 'DevnetPlayOff' };
+  const slot = FS.wideSelect?.inventorySlot ?? null;
+  await refresh().catch(() => null);
+  if (FS.wallet?.address !== walletAddress) return { ok: false, code: 'NotOwner' };
+  const entry = fwide.selectedWide(FS);
+  if (!entry || entry.inventorySlot !== slot) return { ok: false, code: 'WideVillageUnread' };
+  let province = null;
+  if (entry.holding && name === wideVillage.WIDE_MUSTER) {
+    const r = await herald.wideRoute({ places: [{ p: String(entry.holding.p), q: String(entry.holding.q) }] }).catch(() => null);
+    const cap = r?.ok !== false ? (r?.json ?? r)?.route?.find?.(x => String(x?.p) === String(entry.holding.p) && String(x?.q) === String(entry.holding.q))?.capture?.bytes_b64 : null;
+    try { province = typeof cap === 'string' ? wideVillage.wideProvinceFacts(fromBase64(cap)) : null; } catch { province = null; }
+    // (the card's tile list: this village's province's passable tiles, as last read)
+    if (province) FS.wideActProvince = { p: String(entry.holding.p), q: String(entry.holding.q), passable: province.passable };
+    // (「自動」: the first passable tile of the province)
+    if (fields.tile === -1 && province?.passable.length) fields = { ...fields, tile: province.passable[0] };
+  }
+  const c = wideVillage.wideVillageCheck(entry, { name, fields, province, nowBell: nowBell() });
+  if (!c.ok) return { ok: false, code: c.code, text: wideActRefusalText(c) };
+  return { ok: true, entry, village: wideVillage.wideVillageOf(entry.holding), province, fields, warn: c.warn };
+}
+/** (devnet-p17) The page's own words for a refusal it makes before anything is signed ('' → the code's general text). */
+function wideActRefusalText(c) {
+  switch (c.code) {
+    case 'WideVillageUnread': return L`遠方の村の記録をまだ読めていません。少し待ってからもう一度押してください。`;
+    case 'WideVillageNotLive': return L`この遠方の村は、いま命令を受けられる状態ではありません。`;
+    case 'NotFinal': return L`遠方の村が確定するまでは編成できません。`;
+    case 'WideVillageTroops': return L`軍勢は 100〜30,000 の兵で編成します。`;
+    case 'Insufficient': return L`控えのこの兵種は ${fmtNum(Number(c.have ?? 0))} です。兵数を減らすか、先に訓練してください。`;
+    case 'WideProvinceUnread': return L`この村の州の記録（通れるマス）をまだ読めていません。少し待ってからもう一度押してください。`;
+    case 'WideVillageTile': return L`そのマスには軍勢を置けません（通れないマスです）。別のマスを選んでください。`;
+    case 'QueueFull': return L`建設の列がいっぱいです。いまの建設が終わってから押してください。`;
+    case 'WideVillageShape': return L`入力の値を確かめてください。`;
+    default: return undefined;
+  }
+}
+/** (devnet-p17) What an accepted wide village act says. */
+function wideActDoneText(name, fields) {
+  if (name === wideVillage.WIDE_HARVEST) return L`遠方の村で収穫しました。`;
+  if (name === wideVillage.WIDE_BUILD) return L`遠方の村で建設を始めました。`;
+  if (name === wideVillage.WIDE_TRAIN) return L`遠方の村で兵 ${fmtNum(fields.n)} を訓練しました。`;
+  return L`遠方の村で兵 ${fmtNum(fields.troops)} の軍勢を編成しました。`;
+}
+/**
+ * (devnet-p17) The result read back: the village's record is read again (every 3 s, at most about a minute) until a
+ * capture after the send shows a change; the card then says what changed, by the record's own figures. A record that
+ * does not change in that time is said as that (not as a failure: the chain said the act landed).
+ */
+async function wideActReadBack(sent, { tries = 20, every = 3000 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    await new Promise(r => setTimeout(r, every));
+    if (FS.wideActPreview !== sent) return;
+    await refresh().catch(() => null);
+    const e = fwide.selectedWide(FS);
+    if (!e?.holding || FS.wideActPreview !== sent) continue;
+    const at = String(e.holding.currentness?.capturedSlot ?? '');
+    if (sent.beforeSlot !== '' && at !== '' && BigInt(at) <= BigInt(sent.beforeSlot)) continue;
+    const res = wideVillage.wideVillageResult(sent.before, e.holding.economy);
+    if (!res.changed) continue;
+    FS.wideActPreview = { ...sent, result: res, resultSlot: at };
+    invalidate('panel');
+    return;
+  }
+  if (FS.wideActPreview === sent) { FS.wideActPreview = { ...sent, result: { changed: false, unread: true } }; invalidate('panel'); }
+}
+
 async function homeAction(run) {
   if (FS.homeActionBusy || FS.inFlight > 0) return;
   FS.homeActionBusy = true; invalidate('panel');
@@ -4260,6 +4333,28 @@ export const ACTIONS = {
     invalidate('panel');
     return r;
   }),
+  // DEVNET PLAY (devnet-p17, devnet gap P17): the selected WIDE village's own acts — Harvest, Build, Train, Muster —
+  // wallet-paid, two presses, as the outpost card (screens/wideholding.mjs `wideActsCard`, fdevnet-wide-village.mjs):
+  // 1. preview: the village's record and its province read again, the page's own checks, what the wallet pays (the fee,
+  //    and on the province's FIRST muster the rent of its wide roster — the gateway's word for this cluster), nothing
+  //    signed; 2. send: the checks again, then ONE wallet-signed act through the devnet lane (act → flocalplay-act.mjs);
+  //    3. the result read back from the village's next record (fdevnet-wide-village.mjs wideVillageResult).
+  'wide-act-cancel': () => { if (FS.wideActPreview) { FS.wideActPreview = null; invalidate('panel'); } },
+  'wide-act-send': () => homeAction(async () => {
+    const pv = FS.wideActPreview, walletAddress = FS.wallet?.address;
+    if (pv?.step !== 'preview' || pv.wallet !== walletAddress || Date.now() - pv.at > wideVillage.WIDE_VILLAGE_PREVIEW_MS) {
+      FS.wideActPreview = null; return failed({ code: 'WideVillageStale', text: L`確認の内容が古くなりました。もう一度「費用を確認」を押してください。` });
+    }
+    const checked = await wideActRecheck(pv.name, pv.fields, walletAddress);
+    if (!checked.ok || JSON.stringify(checked.fields) !== JSON.stringify(pv.fields) || checked.village.p !== pv.village.p || checked.village.q !== pv.village.q || checked.village.site !== pv.village.site) { FS.wideActPreview = null; return failed(checked.ok ? { code: 'WideVillageStale' } : checked); }
+    const before = checked.entry.holding, village = pv.village, name = pv.name, fields = pv.fields;
+    const r = await act(name, { v: { wide: village }, fields, say: () => wideActDoneText(name, fields) });
+    if (!r?.ok) { FS.wideActPreview = null; invalidate('panel'); return r; }
+    FS.wideActPreview = { step: 'sent', name, fields, village, signature: r.signature, before: before.economy, beforeSlot: String(before.currentness?.capturedSlot ?? ''), result: null, at: Date.now() };
+    invalidate('panel');
+    wideActReadBack(FS.wideActPreview).catch(e => console.error('frontier wide read-back:', e));
+    return r;
+  }),
   // (TEST-ONLY wide -> wide marches, local wide-land worlds only, Q-W2 owner t385u: the selected WIDE village's own host —
   //  one press = the planner's one act: train Spearmen, muster a host, or march it onto a neighbouring province's keep;
   //  flocalplay-wide-plan.mjs, the same planner the AI residents use; the act is page-signed, flocalplay-wide-host.mjs)
@@ -4453,6 +4548,8 @@ function garrisonOrder(n) {
 
 /** Form submissions (data-form). */
 export const FORMS = {
+  // DEVNET PLAY (devnet-p17): a wide village's act, its first press — the preview (nothing signed; 'wide-act-send' sends)
+  'wide-act-preview': f => wideActPreview(f),
   // ② rights (TEST-ONLY, a coexist local world only: screens/rights.mjs)
   'rights-issue': f => rightsIssueFromForm(f),
   'rights-reserve': f => rightsUse('ReserveSwap', f.dataset, { units: Math.trunc(formNum(f, 'units')), seq: dnum(f.dataset, 'seq') }),
@@ -4485,6 +4582,29 @@ export const FORMS = {
   dest: f => setDestination({ p: Math.trunc(formNum(f, 'p')), q: Math.trunc(formNum(f, 'q')), tile: Math.trunc(formNum(f, 'tile')) }),
 };
 fwide.guardLegacy(FORMS, fwide.GUARDED_FORMS, { FS, refuse: failed });
+
+/** (devnet-p17) The preview of one wide village act from its card's form (screens/wideholding.mjs wideActsCard). */
+// (the Build item's field is `wide_item`: a form's `elements.item` is the collection's own item() method, not a field)
+function wideActPreview(f) {
+  const name = String(f?.elements?.act?.value ?? f?.dataset?.wideAct ?? '');
+  const n = k => Math.trunc(formNum(f, k));
+  const fields = name === wideVillage.WIDE_HARVEST ? {} : name === wideVillage.WIDE_BUILD ? { item: n('wide_item') }
+    : name === wideVillage.WIDE_TRAIN ? { unit: n('unit'), n: n('n') } : { unit: n('unit'), troops: n('troops'), tile: n('tile') };
+  return homeAction(async () => {
+    const walletAddress = FS.wallet?.address;
+    const checked = await wideActRecheck(name, fields, walletAddress);
+    if (!checked.ok) { FS.wideActPreview = null; return failed(checked); }
+    let ctx;
+    try { ctx = await localAct.postLocalAct(devnetPlay.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: wideVillage.WIDE_VILLAGE_CONTEXT_SCHEMA, wallet: walletAddress, village: checked.village }); }
+    catch (e) { return failed({ code: e?.code ?? 'LocalActNoAnswer' }); }
+    if (ctx?.wallet !== walletAddress || typeof ctx?.roster_rent !== 'string' || !/^(0|[1-9][0-9]{0,15})$/.test(ctx.roster_rent) || typeof ctx.roster_present !== 'boolean') return failed({ code: 'Unavailable' });
+    FS.wideActPreview = { step: 'preview', name, fields: checked.fields, village: checked.village, cost: wideVillage.wideVillageCost({ name, rosterRent: BigInt(ctx.roster_rent), rosterPresent: ctx.roster_present }),
+      rosterNew: name === wideVillage.WIDE_MUSTER && !ctx.roster_present, warn: checked.warn, province: checked.province ? { resolvedNext: checked.province.resolvedNext } : null,
+      wallet: walletAddress, at: Date.now() };
+    setNotice(null);
+    return { ok: false, quiet: true };
+  });
+}
 
 /** Bound inputs (data-bind) of the composer and the join draft. */
 export function bind(name, value) {

@@ -14,8 +14,9 @@
 // march, caravan or nudge (fwide.mjs wideRefusal). The one exception is the
 // TEST-ONLY local wide-land world's own host card (「広い土地の軍勢（テスト）」,
 // controller `wide-host-step`: train, muster, march), and the header says so
-// there (fix-loop6 LP6-6, localWideNote).
-import { html } from '../../util.mjs';
+// there (fix-loop6 LP6-6, localWideNote). And on a devnet season the page plays itself, the wide village's own acts
+// card (devnet-p17, 「この遠方の村への命令」: harvest, build, train, muster — wallet-paid, two presses; devnetWideNote).
+import { html, raw } from '../../util.mjs';
 import { fogNow } from '../map/fog.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { RESOURCES, UNITS, TIERS, BUILDINGS, HOLDING_STATES, factionName } from '../fi18n.mjs';
@@ -24,6 +25,10 @@ import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { cardHead, stamp, chip, fold } from './parts.mjs';
 import { lamports } from './shell.mjs';
 import { selectedWide, wideSlots } from '../fwide.mjs';
+import { devnetWideVillageOn } from '../fdevnetplay.mjs';
+import { solText } from '../fdevnet-outpost.mjs';
+import { WIDE_HARVEST, WIDE_BUILD, WIDE_TRAIN, WIDE_MUSTER, WIDE_UNITS, WIDE_VILLAGE_MAX_TROOPS } from '../fdevnet-wide-village.mjs';
+import { WIDE_BUILD_ITEM_MAX, WIDE_MIN_HOST_TROOPS } from '../flocalplay-wide-host.mjs';
 
 /** An exact amount of stored milli-units as "123.456" (never a Number: 2^53 and above survive). */
 export function formatMilli(s) {
@@ -74,6 +79,86 @@ export const noExecutionNote = () => html`<p class="blocked wide-noexec">${icon(
  * header said 「読み取り専用：この村には命令を送れません（…訓練・編成・進軍…）」 right above it.
  */
 export const localWideNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`この村の記録の表示は読み取り専用です。命令は、下の「広い土地の軍勢（テスト）」だけが送ります（訓練・編成・進軍）。収穫・建設・隊商・追いつかせる は、この村には送れません。`}</p>`;
+
+/** (devnet-p17) The notice on a devnet season, where the card below DOES send the village's own four acts. */
+export const devnetWideNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`この村の記録の表示は読み取り専用です。命令は、下の「この遠方の村への命令」だけが送ります（収穫・建設・訓練・編成）。進軍・隊商・追いつかせる は、この村には送れません。`}</p>`;
+
+/** (devnet-p17) Whether the devnet wide village acts card stands on this page (devnet play carries all four acts). */
+export const wideActsOn = FS => !!FS?.devnetPlay && !FS.localPlay && devnetWideVillageOn(FS.devnetPlay);
+
+const unitName = u => UNITS[UNIT_ORDER[u]] ?? String(u);
+const itemName = item => (item === 7 ? L`村の昇格` : item === 6 ? BUILDINGS.Walls : BUILDINGS[buildItemOf(item)?.resource] ?? L`建物`);
+/** (devnet-p17) The act in the page's words, with its figures (the preview's and the result's title). */
+export function wideActLabel(name, fields = {}) {
+  if (name === WIDE_HARVEST) return L`収穫`;
+  if (name === WIDE_BUILD) return L`建設：${itemName(fields.item)}`;
+  if (name === WIDE_TRAIN) return L`訓練：${unitName(fields.unit)} ${fmtNum(fields.n)}`;
+  if (name === WIDE_MUSTER) return L`編成：${unitName(fields.unit)} ${fmtNum(fields.troops)}（マス ${fmtNum(fields.tile)}）`;
+  return name;
+}
+/** (devnet-p17) The result read back, line by line (the record's own figures); [] while nothing is read yet. */
+export function wideActResultLines(res) {
+  if (!res) return [];
+  if (!res.changed) return [L`遠方の村の記録は、まだ変わって見えません。チェーンには記録されています。次の読み込みで表示されます。`];
+  const out = [];
+  for (const r of res.reserve ?? []) out.push(L`控えの${unitName(r.unit)}：${fmtNum(r.from)} → ${fmtNum(r.to)}`);
+  if (res.queue) out.push(L`建設の列：${fmtNum(res.queue.from)} → ${fmtNum(res.queue.to)}`);
+  if (res.walls) out.push(L`城壁：${fmtNum(res.walls.from)} → ${fmtNum(res.walls.to)}`);
+  if (res.tier) out.push(L`村の段階：${TIERS[res.tier.from] ?? res.tier.from} → ${TIERS[res.tier.to] ?? res.tier.to}`);
+  for (const x of (res.stores ?? []).slice(0, 4)) out.push(L`${RESOURCES[x.resource] ?? x.resource}：${formatMilli(x.from)} → ${formatMilli(x.to)}`);
+  if (!out.length) out.push(L`遠方の村の記録が更新されました（最後の操作の時刻）。`);
+  return out;
+}
+
+/**
+ * (devnet-p17, devnet gap P17) The devnet wide village acts card: harvest, build, train, muster — each its own small
+ * form whose first press (「費用を確認」, FORMS 'wide-act-preview') reads everything again and says what the wallet pays;
+ * the second (「署名して送る」, 'wide-act-send') sends ONE wallet-signed act; then the result read back. '' when off.
+ */
+export function wideActsCard(FS, m) {
+  if (!wideActsOn(FS) || m?.kind !== 'wide' || !m.holding) return '';
+  // (a preview or result of another wide village — the rail switched — is not this card's)
+  const pv0 = FS.wideActPreview ?? null, here = pv0?.village && pv0.village.p === String(m.holding.p) && pv0.village.q === String(m.holding.q) && pv0.village.site === Number(m.holding.site);
+  const x = m.holding.economy, pv = here ? pv0 : null, busy = !!FS.homeActionBusy || (FS.inFlight ?? 0) > 0;
+  const dis = busy || pv?.step === 'preview' ? 'disabled' : '';
+  const reserve = WIDE_UNITS.map(u => ({ unit: u, troops: Number(x.reserve?.[u] ?? 0) }));
+  const musterUnit = reserve.find(r => r.troops >= WIDE_MIN_HOST_TROOPS)?.unit ?? 0;
+  const tiles = FS.wideActProvince?.passable ?? null;
+  const unitSelect = (id, sel, list = WIDE_UNITS) => html`<select id="${id}" name="unit">${list.map(u => html`<option value="${u}" ${raw(u === sel ? 'selected' : '')}>${unitName(u)}</option>`)}</select>`;
+  const form = (act, body, hint) => html`<form class="vform wide-act" data-form="wide-act-preview" data-wide-act="${act}"><input type="hidden" name="act" value="${act}">${body}
+    <div class="actions"><button type="submit" class="btn" data-wide-preview="${act}" ${raw(dis)}>${L`費用を確認`}</button>${hint ? html`<span class="muted">${hint}</span>` : ''}</div></form>`;
+  const forms = [
+    form(WIDE_HARVEST, html`<h4>${L`収穫`}</h4>`, L`蔵の生産を記録に入れます。`),
+    form(WIDE_BUILD, html`<h4>${L`建設`}</h4><label for="wa-item">${L`建物`}</label><select id="wa-item" name="wide_item">${Array.from({ length: WIDE_BUILD_ITEM_MAX + 1 }, (_, i) => html`<option value="${i}">${itemName(i)}</option>`)}</select>`,
+      L`費用は村の蔵から払います。`),
+    form(WIDE_TRAIN, html`<h4>${L`訓練`}</h4><label for="wa-tunit">${L`兵種`}</label>${unitSelect('wa-tunit', 0)}<label for="wa-n">${L`人数`}</label><input id="wa-n" name="n" type="number" min="1" max="${WIDE_VILLAGE_MAX_TROOPS}" step="1" value="100" inputmode="numeric">`,
+      L`費用は村の蔵から払い、兵はすぐ控えに入ります。`),
+    form(WIDE_MUSTER, html`<h4>${L`編成`}</h4><label for="wa-munit">${L`兵種`}</label>${unitSelect('wa-munit', musterUnit)}<label for="wa-troops">${L`兵数（100〜30,000）`}</label><input id="wa-troops" name="troops" type="number" min="${WIDE_MIN_HOST_TROOPS}" max="${WIDE_VILLAGE_MAX_TROOPS}" step="1" value="${Math.max(WIDE_MIN_HOST_TROOPS, Math.min(reserve[musterUnit].troops, 1000))}" inputmode="numeric">
+      <label for="wa-tile">${L`マス`}</label><select id="wa-tile" name="tile"><option value="-1">${L`自動（通れる最初のマス）`}</option>${(tiles ?? []).map(t => html`<option value="${t}">${fmtNum(t)}</option>`)}</select>`,
+      L`村が確定し、州の前のターンが決着していると編成できます。控えの兵 ${fmtNum(reserve.reduce((a, r) => a + r.troops, 0))}。`),
+  ];
+  let status = '';
+  if (pv?.step === 'preview') {
+    const c = pv.cost;
+    status = html`<div class="wide-act-preview" role="status" data-wide-act-step="preview" data-total="${String(c.total)}">
+      <p><strong>${wideActLabel(pv.name, pv.fields)}</strong></p>
+      <p>${L`ウォレットが払う額：最大 ${solText(c.total)} SOL（devnet の SOL）`}</p>
+      <ul class="muted"><li>${L`手数料（署名1つ）：${solText(c.fee)} SOL`}</li>${pv.rosterNew ? html`<li>${L`この州で最初の編成：軍勢の名簿（3,248 バイト）の家賃 ${solText(c.deposit)} SOL。名簿はシーズンの終わりまで残ります。`}</li>` : ''}</ul>
+      ${(pv.warn ?? []).includes('WideProvinceLag') ? html`<p class="blocked">${L`この村の州の記録は ${fmtNum(Number(pv.province?.resolvedNext ?? 0))} ターンまで決着しています（いまはターン ${fmtNum(Number(FS.nowBell ?? 0))}）。チェーンに断られたら送られず、手数料もかかりません。少し待ってからもう一度どうぞ。`}</p>` : ''}
+      <p class="muted">${L`送る前にチェーンが内容を確かめます。断られたら送られず、何も払いません。`}</p>
+      <div class="actions"><button type="button" class="btn primary" data-act="wide-act-send" ${raw(busy ? 'disabled' : '')}>${L`署名して送る`}</button><button type="button" class="btn ghost" data-act="wide-act-cancel">${L`やめる`}</button></div></div>`;
+  } else if (pv?.step === 'sent') {
+    const lines = wideActResultLines(pv.result);
+    status = html`<div class="wide-act-result" role="status" data-wide-act-step="${pv.result ? 'result' : 'sent'}" data-changed="${pv.result ? String(!!pv.result.changed) : ''}">
+      <p><strong>${wideActLabel(pv.name, pv.fields)}</strong> — ${L`チェーンに記録されました。`}</p>
+      ${lines.length ? html`<ul>${lines.map(t => html`<li>${t}</li>`)}</ul>` : html`<p class="muted">${icon('hourglass')}${L`遠方の村の記録を読み直しています…`}</p>`}
+      <p class="muted"><code title="${pv.signature}">${String(pv.signature).slice(0, 16)}…</code></p></div>`;
+  }
+  return html`<section class="vcard wide-village" id="wide-acts" aria-labelledby="wide-acts-h">
+    ${cardHead({ id: 'wide-acts-h', ic: 'hammer', title: L`この遠方の村への命令`, side: stamp(L`devnet・ウォレット払い`, 'info') })}
+    <p>${L`命令ごとに、あなたのウォレットが1回だけ署名し、手数料を払います（この州で最初の編成なら、軍勢の名簿の家賃も）。まず「費用を確認」で払う額を見てから送ります。`}</p>
+    ${status}${forms}</section>`;
+}
 
 /**
  * (fix-loop5, L5-1) What the wide host card is waiting for (controller `wideHostWait`): the page sends nothing while it
@@ -176,14 +261,16 @@ export function render(FS) {
     <div class="actions">${FS.ui?.wideHost?.waiting
       ? html`<button type="button" class="btn" data-act="wide-host-step" disabled aria-disabled="true">${L`待っています…（押す必要はありません）`}</button><button type="button" class="btn ghost" data-act="wide-host-stop">${L`待つのをやめる`}</button>`
       : html`<button type="button" class="btn" data-act="wide-host-step">${L`次の一手（広い土地）`}</button>`}</div></section>` : '';
+  // (devnet-p17: on a devnet season the page plays itself, the village's own four acts — harvest, build, train, muster)
+  const actsCard = hostCard ? '' : wideActsCard(FS, m);
   const head = html`<section class="vcard village-head wide-village" aria-labelledby="wide-v-title">
     ${cardHead({ id: 'wide-v-title', ic: 'home', title: m.title, sub: `${coordText(h.p, h.q)} · ${L`村の場所 ${fmtNum(h.site)} · 世代 ${fmtNum(h.generation)}`}`, side: stamp(L`捕捉・未検証`, 'warn') })}
     <ul class="fact-chips">
-      <li>${hostCard ? chip(L`記録は読み取り専用`, 'info', 'eye') : chip(L`読み取り専用`, 'info', 'eye')}</li>
+      <li>${hostCard || actsCard ? chip(L`記録は読み取り専用`, 'info', 'eye') : chip(L`読み取り専用`, 'info', 'eye')}</li>
       <li>${chip(L`現在性：未確認`, 'warn', 'hourglass')}</li>
       <li>${chip(L`経過時間：不明`, '', 'moon')}</li>
     </ul>
-    ${hostCard ? localWideNote() : noExecutionNote()}${fogNow().on ? '' : html`<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>`}${back}</section>`;
+    ${hostCard ? localWideNote() : actsCard ? devnetWideNote() : noExecutionNote()}${fogNow().on ? '' : html`<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>`}${back}</section>`;
 
   const provenance = html`<section class="vcard wide-village" aria-labelledby="wide-v-prov">
     ${cardHead({ id: 'wide-v-prov', ic: 'scroll', title: L`出どころ` })}
@@ -226,7 +313,7 @@ export function render(FS) {
   const troops = html`<section class="vcard wide-village" aria-labelledby="wide-v-troops">
     ${cardHead({ id: 'wide-v-troops', ic: 'sword', title: L`兵（捕捉時の控え）`, side: html`<span class="c-count">${L`控え ${fmtNum(m.reserve.reduce((a, r) => a + r.troops, 0))}`}</span>` })}
     ${m.reserve.length ? html`<ul class="reserve-list">${m.reserve.map(r => html`<li>${UNITS[UNIT_ORDER[r.unit]] ?? r.unit} ${fmtNum(r.troops)}</li>`)}</ul>` : html`<p class="muted">${L`記録上、控えの兵はいません`}</p>`}
-    <p class="muted">${L`訓練も編成もここからはできません。`}</p></section>`;
+    <p class="muted">${actsCard ? L`訓練と編成は「この遠方の村への命令」から送ります。` : L`訓練も編成もここからはできません。`}</p></section>`;
 
   const more = html`<section class="vcard vcard-folds wide-village" aria-label="${L`そのほか`}">
     ${fold('wide-v-raw', html`${icon('scroll')}${L`記録のそのほかの値`}`, html`<dl class="facts">
@@ -238,7 +325,7 @@ export function render(FS) {
       ${fact(L`生産（記録上の毎時）`, x.production.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
       ${fact(L`維持費（記録上の毎時）`, x.upkeep.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
     </dl>`)}</section>`;
-  return [head, ...(hostCard ? [hostCard] : []), provenance, stores, build, troops, more];
+  return [head, ...(hostCard ? [hostCard] : []), ...(actsCard ? [actsCard] : []), provenance, stores, build, troops, more];
 }
 
 /** Failed or unavailable wide reads are visible beside both layouts, never silently an empty inventory. */
