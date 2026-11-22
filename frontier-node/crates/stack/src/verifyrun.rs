@@ -113,6 +113,20 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             None
         }
     };
+    // verifier-v0v1: the lookup tables v0 transactions name, at the
+    // final states' slot (VT; unread: UNVERIFIABLE, never PASS).
+    let table_keys = input::lookup_table_keys(&txs);
+    let lookup_tables = if table_keys.is_empty() {
+        None
+    } else {
+        match input::fetch_lookup_tables(&rpc, &table_keys, final_slot).await {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("frontier-stack: the lookup tables: {e}");
+                None
+            }
+        }
+    };
     // ⑲: the history and the final states at one ledger point, or
     // `point_in_time_unverified` stays (never PASS).
     let mut history = history;
@@ -147,6 +161,7 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         declared: vec![],
         chain: input::ChainWitness {
             rent,
+            lookup_tables,
             ..Default::default()
         },
     })

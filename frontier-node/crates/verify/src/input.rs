@@ -155,6 +155,44 @@ pub struct ChainWitness {
     /// source stated it — the re-execution then ASSUMES the local node's
     /// 5,080 and the report says so (never a silent constant).
     pub rent: Option<RentRead>,
+    /// verifier-v0v1: the address lookup table accounts every v0
+    /// transaction's lookups name, as read at the pinned slot (with the
+    /// final states: `--rpc`, a finals file's `lookup_tables`, or a
+    /// fixture's `chain.lookup_tables`). VT ([`crate::lookup`]) checks each
+    /// looked-up address the archive records (`meta.loadedAddresses`)
+    /// against them. `None`: none read (VT: UNVERIFIABLE for every lookup).
+    pub lookup_tables: Option<LookupTables>,
+}
+
+/// See [`ChainWitness::lookup_tables`]. A lookup table is append-only and
+/// its address (a PDA of its authority and a recent slot) cannot be created
+/// again once closed, so a state read at any later slot shows, at every
+/// index it holds, the address that index held when the transaction ran.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LookupTables {
+    /// The slot they were read at (`None`: not said).
+    pub slot: Option<u64>,
+    /// Each table's account (`None`: absent at that slot — closed).
+    pub accounts: BTreeMap<Key, Option<Account>>,
+}
+
+impl LookupTables {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "slot": self.slot,
+            "accounts": self.accounts.iter().map(|(k, a)| json!([Address::new_from_array(*k).to_string(), a.as_ref().map(account_json)])).collect::<Vec<_>>(),
+        })
+    }
+    /// Strict: present but unreadable is an error.
+    pub fn from_json(v: &Value) -> Result<LookupTables, String> {
+        let slot = match v.get("slot") {
+            None | Some(Value::Null) => None,
+            Some(x) => Some(x.as_u64().ok_or("lookup_tables.slot")?),
+        };
+        let accounts = finals_from_json(v.get("accounts").ok_or("lookup_tables.accounts")?)
+            .map_err(|e| format!("lookup_tables.accounts: {e}"))?;
+        Ok(LookupTables { slot, accounts })
+    }
 }
 
 /// See [`ChainWitness::rent`]: the Rent sysvar's 17 bytes as read.
@@ -241,6 +279,7 @@ impl ChainWitness {
             && self.upgrade_authority.is_none()
             && self.cross.is_none()
             && self.rent.is_none()
+            && self.lookup_tables.is_none()
     }
     /// The balances of the transaction `t`, if archived.
     pub fn of(&self, t: &TxRecord) -> Option<&Balances> {
@@ -256,6 +295,9 @@ impl ChainWitness {
         }
         if let Some(r) = &self.rent {
             v["rent"] = r.to_json();
+        }
+        if let Some(t) = &self.lookup_tables {
+            v["lookup_tables"] = t.to_json();
         }
         v
     }
@@ -304,6 +346,10 @@ impl ChainWitness {
             rent: match v.get("rent") {
                 None | Some(Value::Null) => None,
                 Some(r) => Some(RentRead::from_json(r)?),
+            },
+            lookup_tables: match v.get("lookup_tables") {
+                None | Some(Value::Null) => None,
+                Some(t) => Some(LookupTables::from_json(t)?),
             },
         })
     }
@@ -517,9 +563,9 @@ pub fn finals_from_json(v: &Value) -> Result<BTreeMap<Key, Option<Account>>, Str
 pub fn written_keys(txs: &[TxRecord]) -> Vec<Address> {
     let mut v: std::collections::BTreeSet<[u8; 32]> = Default::default();
     for t in txs.iter().filter(|t| t.err.is_none()) {
-        if let Ok(tx) = fclient::tx::from_wire(&t.tx) {
-            for (i, k) in tx.message.account_keys.iter().enumerate() {
-                if fclient::tx::is_writable_index(&tx.message, i) {
+        if let Ok(m) = crate::vmsg::Msg::of(t) {
+            for (i, k) in m.keys.iter().enumerate() {
+                if m.is_writable_index(i) {
                     v.insert(k.to_bytes());
                 }
             }
@@ -940,6 +986,45 @@ pub async fn fetch_chain(
         upgrade_authority: upgrade_authority(url, program).await?,
         cross: None,
         rent: None,
+        lookup_tables: None,
+    })
+}
+
+/// verifier-v0v1: every lookup table a v0 transaction of `txs` names (the
+/// accounts [`fetch_lookup_tables`] reads with the final states).
+pub fn lookup_table_keys(txs: &[TxRecord]) -> Vec<Address> {
+    let mut v: std::collections::BTreeSet<Address> = Default::default();
+    for t in txs {
+        if let Ok(d) = fclient::vtx::decode(&t.tx) {
+            v.extend(d.lookups.iter().map(|l| l.account_key));
+        }
+    }
+    v.into_iter().collect()
+}
+
+/// The lookup tables `keys` at `slot` or later, over RPC (the final
+/// states' read; VT checks the archive's `loadedAddresses` against them).
+pub async fn fetch_lookup_tables(
+    url: &str,
+    keys: &[Address],
+    slot: u64,
+) -> Result<LookupTables, String> {
+    use fclient::ports::ChainPort;
+    let mut port = fclient::rpc::RpcPort::new(url, Address::default());
+    port.rpc = rpc_client(url);
+    let mut accounts = BTreeMap::new();
+    for chunk in keys.chunks(100) {
+        let got = port
+            .accounts(chunk, slot)
+            .await
+            .map_err(|e| e.to_string())?;
+        for (k, a) in chunk.iter().zip(got) {
+            accounts.insert(k.to_bytes(), a);
+        }
+    }
+    Ok(LookupTables {
+        slot: Some(slot),
+        accounts,
     })
 }
 

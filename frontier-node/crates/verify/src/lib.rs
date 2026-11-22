@@ -47,6 +47,7 @@ pub mod genesis;
 pub mod history;
 pub mod holding;
 pub mod input;
+pub mod lookup;
 /// Re-execution of an archived transaction by the pinned program (VX).
 #[cfg(feature = "playable-lane")]
 pub mod reexec;
@@ -55,6 +56,7 @@ pub mod report;
 pub mod resident_feed;
 pub mod skip;
 pub mod tamper;
+pub mod vmsg;
 /// Detached invocation-scoped conditional siege settlement proof only.
 #[cfg(feature = "wide-economy-experimental")]
 pub mod wide_conquest_settle;
@@ -285,8 +287,17 @@ pub fn verify(input: &Input) -> Report {
     };
     #[cfg(not(feature = "playable-lane"))]
     let r = verify_one(input);
-    // ⑰ Q-P1 (b): the second source (VS).
     let mut r = r;
+    // verifier-v0v1: VT, every v0 transaction's looked-up addresses against
+    // its lookup tables as read at the pinned slot (runs only when one has
+    // lookups: a legacy / v1 archive's report is unchanged).
+    let (vt, vt_ran) = lookup::judge(input);
+    if vt_ran {
+        r.checks_run.push("VT:lookup-tables");
+        r.findings.extend(vt);
+        settle(&mut r);
+    }
+    // ⑰ Q-P1 (b): the second source (VS).
     let (wf, outcome) = witness::judge(input);
     if outcome.is_some() {
         r.checks_run.push("VS:witness");

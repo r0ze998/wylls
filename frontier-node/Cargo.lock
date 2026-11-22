@@ -4852,6 +4852,7 @@ dependencies = [
  "solana-account",
  "solana-address 2.6.1",
  "solana-clock",
+ "solana-message",
  "solana-rent",
  "tokio",
 ]

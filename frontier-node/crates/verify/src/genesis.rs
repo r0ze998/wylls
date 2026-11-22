@@ -270,8 +270,8 @@ pub fn derive(input: &Input) -> Derived {
                 d,
             )),
         };
-        let msg = match fclient::tx::from_wire(&rec.tx) {
-            Ok(t) => t.message,
+        let parsed = match crate::vmsg::Msg::of(rec) {
+            Ok(t) => t,
             Err(e) => {
                 // V0 judges an undecodable transaction; its effects are unknown.
                 push(
@@ -281,11 +281,11 @@ pub fn derive(input: &Input) -> Derived {
                 continue;
             }
         };
-        let keys: Vec<Key> = msg.account_keys.iter().map(|k| k.to_bytes()).collect();
+        let keys: Vec<Key> = parsed.keys.iter().map(|k| k.to_bytes()).collect();
         let writable: Vec<bool> = (0..keys.len())
-            .map(|j| fclient::tx::is_writable_index(&msg, j))
+            .map(|j| parsed.is_writable_index(j))
             .collect();
-        let runtime: Vec<bool> = msg.account_keys.iter().map(|k| svm.runtime(k)).collect();
+        let runtime: Vec<bool> = parsed.keys.iter().map(|k| svm.runtime(k)).collect();
         let mark_unknown = |unknown: &mut BTreeSet<Key>| {
             for (j, k) in keys.iter().enumerate() {
                 if writable[j] && !runtime[j] {
@@ -410,7 +410,7 @@ pub fn derive(input: &Input) -> Derived {
         };
         let r = match replay_known(
             &mut svm,
-            &rec.tx,
+            &parsed,
             rec.slot,
             rec.block_time,
             pre,

@@ -34,6 +34,7 @@ use litesvm::LiteSVM;
 use solana_account::Account as SolAccount;
 use solana_address::Address;
 
+use crate::vmsg::Msg;
 use crate::world::Key;
 
 /// The pinned program binary and the chain parameters it ran under.
@@ -270,18 +271,19 @@ impl Svm {
             })
     }
 
-    /// Executes `wire` (the archived legacy transaction bytes) at `slot` /
+    /// Executes `m` (an archived transaction of any version, as signed;
+    /// [`crate::vmsg`]) at `slot` /
     /// `time` from the states `pre` gives for each message key:
     /// `Some((how, state))` (`None` state: absent), or `None` when nothing
     /// shows it (then [`Pre::Assumed`]).
     pub fn replay(
         &mut self,
-        wire: &[u8],
+        m: &Msg,
         slot: u64,
         time: i64,
         pre: impl Fn(&Key) -> Option<(Pre, Option<Account>)>,
     ) -> Result<Replayed, String> {
-        self.replay_with(wire, slot, time, pre, &BTreeMap::new())
+        self.replay_with(m, slot, time, pre, &BTreeMap::new())
     }
 
     /// [`Svm::replay`] with the lamports of some accounts given exactly
@@ -289,15 +291,14 @@ impl Svm {
     /// transaction [`replay_exact`] back-computed.
     pub fn replay_with(
         &mut self,
-        wire: &[u8],
+        m: &Msg,
         slot: u64,
         time: i64,
         pre: impl Fn(&Key) -> Option<(Pre, Option<Account>)>,
         exact: &BTreeMap<Key, u64>,
     ) -> Result<Replayed, String> {
-        let t = fclient::tx::from_wire(wire)?;
-        let keys = t.message.account_keys.clone();
-        let signers = t.message.header.num_required_signatures as usize;
+        let keys = m.keys.clone();
+        let signers = m.signers();
         let mut accounts = vec![];
         for (i, k) in keys.iter().enumerate() {
             if self.runtime(k) {
@@ -369,10 +370,38 @@ impl Svm {
             leader_schedule_epoch: 1,
             unix_timestamp: time,
         });
-        let (err, logs) = match self.svm.send_transaction(t) {
+        // verifier-v0v1: a v0 transaction's lookups resolve, inside
+        // LiteSVM, against tables holding exactly the addresses the record
+        // says the cluster loaded (VT proves them against the tables read
+        // at the pinned slot), so the re-run names the very accounts the
+        // archive's balances and post-states are about.
+        let tables = m.tables()?;
+        for (t, addrs) in &tables {
+            if keys.contains(t) {
+                return Err(format!(
+                    "lookup table {t} is also one of the transaction's accounts"
+                ));
+            }
+            self.svm
+                .set_account(
+                    *t,
+                    SolAccount {
+                        lamports: WALLET_FUND,
+                        data: crate::vmsg::active_table(addrs),
+                        owner: crate::vmsg::lookup_table_program(),
+                        executable: false,
+                        rent_epoch: u64::MAX,
+                    },
+                )
+                .map_err(|e| format!("set lookup table {t}: {e:?}"))?;
+        }
+        let (err, logs) = match self.svm.send_transaction(m.versioned()) {
             Ok(m) => (None, m.logs),
             Err(f) => (Some(format!("{:?}", f.err)), f.meta.logs),
         };
+        for (t, _) in &tables {
+            let _ = self.svm.set_account(*t, SolAccount::default());
+        }
         let accounts = accounts
             .into_iter()
             .map(|(k, how, before)| {
@@ -405,14 +434,14 @@ impl Svm {
 /// rests on it); the game's accounts are compared exactly.
 pub fn replay_exact(
     svm: &mut Svm,
-    wire: &[u8],
+    m: &Msg,
     slot: u64,
     time: i64,
     pre: impl Fn(&Key) -> Option<(Pre, Option<Account>)>,
     posted: impl Fn(&Key) -> Option<Option<Account>>,
     program: &Key,
 ) -> Result<Replayed, String> {
-    replay_known(svm, wire, slot, time, pre, posted, program, None)
+    replay_known(svm, m, slot, time, pre, posted, program, None)
 }
 
 /// [`replay_exact`] with every named account's lamports known before the
@@ -424,7 +453,7 @@ pub fn replay_exact(
 #[allow(clippy::too_many_arguments)]
 pub fn replay_known(
     svm: &mut Svm,
-    wire: &[u8],
+    m: &Msg,
     slot: u64,
     time: i64,
     pre: impl Fn(&Key) -> Option<(Pre, Option<Account>)>,
@@ -432,9 +461,8 @@ pub fn replay_known(
     program: &Key,
     known: Option<(&[u64], &[u64], u64)>,
 ) -> Result<Replayed, String> {
-    let t = fclient::tx::from_wire(wire)?;
     if let Some((pre_b, post_b, fee)) = known {
-        let keys = &t.message.account_keys;
+        let keys = &m.keys;
         if pre_b.len() != keys.len() || post_b.len() != keys.len() {
             return Err(format!(
                 "the archived balances name {} / {} accounts, the message {}",
@@ -449,7 +477,7 @@ pub fn replay_known(
             .filter(|(k, _)| !svm.runtime(k))
             .map(|(k, &l)| (k.to_bytes(), l))
             .collect();
-        let first = svm.replay_with(wire, slot, time, &pre, &exact)?;
+        let first = svm.replay_with(m, slot, time, &pre, &exact)?;
         // The fee payer: the runtime's fee (LiteSVM's) against the chain's.
         if let (Some((k, Pre::Archive | Pre::Assumed | Pre::Declared, b, a)), Some(&p0)) =
             (first.accounts.first(), pre_b.first())
@@ -465,15 +493,15 @@ pub fn replay_known(
             let svm_fee = d + fee as i128;
             if d != 0 && first.err.is_none() && svm_fee >= 0 && p0 as i128 + d >= 0 {
                 exact.insert(*k, (p0 as i128 + d) as u64);
-                return svm.replay_with(wire, slot, time, &pre, &exact);
+                return svm.replay_with(m, slot, time, &pre, &exact);
             }
         }
         return Ok(first);
     }
-    let first = svm.replay(wire, slot, time, &pre)?;
+    let first = svm.replay(m, slot, time, &pre)?;
     let mut exact = BTreeMap::new();
     for (i, (k, how, before, after)) in first.accounts.iter().enumerate() {
-        if *how == Pre::Runtime || !fclient::tx::is_writable_index(&t.message, i) {
+        if *how == Pre::Runtime || !m.is_writable_index(i) {
             continue;
         }
         let wallet = |a: &Option<Account>| {
@@ -497,7 +525,7 @@ pub fn replay_known(
     if exact.is_empty() {
         return Ok(first);
     }
-    svm.replay_with(wire, slot, time, &pre, &exact)
+    svm.replay_with(m, slot, time, &pre, &exact)
 }
 
 /// The log lines the comparison reads: all but the runtime's compute-unit

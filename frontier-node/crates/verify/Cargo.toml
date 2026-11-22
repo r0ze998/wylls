@@ -101,6 +101,9 @@ findex.workspace = true
 frontier-abi.workspace = true
 permutation-rules.workspace = true
 solana-address.workspace = true
+# verifier-v0v1: the legacy-shaped view of a v0 / v1 message (`src/vmsg.rs`);
+# already in Cargo.lock through fclient, no new crate.
+solana-message.workspace = true
 hex.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

@@ -342,3 +342,12 @@ pub const WITNESS_UNKNOWN_TX: &str = "WitnessUnknownTx";
 /// The two sources serve an item differently (a transaction's bytes or
 /// meta, a block, the account set, a final state, the binary, the cluster).
 pub const WITNESS_MISMATCH: &str = "WitnessMismatch";
+// VT lookup tables (verifier-v0v1, 2026-11-22)
+/// A v0 transaction's looked-up address (`meta.loadedAddresses` as
+/// archived) differs from what its lookup table holds at that index as read
+/// at the pinned slot, or the table is not a lookup table / lacks the index.
+pub const LOOKUP_MISMATCH: &str = "LookupMismatch";
+/// A v0 transaction's lookup table was not read, or is closed at the pinned
+/// slot: its looked-up addresses rest on the archive's own claim
+/// (UNVERIFIABLE, never PASS).
+pub const LOOKUP_TABLE_UNREAD: &str = "LookupTableUnread";
