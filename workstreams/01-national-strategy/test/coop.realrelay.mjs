@@ -49,7 +49,7 @@ try {
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
   const origin = `http://127.0.0.1:${srv.address().port}`;
   const browser = await chromium.launch();
-  const page = await browser.newPage();
+  const page = await browser.newPage({ locale: 'ja-JP' });   // （2026-11-23）日本語の表示を確かめる（英語のブラウザでは板は英語になる：coop/lang.mjs）
   await page.goto(`${origin}${PAGE}`);
 
   await step('本物の中継は CORS の見出しを返さず、OPTIONS に NotFound で答える（直接の問い合わせ）', async () => {
