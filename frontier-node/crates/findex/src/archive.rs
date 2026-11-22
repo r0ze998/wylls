@@ -136,11 +136,17 @@ impl Manifest {
 
 /// The JSON payload of one archived transaction.
 pub fn record_to_json(r: &TxRecord) -> Value {
-    json!({
+    let mut v = json!({
         "seq": r.seq, "slot": r.slot, "signature": r.signature.to_string(), "block_time": r.block_time,
         "tx": B64.encode(&r.tx), "logs": r.logs, "err": r.err, "code": r.code, "units": r.units, "fee": r.fee,
         "post": r.post.iter().map(|(k, a)| json!([k.to_string(), a.as_ref().map(account_json)])).collect::<Vec<_>>(),
-    })
+    });
+    // herald-v0v1-decode: a v0 transaction's lookup addresses, only when
+    // there are any (every legacy / v1 record stays byte-identical).
+    if !r.loaded.writable.is_empty() || !r.loaded.readonly.is_empty() {
+        v["loaded"] = fclient::vtx::loaded_json(&r.loaded);
+    }
+    v
 }
 
 pub fn record_from_json(v: &Value) -> Result<TxRecord, String> {
@@ -187,6 +193,9 @@ pub fn record_from_json(v: &Value) -> Result<TxRecord, String> {
         units: v.get("units").and_then(|x| x.as_u64()).unwrap_or(0),
         fee: v.get("fee").and_then(|x| x.as_u64()).unwrap_or(0),
         post,
+        loaded: fclient::vtx::loaded_from_meta(
+            &json!({"loadedAddresses": v.get("loaded").cloned().unwrap_or(Value::Null)}),
+        )?,
     })
 }
 
@@ -671,6 +680,7 @@ mod tests {
                     executable: false,
                 }),
             )],
+            loaded: Default::default(),
         }
     }
 

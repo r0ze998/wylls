@@ -53,6 +53,7 @@ fn tx(logs: Vec<String>) -> TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 fn framed(lines: Vec<String>) -> TxRecord {

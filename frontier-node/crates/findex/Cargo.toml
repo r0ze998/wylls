@@ -30,3 +30,5 @@ localnet.workspace = true
 axum.workspace = true
 solana-keypair.workspace = true
 solana-signer.workspace = true
+# herald-v0v1-decode: tests/versioned_ingest.rs builds v0 / v1 messages (already a workspace dependency).
+solana-message.workspace = true

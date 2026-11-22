@@ -696,6 +696,7 @@ fn feed(f: &Fixture, seq: u64, records: &[(&[u8], &[u8])]) -> fclient::ports::Tx
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 

@@ -112,5 +112,6 @@ pub fn tx(seq: u64, parts: &[(&[u8], &[u8])]) -> fclient::ports::TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }

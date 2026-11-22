@@ -214,6 +214,7 @@ impl World {
                     )
                 })
                 .collect(),
+            loaded: Default::default(),
         });
     }
 

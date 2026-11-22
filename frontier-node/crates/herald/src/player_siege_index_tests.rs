@@ -304,6 +304,7 @@ fn tx() -> TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 

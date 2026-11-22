@@ -69,6 +69,7 @@ fn close_tx(seq: u64, slot: u64, addr: [u8; 32]) -> TxRecord {
         units: 0,
         fee: 0,
         post: vec![(Address::new_from_array(addr), None)],
+        loaded: Default::default(),
     }
 }
 

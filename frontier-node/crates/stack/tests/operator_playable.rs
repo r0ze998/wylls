@@ -73,6 +73,8 @@ const PFLOOR_5080_PORT_BASE: u16 = 41_510;
 const PFLOOR_6960_PORT_BASE: u16 = 41_530;
 /// PPOST's (devnet-page-outpost; `OPERATOR_PAGE_OUTPOST_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection).
 const PPOST_PORT_BASE: u16 = 41_610;
+/// PV0's (herald-v0v1-decode; `OPERATOR_V0_PORT_BASE` moves them).
+const PV0_PORT_BASE: u16 = 41_680;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -481,12 +483,12 @@ fn landed_lines(stdout: &str) -> Vec<String> {
 
 /// The name of a landed transaction's first program instruction.
 fn ix_name(wire: &[u8], program: &Address) -> String {
-    let Ok(t) = fclient::tx::from_wire(wire) else {
+    // (PV0: legacy, v0 and v1 alike; a program id is always a static key)
+    let Ok(t) = fclient::vtx::decode(wire) else {
         return "?".into();
     };
-    let m = &t.message;
-    for i in &m.instructions {
-        if m.account_keys.get(i.program_id_index as usize) == Some(program) {
+    for i in &t.instructions {
+        if t.static_keys.get(i.program_id_index as usize) == Some(program) {
             let tag = i.data.first().copied().unwrap_or(0);
             // (P10: the expedition wrapper's dispatch kind, e.g. `ExpeditionSettleOrigin`)
             if let Ok(c) =
@@ -516,6 +518,35 @@ async fn p3_operator_starts_a_playable_season_on_the_devnet_so_offline() {
     playable_season(
         ports("OPERATOR_PLAYABLE_PORT_BASE", P3_PORT_BASE),
         Mode::Setup,
+    )
+    .await;
+}
+
+/// PV0 (herald-v0v1-decode): P3 with the test participant's wallet sending VERSIONED transactions, as wallets and
+/// bots may on devnet (B5 measured v0 and v1 there): its Join as a **v1** transaction (SIMD-0385, its compute
+/// budget in the config mask) and its PlaceHome as a **v0** transaction through the wallet's OWN address lookup
+/// table, created, extended and used by `@solana/web3.js` 1.99 (`tests/operator_playable/v0_wallet.mjs`) — every
+/// account of the PlaceHome but the wallet itself (Season, Citizen, Province, Holding, …) is a looked-up address.
+/// The herald in its devnet mode (`--source rpc --cluster devnet`, findex `Enriched`: no post-state from the
+/// node) must show the home from `meta.loadedAddresses` with no `badRecords` alarm. Needs `node` and the gateway's
+/// npm packages (`npm ci` in permutation-gateway); without them it is skipped unless `PSF_REQUIRE_WEB3=1`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pv0_a_wallets_v0_and_v1_transactions_reach_the_herald_on_the_devnet_so_offline() {
+    let gw = repo_root().join("permutation-gateway");
+    if !gw
+        .join("node_modules/@solana/web3.js/package.json")
+        .exists()
+    {
+        assert!(
+            std::env::var("PSF_REQUIRE_WEB3").ok().as_deref() != Some("1"),
+            "pv0: permutation-gateway/node_modules missing (npm ci)"
+        );
+        eprintln!("pv0: skipped (npm ci in permutation-gateway: needs @solana/web3.js)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_V0_PORT_BASE", PV0_PORT_BASE),
+        Mode::Versioned,
     )
     .await;
 }
@@ -785,11 +816,13 @@ enum Mode {
     Floor(u64),
     /// P14 (devnet-guard-conquest): P11, then a third party's wide Free City conquest.
     Conquest,
+    /// PV0 (herald-v0v1-decode): P3 with the participant's Join as v1 and PlaceHome as v0 through its own table.
+    Versioned,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
     use fclient::abi::status as st;
-    let rim_run = mode != Mode::Setup;
+    let rim_run = !matches!(mode, Mode::Setup | Mode::Versioned);
     let tag = match mode {
         Mode::Setup => "p3",
         Mode::Rim => "p4",
@@ -806,6 +839,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Floor(_) => "pfloor",
         Mode::PageOutpost => "ppost",
         Mode::Conquest => "p14",
+        Mode::Versioned => "pv0",
     };
     let war = matches!(
         mode,
@@ -1100,7 +1134,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         //  the bell's seed, and `rim_per_wedge` opens the rim's provinces)
         // (P5: the profile's keeper A with P6/P7: `wide-tickets`, and the rings duty's wide rings)
         roles = match mode {
-            Mode::Setup => "\"beacon\", \"rings\", \"fold\"",
+            Mode::Setup | Mode::Versioned => "\"beacon\", \"rings\", \"fold\"",
             Mode::Rim | Mode::Provinces | Mode::Floor(_) | Mode::PageOutpost => "\"beacon\", \"rings\", \"fold\", \"tickets\"",
             Mode::KeeperWide | Mode::AfterWide | Mode::Page => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
@@ -1116,7 +1150,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
             }
         },
         rim = match mode {
-            Mode::Setup => String::new(),
+            Mode::Setup | Mode::Versioned => String::new(),
             Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             // (PPROV: the profile's rim and provinces on demand, `provinces_reach` = the preset's outpost_range)
             Mode::Provinces | Mode::Floor(_) => format!(
@@ -1324,40 +1358,52 @@ async fn playable_season(pt: Ports, mode: Mode) {
     lock().airdrop(&w, SOL).unwrap();
     let c = Chain::public(&url, program);
     let now = lock().unix_timestamp();
-    let sig = c
-        .send_op_with(
-            &[ix::join(&a, w, w, nation, &w, now + 3_600, None)],
+    let versioned = mode == Mode::Versioned;
+    let join_ix = ix::join(&a, w, w, nation, &w, now + 3_600, None);
+    let sig = if versioned {
+        Ok(send_v1(&c, &join_ix, &player).await)
+    } else {
+        c.send_op_with(
+            &[join_ix],
             &[&player],
             Duration::from_secs(60),
             MAX_LOADED_LIMIT,
         )
         .await
-        .expect("Join");
+    }
+    .expect("Join");
     let join = operator::landed(&c, "Join", &sig.to_string()).await;
     let cd = lock().account(&a.citizen(&w)).expect("the Citizen").data;
     use frontier_abi::v2::layout::player::citizen as C;
     assert_ne!(cd[C::FLAGS] & C::FLAG_JOINED, 0);
     let (f, sh) = (cd[C::FACTION], cd[C::JOIN_SHARD]);
     assert_eq!(f, nation);
-    let sig = c
-        .send_op_with(
-            &[ix::place_home(
-                &a,
-                &ix::Player {
-                    actor: w,
-                    payer: w,
-                    wallet: w,
-                },
-                ix::Site { p: hp, q: hq, site },
-                f,
-                sh,
-            )],
+    let place_ix = ix::place_home(
+        &a,
+        &ix::Player {
+            actor: w,
+            payer: w,
+            wallet: w,
+        },
+        ix::Site { p: hp, q: hq, site },
+        f,
+        sh,
+    );
+    let mut wallet_v0 = Value::Null;
+    let sig = if versioned {
+        let (sig, out) = send_v0_by_wallet(&url, &dir, &place_ix, &player);
+        wallet_v0 = out;
+        Ok(sig)
+    } else {
+        c.send_op_with(
+            &[place_ix],
             &[&player],
             Duration::from_secs(60),
             MAX_LOADED_LIMIT,
         )
         .await
-        .expect("PlaceHome");
+    }
+    .expect("PlaceHome");
     let place = operator::landed(&c, "PlaceHome", &sig.to_string()).await;
     let holding = lock()
         .account(&a.holding(hp as i32, hq as i32, site))
@@ -1428,6 +1474,46 @@ async fn playable_season(pt: Ports, mode: Mode) {
     };
     assert_eq!(season_view["cluster"], "devnet");
     assert_eq!(season_view["programId"], program.to_string());
+    if versioned {
+        // PV0: the cluster's word on both, then the herald's: the home shown above came from the v0
+        // transaction's looked-up writable addresses, and nothing is an alarm.
+        let tx_of = |sig: &str, max: u64| {
+            let (c, sig) = (&c, sig.to_string());
+            async move {
+                c.call(
+                    "getTransaction",
+                    json!([sig, {"encoding": "base64", "maxSupportedTransactionVersion": max}]),
+                )
+                .await
+                .unwrap()
+            }
+        };
+        let jt = tx_of(&join.signature, 1).await;
+        assert_eq!(jt["version"], json!(1), "the Join is a v1 transaction");
+        let pt0 = tx_of(&place.signature, 0).await;
+        assert_eq!(
+            pt0["version"],
+            json!(0),
+            "the PlaceHome is a v0 transaction"
+        );
+        let la = fclient::vtx::loaded_from_meta(&pt0["meta"]).unwrap();
+        let (citizen_at, holding_at) = (a.citizen(&w), a.holding(hp as i32, hq as i32, site));
+        assert!(
+            la.writable.contains(&holding_at) && la.writable.contains(&citizen_at),
+            "the Holding and the Citizen are looked-up writable addresses: {la:?}"
+        );
+        let st = http_get(pt.herald, "/h/status").expect("/h/status");
+        assert_eq!(st["alarms"]["badRecords"], json!(0), "{st}");
+        let holdings = me["holdings"].as_array().unwrap();
+        assert!(
+            holdings
+                .iter()
+                .any(|h| h.to_string().contains(&holding_at.to_string())),
+            "the herald shows THIS home: {holdings:?}"
+        );
+        wallet_v0["loaded"] = fclient::vtx::loaded_json(&la);
+        wallet_v0["herald_status_alarms"] = st["alarms"].clone();
+    }
     // P7: the gateway with its devnet play routes (`--devnet-play`), over THIS chain's RPC in its offline TEST form
     // (`--devnet-play-offline-rpc`: loopback 41000-41999 only; a real devnet gateway names an https RPC). Its relay pool
     // seed and invite secret are made fresh in this test's directory (TEST secrets; the devnet play routes sign nothing).
@@ -1599,10 +1685,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
     drop(drand);
     let mut all = vec![];
     for l in lock().feed(0, 100_000, Some(&program)) {
-        let t = fclient::tx::from_wire(&l.wire).ok();
-        let payer = t
-            .as_ref()
-            .and_then(|t| t.message.account_keys.first().copied());
+        // (PV0: the fee payer of a legacy, v0 or v1 wire)
+        let payer = fclient::vtx::decode(&l.wire)
+            .ok()
+            .and_then(|t| t.fee_payer());
         all.push(json!({
             "slot": l.slot, "tx": ix_name(&l.wire, &program), "ok": l.err.is_none(), "err": l.err,
             "payer": if payer == Some(authority.pubkey()) { "operator (authority)".to_string() }
@@ -1638,7 +1724,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let summary = json!({
         "so_sha256": so_sha256, "program": program.to_string(), "season": a.season.to_string(),
         "t_create_min": t_create_min, "genesis_round": genesis_round, "planned_lamports": planned,
-        "operator_records": records, "join": join.json(), "place_home": place.json(),
+        "operator_records": records, "join": join.json(), "place_home": place.json(), "wallet_v0": wallet_v0,
         "home": {"p": hp, "q": hq, "site": site, "nation": nation},
         "herald_season": season_view, "herald_me_holdings": me["holdings"].as_array().map(|h| h.len()),
         "rings_opened": rings_opened(), "status": status(), "rim": rim_summary,
@@ -1666,4 +1752,118 @@ async fn playable_season(pt: Ports, mode: Mode) {
         );
     }
     node.stop();
+}
+
+/// PV0: one v1 transaction (SIMD-0385; its compute budget in the config mask, as the devnet send would state it)
+/// of `ix` signed by `signer`, sent with preflight to the node; waits until it lands without error.
+async fn send_v1(
+    c: &Chain,
+    ix: &fclient::Instruction,
+    signer: &Keypair,
+) -> fclient::ports::Signature {
+    use solana_message::{v1, VersionedMessage};
+    let bh: String = c
+        .call("getLatestBlockhash", json!([{"commitment": "confirmed"}]))
+        .await
+        .unwrap()["value"]["blockhash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let m = v1::Message::try_compile_with_config(
+        &signer.pubkey(),
+        std::slice::from_ref(ix),
+        bh.parse().unwrap(),
+        v1::TransactionConfig {
+            compute_unit_limit: Some(1_400_000),
+            loaded_accounts_data_size_limit: Some(MAX_LOADED_LIMIT),
+            ..v1::TransactionConfig::empty()
+        },
+    )
+    .expect("a v1 message");
+    let t =
+        fclient::vtx::VersionedTransaction::try_new(VersionedMessage::V1(m), &[signer]).unwrap();
+    let wire = fclient::vtx::wire(&t).unwrap();
+    assert_eq!(wire[0], 0x81);
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&wire);
+    let sig: fclient::ports::Signature = c
+        .call("sendTransaction", json!([b64, {"encoding": "base64"}]))
+        .await
+        .unwrap_or_else(|e| panic!("v1 send: {e}"))
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let t0 = Instant::now();
+    loop {
+        let st = c
+            .call("getSignatureStatuses", json!([[sig.to_string()]]))
+            .await
+            .unwrap();
+        if !st["value"][0].is_null() {
+            assert!(
+                st["value"][0]["err"].is_null(),
+                "the v1 transaction failed: {st}"
+            );
+            return sig;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "the v1 transaction did not land"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// PV0: `ix` (behind the compute-budget prefix every send of this harness carries) as a v0 transaction through
+/// the wallet's own lookup table holding every account of `ix` but the wallet: `v0_wallet.mjs` (web3.js) creates
+/// and extends the table, reads it back, compiles, signs with `signer` (a TEST key) and sends.
+fn send_v0_by_wallet(
+    url: &str,
+    dir: &Path,
+    ix: &fclient::Instruction,
+    signer: &Keypair,
+) -> (fclient::ports::Signature, Value) {
+    use base64::Engine;
+    let budget = fclient::tx::TxBudget {
+        cu_limit: 1_400_000,
+        cu_price: 0,
+        loaded_limit: MAX_LOADED_LIMIT,
+        heap: None,
+    };
+    let mut ixs = budget.instructions();
+    ixs.push(ix.clone());
+    let mut lookup: Vec<String> = vec![];
+    for m in &ix.accounts {
+        let k = m.pubkey.to_string();
+        if m.pubkey != signer.pubkey() && !lookup.contains(&k) {
+            lookup.push(k);
+        }
+    }
+    let req = json!({
+        "secret": signer.to_bytes().to_vec(),
+        "instructions": ixs.iter().map(|i| json!({
+            "programId": i.program_id.to_string(),
+            "keys": i.accounts.iter().map(|m| json!({"pubkey": m.pubkey.to_string(), "isSigner": m.is_signer, "isWritable": m.is_writable})).collect::<Vec<_>>(),
+            "data": base64::engine::general_purpose::STANDARD.encode(&i.data),
+        })).collect::<Vec<_>>(),
+        "lookup": lookup,
+    });
+    let rp = dir.join("v0-wallet-request.json"); // (holds a TEST key; the test's own temp directory)
+    std::fs::write(&rp, req.to_string()).unwrap();
+    let gw = repo_root().join("permutation-gateway");
+    let out = Command::new("node")
+        .arg(repo_root().join("frontier-node/crates/stack/tests/operator_playable/v0_wallet.mjs"))
+        .args([url, rp.to_str().unwrap(), gw.to_str().unwrap()])
+        .output()
+        .expect("node v0_wallet.mjs");
+    let _ = std::fs::remove_file(&rp);
+    let (so, se) = (
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    assert!(out.status.success(), "v0 wallet:\n{so}\n{se}");
+    let v: Value = serde_json::from_str(so.lines().last().unwrap()).unwrap();
+    assert!(v["lookups"]["writable"].as_u64().unwrap() > 0, "{v}");
+    (v["signature"].as_str().unwrap().parse().unwrap(), v)
 }

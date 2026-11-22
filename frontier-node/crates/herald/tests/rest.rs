@@ -206,6 +206,7 @@ impl Chain {
                     )
                 })
                 .collect(),
+            loaded: Default::default(),
         });
     }
 }

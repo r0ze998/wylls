@@ -145,6 +145,7 @@ fn citizen_sidecar_blocks_observer_without_legacy_or_partial_acceptance() {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     };
     assert!(matches!(
         observe_tx(&tx, &program),

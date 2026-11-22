@@ -408,7 +408,7 @@ impl ExpeditionDuty {
             }
             MarchState::Settled | MarchState::Gathered => {
                 let ev = match steps::evidence_of(
-                    e.wires.iter().map(|w| w.as_slice()),
+                    e.wires.iter().map(|(w, l)| (w.as_slice(), l)),
                     &program,
                     &a.season,
                     &e.holding,

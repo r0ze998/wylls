@@ -357,6 +357,7 @@ async fn an_archive_without_its_ledger_or_numbers_is_unproven() {
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         };
         a.append(&[r], json!({"feed_after": 1})).unwrap();
         a.commit().unwrap();

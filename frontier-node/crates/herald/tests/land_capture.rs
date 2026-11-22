@@ -54,6 +54,7 @@ fn apply(f: &mut Fold, key: [u8; 32], data: Option<Vec<u8>>, owner: Address) {
                 executable: false,
             }),
         )],
+        loaded: Default::default(),
     });
 }
 

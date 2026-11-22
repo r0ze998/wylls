@@ -2973,6 +2973,7 @@ mod tests {
                     executable: false,
                 }),
             )],
+            loaded: Default::default(),
         };
         let d = defence_claims(
             &[rec(None), rec(Some("NotEligible".into()))],
@@ -3056,6 +3057,7 @@ mod tests {
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         };
         // 8 game s per slot (20x); slots 10 and 14 observed.
         let c = SlotClock::new(&[tx(14, 1_032), tx(10, 1_000)], 8.0);
@@ -3493,6 +3495,7 @@ mod tests {
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         };
         let g = 10_000;
         let mut txs: Vec<TxRecord> = (100..=826)

@@ -1590,6 +1590,7 @@ pub fn t20_injected(run: &Input) -> Made {
         units: 0,
         fee: fclient::tx::fee_lamports(&t.message),
         post: vec![],
+        loaded: Default::default(),
     });
     Ok(Case {
         class: "T20",

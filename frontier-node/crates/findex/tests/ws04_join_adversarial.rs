@@ -33,6 +33,7 @@ fn rec(arch_seq: u64, s: u8) -> TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 

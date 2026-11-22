@@ -539,6 +539,7 @@ mod tests {
                     )
                 })
                 .collect(),
+            loaded: Default::default(),
         }
     }
 

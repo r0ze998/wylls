@@ -358,6 +358,7 @@ fn a_wide_keep_counts_for_its_holder_in_the_standings_only() {
                 executable: false,
             }),
         )],
+        loaded: Default::default(),
     };
     // the wide Province captured with the first transaction, then (a later capture: resolved through bell 200,
     // resolved_next 201) its keep passed to nation 1 — both before any control bell is written: the fold counts each

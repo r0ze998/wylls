@@ -53,6 +53,7 @@ fn feed(seq: u64, bodies: &[(&[u8], Vec<u8>)]) -> fclient::ports::TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 fn zero() -> e::WideLink {

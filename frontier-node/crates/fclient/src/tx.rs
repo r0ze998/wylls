@@ -148,7 +148,14 @@ pub fn wire(tx: &Transaction) -> Vec<u8> {
     bincode::serialize(tx).expect("transaction serialises")
 }
 
+/// Legacy wire bytes only. A versioned (v0 / v1) wire is refused
+/// (herald-v0v1-decode: bincode's legacy reader, which allows trailing
+/// bytes, could read a v0 wire as a garbage legacy message whose header
+/// claims 128+ signers); `crate::vtx::decode` reads all three.
 pub fn from_wire(b: &[u8]) -> Result<Transaction, String> {
+    if crate::vtx::is_versioned(b) {
+        return Err("a versioned (v0/v1) transaction: not a legacy wire".into());
+    }
     bincode::deserialize(b).map_err(|e| e.to_string())
 }
 

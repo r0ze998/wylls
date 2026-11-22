@@ -200,6 +200,7 @@ impl Tx {
                     )
                 })
                 .collect(),
+            loaded: Default::default(),
         });
     }
 }

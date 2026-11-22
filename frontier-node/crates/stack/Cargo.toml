@@ -46,6 +46,10 @@ verify = { path = "../verify", features = ["playable-lane"] }
 # P10 (devnet-expedition-keeper): the test participant's ExpeditionDepart is the canonical prepared message
 # (`fclient::experimental_expedition_message::prepare_depart`, the wide seal); tests only.
 fclient = { workspace = true, features = ["expedition-dispatch-experimental"] }
+# PV0 (herald-v0v1-decode): the participant's v1 Join is compiled with solana-message's v1 builder and sent base64
+# (both already workspace dependencies; tests only).
+solana-message.workspace = true
+base64.workspace = true
 
 [features]
 # Devnet blocker B3, owner decision B7: frontier-operator's playable-lane

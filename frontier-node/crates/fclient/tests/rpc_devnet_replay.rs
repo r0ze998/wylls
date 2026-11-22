@@ -236,6 +236,11 @@ async fn r3_a_version_1_transaction_is_read_not_refused() {
         fclient::tx::from_wire(&rec.tx).is_err(),
         "legacy decoding refuses v1"
     );
+    // herald-v0v1-decode: the versioned reader decodes it whole
+    let d = fclient::vtx::decode(&rec.tx).expect("v1 decodes");
+    assert_eq!(d.version, fclient::vtx::Version::V1);
+    assert_eq!(d.signature(), sig);
+    assert!(rec.loaded.writable.is_empty() && rec.loaded.readonly.is_empty());
     assert!(c
         .get_transaction_balances(&sig, "finalized")
         .await

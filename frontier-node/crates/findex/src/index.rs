@@ -694,9 +694,8 @@ impl Index {
 }
 
 fn fee_payer(wire: &[u8]) -> Option<Address> {
-    fclient::tx::from_wire(wire)
-        .ok()
-        .and_then(|t| t.message.account_keys.first().copied())
+    // herald-v0v1-decode: the first static key of a legacy, v0 or v1 wire.
+    fclient::vtx::decode(wire).ok().and_then(|t| t.fee_payer())
 }
 
 /// The snapshot codec an index records in `meta` (no row: stored as is); an unknown value is refused.
@@ -951,6 +950,7 @@ mod tests {
             units: 0,
             fee: 5_000,
             post,
+            loaded: Default::default(),
         }
     }
 

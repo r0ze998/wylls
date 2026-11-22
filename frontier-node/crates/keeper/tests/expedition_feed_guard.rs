@@ -97,6 +97,7 @@ fn load(name: &str) -> Rec {
             units: t["units"].as_u64().unwrap_or(0),
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         })
         .collect();
     Rec { addrs, txs }
@@ -328,7 +329,9 @@ mod p10 {
         let landed: Vec<_> = e
             .wires
             .iter()
-            .flat_map(|w| keeper_core::expedition_steps::commands_in(w, &r.addrs.program).unwrap())
+            .flat_map(|(w, l)| {
+                keeper_core::expedition_steps::commands_in(w, l, &r.addrs.program).unwrap()
+            })
             .collect();
         assert!(landed
             .iter()

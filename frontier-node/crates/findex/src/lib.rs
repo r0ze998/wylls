@@ -247,6 +247,7 @@ mod tests {
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         };
         assert_eq!(
             records(&tx, &Address::new_from_array([3; 32])).unwrap(),

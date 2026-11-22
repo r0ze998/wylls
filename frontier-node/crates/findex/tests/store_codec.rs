@@ -66,6 +66,7 @@ fn rec(i: u64) -> TxRecord {
                 executable: false,
             }),
         )],
+        loaded: Default::default(),
     }
 }
 

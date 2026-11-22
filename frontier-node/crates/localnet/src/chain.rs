@@ -63,10 +63,12 @@ use solana_clock::Clock;
 use solana_hash::Hash;
 use solana_message::Message;
 use solana_signature::Signature;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction::Transaction;
 use tokio::sync::broadcast;
 
 use fclient::ports::{Account, ClockSysvar, SimResult, Status, TxRecord};
+use fclient::vtx::{self, LoadedAddresses};
 use fclient::{addr, fees, tx};
 
 use crate::persist::{self, Record, Snapshot, TxEntry, Wal, WalHeader};
@@ -159,7 +161,7 @@ impl std::fmt::Display for SendError {
 }
 
 struct Pending {
-    tx: Transaction,
+    tx: Txn,
     wire: Vec<u8>,
     arrival: u64,
     priority_milli: u64,
@@ -167,6 +169,175 @@ struct Pending {
     cost: u64,
     blockhash_slot: u64,
     writable: Vec<Address>,
+}
+
+/// A transaction of any version (legacy, v0, v1; herald-v0v1-decode) with
+/// a v0 transaction's lookups resolved against the chain's state when it
+/// was read.
+#[derive(Clone, Debug)]
+pub struct Txn {
+    pub d: vtx::Decoded,
+    pub loaded: LoadedAddresses,
+    /// Every account in the runtime's order.
+    pub keys: Vec<Address>,
+    /// A legacy-shaped view (the keys above, the message's header,
+    /// blockhash and instructions) for the budget, priority, fee and
+    /// loaded-size rules, which read instructions and program ids only
+    /// (program ids are static keys in every version). Writability comes
+    /// from [`Txn::writable`], never from this view's header. A v1
+    /// message's compute budget is in its config mask, not in
+    /// instructions: the view reads as having none (LiteSVM applies the
+    /// mask itself when it executes).
+    pub view: Message,
+}
+
+impl Txn {
+    pub fn signature(&self) -> Signature {
+        self.d.signature()
+    }
+    pub fn writable(&self) -> Vec<Address> {
+        (0..self.keys.len())
+            .filter(|&i| self.d.is_writable_index(i, &self.loaded))
+            .map(|i| self.keys[i])
+            .collect()
+    }
+    pub fn versioned(&self) -> VersionedTransaction {
+        self.d.tx.clone()
+    }
+
+    /// The compute budget: a legacy / v0 message's ComputeBudget
+    /// instructions; a v1 message's config mask (SIMD-0385 as agave's
+    /// runtime-transaction reads it: an absent limit is 0).
+    pub fn budget(&self) -> tx::ParsedBudget {
+        match &self.d.tx.message {
+            solana_message::VersionedMessage::V1(m) => tx::ParsedBudget {
+                cu_limit: Some(m.config.compute_unit_limit.unwrap_or(0)),
+                cu_price: None,
+                loaded_limit: Some(m.config.loaded_accounts_data_size_limit.unwrap_or(0)),
+                heap: m.config.heap_size,
+                other_ixs: m.instructions.len(),
+            },
+            _ => tx::parse_budget(&self.view),
+        }
+    }
+
+    /// The priority fee in lamports (v1: stated as such in its config).
+    pub fn priority_fee(&self) -> u64 {
+        match &self.d.tx.message {
+            solana_message::VersionedMessage::V1(m) => m.config.priority_fee.unwrap_or(0),
+            _ => {
+                let b = self.budget();
+                fees::priority_fee(b.cu_price.unwrap_or(0), b.effective_cu_limit())
+            }
+        }
+    }
+
+    /// The fee the runtime charges (as `tx::fee_lamports`).
+    pub fn fee(&self) -> u64 {
+        self.d.header.num_required_signatures as u64 * fees::LAMPORTS_PER_SIGNATURE
+            + self.priority_fee()
+    }
+
+    /// Priority in milli-units and cost (as `tx::priority`, with the
+    /// writable count of every version).
+    pub fn priority(&self) -> (u64, u64) {
+        let b = self.budget();
+        let c = fees::cost(
+            b.effective_cu_limit(),
+            self.d.header.num_required_signatures,
+            self.writable().len() as u8,
+            b.effective_loaded_limit(),
+        );
+        (fees::priority_milli(self.priority_fee(), c), c)
+    }
+}
+
+/// The address lookup table program (a builtin of every cluster).
+pub fn lookup_table_program() -> Address {
+    "AddressLookupTab1e1111111111111111111111111"
+        .parse()
+        .expect("address")
+}
+
+/// The addresses at `indexes` of a lookup table account's bytes (the
+/// 56-byte `LookupTableMeta`, then 32-byte addresses).
+pub fn lookup_table_addresses(a: &SolAccount, indexes: &[u8]) -> Result<Vec<Address>, String> {
+    if a.owner != lookup_table_program()
+        || a.data.len() < 56
+        || !(a.data.len() - 56).is_multiple_of(32)
+        || a.data[..4] != 1u32.to_le_bytes()
+    {
+        return Err("not an address lookup table".into());
+    }
+    let n = (a.data.len() - 56) / 32;
+    indexes
+        .iter()
+        .map(|&i| {
+            let i = i as usize;
+            if i >= n {
+                return Err(format!("lookup index {i} past the table's {n} addresses"));
+            }
+            Ok(Address::new_from_array(
+                a.data[56 + 32 * i..88 + 32 * i].try_into().expect("32"),
+            ))
+        })
+        .collect()
+}
+
+/// `CreateLookupTable { recent_slot, bump_seed }` (the program's bincode
+/// instruction 0) for `authority`, paid by `payer`; returns the table's
+/// address too. `recent_slot` must be in the SlotHashes sysvar.
+pub fn lookup_table_create(
+    authority: &Address,
+    payer: &Address,
+    recent_slot: u64,
+) -> (Address, solana_instruction::Instruction) {
+    use solana_instruction::AccountMeta;
+    let (table, bump) = Address::find_program_address(
+        &[authority.as_ref(), &recent_slot.to_le_bytes()],
+        &lookup_table_program(),
+    );
+    let mut data = 0u32.to_le_bytes().to_vec();
+    data.extend(recent_slot.to_le_bytes());
+    data.push(bump);
+    (
+        table,
+        solana_instruction::Instruction {
+            program_id: lookup_table_program(),
+            accounts: vec![
+                AccountMeta::new(table, false),
+                AccountMeta::new_readonly(*authority, false),
+                AccountMeta::new(*payer, true),
+                AccountMeta::new_readonly(addr::system_program(), false),
+            ],
+            data,
+        },
+    )
+}
+
+/// `ExtendLookupTable { new_addresses }` (the program's bincode instruction 2).
+pub fn lookup_table_extend(
+    table: &Address,
+    authority: &Address,
+    payer: &Address,
+    new: &[Address],
+) -> solana_instruction::Instruction {
+    use solana_instruction::AccountMeta;
+    let mut data = 2u32.to_le_bytes().to_vec();
+    data.extend((new.len() as u64).to_le_bytes());
+    for a in new {
+        data.extend(a.to_bytes());
+    }
+    solana_instruction::Instruction {
+        program_id: lookup_table_program(),
+        accounts: vec![
+            AccountMeta::new(*table, false),
+            AccountMeta::new_readonly(*authority, true),
+            AccountMeta::new(*payer, true),
+            AccountMeta::new_readonly(addr::system_program(), false),
+        ],
+        data,
+    }
 }
 
 /// A landed or failed-and-charged transaction, or an airdrop (`airdrop`:
@@ -179,7 +350,12 @@ pub struct Landed {
     pub block_time: i64,
     pub signature: Signature,
     pub wire: Vec<u8>,
+    /// Every account in the runtime's order (static keys, then a v0
+    /// transaction's looked-up writable and readonly addresses).
     pub keys: Vec<Address>,
+    /// herald-v0v1-decode: a v0 transaction's lookup addresses (empty for
+    /// legacy and v1), as `getTransaction` serves `meta.loadedAddresses`.
+    pub loaded: LoadedAddresses,
     pub logs: Vec<String>,
     /// Debug form of the error (`fclient` parses custom codes out of it).
     pub err: Option<String>,
@@ -208,6 +384,7 @@ impl Landed {
             units: self.units,
             fee: self.fee,
             post: self.post.clone(),
+            loaded: self.loaded.clone(),
         }
     }
 
@@ -225,12 +402,13 @@ impl Landed {
             return_data: self.return_data.clone(),
             pre_balances: self.pre_balances.clone(),
             post_balances: self.post_balances.clone(),
+            loaded: self.loaded.clone(),
         }
     }
 
     fn from_entry(e: TxEntry, seq: u64, slot: u64, block_time: i64) -> Landed {
-        let keys = tx::from_wire(&e.wire)
-            .map(|t| t.message.account_keys)
+        let keys = vtx::decode(&e.wire)
+            .and_then(|t| t.keys(&e.loaded))
             .unwrap_or_default();
         Landed {
             airdrop: false,
@@ -240,6 +418,7 @@ impl Landed {
             signature: e.signature,
             wire: e.wire,
             keys,
+            loaded: e.loaded,
             logs: e.logs,
             err: e.err,
             err_json: e
@@ -718,6 +897,21 @@ impl Chain {
         {
             self.blockhashes.pop_front();
         }
+        // herald-v0v1-decode: the SlotHashes sysvar follows the slots whose
+        // blockhash is still valid (newest first), as a cluster's does for
+        // its recent slots: the lookup-table program's CreateLookupTable
+        // takes a `recent_slot` it must find there (before, LiteSVM's
+        // genesis entry for slot 0 was the only one). Deterministic from the
+        // blockhash chain, so a replay and a restored snapshot (which keeps
+        // both the accounts and the blockhashes) agree.
+        let entries: Vec<(u64, Hash)> = self
+            .blockhashes
+            .iter()
+            .rev()
+            .map(|(h, s)| (*s, Hash::new_from_array(h.to_bytes())))
+            .collect();
+        self.svm
+            .set_sysvar(&solana_slot_hashes::SlotHashes::new(&entries));
     }
 
     fn log(&mut self, rec: &Record) -> Result<(), String> {
@@ -905,6 +1099,7 @@ impl Chain {
             signature: sig,
             wire,
             keys,
+            loaded: LoadedAddresses::default(),
             logs: vec![
                 "Program 11111111111111111111111111111111 invoke [1]".into(),
                 "Program 11111111111111111111111111111111 success".into(),
@@ -993,33 +1188,63 @@ impl Chain {
 
     // ------------------------------------------------------------ transactions
 
-    fn decode(wire: &[u8]) -> Result<Transaction, SendError> {
-        tx::from_wire(wire).map_err(SendError::Decode)
+    /// The addresses a v0 transaction's lookups name, read from the
+    /// tables' current bytes (none for legacy and v1).
+    pub fn resolve_lookups(&self, d: &vtx::Decoded) -> Result<LoadedAddresses, SendError> {
+        let mut l = LoadedAddresses::default();
+        for lk in &d.lookups {
+            let a = self.svm.get_account(&lk.account_key).ok_or_else(|| {
+                SendError::Invalid(format!("address lookup table {} not found", lk.account_key))
+            })?;
+            let bad = |e: String| SendError::Invalid(format!("{}: {e}", lk.account_key));
+            l.writable
+                .extend(lookup_table_addresses(&a, &lk.writable_indexes).map_err(bad)?);
+            l.readonly
+                .extend(lookup_table_addresses(&a, &lk.readonly_indexes).map_err(bad)?);
+        }
+        Ok(l)
     }
 
-    fn writable_keys(msg: &Message) -> Vec<Address> {
-        (0..msg.account_keys.len())
-            .filter(|&i| tx::is_writable_index(msg, i))
-            .map(|i| msg.account_keys[i])
-            .collect()
+    /// Decodes a legacy, v0 or v1 wire and resolves its lookups now.
+    pub fn txn(&self, wire: &[u8]) -> Result<Txn, SendError> {
+        let d = vtx::decode(wire).map_err(SendError::Decode)?;
+        let loaded = self.resolve_lookups(&d)?;
+        let keys = d.keys(&loaded).map_err(SendError::Invalid)?;
+        let view = Message {
+            header: d.header,
+            account_keys: keys.clone(),
+            recent_blockhash: Hash::new_from_array(d.blockhash.to_bytes()),
+            instructions: d.instructions.clone(),
+        };
+        Ok(Txn {
+            d,
+            loaded,
+            keys,
+            view,
+        })
+    }
+
+    fn verify(t: &Txn) -> Result<(), SendError> {
+        t.d.tx
+            .verify_and_hash_message()
+            .map(drop)
+            .map_err(|e| SendError::Invalid(e.to_string()))
     }
 
     /// Accepts a transaction into the mempool (sendTransaction).
     pub fn submit(&mut self, wire: &[u8]) -> Result<Signature, SendError> {
-        let t = Self::decode(wire)?;
-        let sig = tx::signature(&t);
-        if self.by_sig.contains_key(&sig)
-            || self.mempool.iter().any(|p| tx::signature(&p.tx) == sig)
-        {
+        let t = self.txn(wire)?;
+        let sig = t.signature();
+        if self.by_sig.contains_key(&sig) || self.mempool.iter().any(|p| p.tx.signature() == sig) {
             return Err(SendError::AlreadyProcessed);
         }
         let bslot = self
-            .blockhash_slot(&t.message.recent_blockhash)
+            .blockhash_slot(&t.d.blockhash)
             .filter(|s| s + BLOCKHASH_SLOTS >= self.slot)
             .ok_or(SendError::BlockhashNotFound)?;
-        t.verify().map_err(|e| SendError::Invalid(e.to_string()))?;
-        let (priority_milli, cost) = tx::priority(&t.message);
-        let writable = Self::writable_keys(&t.message);
+        Self::verify(&t)?;
+        let (priority_milli, cost) = t.priority();
+        let writable = t.writable();
         self.arrivals += 1;
         self.dropped.remove(&sig);
         self.mempool.push(Pending {
@@ -1046,13 +1271,13 @@ impl Chain {
         wire: &[u8],
         sig_verify: bool,
     ) -> Result<(SimResult, Value, Vec<u8>, Option<Address>), SendError> {
-        let t = Self::decode(wire)?;
+        let t = self.txn(wire)?;
         if sig_verify {
-            t.verify().map_err(|e| SendError::Invalid(e.to_string()))?;
+            Self::verify(&t)?;
         }
-        let keys = t.message.account_keys.clone();
-        let limit = tx::parse_budget(&t.message).effective_loaded_limit() as u64;
-        let need = self.loaded_size(&t.message);
+        let keys = t.keys.clone();
+        let limit = t.budget().effective_loaded_limit() as u64;
+        let need = self.loaded_size(&t.view);
         if need > limit {
             return Ok((
                 SimResult {
@@ -1075,7 +1300,7 @@ impl Chain {
                 })
                 .collect()
         };
-        Ok(match self.svm.simulate_transaction(t.clone()) {
+        Ok(match self.svm.simulate_transaction(t.versioned()) {
             Ok(info) => {
                 let rd = info.meta.return_data.clone();
                 (
@@ -1124,15 +1349,33 @@ impl Chain {
 
     /// Executes one transaction against the current state. `None` = refused
     /// without a charge (the fee payer cannot pay, or signatures fail).
-    fn execute(&mut self, t: Transaction, wire: Vec<u8>) -> Option<Landed> {
-        let sig = tx::signature(&t);
-        let keys = t.message.account_keys.clone();
-        let fee = tx::fee_lamports(&t.message);
-        let limit = tx::parse_budget(&t.message).effective_loaded_limit() as u64;
-        let need = self.loaded_size(&t.message);
+    fn execute(&mut self, t: Txn, wire: Vec<u8>) -> Option<Landed> {
+        let sig = t.signature();
+        // herald-v0v1-decode: a v0 transaction's lookups resolve against the
+        // state it executes on (agave loads them at execution, not at
+        // admission); one that no longer resolves is not executable.
+        let t = match self.resolve_lookups(&t.d) {
+            Ok(l) if l == t.loaded => t,
+            Ok(_) => match self.txn(&wire) {
+                Ok(t) => t,
+                Err(_) => {
+                    self.dropped.insert(sig);
+                    return None;
+                }
+            },
+            Err(_) => {
+                self.dropped.insert(sig);
+                return None;
+            }
+        };
+        let keys = t.keys.clone();
+        let loaded = t.loaded.clone();
+        let fee = t.fee();
+        let limit = t.budget().effective_loaded_limit() as u64;
+        let need = self.loaded_size(&t.view);
         let slot = self.slot;
         let block_time = self.unix_timestamp();
-        let writable = Self::writable_keys(&t.message);
+        let writable = t.writable();
         let pre_balances: Vec<u64> = keys.iter().map(|k| self.balance(k)).collect();
         let (logs, err, err_json, units, fee, ret) = if need > limit {
             if !self.charge(&keys[0], fee) {
@@ -1150,7 +1393,7 @@ impl Chain {
                 vec![],
             )
         } else {
-            match self.svm.send_transaction(t) {
+            match self.svm.send_transaction(t.versioned()) {
                 Ok(m) => (
                     m.logs,
                     None,
@@ -1164,6 +1407,10 @@ impl Chain {
                     if e.contains("InsufficientFundsForFee")
                         || e.contains("AccountNotFound")
                         || e.contains("SignatureFailure")
+                        // a lookup the runtime refuses (a table not active, an
+                        // address extended this slot): never included (agave)
+                        || e.contains("AddressLookupTable")
+                        || e.contains("SanitizeFailure")
                     {
                         self.dropped.insert(sig);
                         return None;
@@ -1191,6 +1438,7 @@ impl Chain {
             signature: sig,
             wire,
             keys,
+            loaded,
             logs,
             err,
             err_json,
@@ -1327,7 +1575,7 @@ impl Chain {
             }
             if p.blockhash_slot + BLOCKHASH_SLOTS < self.slot {
                 report.dropped += 1;
-                self.dropped.insert(tx::signature(&p.tx));
+                self.dropped.insert(p.tx.signature());
                 continue;
             }
             let fits = block_cu + p.cost <= BLOCK_CU
@@ -1644,7 +1892,7 @@ impl Chain {
                     self.next_snapshot_ms += self.cfg.snapshot_every_secs.max(1) * 1_000;
                 }
                 for e in txs {
-                    let t = tx::from_wire(&e.wire).map_err(|x| format!("ledger tx: {x}"))?;
+                    let t = self.txn(&e.wire).map_err(|x| format!("ledger tx: {x}"))?;
                     let got = self.execute(t, e.wire.clone()).ok_or_else(|| {
                         format!("slot {slot}: {} was refused on replay", e.signature)
                     })?;

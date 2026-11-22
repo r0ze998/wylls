@@ -488,6 +488,7 @@ fn a_live_post_state_replaces_the_seeded_capture() {
                 executable: false,
             }),
         )],
+        loaded: Default::default(),
     };
     f.apply(&tx);
     let c = f.account(&w.e.holding.to_bytes()).unwrap();
@@ -532,6 +533,7 @@ fn replayed_older_history_never_overwrites_the_newer_snapshot() {
                 executable: false,
             }),
         )],
+        loaded: Default::default(),
     };
     for slot in [30, 42] {
         f.apply(&tx(if slot == 30 { 1 } else { 2 }, slot, older.clone()));
@@ -594,6 +596,7 @@ fn replayed_history_below_the_context_slot_leaves_every_capture_within_the_repor
             units: 0,
             fee: 0,
             post: vec![],
+            loaded: Default::default(),
         });
         assert_eq!(f.st.folded_through, seq, "folded, not skipped");
         assert_eq!(
@@ -626,6 +629,7 @@ fn replayed_history_below_the_context_slot_leaves_every_capture_within_the_repor
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     });
     assert_eq!((f.st.last_slot, f.st.folded_through), (context + 9, 4));
     assert!(within(&f));

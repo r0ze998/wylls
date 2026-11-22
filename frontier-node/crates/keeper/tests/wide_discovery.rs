@@ -186,6 +186,7 @@ fn tx(seq: u64, logs: Vec<String>, err: Option<&str>) -> TxRecord {
         units: 0,
         fee: 0,
         post: vec![],
+        loaded: Default::default(),
     }
 }
 fn wide_tx(seq: u64, bodies: &[Vec<u8>]) -> TxRecord {

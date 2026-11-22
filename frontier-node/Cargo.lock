@@ -1403,6 +1403,7 @@ dependencies = [
  "solana-transaction",
  "tlock",
  "tokio",
+ "wincode",
 ]
 
 [[package]]
@@ -1450,6 +1451,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-keypair",
+ "solana-message",
  "solana-signer",
  "tokio",
 ]
@@ -1703,6 +1705,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-instruction",
+ "solana-message",
  "solana-program-runtime",
  "tokio",
 ]
@@ -2236,9 +2239,11 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-clock",
  "solana-hash",
+ "solana-instruction",
  "solana-message",
  "solana-rent",
  "solana-signature",
+ "solana-slot-hashes",
  "solana-transaction",
  "tokio",
 ]
@@ -4487,6 +4492,7 @@ dependencies = [
 name = "stack"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "fclient",
  "flate2",
  "frontier-abi",
@@ -4497,6 +4503,7 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "sha2 0.10.9",
+ "solana-message",
  "tokio",
  "verify",
 ]

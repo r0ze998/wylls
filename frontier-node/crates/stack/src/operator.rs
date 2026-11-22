@@ -1494,7 +1494,7 @@ pub async fn landed(chain: &Chain, name: &str, sig: &str) -> Landed {
         v = chain
             .call(
                 "getTransaction",
-                json!([sig, {"encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}]),
+                json!([sig, {"encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": fclient::rpc::MAX_TX_VERSION}]),
             )
             .await
             .unwrap_or(Value::Null);
