@@ -8,7 +8,10 @@
 //! (archived and resolved everywhere), `max-age=5` before; `/h/season` is
 //! `max-age=30` with an ETag; `/h/me` is `no-store`; a full `/h/events`
 //! page (500) is `immutable`. Precompressed `.gz` siblings are sent to
-//! clients that accept gzip (`Vary: Accept-Encoding`).
+//! clients that accept gzip (`Vary: Accept-Encoding`). The web client
+//! (`/frontier/*`) has no siblings: each file is read, hashed (ETag) and
+//! gzipped once per (path, size, mtime, ctime) and kept in memory
+//! (herald-load-50, [`web_file`]).
 //!
 //! **Security headers** (as `permutation-server/src/play/http.rs`) on
 //! every answer: `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
@@ -962,6 +965,9 @@ fn hashed(name: &str) -> bool {
 struct WebFile {
     len: u64,
     modified: Option<std::time::SystemTime>,
+    /// verify-pr170: the inode change time too — a same-size rewrite whose mtime was put back (`touch -r`, `cp -p`, an
+    /// archive's extract) still moves it, and no program can set it.
+    changed: Option<(i64, i64)>,
     etag: String,
     body: Bytes,
     gz: Option<Bytes>,
@@ -980,10 +986,10 @@ fn web_file(p: &std::path::Path) -> Option<Arc<WebFile>> {
     static CACHE: std::sync::OnceLock<Mutex<std::collections::HashMap<PathBuf, Arc<WebFile>>>> =
         std::sync::OnceLock::new();
     let meta = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
-    let (len, modified) = (meta.len(), meta.modified().ok());
+    let (len, modified, changed) = (meta.len(), meta.modified().ok(), inode_changed(&meta));
     let cache = CACHE.get_or_init(Default::default);
     if let Some(f) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(p) {
-        if f.len == len && f.modified == modified && modified.is_some() {
+        if f.len == len && f.modified == modified && modified.is_some() && f.changed == changed {
             return Some(f.clone());
         }
     }
@@ -1005,6 +1011,7 @@ fn web_file(p: &std::path::Path) -> Option<Arc<WebFile>> {
     let f = Arc::new(WebFile {
         len: body.len() as u64,
         modified,
+        changed,
         etag,
         body: Bytes::from(body),
         gz,
@@ -1018,6 +1025,17 @@ fn web_file(p: &std::path::Path) -> Option<Arc<WebFile>> {
         c.insert(p.to_path_buf(), f.clone());
     }
     Some(f)
+}
+
+#[cfg(unix)]
+fn inode_changed(m: &std::fs::Metadata) -> Option<(i64, i64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((m.ctime(), m.ctime_nsec()))
+}
+
+#[cfg(not(unix))]
+fn inode_changed(_: &std::fs::Metadata) -> Option<(i64, i64)> {
+    None
 }
 
 async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
@@ -1281,6 +1299,23 @@ mod web_file_tests {
         let h = web_file(&js).unwrap();
         assert_eq!(&h.body[..], same_len.as_bytes());
         assert_ne!(h.etag, g.etag);
+        // verify-pr170: a same-size rewrite with its modification time put back (`touch -r`, `cp -p`) is read again
+        let mtime = std::fs::metadata(&js).unwrap().modified().unwrap();
+        let back_dated = "export const w = 4;\n".repeat(300);
+        std::fs::write(&js, &back_dated).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&js)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        assert_eq!(std::fs::metadata(&js).unwrap().modified().unwrap(), mtime);
+        let k = web_file(&js).unwrap();
+        assert_eq!(
+            &k.body[..],
+            back_dated.as_bytes(),
+            "not the cached same-size version"
+        );
         // already-compressed images and tiny files go as they are; a directory or a missing file is no file
         let img = dir.join("a.webp");
         std::fs::write(&img, vec![7u8; 4096]).unwrap();
