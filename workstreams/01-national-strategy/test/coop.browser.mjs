@@ -140,7 +140,7 @@ try {
     await pb.waitForSelector('#msg .ok');
     assert.match(await pb.textContent('#requests'), /この画面から送る（.*ウォレットで署名）[\s\S]*ゲームの村の引き出し「交易と防備」からも送れる/);
     assert.match(await pb.textContent('#requests'), /自分の隊商はまだ見えない/);
-    assert.match(await pb.textContent('#requests'), /（国3）：送るつもり/, '応じた人の国（申告）');
+    assert.match(await pb.textContent('#requests'), /（シンダー）：送るつもり/, '応じた人の国（申告）');
     assert.equal(await pb.textContent('[data-testid=joint-wood]'), '0');
   });
 
