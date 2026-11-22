@@ -180,19 +180,52 @@ pub fn field(kind: Kind, name: &str) -> (usize, usize) {
 /// transaction `t` (the signatures are left as they were: the verifier
 /// reads what the archive says the chain accepted).
 pub fn edit_ix(inp: &mut Input, t: usize, tag: Ix, f: impl FnOnce(&mut Vec<u8>)) {
-    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
+    edit_ix_tag(inp, t, tag.tag(), f)
+}
+
+/// verifier-v0v1: edits the data of the first program instruction with tag
+/// byte `tag` in a wire of any version (legacy re-encoded as before, v0 /
+/// v1 as `fclient::vtx::wire`); the program id is a static key in every
+/// version. The signatures are left as they were.
+fn edit_wire_ix(inp: &mut Input, t: usize, tag: u8, f: impl FnOnce(&mut Vec<u8>)) {
+    use solana_message::VersionedMessage as VM;
+    let d = fclient::vtx::decode(&inp.txs[t].tx).expect("tx");
     let program = inp.cfg.program;
-    let keys = tx.message.account_keys.clone();
-    let ci = tx
-        .message
-        .instructions
+    let mut vt = d.tx.clone();
+    let ixs = match &mut vt.message {
+        VM::Legacy(m) => &mut m.instructions,
+        VM::V0(m) => &mut m.instructions,
+        VM::V1(m) => &mut m.instructions,
+    };
+    let ci = ixs
         .iter_mut()
         .find(|c| {
-            keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag.tag())
+            d.static_keys.get(c.program_id_index as usize) == Some(&program)
+                && c.data.first() == Some(&tag)
         })
         .expect("instruction");
     f(&mut ci.data);
-    inp.txs[t].tx = fclient::tx::wire(&tx);
+    inp.txs[t].tx = match d.version {
+        fclient::vtx::Version::Legacy => {
+            fclient::tx::wire(&vt.into_legacy_transaction().expect("a legacy message"))
+        }
+        _ => fclient::vtx::wire(&vt).expect("re-encodes"),
+    };
+}
+
+/// The data of the first program instruction with tag byte `tag` in
+/// transaction `t` (any version).
+fn ix_data(inp: &Input, t: usize, tag: u8) -> Option<Vec<u8>> {
+    let m = crate::vmsg::Msg::of(&inp.txs[t]).ok()?;
+    let program = inp.cfg.program;
+    m.view
+        .instructions
+        .iter()
+        .find(|c| {
+            m.keys.get(c.program_id_index as usize) == Some(&program)
+                && c.data.first() == Some(&tag)
+        })
+        .map(|c| c.data.clone())
 }
 
 /// Re-chains every record of the archive (the consistent forger): every
@@ -1768,29 +1801,19 @@ pub fn edit_payload_cq(inp: &mut Input, t: usize, i: usize, f: impl FnOnce(&mut 
 
 /// Edits the data of the first program instruction with tag byte `tag`.
 pub fn edit_ix_tag(inp: &mut Input, t: usize, tag: u8, f: impl FnOnce(&mut Vec<u8>)) {
-    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
-    let program = inp.cfg.program;
-    let keys = tx.message.account_keys.clone();
-    let ci = tx
-        .message
-        .instructions
-        .iter_mut()
-        .find(|c| keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
-        .expect("instruction");
-    f(&mut ci.data);
-    inp.txs[t].tx = fclient::tx::wire(&tx);
+    edit_wire_ix(inp, t, tag, f)
 }
 
 /// The account keys of the first program instruction with tag byte `tag`
 /// in transaction `t`, in instruction order.
 fn ix_keys(inp: &Input, t: usize, tag: u8) -> Option<Vec<Key>> {
-    let tx = fclient::tx::from_wire(&inp.txs[t].tx).ok()?;
+    // (verifier-v0v1: any version; a v0 one's accounts through its loaded addresses)
+    let m = crate::vmsg::Msg::of(&inp.txs[t]).ok()?;
     let program = inp.cfg.program;
-    let keys = &tx.message.account_keys;
-    let ci =
-        tx.message.instructions.iter().find(|c| {
-            keys[c.program_id_index as usize] == program && c.data.first() == Some(&tag)
-        })?;
+    let keys = &m.keys;
+    let ci = m.view.instructions.iter().find(|c| {
+        keys.get(c.program_id_index as usize) == Some(&program) && c.data.first() == Some(&tag)
+    })?;
     Some(
         ci.accounts
             .iter()
@@ -2086,16 +2109,8 @@ pub fn s1_t51(run: &Input) -> Made {
     let province = *keys.get(5).need("its Province")?;
     let u = last_post_before(&inp, &province, t).need("the Province before")?;
     let entry = {
-        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
-        let program = inp.cfg.program;
-        let ks = tx.message.account_keys.clone();
-        let ci = tx
-            .message
-            .instructions
-            .iter_mut()
-            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
-            .expect("instruction");
-        ci.data[1] as usize
+        let data = ix_data(&inp, t, tag).expect("instruction");
+        data[1] as usize
     };
     edit_account_at(&mut inp, &province, u, |d| {
         let o = PV::entry(entry) + EN::TILE;
@@ -2195,16 +2210,8 @@ pub fn s1_t54(run: &Input) -> Made {
     let province = *keys.get(5).need("its Province")?;
     let u = last_post_before(&inp, &province, t).need("the Province before")?;
     let entry = {
-        let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
-        let program = inp.cfg.program;
-        let ks = tx.message.account_keys.clone();
-        let ci = tx
-            .message
-            .instructions
-            .iter_mut()
-            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
-            .expect("instruction");
-        ci.data[1] as usize
+        let data = ix_data(&inp, t, tag).expect("instruction");
+        data[1] as usize
     };
     edit_account_at(&mut inp, &province, u, |d| {
         let o = PV::entry(entry) + EN::TILE;
@@ -2290,17 +2297,9 @@ pub fn s1_t57(run: &Input) -> Made {
     let province = *keys.get(5).need("its Province")?;
     let u = last_post_before(&inp, &province, t).need("the Province before")?;
     let entry = {
-        let tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
-        let program = inp.cfg.program;
-        let ks = tx.message.account_keys.clone();
-        let ci = tx
-            .message
-            .instructions
-            .iter()
-            .find(|c| ks[c.program_id_index as usize] == program && c.data.first() == Some(&tag))
-            .expect("instruction");
+        let data = ix_data(&inp, t, tag).expect("instruction");
         // data: tag ‖ bell u32 ‖ entry u8
-        ci.data[5] as usize
+        data[5] as usize
     };
     edit_account_at(&mut inp, &province, u, |d| {
         let o = PV::entry(entry) + EN::TILE;

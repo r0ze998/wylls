@@ -479,6 +479,7 @@ fn record_natural(lamports_per_byte: u64) {
         upgrade_authority: Some(upgrade.pubkey()),
         cross: None,
         rent: Some(rent),
+        lookup_tables: None,
     };
     let mut owned = std::collections::BTreeSet::new();
     for t in txs.iter_mut() {

@@ -472,8 +472,7 @@ fn compare(
             .enumerate()
             .filter(|(i, (_, how, _, _))| {
                 *how != Pre::Runtime
-                    && !fclient::tx::from_wire(&rec.tx)
-                        .is_ok_and(|m| fclient::tx::is_writable_index(&m.message, *i))
+                    && !crate::vmsg::Msg::of(rec).is_ok_and(|m| m.is_writable_index(*i))
             })
             .map(|(_, (k, _, _, _))| b58(k))
             .collect();
@@ -587,9 +586,9 @@ fn judge_all(
         let known = chain.of(rec);
         if let Some(b) = known {
             let pd = svm.programdata();
-            if let Some(j) = fclient::tx::from_wire(&rec.tx)
+            if let Some(j) = crate::vmsg::Msg::of(rec)
                 .ok()
-                .and_then(|m| m.message.account_keys.iter().position(|k| *k == pd))
+                .and_then(|m| m.keys.iter().position(|k| *k == pd))
             {
                 if let Some(&l) = b.pre.get(j) {
                     let _ = svm.set_programdata_lamports(l);
@@ -614,16 +613,18 @@ fn judge_all(
             }
             continue;
         }
-        let r = crate::reexec::replay_known(
-            &mut svm,
-            &rec.tx,
-            t.slot,
-            t.time,
-            |k| before(w, declared, k, i),
-            |k| t.post.get(k).cloned(),
-            &w.program,
-            known.map(|b| (b.pre.as_slice(), b.post.as_slice(), rec.fee)),
-        );
+        let r = crate::vmsg::Msg::of(rec).and_then(|m| {
+            crate::reexec::replay_known(
+                &mut svm,
+                &m,
+                t.slot,
+                t.time,
+                |k| before(w, declared, k, i),
+                |k| t.post.get(k).cloned(),
+                &w.program,
+                known.map(|b| (b.pre.as_slice(), b.post.as_slice(), rec.fee)),
+            )
+        });
         let mut root = None;
         let judged = match &r {
             Err(e) => Err(Missing(format!("the transaction does not re-execute: {e}"))),
@@ -664,8 +665,8 @@ fn debit_outside(
     i: usize,
     b: &crate::input::Balances,
 ) -> Option<Wrong> {
-    let m = fclient::tx::from_wire(&rec.tx).ok()?;
-    for (j, k) in m.message.account_keys.iter().enumerate() {
+    let m = crate::vmsg::Msg::of(rec).ok()?;
+    for (j, k) in m.keys.iter().enumerate() {
         let Some(&chain) = b.pre.get(j) else { continue };
         let Some((how, Some(a))) = before(w, declared, &k.to_bytes(), i) else {
             continue;
@@ -733,9 +734,10 @@ pub fn replay_one(input: &Input, i: usize) -> Result<Replayed, String> {
     let so = program_of(input).ok_or("no program binary")?;
     let mut svm = Svm::with_authority(&so, &input.cfg.program, input.chain.upgrade_authority)?;
     let t = w.txs.get(i).ok_or("no such transaction")?;
+    let m = crate::vmsg::Msg::of(&input.txs[i])?;
     crate::reexec::replay_known(
         &mut svm,
-        &input.txs[i].tx,
+        &m,
         t.slot,
         t.time,
         |k| before(&w, &input.declared, k, i),
