@@ -439,6 +439,8 @@ const CLIENT_TEXT = {
   WideHostWait: () => L`いまは送れる一手がありません。送っていません。`,
   WideHostWaiting: () => L`このページが待っています。送れるようになったら自動で一手を送ります。`,
   WideHostBusy: () => L`前の一手を確かめています。結果を待ってください。`,
+  // (fix-loop8, LP8-5: after a capture the card only looks; when a step exists again it says so, and nothing was sent)
+  WideHostReady: () => L`次の一手を送れるようになりました。送っていません。押すと送ります。`,
   HostStepUnknown: () => L`この軍勢には、その手順がありません。`,
   HostStepInFlight: () => L`この軍勢の別の手順が進んでいます。その結果を待ってください。`,
   RevealAlreadyIn: () => L`この封はすでに開けられています。`,

@@ -114,9 +114,16 @@ export const LOCAL_ACT_TIMEOUT_MS = 30_000;
  */
 // (devnet play: `names` = the devnet lane's, and an order it does not carry keeps the ordinary path — `otherwise`
 //  'general' — exactly as before; local play refuses it)
+// (fix-loop8, LP8-3: a caravan to ANOTHER player's village or storehouse is a wallet-only shape — caravan.rs WalletRequired:
+//  the actor must be the wallet, not a session key. Every local act already IS the wallet's: the relay rebuilds it with the
+//  wallet as actor and fee payer and accepts only the wallet's one signature (local-play-act.mjs). So in a lane that
+//  carries SendCaravan (the coexist lane) that shape goes the local way too, with every check of the relay and the
+//  program; in a lane without it, and for every other wallet-only shape, nothing changes: refused.)
+export const LOCAL_WALLET_SIGNED = Object.freeze(['SendCaravan']);
 export function localOrderRoute({ localPlay, name, v, signer, requester, names = LOCAL_ACT_NAMES, otherwise = 'refuse' }) {
   if (!localPlay) return 'general';
-  return names.includes(name) && v !== null && typeof v === 'object' && !Array.isArray(v) && signer === undefined && (requester === null || requester === undefined) ? 'local-act' : otherwise;
+  const signerOk = signer === undefined || (signer === 'wallet' && LOCAL_WALLET_SIGNED.includes(name));
+  return names.includes(name) && v !== null && typeof v === 'object' && !Array.isArray(v) && signerOk && (requester === null || requester === undefined) ? 'local-act' : otherwise;
 }
 
 /**

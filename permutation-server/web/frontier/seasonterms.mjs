@@ -23,9 +23,10 @@ import { worldContinues as ownersSayContinues } from './hud/worldclock.mjs';
 const worldContinues = FS => ownersSayContinues(FS) || seasonContinues(FS?.season);
 
 let pace = () => 1;
-/** The chain's pace as the page knows it (app.mjs: the accelerated local clock's rate, else 1). */
+/** The chain's pace as the page knows it (app.mjs: the accelerated local clock's rate, else 1; null while a fast
+ *  clock's pace is not known yet — fix-loop8, LP8-10). */
 export function setTermsPace(fn) { pace = typeof fn === 'function' ? fn : () => 1; }
-const rate = () => { const r = Number(pace()); return Number.isFinite(r) && r > 1 ? r : 1; };
+const rate = () => { const p = pace(); if (p === null) return null; const r = Number(p); return Number.isFinite(r) && r > 1 ? r : 1; };
 
 /** Seconds in words, at the scale they are long ("10 分", "約 3 時間" style numbers come from the caller). */
 export function spanWords(secs) {
@@ -38,14 +39,16 @@ export function spanWords(secs) {
 /** A turn's length of game time ("10 分"). */
 export const turnSpan = () => spanWords(BELL_SECS);
 /** A turn's length as the player lives it: game time, and on a faster clock the real time too. */
-export const turnLine = () => (rate() > 1 ? L`ゲーム内の ${turnSpan()}（この世界では実時間で約 ${spanWords(BELL_SECS / rate())}）` : turnSpan());
+// (fix-loop8, LP8-10: on a fast clock whose pace is not known yet, the game time alone — never 「10 分」 as if it were real)
+export const turnLine = () => { const r = rate(); return r === null ? L`ゲーム内の ${turnSpan()}` : r > 1 ? L`ゲーム内の ${turnSpan()}（この世界では実時間で約 ${spanWords(BELL_SECS / r)}）` : turnSpan(); };
 
-/** The season's deadlines: `{join: {bell, closed, realLeft}, end: {bell, ended, realLeft}}`, or null without a season or clock. */
+/** The season's deadlines: `{join: {bell, closed, realLeft}, end: {bell, ended, realLeft}}`, or null without a season or clock
+ *  (`realLeft` null while a fast clock's pace is not known yet). */
 export function deadlines(FS) {
   const s = FS?.season, g = Number(FS?.clock?.genesisTs ?? s?.genesisTs), now = Number(FS?.chain?.now?.());
   if (!s || !Number.isFinite(g) || !Number.isFinite(now)) return null;
   const nowBell = Math.floor((now - g) / BELL_SECS), endBell = Number(s.endBell), joinBell = Number(s.joinCloseBell ?? s.endBell);
-  const left = b => Math.max(0, (bellStart(g, b) - now) / rate());
+  const r = rate(), left = b => (r === null ? null : Math.max(0, (bellStart(g, b) - now) / r));
   return { join: { bell: joinBell, closed: nowBell >= joinBell, realLeft: left(joinBell) }, end: { bell: endBell, ended: nowBell >= endBell, realLeft: left(endBell) } };
 }
 /** The deadlines in one line for the join screen. */
@@ -53,9 +56,10 @@ export function deadlineLine(FS) {
   const d = deadlines(FS);
   if (!d) return '';
   // (a join close at the no-end turn is no deadline: nothing is said of it)
-  const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
+  // (a time left not known yet — a fast clock's pace still being measured — is not said: fix-loop8, LP8-10)
+  const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : d.join.realLeft === null ? '' : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
   const end = worldContinues(FS) ? '' : d.end.ended ? L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました。`
-    : L`このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}）。`;
+    : d.end.realLeft === null ? '' : L`このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}）。`;
   return `${join}${end}`;
 }
 /** WrongStatus said with its cause when the cause is the season's clock; null otherwise (the page's own words stand). */

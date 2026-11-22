@@ -30,7 +30,7 @@ import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { renderVillageOrders, S1_ORDER_KINDS } from './villageorders.mjs';
 import { swatch } from './shell.mjs';
-import { renderCoopSlot } from '../hud/coopentry.mjs';
+import { renderCoopSlot, coopDestinations } from '../hud/coopentry.mjs';
 import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
 import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussources.mjs';
 import { renderRights } from './rights.mjs';
@@ -422,6 +422,18 @@ export function s1VillageModel(FS) {
     ...vaults.map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen })),
     ...othersPlaces(FS, mine, h),
   ];
+  // (fix-loop8, LP8-3: the destinations of the ① requests this viewer accepted on the board — hud/coopboard.mjs
+  //  acceptedDestinations: the request's own published place, even when its province is out of sight and not loaded.
+  //  One already listed is marked, not listed twice. Its tile comes from the province when it is loaded; otherwise the
+  //  send reads it first — controller s1Caravan)
+  for (const c of coopDestinations(FS)) {
+    if (own(FS, c)) continue;
+    const at = destinations.find(x => x.kind === 'holding' && x.p === c.p && x.q === c.q && x.site === c.site);
+    if (at) { at.coop = c.coop; at.coopGen = c.gen; continue; }
+    const prov = FS.provinces?.get?.(`${c.p},${c.q}`)?.province;
+    const t = Number(prov?.sites?.[c.site]);
+    destinations.push({ ...c, tile: Number.isInteger(t) ? t : null, faction: Number.isInteger(c.faction) ? c.faction : null, coopGen: c.gen });
+  }
   const prov = h ? FS.provinces?.get?.(`${h.p},${h.q}`)?.province ?? null : null;
   const forts = h ? structures.filter(s => s.kind === KIND.fort && s.p === h.p && s.q === h.q).map(s => {
     const r = (prov?.forts ?? []).find(f => Number(f.tile) === s.tile && Number(f.state) !== 0);
@@ -488,6 +500,9 @@ export const OTHER_PLACES = 24;
  * village's generation is read from its Holding at sending: `gen: null`),
  * the nearest to the village in hand first, OTHER_PLACES of them.
  */
+/** Whether `c` (p, q, site) is one of the viewer's own villages. */
+const own = (FS, c) => (FS.holdings ?? []).some(o => o.p === c.p && o.q === c.q && o.site === c.site);
+
 export function othersPlaces(FS, mine, h) {
   const own = FS.holdings ?? [];
   // (the viewer's tag not read yet: whose storehouse is whose is unknown, so none is offered)
@@ -664,7 +679,10 @@ export function renderS1Village(FS) {
   const orderNote = renderVillageOrders(FS, m.holding, FS.chain?.now?.() ?? 0, { kinds: S1_ORDER_KINDS, rereadShown: !!readNote && rd.reread !== 'loading' && (rd.any || rd.reread === 'failed'),
     reread: { act: 's1-reread', label: L`一覧を読み直す`, offered: rd.can && rd.reread !== 'loading' } });
   // (another's village may share a province with the viewer's: its tile tells them apart)
-  const placeWord = d => (d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
+  // (fix-loop8, LP8-3: a ① request's destination names its site — its tile may not be loaded, the province out of sight)
+  const placeWord = d => (d.coop && !Number.isInteger(d.tile) ? L`① 依頼の届け先：村（${d.p}, ${d.q} · 村 ${d.site}）`
+    : d.coop ? L`① 依頼の届け先：村（${d.p}, ${d.q} · マス ${d.tile}）`
+    : d.kind === 'vault' ? L`${S1_WORDS.vault()}（${d.p}, ${d.q} · マス ${d.tile}）`
     : d.other || m.destinations.some(x => x.other && x.kind === 'holding' && x.p === d.p && x.q === d.q) ? L`${L`村`}（${d.p}, ${d.q} · マス ${d.tile}）` : L`村（${d.p}, ${d.q}）`);
   // (workstream 07: under each caravan, its arrival once its turn has come — past the turn is not "arrived": the line
   // says it is not settled yet; 04's own arrival replaces it when 04 registers one — and 04's cancel when registered:
@@ -710,7 +728,7 @@ export function renderS1Village(FS) {
     : pl.fort !== null ? html`<p class="notice" role="status" data-plan="fort" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ要塞：マス ${pl.fort}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。`} ${unpick}</p>` : '';
   const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
-  const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other ? ` · ${factionName(d.faction)}` : ''}</option>`;
+  const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
     <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" data-have="${haveOf6(s).join(',')}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
@@ -721,6 +739,7 @@ export function renderS1Village(FS) {
     <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
     ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}
+    ${otherDst.some(([d]) => d.coop) ? html`<p class="muted s1-coop-dst">${L`「① 依頼の届け先」は、国をまたぐ依頼の板であなたが「応じる」と答えた依頼の行き先です（依頼した人が板に公開した場所だけ。まわりの土地は見えないままです）。送ったあと、板で隊商を依頼に結び付けると、到着が数えられます。`}</p>` : ''}
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
     : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">

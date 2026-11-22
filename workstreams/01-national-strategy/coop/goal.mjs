@@ -91,7 +91,15 @@ export const RECIPIENT_RULE = Object.freeze({
   rulesetHash: V2PRESETS.ruleset_hash_v3,
   checkedAt: '4cd901de9f8e0d6c0b2016851d30595c4a70aa46',
   basis: 'Holding の OWNER_CITIZEN を書くのは、世代を1つ進める占領（conquest.rs:1292-1295、1322、1425-1426）と入植（citizen.rs:1465-1468、1814）だけ',
+  // （fix-loop8, LP8-3, 2026-11-22）ローカルプレイの試験用 coexist レーン（②⑨⑩、RULESET_HASH_V4）でも同じ決め方を確かめた版。
+  // 7b745721 のプログラムのソースで、ふつうの村（legacy Holding）の OWNER_CITIZEN を書くのは citizen.rs:1633（入植）と
+  // conquest.rs:1379・1561（世代を進める占領）だけ。coexist で足される rights.rs・capacity.rs・custody.rs は読むだけ（書かない）。
+  // wide_* は別の口座の族（広い土地の村）で、依頼の届け先（ふつうの村）ではない。
+  more: Object.freeze([Object.freeze({ rulesetHash: 'a1ddb3590f7a15c166a77d10362dd2a499c97111a6021d1eb2baad0ed36c8b62', checkedAt: '7b74572182bc',
+    basis: 'coexist（RULESET_HASH_V4）：ふつうの村の OWNER_CITIZEN を書くのは citizen.rs:1633（入植）と conquest.rs:1379・1561（占領）だけ。rights・capacity・custody は読むだけ' })]),
 });
+/** 受取人の決め方を確かめた規則の版か（RECIPIENT_RULE と、その more）。 */
+export const recipientRuleChecked = h => h === RECIPIENT_RULE.rulesetHash || RECIPIENT_RULE.more.some(x => x.rulesetHash === h);
 
 /**
  * 応じた後の送信か。送信の blockTime（バリデーターの時計、秒）と、板が応答を受け取った時刻（板の時計、秒）を比べる。
@@ -120,7 +128,7 @@ export const COUNTABLE = Object.freeze(['Recorded', 'RuleDerived']);
 export function recipientOf(arrival, now, requesterCitizen, rules = { status: 'verified', rulesetHash: RECIPIENT_RULE.rulesetHash }) {
   if (arrival.state !== 'delivered') return null;
   if (rules?.status !== 'verified') return { status: 'unverified', why: `規則の版を確かめられない：${rules?.why ?? ''}` };
-  if (rules.rulesetHash !== RECIPIENT_RULE.rulesetHash) return { status: 'unverified', why: `このシーズンの規則（${String(rules.rulesetHash).slice(0, 8)}…）は、受取人の決め方を確かめた版（${RECIPIENT_RULE.rulesetHash.slice(0, 8)}…）と違う` };
+  if (!recipientRuleChecked(rules.rulesetHash)) return { status: 'unverified', why: `このシーズンの規則（${String(rules.rulesetHash).slice(0, 8)}…）は、受取人の決め方を確かめた版（${RECIPIENT_RULE.rulesetHash.slice(0, 8)}…）と違う` };
   if (!now || now.status !== 'found') return { status: 'unverified', why: now?.why ?? '届け先の村の口座をまだ読んでいない' };
   if (now.gen !== arrival.dstGen) return { status: 'unverified', gen: arrival.dstGen, currentGen: now.gen, why: `村の世代が変わった（到着時 ${arrival.dstGen}、今 ${now.gen}：占領か再入植）。到着時の持ち主は今の口座からは確定できない` };
   return { status: 'verified', gen: arrival.dstGen, ownerCitizen: now.ownerCitizen, isRequester: now.ownerCitizen === requesterCitizen,

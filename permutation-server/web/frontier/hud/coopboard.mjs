@@ -126,6 +126,32 @@ export function villageRequests(FS, b, v) {
   ] };
 }
 
+/**
+ * (fix-loop8, LP8-3) The destinations of the requests THIS VIEWER accepted, from the board's view `v` read for the board's
+ * present world: `[{kind: 'holding', p, q, site, gen, other: true, coop: {id, need}}]`. Only this world's requests (as
+ * villageRequests), still open, whose answer by this wallet (`responses[wallet]`, 01's record.mjs fold) is an accept not
+ * withdrawn, and not the viewer's own request. The place is the request's own `to` — the requester published it on the
+ * board when asking, and the board shows it to every reader (「行き先 (p,q) 村 n」); nothing else of the requester's land
+ * is read or shown by this, and the map's fog is not touched. [] when the board, the view or the world is not this one.
+ */
+export function acceptedDestinations(FS, b, v, wallet) {
+  if (!boardState(FS, b).available || v?.read !== 'ok' || typeof wallet !== 'string' || !wallet) return [];
+  const s = b.config.season;
+  if (typeof s.programId !== 'string' || !s.programId) return [];
+  const int = x => Number.isSafeInteger(Number(x));
+  const out = [];
+  for (const q of v.requests) {
+    if (q.ctx.programId !== s.programId || String(q.ctx.seasonId) !== String(s.seasonId) || q.stateNow !== 'open' || q.requester === wallet) continue;
+    const r = q.responses && typeof q.responses === 'object' ? q.responses[wallet] : null;
+    if (!r || r.answer !== 'accept' || r.withdrawn === true) continue;
+    if (!['p', 'q', 'site', 'gen'].every(k => int(q.to[k]))) continue;
+    const to = { kind: 'holding', p: Number(q.to.p), q: Number(q.to.q), site: Number(q.to.site), gen: Number(q.to.gen) };
+    if (out.some(x => x.p === to.p && x.q === to.q && x.site === to.site)) continue;
+    out.push({ ...to, other: true, coop: { id: String(q.id ?? ''), need: q.need && typeof q.need === 'object' ? { ...q.need } : {} } });
+  }
+  return out;
+}
+
 /** The board's page for this village (the board's own `page` when its config names one on this origin). */
 export function boardHref(FS, b, requestId = null) {
   const page = typeof b?.config?.page === 'string' && b.config.page.startsWith('/') && !b.config.page.startsWith('//') ? b.config.page : BOARD_PAGE;
@@ -146,6 +172,7 @@ export function boardHref(FS, b, requestId = null) {
  * that says it has no board is not asked again (each ask would be one more 404 in the console every minute).
  * `changed()` is called after each read (the page draws the card again). → a function that stops it and removes the entry.
  */
+export const COOP_VIEW_FRESH_MS = 15_000;
 export function installCoopBoard({ fetch, base = '', every = 60_000, changed = () => {}, open = href => globalThis.open?.(href, '_blank', 'noopener'), timers = globalThis } = {}) {
   let board = null, stopped = false, timer = null;
   // (2026-11-17) the board's view, read when the card asks for it (no timer of its own) and kept with the world it was read
@@ -158,7 +185,7 @@ export function installCoopBoard({ fetch, base = '', every = 60_000, changed = (
     const r = await probeView({ fetch, base });
     if (stopped || seq !== viewSeq) return;
     viewInFlight = null;
-    view = worldKeyOf(board) === key ? { key, ...r } : null;   // the board moved to another world meanwhile: not kept
+    view = worldKeyOf(board) === key ? { key, at: Date.now(), ...r } : null;   // the board moved to another world meanwhile: not kept
     changed();
   };
   const read = async () => {
@@ -179,6 +206,14 @@ export function installCoopBoard({ fetch, base = '', every = 60_000, changed = (
       const key = worldKeyOf(board);
       if ((viewDue || !view || view.key !== key) && viewInFlight !== key) readView(key);
       return villageRequests(FS, board, view && view.key === key ? view : null);
+    },
+    // (fix-loop8, LP8-3: the caravan form's destinations — the requests this wallet accepted; read with the same view)
+    destinations: FS => {
+      if (!boardState(FS, board).available) return [];
+      const key = worldKeyOf(board);
+      // (an answer given on the board a moment ago should reach the form soon: the view is read again when 15 s old)
+      if ((viewDue || !view || view.key !== key || !(Date.now() - (view.at ?? 0) < COOP_VIEW_FRESH_MS)) && viewInFlight !== key) readView(key);
+      return acceptedDestinations(FS, board, view && view.key === key ? view : null, FS?.wallet?.address ?? null);
     },
   });
   read();

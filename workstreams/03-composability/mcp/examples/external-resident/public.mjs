@@ -9,6 +9,8 @@ import { seasonPlace, homeSites } from '../../../../../permutation-server/web/fr
 import { ringOf, homeNation } from '../../../../../permutation-server/web/frontier/fgeo.mjs';
 import { postLocalAct } from '../../../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { parseTransaction, wireTransaction } from '../../../../../permutation-server/web/sdk/solana-tx.mjs';
+import { bellAt } from '../../../../../permutation-server/web/frontier/clock.mjs';
+import { ERRORS } from '../../../../../permutation-server/web/sdk/frontier/abi-v2-errors.mjs';
 
 const loopback = u => { try { const x = new URL(u); return x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname); } catch { return false; } };
 export async function getJson(url, { fetch: f = globalThis.fetch, ms = 5000 } = {}) {
@@ -70,6 +72,40 @@ export async function publicHomes(heraldBase, faction, { fetch: f = globalThis.f
     }
   }
   return out;
+}
+
+/**
+ * How far the world has resolved its OWN village's province, read as the page reads it (controller.mjs `provinceLags`):
+ * the Season's genesis (`/h/season`) and the chain's clock give the turn `bell`; `/h/province/P,Q/latest` gives the
+ * province's `resolvedNext`. → `{bell, resolvedNext}`, each null when unread (unread is never guessed as ready).
+ * `herald` (tests): a herald client in place of the page's `createHerald`.
+ */
+export async function provinceFacts(heraldBase, holding, nowSecs, { fetch: f = globalThis.fetch, herald = null } = {}) {
+  const h = herald ?? createHerald({ base: heraldBase, fetch: (...a) => f(...a) });
+  let bell = null, resolvedNext = null;
+  try { const s = await h.season(); const g = Number(s?.season?.genesisTs); if (s?.ok && Number.isSafeInteger(g) && Number.isSafeInteger(nowSecs)) bell = bellAt(g, nowSecs); } catch { bell = null; }
+  try { const pv = await h.province(holding.p, holding.q); const rn = Number(pv?.province?.resolvedNext); if (pv?.ok && Number.isSafeInteger(rn)) resolvedNext = rn; } catch { resolvedNext = null; }
+  return { bell, resolvedNext };
+}
+
+/**
+ * The program's resident rule (frontier-abi prologue.rs `resident_ok`: `resolved_next + 1 >= b`), which Muster checks
+ * (permutation-frontier proc/host.rs `resident_host`) and refuses with NotResident (26) — of the six orders, only Muster.
+ * → true / false, or null when either fact is unread.
+ */
+export const residentOk = ({ bell, resolvedNext } = {}) => (Number.isSafeInteger(bell) && Number.isSafeInteger(resolvedNext) ? resolvedNext + 1 >= bell : null);
+
+/** The program's error name for its code (frontier-abi/vectors/v2/errors.json, as the page names it), or null. */
+export const programErrorName = code => (Number.isInteger(code) ? ERRORS.errors.find(e => e.code === code)?.name ?? null : null);
+
+/**
+ * The program's code inside a refusal: the page's `programCode` (submitLocalAct, from the relay's `program_code`), else
+ * the runner's simulation message the relay passed on (`… InstructionError(3, Custom(26))`). → `{programCode, programError}` or null.
+ */
+export function programRefusal({ sent = null, refusal = null } = {}) {
+  let pc = Number.isInteger(sent?.programCode) ? sent.programCode : Number.isInteger(refusal?.detail?.program_code) ? refusal.detail.program_code : null;
+  if (pc === null) { const m = /Custom\((\d{1,10})\)/.exec(String(refusal?.detail?.message ?? refusal?.message ?? '')); if (m) pc = Number(m[1]); }
+  return pc === null ? null : { programCode: pc, programError: programErrorName(pc) };
 }
 
 /**
