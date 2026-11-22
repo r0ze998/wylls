@@ -30,7 +30,7 @@ export function loadHome(storage, key) {
   try { v = JSON.parse(storage.get(key) ?? 'null'); } catch { /* unavailable storage */ }
   if (!v || v.v !== 1) return { v: 1, selected: null, pending: null, seen: null };
   return { v: 1, selected: validSite(v.selected) ? v.selected : null,
-    pending: v.pending && ['Join', 'PlaceHome'].includes(v.pending.kind) && typeof v.pending.signature === 'string' ? v.pending : null,
+    pending: v.pending && ['Join', 'PlaceHome', 'FileTicket'].includes(v.pending.kind) && typeof v.pending.signature === 'string' ? v.pending : null,
     seen: typeof v.seen === 'string' ? v.seen : null };
 }
 export function saveHome(storage, key, patch) {

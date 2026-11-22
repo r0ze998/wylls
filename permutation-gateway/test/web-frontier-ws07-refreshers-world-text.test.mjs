@@ -34,7 +34,11 @@ test('R1 the prize answers are written only for the wallet, relay and world they
     'await prizeIo.loadLedger();', drop, 'if (g.ok) FS.prizeLedger = g.ledger;', "invalidate('panel');");
   assert.equal(prize.split(drop).length - 1, 2, 'one check after each await');
   assert.doesNotMatch(prize, /\(FS\.wallet\?\.address \?\? null\) !== address\) return;/, 'the wallet-only check is folded into current()');
-  assert.ok(prize.includes("if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;"), 'the throttle itself is unchanged');
+  // (fix-devnet-join-wait, herald-load-50 F5: the throttle is PRIZE_REFRESH_MS as before, PRIZE_ABSENT_MS only after a "no pool"
+  //  answer for the same relay, world and wallet — the answer written under current() as above)
+  assert.ok(prize.includes("if (!io.relay() || (!force && at - prizeReadAt < (absent ? PRIZE_ABSENT_MS : PRIZE_REFRESH_MS))) return;"), 'the throttle');
+  assert.ok(prize.includes("const absent = prizeAbsent !== null && prizeAbsent.relay === io.relay() && prizeAbsent.world === providerWorld() && prizeAbsent.wallet === (FS.wallet?.address ?? null);"));
+  order(prize, 'if (!r.ok) return;', 'prizeAbsent = r.pool === null ? { relay, world, wallet: address } : null;', 'FS.prize = r.pool;');
   assert.ok(ctl.includes('function providerWorld() { const p = io.pinned(); return p?.programId && p?.addresses?.season ? `${p.gen ?? 0}|${p.cluster ?? \'\'}|${p.programId}|${p.addresses.season}` : null; }'));
 });
 
@@ -64,7 +68,8 @@ test('R4 the conquest refresh is one request in one world', () => {
     'const current = () => request === conquestRefresh && providerWorld() === world;',
     'if (FS.conquest && (FS.conquest.world ?? null) !== world) FS.conquest = undefined;',
     "const cq = FS.conquest ??= { status: 'loading', keeps: new Map(), standings: null, final: null, world };",
-    'await refreshOverviews(nowBell());', 'await Promise.allSettled([herald.control(), herald.standings()]);', 'if (!current()) return;',
+    // (fix-devnet-join-wait, F5: a file that answered 404 is asked again at the next bell — `skip…` — in the same world)
+    'await refreshOverviews(nowBell());', 'await Promise.allSettled([skipControl ? null : herald.control(), skipStandings ? null : herald.standings()]);', 'if (!current()) return;',
     'cq.control = control.control; applyControl(FS.overviews, cq.control);', 'if (s1On()) await refreshS1(current, world);',
     "invalidate('map','panel','rail');", 'if (!current()) return;', 'await refreshKeepEvents(cq, current);', 'if (!current()) return;',
     'const r = await herald.final();', 'if (!current()) return;');

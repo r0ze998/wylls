@@ -30,7 +30,8 @@ test('B-11: a march with no seal copy here: a local world says its own runner op
 
 test('B-7: local play has no in-game key to fix — the key card is never its view (its rim request\'s wait view instead)', () => {
   const join = src('screens/join.mjs');
-  assert.match(join, /if \(!FS\.resident && !FS\.localPlay && \(!FS\.session \|\| FS\.sessionProblem\)\) return renderSessionFix\(FS\);\n  if \(stage === 'ticket'\) return renderTicket\(FS\);/);
+  // (verify-pr172: devnet play is exempt too — web-frontier-own-wait.test.mjs renders it)
+  assert.match(join, /if \(!FS\.resident && !FS\.localPlay && !FS\.devnetPlay && \(!FS\.session \|\| FS\.sessionProblem\)\) return renderSessionFix\(FS\);\n  if \(stage === 'ticket'\) return renderTicket\(FS\);/);
   // (the controller asks for no session in local play either)
   assert.match(src('controller.mjs'), /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{/);
 });
