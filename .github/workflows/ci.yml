@@ -220,6 +220,11 @@ jobs:
       - name: Workstream 01 closed caravan link tests (key-free)
         working-directory: .
         run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.arrived.test.mjs
+      # Workstream 01: the board's English (coop/tr.mjs, coop/lang/en.mjs): every Japanese text of the board's code has
+      # English, the table is well formed, texts as shown come out in English. No world, no browser, no key.
+      - name: Workstream 01 board English tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.lang.test.mjs
       # The six-nation recording tool (scripts/demo/sixnation): its pure part — argument parsing, the refusal of any
       # non-TEST cluster, the seed's choices, the launcher's command line, the summary and the grid. No world is started.
       - name: Six-nation recording tool tests (key-free)

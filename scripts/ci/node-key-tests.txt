@@ -415,6 +415,7 @@ workstreams/01-national-strategy/test/coop.continuity.test.mjs
 workstreams/01-national-strategy/test/coop.contract04.test.mjs
 workstreams/01-national-strategy/test/coop.destination.test.mjs
 workstreams/01-national-strategy/test/coop.e2e.test.mjs
+workstreams/01-national-strategy/test/coop.lang-modules.test.mjs
 workstreams/01-national-strategy/test/coop.longrun.test.mjs
 workstreams/01-national-strategy/test/coop.mount.test.mjs
 workstreams/01-national-strategy/test/coop.nokey.test.mjs

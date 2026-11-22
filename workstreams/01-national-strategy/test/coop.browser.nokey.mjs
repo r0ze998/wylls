@@ -79,7 +79,8 @@ const mkBoard = () => createBoard({ herald: hurl, programId, seasonId: '90', dat
 let board = mkBoard();
 let srv = createServer(board, { herald: hurl });
 await new Promise(r => srv.listen(0, '127.0.0.1', r));
-const urlOf = (s, q = 'to=3,0,2,1') => `http://127.0.0.1:${s.address().port}${PAGE}?${q}&follow=2`;
+// （2026-11-23）入口の村は、その世界（program・season）と一緒に渡す（2026-11-17 から、世界が同じときだけ届け先に入る：coop-ui.mjs sameWorld）
+const urlOf = (s, q = `to=3,0,2,1&program=${programId}&season=${season.seasonId}`) => `http://127.0.0.1:${s.address().port}${PAGE}?${q}&follow=2`;
 
 const browser = await chromium.launch();
 const errors = [], results = [];
@@ -107,7 +108,7 @@ function walletScript({ address, fill, deferSign = false }) {
 }
 
 async function player(who, nation, server = srv, query = undefined, { deferSign = false } = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'ja-JP' });   // この試験は日本語の表示を確かめる（英語は下の english()）
   await ctx.addInitScript(walletScript, { address: who.address, fill: who.fill, deferSign });
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(String(e)));
@@ -122,6 +123,32 @@ async function player(who, nation, server = srv, query = undefined, { deferSign 
   return page;
 }
 const refresh = async page => page.selectOption('#nation', await page.inputValue('#nation'));
+
+/**
+ * （2026-11-23）英語の表示（coop/lang.mjs）：言語の切り替えボタンで英語にすると、<html lang="en"> になり、画面に日本語が残らず
+ * （切り替えボタン自身を除く）、英語のない文の一覧が空。日本語に戻すと、画面の文は切り替える前と一字も変わらない。
+ * 読み直し（4 秒ごと）が間に入っても同じ文になる（板の状態を変えないあいだに呼ぶ）。
+ */
+const JA_TEXT = /[\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff]/;
+const bodyText = page => page.evaluate(() => { const c = document.body.cloneNode(true); c.querySelector('[data-lang-toggle]')?.remove(); c.querySelectorAll('script,style').forEach(e => e.remove()); return c.textContent.replace(/[ \t]+/g, ' '); });
+async function english(page, name) {
+  const before = await bodyText(page);
+  await page.click('[data-lang-toggle]');
+  assert.equal(await page.getAttribute('html', 'lang'), 'en');
+  await page.waitForFunction(() => !/[\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff]/.test(document.querySelector('#rules').textContent));
+  const en = await bodyText(page);
+  const left = en.split('\n').map(l => l.trim()).filter(l => JA_TEXT.test(l));
+  assert.deepEqual(left, [], `${name}: 英語の表示に日本語が残っている`);
+  assert.deepEqual(await page.evaluate(() => globalThis.__coopLangMissing()), [], `${name}: 英語のない文`);
+  assert.ok(!JA_TEXT.test(await page.title()), 'ページの題も英語');
+  assert.ok(!JA_TEXT.test(await page.getAttribute('#wallet', 'aria-label')), 'aria-label も英語');
+  if (shots) await page.screenshot({ path: join(here, '..', 'screenshots', `10-coop-en-${name}.jpg`), quality: 70, fullPage: true });
+  await page.click('[data-lang-toggle]');
+  assert.equal(await page.getAttribute('html', 'lang'), 'ja');
+  assert.equal(await bodyText(page), before, `${name}: 日本語に戻すと、切り替える前と同じ文`);
+  assert.equal(await page.title(), '国をまたぐ依頼');
+  return en;
+}
 
 try {
   const pa = await player(A, 0);
@@ -172,6 +199,26 @@ try {
     if (shots) await pa.screenshot({ path: join(here, '..', 'screenshots', '09-coop-nokey.jpg'), quality: 70, fullPage: true });
   });
 
+  await step('英語の表示：切り替えると日本語が残らず、戻すと元の文と同じ（依頼した人・応じた人の両方の画面。記録・署名・判定は日本語を書くコードのまま）', async () => {
+    const ea = await english(pa, 'requester');
+    assert.match(ea, /Requests across nations/);
+    assert.match(ea, /Arrived: Wood 196 or more · Stone 0 or more \(from the rules\)/);
+    assert.match(ea, /the requester \(generation 1\)/);
+    assert.match(ea, /Not achieved yet/);
+    const eb = await english(pb, 'responder');
+    assert.match(eb, /Nation 3 – Cinder/);
+    assert.match(eb, /Final arrivals you delivered \(lower bound of the counted amount taken in; per resource\): ?Wood 196 or more/);
+    // 英語のまま操作しても、板に出る記録は同じ（断りの文は板の日本語のまま届き、表示だけ英語になる）
+    await pb.click('[data-lang-toggle]');
+    await pb.locator('[data-act=withdraw]').first().click();
+    await pb.waitForSelector('#msg .ok:has-text("Withdrawn. Any caravan already sent still arrives")');
+    await pb.locator('[data-act=accept]').first().click();
+    await pb.waitForSelector('#msg .ok:has-text("Accepted (you mean to send). Nothing has moved yet")');
+    assert.equal(await pb.evaluate(() => localStorage.getItem('ps-lang')), 'en', 'ゲームの画面と同じ保存先');
+    await pb.click('[data-lang-toggle]');
+    assert.match(await pb.textContent('#msg'), /応じた（送るつもり）。物はまだ動いていない/, '知らせも日本語に戻る');
+  });
+
   await step('再起動の後の未確定送信：sending の記録を残した送信が着地した後、板を作り直し画面を開き直すと、送る代わりに「結び付ける」を出し、押すと結び付く', async () => {
     await pa.click('#send');   // 二つ目の依頼
     await pa.waitForSelector('#msg .ok');
@@ -197,7 +244,7 @@ try {
     srv = createServer(board, { herald: hurl });
     await new Promise(res => srv.listen(0, '127.0.0.1', res));
     const pb2 = await player(B, 2, srv);
-    const row = pb2.locator(`[data-req="${q2.id}"]`);
+    const row = pb2.locator(`.req[data-req="${q2.id}"]`);
     await row.locator('[data-testid=pending-link]').waitFor();
     assert.equal(await row.locator('[data-act=send]').count(), 0, '送る（署名する）ボタンは出さない');
     await row.locator('[data-testid=pending-link]').click();
@@ -228,14 +275,14 @@ try {
   });
 
   await step('届け先が依頼した人の村でない依頼：応じた人の画面は理由を出し、送る・結び付けるを出さない', async () => {
-    const pa3 = await player(A, 0, srv, 'to=4,0,5,1');   // B の村
+    const pa3 = await player(A, 0, srv, `to=4,0,5,1&program=${programId}&season=${season.seasonId}`);   // B の村
     await pa3.click('#send');
     await pa3.waitForSelector('#msg .ok');
     const q = Object.values(board.state().requests).sort((x, y) => y.at - x.at)[0];
     assert.deepEqual(q.to, { kind: 'holding', p: 4, q: 0, site: 5, gen: 1 });
     await pa3.context().close();
     const pb3 = await player(B, 2, srv);
-    const row = pb3.locator(`[data-req="${q.id}"]`);
+    const row = pb3.locator(`.req[data-req="${q.id}"]`);
     await row.locator('[data-testid=req-destination]').waitFor();
     assert.match(await row.locator('[data-testid=req-destination]').textContent(), /今の持ち主が、依頼した人ではない/);
     assert.equal(await row.locator('[data-testid=req-destination]').getAttribute('data-status'), 'mismatch');
@@ -255,7 +302,7 @@ try {
     const q = Object.values(board.state().requests).sort((x, y) => y.at - x.at)[0];
     await pa4.context().close();
     const pb4 = await player(B, 2, srv, undefined, { deferSign: true });
-    const row = pb4.locator(`[data-req="${q.id}"]`);
+    const row = pb4.locator(`.req[data-req="${q.id}"]`);
     await row.locator('[data-act=accept]').click();
     await pb4.waitForSelector('#msg .ok');
     const sendingsBefore = q.sendings.length;
@@ -300,6 +347,9 @@ try {
     await refresh(pm);
     const over = await pm.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.ok(over <= 0, `はみ出し ${over}px`);
+    await pm.click('[data-lang-toggle]');   // 英語でも
+    const overEn = await pm.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert.ok(overEn <= 0, `英語のはみ出し ${overEn}px`);
     await pm.context().close();
   });
 

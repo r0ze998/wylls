@@ -105,7 +105,7 @@ const errors = [], results = [], dialogs = [];
 const step = async (name, f) => { try { await f(); results.push(['ok', name]); } catch (e) { results.push(['not ok', name, e.message]); } };
 
 async function player(seed, nation) {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, locale: 'ja-JP' });   // （2026-11-23）この試験は日本語の表示を確かめる（英語のブラウザでは板は英語になる：coop/lang.mjs）
   await ctx.addInitScript(hex => localStorage.setItem('ps-dev-wallet', hex), toHex(seed));
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(String(e)));
@@ -212,7 +212,7 @@ try {
     const board2 = createBoard({ herald: hurl, programId, seasonId: '90', dataDir: boardDir, reader: chain.reader, rpc: `http://127.0.0.1:${rpc.address().port}` });
     const srv2 = createServer(board2, { herald: hurl });
     await new Promise(r => srv2.listen(0, '127.0.0.1', r));
-    const ctx2 = await browser.newContext(); await ctx2.addInitScript(hex => localStorage.setItem('ps-dev-wallet', hex), toHex(seedB));
+    const ctx2 = await browser.newContext({ locale: 'ja-JP' }); await ctx2.addInitScript(hex => localStorage.setItem('ps-dev-wallet', hex), toHex(seedB));
     const p2 = await ctx2.newPage(); p2.on('pageerror', e => errors.push(String(e)));
     await p2.goto(`http://127.0.0.1:${srv2.address().port}${PAGE}?to=3,0,2,1&program=${programId}&season=90&follow=2`);
     await p2.click('#connect'); await p2.waitForSelector('#who:has-text("Dev Wallet")');
