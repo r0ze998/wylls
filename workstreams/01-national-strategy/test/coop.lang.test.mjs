@@ -73,13 +73,13 @@ test('the table: no Japanese in the English, every value of a key is said, neigh
   const twice = keys.filter((k, i) => keys.indexOf(k) !== i);
   assert.deepEqual(twice, [], 'a key written twice silently overrides the first');
   // the words of the game page's glossary
-  assert.equal(EN['木材'], 'Wood'); assert.equal(EN['隊商'], 'Caravan'); assert.equal(EN['国1'], 'Nation 1 – Aster'); assert.equal(EN['国6'], 'Nation 6 – Fjordal');
+  assert.equal(EN['木材'], 'Wood'); assert.equal(EN['隊商'], 'Caravan'); assert.equal(EN['アステル'], 'Aster'); assert.equal(EN['フィヨルダル'], 'Fjordal'); assert.equal(EN['国1'], 'Nation 1 – Aster'); assert.equal(EN['国6'], 'Nation 6 – Fjordal');
   assert.match(EN['依頼に「応じる」は、送るつもりがあるという表明だけです。物は動かず、送る義務もありません。物が動くのは、送る人がゲームの村の引き出し「交易と防備」から自分のウォレットで署名して出した隊商だけです。 物々交換・加工の貸出・届いたら払う、はありません（贈り物です。届いた物は受け取った人の物になります）。数えるのは、確定の記録で確かめた到着だけです。'], /“Trade and defences”/);
 });
 
 test('texts as the page shows them: lists, nested reasons, brackets, parts next to markup', () => {
   const eq = (ja, en) => assert.equal(toEnglish(ja), en);
-  eq('応答：abcd…wxyz（国1）：送るつもり 木材 200・石材 200 / efgh…ijkl（国3）：断った', 'Responses: abcd…wxyz (Nation 1 – Aster): means to send Wood 200 · Stone 200 / efgh…ijkl (Nation 3 – Cinder): declined');
+  eq('応答：abcd…wxyz（アステル）：送るつもり 木材 200・石材 200 / efgh…ijkl（シンダー）：断った', 'Responses: abcd…wxyz (Aster): means to send Wood 200 · Stone 200 / efgh…ijkl (Cinder): declined');
   eq('取り消し：自分で進める', 'Cancelled: going on alone');
   eq('／200　石材 ', '/200 · Stone ');
   eq('（', ' (');
@@ -89,7 +89,7 @@ test('texts as the page shows them: lists, nested reasons, brackets, parts next 
   eq('数えていない（到着時の受取人が未検証：村の世代が変わった（到着時 1、今 2：占領か再入植）。到着時の持ち主は今の口座からは確定できない。まだ決まっていない）',
     'Not counted (the recipient on arrival is unverified: the village\'s generation changed (on arrival 1, now 2: captured or settled again). The owner on arrival cannot be decided from the present account. Not decided yet)');
   eq('受け付けられなかった：依頼は取り消された', 'Not accepted: the request was cancelled');
-  eq('国2（チェーンの Citizen で確かめた）：依頼 1 件、この国の人が届けた証明できる到着 2 本', 'Nation 2 – Borealis (confirmed by the Citizen account on the chain): 1 request, 2 provable arrivals delivered by people of this nation');
+  eq('ボレアリス（チェーンの Citizen で確かめた）：依頼 1 件、この国の人が届けた証明できる到着 2 本', 'Borealis (confirmed by the Citizen account on the chain): 1 request, 2 provable arrivals delivered by people of this nation');
   eq('読み込めない：HTTP 502。表示は 12:00:01 の読み込みのまま（古い）。自動で読み直しを続けます', 'Cannot load: HTTP 502. The view is still the one loaded at 12:00:01 (old). Reloading continues automatically');
   eq('依頼した人（世代 1）', 'the requester (generation 1)');
   // confirm(): the page gives it line by line (lang.mjs shown)

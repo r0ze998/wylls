@@ -206,7 +206,7 @@ try {
     assert.match(ea, /the requester \(generation 1\)/);
     assert.match(ea, /Not achieved yet/);
     const eb = await english(pb, 'responder');
-    assert.match(eb, /Nation 3 – Cinder/);
+    assert.match(eb, /Cinder \(confirmed by the Citizen account on the chain\)/);   // 国の名前（ゲームの画面と同じ。2026-11-23 fix-loop9 LP9-8 の後）
     assert.match(eb, /Final arrivals you delivered \(lower bound of the counted amount taken in; per resource\): ?Wood 196 or more/);
     // 英語のまま操作しても、板に出る記録は同じ（断りの文は板の日本語のまま届き、表示だけ英語になる）
     await pb.click('[data-lang-toggle]');
@@ -214,7 +214,7 @@ try {
     await pb.waitForSelector('#msg .ok:has-text("Withdrawn. Any caravan already sent still arrives")');
     await pb.locator('[data-act=decline]').first().click();
     await pb.waitForSelector('#msg .ok:text-is("Declined")');   // 知らせは一行なので頭文字が大文字（一覧の中の「…: declined」は小文字のまま）
-    await pb.waitForSelector('#requests :text("(Nation 3 – Cinder): declined")');
+    await pb.waitForSelector('#requests :text("(Cinder): declined")');
     await pb.locator('[data-act=accept]').first().click();
     await pb.waitForSelector('#msg .ok:has-text("Accepted (you mean to send). Nothing has moved yet")');
     assert.equal(await pb.evaluate(() => localStorage.getItem('ps-lang')), 'en', 'ゲームの画面と同じ保存先');

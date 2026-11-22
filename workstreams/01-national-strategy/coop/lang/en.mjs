@@ -19,7 +19,10 @@ export default {
   'ウォレット': 'Wallet',
   'このウォレットで署名する': 'Sign with this wallet',
   '署名する人：未接続': 'Signer: not connected',
-  '自分の国（申告。判定には使わない）': 'Your nation (as declared; not used in judging)',
+  '自分の国（申告。判定には使わない。接続すると、チェーンで確かめた国が入ります）': 'Your nation (as declared; not used in judging; once you connect, the nation confirmed on the chain is filled in)',
+  // the nations by their names, as the game page says them (coop-ui.mjs NATION_JA = i18n.mjs CIV_NAMES, since fix-loop9 LP9-8)
+  'アステル': 'Aster', 'ボレアリス': 'Borealis', 'シンダー': 'Cinder', 'ダンマール': 'Dunmar', 'エンバー': 'Ember', 'フィヨルダル': 'Fjordal',
+  // 「国N」 is only what the page falls back to for a number without a name
   '国1': nation(1), '国2': nation(2), '国3': nation(3), '国4': nation(4), '国5': nation(5), '国6': nation(6),
   '依頼に「応じる」は、送るつもりがあるという表明だけです。物は動かず、送る義務もありません。物が動くのは、送る人がゲームの村の引き出し「交易と防備」から自分のウォレットで署名して出した隊商だけです。 物々交換・加工の貸出・届いたら払う、はありません（贈り物です。届いた物は受け取った人の物になります）。数えるのは、確定の記録で確かめた到着だけです。':
     'To “Accept” a request only says that you mean to send. Nothing moves, and you are not obliged to send. Goods move only by a caravan that the sender signs with their own wallet and sends from the game\'s village drawer “Trade and defences”. There is no barter, no lending of processing and no payment on arrival (it is a gift: what arrives belongs to the one who receives it). Only arrivals confirmed by a final record are counted.',
