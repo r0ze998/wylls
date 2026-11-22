@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-21 (through #131, #129 and #130: fix-loop6's #130, which fixed the loop-play6 problems, is in. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-22 (through #142, #140 and #137: #137, which fixed the loop-play7 problems, and the loop-play8 check are in. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -177,8 +177,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
       「到着候補：ターン A〜B」 and the button that fills in the arrival turn (step 3). The card scrolls its newest result
       into view by itself. When the world's clock moves during the read, the page reads again by itself up to 2 times
       (「…読み直しています（1 / 2 回目）…」); if that still fails it says 「読み取りの途中で世界の時計が進んだため…
-      もう一度押してください。」: press again. At ×60 the 「到着候補：ターン A〜B」 line is gone after 1–3 s, but step 3's
-      button stays (verify-pr130).
+      もう一度押してください。」: press again. A read's result now stays until you change the road, with
+      「この道を読み取った結果です。道を変えるまで出ています。」 (#137; in loop-play8 an impassable road's 「山や水のマスには進めません
+      N 歩め（西）のマスで止まります。…」 was still there after 15 s).
    3. Press 「間に合う候補（ターン N）を使う」 (at ×60; at 1× it is 「最も早い候補（ターン A）を使う」). At ×60 the proposal is
       the earliest turn A plus the turns the clock moves while you check and send (3) plus the province's settle lag.
       The bare earliest turn had already gone by when the next 「出発条件を確認」 came back, and was refused every time
@@ -320,9 +321,9 @@ view (fog-devnet; runbook §7 P5).
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.
 
-## 8. Known problems (2026-11-21, main through #131 and #129)
+## 8. Known problems (2026-11-22, main through #142)
 
-### 8.1 Still on main (after #130)
+### 8.1 Still on main (after #137)
 
 The problems loop-play6 found (LP6-1 … 15) were fixed by #128 and #130, and verify-pr130 and verify-pr133 played them
 (only the rim village's long-wait text, LP6-9, was not seen: the load never got that high). What is left is below. None
@@ -330,7 +331,7 @@ is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Boundary card (×60) | the 「到着候補：ターン A〜B」 line and a check's result are gone after 1–3 s (every read of the world's clock; V117-1, LP6-8). The 「間に合う候補（ターン N）を使う」 button stays | press the next button anyway (§4 step 3) |
+| Boundary card (×60) | when 「出発する」 is refused with 「出発できませんでした（DepartDraftChanged）。何も送っていません。」 the card stays on that line: the arrival field keeps a past turn, no 「間に合う候補」 button appears, and the results of 「地形・時間を確認」 and 「出発条件を確認」 vanish at once (loop-play8 LP8-B) | close the card with its × and reopen it from 「境界への道を準備」, then draw the road again (in loop-play8 it left 34 s after reopening) |
 | Boundary card (×60) | 「出発条件を確認」 is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
 | Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
@@ -342,10 +343,9 @@ Small ones (nothing blocks play):
 - The 「この試験世界について」 box covers the 「支配する州」 bar and the top of 「全体図」; 「たたむ」 folds it.
 - On the ×60 nation picker 「参加の受付は第 N ターンまで（あと約 2 時間）」 and 「（あと約 73 分）」 alternate. The `--demo`
   picker's intro may say a turn is about 10 minutes of real time; at ×60 it is about 10 s (verify-pr119).
-- After a march has left, the guide still says 「ガイド 4/7 軍勢の準備を確かめる」; 「国と領土」's reach list offers the keep
-  your host already occupies.
+- After a march, 「国と領土」's reach list offers the keep your host already stands on (above it: 「…進軍は到着のターン N を過ぎ、結果が出ています。…」).
 - Selecting a never-seen province says 「未測量 … 地形だけを図にしています。」 but the map draws it blank.
-- With `--coexist`, building a workshop gives a notice with an empty name (「の建設を始めました」).
+- After a wide village (W2) takes a keep, 「次の一手（広い土地）」 becomes pressable but sends nothing; a while later it starts again from training, and the 「結果：…砦を奪いました。」 line is gone (loop-play8).
 
 ### 8.2 How ×60 behaves (after #102, #105, #109, #117, #120)
 
@@ -443,7 +443,7 @@ Steps (「」 are the page's buttons and texts as they are; the page's English m
    bottom of each village screen (e.g. 「州 -2,0」). With different nations the provinces are apart and no caravan
    reaches (a path is at most 32 tiles / 4 provinces).
 2. **A: build a workshop**: in the village's build list open 「ほかの建物（6）」, then 「工房」 → 「建てる」 (60 food, 120 wood, 80 stone, 40 ore).
-   The notice has an empty name: 「の建設を始めました」 (§8.1). The
+   The notice says 「工房の建設を始めました」. The
    build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60). Once it stands, the village is a workshop village
    and makes 4 arms an hour (a workshop can be built only in a `--coexist` world).
 3. **B: build a storehouse**: select a free tile of A's province on the map, 「ここに建てる」 → 「貯蔵庫を建てる」
