@@ -36,6 +36,9 @@ export const KEEPER_GLOBAL_LIMITS = Object.freeze({
 /** How long an identical body is answered from the last answer. */
 export const DEDUPE_MS = Object.freeze({ 'POST /f/reveal': 30_000, 'POST /f/nudge': 10_000 });
 const DEDUPE_MAX = 4_096;
+/** The extra field of the global bucket's refusal: the CODE the page reads is `KeeperUnavailable` (marchbook UNREACHED);
+ *  kept out of the RouteError call so web-frontier-errors' scan reads that code, not the reason (verify-pr166). */
+const BUSY_REASON = Object.freeze({ reason: 'KeeperBusy' });
 const LOG_EVERY_MS = 10_000;
 
 const canonical = v => (Array.isArray(v) ? `[${v.map(canonical).join(',')}]`
@@ -84,7 +87,7 @@ export class KeeperGuard {
     if (hit) this.cache.delete(id);
     if (this.limits[key] && !this.limiter.take(`f-global:${key}`, this.limits[key])) {
       this.count(`${name}_busy_global`, true);
-      throw new RouteError(503, 'the keeper is busy; ask again later', 'KeeperUnavailable', { reason: 'KeeperBusy' });
+      throw new RouteError(503, 'the keeper is busy; ask again later', 'KeeperUnavailable', BUSY_REASON);
     }
     const pending = (async () => call())();
     this.cache.set(id, { pending });
