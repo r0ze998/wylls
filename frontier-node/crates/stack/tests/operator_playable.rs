@@ -78,6 +78,10 @@ const PV0_PORT_BASE: u16 = 41_680;
 /// P17's (devnet-p17; `OPERATOR_PAGE_WIDE_ACTS_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection). Shares
 /// P11's default base: set the variable to run both at once.
 const P17_PORT_BASE: u16 = 41_500;
+/// PCAP's (devnet-72bell-pair; `OPERATOR_PAGE_CAPTURE_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
+const PCAP_PORT_BASE: u16 = 41_780;
+/// PPAIR's (devnet-72bell-pair; `OPERATOR_PAGE_PAIR_PORT_BASE` moves them): as P9.
+const PPAIR_PORT_BASE: u16 = 41_790;
 /// PGWF's (fix-gw-highs; `OPERATOR_GW_FLOOD_PORT_BASE` moves them): as P8 plus the gateway (+6 operator, +7 public).
 const PGWF_PORT_BASE: u16 = 41_600;
 
@@ -449,6 +453,88 @@ async fn p2_public_send_needs_approval_and_hash_before_anything() {
     assert_eq!(r.code, operator::EXIT_REFUSED);
 }
 
+/// The real quicknet rounds this repository ships with their signatures — `fclient/fixtures/quicknet` (32 rounds) and
+/// the S-TLOCK vectors' rounds and previous rounds — each checked against quicknet's public key (no key is generated,
+/// derived or used to sign: only public signatures verified).
+fn shipped_real_rounds() -> std::collections::BTreeSet<u64> {
+    let pk = fclient::beacon::quicknet_info().public_key;
+    let mut out = std::collections::BTreeSet::new();
+    let mut take = |round: u64, sig_hex: &str| {
+        let sig: [u8; 48] = hex::decode(sig_hex).unwrap().try_into().unwrap();
+        assert!(
+            fclient::beacon::verify(round, &sig, &pk),
+            "round {round}: a real quicknet signature"
+        );
+        out.insert(round);
+    };
+    let dir = repo_root().join("frontier-node/crates/fclient/fixtures/quicknet");
+    for e in std::fs::read_dir(dir).unwrap() {
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(e.unwrap().path()).unwrap()).unwrap();
+        take(
+            v["round"].as_u64().unwrap(),
+            v["signature"].as_str().unwrap(),
+        );
+    }
+    for f in ["q3-vector.json", "q4-vector.json"] {
+        let v: Value = serde_json::from_str(
+            &std::fs::read_to_string(fclient::seal::fixture_dir().join(f)).unwrap(),
+        )
+        .unwrap();
+        let r = v["round"].as_u64().unwrap();
+        take(r, v["sig"].as_str().unwrap());
+        take(r - 1, v["prev_round_sig"].as_str().unwrap());
+    }
+    out
+}
+
+/// The arrival bells `b ≥ 2` of a season whose genesis round is `g` (devnet preset clock) with a real time-lock round
+/// T(b) among `real`.
+fn real_arrival_bells(g: u64, real: &std::collections::BTreeSet<u64>) -> Vec<u32> {
+    let sp = &frontier_abi::v2::presets::S1_DEVNET_WIDE_7D;
+    let (round, genesis_ts) = operator::genesis_of(sp, align(g));
+    assert_eq!(round, g);
+    let clock = permutation_rules::frontier::clash::BeaconClock {
+        genesis: sp.base.drand_genesis,
+        period: sp.base.drand_period as i64,
+    };
+    (2..=1_008u32)
+        .filter(|&b| {
+            real.contains(&permutation_rules::frontier::beacon::tlock_round(
+                &clock, genesis_ts, b,
+            ))
+        })
+        .collect()
+}
+
+/// PKF (devnet-72bell-pair; key-free, in PR CI): why PPAIR's OUT leg is sealed to the TEST beacon key. Offline, the
+/// only real quicknet signatures are the shipped ones; a march settles (SettleTransit) only over its arrival bell's
+/// anchor signature. For EVERY shipped round as the season's genesis (the operator binds a real one), at most ONE later
+/// bell of a whole 7-day season has a real time-lock round — the war genesis's bell 21 (T(21) = 32 556 349) among them.
+/// So no offline season can settle two real sealed marches: one leg of an out-and-back pair must be declared.
+#[test]
+fn pkf_offline_a_season_has_at_most_one_real_arrival_round() {
+    let real = shipped_real_rounds();
+    assert!(real.len() >= 36, "{real:?}");
+    let mut most = 0usize;
+    for &g in real.iter().filter(|&&g| g <= 32_553_016) {
+        let bells = real_arrival_bells(g, &real);
+        most = most.max(bells.len());
+        assert!(
+            bells.len() <= 1,
+            "genesis {g}: real arrival bells {bells:?} (a fully real pair would be possible)"
+        );
+    }
+    assert_eq!(most, 1);
+    assert_eq!(
+        real_arrival_bells(WAR_GENESIS_ROUND, &real),
+        vec![rim::war::ARRIVE_BELL],
+        "the war genesis's one real arrival bell"
+    );
+    // (and one host rests 28 bells between two sealed Departs: a pair can never fit around bell 21 alone)
+    assert_eq!(rim::war::PAIR_REST_BELLS, 28);
+}
+
 /// `t_create_min` whose genesis round is `round` (svm-tests `Beacons::align`).
 fn align(round: u64) -> i64 {
     let p = frontier_abi::v2::presets::S1_DEVNET_WIDE_7D.base;
@@ -708,6 +794,46 @@ async fn p9_the_page_plays_a_legacy_war_on_the_devnet_so_offline() {
     .await;
 }
 
+/// PCAP (devnet-72bell-pair; devnet STILL OPEN "72-bell keep capture never seen on devnet timing"): P9's page war —
+/// the page musters, seals ONE Depart onto a neighbour's keep (its card, its wallet, its time-lock to the real T(21)) —
+/// with keeper A running the devnet profile's roles and rings duty (`provinces_reach` #138; the live Rent sysvar #147),
+/// then the keep HELD through all 72 bells at the devnet preset's real 600-s bells (the chain clock ×40,
+/// `OPERATOR_PCAP_HOLD_SCALE`; window `OPERATOR_PCAP_AFTER_BELLS`, default 110): the capture on chain, the herald's
+/// keep history and `keep_taken` day event, the page's guide 「…が州 P,Q を奪いました」; keeper A's lag measured per bell;
+/// the verifier judges the whole season. `DEVNET_PAGE_DRIVER=1` only (as P7). Ports 41780+.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pcap_the_page_takes_a_keep_after_72_held_bells_on_the_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("pcap: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_CAPTURE_PORT_BASE", PCAP_PORT_BASE),
+        Mode::PageCapture,
+    )
+    .await;
+}
+
+/// PPAIR (devnet-72bell-pair; devnet STILL OPEN "out-and-back march pair"): one host's march OUT to the neighbouring
+/// province and back HOME in one season on the devnet page path, both legs settled by keeper A (the profile's roles):
+/// OUT is the page's own march card (its wallet, its time-lock to the REAL T(21), which keeper A anchors and opens);
+/// HOME, once the host may leave again (a sealed Depart costs 74 stamina: ~28 bells' rest), is the same wallet's Depart
+/// sealed to the TEST beacon key over a declared TEST-signed anchor, revealed by the wallet — offline only T(21) is a
+/// real arrival round (`rim::war::PAIR_REST_BELLS`). The host ends on its village's tile; the herald's records agree;
+/// the verifier judges the whole season. `DEVNET_PAGE_DRIVER=1` only (as P7). Ports 41790+.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ppair_an_out_and_back_march_pair_from_the_devnet_page_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {
+        eprintln!("ppair: skipped (set DEVNET_PAGE_DRIVER=1: needs node and headless Chromium)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_PAIR_PORT_BASE", PPAIR_PORT_BASE),
+        Mode::PagePair,
+    )
+    .await;
+}
+
 /// P10 (devnet-page-war-2): P9's page, its RETURN march — a Depart to its own village's tile (「村へ戻す」), arriving at
 /// bell 21 on the real round — and keeper A stopped twice: (a) at the Depart bell, so the page's read of the home province
 /// lags for minutes: the card's 出発 waits (one press) and sends ONCE when the read catches up; (b) across T(21)'s
@@ -847,6 +973,10 @@ enum Mode {
     PageWarHome,
     /// PFOG (fog-devnet): P9 with two observer players of other nations on the devnet page, under the fog of war.
     PageWarFog,
+    /// PCAP (devnet-72bell-pair): P9 held through the 72 bells to the capture, keeper A as the devnet profile.
+    PageCapture,
+    /// PPAIR (devnet-72bell-pair): an out-and-back march pair from the devnet page path.
+    PagePair,
     /// P11 (devnet-expedition-keeper): the rim world, keeper A with the play roles, the wide ring 129 and the
     /// `expeditions` role, and a rim → wide expedition by a test participant. (devnet-p15-p9: then P9's wide
     /// village musters on later bells, keeper A's `wide-resolve` role.)
@@ -884,6 +1014,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::PageWar => "p9",
         Mode::PageWarHome => "p10",
         Mode::PageWarFog => "pfog",
+        Mode::PageCapture => "pcap",
+        Mode::PagePair => "ppair",
         Mode::Expedition => "p11",
         Mode::PageExpedition => "p12",
         Mode::Provinces => "pprov",
@@ -894,7 +1026,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
     };
     let war = matches!(
         mode,
-        Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::Flood
+        Mode::War
+            | Mode::PageWar
+            | Mode::PageWarHome
+            | Mode::PageWarFog
+            | Mode::PageCapture
+            | Mode::PagePair
+            | Mode::Flood
     );
     let page_mode = matches!(
         mode,
@@ -903,6 +1041,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
             | Mode::PageWar
             | Mode::PageWarHome
             | Mode::PageWarFog
+            | Mode::PageCapture
+            | Mode::PagePair
             | Mode::PageExpedition
             | Mode::PageOutpost
     );
@@ -1195,6 +1335,11 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::Flood => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
+            // (PCAP / PPAIR, devnet-72bell-pair: keeper A exactly as scripts/devnet/devnet-playable-profile.json's
+            //  services.keeperA.roles)
+            Mode::PageCapture | Mode::PagePair => {
+                "\"beacon\", \"archive\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\", \"expeditions\", \"wide-resolve\""
+            }
             // (P11 / P14: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
             // (P12/P13 devnet-p15-p9: and the `wide-resolve` role, P9; P14 rides on P11)
             Mode::Expedition | Mode::PageExpedition | Mode::Conquest => {
@@ -1216,6 +1361,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
+            ),
+            // (PCAP / PPAIR: the profile's ringsDuty — rim_per_wedge 6, provinces_reach 3 (#138) — with this test's
+            //  scan cadence. NOT its wide_rings 3: offline a wide ring's seed can only bind a SHIPPED round, which P5
+            //  steers the clock to (rim.rs); P5/P11 prove that duty, and a legacy war never touches the wide land)
+            Mode::PageCapture | Mode::PagePair => format!(
+                "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
+                rim::PER_WEDGE
             ),
             // (P11 / P12 / P14: ring 129 only, the expedition's destination ring)
             Mode::Expedition | Mode::PageExpedition | Mode::Conquest => format!(
@@ -1676,6 +1828,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
         fog: mode == Mode::PageWarFog,
         outpost: mode == Mode::PageOutpost,
         wide_acts: mode == Mode::PageWideActs,
+        capture: mode == Mode::PageCapture,
+        pair: mode == Mode::PagePair,
     });
     // P4: the rim first village and the wide claim (keeper and herald still running).
     let rim_summary = if rim_run {

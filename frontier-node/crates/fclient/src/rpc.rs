@@ -315,6 +315,16 @@ impl RpcClient {
                 .get("value")
                 .and_then(|x| x.as_array())
                 .ok_or_else(|| PortError::Decode("value".into()))?;
+            // One entry per key asked, in order: callers index the answer by
+            // the key's position, so a short (or long) answer from a hostile
+            // or broken RPC is refused here instead of panicking them.
+            if arr.len() != chunk.len() {
+                return Err(PortError::Decode(format!(
+                    "getMultipleAccounts: {} values for {} keys",
+                    arr.len(),
+                    chunk.len()
+                )));
+            }
             for a in arr {
                 out.push(parse_account(a)?);
             }
@@ -831,11 +841,19 @@ impl ChainPort for RpcPort {
                     json!([ss, {"searchTransactionHistory": true}]),
                 )
                 .await?;
-            for s in v
+            let arr = v
                 .get("value")
                 .and_then(|x| x.as_array())
-                .ok_or_else(|| PortError::Decode("value".into()))?
-            {
+                .ok_or_else(|| PortError::Decode("value".into()))?;
+            // One status per signature asked (see get_multiple_accounts_at).
+            if arr.len() != chunk.len() {
+                return Err(PortError::Decode(format!(
+                    "getSignatureStatuses: {} values for {} signatures",
+                    arr.len(),
+                    chunk.len()
+                )));
+            }
+            for s in arr {
                 out.push(parse_finalized_status(s));
             }
         }
@@ -1087,6 +1105,60 @@ mod tests {
     }
 
     use super::*;
+
+    /// security-audit: one loopback JSON-RPC answer per connection (a thread); → the URL.
+    /// The server reads the whole request and outlives the client's read
+    /// (see `crate::http::serve_one_http`; fix-rpc-flake).
+    fn rpc_answer_once(result: Value) -> String {
+        let body = json!({"jsonrpc": "2.0", "id": 1, "result": result}).to_string();
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        format!("http://{}", crate::http::serve_one_http(reply.into_bytes()))
+    }
+
+    fn run<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    /// security-audit: a hostile or broken RPC that answers fewer (or more)
+    /// accounts or statuses than asked is refused as a decode error; callers
+    /// index the answer by position and used to panic (the keeper's tick is
+    /// not isolated, so the whole keeper stopped).
+    #[test]
+    fn short_or_long_answers_are_refused() {
+        let keys = [
+            Address::new_from_array([1; 32]),
+            Address::new_from_array([2; 32]),
+        ];
+        for value in [json!([]), json!([null]), json!([null, null, null])] {
+            let url = rpc_answer_once(json!({"context": {"slot": 5}, "value": value}));
+            let got = run(RpcClient::new(url).get_multiple_accounts(&keys, 0));
+            assert!(
+                matches!(&got, Err(PortError::Decode(m)) if m.contains("for 2 keys")),
+                "{value}: {got:?}"
+            );
+        }
+        let sigs = [Signature::from([7u8; 64]), Signature::from([8u8; 64])];
+        let url = rpc_answer_once(json!({"context": {"slot": 5}, "value": [null]}));
+        let port = RpcPort::new(url, Address::new_from_array([3; 32]));
+        let got = run(port.statuses(&sigs));
+        assert!(
+            matches!(&got, Err(PortError::Decode(m)) if m.contains("for 2 signatures")),
+            "{got:?}"
+        );
+        // The exact count still parses (absent accounts are None).
+        let url = rpc_answer_once(json!({"context": {"slot": 5}, "value": [null, null]}));
+        assert_eq!(
+            run(RpcClient::new(url).get_multiple_accounts(&keys, 0)).unwrap(),
+            vec![None, None]
+        );
+    }
 
     #[test]
     fn parses_errors_and_accounts() {

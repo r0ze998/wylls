@@ -317,6 +317,59 @@ fn dechunk(mut raw: &[u8]) -> Result<Vec<u8>, PortError> {
     }
 }
 
+/// Test-only loopback HTTP/1.1 server: answers ONE connection with `reply`
+/// from a thread and returns `127.0.0.1:<port>` (an OS-chosen port).
+///
+/// The request is read in full (headers, then `Content-Length` body bytes)
+/// before the reply is written, and the socket is only dropped after the
+/// client hangs up. Closing a socket that still holds unread bytes makes
+/// the kernel send RST instead of FIN, and the client's `read_to_end` then
+/// fails with "Connection reset by peer" (fix-rpc-flake: our client writes
+/// headers and body in two writes, so a single `read` often missed the body).
+#[cfg(test)]
+pub(crate) fn serve_one_http(reply: Vec<u8>) -> String {
+    use std::io::{Read, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let Ok((mut c, _)) = l.accept() else { return };
+        // A safety net only (a stuck client must not pin the thread forever);
+        // never used as synchronisation.
+        let _ = c.set_read_timeout(Some(std::time::Duration::from_secs(30)));
+        let mut req = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let mut want: Option<usize> = None;
+        loop {
+            if let Some(n) = want {
+                if req.len() >= n {
+                    break;
+                }
+            }
+            match c.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => req.extend_from_slice(&chunk[..n]),
+            }
+            if want.is_none() {
+                if let Some(end) = req.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&req[..end]).to_ascii_lowercase();
+                    let body_len = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    want = Some(end + 4 + body_len);
+                }
+            }
+        }
+        let _ = c.write_all(&reply);
+        let _ = c.flush();
+        // FIN after the reply; then wait for the client's own close (EOF).
+        let _ = c.shutdown(std::net::Shutdown::Write);
+        while matches!(c.read(&mut chunk), Ok(n) if n > 0) {}
+    });
+    addr.to_string()
+}
+
 #[cfg(test)]
 mod bounded_response_tests {
     use super::*;
