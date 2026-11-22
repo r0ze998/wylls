@@ -3,8 +3,8 @@
 // The resident's own goals (goals.mjs GOALS: growth / use weights, plan depth, reserve, patience), its own limits
 // (resident.mjs DEFAULT_LIMITS: the shortest gap between decisions, the idle back-off, the allowance of decisions,
 // the day's actions, the doubling hold after a failed action) and its own memory (journal.mjs) are mapped onto the
-// six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and onto nothing
-// else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
+// six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and, in a local
+// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
 // plans with are the page's own (hud/rulebook.mjs buildOffers, trainCost, maxTrain; fland.mjs storesAt), never the
 // test world's (world/rules.mjs). A choice is only a request: the relay and the program refuse it exactly as they
 // refuse a person's.
