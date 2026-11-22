@@ -676,7 +676,14 @@ OPERATOR_PAGE_PAIR_PORT_BASE=41520 cargo test --locked -p stack --features playa
   only ~28 bells after a sealed Depart (74 stamina whatever the path, cap 120, +1 a bell). So HOME is the same wallet's
   Depart at the first bell its stamina allows, sealed to the TEST beacon key over a declared TEST-signed anchor and
   revealed by the wallet; keeper A settles it. On devnet both legs are ordinary sealed marches keeper A opens from the
-  live rounds (and the page's 「村へ戻す」 card sends the HOME leg; P10 proves that card offline).
+  live rounds (and the page's 「村へ戻す」 card sends the HOME leg; P10 proves that card offline). The stamina rest is a
+  rule of the program (`permutation-rules` host stamina, `proc/host.rs` DEPART_STAMINA), not of the offline proof: on
+  devnet too a host leaves again only ~28 bells after its last sealed Depart (about 4 h 40 min of 600 s bells).
+- Verifier over either archive: the playable-lane build (without the feature it reads `UnknownProgramVersion` 0x4804):
+  `cargo build --locked -p verify --features playable-lane --bin frontier-verify`, then
+  `frontier-verify --fixture <run>/pcap-season.json.gz --program-so fixtures/verify/devnet-playable-67a33c92.so.gz --json`
+  (or `ppair-season.json.gz`). Expected: verdict UNVERIFIABLE (exit 2), 0 FAIL; every finding is `MissingData` from the
+  declared beacon (R1: V0E, V4, V7, V11, V15, VX; PPAIR also V5 for the TEST-sealed HOME leg) plus WARN V9.
 
 A playable first season does not need any open engineering item above: Join, the rim village, second and third
 villages (FileOutpost, #141, on the provinces #138 opens), the economy, the wide claim, the legacy war and the
