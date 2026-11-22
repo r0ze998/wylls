@@ -195,3 +195,30 @@ test('the prepared flows (Depart, the return, conquest: local-play-relay.mjs) ho
   assert.equal(again.status, 'submitted', 'the reservation was given back: the same prepared message goes in the next bell');
   assert.equal(chain.sends.length, 2);
 });
+
+// (verify-pr163: an EXTERNAL resident's relay in a --wide-land world, `--no-wide-orders` — the wide land is not its own)
+test('verify-pr163: --no-wide-orders refuses the wide claim and a wide village\'s orders before anything is read; the six orders and FileTicket go as before', async () => {
+  const RIM = { p: -63, q: -65, site: 10 }, WIDE = { p: '-64', q: '-65', site: 3 };
+  const WIDE_INTENTS = {
+    WideClaim: { name: 'WideClaim', subject: { holding: RIM, target: { p: WIDE.p, q: WIDE.q } }, fields: { site: 0, slot: 2 } },
+    WideTrain: { name: 'WideTrain', subject: { wide: WIDE }, fields: { unit: 0, n: 100 } },
+  };
+  const chain = runner(); let reads = 0;
+  const rpc = async (m, p) => { reads++; return chain.rpc(m, p); };
+  const ext = createLocalPlayAct({ cfg, rpc, turns: createResidentTurns({ dir: tmp() }), noWideOrders: true });
+  for (const intent of Object.values(WIDE_INTENTS)) await rejects(ext.submit(body(intent)), 'LocalActWideOrderRefused');
+  assert.equal(reads, 0, 'refused before any read'); assert.equal(chain.sends.length, 0);
+  assert.ok(LOCAL_ACT_PRESEND_REFUSALS.includes('LocalActWideOrderRefused')); assert.deepEqual([...PAGE_PRESEND], [...LOCAL_ACT_PRESEND_REFUSALS]);
+  // the six orders still go (one per bell), and the rim first-village request too
+  assert.equal((await ext.submit(body(INTENTS.Harvest))).status, 'submitted');
+  chain.bell = 5;
+  const ticket = { name: 'FileTicket', subject: { sites: [RIM] }, fields: { sites: [RIM] } };
+  assert.equal((await ext.submit(body(ticket))).status, 'submitted');
+  // an operator resident's relay (no flag): the wide claim is not refused here (the program decides), as before
+  chain.bell = 6;
+  const op = createLocalPlayAct({ cfg, rpc: chain.rpc, turns: createResidentTurns({ dir: tmp() }) });
+  const got = await op.submit(body(WIDE_INTENTS.WideClaim)).then(r => r.status, e => e.code);
+  assert.notEqual(got, 'LocalActWideOrderRefused');   // (the stand-in's holding is the legacy HOME: its account check answers)
+  // the flag is a resident relay's only
+  assert.throws(() => createLocalPlayAct({ cfg, rpc: chain.rpc, noWideOrders: true }), /resident relay/);
+});

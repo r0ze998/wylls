@@ -613,6 +613,8 @@ The world's operator gives it no privilege and never sees its key. The page show
   for that (up to 72 turns) and does not file a second one meanwhile. The request is its action of that turn. After that it
   plays its rim village with the same six orders. The wide land's own orders (the wide claim, a wide village's
   train/muster/march, expeditions) are not in an external resident's order set: it never founds a village in the wide land.
+  Its relay refuses them too (verify-pr163, `--no-wide-orders`: the wide claim and a wide village's orders answer
+  `LocalActWideOrderRefused` and are not sent; the expedition routes are not served).
   The reference resident (`agent.mjs`) still reads heartland sites only (PlaceHome, rings 2–3).
   Example: `scripts/play-local.sh --wide --random-map --ai 2 --external <address> --speed 60`.
 - The keeper loop settles an external resident's home province in the same batch as yours (#146; in kept worlds too). In

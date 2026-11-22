@@ -136,3 +136,35 @@ test('external-wide: in a --wide-land world the resident is told so as the page 
   assert.ok(runner.includes('if externals.is_some() && second.is_some() {'), 'refused only with the contest pair');
   assert.ok(!runner.includes('--external-villages is not accepted with --wide-land'));
 });
+
+// (verify-pr163: an EXTERNAL resident's relay in a --wide-land world, `--no-wide-orders`; the act relay's own refusal is
+//  pinned in the key-using frontier-local-play-resident-turns.test.mjs)
+test('verify-pr163: the command line and the launcher — --no-wide-orders needs --resident-turns; only a --wide-land world\'s external relays get it', async () => {
+  const { parseArgs, actFromArgs, serveLocalPlayRelay } = await import('../src/frontier/local-play-relay-server.mjs');
+  const fs = await import('node:fs');
+  const cfg = { localPlay: true, rpc: 'http://127.0.0.1:41864', program: OWNER, season: OWNER2, wallet: EXT[0], rulesetHash: 'ab'.repeat(32), prepareBin: '/x/depart', cuLimit: '1000000', loadedLimit: '67108864' };
+  const base = ['--local-play', '--rpc', cfg.rpc, '--program', cfg.program, '--season', cfg.season, '--wallet', cfg.wallet, '--ruleset-hash', cfg.rulesetHash, '--prepare-bin', '/x/d', '--cu-limit', '1', '--loaded-limit', '1', '--listen-port', '41865'];
+  assert.equal(parseArgs([...base, '--resident-turns', '/tmp/rt']).noWideOrders, undefined, 'absent: as before');
+  assert.equal(parseArgs([...base, '--resident-turns', '/tmp/rt', '--no-wide-orders']).noWideOrders, true);
+  assert.throws(() => parseArgs([...base, '--no-wide-orders']), /needs --resident-turns/);
+  assert.throws(() => parseArgs([...base, '--resident-turns', '/tmp/rt', '--no-wide-orders', '--no-wide-orders']), /twice/);
+  let made = null;
+  actFromArgs({ cfg, economy: true, turns: 'T', noWideOrders: true }, { create: o => { made = o; return {}; } });
+  assert.equal(made.noWideOrders, true);
+  actFromArgs({ cfg, economy: true, turns: 'T' }, { create: o => { made = o; return {}; } });
+  assert.deepEqual(made, { cfg, turns: 'T' }, 'without it: the same call as before');
+  // the expedition routes are not served by such a relay (404); /f/local-play/info is
+  const relay = { info: () => ({ localPlay: true }), prepare: async () => ({}), submit: async () => ({}), status: async () => ({}), close() {} };
+  const s = await serveLocalPlayRelay(relay, 0, { depart: false });
+  try {
+    const at = p => `http://127.0.0.1:${s.port}${p}`;
+    assert.equal((await fetch(at('/f/local-play/info'))).status, 200);
+    for (const p of ['/f/local-play/depart/prepare', '/f/local-play/depart/submit', '/f/local-play/reveal/submit', '/f/local-play/resident/prepare']) {
+      assert.equal((await fetch(at(p), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 404, p);
+    }
+  } finally { await s.close(); }
+  // the launcher (a stand-in launch, no proxy bound: startExternalResidents' argument list only)
+  const src = fs.readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
+  assert.ok(src.includes("'--resident-turns', turnsDir, ...(wide === true ? ['--no-wide-orders'] : [])]"));
+  assert.ok(/stopping: \(\) => stopping !== null, limit, wide \}\) : null;/.test(src), 'the world\'s own `wide` is handed to the external residents\' start');
+});

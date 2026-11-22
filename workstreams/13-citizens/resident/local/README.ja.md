@@ -59,4 +59,4 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 ## できないこと
 
 - 隊商・掲示板の返答と送り・行軍・投票：ローカルの act relay にない（6 つの命令だけ）。隊商は Q4（r0ze の判断待ち）。
-- 広い土地（`--wide`）：（external-wide 以降）住民は入れる。最初の村はページと同じく外側から選び、中心地より外は一か所の申し込み（`FileTicket`）で頼んで、ターンの終わりの決着を待つ（最大 72 ターン。`brain.mjs` `TICKET_WAIT_BELLS`）。広い土地そのものの命令（広い土地の取得・広い村の訓練／編成／進軍・遠征）はない。
+- 広い土地（`--wide`）：（external-wide 以降）住民は入れる。最初の村はページと同じく外側から選び、中心地より外は一か所の申し込み（`FileTicket`）で頼んで、ターンの終わりの決着を待つ（最大 72 ターン。`brain.mjs` `TICKET_WAIT_BELLS`）。広い土地そのものの命令（広い土地の取得・広い村の訓練／編成／進軍・遠征）はない。住民の中継もそれを断る（verify-pr163 `--no-wide-orders`）。

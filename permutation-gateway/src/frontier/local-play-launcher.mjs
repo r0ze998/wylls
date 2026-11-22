@@ -1006,7 +1006,7 @@ export async function startOperatorResidents({ n, nations = null, dir, ports, rp
  * proxy of its own in front of the shared herald and that relay. Written to `externals.json` (the operator's local
  * record; never served). → `{wallets, ports, heralds: {address: proxy origin}}`. Any refusal ends the world's start.
  */
-export async function startExternalResidents({ wallets, dir, ports, rpc, internalHerald, launcherPort, players, launchSide, relayArgsFor, root, proxies, stopping, limit = {} }) {
+export async function startExternalResidents({ wallets, dir, ports, rpc, internalHerald, launcherPort, players, launchSide, relayArgsFor, root, proxies, stopping, limit = {}, wide = false }) {
   if (!Array.isArray(wallets) || wallets.length < 1 || wallets.length > EXTERNAL_RESIDENTS_MAX || ports.length !== wallets.length || !wallets.every(validWallet)
     || new Set([...wallets, ...players]).size !== wallets.length + players.length) throw fault('InvalidExternalResidents', 503);
   for (const p of ports) { await freePort(p.herald); await freePort(p.relay); }
@@ -1016,7 +1016,9 @@ export async function startExternalResidents({ wallets, dir, ports, rpc, interna
   //  on the world's one lease directory, the same as the operator residents' relays)
   const turnsDir = path.resolve(dir, 'resident-turns');
   for (const [i, w] of wallets.entries()) {
-    launchSide(`relay-ext-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i].relay), '--resident-turns', turnsDir]);
+    // (verify-pr163: in a --wide-land world, `--no-wide-orders` — the relay refuses the wide claim and a wide village's
+    //  orders and serves no expedition route: the wide land is not an external resident's. Plain and demo: unchanged)
+    launchSide(`relay-ext-${i}`, process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(w, ports[i].relay), '--resident-turns', turnsDir, ...(wide === true ? ['--no-wide-orders'] : [])]);
     const x = createWorldProxy({ port: ports[i].herald, targetPort: internalHerald, launcherPort, relayPort: ports[i].relay });
     proxies.push(x);
     await new Promise((resolve, reject) => { x.once('error', reject); x.listen(ports[i].herald, '127.0.0.1', resolve); });
@@ -1307,7 +1309,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     //  each gets the newcomer's set-up and nothing else — the player's funding, a relay pinned to its own wallet, a
     //  public proxy of its own — and the page is told nothing about them)
     const external = natural && (opts.external ?? []).length ? await startExternalResidents({ wallets: opts.external, dir, ports: externalPorts(c.worldPort, slot, opts.external.length, { worldLimit: WORLD_LIMIT, operatorMax: c.operatorResidents ? Math.max(c.operatorNations ? OPERATOR_NATIONS_MAX : OPERATOR_RESIDENTS_MAX, operatorSlotPorts(c.operatorResidents)) : 0 }),
-      rpc, internalHerald, launcherPort: c.port, players: [wallet, ...(second !== null ? [second] : []), ...(operators?.wallets ?? [])], launchSide, relayArgsFor, root: c.root, proxies: externalProxies, stopping: () => stopping !== null, limit }) : null;
+      rpc, internalHerald, launcherPort: c.port, players: [wallet, ...(second !== null ? [second] : []), ...(operators?.wallets ?? [])], launchSide, relayArgsFor, root: c.root, proxies: externalProxies, stopping: () => stopping !== null, limit, wide }) : null;
     if (external) await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...(operators?.ports ?? []), ...external.ports] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
     const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit, control }) : null;
