@@ -1113,8 +1113,29 @@ mod tests {
         let port = l.local_addr().unwrap().port();
         std::thread::spawn(move || {
             if let Ok((mut c, _)) = l.accept() {
+                // Read the whole request (head and Content-Length body) before
+                // answering: closing with unread bytes makes the kernel send a
+                // reset, which the client saw as `Connection reset by peer`.
+                let mut req = Vec::new();
                 let mut buf = [0u8; 8192];
-                let _ = c.read(&mut buf);
+                loop {
+                    let head_end = req.windows(4).position(|w| w == b"\r\n\r\n");
+                    if let Some(at) = head_end {
+                        let head = String::from_utf8_lossy(&req[..at]).to_ascii_lowercase();
+                        let need = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if req.len() >= at + 4 + need {
+                            break;
+                        }
+                    }
+                    match c.read(&mut buf) {
+                        Ok(n) if n > 0 => req.extend_from_slice(&buf[..n]),
+                        _ => break,
+                    }
+                }
                 let body = json!({"jsonrpc": "2.0", "id": 1, "result": result}).to_string();
                 let _ = write!(
                     c,
