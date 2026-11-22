@@ -354,7 +354,9 @@ A local world costs no SOL and no rent (the test keys are funded with test balan
 
 The problems loop-play6 … 9 found (LP6-1 … 15, LP7-1 … 8, LP8-1 … 11, LP9-0 … 8) were fixed by #128, #130, #137, #149, #157
 and #162, and verify-pr130, 133, 137, 149 and 162 played them. The `play-local.sh` build that failed after #154 (LP9-0) was
-fixed by #157, and since #159 CI checks the play-local builds on every change. What is left is below. None is a rules question.
+fixed by #157, and since #159 CI checks the play-local builds on every change. The exceptions are the ones kept in the table and
+notes below (the Ctrl-C cause LP6-3, the lag under load LP8-4; the rim village's long-wait text LP6-9 and the 国と領土 line after
+an arrival LP7-6 were seen live only in part). What is left is below. None is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
@@ -466,7 +468,8 @@ Small ones (nothing blocks play):
 - **Two addresses open the page, no other**: `http://localhost:<port>/` and `http://127.0.0.1:<port>/` (the second is what
   `--two`'s second player uses). The launcher and the worlds listen on 127.0.0.1 only and refuse a request whose Host is
   not one of the two: `http://[::1]:41920/`, `http://<your Mac's name>.local:41920/`, a LAN IP address, another machine or
-  a phone do not work (instead of the page you get `{"error":"HostDenied"}`; a world's reads answer `WorldOriginDenied`).
+  a phone do not work (nothing listens on any address but 127.0.0.1, so normally the connection itself fails; a request that
+  reaches 127.0.0.1 under another name gets 403 `{"error":"HostDenied"}` instead of the page; a world's reads answer `WorldOriginDenied`).
   Since #164 a world's relay follows the same rule: it takes only requests whose Host is `127.0.0.1:<that relay's port>` or
   `localhost:<the same>` and that carry **no Origin header**; anything else is 403 `LocalPlayHostNotAllowed`. The page, the AI
   residents and the bundled external residents (Node) already call it that way, so ordinary play is unchanged (verify-pr164:
@@ -475,11 +478,13 @@ Small ones (nothing blocks play):
 - **After editing the page's files (`permutation-server/web/`)** the script needs no restart. The launcher reads from disk on
   every request and lets the browser keep no code or page (`no-store`; pictures and fonts are checked on every load). Reload the
   browser and you have the new files. In `--demo` and `--wide` a reload loses the test key (§6), so after it press
-  「新しい世界を開始」 for a new world (a kept world goes on after a reload). #170's static cache in the herald is not used by
+  「新しい世界を開始」 for a new world (the earlier world runs on until its time is up; at most two run at once, so end the
+  earlier one in the start screen's list with 「この世界を終了…」; `--two` cannot start until the earlier world is ended. A kept
+  world goes on after a reload). #170's static cache in the herald is not used by
   local worlds (the launcher serves the page; a world's herald runs without `--web`). Where a herald does serve the page (the
   devnet set-up), an edited file is read again on its next request once its size or times change, so no restart there either.
   A restart is needed after changing the launcher's or relay's code (`permutation-gateway/src/`) or Rust code (Ctrl-C, then
-  `scripts/play-local.sh` again: it rebuilds only what changed).
+  `scripts/play-local.sh` again, with `--resume` to continue a kept world: it rebuilds only what changed).
 - "ports in use": choose another `--port` (e.g. `--port 41450`), or stop the earlier world.
 - Report through a GitHub Issue (r0ze998/wylls), with a screenshot and the folder above.
 
