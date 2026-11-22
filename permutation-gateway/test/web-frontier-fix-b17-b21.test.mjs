@@ -323,9 +323,10 @@ test('B21: the "About this test world" box — an ended or stopped world is said
 });
 
 // ------------------------------------------------------------------ loop-play7: the workshop's name in build labels
+// (fix-loop9: screens/wideholding.mjs names a building twice since devnet-p17's wide acts card (queueLabel and itemName), both by buildItemOf; a stale pin on main)
 test('loop-play7: build labels name the workshop (item 8), not 「の建設を始めました」', () => {
   assert.equal(BUILDINGS[buildItemOf(WORKSHOP.item)?.resource], '工房');
-  for (const [file, n] of [['controller.mjs', 1], ['app.mjs', 1], ['screens/holding.mjs', 1], ['screens/wideholding.mjs', 1], ['screens/villageorders.mjs', 2], ['people/activity.mjs', 1]]) {
+  for (const [file, n] of [['controller.mjs', 1], ['app.mjs', 1], ['screens/holding.mjs', 1], ['screens/wideholding.mjs', 2], ['screens/villageorders.mjs', 2], ['people/activity.mjs', 1]]) {
     const s = src(file);
     assert.equal((s.match(/BUILDINGS\[BUILD_ITEMS\[/g) ?? []).length, 0, `${file}: no BUILD_ITEMS lookup for a building's name (it has no item 8)`);
     assert.equal((s.match(/BUILDINGS\[buildItemOf\(/g) ?? []).length, n, file);

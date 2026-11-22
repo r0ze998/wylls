@@ -38,7 +38,19 @@ export const s1OreBase = (extra, bonusPct) => (BigInt(ORE_BASE_PER_HOUR + Math.m
  */
 let oreExtraOf = () => null;
 export function setOreExtraProvider(fn) { oreExtraOf = typeof fn === 'function' ? fn : () => null; }
-export const oreExtraFor = h => { try { const v = h && Number.isInteger(h.tile) ? oreExtraOf(h.p, h.q, h.tile) : null; return Number.isInteger(v) ? v : null; } catch { return null; } };
+export const oreExtraFor = h => { try { const v = h && Number.isInteger(h.tile) ? oreExtraOf(h.p, h.q, h.tile) : null; return Number.isInteger(v) ? v : holdingOreExtra(h); } catch { return holdingOreExtra(h); } };
+/**
+ * (fix-loop9, LP9-4) The terrain ore a village's own Holding records (v2 TERRAIN_ORE, thousandths of `4 + extra` an hour,
+ * written when the village is founded; the herald's `terrainOre`): `extra`, or null. The map's reading comes first; this
+ * is what the page counts mines above while the map's terrain is not loaded (the ⑬ resident has no map at all).
+ */
+export function holdingOreExtra(h) {
+  let n;
+  try { n = h?.terrainOre === undefined || h.terrainOre === null ? NaN : Number(BigInt(h.terrainOre)); } catch { n = NaN; }
+  if (!Number.isSafeInteger(n) || n % 1000 !== 0) return null;
+  const e = n / 1000 - ORE_BASE_PER_HOUR;
+  return e >= 0 && e <= 30 ? e : null;
+}
 /**
  * A village's base production as the season's rules give it (thousandths, by resource): the tier's, and on S1 the ore
  * from its terrain when that is known (`base[3]` null when not: its mines cannot be told from its terrain then).

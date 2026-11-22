@@ -127,7 +127,7 @@ test('read only, and nowhere near win, score or prize: what the module reaches a
 // else) does not see that line. The viewer is named as the evaluator names actors: tag:<u64> of their Citizen.
 test('「依頼に応えた」: shown to the deliverer as their own title, not to the requester or anyone else; EN and JA', async () => {
   const owner = n => { const b = new Uint8Array(32); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return b; };
-  const help = { ...entry('P-board-helper|w|tag:82', 'P-board-helper', 40, { kind: 'actor', id: 'tag:82', nation: 'n2' }, { ja: '依頼に応えた', en: 'Answered a request' }, { ja: 'ほかの国の人の協力の依頼に、自分の隊商で荷を届け、その依頼が依頼量に届いた（数えた量の下限で証明）', en: 'Delivered goods by their own caravan to a co-op request from someone of another nation, and the request reached its amount (proven by the lower bound counted)' }), audience: 'subject' };
+  const help = { ...entry('P-board-helper|w|tag:82', 'P-board-helper', 40, { kind: 'actor', id: 'tag:82', nation: 'n2' }, { ja: '依頼に応えた', en: 'Answered a request' }, { ja: 'ほかの国の人の協力の依頼に、自分の隊商で荷を届け、その依頼が依頼量に届いた（数えた量の下限で証明）', en: 'Sent the caravan that delivered goods to a co-op request from someone of another nation, and the request reached its amount (proven by the lower bound counted)' }), audience: 'subject' };
   const b = await T.probeOutcomes({ fetch: answer(200, OUT({ entries: [help, ...OUT().entries] })) });
   assert.equal(b.read, 'ok');
   const deliverer = { ...FS(7n, 2), holdings: [{ ownerCitizen: owner(82) }] };
@@ -146,7 +146,7 @@ test('「依頼に応えた」: shown to the deliverer as their own title, not t
     assert.match(t, /他国の隊商を襲った者/, 'the public titles are still there');
   }
   setLang('en');
-  assert.match(text(T.render(deliverer, b)), /Turn 40 You earned the title “Answered a request” Why: Delivered goods by their own caravan/);
+  assert.match(text(T.render(deliverer, b)), /Turn 40 You earned the title “Answered a request” Why: Sent the caravan that delivered goods/);
   assert.doesNotMatch(text(T.render(requester, b)), /Answered a request/);
   setLang('ja');
   // a wallet whose Citizen address the pin derives (no village held yet)

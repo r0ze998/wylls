@@ -36,8 +36,12 @@ export const S1_WORDS = Object.freeze({
 });
 /** A caravan's tag: when it arrives. */
 // (the cart's place is an estimate between its two ends; the tag says so, so nobody plans an ambush on a guess)
+// (fix-loop9, LP9-6: a caravan whose arrival turn is not known — no runs and no arrival time read — says so; it said
+//  「略奪された隊商 ターン 0 着」 for a taken caravan whose new route had no runs)
+const knownBell = b => Number.isInteger(b) && b > 0;
 export const caravanTagText = (bell, raided = false, held = false) => (held ? L`略奪で止まった隊商（荷の行き先が決まるまで）`
-  : raided ? L`略奪された隊商 ターン ${fmtNum(bell)} 着` : L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定`);
+  : raided ? (knownBell(bell) ? L`略奪された隊商 ターン ${fmtNum(bell)} 着` : L`略奪された隊商（着くターンは不明）`)
+  : knownBell(bell) ? L`隊商 ターン ${fmtNum(bell)} 着 · 位置は推定` : L`隊商（着くターンは不明） · 位置は推定`);
 
 /** caravan.rs `caravan_id`: a caravan's id in a Province's slot. */
 export const caravanId = (ownerTag, seq) => (1n << 63n) | ((BigInt(ownerTag) & 0x7fffffffffffn) << 16n) | (BigInt(seq) & 0xffffn);
@@ -69,6 +73,13 @@ export function caravanArriveBell(c) {
   return last ? last.firstBell + last.n : null;
 }
 
+/** (fix-loop9, LP9-6) The bell of a caravan's `arriveTs` (`bellOfTs(ts)`, the season's clock), or null. */
+export function arriveBellOfTs(c, bellOfTs) {
+  const ts = Number(c?.arriveTs);
+  if (typeof bellOfTs !== 'function' || !Number.isFinite(ts) || ts <= 0) return null;
+  try { const b = bellOfTs(ts); return Number.isInteger(b) && b > 0 ? b : null; } catch { return null; }
+}
+
 /**
  * Where a caravan stands at `bell` as a share of its road (0 at its origin,
  * 1 at its destination), from its runs; `null` without runs.
@@ -90,7 +101,7 @@ const isOwn = (tag, own) => own !== null && own !== undefined && BigInt(tag) ===
  * `cover` (tile indices of its province). `own` is the viewer's citizen tag
  * (bigint) or null; `bell` the bell now.
  */
-export function s1Marks(s1, { own = null, bell = null, provinces = null } = {}) {
+export function s1Marks(s1, { own = null, bell = null, provinces = null, bellOfTs = null } = {}) {
   const held = heldByRaids(provinces);
   const out = { vaults: [], structures: [], caravans: [] };
   if (!s1) return out;
@@ -105,7 +116,7 @@ export function s1Marks(s1, { own = null, bell = null, provinces = null } = {}) 
     const at = held.get(caravanId(c.ownerTag, c.seq)) ?? null;
     out.caravans.push({
       kind: 'caravan', ownerTag: c.ownerTag, seq: c.seq, faction: c.faction, own: isOwn(c.holderTag ?? c.ownerTag, own), raided: c.raided || !!at, held: !!at,
-      from: at ?? end(c.src), to: at ?? end(c.dst), cargo: c.cargo, share: at ? 0 : caravanShare(c, bell), arriveBell: caravanArriveBell(c),
+      from: at ?? end(c.src), to: at ?? end(c.dst), cargo: c.cargo, share: at ? 0 : caravanShare(c, bell), arriveBell: caravanArriveBell(c) ?? arriveBellOfTs(c, bellOfTs),
     });
   }
   return out;

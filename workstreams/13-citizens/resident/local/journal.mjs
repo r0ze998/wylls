@@ -25,7 +25,7 @@ export const MAX_ATTEMPTS_PER_TURN = 3;
 
 export function freshState({ wallet, goal, nation }) {
   return { schema: STATE_SCHEMA, wallet, goal, nation, world: null, decisions: 0, acted: 0, wakeInterval: 1, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null,
-    day: { n: -1, acts: 0 }, failures: {}, triedHomes: [], journal: {}, worlds: 0 };
+    day: { n: -1, acts: 0 }, failures: {}, triedHomes: [], journal: {}, worlds: 0, village: null, refusals: {} };
 }
 
 /**
@@ -44,11 +44,11 @@ export function openState({ dir, wallet, goal, nation, store = null }) {
 
 /**
  * A new world (another program, Season or genesis): the world's own memory starts again (journal, failures, homes
- * tried, turns); the resident's goal, nation and allowance of decisions stay. → true when it was a new world.
+ * tried, turns, the village's landed builds and resource refusals: brain.mjs `village` / `refusals`); the resident's goal, nation and allowance of decisions stay. → true when it was a new world.
  */
 export function enterWorld(st, worldKey) {
   if (st.world === worldKey) return false;
-  Object.assign(st, { world: worldKey, journal: {}, failures: {}, triedHomes: [], ticket: null, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null, wakeInterval: 1, day: { n: -1, acts: 0 }, worlds: (st.worlds ?? 0) + 1 });
+  Object.assign(st, { world: worldKey, journal: {}, failures: {}, triedHomes: [], ticket: null, village: null, refusals: {}, oreSeen: null, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null, wakeInterval: 1, day: { n: -1, acts: 0 }, worlds: (st.worlds ?? 0) + 1 });
   return true;
 }
 
