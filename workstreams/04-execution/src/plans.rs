@@ -159,6 +159,7 @@ fn must(store: &Store, plan: &str) -> Result<PlanRow, PlanErr> {
     load(store, plan)?.ok_or_else(|| err(3, "NoRecord", format!("no plan {plan}")))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn log(store: &Store, plan: &str, p: &PlanRow, now: i64, step: Option<i64>, from: Option<&str>, to: &str, holder: Option<&str>, why: &str) -> Result<i64, PlanErr> {
     let v = p.version + 1;
     sql(store.conn.execute(
@@ -573,6 +574,7 @@ pub fn step_view(store: &Store, plan: &str, idx: i64) -> Result<Value, PlanErr> 
 }
 
 /// The whole plan: state, cursor, lease, steps, transitions.
+#[allow(clippy::type_complexity)]
 pub fn view(store: &Store, plan: &str) -> Result<Value, PlanErr> {
     init(store)?;
     let (spec, state, stop_reason, cursor, version, replaces, holder, until, epoch, max): (String, String, Option<String>, i64, i64, Option<String>, Option<String>, i64, i64, i64) = sql(store

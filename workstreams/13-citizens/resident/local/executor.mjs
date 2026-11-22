@@ -73,15 +73,29 @@ export function createPlanExecutor({ plans, owner, holder, goal, goalName, limit
         if (cur.plans >= limits.maxPlans) return { none: `${cur.plans} plans made in this world (my cap ${limits.maxPlans})` };
         const steps = makePlanSteps(obs, goal, { limits });
         if (!steps) return { wait: 'my village\'s record is not readable: no plan yet' };
+        // (verify-pr148) a plan whose first step the same checks would stop at once is not made: making it would stop
+        // it, and remake it the next round, until the plan cap is spent (seen live: 3 plans in 7 s on a wood shortfall
+        // past the patience). The brain decides this turn instead; a plan is tried again the next round.
+        const first = checkStep({ ...steps[0], idx: 0 }, obs, mem, { patience: limits.maxWaitBells });
+        if (first.replan) { say('not-made', { why: `its first step (${steps[0].name}) would stop it at once: ${first.replan}` }); return { none: `no plan this turn: its first step ${first.replan}` }; }
         const replaces = cur.latest?.state === 'stopped' ? cur.latest.planId : null;
         const spec = planSpec({ planId: `${owner.slice(0, 8)}.${obs.seasonId}.${cur.plans + 1}`, owner, world, goal: goalName, steps, replaces });
         active = await plans.accept(spec);
-        say('made', { plan: active.planId, replaces, why: replaces ? `replan: ${cur.latest.stopReason}` : cur.latest ? `the previous plan ${cur.latest.planId} is ${cur.latest.state}` : 'first plan', steps: steps.map(s => `${s.name}${s.name === 'Build' ? `:${s.fields.item}#${s.expect.copy}` : ''}`) });
+        say('made', { plan: active.planId, replaces, why: replaces ? (/^replan: /.test(cur.latest.stopReason ?? '') ? cur.latest.stopReason : `replan: ${cur.latest.stopReason}`) : cur.latest ? `the previous plan ${cur.latest.planId} is ${cur.latest.state}` : 'first plan', steps: steps.map(s => `${s.name}${s.name === 'Build' ? `:${s.fields.item}#${s.expect.copy}` : ''}`) });
       }
       const h = await hold(active.planId);
       if (h.held) return { wait: h.held };
-      const step = active.steps[active.cursor];
+      let step = active.steps[active.cursor];
       if (!step) return { none: `plan ${active.planId} has no step ${active.cursor}` };
+      if (step.state === 'intended' && !step.signature && (await plans.view({ plan: active.planId })).steps[step.idx]?.state === 'intended') {   // (read after the claim: a new holder's claim has reset it already)
+        // (verify-pr148) my own unsigned intent from an earlier round: its signature write failed (so nothing was
+        // submitted: the submit waits for that write) and so did its not-sent settle. One process runs one round at a
+        // time, so nothing of mine is between intend and sign now: it is not-sent, or this holder stalls on it for good
+        // (a new holder's claim does the same).
+        await plans.settle({ plan: active.planId, holder, epoch: h.epoch, step: step.idx, outcome: 'not-sent', code: 'UnsignedIntent' });
+        say('reopened', { plan: active.planId, planStep: step.idx, why: 'my unsigned intent of an earlier round: nothing was submitted' });
+        step = { ...step, state: 'not-sent' };
+      }
       const r = checkStep(step, obs, mem, { patience: limits.maxWaitBells });
       if (r.replan) { await stopPlan(active.planId, h.epoch, `step ${step.idx} (${step.name}): ${r.replan}`); return { wait: `replanning: ${r.replan}` }; }
       if (r.wait) {

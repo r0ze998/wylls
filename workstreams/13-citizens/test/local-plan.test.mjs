@@ -260,3 +260,94 @@ test('LP9 caravans are refused by the store itself (owner question Q4), and the 
     assert.equal(parseArgs(base).plan, false);
   } finally { t.done(); }
 });
+
+test('LP10 (verify-pr148) the store misses the signature write and then the not-sent settle (a busy store, a slow runexec): nothing is submitted, and the SAME process sends the step on a later round instead of stalling on its own unsigned intent', { skip }, async () => {
+  const t = tmp(); const clock = { t: 7_000_000 };
+  try {
+    const st = mem(); const store = memStore(st); const w = world();
+    const logs = [];
+    const real = createPlansClient({ bin: BIN, db: t.db, nowMs: () => clock.t });
+    let failSigned = 1, failSettle = 1;
+    const down = () => Object.assign(new Error('runexec gave no usable answer (exit null, SIGTERM)'), { code: 'Spawn' });
+    const plans = { ...real,
+      signed: async a => { if (failSigned-- > 0) throw down(); return real.signed(a); },
+      settle: async a => { if (failSettle-- > 0) throw down(); return real.settle(a); } };
+    const plan = createPlanExecutor({ plans, owner: OWNER, holder: 'pid-A', goal: GOALS['village-first'], goalName: 'village-first', limits: { ...PLAN_LIMITS, steps: 12 }, leaseMs: 20_000, log: (s, f) => logs.push({ s, ...f }), nowMs: () => clock.t });
+    let submits = 0, n = 0;
+    const send = async (o, { onSigned }) => {
+      const sig = fakeSig(++n);
+      try { await onSigned(sig); } catch (e) { return { outcome: 'refused', code: e.code }; }   // (as submitLocalAct: a throw before the POST is "not sent")
+      submits++; w.apply(o); return { outcome: 'landed', signature: sig };
+    };
+    const r0 = await localStep({ store, observe: w.observe, send, follow: async () => null, bellNow: async () => w.bell, plan, nowMs: () => clock.t });
+    assert.equal(r0.outcome, 'not-sent'); assert.equal(submits, 0);
+    for (let i = 0; i < 4 && submits === 0; i++) {
+      w.bell += 1; clock.t += 10_000; w.province = w.bell - 1;
+      await localStep({ store, observe: w.observe, send, follow: async () => null, bellNow: async () => w.bell, plan, nowMs: () => clock.t });
+    }
+    assert.equal(submits, 1, `the step was sent again by the same process: ${JSON.stringify(logs.slice(-3))}`);
+    const v = await real.view({ plan: `${OWNER.slice(0, 8)}.11.1` });
+    assert.equal(v.steps[0].state, 'landed');
+    assert.equal(v.steps[0].attempts, 2);
+  } finally { t.done(); }
+});
+
+test('LP11 (verify-pr148) a broken plan store fails safe: corrupt, locked by another process, or deleted while an order is open — no submit, no brain fallback, and the plan goes on once the store is back', { skip }, async () => {
+  const { writeFileSync, unlinkSync, readFileSync } = await import('node:fs');
+  const { spawn, execFileSync } = await import('node:child_process');
+  const t = tmp(); const clock = { t: 8_000_000 };
+  try {
+    const st = mem(); const store = memStore(st); const w = world();
+    const { plan, plans } = rig({ db: t.db, clock });
+    let submits = 0, n = 0, outcome = 'landed';
+    const send = async (o, { onSigned }) => { const sig = fakeSig(++n + 40); await onSigned(sig); submits++; if (outcome === 'landed') w.apply(o); return { outcome, signature: sig }; };
+    const step = follow => localStep({ store, observe: w.observe, send, follow, bellNow: async () => w.bell, plan, nowMs: () => clock.t });
+    const turn = () => { w.bell += 1; clock.t += 10_000; w.province = w.bell - 1; };
+    assert.equal((await step(async () => 'landed')).did, 'act'); assert.equal(submits, 1);
+    // (a) corrupt: the file's bytes are garbage (a copy is kept to put back)
+    turn();
+    const side = [t.db, `${t.db}-wal`, `${t.db}-shm`];
+    const good = side.map(f => { try { return readFileSync(f); } catch { return null; } });   // (the file and its WAL, to put back)
+    for (const f of side.slice(1)) { try { unlinkSync(f); } catch {} }
+    writeFileSync(t.db, Buffer.concat([Buffer.from('this is not a database'.padEnd(100, '!')), good[0].subarray(100)]));
+    const ra = await step(async () => 'landed');
+    assert.equal(ra.did, 'plan-wait', JSON.stringify(ra)); assert.match(ra.why, /plan store/); assert.equal(submits, 1, 'nothing sent on a corrupt store, and the brain did not take over');
+    side.forEach((f, i) => { if (good[i]) writeFileSync(f, good[i]); });
+    assert.equal((await plans.view({ plan: `${OWNER.slice(0, 8)}.11.1` })).steps[0].state, 'landed', 'the store put back is the store before');
+    // (b) locked: another process holds an EXCLUSIVE lock (runexec waits its 10 s busy timeout, then refuses)
+    let sqlite3 = null; try { execFileSync('sqlite3', ['-version']); sqlite3 = 'sqlite3'; } catch {}
+    if (sqlite3) {
+      const holder = spawn(sqlite3, [t.db], { stdio: ['pipe', 'ignore', 'ignore'] });
+      holder.stdin.write('BEGIN EXCLUSIVE; SELECT 1;\n');
+      await new Promise(r => setTimeout(r, 500));
+      const rb = await step(async () => 'landed');
+      holder.stdin.end('ROLLBACK;\n'); await new Promise(r => holder.on('exit', r));
+      assert.equal(rb.did, 'plan-wait', JSON.stringify(rb)); assert.equal(submits, 1, 'nothing sent on a locked store');
+    }
+    turn();
+    assert.equal((await step(async () => 'landed')).did, 'act', 'the store is back: the plan goes on'); assert.equal(submits, 2);
+    // (c) deleted while an order's fate is open: the store forgets it, the journal does not — nothing new is sent
+    turn(); outcome = 'unknown';
+    assert.equal((await step(async () => 'pending')).outcome, 'unknown'); assert.equal(submits, 3);
+    for (const f of [t.db, `${t.db}-wal`, `${t.db}-shm`]) { try { unlinkSync(f); } catch {} }
+    turn();
+    const rc = await step(async () => 'pending');
+    assert.equal(rc.did, 'blocked', JSON.stringify(rc)); assert.equal(submits, 3, 'the open journal line blocks: no blind re-send');
+  } finally { t.done(); }
+});
+
+test('LP12 (verify-pr148) a plan whose first step is already past the patience is not made: no make-stop-remake churn that spends the plan cap; the brain decides the turn', { skip }, async () => {
+  const t = tmp(); const clock = { t: 9_000_000 };
+  try {
+    const st = mem(); const store = memStore(st);
+    const w = world();
+    w.raw = village({ stores: [0, 0, 0, 0, 0, 0, 0, 0], production: [0, 1, 0, 0, 0, 0, 0, 0] });   // (a shortfall production covers in no patience)
+    const { plan, plans, logs } = rig({ db: t.db, clock });
+    const send = async (o, { onSigned }) => { await onSigned(fakeSig(60)); return { outcome: 'landed', signature: fakeSig(60) }; };
+    for (let i = 0; i < 6; i++) { await localStep({ store, observe: w.observe, send, follow: async () => null, bellNow: async () => w.bell, plan, nowMs: () => clock.t }); clock.t += 3_000; }
+    const cur = await plans.current({ owner: OWNER, world: `11:${NOW - 6000}` });
+    assert.equal(cur.plans, 0, `no plan was made and stopped: ${JSON.stringify(logs.filter(l => l.what === 'made' || l.what === 'stopped').slice(0, 4))}`);
+    assert.ok(logs.some(l => l.what === 'not-made'));
+    assert.equal(st.planActive, false, 'the brain has the turn');
+  } finally { t.done(); }
+});

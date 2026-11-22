@@ -39,6 +39,7 @@ fn code(r: Result<Value, PlanErr>) -> &'static str {
 }
 
 /// One step through: intend → signed → landed.
+#[allow(clippy::too_many_arguments)]
 fn land(s: &Store, plan: &str, h: &str, epoch: i64, idx: i64, bell: i64, sig: &str, now: i64) {
     plans::intend(s, plan, h, epoch, idx, bell, now).unwrap();
     plans::signed(s, plan, h, epoch, idx, sig, now + 1).unwrap();
