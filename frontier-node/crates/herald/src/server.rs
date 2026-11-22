@@ -19,7 +19,8 @@
 //!
 //! **`/gw/*`** is the relay's public listener (§8.3) on this origin, as
 //! `permutation-server/src/play/proxy.rs`: GET/POST/OPTIONS only, a safe
-//! path and query, a body ≤ 64 KiB; of the browser's headers only
+//! path and query, a body ≤ 64 KiB (checked after axum buffered it, up to
+//! its 2 MiB default; audit L-11); of the browser's headers only
 //! `Content-Type` goes on; `X-Forwarded-For` is set to the browser's
 //! address (the peer, or — when the peer is this machine, a reverse proxy
 //! in front — the last address in its `X-Forwarded-For`), which the relay
@@ -1015,9 +1016,17 @@ async fn web(State(app): State<Shared>, uri: Uri, h: HeaderMap) -> Response {
 /// The browser's address: the peer, or — when the peer is this machine (a
 /// reverse proxy or tunnel in front of the herald) — the last address in
 /// the `X-Forwarded-For` it set.
+///
+/// verify-pr166: the last entry over EVERY `X-Forwarded-For` header line
+/// (RFC 9110 §5.3: several lines are one comma-joined list, in order). Only
+/// the first line was read, so behind a proxy that appends a line of its own
+/// (HAProxy's `option forwardfor`) the client's own line chose the address
+/// and every per-address limit of the relay was bypassed.
 pub fn client_ip(peer: IpAddr, h: &HeaderMap) -> IpAddr {
     let fwd = h
-        .get("x-forwarded-for")
+        .get_all("x-forwarded-for")
+        .iter()
+        .next_back()
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.rsplit(',').next())
         .and_then(|a| a.trim().parse().ok());
@@ -1164,3 +1173,41 @@ async fn wide_index_events(State(_app): State<Shared>) -> Response {
 #[cfg(test)]
 #[path = "wide_route_http_tests.rs"]
 mod wide_route_http_tests;
+
+/// verify-pr166: the client address behind a loopback proxy is the last
+/// entry over every `X-Forwarded-For` line, never a client-written one.
+#[cfg(test)]
+mod client_ip_tests {
+    use super::client_ip;
+    use axum::http::{HeaderMap, HeaderValue};
+    use std::net::IpAddr;
+
+    #[test]
+    fn the_proxys_line_wins_over_the_clients() {
+        let lo: IpAddr = "127.0.0.1".parse().unwrap();
+        let mut h = HeaderMap::new();
+        assert_eq!(client_ip(lo, &h), lo);
+        h.append("x-forwarded-for", HeaderValue::from_static("6.6.6.6"));
+        h.append(
+            "x-forwarded-for",
+            HeaderValue::from_static("7.7.7.7, 198.51.100.200"),
+        );
+        assert_eq!(
+            client_ip(lo, &h),
+            "198.51.100.200".parse::<IpAddr>().unwrap(),
+            "the appended line's last entry"
+        );
+        let mut one = HeaderMap::new();
+        one.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("6.6.6.6, 198.51.100.201"),
+        );
+        assert_eq!(
+            client_ip(lo, &one),
+            "198.51.100.201".parse::<IpAddr>().unwrap()
+        );
+        // a non-loopback peer: its own address, whatever it wrote
+        let peer: IpAddr = "203.0.113.5".parse().unwrap();
+        assert_eq!(client_ip(peer, &h), peer);
+    }
+}

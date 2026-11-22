@@ -55,6 +55,7 @@ permutation-gateway/test/faucet.test.mjs
 permutation-gateway/test/frontier-achievements.test.mjs
 permutation-gateway/test/frontier-cq-sdk.test.mjs
 permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs
+permutation-gateway/test/frontier-keeper-guard.test.mjs
 permutation-gateway/test/frontier-live-connect-fresh-economy.test.mjs
 permutation-gateway/test/frontier-local-play-act.test.mjs
 permutation-gateway/test/frontier-local-play-conquest.test.mjs

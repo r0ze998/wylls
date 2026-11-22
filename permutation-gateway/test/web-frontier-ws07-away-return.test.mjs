@@ -124,7 +124,7 @@ test('resuming: a reading of an old scope that answers late is stale and carries
 
 test('English follows', () => {
   setLang('en');
-  assert.match(RW.headText(head({ failed: true, incomplete: true, bad: 1 })), /Whether there are new records is not known yet\. .*Reading the records failed\. .*1 records could not be read/);
+  assert.match(RW.headText(head({ failed: true, incomplete: true, bad: 1 })), /Whether there are new records is not known yet\. .*Reading the records failed\. .*1 record could not be read/);
   assert.equal(RW.confirmText(head({ incomplete: true })), 'No records have been read yet, so the seen mark does not move');
   assert.match(RW.headText(head({ bad: 1 })), /No new records whose contents could be read\./);
   assert.equal(RW.confirmText(head({ bad: 1 })), 'Apart from the records that could not be read, nothing new to mark as seen');
