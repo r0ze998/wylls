@@ -9,6 +9,7 @@
 //! | [`log`] | the PS2 log parser, encoder and head chains |
 //! | [`fees`], [`budgets`] | §10.1 formulas incl. `L(kind)`; per-kind CU and loaded-data limits |
 //! | [`tx`] | compute budget, legacy messages, signing, shapes, priority |
+//! | [`alt`] | lookup table accounts, the replay of a table's own transactions, findex's first-use snapshot (verifier-alt-archive) |
 //! | [`vtx`] | legacy / v0 / v1 wire decoding with lookup-table addresses (ingest side) |
 //! | [`http`], [`rpc`] | loopback HTTP client, JSON-RPC client and `ChainPort` over it |
 //! | [`ports`] | `ChainPort`, `DrandPort` and their types |
@@ -23,6 +24,8 @@
 //! | [`vectors`] | `permutation-gateway/test/frontier-vectors.json` |
 pub mod abi;
 pub mod addr;
+/// Address lookup tables as evidence: account bytes, own-history replay, findex's first-use snapshot.
+pub mod alt;
 pub mod beacon;
 /// Bounded public blockhash reads; no signing or transaction admission.
 pub mod blockhash_preflight;

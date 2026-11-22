@@ -72,6 +72,55 @@ pub trait Source: Send {
     fn ledger_seq(&self) -> bool {
         false
     }
+    /// verifier-alt-archive (F2): a snapshot of each lookup table in
+    /// `wants` (table, the archived transaction that first uses it, its
+    /// slot), read before the batch is archived ([`fclient::alt::snapshot`]:
+    /// the account at the transaction's slot or later with the slot read,
+    /// and the table's own create / extend transactions). `Ok(None)`: this
+    /// source cannot read them (the batch is archived without; VT then
+    /// keeps a closed table UNVERIFIABLE). An error fails the pull (the
+    /// caller restores the cursor and retries: a table read late may be
+    /// closed already).
+    fn lookup_snapshots(
+        &mut self,
+        wants: Vec<(Address, Signature, u64)>,
+    ) -> impl Future<Output = PortResult<Option<Vec<fclient::alt::Snapshot>>>> + Send {
+        let _ = wants;
+        async { Ok(None) }
+    }
+}
+
+/// Every table of `wants` snapshotted over `rpc` ([`Source::lookup_snapshots`]).
+pub async fn snapshot_tables(
+    rpc: &RpcClient,
+    wants: Vec<(Address, Signature, u64)>,
+) -> PortResult<Option<Vec<fclient::alt::Snapshot>>> {
+    let mut out = Vec::with_capacity(wants.len());
+    for (t, sig, slot) in wants {
+        out.push(fclient::alt::snapshot(rpc, &t, (sig, slot)).await?);
+    }
+    Ok(Some(out))
+}
+
+/// The lookup tables each record's v0 lookups name, in record order, that
+/// are not in `seen` yet (each once, with its first record).
+pub fn first_table_uses(
+    recs: &[TxRecord],
+    seen: &HashSet<Address>,
+) -> Vec<(Address, Signature, u64)> {
+    let mut mine: HashSet<Address> = HashSet::new();
+    let mut out = vec![];
+    for r in recs {
+        let Ok(d) = fclient::vtx::decode(&r.tx) else {
+            continue;
+        };
+        for l in &d.lookups {
+            if !seen.contains(&l.account_key) && mine.insert(l.account_key) {
+                out.push((l.account_key, r.signature, r.slot));
+            }
+        }
+    }
+    out
 }
 
 /// The local node's (or the in-process chain's) ordered feed.
@@ -128,6 +177,9 @@ pub struct LocalnetFeed<P: ChainPort> {
     /// it read them (`findex::ledger` and the verifier's history call this
     /// the prefix identity of a live read).
     rewind_safe: Option<bool>,
+    /// verifier-alt-archive: the node's RPC, for lookup table snapshots
+    /// ([`LocalnetFeed::with_table_reads`]; `None`: none taken).
+    pub table_rpc: Option<RpcClient>,
 }
 
 impl<P: ChainPort> LocalnetFeed<P> {
@@ -146,7 +198,16 @@ impl<P: ChainPort> LocalnetFeed<P> {
             scanned: None,
             durable: None,
             rewind_safe: Some(true),
+            table_rpc: None,
         }
+    }
+
+    /// Snapshots each lookup table a v0 transaction of the feed uses, the
+    /// first time this feed archives one ([`Source::lookup_snapshots`]),
+    /// over the node's RPC at `url`.
+    pub fn with_table_reads(mut self, rpc: RpcClient) -> Self {
+        self.table_rpc = Some(rpc);
+        self
     }
 
     /// See the field: whether every read of this feed so far was scanned and
@@ -440,6 +501,15 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
     }
     fn ledger_seq(&self) -> bool {
         true
+    }
+    async fn lookup_snapshots(
+        &mut self,
+        wants: Vec<(Address, Signature, u64)>,
+    ) -> PortResult<Option<Vec<fclient::alt::Snapshot>>> {
+        match &self.table_rpc {
+            Some(rpc) => snapshot_tables(rpc, wants).await,
+            None => Ok(None),
+        }
     }
 }
 
@@ -1092,6 +1162,13 @@ impl<S: Source> Source for Enriched<S> {
     }
     fn ledger_seq(&self) -> bool {
         self.inner.ledger_seq()
+    }
+    /// The same RPC as the post-states (verifier-alt-archive).
+    async fn lookup_snapshots(
+        &mut self,
+        wants: Vec<(Address, Signature, u64)>,
+    ) -> PortResult<Option<Vec<fclient::alt::Snapshot>>> {
+        snapshot_tables(&self.rpc, wants).await
     }
 }
 
