@@ -742,6 +742,11 @@ function outboundPop(FS, model) {
   let pick = null;
   try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
   const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
+  // (verify-pr149: an entered turn the clock has already passed — earlier than the earliest turn the remembered offer
+  //  gives now — holds nothing: after a refused departure (ArrivalBell, ArrivalTooEarly…) the card stood on it with no
+  //  offer once the next poll dropped the read, the LP8-1 dead end by another way. The offer is put beside it then; a
+  //  turn still inside the range is kept as before)
+  const passed = !!pick?.remembered && /^(0|[1-9][0-9]{0,9})$/.test(entered) && Number(entered) < pick.min;
   // (fix-loop7, LP7-3: the road's refusal, kept until the road changes)
   let refusal = null;
   try { refusal = outboundRouteRefusal(FS); } catch { refusal = null; }
@@ -767,7 +772,7 @@ function outboundPop(FS, model) {
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
       ${devnetCard ? '' : html`<button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button>`}</div>
     ${FS.outboundReread && (s.routeCheck?.status === 'loading' || s.contextCheck?.status === 'loading') ? html`<p class="pop-line outbound-read-again" role="status">${L`読み取りの途中で世界の時計が進んだため、読み直しています（${FS.outboundReread.n} / ${FS.outboundReread.of} 回目）…`}</p>` : ''}
-    ${pick?.remembered && !entered && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<div class="outbound-route-report outbound-arrival-remembered" role="status">${outboundArrivalPick(pick, entered)}<p class="pop-line">${L`さきほどの「地形・時間を確認」の読み取りからの候補を、時計に合わせて進めています。押すと読み直します。`}</p></div>` : ''}
+    ${pick?.remembered && (!entered || passed) && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<div class="outbound-route-report outbound-arrival-remembered" role="status">${outboundArrivalPick(pick, entered)}<p class="pop-line">${L`さきほどの「地形・時間を確認」の読み取りからの候補を、時計に合わせて進めています。押すと読み直します。`}</p></div>` : ''}
     ${!s.routeCheck && !s.contextCheck && !FS.outboundReread && refusal ? outboundRefusalLine(refusal, { still: true, steps: directions.length }) : ''}
     ${s.error === 'ArrivalRequired' && !refusal && !(pick?.remembered && !entered) && !s.routeCheck && !s.contextCheck && !s.dropped && !FS.outboundReread ? html`<p class="pop-line outbound-arrival-empty" role="status">${L`到着ターンはまだ入っていません。「地形・時間を確認」を押すと、到着候補とそれを入れるボタンが出ます（自分で入れる欄は「詳細」の中です）。`}</p>` : ''}
     ${s.dropped && !s.routeCheck && !s.contextCheck && !FS.outboundReread ? html`<p class="pop-line pop-why outbound-read-dropped" role="status">${L`読み取りの途中で世界の時計が進んだため、その結果は使えませんでした（×60 ではよく起こります）。このページが 2 回まで自動で読み直しましたが、間に合いませんでした。もう一度押してください。`}</p>` : ''}
