@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-22 (through #142, #140 and #137: #137, which fixed the loop-play7 problems, and the loop-play8 check are in. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-22 (through #152; #140–#152 added: the ⑨/⑩ preview and seizures §12, external AI residents, ⑬'s resident and `--plan` §11, ① request delivery and the ⑮ title 「依頼に応えた」 §13, the ×60 muster wait §3. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -27,14 +27,18 @@ opens `http://localhost:41920/` in the browser. The first build takes about 3 mi
 scripts/play-local.sh                 # a kept world (a turn is 10 min; stop it and continue with --resume)
 scripts/play-local.sh --demo          # the 15-minute capture demo (×60, a turn is 10 s; not kept)
 scripts/play-local.sh --wide          # the wide version (the rim and the wide land; ×60; not kept) → §4
-scripts/play-local.sh --coexist --demo --two   # ② rights (stock swap), the whole loop for two (×60; not kept) → §10
+scripts/play-local.sh --coexist --demo --two   # ② rights (stock swap), the whole loop for two (×60; not kept) → §10 (⑨/⑩: §12, ① requests: §13)
+scripts/play-local.sh --demo --external <address>   # admit an external AI resident (×60; not kept) → §11
 ```
 
 The wide version is started with `--wide` alone (given with `--demo`, `--resume`, `--fresh` or `--two` it stops and names
-which; nor with `--coexist`; `--ai`, `--ai-peaceful`, `--random-map`, `--speed`, `--minutes` and `--port` go with it).
+which; nor with `--coexist` or `--external`; `--ai`, `--ai-peaceful`, `--random-map`, `--speed`, `--minutes`, `--port` and
+`--no-coop-board` go with it).
 
 There are three worlds. All of them have fog of war (§5), and the AI residents are at war by default. `--coexist` is
-not a fourth world: it runs a kept world or `--demo` on the program that carries ② rights (§10).
+not a fourth world: it runs a kept world or `--demo` on the program that carries ②+⑨+⑩ (② rights §10; ⑨ workshop lending,
+⑩ custody and seizures §12; ① request deliveries §13). `--external` is no world kind either: it admits external AI residents
+into a kept world or `--demo` (§11).
 
 | World | Clock | Kept | Good for checking |
 |---|---|---|---|
@@ -49,17 +53,21 @@ Options:
 | `--resume` | continue the kept world started last (same browser, same port, same number of AI residents) | `--fresh` `--demo` `--wide` `--random-map`, another `--port` / `--ai` |
 | `--fresh` | start a new kept world (the same as giving nothing) | `--resume` `--wide` |
 | `--demo` | the 15-minute capture demo | `--resume` `--wide` |
-| `--wide` | the wide version (§4) | `--demo` `--resume` `--fresh` `--two` `--coexist` |
+| `--wide` | the wide version (§4) | `--demo` `--resume` `--fresh` `--two` `--coexist` `--external` |
 | `--random-map` | give the new world its own map. Without it **every local world has the same map** | `--resume` |
 | `--ai N` | AI residents, 0–4 (default 2). **At war by default**: they march on other nations' reachable keeps and siege them (one action per resident per turn) | |
 | `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
-| `--two` | two people in one world (§3.1) | `--wide` |
-| `--coexist` | a world with ② rights (§10): a kept world or `--demo`; works with `--ai` `--two` `--random-map` `--resume` | `--wide` |
+| `--two` | two people in one world (§3.1) | `--wide` `--external` |
+| `--coexist` | a world with ②+⑨+⑩ (§10, §12; ① request caravans only here, §13): a kept world or `--demo`; works with `--ai` `--two` `--random-map` `--resume` `--external` | `--wide` |
+| `--external ADDR[,ADDR]` | admit up to two external AI residents by their **public addresses** (§11; never a key). Also starts the read-only MCP server on 127.0.0.1. A kept world or `--demo`; works with `--ai` `--random-map` `--coexist` `--resume` | `--two` `--wide` |
+| `--no-mcp` | with `--external`: do not start the MCP server | refused without `--external` |
+| `--no-coop-board` | leave out the ① co-op board and ⑮'s 「称号と記録」 card (attached by default, §13) | |
 | `--speed N` | the clock of `--demo` / `--wide`, 10–60 (default 60) | a kept world |
 | `--minutes N` | minutes until the world's processes stop, 15–240 (default 90). A `--wide` world stops then too (before the local-perf fix a long-running wide world could run past it) | |
-| `--port BASE` | the page's port (default 41920). It uses 22 ports from BASE (14 with `--ai 0`), all within 41000–41999 and clear of 41904–41907 and 41970 | |
+| `--port BASE` | the page's port (default 41920). It uses 22 ports from BASE (14 with `--ai 0`); `--external` takes 8 more and the MCP server 1 (with the defaults the MCP server is on 41950, with `--ai 0` on 41942; none with `--no-mcp`). All within 41000–41999 and clear of 41904–41907 and 41970 | |
 | `--lang ja\|en` | the language of the script's messages (the page: its top-right button) | |
 | `--no-open` `--no-build` `--rebuild` `--check-only` `--print-plan` | do not open / never build / always build / check only / print the settings and the launcher command, and exit | |
+| `--cluster NAME` | only `localnet` is accepted (any other name is refused and the script exits; it never talks to devnet or mainnet) | |
 | `--coexist-node` | the page-less ②⑨⑩ node alone (for development, not for playing) | everything but `--port` |
 
 - The AI residents' nations are fixed: the first joins Borealis, the second Ember, the third Cinder, the fourth Fjordal.
@@ -82,7 +90,9 @@ move only once its turn is settled: about 17 minutes later).
 5. **Muster**: 「編成」 in the bottom bar (or the guide at the top right when it says 「軍勢を編成する」) → 「全部」 →
    「槍兵 N をここに集める」. When it says 「この州はまだ前のターンの決着が済んでいません」 you **may press anyway**: the
    muster waits and is sent once, as soon as the province is ready (no need to press again; it is withdrawn if the
-   unit or the number changes). The village screen's 「兵」 → 「編成する」 cannot be pressed while the province settles
+   unit or the number changes). Even in `--demo` at ×60 this wait is now rare (#146: your province is ready for a muster
+   about 80 % of the time, before about 30 %; in verify-pr146 the line was absent and the order went at once; §8.2).
+   The village screen's 「兵」 → 「編成する」 cannot be pressed while the province settles
    (only the bottom bar's 「編成」 waits and sends). While the host forms, the guide at the top right says
    「ガイド 3/7 軍勢の整列を待つ」 (with something to do meanwhile added as 「待つ間に：建設をひらく」 or the like). When it
    says 「軍勢の準備を確かめる」 or 「届く砦を見る」, the host is mustered.
@@ -316,12 +326,17 @@ view (fog-devnet; runbook §7 P5).
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120, checked offline; 12 hours of real time) |
 | AI residents | yes (at war by default) | none (local only; runbook §7 P4) |
 | ② rights (stock swap) | `--coexist` worlds only (§10) | not in it |
+| ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
+| External AI residents (⑬ / ⑤B), the read-only MCP server, `--plan` (④) | `--external` worlds only (§11) | none (admission of external residents and the MCP server are undecided) |
+| ① co-op board, ⑮ title 「依頼に応えた」 | board and card in every world (`--no-coop-board` leaves them out); a caravan can deliver only in `--coexist` worlds (§13). No effect on winning, score or prize | none |
 | Fog | yes (display only) | yes, the same player view on the devnet page (fog-devnet, `DEVNET_FOG`) |
 
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.
+A local world costs no SOL and no rent (the test keys are funded with test balances). Devnet costs and rent (since #147 and
+#150 they follow the cluster's own rent rate) are in the devnet runbook, not in this guide.
 
-## 8. Known problems (2026-11-22, main through #142)
+## 8. Known problems (2026-11-22, main through #152)
 
 ### 8.1 Still on main (after #137; loop-play8's LP8-1 … 11 are fixed by #149)
 
@@ -339,6 +354,10 @@ is a rules question.
 | Where | What happens on main | Workaround now |
 |---|---|---|
 | Boundary card (×60) | 「出発条件を確認」 is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
+| ⑩ stopping a caravan (×60) | from the moment 「隊商を止める」 is offered you have in practice about 2 turns (about 20 s) to stop and decide (the limit is 6 turns from the turn the caravan stood; the province settles 2–4 turns late; verify-pr145) | try it with `--speed 15` (§12) |
+| ⑩ seizing a storehouse | 「貯蔵庫を奪う」 can be pressed while the owner's host stands on the tile; the program refuses it (NotOnTile, as the rules say) | press it when no host of the owner is there |
+| ① co-op board | after a partial delivery the board says 「依頼量に届かなかった（すべて終わり、上限で証明）」. The request stays 「受付中」 and turns to 「依頼量に届いた」 once the rest is delivered (verify-pr152) | deliver the rest and link it (§13) |
+| The external residents' MCP | the MCP server reads the first world only (a second world of the same launcher has no MCP reads; verify-pr142) | test with one world |
 | Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
 | Wide village (W2) | the card says 「この村の州の決着が N ターン遅れています。」 twice in a row | none (display only) |
@@ -386,7 +405,7 @@ Small ones (nothing blocks play):
   cranked the demo's 60 provinces one transaction at a time, and did not serve an external resident's village at all.
   Now, on a compressed clock (`--demo`, `--wide`), every player home (yours, the AI residents', an external resident's)
   is settled together in one block, first and whenever one comes due, and the loop wakes at the next turn edge.
-  Measured (demo ×60, 1 AI, 1 external): yours 79 %, the external resident's 86 % (before: 30 % and 6 %); at ×15:
+  Measured (demo ×60, 1 AI, 1 external): yours 79 %, the external resident's 86 % (before: 30 % and 6 %; verify-pr146's re-measurement: 82 % and 88 %); at ×15:
   93 % and 96 % (before: 79 % and 60 %). It can never be 100 %: a turn can only be settled once the next turn has begun.
   Every home gets the same batch at the same moment; what remains is the province's own state. A turn with a host
   mustered at home (or an arrival) is not quiet, so it needs the real seed of the next public drand round (about 2 s at
@@ -528,7 +547,8 @@ The world's operator gives it no privilege and never sees its key. The page show
    ```
 
    With `--external` the script also starts workstream ③'s **read-only** MCP server for the world. It listens on 127.0.0.1
-   only, on the port after the world's ports (printed as `Read-only MCP (③): http://127.0.0.1:<port>/mcp`). It offers only
+   only, on the port after the world's ports (41950 with the default `--port` and `--ai`, 41942 with `--ai 0`; printed as
+   `Read-only MCP (③): http://127.0.0.1:<port>/mcp`, with `--lang ja` 「読み取り専用の MCP (③): …」). It reads the first world only. It offers only
    read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. It runs as long as
    the script (across worlds: when a world's time runs out it waits for the next one) and stops with everything on Ctrl-C.
 
@@ -556,11 +576,38 @@ The world's operator gives it no privilege and never sees its key. The page show
 
    Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
    resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.
+   If the `--key` file does not exist yet, `--new-key` makes it there (instead of step 1; the address is the `wallet` of the
+   first line, `start`. The world must admit that address with `--external` before it starts, so normally make the key first, step 1).
+
+4. **Multi-turn plans (`--plan`, run by ④, #148)**: give ⑬'s resident `--plan --runexec <absolute path of runexec>` and, once
+   its village exists, it makes a 12-step plan of its own village's next orders (buildings → harvest → train → … → muster a
+   host); ④'s plan store (SQLite, `<dir>/plans.sqlite` by default) runs it one step per turn. `--plan` is an option of this
+   resident (`client.mjs`), not of `play-local.sh`.
+
+   ```sh
+   (cd workstreams/04-execution && cargo build --release --locked --bin runexec)   # once
+   (cd workstreams/03-composability/mcp && npm ci)
+   node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:41920 \
+     --key /path/to/resident.json --dir /abs/path/resident-state \
+     --plan --runexec "$PWD/workstreams/04-execution/target/release/runexec" [--plan-db /abs/path/plans.sqlite] [--plan-steps 12]
+   ```
+
+   - `--runexec` is an absolute path and goes only with `--plan` (`--plan-db` is absolute too; `--plan-steps` 4–64, default 12).
+   - Where to look: the plan lines (`planStep`) in `<dir>/decisions.jsonl`. The intent is written to ④ before signing and the
+     signature before sending, so after a stop (Ctrl-C or a kill) a restart with the same options reads the signature on chain,
+     continues from there and never sends an order twice (verify-pr148: all 12 steps landed up to the muster, 0 double acts).
+   - A second process on the same `--dir` cannot act; a restarted process waits until the previous one's lease (20 s) runs out.
+   - A refusal by the chain or a changed world stops the plan and remakes it from the village as it is (at most 24 plans per world).
+   - Plans hold the six orders only: no caravans, no marches (caravans wait on r0ze, Q4).
 
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
   the resident's second order waits for you.
 - Not with `--two` or `--wide`. It works with kept worlds, `--demo`, `--ai`, `--random-map`, `--coexist` and `--resume`
   (pass `--external` again on resume).
+- The keeper loop settles an external resident's home province in the same batch as yours (#146; in kept worlds too). In
+  `--demo` at ×60 its province is ready for a muster 80–90 % of the time (before: 0–6 %; §8.2).
+- An external resident can send the six orders only (no caravans, no marches, no answers on the ① board). It cannot pause
+  the world's clock or change its speed: those controls need the launcher's own token (#137).
 - Local only: on devnet there is no external-resident admission and no MCP server (the public MCP policy questions
   MCP-1..11 are open).
 
@@ -595,11 +642,15 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
    the room is empty.
 4. B sees only 「あなたの貯蔵庫の預かり」: whose ore (by nation) and how much.
 
-Losses (told once as an alert, and kept on the card, from the viewer's side): a storehouse seized (「帳簿を確かめる」 then
+Losses (told once as an alert, and kept on the card, from the viewer's side; but the road-loss row 「隊商 N：道中で奪われた」
+leaves the card once 「帳簿を確かめる」 is pressed, and then only the map's alert history keeps it): a storehouse seized (「帳簿を確かめる」 then
 records it; 「預けていた貯蔵庫が奪われ、…」), a custody caravan taken on the road (「預けに向かった鉱石 N は道中で奪われました。」),
 a workshop village lost (「村が奪われたことを記録する」; 「借りていた工房の村が奪われ、…は占領者のものになりました。」).
-Since fix-9-10-followups the first two can be made to happen in a `--coexist --two` world with real transactions (the
+Since #145 (fix-9-10-followups) the first two can be made to happen in a `--coexist --two` world as real orders (the
 program's own SeizeVault, RaidDomestic and RaidCaravan; nothing changed on chain). A village capture still cannot (tests only).
+A plain world (no `--coexist`) offers none of these buttons. Muster hosts of 100 troops or more (the program refuses a smaller one).
+At ×60 there are only about 20 s between stopping and deciding, so `scripts/play-local.sh --coexist --demo --two --speed 15`
+(a turn is 40 s) is easier.
 - **A caravan stopped on the road** (B takes A's custody ore). A pair is one nation, and a clash never raids its own nation's
   caravan, so B stops it itself. A caravan stands on a tile only at a turn's start (about 5 flat tiles a turn), so one that
   departs and arrives within a turn can never be stopped. In verify, A's village on tile 28 and B's storehouse on tile 22 of
@@ -611,39 +662,55 @@ program's own SeizeVault, RaidDomestic and RaidCaravan; nothing changed on chain
   「帳簿を確かめる」 (ReconcileLot) to free the room. A taken caravan goes to B's village; B delivers it with the ② card's
   「奪った隊商」 → 「隊商を届ける」 (the ore goes into B's village). A burned one goes on empty; A delivers it with 「鉱石を届ける」.
 - **A storehouse seized**: the other player forms a host on the storehouse tile (none of the owner's hosts may stand there),
-  taps the tile → ⓘ → 「貯蔵庫を奪う」. The keeper is told 「あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。」. With two
+  taps the tile → ⓘ → 「貯蔵庫を奪う」 (the button can be pressed with an owner's host there, but the program refuses). The keeper is told 「あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。」. With two
   players the captor is the depositor itself: its card says 「あなたが奪った貯蔵庫」 and no loss; 「帳簿を確かめる」 then forfeits
   the lot into the storehouse it now owns (captor takes all). A third party's seizure, and "the depositor's troops do not
   defend", need a third seat (not built).
-- The herald now drops a delivered custody caravan from the map (D-verify-pr140-5: it stayed as 「隊商 ターン N 着・位置は推定」).
+- The herald drops a delivered custody caravan from the map (#145; before, it stayed as 「隊商 ターン N 着・位置は推定」).
+- Delivering a burned, empty custody caravan still says 「預ける鉱石が届きました」 (it carries 0; verify-pr145).
 
 
-## 13. ① The cross-nation request board and ⑮ titles (TEST-only, #149)
+## 13. ① The cross-nation request board and the ⑮ title 「依頼に応えた」 (TEST-only, #149, #152)
 
 `play-local.sh` attaches workstream 01's co-op board to every world (launcher option `--coop-board ws01-board-v1`);
 add `--no-coop-board` to leave it out. With the board, the village's 「交易と防備」 card has 「国をまたぐ依頼を開く」 and the
-page shows ⑮'s 「称号と記録」 card.
+bottom bar's 「その他」 shows ⑮'s 「称号と記録」 card (「国をまたぐ協力の達成。勝敗・得点・賞金には関わらない」).
 
 From request to delivery (only a `--coexist` world sends caravans; an ordinary world's village sends none):
 
 ```bash
-scripts/play-local.sh --coexist --two --demo --ai 0      # ×60, two people in one world (as in §10)
+scripts/play-local.sh --coexist --two --demo --ai 0      # ×60, two people in one world (as in §10; `--ai 0`: no AI residents)
 ```
+
+**To check the title too, A and B pick different nations** (a request inside one nation can be delivered, but earns no
+title). In verify-pr152, on the usual map (no `--random-map`), A = Aster and B = Borealis, and the caravan arrived (a caravan's
+road is at most 32 tiles and 4 provinces).
 
 1. **A (asks)**: 村 → 交易と防備 → 「国をまたぐ依頼を開く». The board opens in another window. 「このウォレットで署名する」
    (the page's test wallet signs the board's records only) → enter wood and stone → 「依頼を出す（署名）」. The destination
    is A's village (e.g. 「木材 20・石材 20 → … の村 (-1,2) 村5 受付中」).
 2. **B (delivers)**: open the board the same way, 「このウォレットで署名する」 → the request's 「応じる（送るつもり。義務はない）」.
-3. **B**: in the game, 村 → 交易と防備 → 隊商を送る. Within about 15 s the destinations include 「① 依頼の届け先：村（-1, 2 · マス 28）」:
+3. **B**: in the game, 村 → 交易と防備 → 隊商を送る. Within about 15 s the destinations include 「① 依頼の届け先：村（-1, 2 · マス 28）」
+   (followed by the nation, e.g. 「 · アステル」). **Only someone who answered 「応じる」 to that request gets this destination**:
    only the place the requester published on the board; the land around it stays out of sight (fog unchanged). Enter
    the amounts → 「隊商を送る」 → 「ほかの人の村か貯蔵庫へ送る隊商は、ウォレットで署名します…」 → 「隊商が出発しました」.
    (Before #149 this was refused with 「ローカルプレイでは、まだ命令を送れません（読み取りのみ）」, LP8-3.)
 4. **B**: reload the board → 「隊商 #0（木材 20・石材 20）をこの依頼に結び付ける」 → 「結び付けた。数えるのは確定した到着だけ」.
 5. When it arrives, B's 「権利（在庫の交換）」 card shows 「隊商を届ける」 under 「着いた隊商（あなたが届けます）」 (after the
    provinces on the way have settled past the arrival turn; tens of seconds at ×60). Press it → 「隊商が届きました」.
-6. The board's 「隊商と到着」 row says 「到着（確定）・届いた 木材 20 以上・石材 20 以上（規則から）・Fulfilled」 and the request's
-   fulfilment counts it.
+6. The board's 「隊商と到着」 row says 「到着（確定）・届いた 木材 20 以上・石材 20 以上（規則から）・Fulfilled」 and the request
+   reads 「依頼の充足：依頼量に届いた（数えた量の下限で証明）」. After a partial delivery it says 「依頼量に届かなかった
+   （すべて終わり、上限で証明）」, but the request stays 「受付中」; deliver and link the rest and it turns to 「依頼量に届いた」.
+7. **The ⑮ title 「依頼に応えた」 (#152, owner decision Q1-⑮)**: once the request has reached its amount, the deliverer B's page
+   shows 「ターン N あなたが称号「依頼に応えた」を得た」 under 「その他」 → 「称号と記録」 (English page: “Answered a request”; N is the
+   turn of the arrival that reached the amount; reading the board takes a moment). The requester A's card shows nothing
+   (still 「まだ称号はありません」: a title is shown to its holder only).
 
-⑮ titles stay at 「まだ称号はありません」 locally: workstream 15's evaluator reads no ① request yet (which request counts
-toward which goal waits on r0ze; the first question in the fix-loop8 report). The only title earnable now is P-raider
-(「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.
+When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcomes/src/rulesets.mjs`):
+- You **delivered with your own caravan** to a request of **someone of another nation**, and that request **reached its
+  requested amount** (the board's proof by the lower bound of what it counted).
+- Not earned by: answering 「応じる」 alone, a partial delivery to a request that did not reach its amount, a request of someone of
+  your own nation, your own request (the board refuses that in the first place).
+- Titles and records only: nothing is added to winning, score, prize or the season's end (owner decision ⑮ B).
+- The other title earnable now is P-raider (「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.
+- The card's 「まだ判定できない達成 N」 is the total of every resident's undecided goals (not necessarily yours).
