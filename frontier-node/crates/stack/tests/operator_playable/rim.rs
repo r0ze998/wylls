@@ -593,8 +593,8 @@ impl<'a> Run<'a> {
     /// (devnet-72bell-pair, PPAIR) THE anchor of `(bell, region)` declared WITH a signature: `sig48` is the TEST
     /// beacon key's signature of the bell's time-lock round T(bell) ([`fb::TestKey`]), and the anchor's round is T(bell)
     /// — offline there is no second real quicknet round in reach of one season (only T(21) of the war genesis, see
-    /// `war.rs` [`war::PAIR_OUT_ARRIVE`]), so the OUT leg of the pair is sealed to the TEST key and settles over this
-    /// declared anchor; the leg HOME is the real one. Its SeedCache (nonce 0) with a literal seed, as [`Run::stage_seed`].
+    /// `war.rs` [`war::PAIR_REST_BELLS`]), so the HOME leg of the pair is sealed to the TEST key and settles over this
+    /// declared anchor; the OUT leg is the real one. Its SeedCache (nonce 0) with a literal seed, as [`Run::stage_seed`].
     fn stage_signed(&mut self, bell: u32, region: u8, sig48: [u8; 48], seed: [u8; 32]) {
         let ctx = self.ctx();
         let (clock, sched, margin, genesis_ts) = self.clock();

@@ -529,7 +529,8 @@ fn pkf_offline_a_season_has_at_most_one_real_arrival_round() {
         vec![rim::war::ARRIVE_BELL],
         "the war genesis's one real arrival bell"
     );
-    const _: () = assert!(rim::war::PAIR_OUT_ARRIVE + 4 < rim::war::DEPART_BELL);
+    // (and one host rests 28 bells between two sealed Departs: a pair can never fit around bell 21 alone)
+    assert_eq!(rim::war::PAIR_REST_BELLS, 28);
 }
 
 /// `t_create_min` whose genesis round is `round` (svm-tests `Beacons::align`).
@@ -791,12 +792,12 @@ async fn pcap_the_page_takes_a_keep_after_72_held_bells_on_the_devnet_so_offline
 }
 
 /// PPAIR (devnet-72bell-pair; devnet STILL OPEN "out-and-back march pair"): one host's march OUT to the neighbouring
-/// province and back HOME in one season on the devnet page path, both legs settled by keeper A (P9's profile roles):
-/// OUT is a Depart signed by the page's wallet key and sealed to the TEST beacon key, arriving over a declared,
-/// TEST-signed anchor (offline only T(21) is a real arrival round: `rim::war::PAIR_OUT_ARRIVE`); the wallet reveals it;
-/// HOME is the page's own 「村へ戻す」 card from the neighbour's province, time-locked to the real T(21), which keeper A
-/// anchors, opens and reveals. The host ends on its village's tile; the herald's records agree; the verifier judges the
-/// whole season. `DEVNET_PAGE_DRIVER=1` only (as P7). Ports 41790+.
+/// province and back HOME in one season on the devnet page path, both legs settled by keeper A (the profile's roles):
+/// OUT is the page's own march card (its wallet, its time-lock to the REAL T(21), which keeper A anchors and opens);
+/// HOME, once the host may leave again (a sealed Depart costs 74 stamina: ~28 bells' rest), is the same wallet's Depart
+/// sealed to the TEST beacon key over a declared TEST-signed anchor, revealed by the wallet — offline only T(21) is a
+/// real arrival round (`rim::war::PAIR_REST_BELLS`). The host ends on its village's tile; the herald's records agree;
+/// the verifier judges the whole season. `DEVNET_PAGE_DRIVER=1` only (as P7). Ports 41790+.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ppair_an_out_and_back_march_pair_from_the_devnet_page_offline() {
     if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") {

@@ -46,14 +46,19 @@ pub const PCAP_AFTER_BELLS: u32 = 110;
 /// PCAP: the chain clock's speed while the keep is held (`OPERATOR_PCAP_HOLD_SCALE` moves it; P8/P9 use 40). The season
 /// keeps the devnet preset's real 600-s bells and reveal windows; only the clock runs faster.
 pub const PCAP_HOLD_SCALE: f64 = 40.0;
-/// PPAIR (devnet-72bell-pair): the OUT leg's arrival bell. Offline only ONE arrival bell of a season can have a real
-/// quicknet round: the committed rounds (`fclient/fixtures/quicknet`, 32 rounds 32,551,361–32,553,016) plus the
-/// S-TLOCK vectors' 32,556,136/137/349/350 hold no genesis round g with two later rounds g + 200·(b+2) (see
-/// `devnet_pair_rounds.rs`). The leg HOME takes the real T(21) (keeper A anchors and opens it as on devnet); the OUT
-/// leg is sealed to the TEST beacon key and arrives here over a declared, TEST-signed anchor ([`Run::stage_signed`]).
-pub const PAIR_OUT_ARRIVE: u32 = 11;
-/// PPAIR: the OUT leg's Depart bell (arrival `b + 2` at the earliest).
-pub const PAIR_OUT_DEPART: u32 = PAIR_OUT_ARRIVE - 2;
+/// PPAIR (devnet-72bell-pair): why the HOME leg is sealed to the TEST beacon key. Offline only ONE arrival bell of a
+/// season can have a real quicknet round: the committed rounds (`fclient/fixtures/quicknet`, 32 rounds
+/// 32,551,361–32,553,016) plus the S-TLOCK vectors' 32,556,136/137/349/350 hold no genesis round g with two later rounds
+/// g + 200·(b+2) (PR CI test `pkf_offline_a_season_has_at_most_one_real_arrival_round`). And one host cannot march twice
+/// within ~28 bells: a sealed Depart charges the worst-case 74 stamina (cap 120, +1 a bell). So the OUT leg takes the
+/// real T(21) (the page's card; keeper A anchors and opens it as on devnet) and the HOME leg, ~28 bells later, arrives
+/// over a declared, TEST-signed anchor ([`Run::stage_signed`]).
+pub const PAIR_REST_BELLS: u32 = 2 * PAIR_STAMINA - STAMINA_CAP;
+/// (the program's and the page's sealed-Depart stamina, and the cap)
+const PAIR_STAMINA: u32 = permutation_rules::frontier::travel::MARCH_STAMINA_BASE as u32
+    + permutation_rules::frontier::travel::MARCH_STAMINA_PER_HEX as u32
+        * permutation_rules::frontier::travel::MAX_PATH_STEPS as u32;
+const STAMINA_CAP: u32 = permutation_rules::frontier::host::STAMINA_CAP as u32;
 
 /// An env override of a number, else `default`.
 pub fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {

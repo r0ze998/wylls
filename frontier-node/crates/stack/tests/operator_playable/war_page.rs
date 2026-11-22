@@ -1372,15 +1372,68 @@ fn out_leg(
     None
 }
 
+/// The stamina a sealed Depart charges whatever its path: `march_stamina(MAX_PATH_STEPS)` = 10 + 2 · 32
+/// (`permutation-frontier` `proc/host.rs` DEPART_STAMINA; the page's `fmarch.mjs` DEPART_STAMINA).
+const PAIR_DEPART_STAMINA: u16 = permutation_rules::frontier::travel::MARCH_STAMINA_BASE
+    + permutation_rules::frontier::travel::MARCH_STAMINA_PER_HEX
+        * permutation_rules::frontier::travel::MAX_PATH_STEPS as u16;
+
+/// A shortest route over tiles `ok(province, tile)` allows, from tile `from_t` of province `from` to tile `to_t` of
+/// province `to` (BFS; at most [`MAX_PATH_STEPS`](permutation_rules::frontier::travel::MAX_PATH_STEPS) steps).
+fn route_between(
+    from: (i32, i32),
+    from_t: u8,
+    to: (i32, i32),
+    to_t: u8,
+    ok: impl Fn((i32, i32), u8) -> bool,
+) -> Option<Vec<u8>> {
+    use permutation_rules::frontier::geometry::locate;
+    use permutation_rules::hex::{Hex, DIRECTIONS};
+    use std::collections::{HashMap, VecDeque};
+    let s = super::hex_of(from.0, from.1, from_t)?;
+    let mut prev: HashMap<(i32, i32), Option<((i32, i32), u8)>> = HashMap::new();
+    prev.insert((s.q, s.r), None);
+    let mut queue = VecDeque::from([s]);
+    while let Some(h) = queue.pop_front() {
+        let (pc, t) = locate(h);
+        if (pc.p, pc.q) == to && t == to_t {
+            let mut dirs = vec![];
+            let mut cur = (h.q, h.r);
+            while let Some(Some((f, d))) = prev.get(&cur) {
+                dirs.push(*d);
+                cur = *f;
+            }
+            dirs.reverse();
+            return (dirs.len() <= permutation_rules::frontier::travel::MAX_PATH_STEPS)
+                .then_some(dirs);
+        }
+        for d in 0..6u8 {
+            let (dq, dr) = DIRECTIONS[d as usize];
+            let n = Hex::new(h.q + dq, h.r + dr);
+            let (npc, nt) = locate(n);
+            let pc2 = (npc.p, npc.q);
+            if (pc2 == from || pc2 == to)
+                && nt < 61
+                && ok(pc2, nt)
+                && !prev.contains_key(&(n.q, n.r))
+            {
+                prev.insert((n.q, n.r), Some(((h.q, h.r), d)));
+                queue.push_back(n);
+            }
+        }
+    }
+    None
+}
+
 /// PPAIR: an OUT-AND-BACK march pair on the devnet page path. The page (its wallet a Wallet Standard TEST wallet) joins,
-/// founds its rim village, harvests and musters 400 (as P9). OUT: a sealed Depart signed by the page's wallet key to the
-/// first tile of the neighbouring province on the way to its keep, arriving at [`PAIR_OUT_ARRIVE`] — sealed to the TEST
-/// beacon key over a declared TEST-signed anchor (offline there is one real arrival round only, see
-/// [`PAIR_OUT_ARRIVE`]); the wallet reveals it (as an owner may); keeper A settles the departure, gathers, resolves and
-/// settles the transit: the host stands in the neighbour's province. HOME: the PAGE's own 「村へ戻す」 from there — its
-/// card, its time-lock to the REAL T(21), its wallet; keeper A anchors bell 21 from the real round, opens the seal,
-/// reveals, resolves and settles it at the village's tile. Both legs settled, the host home, the herald's records of
-/// both provinces agree with the chain, the verifier judges the whole season.
+/// founds its rim village, harvests and musters 400 (as P9). OUT: the PAGE's own march card to the first tile of the
+/// neighbouring province that is not its keep's — its wallet, its time-lock to the REAL T(21); keeper A anchors bell 21
+/// from the real round, opens the seal, reveals, gathers, resolves and settles: the host stands abroad (the herald too).
+/// HOME: a sealed Depart costs 74 stamina whatever the path (cap 120, +1 a bell), so the host may leave again only ~28
+/// bells later — and offline no bell after 21 has a real round ([`PAIR_REST_BELLS`]): the same wallet's key sends the
+/// Depart home, sealed to the TEST beacon key over a declared TEST-signed anchor, and reveals it; keeper A gathers,
+/// resolves and settles it at the village's tile. Both legs settled, the host home, the herald's records of both
+/// provinces agree with the chain, the verifier judges the whole season.
 pub(super) async fn flow_pair(
     r: &mut Run<'_>,
     pg: &Page,
@@ -1579,19 +1632,31 @@ pub(super) async fn flow_pair(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     let muster_bell = r.bell();
-    // the OUT leg's bells: the planned ones, or the first after the muster (the host must be on the map a bell first)
-    let out_depart = PAIR_OUT_DEPART.max(muster_bell + 1);
-    let out_arrive = out_depart + 2;
     assert!(
-        out_arrive + 4 < DEPART_BELL,
-        "the page mustered at bell {muster_bell}: no room for the OUT leg before the HOME leg's bell {DEPART_BELL}"
+        muster_bell < DEPART_BELL,
+        "the page mustered at bell {muster_bell}: too late for the OUT leg's bell {DEPART_BELL}"
     );
-    // 4. OUT: the Depart bell, the home resident; the wallet's sealed Depart (TEST beacon key) to the neighbour.
-    let depart_t = genesis_ts + 600 * out_depart as i64 + 30;
+    let entry_at = |r: &Run<'_>, p: i32, q: i32| {
+        r.province_of(p, q)
+            .and_then(|v| v.entries.into_iter().find(|e| e.id == host))
+    };
+    let host_transit = |r: &Run<'_>| {
+        Holding::decode(&r.data(&holding).unwrap())
+            .ok()
+            .and_then(|h| {
+                h.transit
+                    .iter()
+                    .position(|x| x.state != 0 && x.host_id == host)
+                    .map(|i| (i, h.transit[i]))
+            })
+    };
+    // 4. OUT (the PAGE, real): the Depart bell, the home resident; the page's own march card to the neighbour's tile,
+    //    its wallet, its time-lock to the REAL T(21) (as P9's keep march, to an ordinary tile).
+    let depart_t = genesis_ts + 600 * DEPART_BELL as i64 + 30;
     drive(
         r,
         &mut beacon,
-        20.0,
+        40.0,
         1500,
         "five minutes before the OUT Depart bell",
         |r| r.now() >= depart_t - 330,
@@ -1605,8 +1670,8 @@ pub(super) async fn flow_pair(
         "the OUT Depart bell, the home resident",
         |r| {
             assert!(
-                r.bell() <= out_depart,
-                "the OUT Depart bell {out_depart} passed before the home was resident"
+                r.bell() <= DEPART_BELL,
+                "the OUT Depart bell {DEPART_BELL} passed before the home was resident"
             );
             r.now() >= depart_t
                 && r.province_of(hp, hq)
@@ -1614,132 +1679,91 @@ pub(super) async fn flow_pair(
         },
     )
     .await;
-    r.lock().set_paused(true);
-    let test_key = fb::TestKey::new();
-    let t_out = {
-        let (clock, _, _, g) = r.clock();
-        kb::tlock_round(&clock, g, out_arrive)
-    };
-    let me = ix::Player {
-        actor: w,
-        payer: w,
-        wallet: w,
-    };
-    let href = ix::HoldingRef {
-        p: hp as i16,
-        q: hq as i16,
-        site,
-    };
-    let (path_len, path) = permutation_rules::frontier::seal::encode_path(&out_dirs).unwrap();
-    let plain =
-        permutation_rules::frontier::seal::pack(&permutation_rules::frontier::seal::Plain {
-            version: permutation_rules::frontier::seal::PLAIN_VERSION,
-            host_id: host,
-            arrive_bell: out_arrive,
-            dest_p: tp as _,
-            dest_q: tq as _,
-            dest_tile: out_tile,
-            stance: 0,
-            retreat_bps: 0,
-            path_len,
-            path,
-            reserved: Default::default(),
-        });
-    let sealed = fclient::seal::seal(&plain, &test_key.pk96, t_out).unwrap();
-    let season = fclient::decode::Season::decode(&r.season()).unwrap();
-    let tip = fclient::fees::min_tip_lamports(
-        season.min_reveal_priority_milli,
-        season.reveal_cu_limit,
-        season.reveal_loaded_limit,
-    );
+    {
+        let mut c = r.lock();
+        c.set_scale(1.0);
+        c.set_paused(false);
+    }
+    let submits0 = posts(pg, "/gw/f/devnet-play/march/submit");
     let since = r.lock().slot();
-    let out_depart_row = r.send(
-        &format!("OUT Depart to ({tp}, {tq}) tile {out_tile}, arrival bell {out_arrive} (sealed to the TEST beacon key)"),
-        &[ix2::depart(
-            &a,
-            &me,
-            href,
-            (hp as i16, hq as i16),
-            &ix::DepartArgs {
-                host_id: host,
-                commit: sealed.commit,
-                seal: sealed.seal,
-                arrive_bell: out_arrive,
-                tip,
-                transit_slot: 0,
-            },
-        )],
-        &[&player],
-        "the page's wallet (TEST seal)",
+    sync_write(
+        &sync,
+        "go-march",
+        &json!({"host": host.to_string(), "p": tp, "q": tq, "tile": out_tile, "arrive": ARRIVE_BELL}),
     );
+    let t0 = Instant::now();
+    while host_transit(r).is_none_or(|(_, t)| t.state != 1) {
+        no_fail(&sync);
+        assert!(
+            alive(&mut driver),
+            "the driver exited before its Depart landed"
+        );
+        assert!(
+            t0.elapsed() < Duration::from_secs(480),
+            "the page's OUT Depart did not land"
+        );
+        beacon.tick(r);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let out_depart_bell = r.bell();
+    let (_, tr) = host_transit(r).unwrap();
     assert_eq!(
-        out_depart_row["ok"], true,
-        "the OUT Depart: {out_depart_row:#}"
+        tr.arrive_bell, ARRIVE_BELL,
+        "the page's OUT march arrives at bell {ARRIVE_BELL}"
     );
+    let out_submits = posts(pg, "/gw/f/devnet-play/march/submit") - submits0;
+    // (the reload, as P9: the encrypted book keeps the march)
+    let t0 = Instant::now();
+    while !sync.join("reloaded.json").exists() {
+        no_fail(&sync);
+        assert!(
+            t0.elapsed() < Duration::from_secs(300),
+            "the page did not reload"
+        );
+        beacon.tick(r);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let reloaded: Value =
+        serde_json::from_str(&std::fs::read_to_string(sync.join("reloaded.json")).unwrap())
+            .unwrap();
+    // 5. keeper A anchors bell 21 from the REAL round in the neighbour's region, opens the seal from the public round,
+    //    reveals, gathers, resolves and settles: the host stands on the OUT tile.
     let out_region = ix::region_of(tp, tq);
-    beacon
-        .signed
-        .insert((out_arrive, out_region), test_key.sign(t_out));
-    // 5. OUT arrival: the declared, TEST-signed anchor (staged by the beacon once the bell ended); the wallet reveals.
-    let out_anchor = adr(r.ctx().bell_anchor(out_arrive, out_region));
+    let anchor = adr(r.ctx().bell_anchor(ARRIVE_BELL, out_region));
     drive(
         r,
         &mut beacon,
         10.0,
         1500,
-        "the OUT arrival bell ends (its declared TEST-signed anchor)",
-        |r| r.data(&out_anchor).is_some(),
+        "keeper A anchors bell 21 from the real round T(21)",
+        |r| r.data(&anchor).is_some(),
     )
     .await;
-    r.lock().set_paused(true);
-    let tr = Holding::decode(&r.data(&holding).unwrap()).unwrap().transit[0];
-    assert_eq!(tr.host_id, host, "the OUT march's transit");
-    let path_provinces =
-        fclient::play::path_provinces((hp, hq, start), &fclient::seal::unpack(&plain))
-            .expect("the OUT path's provinces");
-    let reveal_of = |day_writable: bool| {
-        ix::reveal(
-            &a,
-            w,
-            &ix::RevealArgs {
-                holding: href,
-                transit_slot: 0,
-                target_i: 0,
-                plain,
-                salt: sealed.salt,
-                ct_hash: sealed.ct_hash,
-                beneficiary: w,
-                dest: (tp, tq),
-                arrive: out_arrive,
-                faction: joined_nation,
-                day_writable,
-                path_provinces: path_provinces.clone(),
-            },
-        )
-    };
-    let dw = r.simulate_ok(&[reveal_of(true)], &[&player]).is_ok();
-    let out_reveal = r.send(
-        &format!("OUT Reveal (the wallet, bell {out_arrive})"),
-        &[reveal_of(dw)],
-        &[&player],
-        "the page's wallet",
+    let ad = r.data(&anchor).unwrap();
+    let anchor_round = u64::from_le_bytes(ad[BA::ROUND..BA::ROUND + 8].try_into().unwrap());
+    assert_eq!(
+        anchor_round, ARRIVE_ROUND,
+        "bell 21 is anchored on the real round"
     );
-    assert_eq!(out_reveal["ok"], true, "the OUT Reveal: {out_reveal:#}");
-    // 6. keeper A gathers, resolves and settles the OUT leg: the host stands in the neighbour's province.
-    let entry_at = |r: &Run<'_>, p: i32, q: i32| {
-        r.province_of(p, q)
-            .and_then(|v| v.entries.into_iter().find(|e| e.id == host))
-    };
+    drive(
+        r,
+        &mut beacon,
+        4.0,
+        900,
+        "keeper A reveals the OUT march (its ArrivalSlot)",
+        |r| {
+            r.data(&a.arrival_slot(tp, tq, ARRIVE_BELL, joined_nation, 0))
+                .is_some()
+        },
+    )
+    .await;
     drive(
         r,
         &mut beacon,
         6.0,
         1500,
         "keeper A settles the OUT leg (SettleTransit): the host stands in the neighbour's province",
-        |r| {
-            Holding::decode(&r.data(&holding).unwrap()).is_ok_and(|h| h.transit[0].state == 0)
-                && entry_at(r, tp, tq).is_some()
-        },
+        |r| host_transit(r).is_none() && entry_at(r, tp, tq).is_some(),
     )
     .await;
     r.lock().set_paused(true);
@@ -1751,6 +1775,8 @@ pub(super) async fn flow_pair(
         &[
             T::DEPART,
             T::SETTLE_DEPARTURE,
+            T::POST_ANCHOR,
+            T::POST_ANCHOR_MULTI,
             T::REVEAL,
             T::GATHER_CLASH,
             T::RESOLVE_FROM_INPUTS,
@@ -1783,13 +1809,34 @@ pub(super) async fn flow_pair(
         herald_out,
         "the herald's record of ({tp}, {tq}) shows the host on tile {out_tile}"
     );
-    // 7. HOME: the HOME Depart bell with BOTH provinces resident; the page's own 「村へ戻す」 to T(21).
-    let depart_t = genesis_ts + 600 * DEPART_BELL as i64 + 30;
+    // 6. HOME (the wallet, TEST seal): the first bell the program lets the host leave again — a sealed Depart charges
+    //    the worst-case 74 stamina (cap 120, +1 a bell; `proc/host.rs` DEPART_STAMINA), so after the OUT leg the host
+    //    rests about 28 bells — the bell after it ends, both provinces resident.
+    let home_route = route_between((tp, tq), out_entry.tile, (hp, hq), village, |pc, t| {
+        let m = if pc == (tp, tq) {
+            r.province_of(tp, tq)
+        } else {
+            r.province_of(hp, hq)
+        };
+        m.is_some_and(|v| v.passable_mask & (1u64 << t) != 0)
+    })
+    .unwrap_or_else(|| {
+        panic!(
+            "no way home from ({tp}, {tq}) tile {} to the village tile {village}",
+            out_entry.tile
+        )
+    });
+    let stamina_ok = (out_entry.stamina_bell
+        + (PAIR_DEPART_STAMINA as u32).saturating_sub(out_entry.stamina_value as u32))
+    .max(out_entry.ready_bell);
+    let home_depart = stamina_ok.max(r.bell() + 1);
+    let home_arrive = home_depart + 3;
+    let depart_t = genesis_ts + 600 * home_depart as i64 + 30;
     drive(
         r,
         &mut beacon,
-        20.0,
-        1500,
+        40.0,
+        2400,
         "five minutes before the HOME Depart bell",
         |r| r.now() >= depart_t - 330,
     )
@@ -1802,8 +1849,8 @@ pub(super) async fn flow_pair(
         "the HOME Depart bell, both provinces resident",
         |r| {
             assert!(
-                r.bell() <= DEPART_BELL,
-                "the HOME Depart bell {DEPART_BELL} passed before both provinces were resident"
+                r.bell() <= home_depart,
+                "the HOME Depart bell {home_depart} passed before both provinces were resident"
             );
             r.now() >= depart_t
                 && [(hp, hq), (tp, tq)].iter().all(|&(p, q)| {
@@ -1813,112 +1860,129 @@ pub(super) async fn flow_pair(
         },
     )
     .await;
-    {
-        let mut c = r.lock();
-        c.set_scale(1.0);
-        c.set_paused(false);
-    }
-    let submits0 = posts(pg, "/gw/f/devnet-play/march/submit");
-    let since_home = r.lock().slot();
-    sync_write(
-        &sync,
-        "go-march-home",
-        &json!({"host": host.to_string(), "arrive": ARRIVE_BELL}),
-    );
-    let home_transit = |r: &Run<'_>| {
-        Holding::decode(&r.data(&holding).unwrap())
-            .ok()
-            .and_then(|h| {
-                h.transit
-                    .iter()
-                    .position(|x| x.state == 1 && x.host_id == host)
-                    .map(|i| (i, h.transit[i]))
-            })
+    r.lock().set_paused(true);
+    let test_key = fb::TestKey::new();
+    let t_home = {
+        let (clock, _, _, g) = r.clock();
+        kb::tlock_round(&clock, g, home_arrive)
     };
-    let mut beat = Instant::now();
-    run_while(
-        r,
-        &mut beacon,
-        1.0,
-        480,
-        "the page's march home lands (its Depart)",
-        |r| {
-            no_fail(&sync);
-            if beat.elapsed() > Duration::from_secs(5) {
-                beat = Instant::now();
-                assert!(
-                    r.bell() <= DEPART_BELL,
-                    "bell {DEPART_BELL} passed before the page sent its march home"
-                );
-            }
-            home_transit(r).is_some()
-        },
-    )
-    .await;
-    assert!(
-        alive(&mut driver),
-        "the driver exited before its Depart landed"
+    let me = ix::Player {
+        actor: w,
+        payer: w,
+        wallet: w,
+    };
+    let href = ix::HoldingRef {
+        p: hp as i16,
+        q: hq as i16,
+        site,
+    };
+    let (path_len, path) = permutation_rules::frontier::seal::encode_path(&home_route).unwrap();
+    let plain =
+        permutation_rules::frontier::seal::pack(&permutation_rules::frontier::seal::Plain {
+            version: permutation_rules::frontier::seal::PLAIN_VERSION,
+            host_id: host,
+            arrive_bell: home_arrive,
+            dest_p: hp as _,
+            dest_q: hq as _,
+            dest_tile: village,
+            stance: 0,
+            retreat_bps: 0,
+            path_len,
+            path,
+            reserved: Default::default(),
+        });
+    let sealed = fclient::seal::seal(&plain, &test_key.pk96, t_home).unwrap();
+    let season = fclient::decode::Season::decode(&r.season()).unwrap();
+    let tip = fclient::fees::min_tip_lamports(
+        season.min_reveal_priority_milli,
+        season.reveal_cu_limit,
+        season.reveal_loaded_limit,
     );
-    let home_depart_bell = r.bell();
-    let (home_slot, tr) = home_transit(r).unwrap();
+    let free_slot = Holding::decode(&r.data(&holding).unwrap())
+        .unwrap()
+        .transit
+        .iter()
+        .position(|x| x.state == 0)
+        .expect("a free transit slot") as u8;
+    let since_home = r.lock().slot();
+    let home_depart_row = r.send(
+        &format!("HOME Depart from ({tp}, {tq}) to the village tile {village}, arrival bell {home_arrive} (sealed to the TEST beacon key)"),
+        &[ix2::depart(
+            &a,
+            &me,
+            href,
+            (tp as i16, tq as i16),
+            &ix::DepartArgs {
+                host_id: host,
+                commit: sealed.commit,
+                seal: sealed.seal,
+                arrive_bell: home_arrive,
+                tip,
+                transit_slot: free_slot,
+            },
+        )],
+        &[&player],
+        "the page's wallet (TEST seal)",
+    );
     assert_eq!(
-        tr.arrive_bell, ARRIVE_BELL,
-        "the page's march home arrives at bell {ARRIVE_BELL}"
+        home_depart_row["ok"], true,
+        "the HOME Depart: {home_depart_row:#}"
     );
-    let pressed = std::fs::read_to_string(sync.join("pressed.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .unwrap_or(Value::Null);
-    let submits = posts(pg, "/gw/f/devnet-play/march/submit") - submits0;
-    assert_eq!(submits, 1, "ONE submit for the page's one press");
-    // (the reload, as P9: the encrypted book keeps the march)
-    run_while(r, &mut beacon, 1.0, 300, "the page reloads", |_| {
-        sync.join("reloaded.json").exists()
-    })
-    .await;
-    let reloaded: Value =
-        serde_json::from_str(&std::fs::read_to_string(sync.join("reloaded.json")).unwrap())
-            .unwrap();
-    // 8. keeper A anchors bell 21 from the REAL round, opens the seal, reveals, resolves, settles at the village tile.
     let home_region = ix::region_of(hp, hq);
-    let anchor = adr(r.ctx().bell_anchor(ARRIVE_BELL, home_region));
+    beacon
+        .signed
+        .insert((home_arrive, home_region), test_key.sign(t_home));
+    // 7. HOME arrival: the declared, TEST-signed anchor (staged by the beacon once the bell ended); the wallet reveals.
+    let home_anchor = adr(r.ctx().bell_anchor(home_arrive, home_region));
     drive(
         r,
         &mut beacon,
         10.0,
         1500,
-        "keeper A anchors bell 21 from the real round T(21)",
-        |r| r.data(&anchor).is_some(),
+        "the HOME arrival bell ends (its declared TEST-signed anchor)",
+        |r| r.data(&home_anchor).is_some(),
     )
     .await;
-    let ad = r.data(&anchor).unwrap();
-    let anchor_round = u64::from_le_bytes(ad[BA::ROUND..BA::ROUND + 8].try_into().unwrap());
-    assert_eq!(
-        anchor_round, ARRIVE_ROUND,
-        "bell 21 is anchored on the real round"
+    r.lock().set_paused(true);
+    let path_provinces =
+        fclient::play::path_provinces((tp, tq, out_entry.tile), &fclient::seal::unpack(&plain))
+            .expect("the HOME path's provinces");
+    let reveal_of = |day_writable: bool| {
+        ix::reveal(
+            &a,
+            w,
+            &ix::RevealArgs {
+                holding: href,
+                transit_slot: free_slot,
+                target_i: 0,
+                plain,
+                salt: sealed.salt,
+                ct_hash: sealed.ct_hash,
+                beneficiary: w,
+                dest: (hp, hq),
+                arrive: home_arrive,
+                faction: joined_nation,
+                day_writable,
+                path_provinces: path_provinces.clone(),
+            },
+        )
+    };
+    let dw = r.simulate_ok(&[reveal_of(true)], &[&player]).is_ok();
+    let home_reveal = r.send(
+        &format!("HOME Reveal (the wallet, bell {home_arrive})"),
+        &[reveal_of(dw)],
+        &[&player],
+        "the page's wallet",
     );
-    let slot_addr = a.arrival_slot(hp, hq, ARRIVE_BELL, joined_nation, 0);
-    drive(
-        r,
-        &mut beacon,
-        4.0,
-        900,
-        "the march home is revealed (its ArrivalSlot)",
-        |r| r.data(&slot_addr).is_some(),
-    )
-    .await;
+    assert_eq!(home_reveal["ok"], true, "the HOME Reveal: {home_reveal:#}");
+    // 8. keeper A gathers, resolves and settles the HOME leg: the host on its village's tile.
     drive(
         r,
         &mut beacon,
         6.0,
         1500,
         "keeper A settles the march home (SettleTransit): the host on its village's tile",
-        |r| {
-            home_transit(r).is_none()
-                && Holding::decode(&r.data(&holding).unwrap())
-                    .is_ok_and(|h| h.transit.iter().all(|x| x.host_id != host || x.state == 0))
-                && entry_at(r, hp, hq).is_some()
-        },
+        |r| host_transit(r).is_none() && entry_at(r, hp, hq).is_some(),
     )
     .await;
     r.lock().set_paused(true);
@@ -1937,8 +2001,6 @@ pub(super) async fn flow_pair(
         &[
             T::DEPART,
             T::SETTLE_DEPARTURE,
-            T::POST_ANCHOR,
-            T::POST_ANCHOR_MULTI,
             T::REVEAL,
             T::GATHER_CLASH,
             T::RESOLVE_FROM_INPUTS,
@@ -2032,12 +2094,13 @@ pub(super) async fn flow_pair(
         "the verifier FAILs the season: {verifier:#}"
     );
     json!({"verifier_season": verifier,
-        "ppair": "an out-and-back march pair on the devnet .so: OUT (the page's wallet, sealed to the TEST beacon key over a declared TEST-signed anchor: no second real round offline) to the neighbour's province; HOME (the page's own card, time-lock to the REAL T(21)); keeper A settles both; the host home; the herald agrees",
+        "ppair": "an out-and-back march pair on the devnet .so: OUT = the page's own march card to the neighbour's tile (its wallet, its time-lock to the REAL T(21); keeper A anchors, opens, reveals, settles); HOME = the same wallet's Depart once the host's stamina allows (~28 bells), sealed to the TEST beacon key over a declared TEST-signed anchor (no second real round offline), revealed by the wallet, settled by keeper A; the host home; the herald agrees",
         "participant": {"wallet": w.to_string(), "nation": joined_nation},
         "village": {"p": hp, "q": hq, "site": site, "tile": village, "ticket_bell": ticket_bell, "final_ts": final_ts},
-        "out": {"to": [tp, tq], "tile": out_tile, "dirs": out_dirs, "start_tile": start, "muster_bell": muster_bell, "depart_bell": out_depart, "arrive_bell": out_arrive,
-                "t_round": t_out, "depart": out_depart_row, "reveal": out_reveal, "reveal_day_writable": dw, "settled_bell": out_settled_bell, "entry": format!("{out_entry:?}"), "txs": out_rows},
-        "home": {"depart_bell": home_depart_bell, "transit_slot": home_slot, "arrive_bell": ARRIVE_BELL, "anchor_round": anchor_round, "submits": submits, "pressed": pressed,
+        "out": {"to": [tp, tq], "tile": out_tile, "dirs_hint": out_dirs, "start_tile": start, "muster_bell": muster_bell, "depart_bell": out_depart_bell, "arrive_bell": ARRIVE_BELL,
+                "anchor_round": anchor_round, "submits": out_submits, "settled_bell": out_settled_bell, "entry": format!("{out_entry:?}"), "txs": out_rows},
+        "home": {"route": home_route, "stamina_ok_bell": stamina_ok, "depart_bell": home_depart, "arrive_bell": home_arrive, "t_round": t_home, "transit_slot": free_slot,
+                 "depart": home_depart_row, "reveal": home_reveal, "reveal_day_writable": dw,
                  "settled_bell": home_settled_bell, "entry": format!("{home_entry:?}"), "txs": home_rows},
         "herald": {"out_seen": herald_out, "home": herald_home},
         "keeper_play_status": play_status, "reloaded": reloaded, "page_transactions": page_txs, "driver": done,

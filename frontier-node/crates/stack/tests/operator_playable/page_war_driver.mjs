@@ -23,7 +23,8 @@ const { chromium } = require('playwright-core');
 const arg = name => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const SCENARIO = arg('scenario') ?? 'keep';   // 'keep' (P9) | 'home' (P10, devnet-page-war-2: the return march, keeper outages)
 // | 'capture' (PCAP, devnet-72bell-pair: P9, then the page's own words for the capture after 72 held bells)
-// | 'pair' (PPAIR, devnet-72bell-pair: the test sends the OUT leg with this wallet's key; the page marches HOME as P10)
+// | 'pair' (PPAIR, devnet-72bell-pair: as 'keep', the page's march goes to an ordinary tile of the neighbour; the test sends
+//   the HOME leg later with this wallet's key)
 const URL0 = arg('url'), OUT = arg('out'), SEED = fs.readFileSync(arg('seed-file'), 'utf8').trim(), NATION = Number(arg('nation')), INSPECT = Number(arg('inspect')), SYNC = arg('sync');
 fs.mkdirSync(OUT, { recursive: true });
 const t0 = Date.now();
@@ -168,7 +169,7 @@ await wait(5000);
 s = await state(); log('after muster', { notice: s.notice });
 await shot('muster-sent');
 fs.writeFileSync(path.join(SYNC, 'mustered.json'), JSON.stringify({ notice: s.notice }));
-if (SCENARIO === 'home' || SCENARIO === 'pair') await home();
+if (SCENARIO === 'home') await home();
 const g = await syncWait('go-march');
 log('go-march', g);
 // the page's own keep march: compose onto the keep (stance by the keep's holder), the destination's route, the card
