@@ -193,3 +193,132 @@ fn a_later_archived_write_overrides_an_earlier_declared_patch() {
     assert_eq!(rep.verdict, Verdict::Fail);
     assert!(ticket_fails(&rep, "beyond the effective r_max 16"));
 }
+
+// ---- verify-pr169: adversarial declarations -------------------------------
+
+/// The Citizen the rim FileTicket writes (its post-state carries the ticket).
+fn ticket_citizen(inp: &Input) -> usize {
+    use frontier_abi::layout::player::citizen as C;
+    let t = &inp.txs[TICKET_TX];
+    let hits: Vec<usize> = t
+        .post
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, a))| {
+            a.as_ref().is_some_and(|a| {
+                a.data.len() >= C::SIZE
+                    && a.data.starts_with(b"PSF1CITZ")
+                    && a.data[C::TICKET_SITES..C::TICKET_SITES + 15]
+                        .iter()
+                        .any(|b| *b != 0)
+            })
+        })
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(hits.len(), 1, "one Citizen carries the ticket");
+    hits[0]
+}
+
+/// A declared patch at the SAME index as the last archived write (51) is
+/// overridden by that write (`d.at > t` only): the ticket is judged from
+/// tx 51's Frontier → FAIL.
+#[test]
+fn a_declared_patch_at_the_writes_own_index_is_overridden() {
+    let mut inp = recorded();
+    let i = frontier_patch(&inp);
+    inp.declared[i].at = 51;
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail);
+    assert!(ticket_fails(&rep, "beyond the effective r_max 16"));
+}
+
+/// A patch declared in force only AFTER the ticket does not reach it.
+#[test]
+fn a_declared_patch_after_the_ticket_does_not_reach_it() {
+    let mut inp = recorded();
+    let i = frontier_patch(&inp);
+    inp.declared[i].at = TICKET_TX + 1;
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail);
+    assert!(ticket_fails(&rep, "beyond the effective r_max 16"));
+}
+
+/// The honest declared patch stays, but the chain's own post-state of the
+/// filing (the Citizen after tx 116) contradicts the ticket: the judgement
+/// read a declared state and is still a FAIL, not softened.
+#[test]
+fn a_post_state_that_contradicts_a_judgement_from_a_declared_state_fails() {
+    use frontier_abi::layout::player::citizen as C;
+    let mut inp = recorded();
+    let c = ticket_citizen(&inp);
+    let a = inp.txs[TICKET_TX].post[c].1.as_mut().unwrap();
+    a.data[C::TICKET_SITES + 4] ^= 1; // site 0's site index
+    let rep = verify_core::verify(&inp);
+    assert_eq!(rep.verdict, Verdict::Fail);
+    assert!(
+        ticket_fails(&rep, "does not carry this ticket"),
+        "{:#?}",
+        bad(&rep)
+    );
+}
+
+/// A forged Citizen declaration just before the filing that contradicts
+/// it (a citizen already holding a provisional home cannot file): the
+/// judgement read a declared state and is a FAIL, not MissingData. (A
+/// forged nation alone may still fit the legacy wedge overflow: then it is
+/// MissingData, never a PASS.)
+#[test]
+fn a_forged_citizen_declaration_cannot_turn_a_fail_into_missing_data() {
+    use frontier_abi::layout::player::citizen as C;
+    let mut inp = recorded();
+    let c = ticket_citizen(&inp);
+    let (key, post) = inp.txs[TICKET_TX].post[c].clone();
+    // the Citizen as tx 116 left it, ticket cleared, provisional flag set
+    let mut acct = post.unwrap();
+    acct.data[C::TICKET_SITES..C::TICKET_SITES + 15].fill(0);
+    acct.data[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    acct.data[C::FLAGS] |= C::FLAG_PROVISIONAL;
+    inp.declared.push(verify_core::input::Declared {
+        at: TICKET_TX,
+        key: key.to_bytes(),
+        account: Some(acct),
+        what: "forged Citizen".into(),
+    });
+    let rep = verify_core::verify(&inp);
+    assert_ne!(rep.verdict, Verdict::Pass);
+    let v11: Vec<_> = rep
+        .findings
+        .iter()
+        .filter(|f| f.check == "V11" && f.entity.starts_with("ticket of citizen"))
+        .collect();
+    assert!(!v11.is_empty(), "the ticket is judged");
+    assert!(
+        v11.iter().any(|f| f.fail()
+            && f.code == "TicketPlacementMismatch"
+            && f.detail.contains("first holding or an open ticket")),
+        "{v11:#?}"
+    );
+}
+
+/// Laundering: the archive alone FAILs the rim ticket (no growth), and a
+/// forged declaration placed right before it makes the placement fit. V11
+/// never PASSes it: MissingData, and the season is UNVERIFIABLE at best.
+#[test]
+fn a_forged_declaration_never_launders_a_ticket_into_a_pass() {
+    let mut inp = recorded();
+    let i = frontier_patch(&inp);
+    let mut d = inp.declared.remove(i);
+    d.at = TICKET_TX;
+    d.what = "forged Frontier growth".into();
+    inp.declared.push(d);
+    let rep = verify_core::verify(&inp);
+    assert_ne!(rep.verdict, Verdict::Pass);
+    assert!(rep.findings.iter().any(|f| f.check == "V11"
+        && f.severity == Severity::Unverifiable
+        && f.entity.starts_with("ticket of citizen")
+        && f.detail.contains("only declares")));
+    // (V0E lists the declarations, cut at 600 characters)
+    assert!(rep.findings.iter().any(|f| f.check == "V0E"
+        && f.severity == Severity::Unverifiable
+        && f.detail.contains("declares")));
+}
