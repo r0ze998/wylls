@@ -688,7 +688,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
   list.addEventListener('click', () => { if (!list.disabled) onList(); });
   herald.addEventListener('keydown', e => { if (e?.key === 'Enter') onConnect(); });
   (doc.body ?? doc.documentElement)?.append(root);
-  let filled = false;
+  let filled = false, greeted = false;
   const ui = {
     heraldValue: () => herald.value,
     paint(s) {
@@ -719,6 +719,9 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
       if (before === 'stopping' && s.phase !== 'stopping') button.focus?.();
       if (before === 'starting' && s.phase === 'refused') button.focus?.();
       if (before === 'listing' && s.phase !== 'listing' && s.phase !== 'destroyed') list.focus?.();
+      // (a11y: the panel is a modal dialog over the page: the first time it can be used, the keyboard starts on its
+      //  start key, not on the page behind it)
+      if (!greeted && idle) { greeted = true; button.focus?.(); }
       before = s.phase;
       status.textContent = s.phase === 'creating' ? L`試験用ウォレットを作っています…`
         : s.phase === 'stopping' ? L`選んだ世界を終了しています…`

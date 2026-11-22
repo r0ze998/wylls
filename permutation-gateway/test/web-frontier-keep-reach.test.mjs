@@ -148,6 +148,7 @@ test('the nation tab lists the reachable keeps with the composer\'s route wordin
   assert.doesNotMatch(words, /州 -2,4/);
   assert.match(tab, /data-act="goto" data-p="0" data-q="4"/);
   assert.match(tab, /data-act="goto" data-p="-1" data-q="4"/);
+  assert.match(tab, /data-act="goto" data-p="0" data-q="4" aria-label="そこへ移動: 州 0,4"/, 'each row\'s key says which keep it goes to (the rows\' keys all read the same)');
   assert.doesNotMatch(words, /村からの道のり/);
   // before the answer, with no kernel, and outside play
   assert.match(text(renderReach(fs({ conquest: { keeps } }))), /届く砦を調べています…/);
