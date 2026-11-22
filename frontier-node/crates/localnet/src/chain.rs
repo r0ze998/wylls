@@ -1208,6 +1208,11 @@ impl Chain {
     /// Decodes a legacy, v0 or v1 wire and resolves its lookups now.
     pub fn txn(&self, wire: &[u8]) -> Result<Txn, SendError> {
         let d = vtx::decode(wire).map_err(SendError::Decode)?;
+        // verify-pr154: sanitize first, as agave's sendTransaction does (an
+        // instruction or program index past the keys used to panic
+        // `loaded_size` / `parse_budget` while holding the chain lock).
+        d.tx.sanitize()
+            .map_err(|e| SendError::Invalid(format!("transaction failed to sanitize: {e}")))?;
         let loaded = self.resolve_lookups(&d)?;
         let keys = d.keys(&loaded).map_err(SendError::Invalid)?;
         let view = Message {
