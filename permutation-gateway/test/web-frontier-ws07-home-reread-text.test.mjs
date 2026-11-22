@@ -43,10 +43,14 @@ test('H1 the button under a failed or empty reading, on both join screens', () =
   const nat = fnOf(join, 'export function renderNations(FS) {');
   // (fix-loop6, LP6-11: a press waiting for the candidates reading is busy too — FS.homeConfirmWait)
   order(nat, "const busy = !!FS.homeChoice?.busy || !!FS.homeChoice?.pending || FS.inFlight > 0 || !!FS.homeConfirmWait;",
-    'instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}`',
+    'instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeErrorActions(FS, busy)}`',
     'instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>`');
-  assert.equal(join.split('${homeReread(FS, busy)}').length - 1, 2, 'the nations screen and the placing screen');
-  assert.ok(join.includes('${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>${homeReread(FS, busy)}` : \'\'}'));
+  // (fix-devnet-join-wait: under an error, homeErrorActions — the reread button as before, or 「もう一度確かめる」 when the
+  //  error is a landed send's record not shown yet (`retry`): reading the candidates again would not help there)
+  const acts = join.slice(join.indexOf('const homeErrorActions = (FS, busy) =>'), join.indexOf('\n\n', join.indexOf('const homeErrorActions = (FS, busy) =>')));
+  order(acts, 'FS.homeChoice?.error?.retry', 'data-act="home-confirm"', 'L`もう一度確かめる`', ': homeReread(FS, busy)');
+  assert.equal(join.split('${homeErrorActions(FS, busy)}').length - 1, 2, 'the nations screen and the placing screen');
+  assert.ok(join.includes('${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>${homeErrorActions(FS, busy)}` : \'\'}'));
   assert.ok(join.includes('${choice.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : \'\'}'));
 });
 
@@ -109,7 +113,7 @@ test('H10 a join or placing begun meanwhile keeps its own state', () => {
   // (rewritten by the confirm's own bundle — it writes on the choice it was pressed on, `run.choice`, which is the
   //  choice in hand while it is its own: web-frontier-ws07-home-confirm-owner-text.test.mjs)
   order(ch, 'const run = { choice: FS.homeChoice,', 'run.choice.busy = true; run.choice.error = null;', 'const pending = p => { if (!mine()) return; run.choice.pending = p;',
-    'const error = (code, text) => { if (!mine()) return; run.choice.error = { code, text };', 'run.choice.busy = false; run.choice.pending = null;');
+    'const error = (code, text, more = null) => { if (!mine()) return; run.choice.error = { code, text, ...(more ?? {}) };', 'run.choice.busy = false; run.choice.pending = null;');
   assert.ok(rh.includes('if (!c || c.busy) { letGo(); return null; }'));
   const lg = rh.split('\n').find(l => l.includes('const letGo = () =>'));
   assert.doesNotMatch(lg, /busy|pending|error|selected|candidates|FS\.homeChoice = /, 'letting go touches the reading mark only');

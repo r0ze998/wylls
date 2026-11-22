@@ -1619,6 +1619,22 @@ async fn playable_season(pt: Ports, mode: Mode) {
 
     // The herald (the devnet mode: `--source rpc --cluster devnet`) folds the season and shows the home.
     let herald_bin = sibling_bin("FRONTIER_HERALD_BIN", "frontier-herald");
+    // (fix-devnet-join-wait, TEST-ONLY: the herald as devnet runs it — behind an RPC that shows transactions late
+    //  (a delaying proxy in front of this node: `OPERATOR_HERALD_RPC_URL`, loopback only), with the runbook's gap
+    //  (`OPERATOR_HERALD_RPC_GAP_MS`) and poll (`OPERATOR_HERALD_POLL_MS`). Unset: as before, the node itself, gap 0.)
+    let herald_rpc = std::env::var("OPERATOR_HERALD_RPC_URL")
+        .ok()
+        .filter(|u| u.starts_with("http://127.0.0.1:"))
+        .unwrap_or_else(|| url.clone());
+    let herald_gap = std::env::var("OPERATOR_HERALD_RPC_GAP_MS")
+        .ok()
+        .filter(|v| v.parse::<u64>().is_ok())
+        .unwrap_or_else(|| "0".into());
+    let herald_poll: Vec<String> = std::env::var("OPERATOR_HERALD_POLL_MS")
+        .ok()
+        .filter(|v| v.parse::<u64>().is_ok())
+        .map(|v| vec!["--poll-ms".into(), v])
+        .unwrap_or_default();
     let hdir = dir.join("herald");
     // (P7: the herald also serves the page, `--web`, and proxies `/gw/*` to the gateway's public listener)
     let (gw_op, gw_pub) = (pt.rpc + 6, pt.rpc + 7);
@@ -1628,11 +1644,18 @@ async fn playable_season(pt: Ports, mode: Mode) {
     } else if page_mode {
         vec![
             "--web".into(),
-            repo_root()
-                .join("permutation-server/web")
-                .to_str()
-                .unwrap()
-                .into(),
+            // (fix-devnet-join-wait, TEST-ONLY: `OPERATOR_HERALD_WEB_DIR` serves another copy of the web tree — e.g.
+            //  origin/main's, for a before/after run; unset: this checkout's)
+            std::env::var("OPERATOR_HERALD_WEB_DIR")
+                .ok()
+                .filter(|d| Path::new(d).join("frontier/index.html").is_file())
+                .unwrap_or_else(|| {
+                    repo_root()
+                        .join("permutation-server/web")
+                        .to_str()
+                        .unwrap()
+                        .into()
+                }),
             "--relay".into(),
             format!("127.0.0.1:{gw_pub}"),
         ]
@@ -1650,16 +1673,17 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "--season",
                 "1",
                 "--rpc",
-                &url,
+                &herald_rpc,
                 "--source",
                 "rpc",
                 "--cluster",
                 "devnet",
                 "--rpc-min-gap-ms",
-                "0",
+                &herald_gap,
                 "--listen",
                 &format!("127.0.0.1:{}", pt.herald),
             ])
+            .args(&herald_poll)
             .stdout(Stdio::null())
             .stderr(std::fs::File::create(dir.join("herald.log")).unwrap())
             .spawn()

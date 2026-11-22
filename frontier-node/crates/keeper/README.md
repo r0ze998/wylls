@@ -25,6 +25,12 @@ land and play discovery. It is not counted as an empty page or "no work".
   blocker's sequence, slot, signature and reason. Metrics expose
   `frontier_keeper_discovery_blocked` and `frontier_keeper_game_writes_paused`.
   New reveal/nudge requests receive `503 DiscoveryUnavailable` while paused.
+  "Paused" for the API is the verdict of the last FINISHED feed pass (or a known
+  blocker), not the pass under way: the Engine refuses game writes during every
+  pass on its own, and raising the API flag at each pass's start answered every
+  nudge/reveal that arrived during the feed read with 503 while `/v1/status`
+  said `automatic_writes: true` (herald-load-50 F4, fix-devnet-join-wait). A
+  pass that ends blocked or not caught up pauses the API as before.
 - Direct duty callers must use their index's guard. The built-in land/play
   entry points do so, and the Engine checks its durable blocker again at send.
 
