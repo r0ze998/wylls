@@ -388,10 +388,14 @@ class Refusals(unittest.TestCase):
         # (with the demo, the coexist lane, a fresh map)
         for extra in [('--demo',), ('--coexist',), ('--random-map', '--ai', '4')]:
             self.assertIn(f'--external-residents {A}', plan('--external', A, *extra)['launcher'], extra)
-        # (refused before any write: not a key-shaped or bad address, the same address twice, three, with --two or --wide,
+        # (external-wide: and a --wide world, its rim route — the launcher gets both options)
+        pw = plan('--wide', '--random-map', '--external', A, '--speed', '60')
+        self.assertIn(f'--external-residents {A}', pw['launcher'])
+        self.assertIn('--wide-land', pw['launcher'])
+        # (refused before any write: not a key-shaped or bad address, the same address twice, three, with --two,
         #  --no-mcp alone, with --coexist-node; ports past 41999 or across 41970)
         for args in [('--external', 'not-an-address!'), ('--external', A + ',' + A), ('--external', f'{A},{B},{A}'),
-                     ('--external', A[:20]), ('--external',), ('--external', A, '--two'), ('--wide', '--external', A),
+                     ('--external', A[:20]), ('--external',), ('--external', A, '--two'),
                      ('--no-mcp',), ('--coexist-node', '--external', A), ('--external', A, '--port', '41960'),
                      ('--external', A, '--port', '41940'), ('--external', A, '--port', '41970')]:
             code, out, err = run('--print-plan', *args)

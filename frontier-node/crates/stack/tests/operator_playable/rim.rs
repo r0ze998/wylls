@@ -99,6 +99,12 @@ pub struct Page {
     pub outpost: bool,
     /// P17 (devnet-p17): after the wide village is final, the page sends its own acts ([`wide_acts_page`]).
     pub wide_acts: bool,
+    /// PCAP (devnet-72bell-pair): P9's keep march held through all 72 bells; the capture on chain, in the herald and on
+    /// the page (`war_page.rs` [`war::PCAP_AFTER_BELLS`]).
+    pub capture: bool,
+    /// PPAIR (devnet-72bell-pair): an out-and-back march pair — out to a neighbouring province, then the page's march
+    /// home ([`war`] `pair`).
+    pub pair: bool,
 }
 
 /// P11 (devnet-expedition-keeper): the rim → wide expedition.
@@ -577,6 +583,64 @@ impl<'a> Run<'a> {
             adr(anchor_key),
             acct(ad),
             &format!("BellAnchor(bell {bell}, region {region}), round {round}"),
+        );
+        self.patch(
+            adr(ctx.seed_cache(bell, region, 0)),
+            acct(cd),
+            &format!("SeedCache(bell {bell}, region {region}, nonce 0), literal seed"),
+        );
+    }
+    /// (devnet-72bell-pair, PPAIR) THE anchor of `(bell, region)` declared WITH a signature: `sig48` is the TEST
+    /// beacon key's signature of the bell's time-lock round T(bell) ([`fb::TestKey`]), and the anchor's round is T(bell)
+    /// — offline there is no second real quicknet round in reach of one season (only T(21) of the war genesis, see
+    /// `war.rs` [`war::PAIR_REST_BELLS`]), so the HOME leg of the pair is sealed to the TEST key and settles over this
+    /// declared anchor; the OUT leg is the real one. Its SeedCache (nonce 0) with a literal seed, as [`Run::stage_seed`].
+    fn stage_signed(&mut self, bell: u32, region: u8, sig48: [u8; 48], seed: [u8; 32]) {
+        let ctx = self.ctx();
+        let (clock, sched, margin, genesis_ts) = self.clock();
+        let a_ts = genesis_ts + 600 * (bell as i64 + 1) + 100;
+        let t_round = kb::tlock_round(&clock, genesis_ts, bell);
+        let round = kb::seed_round(
+            &clock,
+            kb::reveal_close(a_ts, kb::window(&sched, bell)),
+            margin,
+        );
+        let anchor_key = ctx.bell_anchor(bell, region);
+        let mut ad = vec![0u8; K2::BellAnchor.size()];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut ad,
+            K2::BellAnchor,
+            SEASON_ID
+        ));
+        ad[BA::BELL..BA::BELL + 4].copy_from_slice(&bell.to_le_bytes());
+        ad[BA::REGION] = region;
+        ad[BA::ROUND..BA::ROUND + 8].copy_from_slice(&t_round.to_le_bytes());
+        ad[BA::A..BA::A + 8].copy_from_slice(&a_ts.to_le_bytes());
+        ad[BA::SLOT..BA::SLOT + 8].copy_from_slice(&1u64.to_le_bytes());
+        ad[BA::SIG48..BA::SIG48 + 48].copy_from_slice(&sig48);
+        let mut cd = vec![0u8; K2::SeedCache.size()];
+        assert!(frontier_abi::v2::layout::write_header(
+            &mut cd,
+            K2::SeedCache,
+            SEASON_ID
+        ));
+        cd[SC::BELL..SC::BELL + 4].copy_from_slice(&bell.to_le_bytes());
+        cd[SC::REGION] = region;
+        cd[SC::ROUND..SC::ROUND + 8].copy_from_slice(&round.to_le_bytes());
+        cd[SC::SEED..SC::SEED + 32].copy_from_slice(&seed);
+        cd[SC::ANCHOR_KEY..SC::ANCHOR_KEY + 32].copy_from_slice(&anchor_key);
+        cd[SC::A..SC::A + 8].copy_from_slice(&a_ts.to_le_bytes());
+        let program = self.c.program;
+        let acct = |data: Vec<u8>| Account {
+            lamports: SOL,
+            data,
+            owner: program,
+            executable: false,
+        };
+        self.patch(
+            adr(anchor_key),
+            acct(ad),
+            &format!("BellAnchor(bell {bell}, region {region}), round T({bell}) = {t_round}, signed by the TEST beacon key (no real quicknet round offline)"),
         );
         self.patch(
             adr(ctx.seed_cache(bell, region, 0)),

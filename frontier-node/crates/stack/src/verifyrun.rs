@@ -127,6 +127,12 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             }
         }
     };
+    // verifier-alt-archive (F2): a table closed since is checked against its
+    // own create / extend transactions read from the node.
+    let lookup_snapshots = match &lookup_tables {
+        Some(t) => input::fetch_closed_table_histories(&rpc, t).await,
+        None => vec![],
+    };
     // ⑲: the history and the final states at one ledger point, or
     // `point_in_time_unverified` stays (never PASS).
     let mut history = history;
@@ -162,6 +168,7 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         chain: input::ChainWitness {
             rent,
             lookup_tables,
+            lookup_snapshots,
             ..Default::default()
         },
     })

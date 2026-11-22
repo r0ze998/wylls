@@ -19,7 +19,10 @@
 //!                                           v0 transactions' lookup tables are read with the final
 //!                                           states (--rpc) or taken from a finals file's / fixture's
 //!                                           `lookup_tables`; VT checks every archived
-//!                                           `loadedAddresses` against them (verifier-v0v1)
+//!                                           `loadedAddresses` against them (verifier-v0v1); a table
+//!                                           closed since is checked against the archive's snapshot of
+//!                                           it (findex, first use) or, with --rpc, its own create /
+//!                                           extend transactions (verifier-alt-archive)
 //!          --balances                       with --rpc: also read each transaction's pre/post
 //!                                           balances and the upgrade authority (VG: an archive
 //!                                           without post-states re-executed from genesis)
@@ -213,6 +216,8 @@ fn main() {
         let mut finals_rent: Option<input::RentRead> = None;
         // (verifier-v0v1: the lookup tables a finals file recorded beside its states)
         let mut finals_tables: Option<input::LookupTables> = None;
+        // (verifier-alt-archive: a finals file's lookup table snapshots)
+        let mut finals_snaps: Vec<fclient::alt::Snapshot> = vec![];
         let (finals, final_slot) = match (&finals, &rpc) {
             (Some(f), _) => {
                 let s = std::fs::read_to_string(f).unwrap_or_else(|e| usage(&e.to_string()));
@@ -222,6 +227,8 @@ fn main() {
                     None | Some(serde_json::Value::Null) => None,
                     Some(r) => Some(input::RentRead::from_json(r).unwrap_or_else(|e| usage(&e))),
                 };
+                finals_snaps = input::snapshots_from_json(v.get("lookup_snapshots"))
+                    .unwrap_or_else(|e| usage(&e));
                 finals_tables = match v.get("lookup_tables") {
                     None | Some(serde_json::Value::Null) => None,
                     Some(t) => {
@@ -362,6 +369,19 @@ fn main() {
             }
             (None, None) => None,
         };
+        // verifier-alt-archive (F2): the archive's snapshots of each lookup
+        // table (taken at its first use), a finals file's, and — for a table
+        // closed at the pinned read — its own create / extend transactions
+        // read from the RPC. VT consults them only where the pinned read
+        // settles nothing.
+        let mut snaps = finals_snaps;
+        if let Some(d) = &archive {
+            snaps.extend(input::archive_lookup_snapshots(d).unwrap_or_else(|e| usage(&e)));
+        }
+        if let (Some(u), Some(t)) = (&rpc, &chain.lookup_tables) {
+            snaps.extend(rt.block_on(input::fetch_closed_table_histories(u, t)));
+        }
+        chain.lookup_snapshots = snaps;
         // ⑰ Q-P1 (b): the second source(s), read after everything else
         // (VS, witness.rs). Not for a local node's ledger feed (its history
         // has its own rule).
@@ -373,7 +393,14 @@ fn main() {
                     .map(|k| solana_address::Address::new_from_array(*k))
                     .collect();
                 let c = rt.block_on(verify_core::witness::cross_check(
-                    u, &witnesses, &program, season_id, &txs, &keys, final_slot,
+                    u,
+                    &witnesses,
+                    &program,
+                    season_id,
+                    &txs,
+                    &keys,
+                    final_slot,
+                    &verify_core::witness::TableAsk::of(&txs, &chain.lookup_snapshots),
                 ));
                 for w in &c.witnesses {
                     eprintln!(

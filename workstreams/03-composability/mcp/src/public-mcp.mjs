@@ -168,10 +168,12 @@ export function createPublicHandler({ mcp, keys = null, anonymous = false, allow
       // (2026-11-20, verify-pr114) The global bucket is spent by authenticated (or allowed anonymous) callers only:
       // charged before `who`, a keyless flood of 401s emptied it and every key holder got 429 (only a tool call
       // reaches the herald, and an unauthenticated request never does).
-      const g = global.take('all', 1);
-      if (!g.ok) { note(req, { outcome: 'GlobalLimit' }); return send(res, 429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'the server is busy', data: { reason: 'global' } } }, { 'retry-after': String(g.retryAfterSecs) }); }
+      // (security-audit) The caller's own bucket first: a request it refuses spends no global token, so one key (or
+      // address) flooding past its own rate can no longer empty the global bucket and lock every other key out.
       const b = bucketOf(p).take(bucketKey(p), 1);
       if (!b.ok) { note(req, { outcome: 'RateLimited' }); return send(res, 429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'rate limited', data: { reason: 'rate' } } }, { 'retry-after': String(b.retryAfterSecs) }); }
+      const g = global.take('all', 1);
+      if (!g.ok) { note(req, { outcome: 'GlobalLimit' }); return send(res, 429, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'the server is busy', data: { reason: 'global' } } }, { 'retry-after': String(g.retryAfterSecs) }); }
       const v = req.headers['mcp-protocol-version'];
       if (v && !PROTOCOL_VERSIONS.includes(v)) return send(res, 400, { jsonrpc: '2.0', id: null, error: { code: -32600, message: `unsupported MCP-Protocol-Version ${String(v).slice(0, 20)}` } });
       const r = await body(req);

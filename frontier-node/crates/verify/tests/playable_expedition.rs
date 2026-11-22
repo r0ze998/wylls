@@ -2718,6 +2718,7 @@ fn finish(r: &Rec, sc: Sc, program: Address, so_hash: [u8; 32], so: &[u8], upgra
     whole.declared = r.declared.clone();
     // What getTransaction serves beside each transaction (VG's input).
     whole.chain = verify_core::input::ChainWitness {
+        lookup_snapshots: vec![],
         balances: r
             .c
             .feed(0, usize::MAX, Some(&program))

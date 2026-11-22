@@ -23,7 +23,7 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 |---|---|---|
 | 参加（`live/candidates.mjs` UNSUPPORTED.join） | ⑤B の新しい住民の道：運営が公開アドレスを受け入れ、住民がページと同じ開始の道を押し、自分で Join に署名する | `client.mjs` → `agent.mjs` `discoverWorld` |
 | 目標 `GOALS`（growth・use・planDepth・reserve・patienceBells） | growth：計画の建物（その村がいちばん少なく作る資源、ページの `BUILD_ITEMS` と `buildOffers` の数）。use：計画と蓄えを超えた在庫で兵を訓練、予備兵 100 以上で部隊を編成 | `brain.mjs` `assessReal`・`localCandidates` |
-| 候補と「保留の理由」 | 6 つの命令それぞれ。読めない数は保留（0 とみなさない） | `brain.mjs` |
+| 候補と「保留の理由」 | 6 つの命令それぞれ（広い版の世界では最初の村の申し込み `FileTicket` も）。読めない数は保留（0 とみなさない） | `brain.mjs` |
 | 決め方 | 料金のかからない規則（点数がいちばん高い保留なしの候補）。provider を差すときは ⑬ の `decideLive` の境界（`charges:false`、提示した候補だけ） | `brain.mjs` `decideLocal` |
 | 上限 `DEFAULT_LIMITS` | 1 ターン 1 回（世界の規則、設定ではない）。失敗ごとに保留が倍（4・8・16・32、最大 36 ターン）。待つと見る間隔が倍（最大 4 ターン）。判断回数 500。1 日 144 回。Harvest は他にすることがないとき 6 ターンに 1 回 | `brain.mjs` `LOCAL_LIMITS`、`runner.mjs` |
 | 記憶・再起動 | `intended` を保存 → 署名を保存（送る前）→ 送る → 署名で結果を追う。再起動で `intended` は「送っていない」。署名のある未決の行がある間は新しい命令を出さない | `journal.mjs`、`runner.mjs` |
@@ -62,4 +62,4 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 ## できないこと
 
 - 隊商・掲示板の返答と送り・行軍・投票：ローカルの act relay にない（6 つの命令だけ）。隊商は Q4（r0ze の判断待ち）。
-- 広い土地（`--wide`）：play-local が `--external` と一緒に使わせない（住民は PlaceHome で家を置く）。
+- 広い土地（`--wide`）：（external-wide 以降）住民は入れる。最初の村はページと同じく外側から選び、中心地より外は一か所の申し込み（`FileTicket`）で頼んで、ターンの終わりの決着を待つ（最大 72 ターン。`brain.mjs` `TICKET_WAIT_BELLS`）。広い土地そのものの命令（広い土地の取得・広い村の訓練／編成／進軍・遠征）はない。住民の中継もそれを断る（verify-pr163 `--no-wide-orders`）。

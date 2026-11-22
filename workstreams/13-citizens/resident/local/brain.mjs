@@ -3,8 +3,8 @@
 // The resident's own goals (goals.mjs GOALS: growth / use weights, plan depth, reserve, patience), its own limits
 // (resident.mjs DEFAULT_LIMITS: the shortest gap between decisions, the idle back-off, the allowance of decisions,
 // the day's actions, the doubling hold after a failed action) and its own memory (journal.mjs) are mapped onto the
-// six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and onto nothing
-// else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
+// six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and, in a local
+// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
 // plans with are the page's own (hud/rulebook.mjs buildOffers, trainCost, maxTrain; fland.mjs storesAt), never the
 // test world's (world/rules.mjs). A choice is only a request: the relay and the program refuse it exactly as they
 // refuse a person's.
@@ -28,6 +28,21 @@ import { s1On, s1OreBase, setOreExtraProvider, holdingOreExtra } from '../../../
 export const BRAIN_KIND = 'ws13-local-brain/1';
 /** The six orders of a local-play page (flocalplay-act.mjs LOCAL_ACT_NAMES' first six): the only ones asked for. */
 export const LOCAL_ORDERS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster']);
+/**
+ * (external-wide) In a LOCAL WIDE-LAND world only, the page's seventh (LOCAL_ACT_NAMES[6]): a first village past the
+ * heartland is asked for by a one-site request, FileTicket, which the world's runner settles at a turn's end (itest
+ * wide_play run_claims, for every wallet alike) — exactly the page's rim route (controller.mjs confirmHome). The wide
+ * land's own orders (the wide claim 0xD9, a wide village's Train/Muster/Depart) are NOT this resident's: it never asks
+ * for them, in any world.
+ */
+export const WIDE_HOME_ORDER = 'FileTicket';
+/**
+ * Turns a landed rim request is waited for before another site is tried: the runner settles it at a turn's end, at the
+ * latest once its cohort expires (COHORT_BELLS 24 turns); at ×60 under load that took far longer (loop-play6: ~60
+ * turns), so 72 (half a game day). The page waits without a limit; a second request meanwhile would be the program's
+ * to refuse, and the failure hold would follow.
+ */
+export const TICKET_WAIT_BELLS = 72;
 /** ⑬'s plan items: the economy buildings (goals.mjs PLAN_ITEMS: food, wood, stone, ore, gold), real items 0–4. */
 export const PLAN_ITEMS = Object.freeze(BUILD_ITEMS.filter(b => ['Food', 'Wood', 'Stone', 'Ore', 'Gold'].includes(b.resource)).map(b => b.item));
 /** The Join's session expiry, as the page counts it (controller.mjs: chain now + 30 days − 600 s). */
@@ -203,7 +218,9 @@ export function refusalHold(mem, obs, item) {
   return `the chain refused this ${BUILD_ITEMS[item].resource} build (copy ${rec.copy}) for resources at turn ${rec.bell}: not sent again until ${behind.map(r => `${RESOURCE_ORDER[r]} grows past ${rec.stock[r] ?? 0}`).join(', ')}`;
 }
 
-const failKey = c => (c.kind === 'build' ? `Build:${c.order.fields.item}` : c.kind === 'home' ? 'PlaceHome' : c.order.name);
+const failKey = c => (c.kind === 'build' ? `Build:${c.order.fields.item}` : c.kind === 'home' ? (c.order.name === WIDE_HOME_ORDER ? WIDE_HOME_ORDER : 'PlaceHome') : c.order.name);
+/** The site of a home order (PlaceHome `{p, q, site}`; FileTicket `{sites: [one]}`) as `"p,q,site"`. */
+const homeSiteKey = order => { const s = order.name === WIDE_HOME_ORDER ? order.fields.sites?.[0] ?? {} : order.fields; return `${s.p},${s.q},${s.site}`; };
 
 /** A held reason from the failure memory (the doubling hold), or null. */
 function failureHold(mem, key, bell) {
@@ -233,11 +250,20 @@ export function localCandidates(obs, mem, { limits = LOCAL_LIMITS } = {}) {
   }
   if (!obs.holding) {
     const tried = new Set(mem.triedHomes ?? []);
-    const hold = failureHold(mem, 'PlaceHome', bell);
+    // (external-wide: a rim request that landed waits for the runner's settlement at a turn's end; nothing else is
+    //  asked for the first village meanwhile — the page shows its 'ticket' wait the same way)
+    const t = mem.ticket;
+    const waiting = t && Number.isInteger(t.bell) && bell < t.bell + TICKET_WAIT_BELLS ? `my village request for ${t.site} (turn ${t.bell}) waits for the turn's end (until turn ${t.bell + TICKET_WAIT_BELLS})` : null;
     const free = (obs.homes ?? []).filter(x => !tried.has(`${x.p},${x.q},${x.site}`));
-    if (!free.length) why.push('no untried free home site of my nation seen');
-    free.slice(0, 3).forEach((x, i) => out.push({ id: `home:${x.p},${x.q},${x.site}`, kind: 'home', order: { name: 'PlaceHome', v: { holding: { p: x.p, q: x.q, site: x.site }, faction: obs.faction }, fields: { p: x.p, q: x.q, site: x.site } },
-      ...(hold ? { held: [hold] } : {}), score: 1 - i * 0.01, why: 'a citizen with no village: the nearest free home site of my nation' }));
+    if (!free.length) why.push(obs.wide ? 'no untried free first-village site of my nation seen (outward, as the page reads them)' : 'no untried free home site of my nation seen');
+    free.slice(0, 3).forEach((x, i) => {
+      const ticket = obs.wide === true && x.ticket === true, one = { p: x.p, q: x.q, site: x.site };
+      const held = [failureHold(mem, ticket ? WIDE_HOME_ORDER : 'PlaceHome', bell), waiting].filter(Boolean);
+      out.push({ id: `home:${x.p},${x.q},${x.site}`, kind: 'home',
+        order: ticket ? { name: WIDE_HOME_ORDER, v: { sites: [one] }, fields: { sites: [one] } } : { name: 'PlaceHome', v: { holding: one, faction: obs.faction }, fields: { ...one } },
+        ...(held.length ? { held } : {}), score: 1 - i * 0.01,
+        why: ticket ? 'a citizen with no village: request a rim site of my nation (outward, the page\'s first-village route in a wide world)' : 'a citizen with no village: the nearest free home site of my nation' });
+    });
     return { candidates: out, assessment: null, why };
   }
   if (!obs.settled || !Array.isArray(obs.stores) || obs.stores.length < 6) {
@@ -330,9 +356,13 @@ export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LO
   if (outcome === 'landed') {
     delete mem.failures[key];
     if (cand.kind !== 'join') mem.lastTouchBell = bell;
+    // (external-wide: a landed rim request is not a village yet — the runner settles it at a turn's end, as taken or
+    //  as a village; the site is not asked for again, and the request is waited for: TICKET_WAIT_BELLS)
+    if (cand.kind === 'home' && cand.order.name === WIDE_HOME_ORDER) { const site = homeSiteKey(cand.order); mem.ticket = { bell, site }; mem.triedHomes = [...(mem.triedHomes ?? []), site]; }
     // (LP9-4: my village's landed builds, counted here — the order's own landing, read once — on the send and on the
-    //  reconcile alike; a PlaceHome of mine starts a complete record)
-    if (cand.kind === 'home') mem.village = { key: `${cand.order.fields.p},${cand.order.fields.q},${cand.order.fields.site}`, complete: true, builds: {} };
+    //  reconcile alike; a landed PlaceHome of mine starts a complete record; a rim village from a request is counted
+    //  from when it is first seen, trackVillage)
+    else if (cand.kind === 'home') mem.village = { key: homeSiteKey(cand.order), complete: true, builds: {} };
     if (cand.kind === 'build' && mem.village) {
       const item = cand.order.fields.item;
       mem.village.builds = { ...(mem.village.builds ?? {}), [item]: Number(mem.village.builds?.[item] ?? 0) + 1 };
@@ -345,7 +375,7 @@ export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LO
     const item = cand.order.fields.item;
     mem.refusals[key] = { item, copy: obs?.settled ? copyNumber(obs.settled, item) : null, stock: have(obs), bell, code };
   }
-  if (cand.kind === 'home' && outcome !== 'unknown' && outcome !== 'not-sent') mem.triedHomes = [...(mem.triedHomes ?? []), `${cand.order.fields.p},${cand.order.fields.q},${cand.order.fields.site}`];
+  if (cand.kind === 'home' && outcome !== 'unknown' && outcome !== 'not-sent') mem.triedHomes = [...(mem.triedHomes ?? []), homeSiteKey(cand.order)];
   if (outcome === 'failed' || outcome === 'refused') {
     const count = (mem.failures[key]?.count ?? 0) + 1;
     mem.failures[key] = { count, until: bell + Math.min(limits.failureHoldMaxBells, limits.retryBackoffBells * 2 ** count), code };
@@ -353,7 +383,7 @@ export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LO
   return mem;
 }
 
-export const ORDER_KINDS = Object.freeze({ join: 'Join', home: 'PlaceHome', harvest: 'Harvest', build: 'Build', train: 'Train', muster: 'Muster' });
+export const ORDER_KINDS = Object.freeze({ join: 'Join', home: 'PlaceHome', harvest: 'Harvest', build: 'Build', train: 'Train', muster: 'Muster' });   // (a wide world's rim home: kind 'home', order WIDE_HOME_ORDER)
 /** For logs: the observation reduced to what the brain read. */
 export function seenOf(obs) {
   if (!obs) return null;

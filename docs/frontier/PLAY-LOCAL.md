@@ -32,13 +32,13 @@ scripts/play-local.sh --demo --external <address>   # admit an external AI resid
 ```
 
 The wide version is started with `--wide` alone (given with `--demo`, `--resume`, `--fresh` or `--two` it stops and names
-which; nor with `--coexist` or `--external`; `--ai`, `--ai-peaceful`, `--random-map`, `--speed`, `--minutes`, `--port` and
+which; nor with `--coexist`; `--ai`, `--ai-peaceful`, `--random-map`, `--speed`, `--minutes`, `--port`, `--external` and
 `--no-coop-board` go with it).
 
 There are three worlds. All of them have fog of war (§5), and the AI residents are at war by default. `--coexist` is
 not a fourth world: it runs a kept world or `--demo` on the program that carries ②+⑨+⑩ (② rights §10; ⑨ workshop lending,
 ⑩ custody and seizures §12; ① request deliveries §13). `--external` is no world kind either: it admits external AI residents
-into a kept world or `--demo` (§11).
+into a kept world, `--demo` or `--wide` (§11).
 
 | World | Clock | Kept | Good for checking |
 |---|---|---|---|
@@ -53,13 +53,13 @@ Options:
 | `--resume` | continue the kept world started last (same browser, same port, same number of AI residents) | `--fresh` `--demo` `--wide` `--random-map`, another `--port` / `--ai` |
 | `--fresh` | start a new kept world (the same as giving nothing) | `--resume` `--wide` |
 | `--demo` | the 15-minute capture demo | `--resume` `--wide` |
-| `--wide` | the wide version (§4) | `--demo` `--resume` `--fresh` `--two` `--coexist` `--external` |
+| `--wide` | the wide version (§4) | `--demo` `--resume` `--fresh` `--two` `--coexist` |
 | `--random-map` | give the new world its own map. Without it **every local world has the same map** | `--resume` |
 | `--ai N` | AI residents, 0–4 (default 2). **At war by default**: they march on other nations' reachable keeps and siege them (one action per resident per turn) | |
 | `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
 | `--two` | two people in one world (§3.1) | `--wide` `--external` |
 | `--coexist` | a world with ②+⑨+⑩ (§10, §12; ① request caravans only here, §13): a kept world or `--demo`; works with `--ai` `--two` `--random-map` `--resume` `--external` | `--wide` |
-| `--external ADDR[,ADDR]` | admit up to two external AI residents by their **public addresses** (§11; never a key). Also starts the read-only MCP server on 127.0.0.1. A kept world or `--demo`; works with `--ai` `--random-map` `--coexist` `--resume` | `--two` `--wide` |
+| `--external ADDR[,ADDR]` | admit up to two external AI residents by their **public addresses** (§11; never a key). Also starts the read-only MCP server on 127.0.0.1. A kept world, `--demo` or `--wide`; works with `--ai` `--random-map` `--coexist` `--resume` | `--two` |
 | `--no-mcp` | with `--external`: do not start the MCP server | refused without `--external` |
 | `--no-coop-board` | leave out the ① co-op board and ⑮'s 「称号と記録」 card (attached by default, §13) | |
 | `--speed N` | the clock of `--demo` / `--wide`, 10–60 (default 60) | a kept world |
@@ -620,8 +620,19 @@ The world's operator gives it no privilege and never sees its key. The page show
 
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
   the resident's second order waits for you.
-- Not with `--two` or `--wide`. It works with kept worlds, `--demo`, `--ai`, `--random-map`, `--coexist` and `--resume`
+- Not with `--two`. It works with kept worlds, `--demo`, `--wide`, `--ai`, `--random-map`, `--coexist` and `--resume`
   (pass `--external` again on resume).
+- **In a `--wide` world** (external-wide) the launcher tells the resident the world is wide (`wideLand` in its start answer,
+  as it tells your page). ⑬'s resident then picks its first village the way your page does there: outward first, the
+  free sites of its nation in a settled rim province, farthest ring first. Past the heartland it asks for the village by a
+  one-site request (`FileTicket`, the page's 「辺境の村を申し込みました」), which the world settles at a turn's end; it waits
+  for that (up to 72 turns) and does not file a second one meanwhile. The request is its action of that turn. After that it
+  plays its rim village with the same six orders. The wide land's own orders (the wide claim, a wide village's
+  train/muster/march, expeditions) are not in an external resident's order set: it never founds a village in the wide land.
+  Its relay refuses them too (verify-pr163, `--no-wide-orders`: the wide claim and a wide village's orders answer
+  `LocalActWideOrderRefused` and are not sent; the expedition routes are not served).
+  The reference resident (`agent.mjs`) still reads heartland sites only (PlaceHome, rings 2–3).
+  Example: `scripts/play-local.sh --wide --random-map --ai 2 --external <address> --speed 60`.
 - The keeper loop settles an external resident's home province in the same batch as yours (#146; in kept worlds too). In
   `--demo` at ×60 its province is ready for a muster 80–90 % of the time (before: 0–6 %; §8.2).
 - An external resident can send the game the six orders only (no caravans, no marches; the two residents shipped here do not

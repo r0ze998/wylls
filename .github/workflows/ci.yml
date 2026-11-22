@@ -464,6 +464,9 @@ jobs:
           # Literal records only (no key generated, derived or signed): a
           # reader never sees a healthy ingest as blocked (loop-play B4-D).
           cargo test --locked -p findex --test reader_during_ingest
+          # verify-pr158: lookup table snapshots in record frames (literal
+          # records): old archives byte-identical, malformed ones refused.
+          cargo test --locked -p findex --test pr158_archive_tables
           cargo test --locked -p herald --lib
           # B5 (read-only devnet run): the recorded devnet answers replayed
           # offline on loopback (429 + Retry-After retried and bounded, a
@@ -475,6 +478,26 @@ jobs:
           cargo test --locked -p fclient --test rpc_devnet_replay
           cargo test --locked -p keeper --test cluster_feed_v1
           cargo test --locked -p verify --test devnet_b5_witness --test devnet_b5_program_accounts
+      # verify-pr157: `scripts/play-local.sh` builds itest, herald and keeper with feature sets that no other
+      # step compiles (the workspace lint above builds itest without features, so its feature-gated modules,
+      # e.g. destination_driver, are never compiled). #154 changed keeper_core's evidence_of / commands_in and
+      # main stayed green while play-local could not build. Compile (never run) every target of each feature
+      # set play-local and the itest harnesses use: `cargo check` runs nothing, so no key is generated,
+      # derived or signed. No SBF build (play-local's own program step is not here).
+      - name: Local-play builds (play-local's feature sets compile; key-free)
+        if: hashFiles('frontier-node/Cargo.toml') != ''
+        working-directory: frontier-node
+        run: |
+          cargo check --locked -p itest --features localnet-land-play --all-targets
+          cargo check --locked -p itest --features localnet-coexist-lane-play --all-targets
+          cargo check --locked -p itest --features localnet-coexist-harness --all-targets
+          cargo check --locked -p itest --features localnet-conquest-play --all-targets
+          cargo check --locked -p itest --features localnet-nft-harness --all-targets
+          cargo check --locked -p itest --features localnet-expedition-harness --all-targets
+          cargo check --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental --all-targets
+          cargo check --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental,coexist-lane,rights-records --all-targets
+          cargo check --locked -p keeper --features expedition-dispatch-experimental --all-targets
+          cargo check --locked -p keeper --features expedition-dispatch-experimental,coexist-lane --all-targets
       # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
       # 0x4804) is behind the `playable-lane` feature, which no other step
       # builds. Lint it, and run its checks over the committed recordings
@@ -501,7 +524,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers --test verify_alt_archive --test verify_pr158_attacks
 
       # Devnet blocker B3 (owner decision B7): frontier-operator's playable-lane
       # preset S1_DEVNET_WIDE_7D (program version 0x4804) is behind the stack
@@ -539,7 +562,10 @@ jobs:
         run: |
           cargo clippy --locked -p stack --features playable-lane --all-targets -- -D warnings
           cargo test --locked -p stack --features playable-lane --lib operator::
-          cargo test --locked -p stack --features playable-lane --test operator_playable -- p1_ p2_
+          # devnet-72bell-pair (PKF): why PPAIR's OUT leg is TEST-sealed (the shipped real quicknet rounds give a
+          # season at most one real arrival bell; public signatures verified only), PCAP's lag report and PPAIR's
+          # OUT tile (pure). No key is generated, derived or signed.
+          cargo test --locked -p stack --features playable-lane --test operator_playable -- p1_ p2_ pkf_
 
   frontier-wasm:
     name: Frontier M1 web kernels (WASM build and hash)

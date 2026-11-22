@@ -48,7 +48,7 @@ export function openState({ dir, wallet, goal, nation, store = null }) {
  */
 export function enterWorld(st, worldKey) {
   if (st.world === worldKey) return false;
-  Object.assign(st, { world: worldKey, journal: {}, failures: {}, triedHomes: [], village: null, refusals: {}, oreSeen: null, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null, wakeInterval: 1, day: { n: -1, acts: 0 }, worlds: (st.worlds ?? 0) + 1 });
+  Object.assign(st, { world: worldKey, journal: {}, failures: {}, triedHomes: [], ticket: null, village: null, refusals: {}, oreSeen: null, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null, wakeInterval: 1, day: { n: -1, acts: 0 }, worlds: (st.worlds ?? 0) + 1 });
   return true;
 }
 

@@ -162,6 +162,13 @@ pub struct ChainWitness {
     /// looked-up address the archive records (`meta.loadedAddresses`)
     /// against them. `None`: none read (VT: UNVERIFIABLE for every lookup).
     pub lookup_tables: Option<LookupTables>,
+    /// verifier-alt-archive (F2): lookup table snapshots — findex's, taken
+    /// the first time the archive took a transaction using each table (the
+    /// record frame's `tables`), and the verifier's own read of a closed
+    /// table's create / extend transactions (`--rpc`). VT consults them
+    /// only where the pinned read settles nothing ([`crate::lookup`]); VS
+    /// has every witness confirm them. Empty: none.
+    pub lookup_snapshots: Vec<fclient::alt::Snapshot>,
 }
 
 /// See [`ChainWitness::lookup_tables`]. A lookup table is append-only and
@@ -280,6 +287,7 @@ impl ChainWitness {
             && self.cross.is_none()
             && self.rent.is_none()
             && self.lookup_tables.is_none()
+            && self.lookup_snapshots.is_empty()
     }
     /// The balances of the transaction `t`, if archived.
     pub fn of(&self, t: &TxRecord) -> Option<&Balances> {
@@ -298,6 +306,9 @@ impl ChainWitness {
         }
         if let Some(t) = &self.lookup_tables {
             v["lookup_tables"] = t.to_json();
+        }
+        if !self.lookup_snapshots.is_empty() {
+            v["lookup_snapshots"] = snapshots_json(&self.lookup_snapshots);
         }
         v
     }
@@ -351,8 +362,39 @@ impl ChainWitness {
                 None | Some(Value::Null) => None,
                 Some(t) => Some(LookupTables::from_json(t)?),
             },
+            lookup_snapshots: snapshots_from_json(v.get("lookup_snapshots"))?,
         })
     }
+}
+
+/// The JSON list of [`ChainWitness::lookup_snapshots`].
+pub fn snapshots_json(s: &[fclient::alt::Snapshot]) -> Value {
+    Value::Array(s.iter().map(|x| x.to_json()).collect())
+}
+
+/// Strict: present but unreadable is an error; absent or null is none.
+pub fn snapshots_from_json(v: Option<&Value>) -> Result<Vec<fclient::alt::Snapshot>, String> {
+    match v {
+        None | Some(Value::Null) => Ok(vec![]),
+        Some(a) => a
+            .as_array()
+            .ok_or("lookup_snapshots: not a list")?
+            .iter()
+            .map(fclient::alt::Snapshot::from_json)
+            .collect(),
+    }
+}
+
+/// The lookup table snapshots a findex archive holds (verifier-alt-archive;
+/// [`findex::archive::Archive::lookup_snapshots`]).
+pub fn archive_lookup_snapshots(dir: &Path) -> Result<Vec<fclient::alt::Snapshot>, String> {
+    let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    Ok(a.lookup_snapshots()
+        .map_err(|e| format!("{}: lookup snapshots: {e}", dir.display()))?
+        .into_iter()
+        .map(|(_, s)| s)
+        .collect())
 }
 
 /// One declared state (see [`Input::declared`]).
@@ -987,6 +1029,7 @@ pub async fn fetch_chain(
         cross: None,
         rent: None,
         lookup_tables: None,
+        lookup_snapshots: vec![],
     })
 }
 
@@ -1026,6 +1069,41 @@ pub async fn fetch_lookup_tables(
         slot: Some(slot),
         accounts,
     })
+}
+
+/// verifier-alt-archive (F2): for every table of `tables` that is closed
+/// at its read (absent, or a System account with only lamports), its own
+/// create / extend transactions over RPC, as a snapshot of the verifier's
+/// ([`fclient::alt::read_history`]; VT replays it). A table whose history
+/// cannot be read is said on stderr and left without (UNVERIFIABLE).
+pub async fn fetch_closed_table_histories(
+    url: &str,
+    tables: &LookupTables,
+) -> Vec<fclient::alt::Snapshot> {
+    let rpc = rpc_client(url);
+    let mut out = vec![];
+    for (k, a) in &tables.accounts {
+        if fclient::alt::classify(a.as_ref()) != fclient::alt::Read::Closed {
+            continue;
+        }
+        let t = Address::new_from_array(*k);
+        match fclient::alt::read_history(&rpc, &t).await {
+            Ok(None) => eprintln!(
+                "frontier-verify: lookup table {t}'s history is longer than {} transactions: not read",
+                fclient::alt::HISTORY_MAX
+            ),
+            Ok(Some(h)) => out.push(fclient::alt::Snapshot {
+                table: t,
+                used_by: None,
+                read_slot: tables.slot,
+                account: None,
+                history: Some(h),
+                source: "verifier".into(),
+            }),
+            Err(e) => eprintln!("frontier-verify: lookup table {t}'s history: {e}"),
+        }
+    }
+    out
 }
 
 /// The cluster's Rent sysvar at `slot` or later, over RPC (one
