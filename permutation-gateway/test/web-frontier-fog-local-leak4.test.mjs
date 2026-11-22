@@ -138,7 +138,10 @@ test('leak4/6 moments and the march card\'s 「近くの行き先」: another na
   assert.equal(F.viewTile(-2, 0, KEEP), true, 'without fog: always');
   // the wiring (app.mjs checkMoments, controller.mjs quickDestinations)
   const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
-  assert.ok(app.includes("    if (!own && !taken && !viewTile(m.p, m.q, m.tile)) continue;\n    fxEmit('moment', { ...m, lost, taken, own });"));
+  // (fix-loop8, LP8-9: the moments in sight are gathered, then new villages of one nation in one province share one
+  //  caption with their count; the fog cut still comes first, so only moments in sight are counted)
+  assert.ok(app.includes("    if (!own && !taken && !viewTile(m.p, m.q, m.tile)) continue;\n    shown.push({ ...m, lost, taken, own });"));
+  assert.ok(app.includes("  for (const m of mergeNewVillages(shown)) fxEmit('moment', m);"));
   const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.ok(ctl.includes("if (camp?.state === 1 && viewTile(env.province.p, env.province.q, camp.tile, 2)) out.push({ kind: 'camp'"));
 }));

@@ -42,6 +42,19 @@ export function renderCoopSlot(FS) {
   return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}${detail}${linkRow}</div>`;
 }
 
+/**
+ * (fix-loop8, LP8-3) The places the entry names as caravan destinations for this viewer (`destinations(FS)` →
+ * `[{kind: 'holding', p, q, site, gen, coop: {id, need}}]`): 01's board knows them from requests this viewer accepted —
+ * the request names its destination itself, a public record of the board. [] with no entry, no such hook, or a hook
+ * that throws. Nothing is read here: the entry answers from what it has read.
+ */
+export function coopDestinations(FS) {
+  if (!entry || typeof entry.destinations !== 'function') return [];
+  let d;
+  try { d = entry.destinations(FS); } catch { return []; }
+  return Array.isArray(d) ? d : [];
+}
+
 /** The HUD action: open the entry if it is the one the button named and it can be pressed now. */
 export function openCoop(FS, id) {
   if (!entry || entry.id !== id) return false;

@@ -51,7 +51,8 @@ test('K1 the record of a moment is the existing key and place', () => {
 
 test('K2 the run and its question', () => {
   order(chc, 'if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;', 'const pressed = contextSeq;', 'await refreshHomes({ force: true });',
-    'if (contextSeq !== pressed) return;', 'if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;',
+    // (fix-loop8, LP8-2: neither end is silent now — made again by itself under the same viewer, world and nation, or said)
+    "if (contextSeq !== pressed) return pressAgain('context');", 'else if (FS.homeChoice?.busy) return;', "else if (!FS.homeChoice?.selected) return FS.homeChoice?.error ? undefined : pressAgain('unread');",
     'const run = { choice: FS.homeChoice, ctx: pressed, note: homeNoteNow(), sent: new Set() };',
     'run.choice.busy = true; run.choice.error = null;', 'const mine = () => FS.homeChoice === run.choice && contextSeq === run.ctx;', 'try {');
   assert.equal(chc.slice(0, chc.indexOf('const pressed = contextSeq;')).split('await ').length - 1, 0, 'nothing is awaited before the press\'s context is taken');

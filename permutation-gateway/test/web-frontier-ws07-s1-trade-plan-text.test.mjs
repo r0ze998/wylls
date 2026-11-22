@@ -142,8 +142,10 @@ test('P7 the send is the one it was; a change during its preparation only stops 
     "return act('SendCaravan', { v: { seq, src, dst: target, provinces: plan.provinces, ...(dst.other ? { actor: FS.wallet.address } : {}) },",
     'fields: { seq, ...placeData(target), steps: plan.dirs.length, path: pack(plan.dirs), cargo: cargoBytes(cargo), fee: CARAVAN_FEE },',
     "...(dst.other ? { signer: 'wallet', label: () => L`ほかの人の村か貯蔵庫へ送る隊商は、ウォレットで署名します…` } : {}),", "order: orderOf('s1-caravan', 'SendCaravan', { say: () => L`隊商が出発しました` }) });");
-  assert.equal((codeOf(send).match(/await /g) ?? []).length, 2, 'the two waits it had');
-  assert.equal((codeOf(send).match(/if \(!prepHolds\(\)\) return prepChanged\(\);/g) ?? []).length, 2, 'one check after each');
+  // (fix-loop8, LP8-3: a third wait — the province record of a ① request's destination out of sight, for its tile —
+  //  followed by the same check)
+  assert.equal((codeOf(send).match(/await /g) ?? []).length, 3, 'the two waits it had, and the ① destination\'s tile read');
+  assert.equal((codeOf(send).match(/if \(!prepHolds\(\)\) return prepChanged\(\);/g) ?? []).length, 3, 'one check after each');
   assert.equal((codeOf(send).match(/\bact\(/g) ?? []).length, 1);
   assert.doesNotMatch(codeOf(send), /s1Plan|clearS1Plan/, 'the send does not read the plan: it takes the form\'s indexes, as before');
 });

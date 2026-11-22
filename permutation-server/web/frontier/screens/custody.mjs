@@ -12,7 +12,7 @@
 // FOG RULE: only what the viewer is a party to — its own lots, the lots in its own storehouses, its own pools, the jobs
 // it booked — and the other side by its nation only. Losses are told from the viewer's side, in few words.
 // The model is pure; the program checks every rule again.
-import { html, raw } from '../../util.mjs';
+import { html, raw, short } from '../../util.mjs';
 import { L, fmtNum, lang } from '../../lang.mjs';
 import { placeName } from '../people/identity.mjs';
 import { icon } from '../hud/icons.mjs';
@@ -25,6 +25,38 @@ const whole = m => Math.floor(Number(m) / MILLI);
 /** A workshop village by the name the map gives it (its place), never by its site number, which no screen shows. */
 const siteName = f => placeName(f.p, f.q, f.site)[lang() === 'en' ? 'en' : 'ja'];
 const same = (a, b) => a.p === b.p && a.q === b.q;
+
+/**
+ * (fix-loop8, LP8-6) The workshops a pool's jobs hold from `now` on: capacity.rs `Pool::peak(now, now, MAX)` over
+ * `Occ::occupies(now)` — the program's own gate on ReclaimCapacity, so `lent − busy` is what it lets back. A job holds its
+ * workshops from its start until its conversion ends (`end_eff`; the whole window `end` while it has not started, as its
+ * hopper may still grow); a booked job not started yet holds them too. Overlapping jobs add up, jobs one after another do not.
+ */
+export function poolBusy(occ, now) {
+  const edges = [];
+  for (const o of occ ?? []) {
+    const end = !o.open || now >= o.start ? o.endEff : o.end;
+    const s = Math.max(o.start, now), e = Math.max(end, o.start);
+    if (s < e) edges.push([s, o.units], [e, -o.units]);
+  }
+  edges.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let cur = 0, peak = 0;
+  for (const [, d] of edges) { cur += d; peak = Math.max(peak, cur); }
+  return peak;
+}
+/**
+ * (fix-loop8, LP8-6) A job's phase as of `now`, from the job and its pool row: an open job whose conversion has ended
+ * (`end_eff` passed) is `made` — it holds no workshop any more (the next SettleJob completes it at `end_eff`, capacity.rs
+ * settle_job) — so the card never says 作業中 beside 使用中 0.
+ */
+export function jobPhase(j, row, now) {
+  if (j.fin === FIN.lost) return 'lost';
+  if (j.fin === FIN.cancelled) return 'cancelled';
+  if (j.fin === FIN.completed) return 'completed';
+  if (now < j.start) return 'waiting';
+  return row && now >= Math.max(row.endEff, j.start) ? 'made' : 'working';
+}
+const rowOf = (pool, j) => pool?.occ?.find(o => o.grant === j.grant && o.job === j.seq) ?? null;
 
 /** The card's model (pure): `{on, read, losses, myLots, keptLots, openChoices, arrivals, pools, lendable, grants, jobs}`. */
 export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
@@ -88,7 +120,9 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   const openChoices = myVaults.flatMap(v => holdings.filter(h => same(h, v) && h.ownerCitizen !== viewer)
     .filter((h, i, a) => a.findIndex(x => x.ownerCitizen === h.ownerCitizen) === i)
     .filter(h => !lots.some(e => e.owner === h.ownerCitizen && same(e.vault, v) && e.vault.tile === v.tile))
-    .map(h => ({ vault: v, owner: h.ownerCitizen, faction: h.faction, at: h.tile })));
+    // (fix-loop8, LP8-7: one nation's people looked alike — the village's own name and a short form of its owner's
+    //  address tell them apart; both are on the map already, a village of the viewer's own Province)
+    .map(h => ({ vault: v, owner: h.ownerCitizen, faction: h.faction, at: h.tile, name: siteName(h), who: short(h.ownerCitizen) })));
   // ---- ⑨ capacity
   const pools = [...(c.pools?.values() ?? [])];
   const jobs = [...(c.jobs?.values() ?? [])];
@@ -98,13 +132,16 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
     const pl = e.pool, f = pl.facility, now = facilityNow(f);
     const gone = pl.lostAt === null && (!now || now.gen !== f.gen || now.ownerCitizen !== pl.owner);
     if (pl.lostAt !== null) losses.push({ key: `pool:${f.p},${f.q},${f.site},${f.gen}`, text: () => L`工房の村を失いました。貸していた工房の作業も止まりました。` });
-    const busy = pl.occ.filter(o => o.open && o.endEff > nowTs).reduce((a, o) => a + o.units, 0);
+    const busy = poolBusy(pl.occ, nowTs);
+    // (fix-loop8, LP8-7: each by its storehouse's tile, its village in this Province if it has one, and a short address)
+    const villageOf = citizen => holdings.find(h => same(h, f) && h.ownerCitizen === citizen) ?? null;
     const users = vaults.filter(v => same(v, f) && v.ownerCitizen !== viewer && typeof v.ownerCitizen === 'string')
-      .filter((v, i, a) => a.findIndex(x => x.ownerCitizen === v.ownerCitizen) === i).map(v => ({ user: v.ownerCitizen, faction: v.faction }));
+      .filter((v, i, a) => a.findIndex(x => x.ownerCitizen === v.ownerCitizen) === i)
+      .map(v => ({ user: v.ownerCitizen, faction: v.faction, tile: v.tile, village: villageOf(v.ownerCitizen) ? siteName(villageOf(v.ownerCitizen)) : null, who: short(v.ownerCitizen) }));
     return { facility: f, pool: pl, lost: pl.lostAt !== null, gone, lent: pl.lent, busy, free: freeOf(now), nextGrant: nextGrantSeq(pl), users,
       canGrant: pl.lostAt === null && !gone && pl.lent > 0 && pl.grants.length < MAX_GRANTS && users.length > 0,
       grants: pl.grants.map(g => ({ seq: g.seq, user: nationOf(g.user), maxUnits: g.maxUnits, until: g.until, revoked: g.revokedAt !== null })),
-      jobs: jobsOf(f).map(e => ({ grant: e.job.grant, seq: e.job.seq, units: e.job.units, fin: e.job.fin, made: whole(jobOutAt(e.job, nowTs)) })),
+      jobs: jobsOf(f).map(e => ({ grant: e.job.grant, seq: e.job.seq, units: e.job.units, fin: e.job.fin, lost: e.job.fin === FIN.lost, made: whole(jobOutAt(e.job, nowTs)), phase: jobPhase(e.job, rowOf(pl, e.job), nowTs) })),
       lossJobs: pl.occ.map(o => `${o.grant}_${o.job}`).join('.') };
   });
   const lendable = holdings.filter(h => h.ownerCitizen === viewer && freeOf(h) > 0 && !pools.some(e => same(e.pool.facility, h) && e.pool.facility.site === h.site && e.pool.facility.gen === h.gen))
@@ -127,9 +164,10 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
       losses.push({ key: `job:${f.p},${f.q},${f.site},${f.gen}:${j.grant}:${j.seq}`, text: () => L`借りていた工房の村が奪われ、預けた鉱石 ${fmtNum(whole(j.forfeitedIn[0]))}・木材 ${fmtNum(whole(j.forfeitedIn[1]))} と兵器 ${fmtNum(taken)} は占領者のものになりました。` });
     }
     const open = j.fin === FIN.open, started = nowTs >= j.start;
+    const pool = pools.find(x => same(x.pool.facility, f) && x.pool.facility.site === f.site && x.pool.facility.gen === f.gen)?.pool ?? null;
     const claimable = j.fin !== FIN.lost && (made > j.claimed || (j.fin !== FIN.open && !j.refunded) || (open && nowTs >= j.end));
     return { facility: f, grant: j.grant, seq: j.seq, units: j.units, fin: j.fin, start: j.start, end: j.end, made: whole(made), target: whole(j.maxOutput), claimed: whole(j.claimed),
-      vault, canSettle: open && started, canClaim: claimable && vault !== null, canCancel: open && (nowTs < j.start || nowTs < j.end), lost: j.fin === FIN.lost };
+      vault, canSettle: open && started, canClaim: claimable && vault !== null, canCancel: open && (nowTs < j.start || nowTs < j.end), lost: j.fin === FIN.lost, phase: jobPhase(j, rowOf(pool, j), nowTs) };
   });
   return { on: true, read: c.read ?? 'unread', losses, myLots, keptLots, openChoices, owned, lendable, grants, myJobs };
 }
@@ -142,6 +180,8 @@ const btn = (act, d, text) => html`<button type="button" class="btn small" data-
 const vd = v => ({ p: v.p, q: v.q, tile: v.tile, gen: v.gen });
 const fd = f => ({ p: f.p, q: f.q, site: f.site, gen: f.gen });
 const finWord = j => (j.lost ? L`奪われた` : j.fin === FIN.cancelled ? L`取り消し` : j.fin === FIN.completed ? L`完了` : L`作業中`);
+/** (fix-loop8, LP8-6) The word of a job's phase (jobPhase): before its start, and once its conversion has ended, too. */
+const phaseWord = j => (j.phase === 'waiting' ? L`開始待ち` : j.phase === 'made' ? L`作り終えた` : finWord(j));
 
 export function renderCustody(FS) {
   const m = custodyModel(FS);
@@ -163,7 +203,7 @@ export function renderCustody(FS) {
   })}</ul>` : '';
   const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? chip(L`奪われた`, 'warn') : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
   const openLot = m.openChoices.length ? html`<form class="vform" data-form="lot-open">
-    <label class="field">${L`貯蔵庫と預ける人`}<select name="pair">${m.openChoices.map((x, i) => html`<option value="${i}" ${data({ ...vd(x.vault), owner: x.owner })}>${L`マス ${x.vault.tile} → ${factionName(x.faction)} の村（マス ${x.at}）`}</option>`)}</select></label>
+    <label class="field">${L`貯蔵庫と預ける人`}<select name="pair">${m.openChoices.map((x, i) => html`<option value="${i}" ${data({ ...vd(x.vault), owner: x.owner })}>${L`マス ${x.vault.tile} → ${factionName(x.faction)} の村 ${x.name}（マス ${x.at} · ${x.who}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="lot-q">${L`鉱石の枠`}</label><input id="lot-q" name="quota" type="number" min="1" max="10000" step="1" value="50" inputmode="numeric"></div>
     <p class="muted">${L`預かるのは鉱石だけ。中身は預けた人のものですが、貯蔵庫を守るのはあなたの兵だけです。奪われたら中身は奪った側のものになります。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`預かりの枠を開く`}</button></div></form>`
@@ -175,9 +215,9 @@ export function renderCustody(FS) {
       <span class="actions">${!e.lost && !e.gone && e.free > 0 ? lend(e.facility, e.free, false, e.pool.ownerSeq) : ''}${!e.lost && !e.gone && e.lent - e.busy > 0 ? btn('cap-reclaim', { ...fd(e.facility), units: e.lent - e.busy, seq: e.pool.ownerSeq }, L`空いた工房を戻す`) : ''}
         ${e.gone ? btn('cap-loss', { ...fd(e.facility), jobs: e.lossJobs }, L`村を失ったことを記録する`) : ''}</span>
       ${e.grants.length ? html`<ul class="list">${e.grants.map(g => html`<li>${L`${factionName(g.user)} の人に 工房 ${fmtNum(g.maxUnits)} まで`} ${g.revoked ? chip(L`取り消し済み`, 'warn') : now >= g.until ? chip(L`期限切れ`, 'warn') : chip(L`有効`, 'ok')} ${!g.revoked && !e.lost ? btn('cap-revoke', { ...fd(e.facility), grant: g.seq }, L`取り消す`) : ''}</li>`)}</ul>` : ''}
-      ${e.jobs.length ? html`<ul class="list">${e.jobs.map(j => html`<li class="muted">${L`作業 ${j.grant}-${j.seq}：工房 ${fmtNum(j.units)} · 兵器 ${fmtNum(j.made)}`} ${finWord(j)}</li>`)}</ul>` : ''}
+      ${e.jobs.length ? html`<ul class="list">${e.jobs.map(j => html`<li class="muted">${L`作業 ${j.grant}-${j.seq}：工房 ${fmtNum(j.units)} · 兵器 ${fmtNum(j.made)}`} ${phaseWord(j)}</li>`)}</ul>` : ''}
       ${e.canGrant ? html`<form class="vform" data-form="cap-grant" ${data({ ...fd(e.facility), grant: e.nextGrant })}>
-        <label class="field">${L`使わせる相手（この州に貯蔵庫がある人）`}<select name="user">${e.users.map(u => html`<option ${data({ user: u.user })}>${factionName(u.faction)}</option>`)}</select></label>
+        <label class="field">${L`使わせる相手（この州に貯蔵庫がある人）`}<select name="user">${e.users.map(u => html`<option ${data({ user: u.user })}>${u.village ? L`${factionName(u.faction)} の村 ${u.village}（貯蔵庫 マス ${u.tile} · ${u.who}）` : L`${factionName(u.faction)} の人（貯蔵庫 マス ${u.tile} · ${u.who}）`}</option>`)}</select></label>
         <div class="count-row"><label class="count-label" for="cg-u">${L`工房の数`}</label><input id="cg-u" name="units" type="number" min="1" max="${e.lent}" step="1" value="${e.lent}" inputmode="numeric"></div>
         <div class="count-row"><label class="count-label" for="cg-a">${L`兵器の上限`}</label><input id="cg-a" name="arms" type="number" min="1" max="10000" step="1" value="40" inputmode="numeric"></div>
         <div class="count-row"><label class="count-label" for="cg-d">${L`有効な日数`}</label><input id="cg-d" name="days" type="number" min="1" max="7" step="1" value="1" inputmode="numeric"></div>
@@ -193,7 +233,7 @@ export function renderCustody(FS) {
       : !g.vault && !g.gone && !g.lost ? html`<span class="muted">${L`この州にあなたの貯蔵庫がいります。`}</span>` : ''}</li>`)}</ul>` : '';
   const myJobs = m.myJobs.length ? html`${label(L`あなたの作業`)}<ul class="list custody-jobs">${m.myJobs.map(j => {
     const d = { ...fd(j.facility), grant: j.grant, job: j.seq, ...(j.vault ? { vtile: j.vault.tile, vgen: j.vault.gen } : {}) };
-    const when = now < j.start ? L`開始待ち` : finWord(j);
+    const when = phaseWord(j);
     return html`<li data-job="${j.grant}-${j.seq}">${icon('sword')}${L`兵器 ${fmtNum(j.made)} / ${fmtNum(j.target)}`} ${j.lost ? chip(when, 'warn') : chip(when, j.fin === FIN.open ? '' : 'ok')}${j.claimed ? html` <span class="muted">${L`受け取り済み ${fmtNum(j.claimed)}`}</span>` : ''}
       <span class="actions">${j.canSettle ? btn('cap-settle', d, L`進みを記録`) : ''}${j.canClaim ? btn('cap-claim', d, L`貯蔵庫へ受け取る`) : ''}${j.canCancel ? btn('cap-cancel', d, L`取り消す`) : ''}</span></li>`;
   })}</ul><p class="muted">${L`兵器はあなたの貯蔵庫に入り、隊商でしか運び出せません。工房の村が奪われると、作業の中身は占領者のものになります。`}</p>` : '';

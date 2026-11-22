@@ -122,7 +122,8 @@ test('LP6-12: a local contest pair of one nation is offered the same province fi
 test('LP6-11: a press waiting for the candidates makes the button busy, and a second press neither restarts the reading nor ends the first', () => {
   const src = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
   const c = src('controller.mjs'), j = src('screens/join.mjs');
-  const body = c.slice(c.indexOf('export async function confirmHome() {'), c.indexOf('if (contextSeq !== pressed) return;', c.indexOf('export async function confirmHome() {')));
+  // (fix-loop8, LP8-2: a press whose context moved during the wait is made again by itself — pressAgain — or said)
+  const body = c.slice(c.indexOf('export async function confirmHome() {'), c.indexOf("if (contextSeq !== pressed) return pressAgain('context');", c.indexOf('export async function confirmHome() {')));
   assert.match(body, /if \(FS\.homeConfirmWait\) return;/, 'a press while one waits adds nothing');
   assert.match(body, /FS\.homeConfirmWait = true; invalidate\('panel'\);/);
   assert.match(body, /FS\.homeChoice\?\.loading && FS\.homeChoice\.faction === faction && Date\.now\(\) < until/, 'a reading under way for this nation is waited for');
@@ -158,4 +159,23 @@ test('LP6-12 (verify-pr130): the contest pair is offered one province but two di
   assert.equal((await plan(null, one)).candidates.length > 0, true, 'everyone else still takes a one-site province');
   const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(c, /seed: `\$\{homeSeed\(\)\}\|\$\{old\.rotation \?\? 0\}`, rotation: old\.rotation \?\? 0, pair: homePairRole\(\),/);
+});
+
+// (fix-loop8, LP8-2 — loop-play8: 「ダンマールで始める」 pressed while 「土地の候補を読み込んでいます…」 showed; nothing for 5
+//  minutes, a second press needed. The press now never ends silently: it is made again by itself, or the card says why.)
+test('LP8-2: a press whose wait ends in another context, or with no candidate read, is queued again (same viewer, world, nation; no Citizen) or said', () => {
+  const src = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
+  const c = src('controller.mjs'), j = src('screens/join.mjs');
+  const at = c.indexOf('export async function confirmHome() {'), body = c.slice(at, c.indexOf("pending('placing');", at));
+  assert.match(c, /export const HOME_CONFIRM_AGAIN = 2;/);
+  assert.ok(body.indexOf('const again = homeAgainNext ? homeAgainLeft : (homeAgainLeft = HOME_CONFIRM_AGAIN); homeAgainNext = false;') < body.indexOf('if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;'), 'the budget is taken before any early return');
+  assert.ok(body.includes("if (again > 0 && (viewerKey() ?? null) === viewer0 && providerWorld() === world0 && !FS.citizen && wantedHomeFaction() === faction) { homeAgainLeft = again - 1; homeAgainNext = true; return confirmHome(); }"));
+  assert.ok(body.includes("if (!FS.citizen && (viewerKey() ?? null) === viewer0) { FS.homeDropped = { faction, why }; invalidate('panel'); }"), 'another wallet is never told, never joined');
+  assert.ok(body.includes("if (contextSeq !== pressed) return pressAgain('context');"));
+  assert.ok(body.includes("else if (!FS.homeChoice?.selected) return FS.homeChoice?.error ? undefined : pressAgain('unread');"), 'an error on the card speaks for itself');
+  assert.equal((body.match(/if \(contextSeq !== pressed\) return;/g) ?? []).length, 0, 'no silent end after the wait');
+  assert.ok(j.includes('data-home-dropped="${FS.homeDropped.why ?? \'context\'}"'));
+  assert.match(j, /土地の候補を読み終えられなかったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。/);
+  assert.match(j, /読み込みの間に世界かウォレットの状態が変わったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。/);
+  assert.match(c, /FS\.homeChoice = null;\n  FS\.homeDropped = null;/, 'another viewer starts without the note');
 });

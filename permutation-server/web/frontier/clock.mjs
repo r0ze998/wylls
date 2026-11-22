@@ -70,6 +70,12 @@ function sampleNumber(v) {
   return Number.isFinite(x) ? x : null;
 }
 
+/** The wall time an accelerated clock's rate is estimated over (ChainClock.observe). */
+export const RATE_SPAN_MS = 60_000;
+/** How long the chain time may stand (wall ms) before the estimate starts again from the standing sample: an answer
+ *  repeated between the herald's reads is shorter; a world paused is longer. */
+export const RATE_STAND_MS = 15_000;
+
 /**
  * "Now" on the chain: the herald's latest (slot, unix) sample, advanced by
  * local elapsed time. The rate is **1** unless the clock is `accelerated`
@@ -90,6 +96,10 @@ export class ChainClock {
     this.rate = 1;
     /** The rate the stack itself declares (`declare`), or null: then it is estimated from two samples. */
     this.declared = null;
+    /** Whether the rate of an accelerated clock is known (declared, or estimated once): until then `rate` is 1 as a placeholder. */
+    this.rateKnown = !accelerated;
+    /** The samples the estimate is taken over (oldest first, at most about RATE_SPAN_MS apart): see `observe`. */
+    this.span = [];
     this.floor = -Infinity;
     /** min over samples of (wall − chain) seconds: the freshest sample's offset. */
     this.minOffset = Infinity;
@@ -118,8 +128,10 @@ export class ChainClock {
 
   /** Mark the clock accelerated (localnet) or not; a real cluster resets the rate to 1. */
   setAccelerated(on) {
+    const was = this.accelerated;
     this.accelerated = !!on;
-    if (!this.accelerated) { this.rate = 1; this.declared = null; }
+    if (!this.accelerated) { this.rate = 1; this.declared = null; this.rateKnown = true; this.span = []; }
+    else if (!was) this.rateKnown = this.declared !== null;
   }
 
   /**
@@ -131,6 +143,7 @@ export class ChainClock {
   declare(rate) {
     if (!this.accelerated || typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0) { this.declared = null; return false; }
     this.declared = Math.min(5000, rate);
+    this.rateKnown = true;
     this.rate = this.declared;
     return true;
   }
@@ -145,9 +158,28 @@ export class ChainClock {
     if (u === null || n === null || this.halted) return;
     const s = { unix: u, slot: n, at: this.wall() };
     if (this.last && s.slot < this.last.slot) return; // an older answer arriving late
-    if (this.accelerated && this.declared === null && this.last && s.at - this.last.at >= 2000 && s.unix > this.last.unix) {
-      const r = (s.unix - this.last.unix) / ((s.at - this.last.at) / 1000);
-      this.rate = Math.min(5000, Math.max(1, r));
+    // (fix-loop8, LP8-10 / LP6-16: the estimate was taken over the last two samples only. A sample's wall time is when
+    // the answer came, not when the herald took it, and the herald answers the same sample again between its reads, so
+    // one pair read half or twice the world's pace: at ×60 the join line flipped 「あと約 2 時間」 → 「約 69 分」 → 「約 3
+    // 時間」 within a minute, and the turn dial ran with it. It is now taken over the samples of about the last
+    // RATE_SPAN_MS (at least 2 s): the same pace for the dial and for every "how long" the page says. A sample that
+    // repeats the chain time is not part of it; a chain that stood still for RATE_STAND_MS or more starts it again at
+    // its first sample that moves, so a world paused and resumed is not read as slow — as before, a standing herald never drives the rate down.)
+    if (this.accelerated && this.declared === null) {
+      // (`span` null: the chain stood; the estimate starts again at the first sample that moves — a standing sample's
+      //  wall time is not when its chain time was, so it would read the restart as fast)
+      if (this.last && s.unix <= this.last.unix) { if (s.at - (this.advancedAt ?? s.at) >= RATE_STAND_MS) this.span = null; }
+      else {
+        if (this.span === null) this.span = [];
+        else if (!this.span.length && this.last) this.span = [this.last];
+        this.span.push(s);
+        while (this.span.length > 2 && s.at - this.span[1].at >= RATE_SPAN_MS) this.span.shift();
+        const a = this.span[0];
+        if (a !== s && s.at - a.at >= 2000 && s.unix > a.unix) {
+          this.rate = Math.min(5000, Math.max(1, (s.unix - a.unix) / ((s.at - a.at) / 1000)));
+          this.rateKnown = true;
+        }
+      }
     }
     if (!this.last || s.unix > this.last.unix) this.advancedAt = s.at;
     this.minOffset = Math.min(this.minOffset, s.at / 1000 - s.unix);
@@ -202,6 +234,9 @@ export function pollCap(chain) {
   const r = chain?.accelerated ? Number(chain.rate) : 1;
   // (a declared rate of 0: a sample world that stands still and is stepped from outside; it is read every 2 s)
   if (chain?.accelerated && chain.declared === 0) return 2;
+  // (fix-loop8, LP8-10: a fast clock whose pace is not known yet is read every 2 s until it is: at the usual 10–30 s
+  //  the title said 「10 分ごとにターンが変わり」 at ×60 for the first half minute)
+  if (chain?.accelerated && chain.rateKnown === false) return 2;
   return r > 1 ? Math.max(2, 150 / r) : Infinity;
 }
 

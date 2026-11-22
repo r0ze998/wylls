@@ -244,7 +244,8 @@ const MOMENT_LABEL = {
   arrive: () => L`到着`,
   camp: () => L`野営地がなくなった`,
   depart: () => L`出発`,
-  village: m => (Number.isInteger(m.to) && m.to < 6 ? (m.from === null || m.from === undefined ? L`${factionName(m.to)}の新しい村` : L`${factionName(m.to)}の村になった`) : L`村がなくなった`),
+  // (`count`: new villages of one nation in one province, read at once, share one caption: people/moments.mjs mergeNewVillages)
+  village: m => (Number.isInteger(m.to) && m.to < 6 ? (m.from === null || m.from === undefined ? (m.count > 1 ? L`${factionName(m.to)}の新しい村 ×${fmtNum(m.count)}` : L`${factionName(m.to)}の新しい村`) : L`${factionName(m.to)}の村になった`) : L`村がなくなった`),
 };
 /** The icon of a moment's caption (the HUD's sprite, hud/icons.mjs). */
 const MOMENT_ICON = Object.freeze({ built: 'hammer', muster: 'banner', arrive: 'flag', camp: 'tent', depart: 'seal', village: 'home' });
@@ -344,7 +345,8 @@ export function playMoment(fx, m, { bus = defaultBus } = {}) {
       }
       fx.play('dust', { ...at, power: 1.2, delay: 0.1, seed });
       // (lost or taken: the band below says it; the tile's own labels still make way while the flag changes)
-      if (m.lost || m.taken) fx.hush(at, 3.6);
+      // (`caption: false`: another village of a group whose caption one of them says, with the count — fix-loop8, LP8-9)
+      if (m.lost || m.taken || m.caption === false) fx.hush(at, 3.6);
       else caption(MOMENT_LABEL.village(m), { ...(to !== null ? { color: fill(to), icon: 'banner' } : { tone: 'ivory' }), delay: 0.45, dur: 2.3, lift: to !== null ? 2.95 : 1.5 });
       fx.play('pip', { ...at, color: to !== null ? fill(to) : '#d8cfb8', seed });
       // the two largest things that happen to a player get the weight of a battle's verdict: a band over the map, a held

@@ -133,6 +133,9 @@ export function renderNations(FS) {
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}` : ''}
     ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
+    ${instant && FS.homeDropped && !busy && !FS.citizen ? html`<p class="notice" role="status" data-home-dropped="${FS.homeDropped.why ?? 'context'}">${FS.homeDropped.why === 'unread'
+      ? L`土地の候補を読み終えられなかったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。`
+      : L`読み込みの間に世界かウォレットの状態が変わったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。`}</p>` : ''}
     ${nationFull(FS) ? fallbackNation(FS, busy) : ''}
     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.localPlay ? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS.devnetPlay ? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}

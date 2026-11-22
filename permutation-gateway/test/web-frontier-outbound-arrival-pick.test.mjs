@@ -421,6 +421,15 @@ test('verify-pr130: the offer outlives the clock poll that drops its observation
   { const v = world(), q = reader(v); await q.read(); assert.equal(editOutbound(v.fs, v.ctx, 'arriveBell', '45'), true);
     v.fs.nowBell++; reconcileOutbound(v.fs, v.ctx);
     assert.doesNotMatch(card(v), /outbound-arrival-remembered/); assert.doesNotMatch(card(v), BUTTON); }
+  // (verify-pr149) a turn entered that the clock has already passed — the card after a refused departure — gets the
+  // remembered offer beside it again (once the poll dropped the read, the card had no way on but closing it)
+  { const v = world(), q = reader(v); await q.read(); assert.equal(editOutbound(v.fs, v.ctx, 'arriveBell', '44'), true);
+    v.fs.nowBell += 2; reconcileOutbound(v.fs, v.ctx);
+    assert.equal(outboundArrivalCandidate(v.fs).arriveBell, '46');
+    const c = card(v);
+    assert.match(c, /outbound-arrival-remembered/); assert.match(c, /最も早い候補（ターン 46）を使う/); assert.match(c, /いまの候補：ターン 44/);
+    assert.equal((c.match(BUTTON) ?? []).length, 1);
+    assert.deepEqual(await useEarliestOutboundArrival(v.fs, q.options), { ok: true, state: 'entered-and-reread', arriveBell: '46', from: 'route' }); }
   // other steps: not this road's offer
   { const v = world(), q = reader(v); await q.read();
     assert.equal(editOutbound(v.fs, v.ctx, 'step', '0'), true);
