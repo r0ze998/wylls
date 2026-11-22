@@ -57,6 +57,14 @@ fn main() {
         // fresh-map and wide worlds too, so that the AI residents' marches are revealed and settled by the keeper loop
         // that serves their villages, as the player's are). Only the demo also opens the rest of its new ring (open_rest)
         let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
+        // (TEST-ONLY external residents, runner-throughput-2: their villages join the same keeper loop as the operator
+        //  residents' — the launcher passes it for a natural world that admitted external residents)
+        let (rest, externals) = itest::operator_villages::take_external_args(rest)?;
+        if externals.is_some() && (wide || second.is_some()) {
+            return Err(
+                "--external-villages is not accepted with --wide-land or --contest-pair".into(),
+            );
+        }
         if wide {
             // (TEST-ONLY wide world: rim villages march into the wide land by the expedition wrapper; this runner reveals
             //  them from the public round and catches the wide destination up from its opening turn)
@@ -170,6 +178,10 @@ fn main() {
                         }
                     }); }
                 }
+                if let Some(path) = externals.clone() {
+                    let (st, a, rx, tx) = (world.state.clone(), world.a.clone(), stop_rx.clone(), more_tx.clone());
+                    tokio::spawn(async move { itest::operator_villages::watch_externals(st, a, path, tx, rx, |v| println!("{v}")).await });
+                }
                 if let Some(b) = second {
                     let (w2, mut rx2, slot2) = (world.clone(), stop_rx.clone(), pair_slot.clone());
                     tokio::spawn(async move {
@@ -194,7 +206,7 @@ fn main() {
                             Err(e) => println!("{}", itest::contest_pair::line("stopped", serde_json::json!({"why": e}))),
                         }
                     });
-                } else if operators.is_none() {
+                } else if operators.is_none() && externals.is_none() {
                     drop(more_tx);
                 }
                 let found = natural::await_home(&world, &wallet, &mut stop_rx).await;
@@ -215,7 +227,7 @@ fn main() {
                         }
                         // (the TEST-ONLY demo's pace: short ticks only while work lands; a natural world ticks as always)
                         let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else if wide_scale.is_some_and(|s| s > 1) { itest::keeper_loop::WIDE_PACE } else { itest::keeper_loop::Pace::Natural };
-                        let more = if second.is_some() || operators.is_some() { Some(more_rx) } else { None };
+                        let more = if second.is_some() || operators.is_some() || externals.is_some() { Some(more_rx) } else { None };
                         itest::keeper_loop::run_paced_with(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, pace, keeper_rx, |s| println!("{}", s.json()), more).await;
                     }
                     Err(e) => println!("{}", serde_json::json!({"schema": natural::NATURAL_SCHEMA, "natural_step": "stopped", "why": e, "keeper_started": false})),
