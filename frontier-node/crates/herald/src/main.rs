@@ -340,8 +340,11 @@ async fn main_inner() -> Result<(), String> {
         "localnet" => {
             // The ledger's id (`frontier_status.runId`): an archive of another
             // ledger is refused instead of resumed (findex `LocalnetFeed`).
-            let mut feed =
-                LocalnetFeed::new(RpcPort::localnet(rpc.clone(), program)).with_program(program);
+            // (verifier-alt-archive: each lookup table's first use archived
+            // with a snapshot of the table, read from the same node.)
+            let mut feed = LocalnetFeed::new(RpcPort::localnet(rpc.clone(), program))
+                .with_program(program)
+                .with_table_reads(fclient::rpc::RpcClient::new(rpc.clone()));
             if let Ok(v) = fclient::rpc::RpcClient::new(rpc.clone())
                 .call("frontier_status", serde_json::json!([]))
                 .await

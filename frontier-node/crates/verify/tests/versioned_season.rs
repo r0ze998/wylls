@@ -65,6 +65,10 @@ struct Rec {
     a: Addresses,
     log: Vec<String>,
     tables: Vec<AddressLookupTableAccount>,
+    /// verifier-alt-archive: each table's snapshot taken the first time a
+    /// landed v0 transaction used it, as findex takes it (the account at
+    /// that slot, the slot, the table's own transactions so far).
+    snapshots: Vec<fclient::alt::Snapshot>,
 }
 
 const CU: u32 = 1_400_000;
@@ -146,6 +150,15 @@ impl Rec {
         self.c.produce_block();
         let l = self.c.transaction(&sig).cloned().expect("landed");
         let ok = l.err.is_none();
+        if let How::V0(which) = how {
+            for &ti in which {
+                let t = self.tables[ti].key;
+                if !self.snapshots.iter().any(|s| s.table == t) {
+                    self.snapshots
+                        .push(self.snapshot_of(&t, Some((sig, l.slot))));
+                }
+            }
+        }
         self.log.push(format!(
             "{what} ({v:?}{}): {}",
             if l.loaded.writable.is_empty() && l.loaded.readonly.is_empty() {
@@ -178,6 +191,38 @@ impl Rec {
             self.c.produce_block();
         }
         self.c.set_scale(1.0);
+    }
+    /// The table's state now, as findex snapshots it (the account at the
+    /// current slot, and its own transactions oldest first, as
+    /// `getSignaturesForAddress` + `getTransaction` serve them).
+    fn snapshot_of(
+        &self,
+        t: &Address,
+        used_by: Option<(fclient::ports::Signature, u64)>,
+    ) -> fclient::alt::Snapshot {
+        let mut history: Vec<fclient::ports::TxRecord> = self
+            .c
+            .signatures_for(t, 1_000, None, None)
+            .into_iter()
+            .map(|l| l.record())
+            .collect();
+        history.reverse();
+        fclient::alt::Snapshot {
+            table: *t,
+            used_by,
+            read_slot: Some(self.c.slot()),
+            account: Some(self.c.account(t)),
+            history: Some(history),
+            source: "findex".into(),
+        }
+    }
+    /// Deactivates every table (signed by its owner), waits out SlotHashes
+    /// and closes it (lamports back to the owner): the tables are gone.
+    fn close_tables(&mut self, owners: &[&Keypair]) {
+        let keys: Vec<Address> = self.tables.iter().map(|t| t.key).collect();
+        close_on(&mut self.c, &keys, owners);
+        self.log
+            .push("both lookup tables deactivated and closed".into());
     }
     fn data(&self, k: &Address) -> Option<Vec<u8>> {
         self.c.account(k).map(|a| a.data)
@@ -221,6 +266,51 @@ impl Rec {
         });
         self.tables.len() - 1
     }
+}
+
+/// A legacy transaction landed on `c` (asserted successful).
+fn land_legacy(c: &mut localnet::Chain, signers: &[&Keypair], ixs: &[Instruction]) {
+    let (bh, _) = c.latest_blockhash();
+    let m = solana_message::Message::new_with_blockhash(ixs, Some(&signers[0].pubkey()), &bh);
+    let t = tx::sign(m, signers).expect("sign");
+    let sig = c.submit(&tx::wire(&t)).expect("submit");
+    c.produce_block();
+    let l = c.transaction(&sig).expect("landed");
+    assert!(l.err.is_none(), "{:?} {:?}", l.err, l.logs);
+}
+
+/// Deactivates each of `tables` (owner `owners[i]`), waits out SlotHashes
+/// (512 slots) and closes it, lamports back to its owner.
+fn close_on(c: &mut localnet::Chain, tables: &[Address], owners: &[&Keypair]) {
+    let prog = fclient::alt::program();
+    for (t, o) in tables.iter().zip(owners) {
+        let ix = Instruction {
+            program_id: prog,
+            accounts: vec![
+                AccountMeta::new(*t, false),
+                AccountMeta::new_readonly(o.pubkey(), true),
+            ],
+            data: 3u32.to_le_bytes().to_vec(),
+        };
+        land_legacy(c, &[*o], &[ix]);
+    }
+    for _ in 0..520 {
+        c.produce_block();
+    }
+    for (t, o) in tables.iter().zip(owners) {
+        let ix = Instruction {
+            program_id: prog,
+            accounts: vec![
+                AccountMeta::new(*t, false),
+                AccountMeta::new_readonly(o.pubkey(), true),
+                AccountMeta::new(o.pubkey(), false),
+            ],
+            data: 4u32.to_le_bytes().to_vec(),
+        };
+        land_legacy(c, &[*o], &[ix]);
+        assert!(c.account(t).is_none(), "the table {t} is closed");
+    }
+    c.produce_block();
 }
 
 fn params() -> SeasonParamsV2 {
@@ -322,6 +412,7 @@ fn build_versioned(so: &[u8]) -> (Rec, Address, Keypair, u64) {
         a,
         log: vec![],
         tables: vec![],
+        snapshots: vec![],
     };
     let a = r.a.clone();
 
@@ -574,8 +665,43 @@ fn build_versioned(so: &[u8]) -> (Rec, Address, Keypair, u64) {
 #[ignore = "signs the recorder's TEST transactions (CI key-free rule); writes VERSIONED_DUMP when set"]
 fn record_versioned_season() {
     let so = so();
-    let so_hash = common::sha2_256(&so);
     let (r, program, upgrade, round) = build_versioned(&so);
+    let input = season_input(
+        &r,
+        program,
+        &upgrade,
+        round,
+        &so,
+        vec![],
+        "playable-versioned",
+    );
+    for l in &r.log {
+        println!("{l}");
+    }
+    let mut with_so = input.clone();
+    with_so.program_so = Some(so.clone());
+    let rep = verify_core::verify(&with_so);
+    println!("{}", show(&rep).join("\n"));
+    println!("verdict {:?} checks {:?}", rep.verdict, rep.checks_run);
+    if let Ok(out) = std::env::var("VERSIONED_DUMP") {
+        input.save(std::path::Path::new(&out)).expect("save");
+        println!("saved {out}");
+    }
+}
+
+/// The recorder's chain as a season archive: the program's transactions
+/// with post-states (program-owned only), balances, Rent, the lookup
+/// tables as read now, and `snapshots`.
+fn season_input(
+    r: &Rec,
+    program: Address,
+    upgrade: &Keypair,
+    round: u64,
+    so: &[u8],
+    snapshots: Vec<fclient::alt::Snapshot>,
+    scenario: &str,
+) -> Input {
+    let so_hash = common::sha2_256(so);
     let rent_acc =
         r.c.account(&fclient::rent::rent_sysvar())
             .expect("Rent sysvar");
@@ -583,6 +709,7 @@ fn record_versioned_season() {
     let landed = r.c.feed(0, usize::MAX, Some(&program));
     let mut txs: Vec<fclient::ports::TxRecord> = landed.iter().map(|l| l.record()).collect();
     let chain = verify_core::input::ChainWitness {
+        lookup_snapshots: snapshots,
         balances: landed
             .iter()
             .map(|l| {
@@ -620,7 +747,7 @@ fn record_versioned_season() {
         .into_iter()
         .map(|k| (k.to_bytes(), r.c.account(&k)))
         .collect();
-    let input = Input {
+    Input {
         cfg: Config {
             program,
             season_id: SEASON_ID,
@@ -637,22 +764,51 @@ fn record_versioned_season() {
             hex::encode(so_hash),
             r.log.join("; ")
         ),
-        scenarios: vec!["playable-versioned".into()],
+        scenarios: vec![scenario.into()],
         history: Default::default(),
         resident_feed: None,
         program_so: None,
         declared: vec![],
         chain,
-    };
-    for l in &r.log {
-        println!("{l}");
     }
+}
+
+/// verifier-alt-archive: the same season, then both lookup tables
+/// deactivated, waited out and CLOSED by their owners (the map crank's
+/// payer, the player's wallet). The archive carries the snapshots findex
+/// takes at each table's first use; the final read shows both tables
+/// absent. Re-record: `CLOSED_DUMP=$PWD/../../fixtures/verify/playable-versioned-closed-67a33c92.json.gz \
+///  cargo test -p verify --features playable-lane --test versioned_season record_closed_tables_season -- --ignored --nocapture`
+#[test]
+#[ignore = "signs the recorder's TEST transactions (CI key-free rule); writes CLOSED_DUMP when set"]
+fn record_closed_tables_season() {
+    let so = so();
+    let (mut r, program, upgrade, round) = build_versioned(&so);
+    let payer = Keypair::new_from_array([0xA2; 32]);
+    let wallet = Keypair::new_from_array([0xB1; 32]);
+    assert_eq!(r.snapshots.len(), 2, "one first-use snapshot per table");
+    r.close_tables(&[&payer, &wallet]);
+    let snaps = r.snapshots.clone();
+    let mut input = season_input(
+        &r,
+        program,
+        &upgrade,
+        round,
+        &so,
+        snaps,
+        "playable-versioned-closed",
+    );
+    input.provenance = input.provenance.replace(
+        "record_versioned_season",
+        "record_closed_tables_season (both lookup tables closed after the season; findex-style first-use snapshots archived)",
+    );
     let mut with_so = input.clone();
     with_so.program_so = Some(so.clone());
     let rep = verify_core::verify(&with_so);
     println!("{}", show(&rep).join("\n"));
     println!("verdict {:?} checks {:?}", rep.verdict, rep.checks_run);
-    if let Ok(out) = std::env::var("VERSIONED_DUMP") {
+    assert_eq!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+    if let Ok(out) = std::env::var("CLOSED_DUMP") {
         input.save(std::path::Path::new(&out)).expect("save");
         println!("saved {out}");
     }
@@ -1170,6 +1326,198 @@ fn a_live_node_with_v0_v1_players_is_verified_by_the_cli() {
     assert!(checks(&rep3).iter().any(|c| c == "VT:lookup-tables"));
     assert!(checks(&rep3).iter().any(|c| c == "VX:re-execution"));
     println!("localnet exit {code3}");
+    node.stop();
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+/// verifier-alt-archive: findex (the herald's LocalnetFeed with table
+/// reads) archives the season from a REAL node while the tables are open;
+/// then both tables are closed; the CLI still checks every lookup — over
+/// the node (`--localnet`: each closed table's own create / extend
+/// transactions, read by the verifier) and over findex's archive (its
+/// first-use snapshots).
+#[test]
+#[ignore = "binds 127.0.0.1:41851 (CLOSED_LIVE_PORT) and signs the recorder's TEST transactions; run with --ignored"]
+fn a_live_node_whose_tables_were_closed_is_verified_by_the_cli() {
+    let so = so();
+    let (r, program, _upgrade, _) = build_versioned(&so);
+    let tables: Vec<Address> = r.tables.iter().map(|t| t.key).collect();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let state = std::sync::Arc::new(std::sync::Mutex::new(r.c));
+    let port: u16 = std::env::var("CLOSED_LIVE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(41_851);
+    let node = rt
+        .block_on(localnet::server::start(state.clone(), port))
+        .expect("the port free");
+    let url = node.url();
+    let out = std::env::temp_dir().join(format!("verifier-alt-live-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    // 1. findex archives the season while the tables are open
+    let fdir = out.join("findex");
+    let mut fx = findex::Findex::open(&fdir, program, Some(SEASON_ID), 1 << 20).expect("findex");
+    let mut feed = findex::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url.clone(), program))
+        .with_program(program)
+        .with_table_reads(fclient::rpc::RpcClient::new(url.clone()));
+    if let Ok(v) = rt.block_on(
+        fclient::rpc::RpcClient::new(url.clone()).call("frontier_status", serde_json::json!([])),
+    ) {
+        if let Some(id) = v.get("runId").and_then(|x| x.as_str()) {
+            feed = feed.with_ledger(id);
+        }
+    }
+    let mut archived = 0;
+    loop {
+        let got = rt.block_on(fx.ingest(&mut feed)).expect("ingest");
+        if got.is_empty() {
+            break;
+        }
+        archived += got.len();
+    }
+    println!("findex archived {archived} records");
+    assert_eq!(archived, 37, "the whole season");
+    fx.archive.commit().expect("commit");
+    drop(fx);
+    let adir = fdir.join("archive");
+    let snaps = verify_core::input::archive_lookup_snapshots(&adir).expect("snapshots");
+    assert_eq!(snaps.len(), 2, "one snapshot per table, at its first use");
+    for s in &snaps {
+        assert_eq!(s.source, "findex");
+        let (sig, slot) = s.used_by.expect("taken for a record");
+        assert!(
+            s.read_slot.unwrap() >= slot,
+            "read at or after {sig}'s slot"
+        );
+        let a = s.account.clone().flatten().expect("the table was open");
+        let t = fclient::alt::decode_table(&a.owner, &a.data).expect("a table");
+        let b = fclient::alt::replay(&s.table, s.history.as_ref().unwrap()).expect("replays");
+        assert_eq!(
+            b.list(),
+            t.addresses,
+            "its own transactions build its account"
+        );
+    }
+    // 2. the tables are closed
+    {
+        let mut c = state.lock().unwrap();
+        let payer = Keypair::new_from_array([0xA2; 32]);
+        let wallet = Keypair::new_from_array([0xB1; 32]);
+        close_on(&mut c, &tables, &[&payer, &wallet]);
+    }
+    let so_path = common::fixtures_dir().join(SO_GZ);
+    let run = |extra: &[&str], tag: &str| -> (i32, serde_json::Value) {
+        let dir = out.join(tag);
+        let mut args: Vec<String> = vec![
+            "--rpc".into(),
+            url.clone(),
+            "--program".into(),
+            program.to_string(),
+            "--season".into(),
+            SEASON_ID.to_string(),
+            "--ruleset".into(),
+            hex::encode(frontier_abi::v2::presets::RULESET_HASH_V3),
+            "--program-hash".into(),
+            SO_SHA256.into(),
+            "--program-so".into(),
+            so_path.display().to_string(),
+            "--json".into(),
+            "--out".into(),
+            dir.display().to_string(),
+            "--save".into(),
+            dir.join("input.json.gz").display().to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let o = std::process::Command::new(env!("CARGO_BIN_EXE_frontier-verify"))
+            .args(&args)
+            .output()
+            .expect("frontier-verify runs");
+        println!(
+            "--- {tag}: exit {:?}\n{}",
+            o.status.code(),
+            String::from_utf8_lossy(&o.stderr)
+        );
+        let rep: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("report.json")).expect("report.json"))
+                .expect("json");
+        (o.status.code().unwrap_or(-1), rep)
+    };
+    let findings = |rep: &serde_json::Value| -> Vec<(String, String, String)> {
+        rep["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| {
+                (
+                    f["severity"].as_str().unwrap().to_string(),
+                    f["check"].as_str().unwrap().to_string(),
+                    f["code"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    };
+    let ran_vt = |rep: &serde_json::Value| {
+        rep["checks_run"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "VT:lookup-tables")
+    };
+    // 3. the local node's ledger feed: each closed table's history read by the verifier
+    let (code, rep) = run(&["--localnet"], "localnet");
+    let f = findings(&rep);
+    println!("localnet: {} {f:#?}", rep["verdict"]);
+    assert!(ran_vt(&rep));
+    assert!(f.iter().all(|x| x.0 != "fail"), "{f:#?}");
+    assert!(
+        f.iter().all(|x| x.1 != "VT"),
+        "every lookup settled: {f:#?}"
+    );
+    println!("localnet exit {code}");
+    let mut saved = Input::load(&out.join("localnet").join("input.json.gz")).expect("saved");
+    let t = saved.chain.lookup_tables.as_ref().expect("tables read");
+    assert!(t.accounts.values().all(|a| a.is_none()), "both closed");
+    assert_eq!(saved.chain.lookup_snapshots.len(), 2);
+    assert!(saved
+        .chain
+        .lookup_snapshots
+        .iter()
+        .all(|s| s.source == "verifier" && s.account.is_none() && s.history.is_some()));
+    saved.history = Default::default();
+    saved.program_so = Some(so.clone());
+    let rep2 = verify_core::verify(&saved);
+    assert_eq!(rep2.verdict, Verdict::Pass, "{:#?}", show(&rep2));
+    saved.chain.lookup_snapshots.clear();
+    let rep3 = verify_core::verify(&saved);
+    assert_eq!(rep3.verdict, Verdict::Unverifiable, "{:#?}", show(&rep3));
+    assert!(has(&rep3, "VT", "LookupTableUnread"));
+    // 4. findex's archive (its first-use snapshots) + the node
+    let fd = fdir.join("archive");
+    let adir = if fd.join("manifest.json").exists() {
+        fd
+    } else {
+        fdir.clone()
+    };
+    let (code4, rep4) = run(&["--archive", &adir.display().to_string()], "archive");
+    let f4 = findings(&rep4);
+    println!("archive: {} {f4:#?}", rep4["verdict"]);
+    assert!(ran_vt(&rep4));
+    assert!(f4.iter().all(|x| x.0 != "fail"), "{f4:#?}");
+    assert!(
+        f4.iter().all(|x| x.1 != "VT"),
+        "every lookup settled: {f4:#?}"
+    );
+    let saved4 = Input::load(&out.join("archive").join("input.json.gz")).expect("saved");
+    assert!(saved4
+        .chain
+        .lookup_snapshots
+        .iter()
+        .any(|s| s.source == "findex"));
+    println!("archive exit {code4}");
     node.stop();
     let _ = std::fs::remove_dir_all(&out);
 }
