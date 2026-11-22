@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-22 (through #152; #140–#152 added: the ⑨/⑩ preview and seizures §12, external AI residents, ⑬'s resident and `--plan` §11, ① request delivery and the ⑮ title 「依頼に応えた」 §13, the ×60 muster wait §3. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-23 (through #172; #157–#172 added: a wide village raising a new host and the expedition's keep hold on the card §4, external AI residents in `--wide` §11, which addresses open the page and what to do after editing the page's files §9, the ① board in English §13. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -74,6 +74,7 @@ Options:
   Pick **a nation without an AI** (with `--ai 4`: Aster or Dunmar) and you never compete with one for a village site.
 - `--random-map` starts the world at a randomly picked earlier time, and the program derives another genesis seed by its
   unchanged rules.
+- The page opens at two addresses only: `http://localhost:<port>/` and `http://127.0.0.1:<port>/` (no other name, no other machine; §9).
 - Stop it with **Ctrl-C** in the terminal (§6).
 
 ## 3. The 15-minute check
@@ -330,11 +331,11 @@ view (fog-devnet; runbook §7 P5).
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
 | Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
 | Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
-| First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107) |
+| First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, 「もう一度確かめる」; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet (「送る内容を確認」 → 「ウォレットで署名して送る」; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
-| Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120, checked offline; 12 hours of real time) |
+| Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
 | AI residents | yes (at war by default) | none (local only; runbook §7 P4) |
 | ② rights (stock swap) | `--coexist` worlds only (§10) | not in it |
 | ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
@@ -347,20 +348,13 @@ training are the same rules as devnet.
 A local world costs no SOL and no rent (the test keys are funded with test balances). Devnet costs and rent (since #147 and
 #150 they follow the cluster's own rent rate) are in the devnet runbook, not in this guide.
 
-## 8. Known problems (2026-11-22, main through #152)
+## 8. Known problems (2026-11-23, main through #172)
 
-### 8.1 Still on main (after #137; loop-play8's LP8-1 … 11 are fixed by #149)
+### 8.1 Still on main (after #172)
 
-Fixed by #149 (fix-loop8): the boundary card stuck on the DepartDraftChanged line (LP8-1: the page reads the conditions
-again and sends again up to 3 times, saying 「出発の途中で世界の時計が進みました…（n / 3 回目）」); the nation pick lost
-while loading (LP8-2: the press is made again automatically, or the card says 「…さきほどの「始める」は取り消しました…もう一度押してください。」);
-① co-op board deliveries (LP8-3, §13); the wide village's 「次の一手」 after a capture (LP8-5); telling ⑨/⑩ partners
-apart (LP8-6, 7); the watchtower wear once worded 「塔の消耗」 (LP8-8, old wording); stacked new-village tags (LP8-9); the ×60 intro and remaining time
-(LP8-10); the outside AI resident's Muster (LP8-11); the 国と領土 list (LP7-6).
-
-The problems loop-play6 found (LP6-1 … 15) were fixed by #128 and #130, and verify-pr130 and verify-pr133 played them
-(only the rim village's long-wait text, LP6-9, was not seen: the load never got that high). What is left is below. None
-is a rules question.
+The problems loop-play6 … 9 found (LP6-1 … 15, LP7-1 … 8, LP8-1 … 11, LP9-0 … 8) were fixed by #128, #130, #137, #149, #157
+and #162, and verify-pr130, 133, 137, 149 and 162 played them. The `play-local.sh` build that failed after #154 (LP9-0) was
+fixed by #157, and since #159 CI checks the play-local builds on every change. What is left is below. None is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
@@ -372,6 +366,9 @@ is a rules question.
 | Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
 | Wide village (W2) | the card says 「この村の州の決着が N ターン遅れています。」 twice in a row | none (display only) |
+| Wide village (W2) | after its host was destroyed, or took a keep and became the garrison, the card never raises another host (it keeps waiting on 「砦を奪った軍勢は、その砦に残って守っています。…」 or the like; in verify-pr162 nothing changed over 48+ checks). It rebuilds only when survivors come home (§4 step 4) | none (that village's marches end there; expeditions from the rim village go on) |
+| Wide village (W2) | the notice after a 「次の一手（広い土地）」 step is sent is an English sentence on the Japanese page too (e.g. “train 100 Spearmen at the wide village -66,-63 …”; verify-pr162) | none (display only; the reason on the card itself is in the page's language) |
+| ⑬ resident's `--plan` (`--wide`) | on a rim village the plan's Build (item 3) is refused `Insufficient` by the check before sending, three times (2 of 2 runs in verify-pr163; cause unknown). The resident then makes a new plan and goes on | none (wait) |
 | ② rights caravans | in the caravan form, switching the source from the storehouse to the village leaves that same village as the destination | choose the destination again |
 | ② rights | opening 「権利を出す」 before the workshop is finished (about 9 turns) says 「権利を出すには、工房のある村が要ります。」 | wait for the workshop (§10 step 2) |
 
@@ -382,7 +379,9 @@ Small ones (nothing blocks play):
 - Selecting a never-seen province says 「未測量 … 地形だけを図にしています。」 but the map draws it blank.
 - After a wide village (W2) takes a keep, the card waits with 「砦を奪った軍勢は、その砦に残って守っています。…（自動では送りません）」;
   when the next step can be sent it says 「次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。」. The 「結果：…砦を奪いました。」
-  line stays after the next training is sent (#149, LP8-5).
+  line stays after the next training is sent (#149, LP8-5). In verify-pr162's live world, though, 「次の一手を送れます」 never
+  appeared after the capture (the table above).
+- After an expedition takes a keep, the card's 「（兵 N）」 stays at the number right after the clash (verify-pr162: 487 on the card, 242 in the chain's garrison).
 - Under heavy load (load average 12–31) a wide village's province can stay 200+ turns behind for tens of minutes
   (loop-play8 LP8-4; a load matter, only measured in #149).
 
@@ -464,6 +463,23 @@ Small ones (nothing blocks play):
     With `--wide`, `wide-land.json` lists the grown rings and opened provinces, and the first line of `runner.out`
     states under `local_rules` which bytes differ from the preset)
   - the launcher command is in `command.txt` in the same folder.
+- **Two addresses open the page, no other**: `http://localhost:<port>/` and `http://127.0.0.1:<port>/` (the second is what
+  `--two`'s second player uses). The launcher and the worlds listen on 127.0.0.1 only and refuse a request whose Host is
+  not one of the two: `http://[::1]:41920/`, `http://<your Mac's name>.local:41920/`, a LAN IP address, another machine or
+  a phone do not work (instead of the page you get `{"error":"HostDenied"}`; a world's reads answer `WorldOriginDenied`).
+  Since #164 a world's relay follows the same rule: it takes only requests whose Host is `127.0.0.1:<that relay's port>` or
+  `localhost:<the same>` and that carry **no Origin header**; anything else is 403 `LocalPlayHostNotAllowed`. The page, the AI
+  residents and the bundled external residents (Node) already call it that way, so ordinary play is unchanged (verify-pr164:
+  both `--two` players, 0 × 403). What does hit it: a tool of your own that calls a relay port straight from a browser page
+  (a browser adds Origin), and hand-made requests such as `curl -H 'Origin: …'` or another Host name.
+- **After editing the page's files (`permutation-server/web/`)** the script needs no restart. The launcher reads from disk on
+  every request and lets the browser keep no code or page (`no-store`; pictures and fonts are checked on every load). Reload the
+  browser and you have the new files. In `--demo` and `--wide` a reload loses the test key (§6), so after it press
+  「新しい世界を開始」 for a new world (a kept world goes on after a reload). #170's static cache in the herald is not used by
+  local worlds (the launcher serves the page; a world's herald runs without `--web`). Where a herald does serve the page (the
+  devnet set-up), an edited file is read again on its next request once its size or times change, so no restart there either.
+  A restart is needed after changing the launcher's or relay's code (`permutation-gateway/src/`) or Rust code (Ctrl-C, then
+  `scripts/play-local.sh` again: it rebuilds only what changed).
 - "ports in use": choose another `--port` (e.g. `--port 41450`), or stop the earlier world.
 - Report through a GitHub Issue (r0ze998/wylls), with a screenshot and the folder above.
 
@@ -635,8 +651,11 @@ The world's operator gives it no privilege and never sees its key. The page show
   Example: `scripts/play-local.sh --wide --random-map --ai 2 --external <address> --speed 60`.
 - The keeper loop settles an external resident's home province in the same batch as yours (#146; in kept worlds too). In
   `--demo` at ×60 its province is ready for a muster 80–90 % of the time (before: 0–6 %; §8.2).
-- An external resident can send the game the six orders only (no caravans, no marches; the two residents shipped here do not
-  use the ① board either). It cannot pause
+- The two residents shipped here send the six orders only (and, in `--wide`, the first village's request): no caravans, no
+  marches, and they do not use the ① board. The resident's relay itself also serves the ordinary march routes (a client of your
+  own could send one; in a `--wide` world it refuses only the wide land's orders and expeditions, and in plain and `--demo`
+  worlds the expedition routes are served too — verify-pr163 D-2; whether external residents may march waits on r0ze). The relay
+  takes only requests whose Host is its own address and that carry no Origin (#164; a Node resident passes as it is, §9). An external resident cannot pause
   the world's clock or change its speed: those controls need the launcher's own token (#137).
 - Local only: on devnet there is no external-resident admission and no MCP server (the public MCP policy questions
   MCP-1..11 are open).
@@ -669,7 +688,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
    arrived and the province it crossed has resolved, 「鉱石を届ける」: 「預ける鉱石が届きました」 (the ② card does not offer
    these caravans).
 3. A: 「引き取る」 sends the ore home in an ordinary caravan; deliver it with the ② card's 「隊商を届ける」. 「枠を閉じる」 once
-   the room is empty.
+   it is empty.
 4. B sees only 「あなたの貯蔵庫の預かり」: whose ore (by nation) and how much.
 
 Losses (told once as an alert, and kept on the card, from the viewer's side; but the road-loss row 「隊商 N：道中で奪われた」
@@ -705,6 +724,8 @@ At ×60 there are only about 20 s between stopping and deciding, so `scripts/pla
 `play-local.sh` attaches workstream 01's co-op board to every world (launcher option `--coop-board ws01-board-v1`);
 add `--no-coop-board` to leave it out. With the board, the village's 「交易と防備」 card has 「国をまたぐ依頼を開く」 and the
 bottom bar's 「その他」 shows ⑮'s 「称号と記録」 card (「国をまたぐ協力の達成。勝敗・得点・賞金には関わらない」).
+The board follows the game page's language (#171: switch the game page to English with its top-right button and an open board
+window turns English too; the board window has its own switch. Its Japanese is unchanged; the 「」 below are the Japanese texts).
 
 From request to delivery (only a `--coexist` world sends caravans; an ordinary world's village sends none):
 
@@ -716,7 +737,7 @@ scripts/play-local.sh --coexist --two --demo --ai 0      # ×60, two people in o
 title). In verify-pr152, on the usual map (no `--random-map`), A = Aster and B = Borealis, and the caravan arrived (a caravan's
 road is at most 32 tiles and 4 provinces).
 
-1. **A (asks)**: 村 → 交易と防備 → 「国をまたぐ依頼を開く». The board opens in another window. 「このウォレットで署名する」
+1. **A (asks)**: 村 → 交易と防備 → 「国をまたぐ依頼を開く」. The board opens in another window. 「このウォレットで署名する」
    (the page's test wallet signs the board's records only) → enter wood and stone → 「依頼を出す（署名）」. The destination
    is A's village (e.g. 「木材 20・石材 20 → …（アステル・申告。判定には使わない）の村 (-1,2) 村5 受付中」). The board's 「自分の国」 select names
    the nations as the game does and, once the wallet is connected, follows the nation checked on chain (it is still only a
