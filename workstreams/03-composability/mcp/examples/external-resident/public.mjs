@@ -5,7 +5,8 @@
 // by itself; this client states the same Origin (it is a page-equivalent client of that launcher, not an operator).
 import { decodePrefix } from '../../../../../permutation-server/web/frontier/fcodec.mjs';
 import { createHerald } from '../../../../../permutation-server/web/frontier/herald.mjs';
-import { seasonPlace, homeSites } from '../../../../../permutation-server/web/frontier/home.mjs';
+import { seasonPlace, homeSites, homePlaceOf, homeRingsOf, planHomes } from '../../../../../permutation-server/web/frontier/home.mjs';
+import { worldOf, contiguousRings } from '../../../../../permutation-server/web/frontier/map/world.mjs';
 import { ringOf, homeNation } from '../../../../../permutation-server/web/frontier/fgeo.mjs';
 import { postLocalAct } from '../../../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { parseTransaction, wireTransaction } from '../../../../../permutation-server/web/sdk/solana-tx.mjs';
@@ -72,6 +73,41 @@ export async function publicHomes(heraldBase, faction, { fetch: f = globalThis.f
     }
   }
   return out;
+}
+
+/**
+ * (external-wide) The first-village candidates of a LOCAL WIDE-LAND world (the launcher's `--wide-land`, told to the
+ * resident in its start answer as `wideLand`, as it is told to the person's page), read exactly as the page reads them
+ * there (controller.mjs refreshHomes → home.mjs planHomes with `homePlaceOf` of a wide local page): the Season and its
+ * record (`/h/season`: the open rings), the public ring overviews (`/h/overview/{ring}/latest.bin`) and at most 24
+ * province reads; outward first — the nation's (mixed placement) provinces with a free site, heartland or SETTLED,
+ * farthest ring first. The page reads every open ring's overview; this reads them from the outermost ring inward, in
+ * groups of `group`, and stops at the first group that gives a candidate — the farthest ring wins in the page's order,
+ * so the answer is the page's. → `[{p, q, site, ticket}]`; `ticket`: past the heartland (ring > heartland_max_ring),
+ * where the page asks for the village by a one-site request (FileTicket) because the program's PlaceHome names no
+ * province past the Season's base r_max (controller.mjs confirmHome). Nothing here is not public; fog is not touched
+ * (the overviews and provinces are the page's own public reads). `seed`: the order of sites (the page: its homeSeed).
+ */
+export async function publicWideHomes(heraldBase, faction, { fetch: f = globalThis.fetch, max = 3, group = 8, seed = '', nowBell = 0, herald = null } = {}) {
+  const h = herald ?? createHerald({ base: heraldBase, fetch: (...a) => f(...a) });
+  const s = await h.season();
+  if (!s.ok) return [];
+  const FS = { season: s.season, localPlay: { wideLand: true } };
+  const place = homePlaceOf(FS);
+  if (!place) return [];
+  const ringsOpen = homeRingsOf(FS, contiguousRings(worldOf(s.record)));
+  const hmr = Number(place.heartlandMaxRing ?? 3);
+  const overviews = new Map();
+  for (let top = ringsOpen - 1; top >= 2; top -= group) {
+    for (let d = top; d > top - group && d >= 2; d--) {
+      const ov = await h.overview(d);
+      if (ov.ok && Array.isArray(ov.provinces)) overviews.set(d, ov);
+    }
+    const r = await planHomes({ overviews, faction, nowBell, place, ringsOpen, seed, max,
+      read: async (p, q) => { const pv = await h.province(p, q); return pv.ok ? pv.province ?? null : null; } });
+    if (r.candidates.length) return r.candidates.map(x => ({ p: x.p, q: x.q, site: x.site, ticket: ringOf(x.p, x.q) > hmr }));
+  }
+  return [];
 }
 
 /**

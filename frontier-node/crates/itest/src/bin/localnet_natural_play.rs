@@ -59,11 +59,11 @@ fn main() {
         let (rest, operators) = itest::operator_villages::take_villages_args(rest)?;
         // (TEST-ONLY external residents, runner-throughput-2: their villages join the same keeper loop as the operator
         //  residents' — the launcher passes it for a natural world that admitted external residents)
+        // (external-wide: also on a wide world, as `--operator-villages` is — a rim first village settled from a
+        //  FileTicket is read from the Citizen's slot 1 like a PlaceHome one; operator_villages::home_of)
         let (rest, externals) = itest::operator_villages::take_external_args(rest)?;
-        if externals.is_some() && (wide || second.is_some()) {
-            return Err(
-                "--external-villages is not accepted with --wide-land or --contest-pair".into(),
-            );
+        if externals.is_some() && second.is_some() {
+            return Err("--external-villages is not accepted with --contest-pair".into());
         }
         if wide {
             // (TEST-ONLY wide world: rim villages march into the wide land by the expedition wrapper; this runner reveals

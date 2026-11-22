@@ -43,6 +43,8 @@ export const LOCAL_ACT_SUBMIT_SCHEMA = 'frontier-local-play-act-submit-v1';
 const ERRORS = Object.freeze({
   LocalActInvalid: [400, 'invalid local-play command request'],
   LocalActNotAllowed: [403, 'this command is not one local play sends'],
+  // (verify-pr163: an external resident's relay in a wide world, `--no-wide-orders` — the wide land's orders are not its own)
+  LocalActWideOrderRefused: [403, 'the wide land\'s orders are not sent by an external resident'],
   LocalActWideHolding: [409, 'a village outside the legacy disk is not served by these commands'],
   LocalActMessageMismatch: [409, 'the signed message is not the stated command'],
   LocalActSigner: [403, 'the transaction is not signed by this relay\'s wallet alone'],
@@ -87,7 +89,7 @@ export class LocalActError extends Error {
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
-  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant', 'LocalActProvinceAbsent']);
+  'ResidentAlreadyActed', 'ResidentTurnUnavailable', 'LocalActWalletOnly', 'LocalActGrant', 'LocalActProvinceAbsent', 'LocalActWideOrderRefused']);
 
 /** (TEST-ONLY) Whether the relay's pins are a coexist world's (flocalplay-lane.mjs COEXIST_LANE): only then are ② rights and the S1 Vault and caravan served. */
 export const coexistPins = pins => pins?.rulesetHash === COEXIST_LANE.rulesetHash;
@@ -434,7 +436,10 @@ export function localActGrantCheck(intent, pins, { citizenAt }, grant) {
 // ordinary one), a runner instance must be pinned, and `sendGuard` is asked as the last thing before the one send:
 // when it throws, nothing is sent and the bytes are not consumed. Nothing else about the flow differs.
 // `turns` (resident-turns.mjs, from `--resident-turns`): one action per bell for this wallet's Citizen; Join is none.
-export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, test = null, turns = null }) {
+// `noWideOrders` (verify-pr163, `--no-wide-orders`, with `turns` only): an external resident's relay in a wide world —
+// the wide claim 0xD9 and a wide village's Train/Muster/Depart are refused before anything is read.
+export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, test = null, turns = null, noWideOrders = false }) {
+  if (noWideOrders !== false && (noWideOrders !== true || turns === null)) throw new Error('local-play act refused: --no-wide-orders is a resident relay\'s only');
   if (test !== null && (test === undefined || typeof test !== 'object' || typeof test.rpcOk !== 'function' || typeof test.sendGuard !== 'function' || runnerInstance === null)) throw new Error('local-play act refused: bad test form');
   const problems = localPlayRelayConfigProblems(cfg, test === null ? {} : { testRpcOk: test.rpcOk });
   if (problems.length) throw new Error('local-play act refused: ' + problems.join('; '));
@@ -500,6 +505,8 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
       // (TEST-ONLY, the coexist lane: the wallet's own Grant commands are never sent by a resident's relay — refused
       //  before anything is read, the history retirement below included)
       if (turns !== null && RIGHTS_WALLET_ONLY.includes(ok.intent.name)) fail('LocalActWalletOnly');
+      // (verify-pr163: the wide land's orders are not an external resident's — refused before anything is read)
+      if (noWideOrders && (ok.intent.name === WIDE_CLAIM || WIDE_HOST_ACTS.includes(ok.intent.name))) fail('LocalActWideOrderRefused');
       check(!seen.has(digest), 'LocalActMessageUsed');
       if (!seen.room()) { await seen.retire(ask); open(); }
       check(seen.room(), 'LocalActBusy');

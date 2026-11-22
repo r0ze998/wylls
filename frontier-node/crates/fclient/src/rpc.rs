@@ -1107,44 +1107,15 @@ mod tests {
     use super::*;
 
     /// security-audit: one loopback JSON-RPC answer per connection (a thread); → the URL.
+    /// The server reads the whole request and outlives the client's read
+    /// (see `crate::http::serve_one_http`; fix-rpc-flake).
     fn rpc_answer_once(result: Value) -> String {
-        use std::io::{Read, Write};
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = l.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            if let Ok((mut c, _)) = l.accept() {
-                // Read the whole request (head and Content-Length body) before
-                // answering: closing with unread bytes makes the kernel send a
-                // reset, which the client saw as `Connection reset by peer`.
-                let mut req = Vec::new();
-                let mut buf = [0u8; 8192];
-                loop {
-                    let head_end = req.windows(4).position(|w| w == b"\r\n\r\n");
-                    if let Some(at) = head_end {
-                        let head = String::from_utf8_lossy(&req[..at]).to_ascii_lowercase();
-                        let need = head
-                            .lines()
-                            .find_map(|l| l.strip_prefix("content-length:"))
-                            .and_then(|v| v.trim().parse::<usize>().ok())
-                            .unwrap_or(0);
-                        if req.len() >= at + 4 + need {
-                            break;
-                        }
-                    }
-                    match c.read(&mut buf) {
-                        Ok(n) if n > 0 => req.extend_from_slice(&buf[..n]),
-                        _ => break,
-                    }
-                }
-                let body = json!({"jsonrpc": "2.0", "id": 1, "result": result}).to_string();
-                let _ = write!(
-                    c,
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-            }
-        });
-        format!("http://127.0.0.1:{port}")
+        let body = json!({"jsonrpc": "2.0", "id": 1, "result": result}).to_string();
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        format!("http://{}", crate::http::serve_one_http(reply.into_bytes()))
     }
 
     fn run<F: std::future::Future>(f: F) -> F::Output {

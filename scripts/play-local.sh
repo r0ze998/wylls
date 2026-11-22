@@ -107,7 +107,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   Reference resident: workstreams/03-composability/mcp/examples/external-resident/ (README "plug in
                   your own AI"). Workstream ⑬'s resident is another client of the same path, and its own option
                   --plan lets ④'s plan store run multi-turn plans (workstreams/13-citizens/resident/local/client.mjs;
-                  PLAY-LOCAL §11). Kept worlds, --demo, --ai, --random-map, --coexist, --resume; not --two or --wide
+                  PLAY-LOCAL §11). Kept worlds, --demo, --wide (a rim first village by request, FileTicket, as the
+                  page's), --ai, --random-map, --coexist, --resume; not --two
   --no-mcp        with --external: do not start the read-only MCP server
   --no-coop-board do not attach workstream 01's co-op board (requests across nations; launcher option
                   --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, 村 → 交易と防備 →
@@ -251,13 +252,11 @@ if [ "$EXTERNAL_SET" = 1 ]; then
   if [ "$EXT_OK" = 0 ]; then
     err "--external は公開アドレス (base58) を 1 つか、カンマで区切った別々の 2 つです (鍵ではありません)" "--external takes one public address (base58), or two different ones separated by a comma (never a key)"; exit 2
   fi
-  for f in "TWO:--two" "WIDE:--wide"; do
-    v="${f%%:*}"
-    if [ "${!v}" = 1 ]; then
-      err "--external は ${f#*:} と一緒には使えません (外部の AI 住民は一人用の普通の世界かデモに入ります)" \
-          "--external cannot be combined with ${f#*:} (external AI residents join a one-person ordinary world or the demo)"; exit 2
-    fi
-  done
+  # (external-wide: a --wide world takes them too — the rim route of a person's page, FileTicket — only the pair does not)
+  if [ "$TWO" = 1 ]; then
+    err "--external は --two と一緒には使えません (外部の AI 住民は一人用の世界に入ります)" \
+        "--external cannot be combined with --two (external AI residents join a one-person world)"; exit 2
+  fi
   if ! grep -q "EXTERNAL_RESIDENTS_MODE" "$LAUNCHER" 2>/dev/null; then
     err "--external: このチェックアウトのランチャーには外部の AI 住民 (--external-residents) がまだありません。" "--external: the launcher on this checkout has no external AI residents (--external-residents) yet."; exit 5
   fi
