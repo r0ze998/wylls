@@ -145,7 +145,9 @@ test('LP9-2: an expedition standing on a wide keep is followed — the count, th
   } finally { setLang('ja'); }
   const c = src('controller.mjs');
   assert.ok(c.includes('await followExpeditionHolds(gate, b).catch(() => null);'));
-  assert.ok(c.includes("for (const [k, h] of holds) if (h?.outcome && before.get(k) !== h.outcome && !FS.notice?.busy) done(() => expeditionHoldText(h));"), 'the end is said once as a notice');
+  // (fix-loop9 live run: the capture came while 「送信中…」 was up and the notice was never said — told only when said)
+  assert.ok(c.includes("if (!h?.outcome || expeditionHoldTold.get(k) === h.outcome || FS.notice?.busy) continue;"), 'a busy notice postpones the end, it does not drop it');
+  assert.ok(c.includes("expeditionHoldTold.set(k, h.outcome);\n    done(() => expeditionHoldText(h));"), 'the end is said once as a notice');
 });
 
 test('LP9-2 (fog): a standing expedition sees from its tile like any own host (L3), not only "seen before"; followed off the tile, it no longer does', async () => {

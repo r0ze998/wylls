@@ -1503,15 +1503,21 @@ async function followExpeditionHolds(gate, nowBell) {
   const faction = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : null;
   if (faction === null || !localPlay?.programId || !localPlay?.seasonAddress) return;
   const holds = localExpedition.expeditionHoldsOf(FS);
-  const before = new Map([...holds].map(([k, h]) => [k, h?.outcome ?? null]));
   const [{ readWideProvince }, { fromBase64 }, { wideProvinceAddress }] = await Promise.all([import('./flocalplay-wide-host.mjs'), import('../sdk/bytes.mjs'), import('./flocalplay-wide.mjs')]);
   const read = async addresses => {
     const j = await localAct.postLocalAct(gate.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
     return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
   };
   await localExpedition.readExpeditionHolds(FS, { read, parse: readWideProvince, address: (p, q) => wideProvinceAddress(localPlay.seasonAddress, localPlay.programId, p, q), faction, nowBell });
-  for (const [k, h] of holds) if (h?.outcome && before.get(k) !== h.outcome && !FS.notice?.busy) done(() => expeditionHoldText(h));
+  // (an end is told once — and only counted as told when it was said: the fix-loop9 live run's capture came while a
+  //  harvest's 「送信中…」 was up, the notice was skipped and never said; it now waits for the next refresh)
+  for (const [k, h] of holds) {
+    if (!h?.outcome || expeditionHoldTold.get(k) === h.outcome || FS.notice?.busy) continue;
+    expeditionHoldTold.set(k, h.outcome);
+    done(() => expeditionHoldText(h));
+  }
 }
+const expeditionHoldTold = new Map();
 
 /**
  * Read again what the tracker shows of ONE march whose reads did not come (2026-11-17, ⑦) — a pure read. It asks the
