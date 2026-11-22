@@ -25,7 +25,9 @@
 //! - an address that differs, a table account that is not a lookup table,
 //!   or one too short for the index: **FAIL `LookupMismatch`** (no honest
 //!   archive shows that);
-//! - the table not read, or absent (closed) at the pinned slot:
+//! - the table not read, or absent (closed) at the pinned slot — including
+//!   a closed table's address re-funded by a System transfer (System
+//!   owner, no data: nothing else can appear at the PDA):
 //!   **UNVERIFIABLE `LookupTableUnread`** — the addresses rest on the
 //!   archive's own claim, never a PASS;
 //! - no v0 transaction with lookups: VT does not run (a legacy / v1 archive
@@ -82,10 +84,16 @@ pub fn judge(input: &Input) -> (Vec<Finding>, bool) {
                 continue;
             };
             let at = slot.map_or("the pinned slot".to_string(), |s| format!("slot {s}"));
-            let Some(acc) = acc
-                .as_ref()
-                .filter(|a| a.lamports > 0 || !a.data.is_empty())
-            else {
+            // verify-pr155: a closed table's address can be re-funded by a
+            // plain System transfer (anyone may send lamports to any
+            // address; the lookup-table program never signs for its PDA, so
+            // no data or other owner can appear there). That account says
+            // only "closed": UNVERIFIABLE like an absent one, never a FAIL
+            // anyone could buy against an honest season.
+            let system = fclient::addr::system_program();
+            let Some(acc) = acc.as_ref().filter(|a| {
+                (a.lamports > 0 || !a.data.is_empty()) && !(a.data.is_empty() && a.owner == system)
+            }) else {
                 unread.entry(key).or_insert(i);
                 continue;
             };
@@ -140,7 +148,7 @@ pub fn judge(input: &Input) -> (Vec<Finding>, bool) {
                     None => "was not read (no lookup table states: --rpc reads them with the final states, a finals file or fixture records `lookup_tables`)".to_string(),
                     Some(ts) => format!(
                         "is {} at {}",
-                        if ts.accounts.contains_key(&key) { "closed (absent)" } else { "not among the tables read" },
+                        if ts.accounts.contains_key(&key) { "closed (absent, or only lamports sent to its address since)" } else { "not among the tables read" },
                         ts.slot.map_or("the pinned slot".into(), |s| format!("slot {s}"))
                     ),
                 }
