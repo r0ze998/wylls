@@ -451,6 +451,17 @@ impl<'a> Run<'a> {
         let so_sha256 = super::devnet_build(self.c.conquest).0;
         let so_hash: [u8; 32] = hex::decode(so_sha256).unwrap().try_into().unwrap();
         let program = self.c.program;
+        // (verify-pr150) the chain's Rent sysvar, as `frontier-verify --rpc` reads it: VX / VG re-execute under the
+        // season's rent (OPERATOR_LAMPORTS_PER_BYTE may make it 6,960), never the assumed 5,080.
+        let rent = {
+            let c = self.lock();
+            let slot = c.slot();
+            c.account(&fclient::rent::rent_sysvar()).map(|a| {
+                verify_core::input::RentRead::from_chain(&a.data, slot)
+                    .expect("the chain's Rent sysvar")
+            })
+        };
+        assert!(rent.is_some(), "the chain serves its Rent sysvar");
         let (txs, finals, final_slot) = {
             let c = self.lock();
             let txs: Vec<fclient::ports::TxRecord> = c
@@ -487,7 +498,10 @@ impl<'a> Run<'a> {
             resident_feed: None,
             program_so: Some(Arc::new(so)),
             declared: self.declared.clone(),
-            chain: Default::default(),
+            chain: verify_core::input::ChainWitness {
+                rent,
+                ..Default::default()
+            },
         };
         if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {
             let out = std::path::Path::new(&d).join(format!("{tag}-season.json.gz"));
