@@ -47,7 +47,10 @@ before(async () => {
   oldFetch = globalThis.fetch;
   // (only a request that could carry an order counts as a send: anything but a GET; the controller's own reads after an
   //  order is answered — the prize's GET, for one — are reads and are kept apart)
-  fetchSpy = async (url, init) => { if (String(init?.method ?? 'GET').toUpperCase() !== 'GET') sends.push(String(url)); else reads.push(String(url));
+  // (verify-pr150: and the cluster-rent read refresh() asks of the local relay — a POST whose body is exactly
+  //  {schema: 'frontier-play-rent-context-v1'}, frent.mjs — is a read too: it carries no order)
+  const rentRead = init => { try { const b = JSON.parse(String(init?.body ?? '')); return Object.keys(b).length === 1 && b.schema === 'frontier-play-rent-context-v1'; } catch { return false; } };
+  fetchSpy = async (url, init) => { if (String(init?.method ?? 'GET').toUpperCase() !== 'GET' && !rentRead(init)) sends.push(String(url)); else reads.push(String(url));
     return new Response(JSON.stringify({ ok: false, code: 'Unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } }); };
   globalThis.fetch = fetchSpy;
   // (startPlay's own poll timer is not part of this test: as web-frontier-controller.test.mjs does)

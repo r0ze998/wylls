@@ -842,9 +842,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let chain0 = localnet::Chain::new(localnet::Config {
         g0: t_create_min - 86_400 - 900,
         // (PFLOOR: the cluster's rent rate under test)
+        // (rent-live-rest: `OPERATOR_LAMPORTS_PER_BYTE` sets it for any other mode, e.g. PPOST at 6,960)
         lamports_per_byte: match mode {
             Mode::Floor(rate) => rate,
-            _ => localnet::chain::LAMPORTS_PER_BYTE,
+            _ => std::env::var("OPERATOR_LAMPORTS_PER_BYTE")
+                .ok()
+                .map(|v| v.parse().expect("OPERATOR_LAMPORTS_PER_BYTE: a rate"))
+                .unwrap_or(localnet::chain::LAMPORTS_PER_BYTE),
         },
         ..localnet::Config::default()
     });

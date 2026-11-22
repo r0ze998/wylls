@@ -79,31 +79,59 @@ process.on('unhandledRejection', async e => {
   fs.writeFileSync(path.join(SYNC, 'failed.txt'), String(e?.message ?? e));
   setTimeout(() => process.exit(1), Number(process.env.PAGE_DRIVER_HOLD_SECS ?? 300) * 1000);
 });
-await page.goto(URL0, { waitUntil: 'load' });
-await wait(2500);
-// The TEST wallet: the page's own Wallet Standard builder (wallet.mjs devWallet) over the TEST seed, on solana:devnet.
-await ev(async seedHex => {
-  const W = await import('/frontier/wallet.mjs'); const S = await import('/frontier/session.mjs');
-  const seed = Uint8Array.from(seedHex.match(/../g).map(h => parseInt(h, 16)));
-  const w = W.devWallet(await S.keyFromSeed(seed));
-  const acct = Object.freeze({ ...w.accounts[0], chains: ['solana:devnet'] });
-  const wallet = { ...w, name: 'Test Wallet (devnet, offline)', chains: ['solana:devnet'], accounts: [acct],
-    features: { ...w.features, 'standard:connect': { version: '1.0.0', connect: async () => ({ accounts: [acct] }) } } };
-  window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', { detail: api => api.register(wallet) }));
-}, SEED);
-let s = await until('the page reads the devnet season and verifies devnet play', x => x.devnetPlay && x.walletList.some(w => w.name.startsWith('Test Wallet') && !w.why), { secs: 120, note: x => ({ cluster: x.cluster, devnetPlay: x.devnetPlay, wallets: x.walletList }) });
-log('devnet play', s.devnetPlay, 'wide', s.devnetWide, 'cluster', s.cluster);
-await shot('devnet-season-before-connect');
-await act('connect', { i: String(s.walletList.findIndex(w => w.name.startsWith('Test Wallet'))) });
-s = await until('the wallet is connected', x => !!x.wallet, { secs: 60 });
-log('wallet', s.wallet);
-// The nation, then the page's own first-village choice (outward: an opened rim province of that nation).
-await page.getByText(/^(国を選ぶ|Choose a nation)$/).first().click({ timeout: 8000 }).catch(() => log('no 国を選ぶ button (continuing)'));
-await wait(1000);
-await act('pick-faction', { f: String(NATION) });
-s = await until('the home planner offers a rim site', x => x.homeChoice?.sel, { secs: 180, note: x => x.homeChoice });
-log('home choice', s.homeChoice, 'devnetWide', s.devnetWide);
+// (rent-live-rest: a page that read the world before the declared rim growth reached the herald offers a heartland
+//  home — PlaceHome, from which the ring-4 neighbours stay under the fog and no outpost site is ever seen (verify-pr141's
+//  ppost1 hit it too). Asking the planner again reuses that read, so the page is LOADED again (up to 5 times, 15 s apart)
+//  until it offers the rim (ring >= 126); else it goes on as before.)
+const ringOf = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
+let s;
+for (let attempt = 0; ; attempt++) {
+  await page.goto(URL0, { waitUntil: 'load' });
+  await wait(2500);
+  // The TEST wallet: the page's own Wallet Standard builder (wallet.mjs devWallet) over the TEST seed, on solana:devnet.
+  await ev(async seedHex => {
+    const W = await import('/frontier/wallet.mjs'); const S = await import('/frontier/session.mjs');
+    const seed = Uint8Array.from(seedHex.match(/../g).map(h => parseInt(h, 16)));
+    const w = W.devWallet(await S.keyFromSeed(seed));
+    const acct = Object.freeze({ ...w.accounts[0], chains: ['solana:devnet'] });
+    const wallet = { ...w, name: 'Test Wallet (devnet, offline)', chains: ['solana:devnet'], accounts: [acct],
+      features: { ...w.features, 'standard:connect': { version: '1.0.0', connect: async () => ({ accounts: [acct] }) } } };
+    window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', { detail: api => api.register(wallet) }));
+  }, SEED);
+  s = await until('the page reads the devnet season and verifies devnet play', x => x.devnetPlay && x.walletList.some(w => w.name.startsWith('Test Wallet') && !w.why), { secs: 120, note: x => ({ cluster: x.cluster, devnetPlay: x.devnetPlay, wallets: x.walletList }) });
+  log('devnet play', s.devnetPlay, 'wide', s.devnetWide, 'cluster', s.cluster);
+  if (attempt === 0) await shot('devnet-season-before-connect');
+  await act('connect', { i: String(s.walletList.findIndex(w => w.name.startsWith('Test Wallet'))) });
+  s = await until('the wallet is connected', x => !!x.wallet, { secs: 60 });
+  log('wallet', s.wallet);
+  // The nation, then the page's own first-village choice (outward: an opened rim province of that nation).
+  await page.getByText(/^(国を選ぶ|Choose a nation)$/).first().click({ timeout: 8000 }).catch(() => log('no 国を選ぶ button (continuing)'));
+  await wait(1000);
+  await act('pick-faction', { f: String(NATION) });
+  s = await until('the home planner offers a rim site', x => x.homeChoice?.sel, { secs: 180, note: x => x.homeChoice });
+  if (ringOf(s.homeChoice.sel.p, s.homeChoice.sel.q) >= 126 || attempt >= 4) break;
+  log('home choice in the heartland: loading the page again', s.homeChoice.sel);
+  await wait(15000);
+}
+log('home choice', s.homeChoice, 'devnetWide', s.devnetWide, 'ring', ringOf(s.homeChoice.sel.p, s.homeChoice.sel.q));
 await shot('home-choice-rim');
+// rent-live-rest: the village ticket's escrow preview as the details render it (「村の申し込みの預け金（いま要る額）」), once the
+// page has the cluster's rent from its gateway route; the test compares it with the lamports the FileTicket debits.
+const rentRead = async () => ev(async () => {
+  const { FS } = await import('/frontier/frontier/fstate.mjs');
+  const app = await import('/frontier/frontier/app.mjs'); const U = await import('/frontier/util.mjs');
+  const R = await import('/frontier/frontier/frent.mjs'); const Ld = await import('/frontier/frontier/fland.mjs');
+  const d = document.createElement('div'); U.setHtml(d, app.detailsMarkup(FS));
+  const tag = d.querySelector('[data-rent-source]'), dd = tag?.closest('dd');
+  const shown = dd ? (dd.textContent.match(/^\s*([0-9,]+)/)?.[1] ?? '').replace(/,/g, '') : null;
+  const r = R.rentNow(FS.rent);
+  return { source: tag?.dataset.rentSource ?? null, perByte: r.perByte === null ? null : String(r.perByte), holdingRent: String(r.holdingRent), error: FS.rent?.error ?? null,
+    shownLamports: shown, computed: String(Ld.escrowNeededAt(FS.land, R.holdingRentNow(FS.rent), FS.citizen?.slots)), text: dd?.textContent?.trim() ?? null, citizen: !!FS.citizen };
+});
+let rentSeen = await rentRead();
+for (let i = 0; i < 90 && rentSeen.source !== 'cluster'; i++) { await wait(1000); rentSeen = await rentRead(); }
+log('escrow preview (details)', rentSeen);
+fs.writeFileSync(path.join(SYNC, 'escrow-preview.json'), JSON.stringify(rentSeen, null, 2));
 const confirm = page.locator('button[data-act="home-confirm"]:visible').first();
 if (await confirm.count()) { log('pressing', await confirm.innerText().catch(() => '?')); await confirm.click({ timeout: 8000 }); } else { log('no visible confirm: pressing home-confirm'); await act('home-confirm'); }
 await wait(4000);

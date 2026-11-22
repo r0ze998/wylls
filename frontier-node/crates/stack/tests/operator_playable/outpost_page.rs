@@ -472,6 +472,56 @@ pub(super) async fn flow(
         rent + 5_000,
         "the wallet paid one Holding rent (escrow) + the fee"
     );
+    // rent-live-rest: the village ticket's escrow preview (the details row, at the cluster's rent the page read from
+    // its gateway route) is exactly what the rim FileTicket moved from the wallet besides its fee — at this chain's
+    // rate (5,080 or 6,960, OPERATOR_LAMPORTS_PER_BYTE).
+    let escrow_preview: Value = std::fs::read_to_string(sync.join("escrow-preview.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null);
+    let chain_rate = r.lock().svm.minimum_balance_for_rent_exemption(0) / 128;
+    assert_eq!(
+        escrow_preview["source"], "cluster",
+        "the page read the cluster's rent: {escrow_preview}"
+    );
+    assert_eq!(
+        escrow_preview["perByte"]
+            .as_str()
+            .and_then(|x| x.parse::<u64>().ok()),
+        Some(chain_rate),
+        "the page's rate is the chain's: {escrow_preview}"
+    );
+    assert_eq!(
+        escrow_preview["shownLamports"], escrow_preview["computed"],
+        "{escrow_preview}"
+    );
+    let shown_escrow = escrow_preview["shownLamports"]
+        .as_str()
+        .and_then(|x| x.parse::<u64>().ok())
+        .expect("the details show the escrow");
+    assert_eq!(
+        shown_escrow, rent,
+        "before Join: one Holding rent at the chain's rate"
+    );
+    // (the first village: the rim FileTicket moves the escrow into the Citizen; the heartland fallback PlaceHome pays
+    //  the same one Holding rent for the village it makes — either is the previewed figure plus the fee)
+    let first_tx = page_txs.iter().find(|x| {
+        (x["tag"] == fclient::abi::tag::FILE_TICKET || x["tag"] == fclient::abi::tag::PLACE_HOME)
+            && x["ok"] == true
+    });
+    let ticket_check = {
+        let t = first_tx.expect("the page's first-village command landed");
+        let from_wallet = t["lamports_from_wallet"].as_u64().unwrap();
+        let fee = t["fee"].as_u64().unwrap();
+        assert_eq!(
+            from_wallet,
+            shown_escrow + fee,
+            "the first village moved exactly the previewed Holding rent (+ its fee): {t}"
+        );
+        json!({"command": if t["tag"] == fclient::abi::tag::FILE_TICKET { "FileTicket" } else { "PlaceHome" },
+               "lamports_from_wallet": from_wallet, "fee": fee, "rent_debited": from_wallet - fee,
+               "rent_previewed": shown_escrow, "equal": true})
+    };
     if let Some(total) = filed_info["preview"]["totalLamports"].as_str() {
         assert_eq!(
             total.parse::<u64>().unwrap(),
@@ -517,6 +567,8 @@ pub(super) async fn flow(
         "outpost": {"p": op, "q": oq, "site": os, "ring": oc.ring(), "distance": home.distance(oc), "ticket_bell": outpost_bell,
                     "in_a_province_opened_here": targets.contains(&oc), "wallet_lamports": paid, "holding_rent": rent},
         "page_filed": filed_info, "second_village_used": used, "keeper_settle_ticket": settle,
+        "rent": {"chain_lamports_per_byte": chain_rate, "escrow_preview": escrow_preview, "file_ticket": ticket_check,
+                 "outpost_preview_total": filed_info["preview"]["totalLamports"], "outpost_paid": paid},
         "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "setup": extra,
     })
 }

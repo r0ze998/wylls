@@ -200,7 +200,8 @@ import { forecast, forecastKey, compareStances, compareKey, COMPARE_RUNS } from 
 import { modelForecast } from './hud/forecastmodel.mjs';
 import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { mountRadioKeys } from './hud/radiokeys.mjs';
-import { BUILD_ITEMS, buildItemOf, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
+import { BUILD_ITEMS, buildItemOf, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem, escrowNeededAt } from './fland.mjs';
+import { holdingRentNow, rentNow, rentSource } from './frent.mjs';
 import { UNIT_KINDS } from './people/units.mjs';
 import { momentSnapshot, detectMoments, liveMoments } from './people/moments.mjs';
 import * as pins from './hud/pins.mjs';
@@ -379,6 +380,16 @@ function settingsMarkup(FS) {
 }
 
 /**
+ * rent-live-rest: what the ticket escrow figure is computed from — the cluster's rent (its gateway route answered), or
+ * the 5,080 MODEL, said to be one (frent.mjs). Never a model shown as the cluster's word.
+ */
+export function rentNote(r) {
+  const n = rentNow(r);
+  if (n.source === 'cluster') return n.perByte === null ? L`（クラスターが答えた家賃で計算）` : L`（クラスターの家賃 ${fmtNum(Number(n.perByte))} ランポート/バイトで計算）`;
+  return L`（目安：家賃をクラスターから読めていないため、${fmtNum(Number(n.perByte))} ランポート/バイトと仮定した額です）`;
+}
+
+/**
  * "More → details": what a player does not need on the play screen but may want to check — the
  * season's state and its beacon, the turn sheet (each turn's pipeline, the sponsored actions left),
  * how a turn's work gets done (the keepers), the rules module, what a march costs (the relay fronts
@@ -395,7 +406,7 @@ export function detailsMarkup(FS) {
       ${row(L`シーズン`, status)}
       ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
       ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
-      ${FS.land ? row(L`村の申し込みの預け金（いま要る額）`, lamports(FS.land.escrowNeeded ?? 0n)) : ''}
+      ${FS.land ? row(L`村の申し込みの預け金（いま要る額）`, html`${lamports(escrowNeededAt(FS.land, holdingRentNow(FS.rent), FS.citizen?.slots))} <span class="muted" data-rent-source="${rentSource(FS.rent)}">${rentNote(FS.rent)}</span>`) : ''}
     </dl>
     ${bellScreen.render(FS, { bare: true })}
     <p class="muted">${L`封を開ける、衝突を決着させる、結果を届ける。こうした手続きは、ターンごとに自動の係（キーパー）が代わりに行います。チップはその報酬です。`}</p>

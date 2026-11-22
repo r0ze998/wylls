@@ -530,7 +530,7 @@ pub fn run(cx: &mut Ctx) {
                         x.max_units,
                         x.expires_ts,
                         tx.time,
-                    ) || x.rent != frontier_abi::layout::rent(G::SIZE)
+                    ) || x.rent != crate::rent::rent_for(input, G::SIZE)
                     {
                         rule(cx, "terms or rent the program refuses".into());
                         continue;
