@@ -6,6 +6,8 @@
 //
 //   POST /f/devnet-play/act/context  {schema: …-info-v1}                    → the lane this gateway serves (a read of config)
 //                                    {schema: …-context-v1, wallet}         → {wallet, blockhash} (one getLatestBlockhash)
+//                                    {schema: frontier-play-rent-context-v1} → the cluster's rent of one Holding
+//                                                                              (rent-live-rest, web/frontier/frent.mjs)
 //   POST /f/devnet-play/act/submit   {schema: …-submit-v1, name, subject, fields, transaction_b64}
 //   POST /f/devnet-play/act/status   {schema: …-status-v1, signature}       → the chain's word on a signature it sent
 //
@@ -72,6 +74,7 @@ import { LocalMarchError, localMarchAccountOf, localMarchAccountsCheck, localMar
 import { OUTPOST_ACT, OUTPOST_HOLDING_BYTES } from '../../../permutation-server/web/frontier/fdevnet-outpost.mjs';
 import { WIDE_VILLAGE_ACTS, WIDE_ROSTER_BYTES, wideVillageAccounts } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
 import { worldIdOf, ringPosition } from '../../../permutation-server/web/frontier/map/wide.mjs';
+import { RENT_CONTEXT_SCHEMA, clusterRentAnswer } from '../../../permutation-server/web/frontier/frent.mjs';
 
 /** The commands a devnet page sends itself (the first village, its economy, the wide claim). */
 // (devnet-page-outpost: and FileOutpost, the second and third village)
@@ -214,6 +217,9 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
     async context(body) {
       if (exact(body, ['schema']) && body.schema === DEVNET_ACT_INFO_SCHEMA) return this.info();
       if (body?.schema === DEVNET_WIDE_VILLAGE_CONTEXT_SCHEMA) return wideVillageContext(body);
+      // (rent-live-rest: the cluster's rent of one Holding — the village ticket's escrow — for the page's preview;
+      //  one getMinimumBalanceForRentExemption, nothing kept: web/frontier/frent.mjs)
+      if (exact(body, ['schema']) && body.schema === RENT_CONTEXT_SCHEMA) return clusterRentAnswer(ask, () => fail('LocalActRpcUnavailable'));
       check(exact(body, ['schema', 'wallet']) && [DEVNET_ACT_CONTEXT_SCHEMA, DEVNET_EXPEDITION_CONTEXT_SCHEMA, DEVNET_OUTPOST_CONTEXT_SCHEMA].includes(body.schema) && address(body.wallet));
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);
       const v = r.result?.value, slot = r.result?.context?.slot;

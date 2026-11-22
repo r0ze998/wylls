@@ -153,6 +153,12 @@ fn claim_ix(a: &Addresses, payer: &Address, p: i16, q: i16, site: u8) -> Instruc
 /// The natural season of `so` in the in-process chain (the recorder's
 /// steps): the chain, the program id and the upgrade authority.
 fn build_natural(so: &[u8]) -> (Rec, Address, Keypair, u64) {
+    build_natural_at(so, localnet::chain::LAMPORTS_PER_BYTE)
+}
+
+/// [`build_natural`] on a chain charging `lamports_per_byte` (rent-live-rest:
+/// 6,960, the pre-SIMD-0194 rate, as well as the local node's 5,080).
+fn build_natural_at(so: &[u8], lamports_per_byte: u64) -> (Rec, Address, Keypair, u64) {
     assert_eq!(localnet::bls_and_sbpf_v2_active(), (true, true));
 
     // The genesis round: a REAL quicknet round the workspace ships.
@@ -179,6 +185,7 @@ fn build_natural(so: &[u8]) -> (Rec, Address, Keypair, u64) {
         g0,
         allow_tamper: false,
         data_dir: None,
+        lamports_per_byte,
         ..localnet::Config::default()
     });
     let upgrade = Keypair::new_from_array([0xA1; 32]);
@@ -420,6 +427,20 @@ fn build_natural(so: &[u8]) -> (Rec, Address, Keypair, u64) {
 #[test]
 #[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 ec511123… or da3dc1aa…), run with --ignored"]
 fn record_playable_lane_natural() {
+    record_natural(localnet::chain::LAMPORTS_PER_BYTE);
+}
+
+/// rent-live-rest: the same natural season on a chain charging 6,960
+/// lamports per byte, with the chain's Rent sysvar recorded beside it
+/// (`playable-lane-genesis-6960.json.gz`, `PLAYABLE_DUMP=…`; the committed
+/// da3dc1aa `.so` serves as `PSF_PLAYABLE_SO` after gunzip).
+#[test]
+#[ignore = "needs the devnet-playable .so: set PSF_PLAYABLE_SO (sha256 ec511123… or da3dc1aa…), run with --ignored"]
+fn record_playable_lane_natural_6960() {
+    record_natural(6_960);
+}
+
+fn record_natural(lamports_per_byte: u64) {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
     let so_hash = common::sha2_256(&so);
@@ -427,7 +448,13 @@ fn record_playable_lane_natural() {
         [PLAYABLE_SHA256, MAIN_SHA256].contains(&hex::encode(so_hash).as_str()),
         "not the devnet-playable build"
     );
-    let (r, program, upgrade, round) = build_natural(&so);
+    let (r, program, upgrade, round) = build_natural_at(&so, lamports_per_byte);
+    // rent-live-rest: the chain's own Rent sysvar, as an RPC serves it.
+    let rent_key = fclient::rent::rent_sysvar();
+    let rent_acc = r.c.account(&rent_key).expect("the chain's Rent sysvar");
+    let rent = verify_core::input::RentRead::from_chain(&rent_acc.data, r.c.slot())
+        .expect("a Rent sysvar");
+    assert_eq!(rent.lamports_per_byte(), Some(lamports_per_byte));
     let a = r.a.clone();
     let _ = &a;
     // The archive: every program transaction, the post-states of program
@@ -451,6 +478,7 @@ fn record_playable_lane_natural() {
             .collect(),
         upgrade_authority: Some(upgrade.pubkey()),
         cross: None,
+        rent: Some(rent),
     };
     let mut owned = std::collections::BTreeSet::new();
     for t in txs.iter_mut() {
@@ -483,7 +511,7 @@ fn record_playable_lane_natural() {
         final_slot: r.c.slot(),
         program_hashes: vec![(0, so_hash)],
         provenance: format!(
-            "verify/tests/playable_lane.rs record_playable_lane_natural: the devnet-playable .so (sha256 {}) in localnet::Chain (LiteSVM, in process), a real season by its own instructions at program version 0x4804, genesis on the shipped real quicknet round {round}; steps: {}",
+            "verify/tests/playable_lane.rs record_playable_lane_natural: the devnet-playable .so (sha256 {}) in localnet::Chain (LiteSVM, in process) at {lamports_per_byte} lamports per byte, a real season by its own instructions at program version 0x4804, genesis on the shipped real quicknet round {round}; steps: {}",
             hex::encode(so_hash),
             r.log.join("; ")
         ),
@@ -880,21 +908,34 @@ fn a_witness_under_the_hull_rule_is_judged_by_its_pda() {
 #[test]
 #[ignore = "binds 127.0.0.1:41510-41511 (VG_LIVE_PORT) and signs the recorder's test transactions; run with --ignored"]
 fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
+    live_genesis_replay(localnet::chain::LAMPORTS_PER_BYTE, "VG_LIVE_PORT", 41_510);
+}
+
+/// rent-live-rest: the same over a live node charging 6,960 lamports per
+/// byte — the verifier reads the node's Rent sysvar with the final states
+/// and re-executes under it; under the assumed 5,080 the same read FAILs.
+#[test]
+#[ignore = "binds 127.0.0.1:41512-41513 (VG_RENT_LIVE_PORT) and signs the recorder's test transactions; run with --ignored"]
+fn a_live_6960_node_is_re_executed_under_its_own_rent_sysvar() {
+    live_genesis_replay(6_960, "VG_RENT_LIVE_PORT", 41_512);
+}
+
+fn live_genesis_replay(lamports_per_byte: u64, port_var: &str, default_port: u16) {
     let so = verify_core::reexec::Program::load(
         &common::fixtures_dir().join("devnet-playable-da3dc1aa.so.gz"),
     )
     .expect("the committed .so");
-    let (r, program, upgrade, _) = build_natural(&so.so);
+    let (r, program, upgrade, _) = build_natural_at(&so.so, lamports_per_byte);
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap();
     let state = std::sync::Arc::new(std::sync::Mutex::new(r.c));
-    // (the run's port range 41500–41549; `VG_LIVE_PORT` to move it)
-    let port: u16 = std::env::var("VG_LIVE_PORT")
+    // (the run's port range 41500–41549; `VG_LIVE_PORT` / `VG_RENT_LIVE_PORT` to move it)
+    let port: u16 = std::env::var(port_var)
         .ok()
         .and_then(|p| p.parse().ok())
-        .unwrap_or(41_510);
+        .unwrap_or(default_port);
     let node = rt
         .block_on(localnet::server::start(state, port))
         .expect("the port free");
@@ -912,11 +953,18 @@ fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
     let (finals, final_slot) = rt
         .block_on(verify_core::input::fetch_finals(&url, &keys))
         .expect("finals");
-    let chain = rt
+    let mut chain = rt
         .block_on(verify_core::input::fetch_chain(&url, &program, &txs))
         .expect("balances");
     assert_eq!(chain.upgrade_authority, Some(upgrade.pubkey()));
     assert_eq!(chain.balances.len(), txs.len());
+    // rent-live-rest: the node's Rent sysvar, read at the final states' slot (as frontier-verify --rpc does)
+    let rent = rt
+        .block_on(verify_core::input::fetch_rent(&url, final_slot))
+        .expect("the node's Rent sysvar");
+    assert!(!rent.declared);
+    assert_eq!(rent.lamports_per_byte(), Some(lamports_per_byte));
+    chain.rent = Some(rent);
     let (_, h) = rt
         .block_on(verify_core::input::program_hash(&url, &program))
         .expect("the deployed hash");
@@ -973,10 +1021,28 @@ fn a_live_local_node_read_as_public_rpc_is_re_executed_from_genesis() {
         show(&rep)
     );
     assert_eq!(rep.verdict, Verdict::Unverifiable);
+    assert_eq!(rep.rent.as_ref().unwrap()["source"], "chain");
+    assert_eq!(
+        rep.rent.as_ref().unwrap()["lamports_per_byte"],
+        lamports_per_byte
+    );
     // The same archive as a fixture whose history the recorder vouches for: PASS.
     input.history = Default::default();
     let rep = verify_core::verify(&input);
     assert_eq!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+    // Without the node's rent the re-execution assumes 5,080: exact only on a 5,080 node.
+    input.chain.rent = None;
+    let rep = verify_core::verify(&input);
+    assert_eq!(rep.rent.as_ref().unwrap()["source"], "assumed");
+    if lamports_per_byte == localnet::chain::LAMPORTS_PER_BYTE {
+        assert_eq!(rep.verdict, Verdict::Pass, "{:#?}", show(&rep));
+    } else {
+        assert_eq!(rep.verdict, Verdict::Fail, "{:#?}", show(&rep));
+        assert!(rep
+            .findings
+            .iter()
+            .any(|f| f.code == verify_core::codes::RENT_ASSUMED));
+    }
 }
 
 // ------------------------------------------- VS over two live local nodes

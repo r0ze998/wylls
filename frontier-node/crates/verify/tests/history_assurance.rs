@@ -200,6 +200,7 @@ fn report() -> Report {
         checks_run: vec!["V1"],
         provenance: String::new(),
         history: None,
+        rent: None,
     }
 }
 

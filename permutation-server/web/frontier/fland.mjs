@@ -197,7 +197,9 @@ const isZeroRef = r => !r || (r.p === 0 && r.q === 0 && r.site === 0 && r.gen ==
  *   stage 'none' (no Citizen) | 'joined' (no ticket, no holding) | 'ticket'
  *   (open ticket) | 'provisional' | 'final' | 'refugee'
  * `escrowNeeded`: lamports the next FileTicket moves into the Citizen
- * (rent of a Holding minus the escrow already held; refunded to its funder).
+ * (rent of a Holding minus the escrow already held; refunded to its funder),
+ * at the 5,080 MODEL rent; what the page SHOWS is `escrowNeededAt(land, holdingRentNow(FS.rent))` (frent.mjs: the
+ * cluster's rent when it answered, else the model, labelled — rent-live-rest).
  */
 export function landState(citizen) {
   const holdingRent = rent(ACCOUNTS.Holding.size);
@@ -214,6 +216,20 @@ export function landState(citizen) {
   else if (open) stage = 'ticket';
   else if (citizen.flags & CITIZEN.REFUGEE) stage = 'refugee';
   return { stage, ticket, holding, escrow, escrowNeeded };
+}
+
+/**
+ * What the next FileTicket moves into the Citizen at `holdingRent` (the cluster's rent of one Holding): the program's
+ * `escrow_need` (proc/citizen.rs: one Holding rent for the ticket plus one per capture reservation, Citizen `slots`
+ * bits 2 and 3) minus the escrow already held, never below 0. Every reservation bit is counted (as fdevnet-outpost.mjs
+ * `outpostCost`; the wide build counts only the legacy ones), so with a reservation it is an upper bound.
+ */
+export const ESCROW_SLOTS_RESERVED = 0x0c;
+export function escrowNeededAt(land, holdingRent, slots = 0) {
+  let bits = Number(slots ?? 0) & ESCROW_SLOTS_RESERVED, reserved = 0n;
+  for (; bits; bits &= bits - 1) reserved += 1n;
+  const need = BigInt(holdingRent) * (1n + reserved), held = BigInt(land?.escrow ?? 0n);
+  return held >= need ? 0n : need - held;
 }
 
 /**

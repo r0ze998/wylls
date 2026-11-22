@@ -50,6 +50,7 @@ pub mod input;
 /// Re-execution of an archived transaction by the pinned program (VX).
 #[cfg(feature = "playable-lane")]
 pub mod reexec;
+pub mod rent;
 pub mod report;
 pub mod resident_feed;
 pub mod skip;
@@ -223,6 +224,10 @@ pub struct Report {
     /// Where the transactions came from and whether that shows them to be
     /// the whole history ([`history::History::report`]); set by [`verify`].
     pub history: Option<Value>,
+    /// The rent VX / VG re-executed under and its source (`chain`,
+    /// `declared`, `assumed`), when the pinned binary was given; set by
+    /// [`verify`] (rent-live-rest).
+    pub rent: Option<Value>,
 }
 
 impl Report {
@@ -290,7 +295,7 @@ pub fn verify(input: &Input) -> Report {
         r.findings.extend(wf);
         settle(&mut r);
     }
-    history::apply_with(
+    let mut r = history::apply_with(
         &input.history,
         r,
         &history::Lift {
@@ -298,7 +303,47 @@ pub fn verify(input: &Input) -> Report {
             vg_fails,
             witness: outcome,
         },
-    )
+    );
+    rent_note(input, &mut r);
+    r
+}
+
+/// rent-live-rest: the report states the rent VX / VG re-executed under,
+/// and a re-execution mismatch at an ASSUMED rate carries a WARN saying so
+/// (the verdict is unchanged: never a silent constant, never a lifted FAIL).
+fn rent_note(input: &Input, r: &mut Report) {
+    if input.program_so.is_none() {
+        return;
+    }
+    let (rent, basis) = rent::rent_of(input);
+    let read = input.chain.rent.as_ref();
+    r.rent = Some(serde_json::json!({
+        "source": basis.name(),
+        "lamports_per_byte": rent::rent_per_byte(&rent),
+        "lamports_per_byte_year": rent.lamports_per_byte_year,
+        "exemption_threshold": rent.exemption_threshold,
+        "burn_percent": rent.burn_percent,
+        "slot": read.and_then(|x| x.slot),
+    }));
+    let reexec_mismatch = r
+        .findings
+        .iter()
+        .any(|f| matches!(f.check, "VX" | "VG") && f.severity != Severity::Warn);
+    if basis == rent::RentBasis::Assumed && reexec_mismatch {
+        r.findings.push(Finding {
+            code: codes::RENT_ASSUMED.into(),
+            severity: Severity::Warn,
+            check: "VX",
+            entity: "rent".into(),
+            bell: 0,
+            signature: String::new(),
+            detail: format!(
+                "VX/VG re-executed at the ASSUMED {} lamports per byte: no Rent sysvar was read and none was declared, so a mismatch above may come from another rate (re-run with --rpc, a finals file carrying `rent`, or --lamports-per-byte)",
+                rent::LAMPORTS_PER_BYTE
+            ),
+        });
+        r.findings.sort_by_key(|x| std::cmp::Reverse(x.severity));
+    }
 }
 
 /// The verdict from the findings: FAIL on any FAIL, else never better

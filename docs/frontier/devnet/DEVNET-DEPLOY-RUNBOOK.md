@@ -262,11 +262,11 @@ devnet. Fees are the 5,000-lamport signature fee unless the keeper bids a priori
 | Step (who sends it: the page, with the player's wallet) | Lamports at 5,080 | at 6,960 (computed) | What it is |
 |---|---|---|---|
 | Join | 2,605,960 | 3,568,520 | fee + the Citizen's rent (384 B) |
-| First village: PlaceHome (heartland) or the rim FileTicket | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B) |
+| First village: PlaceHome (heartland) or the rim FileTicket | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); the rim FileTicket at both rates **measured offline** (PPOST, rent-live-rest: the page's escrow preview = the wallet's debit − the fee, at 5,080 and at 6,960) |
 | Harvest, Build, Train, Muster | 5,000 each | 5,000 each | fee |
 | Depart (one sealed march; the return home is another Depart) | 50,394 | not computed | fee + the escrowed tip and seal bond, settled by the program |
 | WideClaimSite (one wide village) | 9,108,360 | 12,477,320 | fee + the ticket record's rent and escrow (1,792 B) |
-| FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit |
+| FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit (rent-live-rest: also at 6,960, measured offline) |
 | ExpeditionDepart (rim → wide; the page sends it on devnet, §7 P15) | 2,407,514 | not computed | fee (5,000) + the escrowed tip and bond (45,394) + the rent of the 336-byte transit record (2,357,120) |
 | **Join → rim village → 10 Harvests → wide claim** (#110, verify-pr110) | **18,921,960 (0.0189 SOL)** | 25,900,520 (0.0259) | |
 | **Join → rim village → 5 Harvests → Muster → one march** (#118, verify-pr118) | **9,843,994 (0.0098 SOL)** | not computed | |
@@ -648,7 +648,7 @@ list; the table after it keeps each item's detail.
 | R3 | SIMD-0500 (inactive on 2026-11-18) would refuse a deploy or upgrade of this SBPF v2 `.so` once active (§3) | risk | re-check right before the deploy |
 | P17 | **The wide village's own acts on the devnet page** (devnet-p17). The page's wide village screen has the card 「この遠方の村への命令」 on a devnet season: WideHarvest, WideBuild (items 0–7; walls and the tier-up name the province writable), WideTrain and WideMuster (0xDA op 3 / op 1), each two presses — the SOL preview (the fee; on the province's FIRST muster also the rent of its 3,248-byte wide roster, the gateway's `getMinimumBalanceForRentExemption`) and ONE wallet-signed send through `/gw/f/devnet-play/act/submit` (`DEVNET_ACT_COMMANDS`; the gateway reads the wide holding — this program's, this Season's, the wallet Citizen's — and its province before the send) — then the result read back from the village's next record. WideGarrison and WideDepart are not offered (WideDepart stays `NotImplemented` in the devnet build). Before this, only local play sent WideTrain/WideMuster/WideDepart (`flocalplay-wide-host.mjs`, the TEST host card); nothing sent a wide Harvest, Build or Garrison from a page. WideMuster still needs the province resolved to the previous bell (keeper A's `wide-resolve`, P9); offline proof P17 (operator_playable, `DEVNET_PAGE_DRIVER=1`) declares that cursor as P6 does | engineering | **closed by devnet-p17** (draft PR); the devnet `.so` 67a33c92 unchanged |
 | C1 | Keeper A's fees outside §4a's total: `wide-resolve` (64,331 lamports a bell and known wide province; its 600,000 CU limit is about 7× a quiet Resolve's 84,000 CU, so a lower limit would cut the fee to about a quarter, a behaviour change proposed by verify-pr129, not made) and SkipQuiet over provinces opened on demand (#138) | engineering (optional) | §4b; budget +3 to +10 SOL |
-| F1 | Keeper A's on-demand fund floor is compiled for 5,080 lamports per byte (`RENT_PER_BYTE`; `rings.rs` `demand_fund_floor`), the program charges the cluster's Rent sysvar: at another rate the floor is wrong (§6; at 6,960 too low, so on-demand opens could starve OpenRing and the wide rings) | engineering | **closed by keeper-rent-floor (#147)**: keeper A reads the Rent sysvar for the floor, each open's rent and the crowding OpenRing check; rate unknown or > 1 h stale → no on-demand opens / crowding rings + `rent-unknown` alert (offline proof PFLOOR at 5,080 and 6,960). Still at 5,080: the page's own cost previews (`sdk/frontier/fees.mjs`) and the verifier's re-execution (`verify/src/reexec.rs`) |
+| F1 | Keeper A's on-demand fund floor is compiled for 5,080 lamports per byte (`RENT_PER_BYTE`; `rings.rs` `demand_fund_floor`), the program charges the cluster's Rent sysvar: at another rate the floor is wrong (§6; at 6,960 too low, so on-demand opens could starve OpenRing and the wide rings) | engineering | **closed by keeper-rent-floor (#147)**: keeper A reads the Rent sysvar for the floor, each open's rent and the crowding OpenRing check; rate unknown or > 1 h stale → no on-demand opens / crowding rings + `rent-unknown` alert (offline proof PFLOOR at 5,080 and 6,960). The page's and the verifier's leftovers closed by rent-live-rest: the page's village-ticket escrow preview reads the cluster's rent through its gateway route (`web/frontier/frent.mjs`, cached 10 min, labelled 「目安」 with the 5,080 model until a cluster answers; the FileOutpost and boundary-departure previews already asked the cluster per send), and `frontier-verify` re-executes (VX / VG) under the Rent sysvar it reads with the final states over `--rpc`, a finals file's or fixture's `rent`, or `--lamports-per-byte`; with none it assumes 5,080 and its report says `assumed` (offline proofs: PPOST at 5,080 and 6,960, preview = debit; `verify/tests/playable_rent.rs`). Still at 5,080: the sponsored relay's drain-guard allowances (`gateway/src/frontier/shapes.mjs`, local / sponsored only: the devnet path is wallet-paid) |
 | T1 | CI coverage: P14 (conquest reader) runs on the previous `.so` and in the manual key-tests only; P8's `AFTER_BELLS` is still 48 (< 72, so no capture in CI); the P12/PPOST/P7 page drivers race the declared map growth under load (D-devnet-page-outpost-3, D-verify-pr139-5) | engineering | open |
 
 A playable first season does not need any open engineering item above: Join, the rim village, second and third
@@ -663,8 +663,8 @@ are merged). What r0ze still has to do is the deploy-day list below; W1 matters 
 2. Approve one read-only devnet re-check right before (§3: rent rate, BLS, SBPF v2, SIMD-0500). If the rent rate is
    not 5,080: re-run the planner at the measured rate (`scripts/devnet/dry-run.mjs … --rate <rate>`) and fund the
    deployer, authority and keeper A from its totals (§4); keeper A's fund floor follows the rate by itself (F1 closed),
-   but at a higher rate far fewer provinces open on demand (§6: about 23 at 6,960), the page's own SOL previews are
-   low by the ratio of the rates, and the verifier's re-execution assumes 5,080 (F1 row) — r0ze decides go / no-go.
+   but at a higher rate far fewer provinces open on demand (§6: about 23 at 6,960); the page's SOL previews and the
+   verifier's re-execution follow the cluster's rent too (F1 row, rent-live-rest) — r0ze decides go / no-go.
    After keeper A starts, check `GET /v1/status` `duties.rent`: `lamports_per_byte` = the measured rate and
    `usable` true (and no `rent-unknown` alert).
 3. Install a Solana CLI ≥ 4.0.0 beside 3.1.9 (3.1.9 cannot deploy this `.so`; §1a).
@@ -849,7 +849,9 @@ Notes on what is **not** tested as written:
 - `frontier-verify`'s line is the shape of #123's read-only runs on foreign programs (`--rpc`, `--witness`,
   `--balances`) with the lane's `--ruleset` (the Season's hash; the default is the build's own S1 one),
   `--program-hash` and `--program-so`, read from `verify/src/main.rs`; that combination has not been run on a
-  public RPC. A PASS needs the witness to serve the whole season (§7.0 W1); without one the answer is
+  public RPC. With `--rpc` it also reads the Rent sysvar at the final states' slot and re-executes under it (stderr
+  and the report's `rent` say `chain`); if that read fails, add `--lamports-per-byte <the §3 rate>` (`declared`),
+  else the report says `assumed` (5,080). A PASS needs the witness to serve the whole season (§7.0 W1); without one the answer is
   UNVERIFIABLE, never PASS.
 - The season timeline on devnet's clock: the 24 h announce lead; about 21 min to the genesis seed; about 21 h of
   map growth (one ring per 10-minute bell) to ring 128, when rim villages become possible; one more bell per wide

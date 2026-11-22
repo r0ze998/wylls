@@ -32,6 +32,7 @@ import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs
 import { COEXIST_ACTS, RIGHTS_ACTS, RIGHTS_WALLET_ONLY, rightsIntent, rightsMessage, grantOfIntent, decodeGrant } from '../../../permutation-server/web/frontier/flocalplay-rights.mjs';
 import { COEXIST_LANE } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { OUTPOST_ACT, outpostIntent, outpostMessage } from '../../../permutation-server/web/frontier/fdevnet-outpost.mjs';
+import { RENT_CONTEXT_SCHEMA, clusterRentAnswer } from '../../../permutation-server/web/frontier/frent.mjs';
 
 // (TEST-ONLY wide play, owner t379u: the seventh, the wide claim 0xD9, built by the page's own flocalplay-wide.mjs)
 // (and FileTicket, one site: a first village on the rim of a local wide world, where PlaceHome cannot reach)
@@ -262,6 +263,8 @@ export function localActSubmit(body, pins, { schema = LOCAL_ACT_SUBMIT_SCHEMA, o
 //
 //   POST /f/local-play/act/context   {schema}                                  → a blockhash to build on (a read)
 //                                    {schema: …-instance-v1}                    → {wallet, instance} (a read; see below)
+//                                    {schema: frontier-play-rent-context-v1}    → the runner's rent of one Holding (a read;
+//                                                                                 rent-live-rest, web/frontier/frent.mjs)
 //   POST /f/local-play/act/submit    {schema, name, subject, fields, transaction_b64}
 //   POST /f/local-play/act/status    {schema, signature}
 //
@@ -475,6 +478,13 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== body.addresses.length) fail('LocalActRpcUnavailable');
         return { schema: LOCAL_ACT_WIDE_READ_SCHEMA, context_slot: String(slot),
           accounts: rows.map(row => { const a = accountOf(row); return a !== null && a.owner === pins.program ? { data_b64: Buffer.from(a.bytes).toString('base64') } : null; }) };
+      }
+      // (rent-live-rest: the runner's rent of one Holding — the village ticket's escrow — for the page's preview; one
+      //  getMinimumBalanceForRentExemption, nothing kept or sent: web/frontier/frent.mjs)
+      if (exact(body, ['schema']) && body.schema === RENT_CONTEXT_SCHEMA) {
+        const out = await clusterRentAnswer(ask, () => fail('LocalActRpcUnavailable'));
+        open();
+        return out;
       }
       check(exact(body, ['schema']) && body.schema === LOCAL_ACT_CONTEXT_SCHEMA);
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);

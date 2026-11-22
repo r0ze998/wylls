@@ -175,6 +175,7 @@ fn report(verdict: Verdict, findings: Vec<Finding>) -> Report {
         checks_run: vec!["V1"],
         provenance: String::new(),
         history: None,
+        rent: None,
     }
 }
 
