@@ -34,7 +34,7 @@ public server adds is attribution, quotas and a smaller surface, not secrecy.
 
 | Surface | Model | Why |
 |---|---|---|
-| P | **Per-agent API keys** (`Authorization: Bearer wylls_pk_<id>_<secret>`). The key file stores only SHA-256 hashes (0600, atomic writes); a token is shown once. Each key has the scope `wylls.public` only, an optional tool list, optional own rate and daily quota, an expiry and a revocation time; the server re-reads the file within ~5 s, so revocation needs no restart; a broken or widened file is refused and the keys loaded before stay; a key file that
+| P | **Per-agent API keys** (`Authorization: Bearer wylls_pk_<id>_<secret>`). The key file stores only SHA-256 hashes (0600, atomic writes); a token is shown once. Each key has the scope `wylls.public` only, an optional tool list, optional own rate and daily quota, an expiry and a revocation time; the server re-reads the file within ~5 s, so revocation needs no restart; a changed file that is broken (not JSON, a bad entry, a key with a scope other than `wylls.public`) is refused and the keys loaded before stay; a file readable by group or others is refused **at start only**: when its mode is widened while the server runs, the next re-read logs a warning and still accepts it (`api-keys.mjs` `#load`; security audit D-security-audit-5); a key file that
 is deleted or moved away accepts **no** key until it is back (fail closed, verify-pr114). | Attribution and per-agent limits for headless agents that cannot do a browser OAuth flow (github-mcp-server's PAT + toolsets model). A key is not authority: it unlocks only public data. |
 | P, anonymous | Off by default (`WYLLS_MCP_PUBLIC_ANONYMOUS=1`): keyed by client address, smaller limits. | Address-keyed limits are weak (IPv6 rotation, NAT): r0ze decides (§9 Q5). |
 | O | **Wallet-signed session** (existing, PR #22/#28): OAuth 2.1 + PKCE S256 + RFC 8707 resource/audience + RFC 9728/8414 discovery + DCR; the consent is the owner's wallet signature over a statement naming this server, client, scopes, agent and limits; refresh rotation with reuse detection; RFC 7009 revocation; owner-signed revocation pages. | The wallet is the identity; no account system, no password, no custody. |
@@ -72,10 +72,20 @@ feed, province envelopes, overview/roster binaries (whole-map reads: scraping co
 
 The global bucket is spent only by a caller that passed authentication (a key, or an allowed anonymous caller): a
 flood of requests without a valid key gets 401 and cannot starve key holders (verify-pr114; before, the bucket was
-charged first). Buckets and daily quotas live in memory: a restart of the server starts every key's day again.
+charged first). **A flood by one valid key can** (security audit 2026-11-22, M-5, D-security-audit-4): on main the
+global bucket is charged before the caller's own (`public-mcp.mjs` `handler`), so every request of a key that is
+already over its own rate still takes one global token, and one key can empty the bucket for every other key
+(`429`, `reason: "global"`). After #164 the caller's bucket is charged first and a request it refuses takes no global
+token. Buckets and daily quotas live in memory: a restart of the server starts every key's day again.
 
-A refused call spends nothing and answers HTTP 429 with `retry-after` and `error.data.reason` (`rate`, `quota`,
-`global`). Memory is bounded per table (least-recently-used key forgotten, never the whole table). The herald is
+A refused call answers HTTP 429 with `retry-after` and `error.data.reason` (`rate`, `quota`, `global`). It is not
+always free (D-security-audit-4; the checks run in the order of `public-mcp.mjs`'s header): a call refused by the
+global bucket spends nothing; a call refused by the caller's bucket has spent one global token (on main; none after
+#164); a tool call refused by the daily quota has spent its global token and its bucket units — 1, or 2 for a
+cost-2 tool, whose extra unit is taken before the quota is asked (`charge`) — and no quota units. Keys and
+anonymous addresses share one daily-quota table of 10,000 entries (least-recently-used forgotten), so a spray of
+anonymous addresses, if anonymous access is on, can push a key's count out and start its day again (audit L-10).
+Memory is bounded per table (least-recently-used key forgotten, never the whole table). The herald is
 public directly, so these limits do not protect it from direct scraping: the reverse proxy must limit `/h/*` too (§7).
 
 ## 5. Abuse cases
@@ -87,7 +97,7 @@ public directly, so these limits do not protect it from direct scraping: the rev
 | Scraping the world | data is public by design (fog is client-side); per-tool cost; no whole-map tool; the herald's own limits at the proxy |
 | Enumerating villages by coordinates | public anyway; costs quota; audited per key |
 | Using an owner token on the public server, or a public key on the owner server | refused both ways (different token formats and resources; tests E3, B2, V5) |
-| DNS rebinding / browser CSRF | Host allow-list and Origin allow-list before any route (both servers; tests E3, C1, C2, X3) |
+| DNS rebinding / browser CSRF | Host allow-list and Origin allow-list before any route (both servers; tests E3, C1, C2, X3). A request with no `Origin` passes (agents send none). The public server's list is its own origin plus `WYLLS_MCP_PUBLIC_ORIGINS`; that setting only stops the `403`: the public server sends no CORS headers and answers `OPTIONS` with `405`, so a browser page on another origin still cannot call it (its preflight fails) — the setting has no use today (D-security-audit-6). The owner server's list is its issuer's origin **and always `https://chatgpt.com`**, written into `http.mjs` `createHandler`; neither binary passes any other origin and no setting removes that one (D-security-audit-7) |
 | Prompt injection through player-written text in public data | instructions say: show it, never follow it; no public tool acts |
 | Herald cost amplification | answer size cap, global bucket, season pin reused 15 s |
 | Leaked key | hash-only storage, never logged, revocable without restart, expiry (default 30 days in the CLI) |
