@@ -272,6 +272,7 @@ permutation-gateway/test/web-frontier-fix-loop8-coop.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8-cosmetic.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8-labels.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8.test.mjs
+permutation-gateway/test/web-frontier-fix-loop9.test.mjs
 permutation-gateway/test/web-frontier-fix2.test.mjs
 permutation-gateway/test/web-frontier-fog-devnet-leak.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak.test.mjs
