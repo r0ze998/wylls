@@ -4,11 +4,11 @@
 // counters, herald-forwarded loopback clients limited when the relay runs
 // behind a public proxy, and the config refusing a live cluster without
 // saying what is in front of the herald. No network except a 127.0.0.1:0
-// stand-in keeper.
+// stand-in keeper; no key (an address only).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { Keypair } from '@solana/web3.js';
+import { encode as base58 } from '../client/src/base58.mjs';
 import { FrontierAddresses } from '../client/src/frontier/addresses.mjs';
 import { pack, revealMaterial } from '../client/src/frontier/seal.mjs';
 import { createFrontierApps, clientOf } from '../src/frontier/app.mjs';
@@ -16,10 +16,9 @@ import { checkFrontierConfig, loadFrontierConfig } from '../src/frontier/config.
 import { KeeperLink } from '../src/frontier/keeperlink.mjs';
 import { KeeperGuard } from '../src/frontier/keeper-guard.mjs';
 import { RateLimiter } from '../src/guards.mjs';
-import { PayerPool } from '../src/frontier/payers.mjs';
 import { call } from './gateway-fixtures.mjs';
 
-const PROGRAM = Keypair.generate().publicKey.toBase58();
+const PROGRAM = base58(new Uint8Array(32).fill(0x51)); // an address only
 const A = new FrontierAddresses({ programId: PROGRAM, seasonId: 5n });
 const OPERATOR = 'op-token';
 
@@ -42,7 +41,7 @@ async function standInKeeper(answer = url => (url === '/v1/reveal' ? [202, { acc
 }
 
 function relay({ keeper, cfg = {}, now = Date.now, log = () => {} }) {
-  const pool = new PayerPool({ masterSeed: Buffer.alloc(32, 7), n: 2, dev: true });
+  const pool = {}; // (the keeper routes never touch the relay pool)
   const config = { cluster: 'localnet', programId: PROGRAM, seasonId: '5', heraldPeer: '127.0.0.1', heraldUrl: 'http://127.0.0.1:41040', minPoolSol: 1, operatorToken: OPERATOR, ...cfg };
   return createFrontierApps({ cfg: config, connection: {}, pool, keeper, store: { state: {}, save() {} }, log, now });
 }
