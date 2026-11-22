@@ -45,7 +45,14 @@ pub const REVEAL_FLOOR_WRITE_LOCKS: u8 = 3;
 /// The reveal pool's floor priced at the Reveal `budgets` requests (or
 /// `keeper.toml`'s `reveal_floor`). CQ2-D: an MC season reprices it with
 /// the v2 table (its larger `L(kind)`) when the keeper follows the ABI.
-pub fn reveal_floor_for(cfg: &KeeperConfig, budgets: &Budgets) -> u64 {
+/// keeper-rent-floor: the ArrivalSlot and ArrivalDay rents at the
+/// cluster's rate once the keeper has read it (`rent`), else at the
+/// compile-time 5,080 lamports/byte (start-up, before the first read).
+pub fn reveal_floor_for(
+    cfg: &KeeperConfig,
+    budgets: &Budgets,
+    rent: Option<&crate::rent::KeeperRent>,
+) -> u64 {
     let reveal = budgets.get(fclient::abi::tag::REVEAL);
     let reveal_cost = fclient::fees::cost(
         reveal.cu_limit,
@@ -53,8 +60,14 @@ pub fn reveal_floor_for(cfg: &KeeperConfig, budgets: &Budgets) -> u64 {
         REVEAL_FLOOR_WRITE_LOCKS,
         reveal.loaded_limit,
     );
-    cfg.reveal_floor.unwrap_or_else(|| {
-        payers::reveal_floor(cfg.r99_reveals, cfg.reveal_pool.max(1), reveal_cost)
+    cfg.reveal_floor.unwrap_or_else(|| match rent {
+        Some(r) => payers::reveal_floor_at(
+            cfg.r99_reveals,
+            cfg.reveal_pool.max(1),
+            reveal_cost,
+            r.arrival_slot + r.arrival_day,
+        ),
+        None => payers::reveal_floor(cfg.r99_reveals, cfg.reveal_pool.max(1), reveal_cost),
     })
 }
 
@@ -78,7 +91,7 @@ impl Payers {
         cfg: &KeeperConfig,
         budgets: &Budgets,
     ) -> Result<Payers, PoolError> {
-        let fr = reveal_floor_for(cfg, budgets);
+        let fr = reveal_floor_for(cfg, budgets, None);
         Ok(Payers {
             reveal: Pool::new(
                 master,
@@ -237,6 +250,30 @@ mod tests {
         );
         assert_eq!(p.reveal.ceiling, 2 * p.reveal.floor);
         assert_eq!(p.all_addresses().len(), 150 + 32 + 4);
+    }
+
+    /// keeper-rent-floor: once the cluster's rent is read, `F_r` prices the
+    /// ArrivalSlot and ArrivalDay at that rate (5,080: unchanged; 6,960:
+    /// higher); a configured `reveal_floor` is never repriced.
+    #[test]
+    fn reveal_floor_follows_the_cluster_rent() {
+        use crate::rent::KeeperRent;
+        let c = cfg(false, 150, 32);
+        let b = Budgets::canonical();
+        let none = reveal_floor_for(&c, &b, None);
+        assert_eq!(
+            reveal_floor_for(&c, &b, Some(&KeeperRent::at_rate(5_080))),
+            none
+        );
+        let at6960 = reveal_floor_for(&c, &b, Some(&KeeperRent::at_rate(6_960)));
+        // 3 × ⌈4,000 / 150⌉ = 81 fronts, each (1,463,040 + 1,137,920) × 6,960 / 5,080 higher in rent.
+        assert_eq!(at6960 - none, 81 * (2_600_960 / 5_080 * (6_960 - 5_080)));
+        let mut fixed = c.clone();
+        fixed.reveal_floor = Some(8_000_000);
+        assert_eq!(
+            reveal_floor_for(&fixed, &b, Some(&KeeperRent::at_rate(6_960))),
+            8_000_000
+        );
     }
 
     /// The floor follows the budgets table the keeper sends with (W6-E F1):

@@ -45,6 +45,7 @@ pub mod play;
 pub mod ports;
 /// Opt-in bounded HTTPS transport restricted to public read-only RPC methods.
 pub mod readonly_https_rpc;
+pub mod rent;
 pub mod rpc;
 pub mod seal;
 #[cfg(feature = "snapshot")]

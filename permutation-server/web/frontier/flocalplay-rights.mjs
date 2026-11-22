@@ -11,6 +11,9 @@
 //   RevokeGrant 0xD4  the issuer's WALLET (never delegated): the Grant ends; an open reservation is undone
 //   CloseGrant 0xD5   the issuer (the Grant's rent recipient): the rent back once nothing is escrowed
 //   BuildVault, SendCaravan   the game's own S1 shapes (fplay.mjs), local acts in this lane only
+//   SeizeVault, RaidDomestic, RaidCaravan   (fix-9-10-followups) the game's own S1 losses, so that ⑨/⑩'s "the captor
+//                     takes all" and "goods on the road are lost if the carrier is beaten" can happen in a local world:
+//                     the program already has them (caravan.rs 0xB4, 0xBE, 0xB3); only this lane's list lacked them
 //
 // This module is the ONE builder both sides use: the page (flocalplay-act.mjs, the memory-only wallet signs) and the
 // relay (gateway local-play-act.mjs, which rebuilds the stated intent and refuses anything not byte for byte the same).
@@ -46,8 +49,17 @@ export const RIGHTS_ACTS = Object.freeze(Object.keys(RIGHTS_TAGS));
 //  that cranks S1 caravans (frontier-node keeper caravans.rs runs only in the full keeper), so without it nothing hauled
 //  into or out of a Vault ever lands. The wallet pays the fee and takes the caravan's escrowed fee back as beneficiary;
 //  the caravan's rent goes to its RENT_TO, the wallet that sent it on this path. The program checks arrival and raids.)
-export const COEXIST_S1_ACTS = Object.freeze(['BuildVault', 'SendCaravan', 'SettleCaravan']);
+// (fix-9-10-followups, TEST-only, this lane only: the losses the ⑨/⑩ preview tells of, as the program already has them —
+//  SeizeVault 0xB4: the viewer's host stands in the roster on another's storehouse tile, none of the owner's there;
+//  RaidDomestic 0xBE: a pair is one nation, and a clash never raids its own nation's caravan, so the viewer's host
+//  that stood where another's caravan stood at a resolved turn opens the raid itself; RaidCaravan 0xB3: the raider
+//  then takes the caravan home or burns its load. The program checks every rule; the relay rebuilds the same bytes.)
+export const COEXIST_LOSS_ACTS = Object.freeze(['SeizeVault', 'RaidDomestic', 'RaidCaravan']);
+export const COEXIST_S1_ACTS = Object.freeze(['BuildVault', 'SendCaravan', 'SettleCaravan', ...COEXIST_LOSS_ACTS]);
 export const SETTLE_CARAVAN_TAG = 0xb2;
+export const RAID_DOMESTIC_TAG = 0xbe;
+/** S1 `log::raid_choice` (fplay.mjs RAID_CHOICE). */
+const RAID_TAKE = 0, RAID_BURN = 1;
 export const COEXIST_ACTS = Object.freeze([...RIGHTS_ACTS, ...COEXIST_S1_ACTS, ...PREVIEW_ACTS]);
 /** Wallet-only and never delegated (MCP NEVER_DELEGATED; refused on a resident's relay: `LocalActWalletOnly`). */
 export const RIGHTS_WALLET_ONLY = Object.freeze(['IssueGrant', 'RevokeGrant', ...PREVIEW_WALLET_ONLY]);
@@ -170,6 +182,15 @@ function place(x, code) {
   return Object.freeze({ kind: 'vault', ...t, gen: x.gen });
 }
 const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
+function pqOf(x, code) {
+  check(exactKeys(x, ['p', 'q']) && Number.isSafeInteger(x.p) && Number.isSafeInteger(x.q), code);
+  return Object.freeze({ p: x.p, q: x.q });
+}
+/** A caravan by its address seed: the sender's tag (decimal text) and sequence. */
+function caravanRef(c, code) {
+  check(exactKeys(c, ['owner_tag', 'seq']) && u64Text(c.owner_tag) && int(c.seq, 0, 0xffffffff), code);
+  return Object.freeze({ owner_tag: c.owner_tag, seq: c.seq });
+}
 
 /**
  * The checked intent `{name, subject, fields}` (plain JSON; what both sides build from). Throws `code` (or
@@ -183,6 +204,16 @@ const PLACE_KIND = Object.freeze({ holding: 1, vault: 2 });
  *   BuildVault   subject {holding: village, at: {p, q, tile}}   fields {tile}   (tile = at.tile)
  *   SendCaravan  subject {seq, src: place, dst: place, provinces: [{p, q}] 1-4}
  *                fields  {seq, dst_kind, dst_p, dst_q, dst_at, dst_gen, steps, path: 12 bytes, cargo: 8 whole amounts, fee: decimal text}
+ *   SettleCaravan subject {seq, dst: place, provinces: [{p, q}] 1-4, owner_tag?: decimal text, rent_to?: base58}   fields {}
+ *                (owner_tag + rent_to, together: a caravan the viewer took in a raid keeps its sender's seed and its
+ *                 sender's rent recipient — RENT_TO, read from the account; the program checks both)
+ *   SeizeVault   subject {at: {p, q, tile}, hostHolding: village, ownerCitizen: base58}   fields {entry 0-55}
+ *   RaidDomestic subject {caravan: {owner_tag, seq}, province: {p, q}, hostHolding: village, ownerCitizen: base58}
+ *                fields  {bell, entry 0-55}
+ *   RaidCaravan  subject {caravan: {owner_tag, seq}, raid: {p, q}, raider: village, dst: place | null,
+ *                         pathProvinces: [{p, q}] 0-6, oldRoute: [{p, q}] 0-4}
+ *                fields  {p, q, choice 0 take | 1 burn, n_path, dst_kind, dst_p, dst_q, dst_at, dst_gen, steps, path: 12 bytes}
+ *                (a burn names no destination: dst null, n_path 1, every dst_* and steps 0, path zero)
  */
 export function rightsIntent(name, subject, fields, code = 'LocalActShape') {
   check(COEXIST_ACTS.includes(name), 'LocalActNotAllowed');
@@ -221,10 +252,47 @@ export function rightsIntent(name, subject, fields, code = 'LocalActShape') {
       { seq: f.seq, dst_kind: f.dst_kind, dst_p: f.dst_p, dst_q: f.dst_q, dst_at: f.dst_at, dst_gen: f.dst_gen, steps: f.steps, path: Object.freeze([...f.path]), cargo: Object.freeze([...f.cargo]), fee: f.fee });
   }
   if (name === 'SettleCaravan') {
-    check(exactKeys(s, ['seq', 'dst', 'provinces']) && int(s.seq, 0, 0xffffffff) && Array.isArray(s.provinces) && s.provinces.length >= 1 && s.provinces.length <= 4 && exactKeys(f, []), code);
+    // (a taken caravan: its seed `owner_tag` and its `rent_to` — the caravan's RENT_TO, the wallet that paid its rent at the
+    //  send; caravan.rs settle_caravan refuses any other rent recipient)
+    const other = s !== null && typeof s === 'object' && Object.hasOwn(s, 'owner_tag');
+    check((other ? exactKeys(s, ['seq', 'dst', 'provinces', 'owner_tag', 'rent_to']) && u64Text(s.owner_tag) && address(s.rent_to) : exactKeys(s, ['seq', 'dst', 'provinces']))
+      && int(s.seq, 0, 0xffffffff) && Array.isArray(s.provinces) && s.provinces.length >= 1 && s.provinces.length <= 4 && exactKeys(f, []), code);
     const dst = place(s.dst, code);
-    const provinces = s.provinces.map(x => { check(exactKeys(x, ['p', 'q']) && Number.isSafeInteger(x.p) && Number.isSafeInteger(x.q), code); return Object.freeze({ p: x.p, q: x.q }); });
-    return out({ seq: s.seq, dst, provinces: Object.freeze(provinces) }, {});
+    const provinces = s.provinces.map(x => pqOf(x, code));
+    return out({ seq: s.seq, dst, provinces: Object.freeze(provinces), ...(other ? { owner_tag: s.owner_tag, rent_to: s.rent_to } : {}) }, {});
+  }
+  if (name === 'SeizeVault') {
+    check(exactKeys(s, ['at', 'hostHolding', 'ownerCitizen']) && address(s.ownerCitizen) && exactKeys(f, ['entry']) && int(f.entry, 0, 55), code);
+    return out({ at: tileOf(s.at, code), hostHolding: village(s.hostHolding, code), ownerCitizen: s.ownerCitizen }, { entry: f.entry });
+  }
+  if (name === 'RaidDomestic') {
+    check(exactKeys(s, ['caravan', 'province', 'hostHolding', 'ownerCitizen']) && address(s.ownerCitizen)
+      && exactKeys(f, ['bell', 'entry']) && int(f.bell, 0, 0xffffffff) && int(f.entry, 0, 55), code);
+    const province = pqOf(s.province, code), hostHolding = village(s.hostHolding, code);
+    return out({ caravan: caravanRef(s.caravan, code), province, hostHolding, ownerCitizen: s.ownerCitizen }, { bell: f.bell, entry: f.entry });
+  }
+  if (name === 'RaidCaravan') {
+    check(exactKeys(s, ['caravan', 'raid', 'raider', 'dst', 'pathProvinces', 'oldRoute']) && Array.isArray(s.pathProvinces) && s.pathProvinces.length <= 6
+      && Array.isArray(s.oldRoute) && s.oldRoute.length <= 4, code);
+    const raid = pqOf(s.raid, code), raider = village(s.raider, code);
+    const pathProvinces = s.pathProvinces.map(x => pqOf(x, code)), oldRoute = s.oldRoute.map(x => pqOf(x, code));
+    check(exactKeys(f, ['p', 'q', 'choice', 'n_path', 'dst_kind', 'dst_p', 'dst_q', 'dst_at', 'dst_gen', 'steps', 'path']) && f.p === raid.p && f.q === raid.q
+      && int(f.p, -32768, 32767) && int(f.q, -32768, 32767) && Array.isArray(f.path) && f.path.length === 12 && f.path.every(x => int(x, 0, 255)), code);
+    let dst = null;
+    if (f.choice === RAID_BURN) {
+      check(s.dst === null && pathProvinces.length === 0 && f.n_path === 1 && f.dst_kind === 0 && f.dst_p === 0 && f.dst_q === 0 && f.dst_at === 0 && f.dst_gen === 0
+        && f.steps === 0 && f.path.every(x => x === 0), code);
+    } else {
+      check(f.choice === RAID_TAKE, code);
+      dst = place(s.dst, code);
+      const same = (a, b) => a.p === b.p && a.q === b.q;
+      // (fplay.mjs raidProvinces: the raid's Province, then the new walk's others; then the old route's others)
+      const nPath = 1 + pathProvinces.filter(x => !same(x, raid)).length;
+      check(f.dst_kind === PLACE_KIND[dst.kind] && f.dst_p === dst.p && f.dst_q === dst.q && f.dst_at === (dst.kind === 'vault' ? dst.tile : dst.site) && f.dst_gen === dst.gen
+        && int(f.steps, 1, 32) && f.n_path === nPath, code);
+    }
+    return out({ caravan: caravanRef(s.caravan, code), raid, raider, dst, pathProvinces: Object.freeze(pathProvinces), oldRoute: Object.freeze(oldRoute) },
+      { p: f.p, q: f.q, choice: f.choice, n_path: f.n_path, dst_kind: f.dst_kind, dst_p: f.dst_p, dst_q: f.dst_q, dst_at: f.dst_at, dst_gen: f.dst_gen, steps: f.steps, path: Object.freeze([...f.path]) });
   }
   const subj = useSubject(s, code);
   if (name === 'ReserveSwap') { check(exactKeys(f, ['units', 'seq']) && int(f.units, 1, MAX_UNITS_PER_SWAP) && int(f.seq, 0, 0xffff), code); return out(subj, { units: f.units, seq: f.seq }); }
@@ -249,7 +317,25 @@ export function rightsIntentOf(name, v, fields) {
   }
   // (the page's holding object carries much more than its place: only its place is the intent's, as for the other acts)
   const placeOf = h => (h && typeof h === 'object' ? { p: h.p, q: h.q, site: h.site } : h);
-  if (name === 'SettleCaravan') return rightsIntent(name, { seq: v?.seq, dst: v?.dst, provinces: v?.provinces }, f, 'LocalActShape');
+  if (name === 'SettleCaravan') {
+    const tag = v?.ownerTag ?? v?.owner_tag;
+    return rightsIntent(name, { seq: v?.seq, dst: v?.dst, provinces: v?.provinces, ...(tag !== undefined && tag !== null ? { owner_tag: String(tag), rent_to: v?.rentTo ?? v?.rent_to } : {}) }, f, 'LocalActShape');
+  }
+  // (fix-9-10-followups: the page's S1 loss orders, controller.mjs s1Seize / s1RaidOpen / s1Raid; a caravan is named by
+  //  its seed `caravanRef` {ownerTag, seq}, not by the address the devnet page passes)
+  const villageOf = h => (h && typeof h === 'object' ? { p: h.p, q: h.q, site: h.site } : h);
+  const pqs = xs => (Array.isArray(xs) ? xs.map(x => (x && typeof x === 'object' ? { p: x.p, q: x.q } : x)) : xs);
+  // (the page's `caravanRef` {ownerTag, seq}; or the wire form {owner_tag, seq} — the devnet page's `caravan` is an address)
+  const cref = c => (c && typeof c === 'object' ? { owner_tag: String(c.ownerTag ?? c.owner_tag), seq: c.seq } : c);
+  const caravanOf = x => cref(x?.caravanRef ?? (x?.caravan && typeof x.caravan === 'object' ? x.caravan : undefined));
+  if (name === 'SeizeVault') return rightsIntent(name, { at: v?.at && typeof v.at === 'object' ? { p: v.at.p, q: v.at.q, tile: v.at.tile } : v?.at, hostHolding: villageOf(v?.hostHolding), ownerCitizen: v?.ownerCitizen }, f, 'LocalActShape');
+  if (name === 'RaidDomestic') return rightsIntent(name, { caravan: caravanOf(v), province: v?.province && typeof v.province === 'object' ? { p: v.province.p, q: v.province.q } : v?.province, hostHolding: villageOf(v?.hostHolding), ownerCitizen: v?.ownerCitizen }, f, 'LocalActShape');
+  if (name === 'RaidCaravan') {
+    if (f.path instanceof Uint8Array) f.path = Array.from(f.path);
+    const dst = v?.dst ? { ...v.dst } : null;
+    return rightsIntent(name, { caravan: caravanOf(v), raid: v?.raid && typeof v.raid === 'object' ? { p: v.raid.p, q: v.raid.q } : v?.raid, raider: villageOf(v?.raider), dst,
+      pathProvinces: pqs(v?.pathProvinces ?? []), oldRoute: pqs(v?.oldRoute ?? []) }, f, 'LocalActShape');
+  }
   if (name === 'BuildVault') return rightsIntent(name, { holding: placeOf(v?.holding), at: v?.at && typeof v.at === 'object' ? { p: v.at.p, q: v.at.q, tile: v.at.tile } : v?.at }, f, 'LocalActShape');
   if (name === 'IssueGrant' && typeof f.expires_ts === 'bigint') f.expires_ts = f.expires_ts.toString();
   const s = {};
@@ -304,22 +390,40 @@ export function settleCaravanInstruction(intent, { programId, seasonId, wallet }
   const A = seasonAddresses(programId, String(seasonId));
   const citizen = A.of('Citizen', { wallet }), s = intent.subject;
   const k = (pubkey, isSigner, isWritable) => ({ pubkey, isSigner, isWritable });
-  const caravan = A.of('Caravan', { ownerTag: citizenTag(citizen), seq: s.seq });
+  const caravan = A.of('Caravan', { ownerTag: s.owner_tag !== undefined ? BigInt(s.owner_tag) : citizenTag(citizen), seq: s.seq });
   const dst = s.dst.kind === 'vault' ? A.of('Vault', s.dst) : A.of('Holding', s.dst);
-  const keys = [k(wallet, true, true), k(A.season, false, false), k(caravan, false, true), k(dst, false, true), k(wallet, false, true), k(wallet, false, true),
+  const keys = [k(wallet, true, true), k(A.season, false, false), k(caravan, false, true), k(dst, false, true), k(wallet, false, true), k(s.rent_to ?? wallet, false, true),
     ...s.provinces.map(pq => k(A.of('Province', pq), false, false))];
   const data = new Uint8Array(33); data[0] = SETTLE_CARAVAN_TAG; data.set(decode(wallet), 1);
   return { programId, keys, data };
 }
 
-/** The S1 shape of a BuildVault / SendCaravan intent through the game's own builder (fplay.mjs), the wallet as actor. */
+/**
+ * RaidDomestic(bell, entry) (fix-9-10-followups; fplay.mjs has no shape for it — the devnet page never opens a domestic
+ * raid): `[actor s] [payer s,w] [season r] [citizen w] [caravan r] [province w] [host_holding r] [owner_citizen r]`
+ * (abi-v2-tags RaidDomestic), data `0xBE ‖ bell u32 ‖ entry u8`; the wallet is actor and payer.
+ */
+export function raidDomesticInstruction(intent, { programId, seasonId, wallet }) {
+  const A = seasonAddresses(programId, String(seasonId));
+  const s = intent.subject, f = intent.fields;
+  const k = (pubkey, isSigner, isWritable) => ({ pubkey, isSigner, isWritable });
+  const keys = [k(wallet, true, false), k(wallet, true, true), k(A.season, false, false), k(A.of('Citizen', { wallet }), false, true),
+    k(A.of('Caravan', { ownerTag: BigInt(s.caravan.owner_tag), seq: s.caravan.seq }), false, false), k(A.of('Province', s.province), false, true),
+    k(A.of('Holding', s.hostHolding), false, false), k(s.ownerCitizen, false, false)];
+  const data = new Uint8Array(6), dv = new DataView(data.buffer);
+  data[0] = RAID_DOMESTIC_TAG; dv.setUint32(1, f.bell, true); data[5] = f.entry;
+  return { programId, keys, data };
+}
+
+/** The S1 shape of a BuildVault / SendCaravan / SeizeVault / RaidCaravan intent through the game's own builder (fplay.mjs), the wallet as actor. */
 function s1Built(intent, { programId, seasonId, wallet, blockhash, profile }) {
   const A = seasonAddresses(programId, String(seasonId));
   const s = intent.subject, f = intent.fields;
-  const v = { addresses: A, wallet, actor: wallet, profile, ...s };
+  const v = { addresses: A, wallet, actor: wallet, profile, ...s,
+    ...(intent.name === 'RaidCaravan' ? { caravan: A.of('Caravan', { ownerTag: BigInt(s.caravan.owner_tag), seq: s.caravan.seq }) } : {}) };
   const fields = intent.name === 'SendCaravan'
     ? { ...f, path: Uint8Array.from(f.path), cargo: cargoBytes(f.cargo), fee: BigInt(f.fee) }
-    : { ...f };
+    : intent.name === 'RaidCaravan' ? { ...f, path: Uint8Array.from(f.path) } : { ...f };
   const built = buildShape({ programId, name: intent.name, accounts: accountsFor(intent.name, v), fields, feePayer: wallet, blockhash, profile });
   check(built.signers.length === 0, 'LocalActSigner');
   return built.expected;
@@ -339,6 +443,9 @@ export function rightsMessage(intent, { programId, seasonId, wallet, blockhash, 
   } else if (intent.name === 'SettleCaravan') {
     ix = settleCaravanInstruction(intent, { programId, seasonId, wallet });
     prefix = budgetPrefix('SettleCaravan', { profile, loadedLimit });
+  } else if (intent.name === 'RaidDomestic') {
+    ix = raidDomesticInstruction(intent, { programId, seasonId, wallet });
+    prefix = budgetPrefix('RaidDomestic', { profile, loadedLimit });
   } else {
     ix = s1Built(intent, { programId, seasonId, wallet, blockhash, profile });
     prefix = budgetPrefix(intent.name, { profile, loadedLimit });

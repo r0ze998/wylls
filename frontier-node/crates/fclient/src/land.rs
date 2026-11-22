@@ -21,12 +21,61 @@ use crate::decode::{Citizen, Cohort, Frontier, Holding, Season};
 pub const TICKET_COHORT_BELLS: u32 = 24;
 /// `Citizen.ticket_bell` when no ticket is open.
 pub const NO_TICKET: u32 = u32::MAX;
-/// Rent of an M1 Province (4,096 data bytes, §4.2).
+/// Rent of an M1 Province (4,096 data bytes, §4.2) **at the compile-time
+/// 5,080 lamports/byte** (estimates and tests only: the program charges the
+/// cluster's Rent sysvar; decisions take a [`LandRent`]).
 pub const PROVINCE_RENT: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE);
-/// Rent of an MC/S1 Province (4,736 data bytes, MC §5.2.1).
+/// Rent of an MC/S1 Province (4,736 data bytes, MC §5.2.1) at 5,080
+/// lamports/byte (estimates and tests only, see [`LandRent`]).
 pub const PROVINCE_RENT_V2: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE_V2);
-/// Rent of a ProvinceFund (`(128 + 128) × 5,080`).
+/// Rent of a ProvinceFund (`(128 + 128) × 5,080`; estimates and tests only,
+/// see [`LandRent`]).
 pub const FUND_RENT: u64 = frontier_abi::layout::rent(crate::abi::size::PROVINCE_FUND);
+
+/// The rent-exempt minimums the land rules compare fund balances with,
+/// as the program computes them (`init::rent`: the cluster's Rent
+/// sysvar), never the compile-time 5,080 lamports/byte (keeper-rent-floor,
+/// D-verify-pr144-1: on a 6,960 cluster the fixed figures under-count
+/// every province by 37 %).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LandRent {
+    /// An M1 Province (4,096 B).
+    pub province: u64,
+    /// An MC/S1 Province (4,736 B).
+    pub province_v2: u64,
+    /// A ProvinceFund (128 B).
+    pub fund: u64,
+}
+
+impl LandRent {
+    /// From the cluster's Rent sysvar (`None` if a figure overflows).
+    pub fn from_sysvar(r: &crate::rent::RentSysvar) -> Option<LandRent> {
+        Some(LandRent {
+            province: r.minimum_balance(crate::abi::size::PROVINCE)?,
+            province_v2: r.minimum_balance(crate::abi::size::PROVINCE_V2)?,
+            fund: r.minimum_balance(crate::abi::size::PROVINCE_FUND)?,
+        })
+    }
+
+    /// `(128 + size) × lamports_per_byte` (offline plans and tests).
+    pub const fn at_rate(lamports_per_byte: u64) -> LandRent {
+        use crate::abi::size;
+        LandRent {
+            province: (128 + size::PROVINCE as u64) * lamports_per_byte,
+            province_v2: (128 + size::PROVINCE_V2 as u64) * lamports_per_byte,
+            fund: (128 + size::PROVINCE_FUND as u64) * lamports_per_byte,
+        }
+    }
+
+    /// The Province the season's OpenProvince creates.
+    pub fn province_for(&self, s: &Season) -> u64 {
+        if s.is_v2() {
+            self.province_v2
+        } else {
+            self.province
+        }
+    }
+}
 
 /// `rng::rand(S, "site", P ‖ Q ‖ site ‖ citizen_tag)`.
 pub fn ticket_score(seed: &[u8; 32], p: i32, q: i32, site: u8, citizen_tag: u64) -> u64 {
@@ -160,15 +209,20 @@ pub enum RingWait {
     NotCrowded,
     /// Wedge `w`'s fund cannot pay `d` provinces.
     Fund(u8),
+    /// The caller does not know the cluster's rent rate (keeper: the Rent
+    /// sysvar unread or stale), so it cannot tell whether the funds pay.
+    RentUnknown,
 }
 
 /// The OpenRing rule for `d = frontier.rings_opened > g` (§5.9).
 /// `fund_lamports[w]` are the six ProvinceFund balances.
+/// `rent`: the cluster's rent-exempt minimums ([`LandRent`]).
 pub fn ring_open_check(
     s: &Season,
     fr: &Frontier,
     fund_lamports: &[u64; 6],
     now: i64,
+    rent: &LandRent,
 ) -> Result<(), RingWait> {
     let d = fr.rings_opened;
     if d > s.r_max.max(fr.r_max_ext) {
@@ -189,13 +243,9 @@ pub fn ring_open_check(
     if !crowded {
         return Err(RingWait::NotCrowded);
     }
-    let province_rent = if s.is_v2() {
-        PROVINCE_RENT_V2
-    } else {
-        PROVINCE_RENT
-    };
+    let province_rent = rent.province_for(s);
     for (w, &l) in fund_lamports.iter().enumerate() {
-        if l.saturating_sub(FUND_RENT) < d as u64 * province_rent {
+        if l.saturating_sub(rent.fund) < (d as u64).saturating_mul(province_rent) {
             return Err(RingWait::Fund(w as u8));
         }
     }
@@ -290,6 +340,7 @@ pub fn ring_opening(
     fund_lamports: &[u64; 6],
     on_chain: &std::collections::BTreeSet<(i32, i32)>,
     now: i64,
+    rent: &LandRent,
 ) -> Option<RingOpening> {
     use permutation_rules::frontier::geometry::ring_provinces;
     for d in 0..fr.rings_opened {
@@ -305,7 +356,7 @@ pub fn ring_opening(
             });
         }
     }
-    ring_open_check(s, fr, fund_lamports, now).ok()?;
+    ring_open_check(s, fr, fund_lamports, now, rent).ok()?;
     let wedge = (0..6usize)
         .filter(|&w| fr.wedge_open[w] > 0)
         .max_by_key(|&w| (fr.wedge_occupied[w] as u64 * 10_000) / fr.wedge_open[w] as u64)
@@ -331,6 +382,63 @@ pub fn releasable(h: &Holding, s: &Season, now: i64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rent::RentSysvar;
+
+    const R5080: LandRent = LandRent::at_rate(5_080);
+
+    fn sysvar(rate: u64, threshold: f64) -> RentSysvar {
+        RentSysvar {
+            lamports_per_byte_year: rate,
+            exemption_threshold: threshold,
+            burn_percent: 0,
+        }
+    }
+
+    /// keeper-rent-floor: the land figures follow the cluster's Rent
+    /// sysvar (SIMD-0194 form `rate × 1.0` and the older `rate/2 × 2.0`),
+    /// and the compile-time constants are the 5,080 case only.
+    #[test]
+    fn land_rent_follows_the_rent_sysvar() {
+        let at5080 = LandRent::from_sysvar(&sysvar(5_080, 1.0)).unwrap();
+        assert_eq!(at5080, R5080);
+        assert_eq!(
+            (at5080.province, at5080.province_v2, at5080.fund),
+            (PROVINCE_RENT, PROVINCE_RENT_V2, FUND_RENT)
+        );
+        assert_eq!(at5080.province_v2, 24_709_120);
+        let at6960 = LandRent::from_sysvar(&sysvar(6_960, 1.0)).unwrap();
+        assert_eq!(at6960, LandRent::from_sysvar(&sysvar(3_480, 2.0)).unwrap());
+        assert_eq!(at6960, LandRent::at_rate(6_960));
+        assert_eq!(at6960.province_v2, 33_853_440);
+        assert_eq!(at6960.fund, 256 * 6_960);
+        assert_eq!(LandRent::from_sysvar(&sysvar(u64::MAX / 2, 1.0)), None);
+    }
+
+    /// A fund that pays ring d at 5,080 is short at 6,960: the check
+    /// must say Fund, not ready (the program would refuse OpenRing).
+    #[test]
+    fn ring_open_check_uses_the_given_rent() {
+        let g = 1_000_000;
+        let mut s = season(g);
+        s.program_version = crate::abi::PROGRAM_VERSION_V2;
+        let now = g + 10 * 600;
+        let fr = frontier(4, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
+        let r6960 = LandRent::at_rate(6_960);
+        let mut lam = [10_000_000_000u64; 6];
+        lam[2] = R5080.fund + 4 * R5080.province_v2;
+        assert_eq!(ring_open_check(&s, &fr, &lam, now, &R5080), Ok(()));
+        assert_eq!(
+            ring_open_check(&s, &fr, &lam, now, &r6960),
+            Err(RingWait::Fund(2))
+        );
+        lam[2] = r6960.fund + 4 * r6960.province_v2;
+        assert_eq!(ring_open_check(&s, &fr, &lam, now, &r6960), Ok(()));
+        lam[2] -= 1;
+        assert_eq!(
+            ring_open_check(&s, &fr, &lam, now, &r6960),
+            Err(RingWait::Fund(2))
+        );
+    }
 
     #[test]
     fn score_is_the_kernel_rand_over_the_raw_key() {
@@ -415,28 +523,34 @@ mod tests {
         let now = g + 10 * 600;
         // 55 of 100 open in wedge 2 crosses θ early (55%).
         let fr = frontier(4, 3, [100; 6], [0, 0, 55, 0, 0, 0]);
-        assert_eq!(ring_open_check(&s, &fr, &rich, now), Ok(()));
+        assert_eq!(ring_open_check(&s, &fr, &rich, now, &R5080), Ok(()));
         let fr = frontier(4, 3, [100; 6], [0, 0, 54, 0, 0, 0]);
         assert_eq!(
-            ring_open_check(&s, &fr, &rich, now),
+            ring_open_check(&s, &fr, &rich, now, &R5080),
             Err(RingWait::NotCrowded)
         );
         // Late θ (65%) after theta_switch_secs.
         let fr = frontier(4, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
-        assert_eq!(ring_open_check(&s, &fr, &rich, now), Ok(()));
+        assert_eq!(ring_open_check(&s, &fr, &rich, now, &R5080), Ok(()));
         assert_eq!(
-            ring_open_check(&s, &fr, &rich, g + 259_200),
+            ring_open_check(&s, &fr, &rich, g + 259_200, &R5080),
             Err(RingWait::NotCrowded)
         );
         // One bell since the last opening; the funds; before genesis; r_max.
         let fr = frontier(4, 10, [100; 6], [0, 0, 60, 0, 0, 0]);
-        assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::TooSoon));
+        assert_eq!(
+            ring_open_check(&s, &fr, &rich, now, &R5080),
+            Err(RingWait::TooSoon)
+        );
         let fr = frontier(4, 3, [100; 6], [0, 0, 60, 0, 0, 0]);
         let mut poor = rich;
         poor[5] = FUND_RENT + 4 * PROVINCE_RENT - 1;
-        assert_eq!(ring_open_check(&s, &fr, &poor, now), Err(RingWait::Fund(5)));
+        assert_eq!(
+            ring_open_check(&s, &fr, &poor, now, &R5080),
+            Err(RingWait::Fund(5))
+        );
         poor[5] += 1;
-        assert_eq!(ring_open_check(&s, &fr, &poor, now), Ok(()));
+        assert_eq!(ring_open_check(&s, &fr, &poor, now, &R5080), Ok(()));
         // MC/S1 writes the larger Province2 account. A fund that sufficed
         // for M1 must not be reported ready before OpenRing can pay its rent.
         let mut s2 = s.clone();
@@ -444,33 +558,39 @@ mod tests {
         assert_eq!(PROVINCE_RENT, frontier_abi::layout::rent(4_096));
         assert_eq!(PROVINCE_RENT_V2, frontier_abi::layout::rent(4_736));
         assert_eq!(
-            ring_open_check(&s2, &fr, &poor, now),
+            ring_open_check(&s2, &fr, &poor, now, &R5080),
             Err(RingWait::Fund(5))
         );
         poor[5] = FUND_RENT + 4 * PROVINCE_RENT_V2 - 1;
         assert_eq!(
-            ring_open_check(&s2, &fr, &poor, now),
+            ring_open_check(&s2, &fr, &poor, now, &R5080),
             Err(RingWait::Fund(5))
         );
         poor[5] += 1;
-        assert_eq!(ring_open_check(&s2, &fr, &poor, now), Ok(()));
+        assert_eq!(ring_open_check(&s2, &fr, &poor, now, &R5080), Ok(()));
         assert_eq!(
-            ring_open_check(&s, &fr, &rich, g - 1),
+            ring_open_check(&s, &fr, &rich, g - 1, &R5080),
             Err(RingWait::NotRunning)
         );
         let fr = frontier(17, 3, [100; 6], [100; 6]);
-        assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::AtMax));
+        assert_eq!(
+            ring_open_check(&s, &fr, &rich, now, &R5080),
+            Err(RingWait::AtMax)
+        );
         // Map growth: past the Season's r_max (16) once ExtendFrontier
         // raised the Frontier's `r_max_ext` to 17 (not 18).
         let mut fr = frontier(17, 3, [100; 6], [100; 6]);
         fr.r_max_ext = 17;
-        assert_eq!(ring_open_check(&s, &fr, &rich, now), Ok(()));
+        assert_eq!(ring_open_check(&s, &fr, &rich, now, &R5080), Ok(()));
         fr.rings_opened = 18;
-        assert_eq!(ring_open_check(&s, &fr, &rich, now), Err(RingWait::AtMax));
+        assert_eq!(
+            ring_open_check(&s, &fr, &rich, now, &R5080),
+            Err(RingWait::AtMax)
+        );
         // A wedge with nothing open is never crowded.
         let fr = frontier(4, 3, [0; 6], [0; 6]);
         assert_eq!(
-            ring_open_check(&s, &fr, &rich, now),
+            ring_open_check(&s, &fr, &rich, now, &R5080),
             Err(RingWait::NotCrowded)
         );
     }
@@ -568,11 +688,11 @@ mod tests {
         };
         // Rings 0..4 complete, not crowded: nothing.
         let fr = frontier(4, 3, [100; 6], [0; 6]);
-        assert_eq!(ring_opening(&s, &fr, &rich, &all(4), now), None);
+        assert_eq!(ring_opening(&s, &fr, &rich, &all(4), now, &R5080), None);
         // Crowded in wedge 4: due, ring 4.
         let fr = frontier(4, 3, [100; 6], [0, 0, 55, 0, 60, 0]);
         assert_eq!(
-            ring_opening(&s, &fr, &rich, &all(4), now),
+            ring_opening(&s, &fr, &rich, &all(4), now, &R5080),
             Some(RingOpening::Due { ring: 4, wedge: 4 })
         );
         // Ring 4 opened, two of its provinces on chain: in progress.
@@ -581,7 +701,7 @@ mod tests {
         let r4 = ring_provinces(4);
         on.insert((r4[0].p, r4[0].q));
         on.insert((r4[1].p, r4[1].q));
-        let got = ring_opening(&s, &fr, &rich, &on, now);
+        let got = ring_opening(&s, &fr, &rich, &on, now, &R5080);
         assert_eq!(
             got,
             Some(RingOpening::InProgress {
@@ -590,7 +710,7 @@ mod tests {
                 missing: r4.len() - 2,
             })
         );
-        assert_eq!(ring_opening(&s, &fr, &rich, &all(5), now), None);
+        assert_eq!(ring_opening(&s, &fr, &rich, &all(5), now, &R5080), None);
     }
 
     fn holding(state: u8, ticket_bell: u32, score: u64, owner: [u8; 32]) -> Holding {

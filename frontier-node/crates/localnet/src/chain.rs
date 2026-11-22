@@ -114,6 +114,13 @@ pub struct Config {
     /// `fsync` every ledger record (a `kill -9` loses nothing without it;
     /// a power loss can).
     pub fsync: bool,
+    /// The Rent sysvar's rate (lamports per byte incl. the 128-B overhead,
+    /// SIMD-0194 form: exemption threshold 1.0). Default
+    /// [`LAMPORTS_PER_BYTE`] (5,080); another rate (6,960, the pre-SIMD-0194
+    /// mainnet one) checks off-chain code that must follow the cluster's
+    /// rent (keeper-rent-floor). In-memory chains only: the ledger does not
+    /// record it, so [`Chain::open`] refuses another rate with `data_dir`.
+    pub lamports_per_byte: u64,
 }
 
 impl Default for Config {
@@ -128,6 +135,7 @@ impl Default for Config {
             snapshot_every_secs: SNAPSHOT_EVERY_SECS,
             keep_snapshots: 3,
             fsync: true,
+            lamports_per_byte: LAMPORTS_PER_BYTE,
         }
     }
 }
@@ -457,7 +465,7 @@ impl Chain {
             .with_log_bytes_limit(Some(200_000))
             .with_transaction_history(0);
         let mut rent: solana_rent::Rent = svm.get_sysvar();
-        rent.lamports_per_byte = LAMPORTS_PER_BYTE;
+        rent.lamports_per_byte = cfg.lamports_per_byte;
         #[allow(deprecated)]
         {
             rent.exemption_threshold = 1.0f64.to_le_bytes();
@@ -521,6 +529,14 @@ impl Chain {
         entropy: impl FnOnce() -> Result<[u8; 32], String>,
     ) -> Result<Chain, String> {
         let instance = checked_instance(entropy()?)?;
+        if cfg.data_dir.is_some() && cfg.lamports_per_byte != LAMPORTS_PER_BYTE {
+            return Err(format!(
+                "a rent rate other than {LAMPORTS_PER_BYTE} lamports/byte is for in-memory chains only"
+            ));
+        }
+        if cfg.lamports_per_byte == 0 {
+            return Err("the rent rate must be at least 1 lamport/byte".into());
+        }
         let Some(dir) = cfg.data_dir.clone() else {
             return Ok(Chain::fresh(cfg, new_run_id(), instance));
         };
@@ -2039,5 +2055,61 @@ mod status_instance_tests {
         );
         drop(c);
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// keeper-rent-floor: the Rent sysvar's rate is configurable (in memory).
+#[cfg(test)]
+mod rent_rate_tests {
+    use super::*;
+
+    fn sysvar_rate(c: &Chain) -> (u64, f64) {
+        let id: Address = "SysvarRent111111111111111111111111111111111"
+            .parse()
+            .unwrap();
+        let a = c.account(&id).expect("the Rent sysvar is an account");
+        (
+            u64::from_le_bytes(a.data[0..8].try_into().unwrap()),
+            f64::from_le_bytes(a.data[8..16].try_into().unwrap()),
+        )
+    }
+
+    #[test]
+    fn the_default_is_5080_and_6960_can_be_chosen() {
+        let c = Chain::new(Config::default());
+        assert_eq!(
+            c.svm.minimum_balance_for_rent_exemption(4_736),
+            4_864 * 5_080
+        );
+        assert_eq!(sysvar_rate(&c), (5_080, 1.0));
+        let c = Chain::new(Config {
+            lamports_per_byte: 6_960,
+            ..Config::default()
+        });
+        assert_eq!(
+            c.svm.minimum_balance_for_rent_exemption(4_736),
+            4_864 * 6_960
+        );
+        assert_eq!(sysvar_rate(&c), (6_960, 1.0));
+    }
+
+    #[test]
+    fn another_rate_is_refused_for_a_persisted_chain_and_zero_always() {
+        let e = Chain::open(Config {
+            lamports_per_byte: 6_960,
+            data_dir: Some(std::env::temp_dir().join("never-created-keeper-rent-floor")),
+            ..Config::default()
+        })
+        .err()
+        .unwrap();
+        assert!(e.contains("in-memory chains only"), "{e}");
+        assert!(!std::env::temp_dir()
+            .join("never-created-keeper-rent-floor")
+            .exists());
+        assert!(Chain::open(Config {
+            lamports_per_byte: 0,
+            ..Config::default()
+        })
+        .is_err());
     }
 }

@@ -21,6 +21,13 @@
 //! 5. REAL, keeper A: the new village's province is settled, so the provinces within 3 of it open too.
 //!
 //! Every OpenProvince's compute units, fee and the wedge fund's rent are recorded.
+//!
+//! **PFLOOR** (keeper-rent-floor, D-verify-pr144-1; [`Input::floor`]): the same world on a localnet whose Rent
+//! sysvar is set to `rate` lamports/byte (5,080 or 6,960). After step 1, every wedge fund is **declared** (patched)
+//! to its rent + keeper A's fund floor at that rate + 2½ provinces' rent. keeper A must read the cluster's rate (its
+//! `/v1/status` `duties.rent`), open exactly `min(2, wanted)` provinces in each wedge, then wait "at its floor",
+//! and open nothing more; each open costs the fund one province's rent **at the cluster's rate**. With the old
+//! fixed-5,080 floor, a 6,960 fund patched this way would have let keeper A open every wanted province.
 
 use super::*;
 
@@ -29,7 +36,23 @@ pub struct Input {
     pub player: Keypair,
     pub home: (i32, i32, u8),
     pub reach: u32,
+    /// PFLOOR: the cluster's rate and keeper A's API / config (else PPROV).
+    pub floor: Option<Floor>,
 }
+
+/// PFLOOR's inputs.
+#[derive(Clone)]
+pub struct Floor {
+    /// The localnet's Rent sysvar rate (lamports/byte).
+    pub rate: u64,
+    pub keeper_api: u16,
+    pub token: String,
+    /// keeper A's `keeper.toml` (the floor is computed from the config it runs with).
+    pub keeper_toml: std::path::PathBuf,
+}
+
+/// Provinces each wedge fund is patched to afford above its floor (plus half of one more).
+const FLOOR_ROOM: u64 = 2;
 
 /// The rings this run declares seeded (past the genesis ring 3).
 const SEEDED: std::ops::RangeInclusive<u16> = 4..=10;
@@ -172,6 +195,9 @@ pub(super) async fn flow(r: &mut Run<'_>, inp: Input) -> Value {
             rs,
             &format!("RingSeed({d}) seeded (the genesis ring 3's seed)"),
         );
+    }
+    if let Some(fl) = inp.floor.clone() {
+        return floor_flow(r, &inp, fl, &target_cands, g).await;
     }
     let funds0 = funds(r);
     let since = r.lock().slot();
@@ -375,5 +401,184 @@ pub(super) async fn flow(r: &mut Run<'_>, inp: Input) -> Value {
         "demand_opens_outpost": {"count": ok2, "txs": opens2},
         "province_funds": {"before": funds0, "after_home": funds1, "after_outpost": funds2},
         "rows": r.rows,
+    })
+}
+
+/// PFLOOR (module doc): keeper A's on-demand opens stop at the fund floor of the cluster's rate.
+async fn floor_flow(
+    r: &mut Run<'_>,
+    inp: &Input,
+    fl: Floor,
+    target_cands: &[ProvinceCoord],
+    g: u8,
+) -> Value {
+    let a = r.c.a.clone();
+    let ctx = r.ctx();
+    let home = ProvinceCoord::new(inp.home.0, inp.home.1);
+    // The figures keeper A must use: its own config at the cluster's rate.
+    let kc = keeper_core::config::KeeperConfig::from_toml(
+        &std::fs::read_to_string(&fl.keeper_toml).expect("keeper.toml"),
+    )
+    .expect("keeper A's config");
+    let rent = keeper_core::rent::KeeperRent::at_rate(fl.rate);
+    let floor = keeper_core::rings::demand_fund_floor(&kc, &rent);
+    let (fund_rent, prov) = (rent.land.fund, rent.land.province_v2);
+    // The localnet charges that rate (the program's `init::rent`).
+    assert_eq!(
+        r.lock()
+            .account(&adr(ctx.province_fund(0)))
+            .map(|x| x.data.len()),
+        Some(fclient::abi::size::PROVINCE_FUND)
+    );
+    let old = keeper_core::rent::KeeperRent::at_rate(5_080);
+    let old_floor = keeper_core::rings::demand_fund_floor(&kc, &old);
+
+    // Declared: every wedge fund = its rent + the floor + 2½ provinces (at the cluster's rate).
+    let patched = fund_rent + floor + FLOOR_ROOM * prov + prov / 2;
+    for w in 0..6u8 {
+        let k = adr(ctx.province_fund(w));
+        let mut acct = r.lock().account(&k).expect("the wedge fund");
+        acct.lamports = patched;
+        r.patch(
+            k,
+            acct,
+            &format!(
+                "ProvinceFund({w}) = rent {fund_rent} + floor {floor} + {FLOOR_ROOM}½ provinces at {} lamports/byte",
+                fl.rate
+            ),
+        );
+    }
+    let want: Vec<ProvinceCoord> = target_cands
+        .iter()
+        .copied()
+        .filter(|c| SEEDED.contains(&(c.ring() as u16)))
+        .collect();
+    let mut wanted = [0u64; 6];
+    for c in &want {
+        wanted[c.wedge().unwrap() as usize] += 1;
+    }
+    let expect: Vec<u64> = wanted.iter().map(|&n| n.min(FLOOR_ROOM)).collect();
+    assert!(
+        wanted.iter().any(|&n| n > FLOOR_ROOM),
+        "some wedge wants more than the floor allows (else the run proves nothing): {wanted:?}"
+    );
+    // Under the old compile-time figures the same balance allows this many a wedge.
+    let old_allowance = patched
+        .saturating_sub(old.land.fund)
+        .saturating_sub(old_floor)
+        / old.land.province_v2;
+    let since = r.lock().slot();
+    let opened_per_wedge = |r: &Run<'_>| -> Vec<u64> {
+        let mut v = vec![0u64; 6];
+        for c in &want {
+            if r.lock().account(&r.c.a.province(c.p, c.q)).is_some() {
+                v[c.wedge().unwrap() as usize] += 1;
+            }
+        }
+        v
+    };
+    let api = fl.keeper_api;
+    let token = fl.token.clone();
+    let at_floor = |_: &Run<'_>| -> bool {
+        keeper_status(api, &token).is_some_and(|s| {
+            s["duties"]["provinces_demand"]["waiting"]
+                .as_str()
+                .is_some_and(|w| w.contains("at its floor"))
+        })
+    };
+    let t0 = Instant::now();
+    r.run_until(
+        3.0,
+        300,
+        "keeper A opens up to the floor and waits there",
+        |r| at_floor(r) && opened_per_wedge(r) == expect,
+    )
+    .await;
+    let secs = t0.elapsed().as_secs_f64();
+    // And nothing more for several scans (`provinces_scan_slots` 10).
+    let s0 = r.lock().slot();
+    r.run_until(3.0, 120, "several more scans", |r| {
+        r.lock().slot() >= s0 + 60
+    })
+    .await;
+    r.lock().set_paused(true);
+    let opened = opened_per_wedge(r);
+    assert_eq!(
+        opened, expect,
+        "per wedge: min({FLOOR_ROOM}, wanted {wanted:?})"
+    );
+    let status = keeper_status(api, &token).expect("keeper A's status");
+    let rent_status = status["duties"]["rent"].clone();
+    assert_eq!(rent_status["lamports_per_byte"], fl.rate, "{rent_status}");
+    assert_eq!(rent_status["usable"], true);
+    let waiting = status["duties"]["provinces_demand"]["waiting"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        waiting.contains(&format!("({floor} lamports at {} lamports/byte)", fl.rate)),
+        "{waiting}"
+    );
+    let rows: Vec<Value> = r
+        .feed_rows(since, &[fclient::abi::tag::OPEN_PROVINCE], "keeper A")
+        .into_iter()
+        .filter(|x| {
+            let c = ProvinceCoord::new(
+                x["p"].as_i64().unwrap() as i32,
+                x["q"].as_i64().unwrap() as i32,
+            );
+            c.ring() > u32::from(g) && c.ring() < u32::from(R_MAX_HARD)
+        })
+        .collect();
+    let ok = rows.iter().filter(|x| x["ok"] == true).count() as u64;
+    assert_eq!(ok, expect.iter().sum::<u64>(), "{rows:#?}");
+    // A refused row may only be a later version of an open that landed (`AlreadyDone`, code 52: the keeper's
+    // escalated duplicate of the same write), never a refusal for the funds.
+    let landed: std::collections::BTreeSet<(i64, i64)> = rows
+        .iter()
+        .filter(|x| x["ok"] == true)
+        .map(|x| (x["p"].as_i64().unwrap(), x["q"].as_i64().unwrap()))
+        .collect();
+    assert!(
+        rows.iter().all(|x| x["ok"] == true
+            || (x["err"].as_str().is_some_and(|e| e.contains("Custom(52)"))
+                && landed.contains(&(x["p"].as_i64().unwrap(), x["q"].as_i64().unwrap())))),
+        "only AlreadyDone duplicates of landed opens: {rows:#?}"
+    );
+    // Each open cost its wedge fund one province's rent at the cluster's rate; every fund stays above the floor,
+    // and a wedge that wanted more cannot afford one more.
+    let after: Vec<u64> = (0..6u8)
+        .map(|w| r.lock().balance(&adr(ctx.province_fund(w))))
+        .collect();
+    for w in 0..6 {
+        assert_eq!(after[w], patched - opened[w] * prov, "wedge {w}");
+        assert!(after[w] - fund_rent >= floor, "wedge {w} above its floor");
+        if wanted[w] > FLOOR_ROOM {
+            assert!(
+                after[w] - fund_rent < floor + prov,
+                "wedge {w} cannot afford one more"
+            );
+        }
+    }
+    let _ = a;
+    let _ = home;
+    json!({
+        "mode": "pfloor",
+        "rate": fl.rate,
+        "patches": r.patches,
+        "home": {"p": inp.home.0, "q": inp.home.1, "ring": home.ring()},
+        "keeper_rent_status": rent_status,
+        "floor": floor,
+        "floor_at_compile_time_5080": old_floor,
+        "fund_rent": fund_rent,
+        "province_rent": prov,
+        "fund_patched": patched,
+        "wanted_per_wedge": wanted,
+        "opened_per_wedge": opened,
+        "old_fixed_5080_allowance_per_wedge": old_allowance,
+        "funds_after": after,
+        "waiting": waiting,
+        "wall_secs": secs,
+        "open_txs": rows,
     })
 }

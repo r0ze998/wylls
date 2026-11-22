@@ -144,7 +144,11 @@ impl CaravanDuty {
                     },
                 );
             }
-            CqEvent::CaravanSettled { owner_tag, seq, .. } => {
+            // ⑩: a custody caravan ends with SettleCustody's LOT_SETTLED (no
+            // CARAVAN_SETTLED); SettleCaravan refuses it, so it is never this
+            // duty's to settle once it is gone.
+            CqEvent::CaravanSettled { owner_tag, seq, .. }
+            | CqEvent::LotSettled { owner_tag, seq, .. } => {
                 self.moving.remove(&(*owner_tag, *seq));
             }
             _ => {}

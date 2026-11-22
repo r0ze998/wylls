@@ -157,15 +157,25 @@ pub async fn status_json(chain: &Chain, a: &Addresses) -> Result<Value, String> 
             "size": coords.len(),
         }));
     }
-    let funds = chain.accounts(&a.province_funds()).await?;
+    // The six funds and the cluster's Rent sysvar (the program's checks
+    // use the sysvar's rate, not the compile-time 5,080; keeper-rent-floor).
+    let mut keys = a.province_funds().to_vec();
+    keys.push(fclient::rent::rent_sysvar());
+    let funds = chain.accounts(&keys).await?;
     let lam: [u64; 6] = core::array::from_fn(|w| funds[w].as_ref().map_or(0, |x| x.lamports));
+    let rent = funds[6]
+        .as_ref()
+        .and_then(|x| fclient::rent::RentSysvar::decode(&x.data))
+        .and_then(|r| fclient::land::LandRent::from_sysvar(&r));
     let next = if fr.rings_opened <= season.genesis_ring as u16 {
         Value::from("genesis")
-    } else {
-        match fclient::land::ring_open_check(&season, &fr, &lam, st.now) {
+    } else if let Some(rent) = rent {
+        match fclient::land::ring_open_check(&season, &fr, &lam, st.now, &rent) {
             Ok(()) => Value::from("ready"),
             Err(w) => Value::from(format!("{w:?}")),
         }
+    } else {
+        Value::from(format!("{:?}", fclient::land::RingWait::RentUnknown))
     };
     let ceiling = season.conquest.as_ref().map_or(0, |c| c.r_max_ceiling);
     let next_extend = match fclient::land::frontier_extend_check(&season, &fr, st.now) {
