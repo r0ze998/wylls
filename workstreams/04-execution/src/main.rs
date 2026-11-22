@@ -77,6 +77,24 @@
 //! The reader makes no write of its own; SQLite may still create the index's
 //! WAL side file (`-shm`).
 
+//! ```text
+//! # Plans of a resident's own local orders (workstream 13, 2026-11-22): one JSON line on stdout
+//! runexec plan accept  --db <path> --spec <file.json | -> [--now-ms <n>]
+//! runexec plan claim   --db <path> --plan <id> --holder <h> --lease-ms <n> [--now-ms <n>]
+//! runexec plan intend  --db <path> --plan <id> --holder <h> --epoch <n> --step <i> --bell <b> [--now-ms <n>]
+//! runexec plan signed  --db <path> --plan <id> --holder <h> --epoch <n> --step <i> --signature <base58> [--now-ms <n>]
+//! runexec plan settle  --db <path> --plan <id> --holder <h> --epoch <n> --step <i> --outcome <o> [--signature <s>] [--code <c>] [--booked-bell <b>] [--now-ms <n>]
+//! runexec plan stop    --db <path> --plan <id> --holder <h> --epoch <n> --why <text> [--now-ms <n>]
+//! runexec plan view    --db <path> --plan <id>
+//! runexec plan current --db <path> --owner <wallet> --world <key>
+//! ```
+//!
+//! `plan` (src/plans.rs): exit 0 ok; 2 BadRequest / NotLocalOrder; 3 NoRecord;
+//! 4 Conflict; 6 Fenced (another holder or epoch, or the lease ran out: do
+//! not sign, send or settle); 7 a plan rule refused it (NotDue, OpenStep,
+//! TurnUsed, Exhausted, Stopped, ActivePlan, NotIntended, BadSettle); 1 store
+//! error. A caller whose `signed` is not exit 0 must not submit.
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -602,6 +620,18 @@ fn main() -> ExitCode {
         };
     }
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("plan") {
+        return match plan(&args) {
+            Ok(v) => {
+                println!("{v}");
+                ExitCode::SUCCESS
+            }
+            Err((code, name, message)) => {
+                println!("{}", serde_json::json!({ "error": name, "message": message }));
+                ExitCode::from(code)
+            }
+        };
+    }
     if args.get(1).map(String::as_str) == Some("run") {
         return match run(&args) {
             Ok(v) => {
@@ -640,7 +670,7 @@ fn main() -> ExitCode {
         };
     }
     let Some(cmd) = args.get(1).map(String::as_str) else {
-        eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...] | runexec act … | runexec run accept|view … | runexec observe store|db …");
+        eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...] | runexec act … | runexec run accept|view … | runexec plan …  | runexec observe store|db …");
         return ExitCode::from(2);
     };
     let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
@@ -848,4 +878,84 @@ fn demo(db: &Path, scenario: &str) -> Result<(), String> {
         serde_json::to_string_pretty(&ex.store.status(slot)?).unwrap()
     );
     Ok(())
+}
+
+/// `runexec plan …` (src/plans.rs). Options are `--name value` pairs; an
+/// unknown, repeated or valueless one is refused before the store is opened.
+fn plan(args: &[String]) -> Result<serde_json::Value, ActErr> {
+    use runexec::plans;
+    let verb = args.get(2).map(String::as_str).unwrap_or("");
+    let common: &[&str] = &["--db", "--now-ms"];
+    let fenced: &[&str] = &["--plan", "--holder", "--epoch"];
+    let mut allowed: Vec<&str> = common.to_vec();
+    match verb {
+        "accept" => allowed.push("--spec"),
+        "claim" => allowed.extend(["--plan", "--holder", "--lease-ms"]),
+        "intend" => { allowed.extend(fenced); allowed.extend(["--step", "--bell"]); }
+        "signed" => { allowed.extend(fenced); allowed.extend(["--step", "--signature"]); }
+        "settle" => { allowed.extend(fenced); allowed.extend(["--step", "--outcome", "--signature", "--code", "--booked-bell"]); }
+        "stop" => { allowed.extend(fenced); allowed.push("--why"); }
+        "view" => allowed.push("--plan"),
+        "current" => allowed.extend(["--owner", "--world"]),
+        _ => return Err((2, "BadRequest", "plan accept | claim | intend | signed | settle | stop | view | current".into())),
+    }
+    let mut o: BTreeMap<String, String> = BTreeMap::new();
+    let mut i = 3;
+    while i < args.len() {
+        let k = &args[i];
+        let v = args.get(i + 1);
+        if !allowed.contains(&k.as_str()) || o.contains_key(k) || v.is_none() || v.is_some_and(|v| v.starts_with("--")) {
+            return Err((2, "BadRequest", format!("plan {verb}: bad option {k}")));
+        }
+        o.insert(k.clone(), v.unwrap().clone());
+        i += 2;
+    }
+    let need = |k: &str| o.get(k).cloned().ok_or_else(|| (2u8, "BadRequest", format!("{k} is required")));
+    let int = |k: &str| -> Result<i64, ActErr> {
+        let v = need(k)?;
+        if v.is_empty() || v.len() > 18 || !v.bytes().all(|b| b.is_ascii_digit()) {
+            return Err((2, "BadRequest", format!("{k}: decimal digits")));
+        }
+        Ok(v.parse().unwrap())
+    };
+    let now = match o.get("--now-ms") {
+        Some(_) => int("--now-ms")?,
+        None => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0),
+    };
+    let e = |x: plans::PlanErr| (x.exit, x.code, x.message);
+    let spec = if verb == "accept" {
+        let path = need("--spec")?;
+        let text = if path == "-" { read_bounded(std::io::stdin(), "--spec") } else { std::fs::File::open(&path).map_err(|e| e.to_string()).and_then(|f| read_bounded(f, "--spec")) }
+            .map_err(|m| (2u8, "BadRequest", m))?;
+        if let Some(k) = duplicate_member(&text) {
+            return Err((2, "BadRequest", format!("--spec: duplicate member {k}")));
+        }
+        Some(serde_json::from_str::<serde_json::Value>(&text).map_err(|x| (2u8, "BadRequest", format!("--spec: {x}")))?)
+    } else {
+        None
+    };
+    let db = PathBuf::from(need("--db")?);
+    if !db.exists() {
+        // (a read of a store that was never made: `view` has no such plan; `current` has no plan at all — the
+        //  resident's own journal still blocks any order of its own whose fate is open)
+        match verb {
+            "view" => return Err((5, "StoreUnavailable", "no store at --db".into())),
+            "current" => return Ok(serde_json::json!({ "view": plans::PLAN_VIEW, "owner": need("--owner")?, "world": need("--world")?, "plans": 0, "active": null, "latest": null, "open": [], "store": "absent" })),
+            _ => {}
+        }
+    }
+    let store = Store::open(&db).map_err(|x| (1, "StoreError", x))?;
+    match verb {
+        "accept" => plans::accept(&store, spec.as_ref().unwrap(), now).map_err(e),
+        "claim" => plans::claim(&store, &need("--plan")?, &need("--holder")?, int("--lease-ms")?, now).map_err(e),
+        "intend" => plans::intend(&store, &need("--plan")?, &need("--holder")?, int("--epoch")?, int("--step")?, int("--bell")?, now).map_err(e),
+        "signed" => plans::signed(&store, &need("--plan")?, &need("--holder")?, int("--epoch")?, int("--step")?, &need("--signature")?, now).map_err(e),
+        "settle" => {
+            let booked = if o.contains_key("--booked-bell") { Some(int("--booked-bell")?) } else { None };
+            plans::settle(&store, &need("--plan")?, &need("--holder")?, int("--epoch")?, int("--step")?, &need("--outcome")?, o.get("--signature").map(String::as_str), o.get("--code").map(String::as_str), booked, now).map_err(e)
+        }
+        "stop" => plans::stop(&store, &need("--plan")?, &need("--holder")?, int("--epoch")?, &need("--why")?, now).map_err(e),
+        "view" => plans::view(&store, &need("--plan")?).map_err(e),
+        _ => plans::current(&store, &need("--owner")?, &need("--world")?).map_err(e),
+    }
 }
