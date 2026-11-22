@@ -135,7 +135,7 @@ pub fn s1_applies(input: &Input) -> bool {
 /// Whether VX re-executes this successful transaction: a playable-lane
 /// season (`playable-lane` build) and an expedition dispatch envelope
 /// instruction of the program.
-fn vx_tx(input: &Input, t: &fclient::Transaction) -> bool {
+fn vx_tx(input: &Input, t: &crate::vmsg::Msg) -> bool {
     let pv = input
         .finals
         .get(&findex::addr_ctx(&input.cfg.program, input.cfg.season_id).season)
@@ -143,8 +143,8 @@ fn vx_tx(input: &Input, t: &fclient::Transaction) -> bool {
         .and_then(|a| Season::decode(&a.data).ok())
         .map(|s| s.program_version);
     crate::checks::v0_coverage::playable(pv)
-        && t.message.instructions.iter().any(|ix| {
-            t.message.account_keys.get(ix.program_id_index as usize) == Some(&input.cfg.program)
+        && t.view.instructions.iter().any(|ix| {
+            t.view.account_keys.get(ix.program_id_index as usize) == Some(&input.cfg.program)
                 && ix
                     .data
                     .first()
@@ -202,7 +202,7 @@ pub fn verify(input: &Input) -> Report {
             counts.failed_tx += 1;
             continue;
         }
-        let parsed = match fclient::tx::from_wire(&tx.tx) {
+        let parsed = match crate::vmsg::Msg::of(tx) {
             Ok(p) => p,
             Err(e) => {
                 finding(
@@ -218,18 +218,15 @@ pub fn verify(input: &Input) -> Report {
             }
         };
         let mut writable = Vec::new();
-        for ix in &parsed.message.instructions {
-            if parsed
-                .message
-                .account_keys
-                .get(ix.program_id_index as usize)
+        for ix in &parsed.view.instructions {
+            if parsed.view.account_keys.get(ix.program_id_index as usize)
                 != Some(&input.cfg.program)
             {
                 continue;
             }
             for &i in &ix.accounts {
-                if fclient::tx::is_writable_index(&parsed.message, i as usize) {
-                    if let Some(k) = parsed.message.account_keys.get(i as usize) {
+                if parsed.is_writable_index(i as usize) {
+                    if let Some(k) = parsed.view.account_keys.get(i as usize) {
                         if !writable.contains(&k.to_bytes()) {
                             writable.push(k.to_bytes());
                         }

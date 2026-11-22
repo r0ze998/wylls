@@ -16,6 +16,10 @@
 //!                                           file or fixture may carry it (`rent`). A declared rate that
 //!                                           disagrees with the chain's is refused. Neither: 5,080 is
 //!                                           ASSUMED and the report says so
+//!                                           v0 transactions' lookup tables are read with the final
+//!                                           states (--rpc) or taken from a finals file's / fixture's
+//!                                           `lookup_tables`; VT checks every archived
+//!                                           `loadedAddresses` against them (verifier-v0v1)
 //!          --balances                       with --rpc: also read each transaction's pre/post
 //!                                           balances and the upgrade authority (VG: an archive
 //!                                           without post-states re-executed from genesis)
@@ -207,6 +211,8 @@ fn main() {
         };
         // (rent-live-rest: the Rent sysvar a finals file recorded beside its states)
         let mut finals_rent: Option<input::RentRead> = None;
+        // (verifier-v0v1: the lookup tables a finals file recorded beside its states)
+        let mut finals_tables: Option<input::LookupTables> = None;
         let (finals, final_slot) = match (&finals, &rpc) {
             (Some(f), _) => {
                 let s = std::fs::read_to_string(f).unwrap_or_else(|e| usage(&e.to_string()));
@@ -215,6 +221,12 @@ fn main() {
                 finals_rent = match v.get("rent") {
                     None | Some(serde_json::Value::Null) => None,
                     Some(r) => Some(input::RentRead::from_json(r).unwrap_or_else(|e| usage(&e))),
+                };
+                finals_tables = match v.get("lookup_tables") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(t) => {
+                        Some(input::LookupTables::from_json(t).unwrap_or_else(|e| usage(&e)))
+                    }
                 };
                 (
                     input::finals_from_json(v.get("finals").unwrap_or(&v))
@@ -330,6 +342,24 @@ fn main() {
                     None
                 }
             },
+            (None, None) => None,
+        };
+        // verifier-v0v1: VT's lookup tables (every table a v0 transaction
+        // names), read with the final states at their slot; a finals file's
+        // own. Unread: VT says UNVERIFIABLE for their lookups (never PASS).
+        let table_keys = input::lookup_table_keys(&txs);
+        chain.lookup_tables = match (finals_tables, &rpc) {
+            (Some(t), _) => Some(t),
+            _ if table_keys.is_empty() => None,
+            (None, Some(u)) => {
+                match rt.block_on(input::fetch_lookup_tables(u, &table_keys, final_slot)) {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        eprintln!("frontier-verify: the lookup tables: {e}");
+                        None
+                    }
+                }
+            }
             (None, None) => None,
         };
         // ⑰ Q-P1 (b): the second source(s), read after everything else

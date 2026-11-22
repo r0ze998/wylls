@@ -114,6 +114,9 @@ pub struct Served {
     pub fee: u64,
     pub units: u64,
     pub balances: Option<Balances>,
+    /// verifier-v0v1: `meta.loadedAddresses` (a v0 transaction's looked-up
+    /// accounts; empty for legacy and v1).
+    pub loaded: fclient::vtx::LoadedAddresses,
 }
 
 impl Served {
@@ -127,6 +130,7 @@ impl Served {
             fee: t.fee,
             units: t.units,
             balances: balances.cloned(),
+            loaded: t.loaded.clone(),
         }
     }
 }
@@ -196,9 +200,16 @@ impl SourceRead {
             "genesis": self.genesis,
             "finalized_slot": self.finalized_slot,
             "signatures": self.signatures.as_ref().map(|s| s.iter().map(|(g, sl, f)| json!([g, sl, f])).collect::<Vec<_>>()),
-            "txs": self.txs.iter().map(|(s, t)| json!([s, t.as_ref().map(|t| json!({
+            "txs": self.txs.iter().map(|(s, t)| json!([s, t.as_ref().map(|t| {
+                let mut o = json!({
                 "slot": t.slot, "block_time": t.block_time, "tx": b64.encode(&t.tx), "logs": t.logs,
-                "err": t.err, "fee": t.fee, "units": t.units, "balances": bal_json(&t.balances)}))])).collect::<Vec<_>>(),
+                "err": t.err, "fee": t.fee, "units": t.units, "balances": bal_json(&t.balances)});
+                // (verifier-v0v1: only a v0 transaction with lookups has it; others stay byte-identical)
+                if !t.loaded.writable.is_empty() || !t.loaded.readonly.is_empty() {
+                    o["loaded"] = fclient::vtx::loaded_json(&t.loaded);
+                }
+                o
+            })])).collect::<Vec<_>>(),
             "blocks": self.blocks.iter().map(|(s, b)| json!([s, b.as_ref().map(|b| json!({
                 "blockhash": b.blockhash, "previous": b.previous, "parent_slot": b.parent_slot,
                 "height": b.height, "signatures": b.signatures}))])).collect::<Vec<_>>(),
@@ -244,6 +255,10 @@ impl SourceRead {
                     fee: s.get("fee").and_then(|x| x.as_u64()).unwrap_or(0),
                     units: s.get("units").and_then(|x| x.as_u64()).unwrap_or(0),
                     balances: bal_from(s.get("balances").unwrap_or(&Value::Null))?,
+                    loaded: fclient::vtx::loaded_from_meta(
+                        &json!({"loadedAddresses": s.get("loaded").cloned().unwrap_or(Value::Null)}),
+                    )
+                    .map_err(|x| e(&x))?,
                 }),
             };
             txs.insert(sig, served);
@@ -480,6 +495,9 @@ fn served_diff(p: &Served, w: &Served) -> Vec<String> {
     }
     if p.balances != w.balances {
         d.push("preBalances / postBalances".into());
+    }
+    if p.loaded != w.loaded {
+        d.push("loadedAddresses".into());
     }
     d
 }

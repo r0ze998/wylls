@@ -2735,6 +2735,7 @@ fn finish(r: &Rec, sc: Sc, program: Address, so_hash: [u8; 32], so: &[u8], upgra
         upgrade_authority: Some(upgrade.pubkey()),
         cross: None,
         rent: None,
+        lookup_tables: None,
     };
     for l in &r.log {
         println!("STEP {l}");

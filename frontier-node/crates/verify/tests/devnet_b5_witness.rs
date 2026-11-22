@@ -131,8 +131,8 @@ fn v1_wire() -> Vec<u8> {
 
 /// W6 (verify-pr123): now that the readers fetch v1 transactions, a
 /// successful transaction of the program whose wire is v1 (legacy decoding
-/// refuses it: its accounts and instructions are unknown) must never let
-/// a season PASS: first, middle and last program transaction of the
+/// refused it then; it decodes since #155 and names other accounts) must
+/// never let a season PASS — it FAILs: first, middle and last program transaction of the
 /// PASSing land recording, each served as the real devnet v1 bytes.
 #[test]
 fn w6_a_v1_transaction_of_the_program_is_never_pass() {
@@ -161,10 +161,9 @@ fn w6_a_v1_transaction_of_the_program_is_never_pass() {
             "tx {i} served as v1:\n{}",
             common::show(&r)
         );
-        assert!(
-            r.fails_with(verify_core::codes::UNDECODABLE),
-            "{}",
-            common::show(&r)
-        );
+        // verify-pr155: since verifier-v0v1 (#155) the v1 wire decodes; a
+        // foreign v1 transaction in a program record's place is a FAIL by
+        // what it names (UnwritablePost, ...), no longer `Undecodable`.
+        assert_eq!(r.verdict, Verdict::Fail, "{}", common::show(&r));
     }
 }

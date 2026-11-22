@@ -368,17 +368,19 @@ impl World {
             if !t.post.is_empty() {
                 w.has_post = true;
             }
-            match fclient::tx::from_wire(&t.tx) {
+            // verifier-v0v1: legacy, v0 (its lookups resolved by the
+            // record's `loaded`, which VT checks against the tables) and v1.
+            match crate::vmsg::Msg::of(t) {
                 Ok(parsed) => {
-                    let msg = &parsed.message;
+                    let msg = &parsed.view;
                     tx.keys = msg
                         .account_keys
                         .iter()
                         .enumerate()
-                        .map(|(k, a)| (a.to_bytes(), fclient::tx::is_writable_index(msg, k)))
+                        .map(|(k, a)| (a.to_bytes(), parsed.is_writable_index(k)))
                         .collect();
                     tx.fee_payer = tx.keys.first().map(|k| k.0);
-                    let b = fclient::tx::parse_budget(msg);
+                    let b = parsed.budget();
                     tx.cu_price = b.cu_price.unwrap_or(0);
                     tx.cu_limit = b.cu_limit.unwrap_or(0);
                     tx.loaded_limit = b.loaded_limit.unwrap_or(0);
