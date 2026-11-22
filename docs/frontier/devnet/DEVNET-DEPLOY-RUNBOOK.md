@@ -639,7 +639,7 @@ list; the table after it keeps each item's detail.
 | P11 (O11) | Who pays a player's fees and rent. Today the player's wallet (about 0.02 SOL, §4b) | **r0ze** (not blocking) | wallet-paid is implemented; sponsoring is not wired |
 | Q-W3 | `outpost_tier_min` 0 lets every Hamlet file an outpost, in the heartland too (as local wide play) | **r0ze** (not blocking) | implemented as 0; reverting is one preset byte, the `.so` is unaffected |
 | W1 | **The verifier's witness endpoint.** A PASS on a public-RPC season needs a second, independent RPC that serves the whole season. The only free no-sign-up second provider found (OnFinality) keeps about 7 days of history; a season is 7 days + the 24 h lead + about 21 h of map growth, so after the season ends such a witness reads UNVERIFIABLE (fail-safe, never PASS). Choices: an archival provider (sign-up), an own node, Old Faithful, or verifying while the season is still inside the witness's window | **r0ze** | measured read-only on 2026-11-21 (devnet-readonly-rpc) |
-| H1 (B11) | **Hosting and an RPC provider.** A host for keeper A, the herald and the gateway behind a TLS reverse proxy with a public name (what the proxy must set and which ports stay closed: §8a). The public `api.devnet.solana.com` allows about 10 calls of one method per 10 s per IP (HTTP 429, `Retry-After: 10`); an idle herald alone polls about 2 requests a second, so a season most likely needs a provider endpoint | **r0ze** (sign-ups) | not needed for the deploy itself |
+| H1 (B11) | **Hosting and an RPC provider.** A host for keeper A, the herald and the gateway behind a TLS reverse proxy with a public name (what the proxy must set and which ports stay closed: §8a). The public `api.devnet.solana.com` allows about 10 calls of one method per 10 s per IP (HTTP 429, `Retry-After: 10`); the herald alone makes about 2 calls a second idle with the §8 step 6 flags (`--rpc-min-gap-ms 100 --poll-ms 1000`: 1.8/s measured; ≈ 160 k calls/day, ≈ 4.8 M per 30 days, + about 2 per program transaction) — and about 4/s, idle or busy, with the old gap 250 and the default poll 200 (≈ 340 k/day, ≈ 10 M per 30 days; herald-load-50, fix-devnet-join-wait) —, each method above the public limit, so a season needs a provider endpoint | **r0ze** (sign-ups) | not needed for the deploy itself |
 | P12-cap | ~~The keep's capture on devnet's clock~~ **closed offline by devnet-72bell-pair (PCAP)**: the page's sealed march onto a neighbour's keep (its card, its wallet, its time-lock to the real T(21)), keeper A with the devnet profile's roles (`archive` included) and rings duty (`rim_per_wedge`, `provinces_reach` #138; live Rent sysvar #147; not `wide_rings`, which offline can only bind a shipped round), the preset's real 600 s bells with the chain clock at ×40: taken after exactly 72 held bells (contest from bell 21, `keep_taken` at bell 92, `since_bell` 93), the herald's `/h/keep` history and `/h/conquest/0.json` event, the page's guide 「第92ターンに、あなたの国（…）が州 -128,67 を奪いました」, the donor's return (reserve 0 → 191 at bell 106); keeper A's lag per held bell at ×40 under load 57–154: median 7, p90 10, max 11 bells (71 bells in 1,196 s of wall time, ~16.8 s per bell, i.e. about 3 % of a real 600 s bell). Verifier over the archive (#155): 0 FAIL, UNVERIFIABLE only from the declared beacon (R1). Browser test, not in CI (local recipe §7.0b) | engineering | closed offline; the real-clock run is the first devnet season |
 | P12-pair | ~~The second leg of an out-and-back pair~~ **closed offline by devnet-72bell-pair (PPAIR), one leg declared**: OUT = the page's own march card to the neighbour's tile on the real T(21) (keeper A anchors, opens, reveals, gathers, resolves, settles; the herald shows the host abroad); HOME = the same wallet's Depart at bell 48 — the first bell the host may leave again: a sealed Depart charges 74 stamina whatever its path (cap 120, +1 a bell, so ~28 bells' rest; the old line's plan of a return right after the arrival cannot exist) — sealed to the TEST beacon key over a declared TEST-signed anchor (offline only one bell a season can have a real round: PR CI `pkf_offline_a_season_has_at_most_one_real_arrival_round`), revealed by the wallet, settled by keeper A at the village tile (bell 51 arrival, settled by bell 54); the herald's records of both provinces agree with the chain. Verifier (#155): 0 FAIL, UNVERIFIABLE only from the declared beacon. What stays unproven offline: keeper A opening a SECOND real seal in one season (R1) | engineering | closed offline (one real leg); both legs real only on devnet |
 | P4 | Operator AI residents and the test-token faucet are localnet-only | engineering | open |
@@ -797,7 +797,7 @@ $KP --config keeper-a/keeper.toml                          # runs; GET 127.0.0.1
 
 # ── 6. Herald (the only public service, behind the TLS proxy) ────────────────────────────────────────────────
 frontier-node/target/release/frontier-herald --data herald/ --program <PROGRAM_ID> --season 1 \
-  --rpc $RPC --source rpc --cluster devnet --rpc-min-gap-ms 250 \
+  --rpc $RPC --source rpc --cluster devnet --rpc-min-gap-ms 100 --poll-ms 1000 \
   --listen 127.0.0.1:41040 --web permutation-server/web --relay 127.0.0.1:41033 \
   --public-host <the public host name> [--witness <a second RPC>]
 curl -s http://127.0.0.1:41040/h/season                    # "rulesetHash" → R (64 hex) for the gateway
@@ -875,6 +875,20 @@ Notes on what is **not** tested as written:
 - The offline runs use `--rpc-min-gap-ms 0` (herald) and no `rpc_min_gap_ms` (keeper) on loopback. 250 ms is the
   gap the verifier now defaults to after the public endpoint's limit was measured (#123); the keeper's and the
   herald's own default is still 150 ms.
+- The herald's `--rpc-min-gap-ms 100 --poll-ms 1000` (§8 step 6; was `--rpc-min-gap-ms 250` with the default poll
+  200) was measured offline (fix-devnet-join-wait: P7 behind a proxy that shows every transaction 30 s late, as
+  devnet's finality + ingest would; herald-load-50: 50/100 players): every call waits for the gap, so with 250 the
+  herald is pinned at ≈ 4 calls/s whether idle or busy (getSignaturesForAddress + the Clock read every 200 ms poll)
+  and falls behind in bursts (100 players ×5: lag p95 16 s, max 90 s); with 100/1000 it idles at ≈ 1.8/s, bursts
+  to 10/s, and showed a Join 25 s sooner (p95 lag 4 s at 100 players). The poll costs at most 1 s of latency next to
+  ≈ 13 s of finality. On the public endpoint (≈ 1 call/method/s) neither setting fits: it is for a provider endpoint.
+  Paid cost (from these call counts; price sheets were not read in that run): idle ≈ 4.8 M calls per 30 days, plus
+  ≈ 2 calls per program transaction (50 players acting 6 times a bell ≈ +2.6 M per 30 days); on a plan that counts
+  a standard call as one credit, budget ≈ 8 M credits per 30-day season for the herald alone (the gateway adds
+  ≈ 1 call/s + ≈ 6.5 per player act, herald-load-50 §5; keeper A not measured).
+- The page waits for the herald up to 3 minutes after its own Join / rim village request / PlaceHome
+  (`frontier/fown-wait.mjs`, fix-devnet-join-wait), with the wait said on the card and a 「もう一度確かめる」 button after
+  it; a herald lagging more than that (a stalled RPC) shows that button, never a silent stop.
 - The offline runs' gateway runs with `--dev --pool-size 1 --devnet-play-offline-rpc` (the TEST form: loopback
   41000–41999 only). Without `--dev` the gateway needs `--pool-size` ≥ 150 (`config.mjs`); the devnet play routes
   are wallet-paid and are not funded routes, so that relay pool need not be funded for them [from code; not run].
