@@ -804,16 +804,30 @@ impl PlayDuty {
                         None => bell,
                     };
                     // One taken nudge per province per bell, and at most
-                    // NUDGE_PER_BELL_MAX provinces newly nudged a bell: a
-                    // nudge splits the province's SkipQuiet batch, so
-                    // re-nudging every idle province each bell would cost a
-                    // SkipQuiet per province per bell instead of per 24.
+                    // NUDGE_PER_BELL_MAX provinces WITHOUT residents newly
+                    // nudged a bell: a nudge splits the province's SkipQuiet
+                    // batch, so re-nudging every idle province each bell
+                    // would cost a SkipQuiet per province per bell instead of
+                    // per 24. A province with residents is never capped
+                    // (verify-pr166: 64 anonymous nudges a bell, ~2 minutes
+                    // of one address's per-IP budget, filled the cap and
+                    // silently dropped every player's catch-up request for
+                    // the rest of the 600 s bell); those cost at most one
+                    // SkipQuiet per inhabited province per bell, which the
+                    // pages' own auto-nudges already ask for.
                     if let Some(now) = now_bell {
                         if self.nudge_taken.get(&(p, q)) == Some(&now) {
                             continue;
                         }
-                        let this_bell = self.nudge_taken.values().filter(|&&b| b == now).count();
-                        if this_bell >= crate::api_guard::NUDGE_PER_BELL_MAX {
+                        let inhabited =
+                            |pq: &(i16, i16)| self.provinces.get(pq).is_some_and(|s| s.active);
+                        let this_bell = self
+                            .nudge_taken
+                            .iter()
+                            .filter(|(pq, &b)| b == now && !inhabited(pq))
+                            .count();
+                        if !inhabited(&(p, q)) && this_bell >= crate::api_guard::NUDGE_PER_BELL_MAX
+                        {
                             self.nudges_capped += 1;
                             continue;
                         }
@@ -3409,6 +3423,34 @@ mod review_tests {
         assert_eq!(d.nudged.len(), max);
         assert_eq!(d.nudges_capped, 10);
         assert_eq!(d.status()["nudges_capped"], 10);
+        // verify-pr166: the cap is full, but a province with residents is
+        // still caught up on its player's request (an attacker filling the
+        // cap with empty provinces no longer drops it).
+        let prov = |active: bool| ProvState {
+            region: 0,
+            rn: 0,
+            read_slot: 0,
+            pending_bells: BTreeSet::new(),
+            settle_bells: BTreeSet::new(),
+            active,
+            leaves: vec![],
+            leave_ops: vec![],
+            last_digest: [0; 32],
+            contested: false,
+            rest_to: 0,
+        };
+        d.provinces.insert((-5, 7), prov(true));
+        d.provinces.insert((-6, 7), prov(false));
+        shared
+            .nudges
+            .push(json!({"province": [-5, 7], "bell": 200}));
+        shared
+            .nudges
+            .push(json!({"province": [-6, 7], "bell": 200}));
+        d.take_shared_at(&mut shared, None, Some(200));
+        assert!(d.nudged.contains_key(&(-5, 7)), "inhabited: never capped");
+        assert!(!d.nudged.contains_key(&(-6, 7)), "empty: capped");
+        assert_eq!(d.nudges_capped, 11);
     }
 
     /// The admission the API reads: live DEPARTs' seal roots (not the

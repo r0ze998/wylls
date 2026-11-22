@@ -803,6 +803,8 @@ curl -s http://127.0.0.1:41040/h/season                    # "rulesetHash" → R
 #   the TLS proxy in front MUST set the client's address as X-Forwarded-For (fix-gw-highs, audit M-2), e.g.
 #     nginx:  proxy_set_header X-Forwarded-For $remote_addr;      (NOT $http_x_forwarded_for: the client would choose it)
 #     Caddy:  reverse_proxy 127.0.0.1:41040                         (default: sets it, ignores the client's own header)
+#     HAProxy: http-request set-header X-Forwarded-For %[src]       (replace it; the herald reads the LAST entry over all lines, verify-pr166)
+#   check it: two posts with different client-written X-Forwarded-For through the proxy must share one per-address bucket
 #   and should cap header time and connections per client (client_header_timeout 10s; limit_conn), audit M-4
 
 # ── 7. Gateway with the devnet play routes ───────────────────────────────────────────────────────────────────

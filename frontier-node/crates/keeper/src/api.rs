@@ -8,7 +8,7 @@
 //! |---|---|
 //! | `GET /v1/status` | duties, pools, spend, latencies: the snapshot of the last tick, published after its sends (W6T-2: never taken away while a tick runs) |
 //! | `GET /metrics` | Prometheus text (live) |
-//! | `POST /v1/reveal` | shape checks (`400`), plaintext rules (`422 BadPlaintext`), then (W3-C) the accept path against chain ([`crate::reveal_accept`]: `409 CommitMismatch` / `TransitState` / `ArrivalBell` / `Shielded` (W6T-2), `410 WindowClosed`, `422 BadPlaintext` against the transit; every refusal body is `{error, code, detail}`), then queued with a track id (`202`; the same material again answers the same track, before any chain read). fix-gw-highs (audit H-1): before the gate, material that opens no live DEPART the play index holds is `503 RevealNotIndexed` (`409 CommitMismatch` for another host's or bell's root) once the index is caught up, at zero RPC; the gate's reads take the external budget's tokens ([`crate::api_guard`]): spent, `503 KeeperBusy`, except for indexed material, which is queued unchecked. W4-C's pipeline ([`crate::play`]) sends it from the bell start and moves the track: `sent`, `landed` (signature, slot), `refused` (`QuotaRefused`), `expired` (`WindowClosed`) |
+//! | `POST /v1/reveal` | shape checks (`400`), plaintext rules (`422 BadPlaintext`), then (W3-C) the accept path against chain ([`crate::reveal_accept`]: `409 CommitMismatch` / `TransitState` / `ArrivalBell` / `Shielded` (W6T-2), `410 WindowClosed`, `422 BadPlaintext` against the transit; every refusal body is `{error, code, detail}`), then queued with a track id (`202`; the same material again answers the same track, before any chain read; verify-pr166: so does material opening an already acknowledged live DEPART's seal root under another `holding` / `transit_slot`). fix-gw-highs (audit H-1): before the gate, material that opens no live DEPART the play index holds is `503 RevealNotIndexed` (`409 CommitMismatch` for another host's or bell's root) once the index is caught up, at zero RPC; the gate's reads take the external budget's tokens ([`crate::api_guard`]): spent, `503 KeeperBusy`, except for indexed material, which is queued unchecked. W4-C's pipeline ([`crate::play`]) sends it from the bell start and moves the track: `sent`, `landed` (signature, slot), `refused` (`QuotaRefused`), `expired` (`WindowClosed`) |
 //! | `POST /v1/nudge` | fix-gw-highs (audit H-2): `{province: [P, Q] (i16), bell (u32)}`; `422 BellOutOfRange` past the current bell + 2, `404 UnknownProvince` for a province the caught-up index does not know, one queued per province (a later bell replaces nothing it covers), `503 KeeperBusy` past 1,024 queued; otherwise queued; the province is caught up at once (W4-C); `blocking` lists what holds it now (`[{kind, key}]`: its lag, writes in flight on it, departures waiting for its resolve), as of the last tick |
 //! | `GET /v1/track/{id}` | the track's state |
 
@@ -193,6 +193,22 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
             )
                 .into_response();
         }
+        let seal = s.admission.as_ref().map(|a| a.seal(&req));
+        // verify-pr166: material that opens a live DEPART already acknowledged
+        // under another holding / transit slot (revealed material is public
+        // after its round: anyone can resubmit it with a forged holding) gets
+        // the march's track, before the queue, the gate and the journal; one
+        // acknowledgement per seal root.
+        if seal == Some(SealCheck::Indexed) {
+            if let Some(id) = s.reveal_keys.get(&seal_key(&req)).cloned() {
+                crate::api_guard::count(&mut s.api, "reveal_deduped", false);
+                return (
+                    StatusCode::ACCEPTED,
+                    Json(json!({"accepted": true, "track": id})),
+                )
+                    .into_response();
+            }
+        }
         if s.reveals.len() >= crate::api_guard::REVEAL_QUEUE_MAX {
             crate::api_guard::count(&mut s.api, "reveal_busy_queue", true);
             let b = crate::api_guard::busy();
@@ -202,7 +218,6 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
                 "the reveal queue is full",
             );
         }
-        let seal = s.admission.as_ref().map(|a| a.seal(&req));
         match seal {
             Some(SealCheck::Mismatch) => {
                 crate::api_guard::count(&mut s.api, "reveal_refused_mismatch", true);
@@ -312,6 +327,9 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
     s.tracks.insert(id.clone(), json!({"state": "queued"}));
     s.reveal_keys.insert(dedupe, id.clone());
     s.reveal_keys.insert(exact, id.clone());
+    if indexed {
+        s.reveal_keys.insert(seal_key(&req), id.clone());
+    }
     s.reveals.push((id.clone(), item));
     (
         StatusCode::ACCEPTED,
@@ -564,9 +582,22 @@ pub fn restore_owner_tracks(s: &mut Shared, j: &crate::journal::Journal) -> Resu
             r.transit_slot,
             hex::encode(fclient::seal::commit(&plain, &salt))
         );
+        if let Ok(ct) = <[u8; 32]>::try_from(r.ct_hash.as_slice()) {
+            let root = fclient::seal::seal_root(&fclient::seal::commit(&plain, &salt), &ct);
+            s.reveal_keys
+                .entry(format!("seal:{}", hex::encode(root)))
+                .or_insert(r.track.clone());
+        }
         s.reveal_keys.entry(dedupe).or_insert(r.track);
     }
     Ok(())
+}
+
+/// The `reveal_keys` key of a material's seal root (verify-pr166).
+fn seal_key(req: &RevealReq) -> String {
+    let root =
+        fclient::seal::seal_root(&fclient::seal::commit(&req.plain, &req.salt), &req.ct_hash);
+    format!("seal:{}", hex::encode(root))
 }
 
 #[cfg(test)]
@@ -1216,8 +1247,21 @@ mod tests {
         // Caught up, the owner's material: queued although the budget is spent.
         let (genuine, root) = material(1);
         lock(&shared).admission = Some(admission(true, &[(root, (42, 9))]));
-        let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(genuine)).await;
+        let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(genuine.clone())).await;
         assert_eq!(c, 202, "{v}");
+        let id = v["track"].clone();
+        assert_eq!(inner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        // verify-pr166: the same material (public once its round is out) with
+        // forged holdings and transit slots: the march's track, nothing more
+        // queued or journalled, no read (it bypassed every dedupe before).
+        for i in 0..40u8 {
+            let mut v2 = genuine.clone();
+            v2["holding"] =
+                json!(solana_address::Address::new_from_array([100 + i; 32]).to_string());
+            v2["transit_slot"] = json!(i % 4);
+            let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(v2)).await;
+            assert_eq!((c, &v["track"]), (202, &id), "{v}");
+        }
         assert_eq!(inner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
         let s = lock(&shared);
         assert_eq!(s.reveals.len(), 1);

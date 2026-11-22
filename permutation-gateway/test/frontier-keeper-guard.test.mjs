@@ -171,3 +171,45 @@ test('the guard logs at most one summary line per 10 s', async () => {
   assert.equal(lines.length, 2);
   assert.match(lines[1], /reveal_busy_global=50\b/, "the 49 held back and the new one");
 });
+
+test('verify-pr166: keeper A\'s new 503s (KeeperBusy, RevealNotIndexed) reach the page as 502 KeeperUnavailable (the marchbook asks again, not one of its two self attempts); real refusals keep their code', async () => {
+  const { unreached } = await import('../../permutation-server/web/frontier/marchbook.mjs');
+  let answer = [503, { error: 'busy', code: 'KeeperBusy', detail: 'spent' }];
+  const k = await standInKeeper(url => (url === '/v1/reveal' ? answer : [200, { queued: true, blocking: [] }]));
+  try {
+    const r = relay({ keeper: k.link });
+    const a = await call(r.public, 'POST', '/f/reveal', { body: material(1), ...fromHerald('198.51.100.1') });
+    assert.deepEqual([a.status, a.json.code], [502, 'KeeperUnavailable']);
+    assert.ok(unreached(a.json.code), 'not one of the page\'s two self attempts');
+    answer = [503, { error: 'not indexed', code: 'RevealNotIndexed', detail: 'x' }];
+    const b = await call(r.public, 'POST', '/f/reveal', { body: material(2), ...fromHerald('198.51.100.2') });
+    assert.deepEqual([b.status, b.json.code], [502, 'KeeperUnavailable']);
+    assert.ok(unreached(b.json.code));
+    answer = [409, { error: 'mismatch', code: 'CommitMismatch', detail: 'x' }];
+    const c = await call(r.public, 'POST', '/f/reveal', { body: material(3), ...fromHerald('198.51.100.3') });
+    assert.deepEqual([c.status, c.json.code], [409, 'CommitMismatch']);
+    assert.equal(unreached(c.json.code), false);
+  } finally { await k.close(); }
+});
+
+test('verify-pr166: X-Forwarded-For spoofing behind --public-proxy xff — only the last hop (the herald\'s) counts; a client-written loopback is the shared bucket, never exempt', async () => {
+  const k = await standInKeeper();
+  try {
+    const r = relay({ keeper: k.link, cfg: { publicProxy: 'xff', cluster: 'devnet' } });
+    const nudge = (i, xff) => call(r.public, 'POST', '/f/nudge', { body: { province: [2, -1], bell: i }, ip: '127.0.0.1', headers: { 'x-forwarded-for': xff } });
+    // a passthrough proxy that lets the client write the left entries: the right-most (the herald's) is the client
+    const spoof = [];
+    for (let i = 0; i < 14; i++) spoof.push((await nudge(1000 + i, `127.0.0.1, 10.0.0.${i}, 203.0.113.9`)).json?.code ?? 'ok');
+    assert.equal(spoof.filter(c => c === 'RateLimited').length, 4, `one bucket for 203.0.113.9: ${spoof}`);
+    // loopback spellings as the herald's entry: all the shared `unattributed` bucket (burst 10), none exempt
+    const lo = [];
+    for (const [i, x] of ['127.0.0.1', '127.9.9.9', '::1', '::ffff:127.0.0.1', '1.2.3.4, 127.0.0.1', 'garbage'].entries()) {
+      for (let j = 0; j < 3; j++) lo.push((await nudge(2000 + i * 10 + j, x)).json?.code ?? 'ok');
+    }
+    assert.ok(lo.filter(c => c === 'RateLimited').length >= 8, `18 posts, one 10-burst bucket: ${lo}`);
+    // oversized body: refused before the keeper
+    const big = await call(r.public, 'POST', '/f/reveal', { body: JSON.stringify({ ...material(5), pad: 'x'.repeat(70 * 1024) }), ip: '127.0.0.1', headers: { 'x-forwarded-for': '198.51.100.77' } });
+    assert.equal(big.status, 413);
+    assert.equal(k.seen.filter(s => s.url === '/v1/reveal').length, 0);
+  } finally { await k.close(); }
+});
