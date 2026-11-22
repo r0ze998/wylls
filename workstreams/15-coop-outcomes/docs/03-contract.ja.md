@@ -18,6 +18,7 @@
 - `ship.send` の `fromOutside: true`：送り手の在庫が模型にない（①・④の出力）。積荷は送った時点で入る。
 - `ship.lost` の `cause: 'unconfirmed'`：別の場所に着き、襲撃の記録がない。誰の名前も出さない。
 - ⑭の掲示板：`tower.request.posted`／`taken`／`fulfilled`（`req`, `actor`, `cross`）、`tower.relay.swap`。
+- ①の依頼の充足（2026-11-22 追加）：`request.fulfilled`（`req` 依頼の id、`actor` 依頼した人、`need` {資源: 依頼量}、`deliverers` [{actor, counted: {資源: 数えた量の下限}}]）。流れ `ws01-fulfilled`、verified `derived`（①の板がチェーンの記録から計算したもの）。B 版 4 の P-board-helper だけが読む。
 - `model.boundary {index}`：模型の区切り（⑭の `period.boundary`）。報告するだけで、評価期間にも戦期にもしない。
 - ⑭の契約 v1（`wylls.ws14.tower-facts/1`：`seq`・`hour`・`time.bellsPerHour`・`poster`・`responder`）と v0 を、同じ adapter で読む。
 - 記録の流れの `kinds`：⑭の流れは上の種類と `position` だけ。⑭の事実の欠落は、塔の事実が決める判定だけを判定できなくする。

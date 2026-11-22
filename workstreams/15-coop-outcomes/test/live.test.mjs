@@ -82,7 +82,7 @@ test('live records → titles with reasons in EN and JA: a foreign raid earns on
   }
   assert.equal(o.records.gaps, 0, 'a record the page does not read (HARVEST) holds its position: no gap');
   assert.equal(o.undecided, 0);
-  assert.deepEqual({ ...o.notes, skipped: undefined }, { unresolved: 0, skipped: undefined, rejected: 0, bad: 0 }, 'every Citizen tag and place resolved; nothing left out');
+  assert.deepEqual({ ...o.notes, skipped: undefined }, { unresolved: 0, skipped: undefined, rejected: 0, bad: 0, fulfilledHeld: 0 }, 'every Citizen tag and place resolved; nothing left out');
 });
 
 test('every goal of B has a title and a reason in both languages, in the page\'s words (⑦: a turn, never a bell; no internal words)', () => {

@@ -1918,6 +1918,8 @@ export default {
   '所属の分からない領主': 'a lord of an unknown nation',
   '{0}の領主': 'a lord of {0}',
   '{0}が称号「{1}」を得た': a => `${cap(a)} earned the title “{1}”`,
+  // (2026-11-22, ⑮ 「依頼に応えた」: a title of the viewer's own, shown to its holder only)
+  'あなたが称号「{0}」を得た': 'You earned the title “{0}”',
   '理由：{0}': 'Why: {0}',
   '称号と記録': 'Titles and records',
   '国をまたぐ協力の達成。勝敗・得点・賞金には関わらない': 'What cooperation between nations achieved. It does not affect who wins, scores or prizes',

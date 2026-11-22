@@ -29,3 +29,32 @@ export function boardForEvaluators(state, { contexts = [], now = null } = {}) {
 
 /** 依頼の届け先と、記録の場所（S1 の log_place を読んだもの：{kind, p, q, site, gen}）が同じか。 */
 export const isRequestDestination = (q, place) => Number(place?.kind) === 1 && place.p === q.to.p && place.q === q.to.q && place.site === q.to.site && place.gen === q.to.gen;
+
+/**
+ * 契約「ws01-fulfilled v1」（2026-11-22。⑮の「依頼に応えた」称号のため。持ち主の決定 11:56、Q1-⑮）：
+ *   {v: 1, kind: 'ws01-fulfilled', requests: [{id, ctx, goalId, requester, need, lower, deliverers: [{responder, counted, arrivals: [{caravanKey, signature}]}]}]}
+ * coopView（goal.mjs）の結果から、依頼量に届いた（fulfilmentOf の status 'fulfilled'：数えた量の下限で証明）依頼だけを出す。
+ * 届けた人は、自分の到着が数えられた（counted：検証済み・到着時の受取人が依頼した人・応じた後の送信）人だけ。応じただけの人、
+ * 数えられなかった到着しかない人は入らない。signature は CARAVAN_SETTLED の署名（⑮はヘラルドの記録と照らしてターンを決める）。
+ * 判定は⑮が自分でやり直す（下限の和が依頼量に届くか、国が違うか、自分の依頼でないか）。これは材料を渡すだけ。
+ */
+export function fulfilmentsForEvaluators(view) {
+  const requests = [];
+  for (const q of [...(view?.requests ?? [])].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (q.fulfilment?.status !== 'fulfilled') continue;
+    const by = new Map();
+    for (const a of q.arrivals ?? []) {
+      if (a.duplicateOf || !a.counted || a.responder === q.requester) continue;
+      const counted = Object.fromEntries(Object.entries(a.counted).filter(([r, v]) => Object.hasOwn(q.need, r) && Number.isSafeInteger(v) && v > 0));
+      if (!Object.keys(counted).length) continue;
+      const d = by.get(a.responder) ?? { responder: a.responder, counted: {}, arrivals: [] };
+      for (const [r, v] of Object.entries(counted)) d.counted[r] = (d.counted[r] ?? 0) + v;
+      d.arrivals.push({ caravanKey: caravanKeyOf(a.caravanId), signature: a.signature ?? null });
+      by.set(a.responder, d);
+    }
+    if (!by.size) continue;
+    requests.push({ id: q.id, ctx: q.ctx ?? null, goalId: q.goalId, requester: q.requester, need: { ...q.need }, lower: { ...q.fulfilment.lower },
+      deliverers: [...by.values()].sort((x, y) => (x.responder < y.responder ? -1 : x.responder > y.responder ? 1 : 0)) });
+  }
+  return { v: 1, kind: 'ws01-fulfilled', requests };
+}
