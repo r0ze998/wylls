@@ -24,11 +24,15 @@ function textTo(node) {
   if (lang() === 'en') {
     if (st && st.en === now) return;   // what this module wrote
     if (!needsEnglish(now)) return;
-    const en = toEnglish(now);
+    const en = lineStart(node) ? cap(toEnglish(now)) : toEnglish(now);
     texts.set(node, { ja: now, en });
     if (en !== now) node.nodeValue = en;
   } else if (st && st.en === now && st.ja !== now) node.nodeValue = st.ja;
 }
+// a notice is a line of its own: its first letter is a capital (the same words inside a list stay small: "…: declined")
+const NOTICES = '#msg, #readState, #focusState, #composeState, #entryWarn';
+const lineStart = node => !!node.parentElement?.closest(NOTICES) && node.parentElement.firstChild === node;
+const cap = s => s.replace(/^(\s*)([a-z])/, (m, sp, c) => sp + c.toUpperCase());
 function attrsTo(el) {
   let st = attrs.get(el);
   for (const a of ATTRS) {

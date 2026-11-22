@@ -212,6 +212,9 @@ try {
     await pb.click('[data-lang-toggle]');
     await pb.locator('[data-act=withdraw]').first().click();
     await pb.waitForSelector('#msg .ok:has-text("Withdrawn. Any caravan already sent still arrives")');
+    await pb.locator('[data-act=decline]').first().click();
+    await pb.waitForSelector('#msg .ok:text-is("Declined")');   // 知らせは一行なので頭文字が大文字（一覧の中の「…: declined」は小文字のまま）
+    await pb.waitForSelector('#requests :text("(Nation 3 – Cinder): declined")');
     await pb.locator('[data-act=accept]').first().click();
     await pb.waitForSelector('#msg .ok:has-text("Accepted (you mean to send). Nothing has moved yet")');
     assert.equal(await pb.evaluate(() => localStorage.getItem('ps-lang')), 'en', 'ゲームの画面と同じ保存先');

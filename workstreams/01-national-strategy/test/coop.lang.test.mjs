@@ -92,6 +92,11 @@ test('texts as the page shows them: lists, nested reasons, brackets, parts next 
   eq('国2（チェーンの Citizen で確かめた）：依頼 1 件、この国の人が届けた証明できる到着 2 本', 'Nation 2 – Borealis (confirmed by the Citizen account on the chain): 1 request, 2 provable arrivals delivered by people of this nation');
   eq('読み込めない：HTTP 502。表示は 12:00:01 の読み込みのまま（古い）。自動で読み直しを続けます', 'Cannot load: HTTP 502. The view is still the one loaded at 12:00:01 (old). Reloading continues automatically');
   eq('依頼した人（世代 1）', 'the requester (generation 1)');
+  // confirm(): the page gives it line by line (lang.mjs shown)
+  eq('村 (1,2) 村3 から 5 マス、隊商 #2 で 木材 200・石材 200 を送ります。', 'Sending Wood 200 · Stone 200 from village (1,2) site 3, 5 tiles, as caravan #2.');
+  eq('送り元の在庫（見込み）：木材 500・石材 100。不足（見込み）：石材 100。足りるかの最終判定は、送信の時にプログラムが行う', 'Stock at the source (estimate): Wood 500 · Stone 100. Short (estimate): Stone 100. Whether it is enough is finally decided by the program at the time of sending');
+  eq('ウォレットで署名しますか？', 'Sign with the wallet?');
+  eq('受け付けられなかった：この目的から抜けた人は依頼できない', 'Not accepted: someone who left this goal cannot make a request');
   eq('  \n   依頼はまだない\n ', '  \n   No requests yet\n ');
   eq('abcd…wxyz', 'abcd…wxyz');
   eq('12 / 200', '12 / 200');
@@ -140,5 +145,6 @@ test('the page: the display layer is loaded by the page code, confirm() goes thr
   assert.match(page, /html\[lang="en"\] \.req\.focus::before \{ content: var\(--focus-label, '入口で選んだ依頼'\); \}/);
   assert.match(layer, /from '\.\.\/\.\.\/\.\.\/permutation-server\/web\/lang\.mjs';/, 'the game page\'s language, toggle and saved choice');
   assert.match(layer, /if \(lang\(\) !== 'en'\) return;/, 'in Japanese nothing is touched');
+  assert.match(layer, /export const shown = text => \(lang\(\) === 'en' \? String\(text\)\.split\('\\n'\)\.map\(toEnglish\)\.join\('\\n'\) : text\);/, 'confirm(): the same text in Japanese');
   assert.doesNotMatch(layer, /fetch\(|localStorage|sign[A-Z]\w*\(|\/coop\//, 'display only: no request, no storage, no signing');
 });
