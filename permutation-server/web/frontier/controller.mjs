@@ -63,6 +63,7 @@ import * as localReturn from './flocalplay-return.mjs';
 import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
 import * as devnetPlayMod from './fdevnetplay.mjs';
+import { waitForOwnRecord } from './fown-wait.mjs';
 import { outpostCost } from './fdevnet-outpost.mjs';
 import * as wideVillage from './fdevnet-wide-village.mjs';
 import * as frent from './frent.mjs';
@@ -252,8 +253,14 @@ let prizeReadAt = 0;
  * The season's prize pool (テストUSDC; null when the season has none) and,
  * once the result is final, the published achievements ledger.
  */
+// (fix-devnet-join-wait, herald-load-50 F5: a gateway that answered "no prize pool" — every devnet play gateway, whose
+//  season has none — was asked again every 15 s by every page. It is asked again only every PRIZE_ABSENT_MS for the
+//  same relay and world; another relay, world or wallet, or a forced read (the paid Join), asks at once as before.)
+export const PRIZE_ABSENT_MS = 600_000;
+let prizeAbsent = null;
 export async function refreshPrize({ force = false, at = Date.now() } = {}) {
-  if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;
+  const absent = prizeAbsent !== null && prizeAbsent.relay === io.relay() && prizeAbsent.world === providerWorld() && prizeAbsent.wallet === (FS.wallet?.address ?? null);
+  if (!io.relay() || (!force && at - prizeReadAt < (absent ? PRIZE_ABSENT_MS : PRIZE_REFRESH_MS))) return;
   prizeReadAt = at;
   // (2026-11-17, ⑦: an answer belongs to the wallet, the relay and the pinned world — with its generation, so A → B → A
   //  are three — it was asked under; one that any of them changed under is not written. A read dropped that way does not
@@ -264,6 +271,7 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   const r = await prizeIo.loadPrize(address);
   if (!current()) { if (prizeReadAt === at) prizeReadAt = 0; return; }
   if (!r.ok) return;
+  prizeAbsent = r.pool === null ? { relay, world, wallet: address } : null;
   FS.prize = r.pool;
   if (r.pool && r.pool.state !== 'open') {
     const g = await prizeIo.loadLedger();
@@ -1736,9 +1744,38 @@ export const devnetPlayDepartAllowed = () => devnetDepartGate();
 export const prepareDevnetPlayDeparture = () => devnetDepart.prepareDevnetDepart(FS, { allowed: devnetDepartGate, context: expeditionContext,
   sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
   seal: async req => (await import('./seal-wide.mjs')).sealWide(req), book: () => devnetBookNow(), wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
-export const sendDevnetPlayDeparture = () => devnetDepart.sendDevnetDepart(FS, { allowed: devnetDepartGate, sign: async w => wallet.signTransaction(w),
-  wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
+export const sendDevnetPlayDeparture = async () => {
+  const st = await devnetDepart.sendDevnetDepart(FS, { allowed: devnetDepartGate, sign: async w => wallet.signTransaction(w),
+    wallet: () => FS.wallet?.address ?? null, changed: localDepartChanged });
+  followDevnetDeparture();
+  return st;
+};
 export const reconcileDevnetPlayDeparture = () => devnetDepart.reconcileDevnetDepart(FS, { allowed: devnetDepartGate, changed: localDepartChanged });
+/**
+ * (fix-devnet-join-wait) A sent departure whose status is still open (`submitted`: pending or processed only; `unknown`:
+ * the send's answer was lost) is asked about again BY ITSELF — every DEVNET_DEPART_RECHECK_MS, at most
+ * DEVNET_DEPART_RECHECK_TRIES times (about 2 minutes, longer than a blockhash lives) — by its signature, through the
+ * gateway it was sent through (reconcileDevnetDepart: one status read, never a second send). It was asked once after
+ * the send and then only on 「状況を確かめる」: a Depart that reached `confirmed` a few seconds later read as unconfirmed
+ * until the player pressed. The button stays; this only stops the card from waiting silently.
+ */
+export const DEVNET_DEPART_RECHECK_MS = 3000, DEVNET_DEPART_RECHECK_TRIES = 40;
+let devnetDepartFollow = null;
+function followDevnetDeparture({ every = DEVNET_DEPART_RECHECK_MS, tries = DEVNET_DEPART_RECHECK_TRIES } = {}) {
+  const open = d => ['submitted', 'unknown'].includes(d?.status) && typeof d.signature === 'string';
+  const d0 = devnetDepart.devnetDepartOf(FS);
+  if (!open(d0) || devnetDepartFollow === d0.signature) return;
+  const sig = devnetDepartFollow = d0.signature;
+  let n = 0;
+  const tick = async () => {
+    const d = devnetDepart.devnetDepartOf(FS);
+    // (another departure, or this one settled — confirmed, failed, cleared —, or the tries spent: the follow ends)
+    if (devnetDepartFollow !== sig || d.signature !== sig || !open(d) || ++n > tries) { if (devnetDepartFollow === sig) devnetDepartFollow = null; return; }
+    try { await reconcileDevnetPlayDeparture(); } catch { /* asked again at the next tick */ }
+    setTimeout(tick, every);
+  };
+  setTimeout(tick, every);
+}
 export const clearDevnetPlayDeparture = () => { const ok = devnetDepart.clearDevnetDepart(FS); if (ok) localDepartChanged(); return ok; };
 /** The reveal halves of this wallet's boundary departures, as the encrypted devnet book keeps them (null: no book here). */
 export const devnetPlayDepartReveals = async () => { const b = await devnetBookNow(); return b ? devnetDepart.devnetDepartReveals(b.storage) : null; };
@@ -2350,6 +2387,8 @@ export async function rereadS1() {
   finally { if (FS.s1Reread === run && run.state === 'loading') FS.s1Reread = null; invalidate('panel', 'map'); }
 }
 
+/** The control / standings files last answered 404, with the bell and world of that answer (refreshConquest). */
+const conquestMiss = { control: null, standings: null };
 export async function refreshConquest() {
   // (2026-11-17, ⑦: also in a world without conquest, what was read in another world is not kept: the feed, the sheet,
   //  the report and the S1 marks read FS.conquest and FS.s1 without asking whether conquest is on)
@@ -2365,11 +2404,21 @@ export async function refreshConquest() {
   if (FS.conquest && (FS.conquest.world ?? null) !== world) FS.conquest = undefined;
   const cq = FS.conquest ??= { status: 'loading', keeps: new Map(), standings: null, final: null, world };
   await refreshOverviews(nowBell());
-  const results = await Promise.allSettled([herald.control(), herald.standings()]);
+  // (fix-devnet-join-wait, herald-load-50 F5: a control or standings file the herald does not have yet — 404: no bell
+  //  complete over every opened province, no standings hour; on a fresh devnet season for hours — was asked again at
+  //  every refresh, three times a minute per page. After a 404 it is asked again at the next bell, in the same world.)
+  const bellNow = nowBell();
+  const missed = k => conquestMiss[k]?.world === world && conquestMiss[k].bell === bellNow;
+  const skipControl = missed('control'), skipStandings = missed('standings');
+  const results = await Promise.allSettled([skipControl ? null : herald.control(), skipStandings ? null : herald.standings()]);
   if (!current()) return;
   const control = results[0].status === 'fulfilled' ? results[0].value : null;
   const standings = results[1].status === 'fulfilled' ? results[1].value : null;
-  if (control?.ok) {
+  if (!skipControl) conquestMiss.control = control?.code === 'NotFound' ? { world, bell: bellNow } : null;
+  if (!skipStandings) conquestMiss.standings = standings?.code === 'NotFound' ? { world, bell: bellNow } : null;
+  // (not asked this time: what the last answer made of the page stays as it is)
+  if (skipControl) { /* the status of the last answer stands */ }
+  else if (control?.ok) {
     cq.control = control.control; applyControl(FS.overviews, cq.control);
     // (B9: a province of the control snapshot whose ring's village list the page has not read yet has a keep the page
     //  cannot place: counted, so that an empty reach list says it is still being worked out — screens/conquest.mjs
@@ -2548,15 +2597,29 @@ export async function rereadHomes() {
   return ctx === contextSeq && !FS.homeChoice?.error;
 }
 
-async function waitForOwn(predicate) {
-  for (let i = 0; i < 5; i++) {
-    await refresh();
-    if (predicate()) return true;
-    if (FS.meStatus === 'error') return false;
-    if (i < 4) await new Promise(r => setTimeout(r, 1000));
-  }
-  return false;
+// fix-devnet-join-wait (herald-load-50 F3): the wait for the page's OWN record after a send the chain took (a Join, a
+// rim village request, a PlaceHome). It was 5 reads 1 s apart; the herald shows a transaction only once it is
+// FINALIZED (≈13 s on a real cluster, plus its poll and ingest), so on devnet the confirm stopped after the Join and
+// the village request was never filed. Now (fown-wait.mjs): reads on a growing gap for up to OWN_WAIT_MS of wall
+// time, a read that fails is not an answer, the card says what it waits for and for how long
+// (`choice.ownWait = {what, secs}`, screens/join.mjs ownWaitLine), and a wait that ends without the record says so and
+// offers to look again (error `retry: true`) — never a silent stop. Nothing is sent by the wait itself.
+async function waitForOwn(predicate, { what = 'join', still = () => true } = {}) {
+  const c = FS.homeChoice ?? null;
+  const mark = secs => { if (c && FS.homeChoice === c) { c.ownWait = { what, secs }; invalidate('panel'); } };
+  mark(0);
+  try {
+    const r = await waitForOwnRecord({ predicate, read: () => refresh(), still, progress: mark });
+    if (!r.ok && c) c.ownWaited = r.secs;
+    return r.ok;
+  } finally { if (c && c.ownWait?.what === what) { c.ownWait = null; invalidate('panel'); } }
 }
+/** What a wait that ended without the record says (the card adds 「もう一度確かめる」: home-confirm, which sends nothing again). */
+const OWN_WAIT_TIMEOUT = {
+  join: secs => L`参加は受け付けられましたが、このページの読み取り先にまだ反映されていません（${fmtNum(secs)} 秒待ちました）。もう一度押しても重ねて参加はしません。「もう一度確かめる」を押すと確かめて、村の申し込みに進みます。`,
+  ticket: secs => L`村の申し込みは受け付けられましたが、このページの読み取り先にまだ反映されていません（${fmtNum(secs)} 秒待ちました）。申し込みは重ねて送りません。「もう一度確かめる」で確かめます。`,
+  home: secs => L`村の確定は受け付けられましたが、地図にまだ反映されていません（${fmtNum(secs)} 秒待ちました）。「もう一度確かめる」で確かめます。`,
+};
 
 /** The second action is always based on confirmed Join state, never an optimistic Citizen. */
 /**
@@ -2636,7 +2699,12 @@ export async function confirmHome() {
   if (reading) run.choice.error = reading;
   const mine = () => FS.homeChoice === run.choice && contextSeq === run.ctx;
   const pending = p => { if (!mine()) return; run.choice.pending = p; invalidate('panel'); };
-  const error = (code, text) => { if (!mine()) return; run.choice.error = { code, text }; invalidate('panel'); };
+  const error = (code, text, more = null) => { if (!mine()) return; run.choice.error = { code, text, ...(more ?? {}) }; invalidate('panel'); };
+  // (fix-devnet-join-wait: the record of what was sent has not shown yet — said with how long the page waited, and the
+  //  card offers to look again; that press finds the note of the send and asks about it, it never sends it again)
+  const notShown = what => error('PendingHome', OWN_WAIT_TIMEOUT[what](run.choice.ownWaited ?? 0), { retry: true, waited: what });
+  // (a rim village request this confirm, or an earlier one, filed and the herald shows: its ticket, or the village)
+  const ticketShown = () => FS.land?.stage === 'ticket' || (FS.holdings ?? []).length > 0;
   // (within this confirm every save goes to the record taken at its start. A note WITH a signature — a transaction
   //  left this browser — is always saved, there. Anything else (the note cleared, the selection) is saved only while
   //  the confirm is still its own: what the page reads after a change is not this viewer's.)
@@ -2679,9 +2747,23 @@ export async function confirmHome() {
       if (!still()) return;
       if (FS.homeGrant) return;
       if (!mine()) return;
+      // (fix-devnet-join-wait: the chain says the noted send LANDED and the herald does not show it yet — its finalized
+      //  lag: the page waits for it here, as right after the send, instead of stopping at once)
+      if (s.state === 'landed') {
+        const k = saved.pending.kind;
+        const shown = k === 'Join' ? () => !!FS.citizen : k === 'FileTicket' ? ticketShown : () => !!FS.homeGrant;
+        if (!shown()) {
+          pending(k === 'FileTicket' ? 'ticket' : 'confirming');
+          if (!await waitForOwn(shown, { what: k === 'Join' ? 'join' : k === 'FileTicket' ? 'ticket' : 'home', still: () => still() && mine() })) return notShown(k === 'Join' ? 'join' : k === 'FileTicket' ? 'ticket' : 'home');
+          if (!still() || !mine()) return;
+          if (FS.homeGrant) return;
+        }
+      }
       // The note is cleared by what the page now SEES of this wallet in this world (its Citizen exists: the Join is
       // done — also when the relay no longer knows the signature, or the order was already let go), or by the chain's
       // own refusal. An unknown outcome with nothing to see keeps it; nothing is sent in its place.
+      // (a rim village request: the herald shows its ticket or the village — the request's own view takes it from here)
+      if (saved.pending.kind === 'FileTicket' && ticketShown()) { saveHomePatch({ pending: null }); return; }
       if (saved.pending.kind === 'Join' && FS.citizen) saveHomePatch({ pending: null });
       else if (s.state === 'failed') saveHomePatch({ pending: null });
       else return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
@@ -2690,6 +2772,14 @@ export async function confirmHome() {
       const tracked = await tx.track(saved.pending.signature);
       await refresh();
       if (FS.homeGrant) return;
+      // (fix-devnet-join-wait: landed and not shown yet — the herald's finalized lag — is waited for, as above)
+      if (tracked.ok && saved.pending.kind === 'Join' && !FS.citizen) {
+        if (!await waitForOwn(() => !!FS.citizen, { what: 'join', still: mine })) return notShown('join');
+        if (!mine()) return;
+      } else if (tracked.ok && saved.pending.kind === 'PlaceHome') {
+        if (!await waitForOwn(() => !!FS.homeGrant, { what: 'home', still: mine })) return notShown('home');
+        return;
+      }
       if (saved.pending.kind === 'Join' && FS.citizen) saveHomePatch({ pending: null });
       else if (!tracked.ok && ['failed', 'expired'].includes(tracked.state)) saveHomePatch({ pending: null });
       else return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
@@ -2718,14 +2808,14 @@ export async function confirmHome() {
       if (FS.resident) {
         // ⑳: an NFT's Citizen is made by its first login (nft-login: JoinResident), never by the wallet Join; it is
         // on its way from the herald
-        if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+        if (!await waitForOwn(() => !!FS.citizen, { what: 'join', still: mine })) return notShown('join');
         if (!mine()) return;
       } else {
         FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: site.faction };
         homeJoinStill = mine;
         const joined = await ACTIONS.join();
         if (!joined?.ok || !mine()) return;
-        if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+        if (!await waitForOwn(() => !!FS.citizen, { what: 'join', still: mine })) return notShown('join');
         if (!mine()) return;
         saveHomePatch({ pending: null });
       }
@@ -2756,7 +2846,11 @@ export async function confirmHome() {
     //  `tickets` role on the bell's beacon)
     if (wideHomes() && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {
       const one = [{ p: site.p, q: site.q, site: site.site }];
-      const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。` });
+      const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。`,
+        // (fix-devnet-join-wait: the request is noted as the Join and PlaceHome are — a press after a reload or after a
+        //  wait that ended asks about THIS signature and never files a second request while it may have landed)
+        onSent: (r, sentUnder) => saveHomePatch({ pending: { kind: 'FileTicket', signature: r.signature, ...(typeof sentUnder?.scope === 'string' ? { scope: sentUnder.scope } : {}) } }),
+        onLost: () => dropHomeNote(run.note, run.sent) });
       if (!mine()) return;
       if (!filed?.ok) { await refresh(); if (mine()) error(filed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`村の申し込みを送れませんでした。候補を更新してください。`); return; }
       // (fix-loop6, LP6-9: a rim ticket is settled by the world's runner at a turn's end; under load that took ~60 turns
@@ -2764,7 +2858,10 @@ export async function confirmHome() {
       //  many turns have gone by: screens/join.mjs renderInstantPlacing, pending 'ticket')
       if (mine()) run.choice.ticketBell = nowBell();
       pending('ticket');
-      if (!await waitForOwn(() => (FS.holdings ?? []).length > 0)) error('PendingHome', L`村の申し込みは送りました。ターンの終わりの決着を待っています。`);
+      // (fix-devnet-join-wait: waited for until the herald shows the REQUEST — its ticket, or already the village —, not
+      //  only the village: the request is settled at the turn's end, which the ticket's own view shows from there)
+      if (!await waitForOwn(ticketShown, { what: 'ticket', still: mine })) return notShown('ticket');
+      if (mine() && ticketShown()) saveHomePatch({ pending: null });
       return;
     }
     const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
@@ -2777,7 +2874,7 @@ export async function confirmHome() {
     if (!mine()) return;
     if (!placed?.ok) { await refresh(); if (mine() && !FS.homeGrant) error(placed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
     pending('confirming');
-    if (!await waitForOwn(() => !!FS.homeGrant)) error('PendingHome', L`村の確定が記録されました。地図への反映を待っています。`);
+    if (!await waitForOwn(() => !!FS.homeGrant, { what: 'home', still: mine })) notShown('home');
   } catch (e) { error(e?.code ?? 'Unavailable', L`参加を完了できませんでした。接続を確認して再試行してください。`); }
   finally {
     run.choice.busy = false; run.choice.pending = null;
@@ -3585,11 +3682,12 @@ function wideActDoneText(name, fields) {
   return L`遠方の村で兵 ${fmtNum(fields.troops)} の軍勢を編成しました。`;
 }
 /**
- * (devnet-p17) The result read back: the village's record is read again (every 3 s, at most about a minute) until a
- * capture after the send shows a change; the card then says what changed, by the record's own figures. A record that
- * does not change in that time is said as that (not as a failure: the chain said the act landed).
+ * (devnet-p17) The result read back: the village's record is read again (every 3 s, at most about three minutes —
+ * fix-devnet-join-wait: it was one minute, about the herald's finalized lag plus one ingest burst; fown-wait.mjs
+ * OWN_WAIT_MS) until a capture after the send shows a change; the card then says what changed, by the record's own
+ * figures. A record that does not change in that time is said as that (not as a failure: the chain said the act landed).
  */
-async function wideActReadBack(sent, { tries = 20, every = 3000 } = {}) {
+async function wideActReadBack(sent, { tries = 60, every = 3000 } = {}) {
   for (let i = 0; i < tries; i++) {
     await new Promise(r => setTimeout(r, every));
     if (FS.wideActPreview !== sent) return;

@@ -32,6 +32,8 @@ const browser = await chromium.launch({ headless: true });
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, locale: process.env.LOCALE ?? 'ja-JP' });
 const page = await ctx.newPage();
 page.on('pageerror', e => log('pageerror', String(e).slice(0, 300)));
+// (fix-devnet-join-wait, herald-load-50 F4: the page's catch-up requests to keeper A — each answer's status, one line each)
+page.on('response', r => { if (r.url().includes('/gw/f/nudge')) fs.appendFileSync(path.join(OUT, 'nudge.log'), `${((Date.now() - t0) / 1000).toFixed(1)} ${r.status()}\n`); });
 page.on('console', m => { if (m.type() === 'error') fs.appendFileSync(path.join(OUT, 'console.log'), m.text() + '\n'); });
 page.on('request', q => { if (q.url().includes('/gw/f/devnet-play/')) fs.appendFileSync(path.join(OUT, 'devnet-play-requests.log'), `${q.method()} ${new URL(q.url()).pathname} ${(q.postData() ?? '').slice(0, 160)}\n`); });
 const shot = async name => { const f = `${String(++shotN).padStart(2, '0')}-${name}.png`; await page.screenshot({ path: path.join(OUT, f) }); log('still', f); return f; };
@@ -50,7 +52,9 @@ const state = () => ev(async () => {
   try { const W = await import('/frontier/frontier/fwide.mjs'); wideSlots = W.wideSlots(FS).map(e => ({ slot: e.inventorySlot ?? e.slot ?? null, status: e.status ?? null, p: e.holding?.p != null ? String(e.holding.p) : null, q: e.holding?.q != null ? String(e.holding.q) : null, state: e.holding?.economy?.state ?? e.holding?.state ?? null })); } catch (e) { wideSlots = [{ err: String(e).slice(0, 200) }]; }
   return { bell: FS.nowBell ?? null, cluster: FS.record?.cluster ?? null, devnetPlay: FS.devnetPlay ? { relay: FS.devnetPlay.relay, seasonId: FS.devnetPlay.seasonId } : null, devnetWide: FS.devnetWide ?? null,
     wallet: FS.wallet?.address ?? null, walletList: (FS.walletList ?? []).map(w => ({ name: w.name, why: w.why ?? null })), faction: FS.citizen?.faction ?? null, holdings: hs, wide, wideSlots,
-    homeChoice: FS.homeChoice ? { sel: FS.homeChoice.selected ?? null, n: (FS.homeChoice.candidates ?? []).length, cands: (FS.homeChoice.candidates ?? []).slice(0, 3), err: FS.homeChoice.error?.code ?? null, busy: !!FS.homeChoice.busy } : null,
+    homeChoice: FS.homeChoice ? { sel: FS.homeChoice.selected ?? null, n: (FS.homeChoice.candidates ?? []).length, cands: (FS.homeChoice.candidates ?? []).slice(0, 3), err: FS.homeChoice.error?.code ?? null, busy: !!FS.homeChoice.busy,
+      // (fix-devnet-join-wait: the wait for the page's own record after a landed send, and the line the card shows for it)
+      ownWait: FS.homeChoice.ownWait ?? null, waitLine: document.querySelector('[data-own-wait]')?.textContent?.slice(0, 90) ?? null } : null,
     notice: FS.notice ? { ok: FS.notice.ok, code: FS.notice.code ?? null, text: typeof FS.notice.text === 'function' ? FS.notice.text() : FS.notice.text ?? null } : null };
 });
 // (the village screen: its real tab button — a synthetic press does not open it)
@@ -95,6 +99,11 @@ await shot('devnet-season-before-connect');
 await act('connect', { i: String(s.walletList.findIndex(w => w.name.startsWith('Test Wallet'))) });
 s = await until('the wallet is connected', x => !!x.wallet, { secs: 60 });
 log('wallet', s.wallet);
+// (fix-devnet-join-wait: a herald that reads the chain late — devnet's finalized lag, OPERATOR_HERALD_RPC_URL's delaying
+//  proxy offline — shows the season's wide land some seconds after keeper A opened it; a page that chose before then
+//  saw a plain season and placed a heartland village. The page is let see the wide season first; at once otherwise.)
+s = await until('the herald shows the wide season', x => x.devnetWide === true, { secs: 300, note: x => ({ wide: x.devnetWide, bell: x.bell }) });
+log('wide season shown', s.devnetWide);
 // The nation, then the page's own first-village choice (outward: an opened rim province of that nation).
 await page.getByText(/^(国を選ぶ|Choose a nation)$/).first().click({ timeout: 8000 }).catch(() => log('no 国を選ぶ button (continuing)'));
 await wait(1000);
@@ -106,6 +115,9 @@ const confirm = page.locator('button[data-act="home-confirm"]:visible').first();
 if (await confirm.count()) { log('pressing', await confirm.innerText().catch(() => '?')); await confirm.click({ timeout: 8000 }); } else { log('no visible confirm: pressing home-confirm'); await act('home-confirm'); }
 await wait(4000);
 await shot('join-and-request-sent');
+// (fix-devnet-join-wait: while the herald has not shown the page's own record, the card says it waits — a still of it
+//  when it shows within a minute; not a step that fails: a herald that keeps up shows no wait at all)
+for (let i = 0; i < 60; i++) { const w = await state(); if (w.homeChoice?.waitLine) { log('own-wait', w.homeChoice.ownWait, w.homeChoice.waitLine); await shot('own-wait'); break; } if (w.holdings.length) break; await wait(1000); }
 s = await until('the rim village is settled and shown', x => x.holdings.length > 0, { secs: 600, every: 1500, note: x => ({ bell: x.bell, faction: x.faction, notice: x.notice?.text?.slice(0, 120) ?? null, hc: x.homeChoice }) });
 log('village', s.holdings, 'bell', s.bell);
 await openVillage();

@@ -17,6 +17,7 @@ import { rpcReader, sendOutcome } from './chain.mjs';
 import { sourceCandidates, sourceToUse, placeKey, planBasisOf } from './sources.mjs';
 import { GAME_PAGE, compositionOf, compositionText } from './composition.mjs';
 import { arrivedCandidates, excludedCaravans, createArrivedPicks, renderArrived, arrivedClick } from './arrived.mjs';
+import { shown } from './lang.mjs';   // 表示の言語（日本語か英語）。この画面の文は日本語のまま書き、表示だけを lang.mjs が英語にする
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -609,7 +610,7 @@ async function sendOnce(q) {
   // 送る前の見込み（判定ではない）
   const short = Object.entries(plan.estimate.shortfall);
   const est = estText(plan);
-  if (!confirm(`村 (${plan.src.p},${plan.src.q}) 村${plan.src.site} から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq} で ${needText(resp.offer)} を送ります。\n${est}\nウォレットで署名しますか？`)) return say(`送らなかった。${est}`, short.length ? 'warn' : '');
+  if (!confirm(shown(`村 (${plan.src.p},${plan.src.q}) 村${plan.src.site} から ${plan.plan.dirs.length} マス、隊商 #${plan.fields.seq} で ${needText(resp.offer)} を送ります。\n${est}\nウォレットで署名しますか？`))) return say(`送らなかった。${est}`, short.length ? 'warn' : '');
   say(`${est}。ウォレットで署名してください`);
   // ウォレットが署名した直後、中継へ出す前に、板へ sending の記録を残す（再読込・板の再起動の後も結果を追え、二重に送らない）。
   // 板が断ったら（結果の分からない送信が残っている等）、中継へは出さない。

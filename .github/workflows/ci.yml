@@ -220,6 +220,11 @@ jobs:
       - name: Workstream 01 closed caravan link tests (key-free)
         working-directory: .
         run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.arrived.test.mjs
+      # Workstream 01: the board's English (coop/tr.mjs, coop/lang/en.mjs): every Japanese text of the board's code has
+      # English, the table is well formed, texts as shown come out in English. No world, no browser, no key.
+      - name: Workstream 01 board English tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.lang.test.mjs
       # The six-nation recording tool (scripts/demo/sixnation): its pure part — argument parsing, the refusal of any
       # non-TEST cluster, the seed's choices, the launcher's command line, the summary and the grid. No world is started.
       - name: Six-nation recording tool tests (key-free)
@@ -524,7 +529,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers --test verify_alt_archive --test verify_pr158_attacks
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers --test verify_alt_archive --test verify_pr158_attacks --test playable_v11_declared
 
       # Devnet blocker B3 (owner decision B7): frontier-operator's playable-lane
       # preset S1_DEVNET_WIDE_7D (program version 0x4804) is behind the stack

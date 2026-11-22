@@ -194,6 +194,15 @@ pub const PLAY_ROLES: [&str; 8] = [
 
 /// Appends what a later step of the same tick reported (the contested
 /// follow-up's polls and sends) to the tick's report.
+/// fix-devnet-join-wait (herald-load-50 F4): what the API's `feed_paused` is
+/// while a feed pass runs — the previous pass's verdict, or paused when a
+/// blocker is already known. The pass's own end sets it from
+/// `Engine::feed_writes_allowed` as before; the Engine refuses writes during
+/// the pass on its own (`set_feed_ready(false)`).
+pub(crate) fn api_paused_at_pass_start(was_paused: bool, blocked: bool) -> bool {
+    was_paused || blocked
+}
+
 fn merge_step(into: &mut crate::engine::StepReport, from: crate::engine::StepReport) {
     into.outcomes.extend(from.outcomes);
     into.cancelled_landed.extend(from.cancelled_landed);
@@ -861,10 +870,18 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             self.play.index.feed.restore(block);
         }
         self.engine.set_feed_ready(false);
-        self.shared
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .feed_paused = true;
+        // fix-devnet-join-wait (herald-load-50 F4): the Engine refuses game
+        // writes for the whole pass (`set_feed_ready(false)` above); the API's
+        // flag keeps the LAST finished pass's verdict instead of going up at
+        // every pass's start. Raising it here answered every nudge/reveal that
+        // arrived during the feed read — each tick, on a remote RPC for most
+        // of it — `503 DiscoveryUnavailable` while `/v1/status` said
+        // `automatic_writes: true`. A known blocker still pauses at once.
+        {
+            let blocked = self.engine.feed_block().is_some();
+            let mut s = self.shared.lock().unwrap_or_else(|p| p.into_inner());
+            s.feed_paused = api_paused_at_pass_start(s.feed_paused, blocked);
+        }
         let result = if self.index.feed.blocked().is_some()
             || self.play.index.feed.blocked().is_some()
         {
@@ -2871,5 +2888,15 @@ mod tests {
             assert_eq!(role_of_key(k), Some(role), "{k}");
             assert!(PLAY_ROLES.contains(&role));
         }
+    }
+
+    #[test]
+    fn api_pause_keeps_the_last_pass_verdict_at_a_pass_start() {
+        // a keeper whose last pass allowed writes takes nudges/reveals while it reads the next one
+        assert!(!super::api_paused_at_pass_start(false, false));
+        // a known blocker pauses at once; a pause (first start, catch-up) stays until a pass ends allowed
+        assert!(super::api_paused_at_pass_start(false, true));
+        assert!(super::api_paused_at_pass_start(true, false));
+        assert!(super::api_paused_at_pass_start(true, true));
     }
 }
