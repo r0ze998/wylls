@@ -42,6 +42,7 @@ WYLLS の「国のチーム戦略」を、実装に渡せるゲーム設計と�
 | [docs/22-ws04-current-e2e-ws15-fold.ja.md](docs/22-ws04-current-e2e-ws15-fold.ja.md) | **④の現在版との照合・依頼から照会までの一続き・⑮へ渡す fold()（2026-11-06）**：④ QUANTITY-CONTRACT に合わせた下限・不明・0・原因を確認中、依頼の充足の三つの区分、0002／0002b の照合、鍵を使わない一続きの試験、⑮の adapter との食い違い |
 | [docs/23-game-integration-ws15-nokey.ja.md](docs/23-game-integration-ws15-nokey.ja.md) | **本来のゲームへの接続・⑮との実物の接続・鍵を使わない試験（2026-11-08）**：④の候補 cf517b55 への merge、⑮の adapter・評価器との接続と二重計上の確認、Wallet Standard のウォレット、再起動の後の未確定送信の画面、試験の移行、push の前の確認、④への適用 |
 | `coop/` | 国をまたぐ依頼の板と画面（`node coop/board.mjs --herald … --program … --season …`） |
+| `coop/lang/en.mjs`・`coop/tr.mjs`・`coop/lang.mjs` | 板の画面の英語（2026-11-23）。コードが書く文は日本語のまま（記録・断りの理由・判定・固定試験は変わらない）。`lang/en.mjs` は「日本語の文 → 英語」の表（値の場所は `{0}`）、`tr.mjs` は表示される日本語の文を表で英語に読み替え、`lang.mjs` は画面に出た文をその場で英語にする（ゲームの画面と同じ言語の選択 `ps-lang`・切り替えボタン・`<html lang>`）。新しい文を足したら表に英語を足す（`test/coop.lang.test.mjs` が、英語のない文を一覧で落とす） |
 | `prototype/supply.html` | 国際供給網の最小デモ（配置は固定。交換は②を模したもの） |
 | [proposals/](proposals/README.ja.md) | 接続の差分の提案（未適用） |
 | `prototype/` | 国の卓の試作（依存なし） |

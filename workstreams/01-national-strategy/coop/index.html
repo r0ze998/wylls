@@ -32,6 +32,8 @@
   .req-history ul { margin: 2px 0 6px; padding-left: 1.2em; }
   .src-pick button[aria-pressed="true"] { border-color: var(--ink); background: #efe6cc; font-weight: 600; }
   .req.focus::before { content: '入口で選んだ依頼'; display: block; font-size: 12px; font-weight: 600; color: var(--warn); }
+  html[lang="en"] .req.focus::before { content: var(--focus-label, '入口で選んだ依頼'); }
+  @media (min-width: 900px) { html[lang="en"] th { overflow-wrap: normal; } }
   .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   #msg { min-height: 1.5em; }
   code { font-size: 12px; overflow-wrap: anywhere; }
