@@ -371,7 +371,7 @@ Small ones (nothing blocks play):
   next press, 3 s later, went through). If one is still withdrawn (「送信待ちを取り消しました…」),
   press it again.
 - **With `--demo` (and `--external`) at ×60, your province is ready for a muster about 80 % of the time, and an external
-  resident's the same** (runner-throughput-2, BREAK-143-1). "Ready" is the program's rule for resident orders (muster,
+  resident's about the same** (runner-throughput-2, BREAK-143-1). "Ready" is the program's rule for resident orders (muster,
   garrison, dissolve, explore): the province settled through two turns ago. Before this change it was about 30 % for your
   province and 0–6 % for an external resident's: the demo's keeper loop slept a whole 10-s turn between quiet passes,
   cranked the demo's 60 provinces one transaction at a time, and did not serve an external resident's village at all.
@@ -379,6 +379,11 @@ Small ones (nothing blocks play):
   is settled together in one block, first and whenever one comes due, and the loop wakes at the next turn edge.
   Measured (demo ×60, 1 AI, 1 external): yours 79 %, the external resident's 86 % (before: 30 % and 6 %); at ×15:
   93 % and 96 % (before: 79 % and 60 %). It can never be 100 %: a turn can only be settled once the next turn has begun.
+  Every home gets the same batch at the same moment; what remains is the province's own state. A turn with a host
+  mustered at home (or an arrival) is not quiet, so it needs the real seed of the next public drand round (about 2 s at
+  ×60) instead of a same-block FastForward. In these runs you trained and mustered (23–27 times) while the external
+  resident, at one order per turn, mostly harvested: that is the 79 vs 86 %. With the nations swapped the gap followed
+  the army, not the role or the place (verify-pr146).
   While it is not ready, the page's 「編成」 waits and sends once, as before.
 - **A wide-land expedition whose reveal window was missed never settles** (the program has no settlement for it; that
   waits on r0ze). The march screen stays on 「到着しました。封が開けられるのを待っています」, and that rim village cannot
