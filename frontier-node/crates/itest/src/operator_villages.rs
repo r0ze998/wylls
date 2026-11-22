@@ -160,7 +160,17 @@ pub async fn watch_externals(
     stop: tokio::sync::watch::Receiver<bool>,
     out: impl Fn(Value),
 ) {
-    watch_with(state, a, path, parse_external_wallets, "external", more, stop, out).await
+    watch_with(
+        state,
+        a,
+        path,
+        parse_external_wallets,
+        "external",
+        more,
+        stop,
+        out,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -377,7 +387,12 @@ mod tests {
             &["--external-villages"][..],
             &["--external-villages", "/w/operators.json"],
             &["--external-villages", "w/externals.json"],
-            &["--external-villages", "/a/externals.json", "--external-villages", "/a/externals.json"],
+            &[
+                "--external-villages",
+                "/a/externals.json",
+                "--external-villages",
+                "/a/externals.json",
+            ],
         ] {
             assert!(take_external_args(s(bad)).is_err(), "{bad:?}");
         }
@@ -387,11 +402,25 @@ mod tests {
         let rec = |schema: &str, ws: &[String]| {
             format!("{{\"schema\":\"{schema}\",\"mode\":\"external-residents-v1\",\"test_only\":true,\"wallets\":{},\"ports\":[]}}", serde_json::to_string(ws).unwrap())
         };
-        assert_eq!(parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1), w(2)])).unwrap().len(), 2);
-        assert!(parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1), w(2), w(3)])).is_none(), "at most 2");
-        assert!(parse_external_wallets(&rec(OPERATORS_FILE_SCHEMA, &[w(1)])).is_none(), "its own schema");
+        assert_eq!(
+            parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1), w(2)]))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(
+            parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1), w(2), w(3)])).is_none(),
+            "at most 2"
+        );
+        assert!(
+            parse_external_wallets(&rec(OPERATORS_FILE_SCHEMA, &[w(1)])).is_none(),
+            "its own schema"
+        );
         assert!(parse_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1)])).is_none());
-        assert!(parse_external_wallets(&rec(EXTERNALS_FILE_SCHEMA, &[w(1)]).replace("true", "false")).is_none());
+        assert!(parse_external_wallets(
+            &rec(EXTERNALS_FILE_SCHEMA, &[w(1)]).replace("true", "false")
+        )
+        .is_none());
         let bin = include_str!("bin/localnet_natural_play.rs");
         assert!(bin.contains("itest::operator_villages::watch_externals(st, a, path, tx, rx, |v| println!(\"{v}\")).await"));
         assert!(bin.contains("} else if operators.is_none() && externals.is_none() {\n                    drop(more_tx);"));

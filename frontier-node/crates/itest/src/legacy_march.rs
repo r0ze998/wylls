@@ -1337,7 +1337,8 @@ impl LegacyMarchDriver {
         season: &Season,
         home: (i32, i32),
     ) -> Step {
-        self.crank_batch(state, clock, season, Some(home), &[]).await
+        self.crank_batch(state, clock, season, Some(home), &[])
+            .await
     }
 
     /// runner-throughput-2 (BREAK-143-1, compressed clocks only): the keeper loop's PLAYER HOMES (the person's, the pair's
@@ -2973,8 +2974,12 @@ mod tests {
                 && kl.contains("            l.batch = self.batch;\n")
         );
         // (the homes batch: the world sweep's own decision over the player homes only, and the sweep yields to it)
-        assert!(src.contains("self.crank_batch(state, clock, season, Some(home), &[]).await"));
-        assert!(src.contains("let s = self.crank_batch(state, &clock, &season, None, homes).await;"));
+        assert!(src.contains(
+            "self.crank_batch(state, clock, season, Some(home), &[])\n            .await"
+        ));
+        assert!(
+            src.contains("let s = self.crank_batch(state, &clock, &season, None, homes).await;")
+        );
         assert!(src.contains("if crate::home_gate::gate_due(g, state, &self.a) {"));
     }
 

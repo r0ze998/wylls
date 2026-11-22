@@ -61,7 +61,9 @@ fn main() {
         //  residents' — the launcher passes it for a natural world that admitted external residents)
         let (rest, externals) = itest::operator_villages::take_external_args(rest)?;
         if externals.is_some() && (wide || second.is_some()) {
-            return Err("--external-villages is not accepted with --wide-land or --contest-pair".into());
+            return Err(
+                "--external-villages is not accepted with --wide-land or --contest-pair".into(),
+            );
         }
         if wide {
             // (TEST-ONLY wide world: rim villages march into the wide land by the expedition wrapper; this runner reveals

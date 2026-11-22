@@ -2299,13 +2299,17 @@ pub async fn run_paced_with(
                 let homes = if homes.is_empty() { vec![home] } else { homes };
                 let views: Vec<_> = {
                     let c = lock(&st);
-                    homes.iter().map(|h| (*h, lk::view(&c, &a, h.0, h.1))).collect()
+                    homes
+                        .iter()
+                        .map(|h| (*h, lk::view(&c, &a, h.0, h.1)))
+                        .collect()
                 };
                 if let Ok(mut r) = hr.lock() {
                     for (h, v) in views {
                         if let Ok(v) = v {
                             let e = r.entry(format!("{},{}", h.0, h.1)).or_default();
-                            e[0] += frontier_abi::prologue::resident_ok(v.resolved_next, v.bell_now) as u32;
+                            e[0] += frontier_abi::prologue::resident_ok(v.resolved_next, v.bell_now)
+                                as u32;
                             e[1] += 1;
                         }
                     }
@@ -2385,7 +2389,11 @@ pub async fn run_paced_with(
         // (runner-throughput-2: on a compressed clock, no longer than until the player homes' next deadline)
         if p.homes.is_some() {
             let a = Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID);
-            let d = p.gate.lock().ok().and_then(|g| g.wall_to_deadline(&state, &a));
+            let d = p
+                .gate
+                .lock()
+                .ok()
+                .and_then(|g| g.wall_to_deadline(&state, &a));
             wait = crate::home_gate::wait_until_next(wait, d);
         }
         tokio::select! {
@@ -4498,8 +4506,8 @@ mod pair_tests {
         assert_eq!(
             *log.lock().unwrap(),
             vec![
-                "A reveal", "B reveal", "C reveal", "H forced", "A pass", "A reveal", "B reveal", "C reveal",
-                "H due", "B pass", "A reveal", "B reveal", "C reveal", "C pass"
+                "A reveal", "B reveal", "C reveal", "H forced", "A pass", "A reveal", "B reveal",
+                "C reveal", "H due", "B pass", "A reveal", "B reveal", "C reveal", "C pass"
             ]
         );
         // without the interlude: exactly `orchestrate`
@@ -4508,7 +4516,10 @@ mod pair_tests {
         let mut b2 = sv("B", None, &log2);
         let mut rest2: Vec<&mut dyn PassVillage> = vec![&mut b2];
         orchestrate_with(&st2, &mut a2, &mut rest2, None).await;
-        assert_eq!(*log2.lock().unwrap(), vec!["A reveal", "B reveal", "A pass", "A reveal", "B reveal", "B pass"]);
+        assert_eq!(
+            *log2.lock().unwrap(),
+            vec!["A reveal", "B reveal", "A pass", "A reveal", "B reveal", "B pass"]
+        );
     }
     #[tokio::test]
     async fn an_unknown_homes_batch_halts_every_village_of_a_pair_and_a_refusal_ends_nothing() {
@@ -4523,7 +4534,11 @@ mod pair_tests {
         let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
         let (alive, _) = orchestrate_with(&st, &mut a, &mut rest, Some(&mut h)).await;
         assert!(!alive);
-        assert_eq!(*log.lock().unwrap(), vec!["A reveal", "B reveal", "H forced"], "no pass after it");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["A reveal", "B reveal", "H forced"],
+            "no pass after it"
+        );
         assert_eq!(a.status.unknown_signature.as_deref(), Some("sig"));
         assert!(b.status.stopped.is_some(), "every village halted");
         // (HomesCrank maps a refusal to Quiet: the batch never sent it, and the villages' own drivers go on)
@@ -4536,11 +4551,19 @@ mod pair_tests {
             log: log.clone(),
         };
         let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b];
-        assert!(orchestrate_with(&st, &mut a, &mut rest, Some(&mut h)).await.0);
+        assert!(
+            orchestrate_with(&st, &mut a, &mut rest, Some(&mut h))
+                .await
+                .0
+        );
         assert_eq!(calls_s(&log, "pass"), 2);
     }
     fn calls_s(log: &Arc<Mutex<Vec<String>>>, what: &str) -> usize {
-        log.lock().unwrap().iter().filter(|n| n.ends_with(what)).count()
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|n| n.ends_with(what))
+            .count()
     }
     #[tokio::test]
     async fn inside_a_pass_the_homes_go_between_steps_never_before_the_first_and_only_when_due() {
@@ -4552,21 +4575,35 @@ mod pair_tests {
             out: Out::Landed,
             log: slog.clone(),
         };
-        let mut steps: Vec<&mut dyn TickStep> = ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
+        let mut steps: Vec<&mut dyn TickStep> =
+            ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
         let r = run_steps_with(&st, &mut steps, false, 1, Some(&mut h)).await;
         assert!(r.landed);
         assert_eq!(log.lock().unwrap().len(), 4, "every step still runs");
-        assert_eq!(*slog.lock().unwrap(), vec!["H due"], "once, after the first step (then nothing was due)");
-        assert_eq!(r.reports[1].field, Field::Homes, "between the keeper and the next step");
+        assert_eq!(
+            *slog.lock().unwrap(),
+            vec!["H due"],
+            "once, after the first step (then nothing was due)"
+        );
+        assert_eq!(
+            r.reports[1].field,
+            Field::Homes,
+            "between the keeper and the next step"
+        );
         // a pair: an unknown homes batch ends the pass before the next step is called
         let (log2, slog2) = (Arc::new(Mutex::new(vec![])), Arc::new(Mutex::new(vec![])));
-        let mut ms = village(&A, [Out::Landed, Out::Landed, Out::Quiet, Out::Quiet], &log2);
+        let mut ms = village(
+            &A,
+            [Out::Landed, Out::Landed, Out::Quiet, Out::Quiet],
+            &log2,
+        );
         let mut h = MockHomes {
             due: true,
             out: unk(),
             log: slog2.clone(),
         };
-        let mut steps: Vec<&mut dyn TickStep> = ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
+        let mut steps: Vec<&mut dyn TickStep> =
+            ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
         let r = run_steps_with(&st, &mut steps, true, 1, Some(&mut h)).await;
         assert_eq!(log2.lock().unwrap().len(), 1, "only the keeper ran");
         assert_eq!(r.stopped.unwrap().field, Field::Homes);
