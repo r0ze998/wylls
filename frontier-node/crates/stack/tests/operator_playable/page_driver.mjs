@@ -32,6 +32,8 @@ const browser = await chromium.launch({ headless: true });
 const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 }, locale: process.env.LOCALE ?? 'ja-JP' });
 const page = await ctx.newPage();
 page.on('pageerror', e => log('pageerror', String(e).slice(0, 300)));
+// (fix-devnet-join-wait, herald-load-50 F4: the page's catch-up requests to keeper A — each answer's status, one line each)
+page.on('response', r => { if (r.url().includes('/gw/f/nudge')) fs.appendFileSync(path.join(OUT, 'nudge.log'), `${((Date.now() - t0) / 1000).toFixed(1)} ${r.status()}\n`); });
 page.on('console', m => { if (m.type() === 'error') fs.appendFileSync(path.join(OUT, 'console.log'), m.text() + '\n'); });
 page.on('request', q => { if (q.url().includes('/gw/f/devnet-play/')) fs.appendFileSync(path.join(OUT, 'devnet-play-requests.log'), `${q.method()} ${new URL(q.url()).pathname} ${(q.postData() ?? '').slice(0, 160)}\n`); });
 const shot = async name => { const f = `${String(++shotN).padStart(2, '0')}-${name}.png`; await page.screenshot({ path: path.join(OUT, f) }); log('still', f); return f; };
