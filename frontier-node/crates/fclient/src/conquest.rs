@@ -152,6 +152,20 @@ pub enum CqEvent {
         cargo: [u32; 8],
         fee: u64,
     },
+    /// ⑩ LOT_SETTLED (kind 109, custody): SettleCustody delivered a custody
+    /// caravan into its owner's lot and closed it — keyed, like
+    /// CARAVAN_SETTLED, by the caravan's `(owner_tag, seq)`, so a caravan
+    /// feed drops it from the road here (SettleCustody logs no
+    /// CARAVAN_SETTLED). Quantities are milli-units, as the lot keeps them.
+    LotSettled {
+        owner_tag: u64,
+        seq: u32,
+        /// The lot's key (`l2::LotKey`, 15 bytes).
+        lot: [u8; 15],
+        delivered: i64,
+        burned: i64,
+        dest_gone: i64,
+    },
     CaravanRaided {
         owner_tag: u64,
         seq: u32,
@@ -400,6 +414,9 @@ impl CqEvent {
             | NationVoted { .. }
             | NationDecided { .. }
             | FrontierExtended { .. } => None,
+            // (a lot's key names its storehouse's province, but a custody
+            //  record is not a province's event: no scope)
+            LotSettled { .. } => None,
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
@@ -414,7 +431,7 @@ pub struct CqLog {
 }
 
 /// Parses a PS2 body of an MC kind (`None` for an M1 kind, a custody kind
-/// or a body that does not decode).
+/// other than LOT_SETTLED, or a body that does not decode).
 pub fn parse(body: &[u8]) -> Option<CqLog> {
     let r = l2::decode(body).ok()?;
     let AnyKind::Cq(k) = r.kind else {
@@ -438,11 +455,21 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
     let event = match k {
         // Custody (workstream 10): not a conquest event; a custody reader
         // decodes these records (`frontier_abi::v2::log`, kinds 105–113).
+        // LOT_SETTLED alone is typed: it is a custody caravan's end on the
+        // road (fix-9-10-followups: the herald's caravan feed kept every
+        // delivered custody caravan "on the road" forever).
+        CqKind::LOT_SETTLED => CqEvent::LotSettled {
+            owner_tag: u("owner_tag")?,
+            seq: u("seq")? as u32,
+            lot: f("lot")?.try_into().ok()?,
+            delivered: u("delivered")? as i64,
+            burned: u("burned")? as i64,
+            dest_gone: u("dest_gone")? as i64,
+        },
         CqKind::LOT_OPENED
         | CqKind::LOT_QUOTA
         | CqKind::LOT_INBOUND
         | CqKind::LOT_SHIPPED
-        | CqKind::LOT_SETTLED
         | CqKind::LOT_ORDER
         | CqKind::LOT_REVOKED
         | CqKind::LOT_CONSUMED

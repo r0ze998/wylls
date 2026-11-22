@@ -83,9 +83,13 @@ export function rightsModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
   //  sender delivers them itself, SettleCaravan; the program checks the arrival, the resolved bells and any raid again)
   const moving = FS.s1?.caravans?.moving ?? [];
   // (⑩ preview: the viewer's CUSTODY caravans are delivered into their lot by the custody card, SettleCustody — never here)
-  const deliveries = moving.filter(c => myTag !== null && String(c.ownerTag) === myTag && Number(c.arriveTs) <= nowTs && !c.raided && !FS.custody?.custodySeqs?.has?.(Number(c.seq)))
-    .map(c => ({ seq: Number(c.seq), dst: c.dst, provinces: (c.provinces ?? []).map(x => (Array.isArray(x) ? { p: x[0], q: x[1] } : { p: x.p, q: x.q })), cargo: c.cargo ?? [] }))
-    .map(c => ({ ...c, ...settledFor(FS, c.provinces, moving.find(x => Number(x.seq) === c.seq)?.arriveTs) }));
+  // (fix-9-10-followups: also a caravan the viewer TOOK in a raid — the herald names it holder (`holderTag`); its address
+  //  keeps its sender's seed, so the delivery names that tag — flocalplay-rights.mjs SettleCaravan `owner_tag`)
+  const own = c => String(c.ownerTag) === myTag && !c.raided && !FS.custody?.custodySeqs?.has?.(Number(c.seq));
+  const took = c => c.raided && c.holderTag !== undefined && c.holderTag !== null && String(c.holderTag) === myTag && String(c.ownerTag) !== myTag;
+  const deliveries = moving.filter(c => myTag !== null && Number(c.arriveTs) <= nowTs && (own(c) || took(c)))
+    .map(c => ({ seq: Number(c.seq), ownerTag: took(c) ? String(c.ownerTag) : null, dst: c.dst, provinces: (c.provinces ?? []).map(x => (Array.isArray(x) ? { p: x[0], q: x[1] } : { p: x.p, q: x.q })), cargo: c.cargo ?? [], arriveTs: c.arriveTs }))
+    .map(c => ({ ...c, ...settledFor(FS, c.provinces, c.arriveTs) }));
   return { on: true, viewer, read: r.read ?? 'unread', grants, facilities, nextNonce, deliveries };
 }
 
@@ -122,9 +126,9 @@ export function renderRights(FS) {
   const cargoText = c => c.map((n, i) => (Number(n) > 0 ? `${RES[i]} ${fmtNum(n)}` : '')).filter(Boolean).join(' · ');
   const deliver = m.deliveries.length ? html`${label(L`着いた隊商（あなたが届けます）`)}<ul class="list rights-deliveries">${m.deliveries.map(c => {
     const kind = Number(c.dst.kind) === 2 ? 'vault' : 'holding', at = Number(c.dst.at ?? c.dst.tile ?? c.dst.site);
-    const d = { seq: c.seq, kind, dp: c.dst.p, dq: c.dst.q, at, gen: c.dst.gen ?? 0, path: c.provinces.map(x => `${x.p}_${x.q}`).join('.') };
+    const d = { seq: c.seq, kind, dp: c.dst.p, dq: c.dst.q, at, gen: c.dst.gen ?? 0, path: c.provinces.map(x => `${x.p}_${x.q}`).join('.'), ...(c.ownerTag ? { owner: c.ownerTag } : {}) };
     // (fix-loop6, LP6-14: not offered while a crossed province has not settled past the arrival — it said so only after a refused press)
-    return html`<li data-caravan="${c.seq}">${icon('scroll')}${kind === 'vault' ? L`貯蔵庫（${c.dst.p}, ${c.dst.q} · マス ${at}）へ` : L`村（${c.dst.p}, ${c.dst.q} · ${at}）へ`} <span class="muted">${cargoText(c.cargo)}</span>
+    return html`<li data-caravan="${c.seq}">${icon('scroll')}${c.ownerTag ? html`${chip(L`奪った隊商`, 'warn')} ` : ''}${kind === 'vault' ? L`貯蔵庫（${c.dst.p}, ${c.dst.q} · マス ${at}）へ` : L`村（${c.dst.p}, ${c.dst.q} · ${at}）へ`} <span class="muted">${cargoText(c.cargo)}</span>
       ${c.settled === false ? html`<span class="muted rights-deliver-wait" role="status">${L`通った州（${c.waitP}, ${c.waitQ}）の決着が到着のターン ${fmtNum(c.waitBell)} を過ぎるのを待っています。過ぎると届けられます（数ターン）。`}</span>`
         : html`<span class="actions">${btn('rights-deliver', d, L`隊商を届ける`)}</span>`}</li>`;
   })}</ul><p class="muted">${L`この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。`}</p>` : '';

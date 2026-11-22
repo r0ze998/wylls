@@ -17,7 +17,8 @@
 //! Tags are decimal strings (u64). `path` is the packed walk (`steps` of it
 //! used) and `provinces` the Provinces it enters, in order, the origin's
 //! first (the Caravan's `PROVINCES`). A caravan leaves `moving` with its
-//! CARAVAN_SETTLED. A raid that burns empties it (`raided`, cargo 0; it goes
+//! CARAVAN_SETTLED, or — a ⑩ custody caravan, which SettleCaravan refuses —
+//! with SettleCustody's LOT_SETTLED (same key). A raid that burns empties it (`raided`, cargo 0; it goes
 //! on); one that takes (decision J2) makes it the raider's, and the same
 //! transaction's CARAVAN_SENT (origin kind 3, the raid tile) replaces its
 //! entry with the raider's route. A vault's owner and generation follow VAULT_SEIZED; a closed
@@ -98,6 +99,11 @@ impl Caravans {
                 self.moving.insert((*owner_tag, *seq), entry);
             }
             CqEvent::CaravanSettled { owner_tag, seq, .. } => {
+                self.moving.remove(&(*owner_tag, *seq));
+            }
+            // ⑩: a custody caravan ends with SettleCustody, which logs
+            // LOT_SETTLED (keyed by the caravan) and no CARAVAN_SETTLED.
+            CqEvent::LotSettled { owner_tag, seq, .. } => {
                 self.moving.remove(&(*owner_tag, *seq));
             }
             CqEvent::CaravanRaided {
@@ -297,6 +303,78 @@ mod tests {
         assert_eq!(ps.len(), 2);
         assert_eq!(ps[0], json!([0, 0]));
         assert_ne!(ps[1], json!([0, 0]));
+    }
+
+    /// fix-9-10-followups (D-verify-pr140-5): a ⑩ custody caravan leaves
+    /// the road with SettleCustody's LOT_SETTLED — the record's own bytes,
+    /// decoded as the herald decodes every record — and only that caravan.
+    #[test]
+    fn a_custody_caravan_leaves_the_road_with_its_lot_settlement() {
+        use frontier_abi::v2::log::{self as v2log, AnyKind, CqKind};
+        let mut c = Caravans::default();
+        for seq in [3u32, 4] {
+            c.fold(&CqEvent::CaravanSent {
+                owner_tag: 77,
+                seq,
+                faction: 1,
+                src: here(1),
+                dst: here(2),
+                steps: 4,
+                cargo: [0, 0, 0, 40, 0, 0, 0, 0],
+                arrive_ts: 1_790_000_000,
+                runs: vec![],
+                worn_bps: 0,
+                path: [0; 12],
+            });
+        }
+        c.dirty = false;
+        // LOT_SETTLED: key (owner_tag 8, seq 4); payload lot 15, delivered 8,
+        // burned 8, dest_gone 8.
+        let mut key = Vec::new();
+        key.extend_from_slice(&77u64.to_le_bytes());
+        key.extend_from_slice(&3u32.to_le_bytes());
+        let mut payload = vec![9u8; 15];
+        payload.extend_from_slice(&40_000i64.to_le_bytes());
+        payload.extend_from_slice(&0i64.to_le_bytes());
+        payload.extend_from_slice(&0i64.to_le_bytes());
+        let mut out = vec![0u8; 512];
+        let n = v2log::write_body(
+            AnyKind::Cq(CqKind::LOT_SETTLED),
+            7,
+            &key,
+            &payload,
+            &mut out,
+        )
+        .unwrap();
+        let m = v2log::write_tail(&[], &mut out, n).unwrap();
+        out.truncate(m);
+        let log = fclient::conquest::parse(&out).expect("LOT_SETTLED decodes");
+        assert_eq!(log.bell, 7);
+        assert_eq!(
+            log.event,
+            CqEvent::LotSettled {
+                owner_tag: 77,
+                seq: 3,
+                lot: [9; 15],
+                delivered: 40_000,
+                burned: 0,
+                dest_gone: 0,
+            }
+        );
+        assert_eq!(log.event.province(), None);
+        assert!(c.fold(&log.event));
+        assert!(c.dirty);
+        let f = c.file();
+        let moving = f["moving"].as_array().unwrap();
+        assert_eq!(moving.len(), 1, "the delivered custody caravan is gone");
+        assert_eq!(
+            moving[0]["seq"],
+            json!(4),
+            "the other one is still on the road"
+        );
+        // a second settlement of a caravan already gone changes nothing listed
+        assert!(c.fold(&log.event));
+        assert_eq!(c.file()["moving"].as_array().unwrap().len(), 1);
     }
 
     /// A caravan is listed from its send to its settlement; a raid marks it
