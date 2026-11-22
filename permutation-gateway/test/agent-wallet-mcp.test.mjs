@@ -212,3 +212,28 @@ test('an MCP server can declare who acts through it: source ai keeps an autopilo
   const acts = r.gateway.view(agentId).history.filter(h => h.type === 'action');
   assert.deepEqual(acts.map(h => [h.source, h.key]).sort(), [['ai', 'ai:same-id-0001'], ['mcp', 'mcp:same-id-0001']]);
 });
+
+// security-audit (2026-11-22): tools are looked up by their own names only. `constructor` used to answer with the
+// arguments echoed back (Object.prototype.constructor), and a non-string name such as {toString: 1} threw outside the
+// handler's try — over stdio an unhandled rejection that ended the process.
+test('MCP: inherited and non-string tool names are unknown tools; nothing reaches the relay and the stdio server stays up', async () => {
+  let calls = 0;
+  const s = createAgentMcp({ relay: RELAY, agentId: 'a1', capability: 'tok-tok-tok', fetch: async () => { calls++; throw new Error('unused'); } });
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty', { toString: 1 }, ['agent_view'], 7, null]) {
+    const r = await s.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { echo: 'x' } } });
+    assert.equal(r.error?.code, -32602, JSON.stringify(name));
+  }
+  assert.equal(calls, 0);
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const lines = [];
+  output.on('data', d => lines.push(...String(d).split('\n').filter(Boolean)));
+  const rl = serveStdio(s, { input, output });
+  input.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: { toString: 1 } } }) + '\n');
+  input.write(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'ping' }) + '\n');
+  await new Promise(res => setTimeout(res, 50));
+  rl.close();
+  const msgs = lines.map(l => JSON.parse(l));
+  assert.equal(msgs.find(m => m.id === 2).error.code, -32602);
+  assert.deepEqual(msgs.find(m => m.id === 3).result, {});
+});

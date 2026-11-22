@@ -16,7 +16,7 @@ use fclient::ports::TxRecord;
 use herald_fold::fixture;
 use herald_fold::fold::{Diff, Scope};
 use herald_fold::runner::{Ingest, IngestCfg};
-use herald_fold::server::{self, App, API_CSP, WEB_CSP};
+use herald_fold::server::{self, App, API_CSP, WEB_CSP, WS_PER_CLIENT};
 use herald_fold::views::SeasonStatic;
 use herald_fold::ws::{self, WsCfg};
 use serde_json::{json, Value};
@@ -125,7 +125,8 @@ async fn stack(name: &str, bells: u32, fold_first: usize, diffs_cap: usize) -> S
     app.ws = WsCfg {
         heartbeat: Duration::from_secs(5),
         max_lags: 1,
-        max_sockets: 64,
+        // (above server::WS_PER_CLIENT, so the per-client cap is what a test of it meets)
+        max_sockets: 256,
     };
     let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -373,6 +374,19 @@ async fn frontier_static_and_gw_proxy() {
     let i = get(a, "/frontier/").await;
     assert_eq!(i.status, 200);
     security(&i, WEB_CSP);
+    // security-audit: the directives that do not fall back to default-src.
+    for d in [
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ] {
+        assert!(
+            WEB_CSP.split("; ").any(|x| x == d),
+            "{d} missing from {WEB_CSP}"
+        );
+    }
+    assert!(!WEB_CSP.contains("unsafe-inline") && !WEB_CSP.contains("'unsafe-eval'"));
     assert_eq!(i.h("content-type"), Some("text/html; charset=utf-8"));
     assert_eq!(i.h("cache-control"), Some("no-cache"));
     let etag = i.h("etag").unwrap().to_string();
@@ -559,6 +573,69 @@ async fn ws_subscribe_and_receive_in_sequence() {
     );
     // A non-WebSocket GET is refused.
     assert_eq!(get(st.addr, "/h/ws").await.status, 400);
+    let _ = std::fs::remove_dir_all(&st.dir);
+}
+
+/// security-audit (2026-11-22): one client address holds at most
+/// WS_PER_CLIENT sockets (it could take every socket before, leaving no live
+/// updates for anyone); another address (behind the TLS proxy: the one the
+/// proxy appended to X-Forwarded-For) has its own allowance, and a closed
+/// socket gives its place back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ws_sockets_are_capped_per_client() {
+    let st = stack("wscap", 2, usize::MAX, 64).await;
+    async fn upgrade(addr: SocketAddr, xff: &str) -> (u16, tokio::net::TcpStream) {
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let fwd = if xff.is_empty() {
+            String::new()
+        } else {
+            format!("X-Forwarded-For: {xff}\r\n")
+        };
+        s.write_all(
+            format!(
+                "GET /h/ws HTTP/1.1\r\nHost: {addr}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+                 Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n{fwd}\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+        let mut buf = [0u8; 12];
+        s.read_exact(&mut buf).await.unwrap();
+        let status = std::str::from_utf8(&buf[9..12]).unwrap().parse().unwrap();
+        (status, s)
+    }
+    let mut held = vec![];
+    for _ in 0..WS_PER_CLIENT {
+        let (code, s) = upgrade(st.addr, "").await;
+        assert_eq!(code, 101);
+        held.push(s);
+    }
+    assert_eq!(
+        upgrade(st.addr, "").await.0,
+        429,
+        "one more from the same client"
+    );
+    // A client spoofing X-Forwarded-For buys nothing: only the LAST entry counts.
+    assert_eq!(upgrade(st.addr, "203.0.113.9, 127.0.0.1").await.0, 429);
+    // Another client behind the proxy has its own allowance.
+    let (code, other) = upgrade(st.addr, "198.51.100.7").await;
+    assert_eq!(code, 101);
+    // A closed socket gives its place back.
+    drop(held.pop());
+    let mut back = 0;
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let (code, s) = upgrade(st.addr, "").await;
+        if code == 101 {
+            back += 1;
+            held.push(s);
+            break;
+        }
+    }
+    assert_eq!(back, 1, "the place came back");
+    drop(other);
+    drop(held);
     let _ = std::fs::remove_dir_all(&st.dir);
 }
 
