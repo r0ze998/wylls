@@ -8,6 +8,10 @@
 // builder over a TEST seed the Rust test made for this chain only); it signs what the page asks, like a browser
 // wallet extension would. Nothing here builds or sends a transaction: every command is pressed on the page.
 // It writes `<sync>/done.json` once the page shows the wide village as final (after the test writes `<sync>/go-final`).
+// P17 (devnet-p17, `--wide-acts`): then, after `<sync>/go-wide-acts`, the wide village's own acts from its card
+// 「この遠方の村への命令」 — a refused muster (empty reserve, JA and EN), Harvest, Build (a building, the walls), Train,
+// and (after `<sync>/ready-muster` → the test's `<sync>/go-muster`) Muster — each two presses (「費用を確認」, then
+// 「署名して送る」), its result read back on the card; `<sync>/done-wide.json` says what the page showed.
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -18,6 +22,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(here, '../../../../../permutation-gateway/screens/package.json'));
 const { chromium } = require('playwright-core');
 const arg = name => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
+const WIDE_ACTS = process.argv.includes('--wide-acts');
 const URL0 = arg('url'), OUT = arg('out'), SEED = fs.readFileSync(arg('seed-file'), 'utf8').trim(), NATION = Number(arg('nation')), INSPECT = Number(arg('inspect')), SYNC = arg('sync');
 fs.mkdirSync(OUT, { recursive: true });
 const t0 = Date.now();
@@ -146,6 +151,124 @@ await page.keyboard.press('Escape').catch(() => {});
 await shot('map-final');
 fs.writeFileSync(path.join(SYNC, 'done.json'), JSON.stringify({ wideVillageFinal: !!s, wideSlots: fin.wideSlots, holdings: fin.holdings, devnetPlay: fin.devnetPlay, stills: shotN }, null, 2));
 log('done');
+if (WIDE_ACTS) await wideActs();
 await wait(1000);
 await browser.close();
 process.exit(0);
+
+// ------------------------------------------------------------------ P17 (devnet-p17): the wide village's own acts
+async function wideActs() {
+  const exists = f => fs.existsSync(path.join(SYNC, f));
+  while (!exists('go-wide-acts')) await wait(1000);
+  log('go-wide-acts');
+  const ws = () => ev(async () => {
+    const { FS } = await import('/frontier/frontier/fstate.mjs'); const W = await import('/frontier/frontier/fwide.mjs');
+    const e = W.selectedWide(FS), pv = FS.wideActPreview, x = e?.holding?.economy;
+    const j = v => JSON.parse(JSON.stringify(v ?? null, (_, y) => (typeof y === 'bigint' ? String(y) : y)));
+    return { sel: FS.wideSelect?.inventorySlot ?? null, card: !!document.querySelector('#wide-acts'), devnetPlayNames: FS.devnetPlay?.lane?.names ?? null,
+      econ: x ? { state: x.state, reserve: [...x.reserve], queue: x.queue.filter(q => q.inUse).length, walls: String(x.walls), tier: x.tier, captured: String(e.holding.currentness.capturedSlot) } : null,
+      pv: pv ? { step: pv.step, name: pv.name, fields: j(pv.fields), total: pv.cost ? String(pv.cost.total) : null, deposit: pv.cost ? String(pv.cost.deposit) : null, rosterNew: pv.rosterNew ?? null,
+        warn: pv.warn ?? null, signature: pv.signature ?? null, result: j(pv.result) } : null,
+      notice: FS.notice ? { ok: FS.notice.ok, code: FS.notice.code ?? null, text: typeof FS.notice.text === 'function' ? FS.notice.text() : FS.notice.text ?? null } : null,
+      toastText: document.querySelector('.toast.tx-refused .toast-text')?.innerText ?? null, busy: !!FS.homeActionBusy, inFlight: FS.inFlight ?? 0, cardText: document.querySelector('#wide-acts')?.innerText?.slice(0, 2000) ?? null };
+  });
+  const untilW = async (what, ok, { secs = 120, every = 1000 } = {}) => {
+    const end = Date.now() + secs * 1000; let x, n = 0;
+    while (Date.now() < end) { x = await ws(); if (ok(x)) return x; if (n++ % 15 === 0) log(what, { pv: x.pv, notice: x.notice, econ: x.econ, card: x.card }); await wait(every); }
+    log('TIMEOUT', what, x); return hold(`timeout: ${what}`);
+  };
+  // the wide village on the village screen: its rail pip (W2)
+  const selectWide = async () => {
+    for (let i = 0; i < 20; i++) {
+      if ((await ws()).card) return;
+      // (the village tab toggles its panel: pressed only while no village screen is open)
+      const open = await page.locator('#hp-build:visible, .wide-village:visible').count();
+      if (!open) await openVillage();
+      const pip = page.locator('[data-act="wide-select"]').first();
+      if (await pip.count()) await pip.click({ timeout: 5000 }).catch(e => log('pip', String(e).slice(0, 120)));
+      await wait(2000);
+    }
+  };
+  await selectWide();
+  let x = await untilW('the wide village acts card stands', y => y.card && y.econ, { secs: 180, every: 2000 });
+  log('card', { econ: x.econ, names: x.devnetPlayNames });
+  await page.locator('#wide-acts').scrollIntoViewIfNeeded().catch(() => {});
+  await shot('wide-acts-card');
+  const form = name => page.locator(`#wide-acts form[data-wide-act="${name}"]`);
+  const clear = () => ev(async () => { const { FS } = await import('/frontier/frontier/fstate.mjs'); FS.notice = null; });
+  // (a press the page refuses before anything is signed: the notice, in Japanese and in English)
+  const refusal = {};
+  const Lg = '/frontier/lang.mjs';
+  for (const lang of ['ja', 'en']) {
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, lang]);
+    await wait(1000); await clear();
+    const f = form('WideMuster');
+    await f.locator('input[name="troops"]').fill('100');
+    await f.locator('button[type="submit"]').click({ timeout: 8000 });
+    const y = await untilW(`the ${lang} refusal of a muster with an empty reserve`, z => z.notice && z.notice.ok === false && z.notice.code, { secs: 90 });
+    refusal[lang] = { code: y.notice.code, text: y.notice.text, preview: y.pv };
+    log('refusal', lang, refusal[lang]);
+    await shot(`wide-refusal-${lang}`);
+    if (lang === 'en') { await page.locator('#wide-acts').scrollIntoViewIfNeeded().catch(() => {}); await shot('wide-acts-card-en'); refusal.cardTextEn = (await ws()).cardText; }
+  }
+  await ev(async m => { (await import(m)).setLang('ja'); }, Lg);
+  await wait(1000); await clear();
+  const acts = [];
+  const doAct = async (name, label, fill) => {
+    await selectWide();
+    const f = form(name);
+    await fill(f);
+    const before = (await ws()).econ;
+    await f.locator('button[type="submit"]').click({ timeout: 8000 });
+    const p = await untilW(`the preview of ${label}`, z => (z.pv?.step === 'preview' && z.pv.name === name) || (z.notice?.ok === false && !z.busy), { secs: 120 });
+    if (p.pv?.step !== 'preview') { acts.push({ name, label, refused: p.notice }); log('refused', label, p.notice); await shot(`wide-${label}-refused`); return; }
+    log('preview', label, p.pv);
+    await page.locator('#wide-acts').scrollIntoViewIfNeeded().catch(() => {});
+    await shot(`wide-${label}-preview`);
+    const previewText = p.cardText;
+    await page.locator('#wide-acts button[data-act="wide-act-send"]').click({ timeout: 8000 });
+    const r = await untilW(`the result of ${label}`, z => (z.pv?.step === 'sent' && z.pv.result) || (!z.pv && z.notice?.ok === false && !z.busy), { secs: 240, every: 1500 });
+    log('result', label, r.pv, r.notice);
+    await page.locator('#wide-acts').scrollIntoViewIfNeeded().catch(() => {});
+    await shot(`wide-${label}-result`);
+    acts.push({ name, label, before, preview: p.pv, previewText, sent: r.pv, notice: r.notice, after: r.econ, resultText: r.cardText });
+    await clear();
+  };
+  await doAct('WideHarvest', 'harvest', async () => {});
+  await doAct('WideBuild', 'build-farm', async f => { await f.locator('select[name="wide_item"]').selectOption('0'); });
+  await doAct('WideBuild', 'build-walls', async f => { await f.locator('select[name="wide_item"]').selectOption('6'); });
+  await doAct('WideTrain', 'train-100', async f => { await f.locator('select[name="unit"]').selectOption('0'); await f.locator('input[name="n"]').fill('100'); });
+  // (verify-pr151) a muster while the province's previous turn is NOT resolved (the test declares it two bells behind):
+  // the page's own checks pass (a lag warning only), the second press is refused by the chain's preflight — not sent,
+  // nothing paid — and said in Japanese and in English
+  fs.writeFileSync(path.join(SYNC, 'ready-chain-refusal'), String(Date.now()));
+  while (!exists('go-chain-refusal')) await wait(500);
+  const chainRefusal = {};
+  for (const lang of ['ja', 'en']) {
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, lang]);
+    await wait(1000); await clear();
+    await selectWide();
+    const f = form('WideMuster');
+    await f.locator('select[name="unit"]').selectOption('0'); await f.locator('input[name="troops"]').fill('100'); await f.locator('select[name="tile"]').selectOption('-1');
+    await f.locator('button[type="submit"]').click({ timeout: 8000 });
+    const p = await untilW(`the ${lang} preview of a muster on an unresolved province`, z => (z.pv?.step === 'preview' && z.pv.name === 'WideMuster') || (z.notice?.ok === false && !z.busy), { secs: 120 });
+    if (p.pv?.step !== 'preview') { chainRefusal[lang] = { stage: 'page', code: p.notice?.code ?? null, text: p.notice?.text ?? null }; log('chain-refusal: page refused', lang, p.notice); continue; }
+    await page.locator('#wide-acts').scrollIntoViewIfNeeded().catch(() => {});
+    await shot(`wide-chain-refusal-preview-${lang}`);
+    await clear();
+    await page.locator('#wide-acts button[data-act="wide-act-send"]').click({ timeout: 8000 });
+    const r = await untilW(`the ${lang} chain refusal of that muster`, z => (z.notice?.ok === false && !z.busy && z.pv?.step !== 'preview' && (z.notice.text || z.toastText)) || z.pv?.step === 'sent', { secs: 180, every: 1500 });
+    chainRefusal[lang] = { stage: r.pv?.step === 'sent' ? 'sent' : 'send', warn: p.pv.warn, code: r.notice?.code ?? null, text: r.notice?.text ?? r.toastText ?? null, toastText: r.toastText, pv: r.pv };
+    log('chain-refusal', lang, chainRefusal[lang]);
+    await shot(`wide-chain-refusal-${lang}`);
+  }
+  await ev(async m => { (await import(m)).setLang('ja'); }, Lg);
+  await wait(1000); await clear();
+  // (the muster reads the province's turn: the test declares it resolved now, then says go)
+  fs.writeFileSync(path.join(SYNC, 'ready-muster'), String(Date.now()));
+  while (!exists('go-muster')) await wait(500);
+  await doAct('WideMuster', 'muster-100', async f => { await f.locator('select[name="unit"]').selectOption('0'); await f.locator('input[name="troops"]').fill('100'); await f.locator('select[name="tile"]').selectOption('-1'); });
+  const end = await ws();
+  fs.writeFileSync(path.join(SYNC, 'done-wide.json'), JSON.stringify({ refusal, chainRefusal, acts, end, stills: shotN }, null, 2));
+  log('done-wide');
+}

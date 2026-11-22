@@ -169,7 +169,10 @@ test('the gateway refuses, before any send: another command, another schema, two
   };
   const body = await okBody();
   const refused = async (b, code) => { await assert.rejects(h.flow.submit(b), e => e instanceof LocalActError && e.code === code, code); };
-  await refused({ ...body, name: 'WideTrain' }, 'LocalActNotAllowed');
+  // (devnet-p17: a wide village's WideTrain is a devnet act now — with a legacy village as its subject it is no wide
+  //  village's act at all; WideDepart stays closed on devnet)
+  await refused({ ...body, name: 'WideTrain' }, 'LocalActInvalid');
+  await refused({ ...body, name: 'WideDepart' }, 'LocalActNotAllowed');
   await refused({ ...body, name: 'Depart' }, 'LocalActNotAllowed');
   await refused({ ...body, schema: 'frontier-local-play-act-submit-v1' }, 'LocalActInvalid');
   await refused({ ...body, subject: { holding: { ...RIM, site: 4 } } }, 'LocalActMessageMismatch');
