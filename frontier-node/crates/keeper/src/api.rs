@@ -8,8 +8,8 @@
 //! |---|---|
 //! | `GET /v1/status` | duties, pools, spend, latencies: the snapshot of the last tick, published after its sends (W6T-2: never taken away while a tick runs) |
 //! | `GET /metrics` | Prometheus text (live) |
-//! | `POST /v1/reveal` | shape checks (`400`), plaintext rules (`422 BadPlaintext`), then (W3-C) the accept path against chain ([`crate::reveal_accept`]: `409 CommitMismatch` / `TransitState` / `ArrivalBell` / `Shielded` (W6T-2), `410 WindowClosed`, `422 BadPlaintext` against the transit; every refusal body is `{error, code, detail}`), then queued with a track id (`202`; the same material again answers the same track). W4-C's pipeline ([`crate::play`]) sends it from the bell start and moves the track: `sent`, `landed` (signature, slot), `refused` (`QuotaRefused`), `expired` (`WindowClosed`) |
-//! | `POST /v1/nudge` | queued; the province is caught up at once (W4-C); `blocking` lists what holds it now (`[{kind, key}]`: its lag, writes in flight on it, departures waiting for its resolve), as of the last tick |
+//! | `POST /v1/reveal` | shape checks (`400`), plaintext rules (`422 BadPlaintext`), then (W3-C) the accept path against chain ([`crate::reveal_accept`]: `409 CommitMismatch` / `TransitState` / `ArrivalBell` / `Shielded` (W6T-2), `410 WindowClosed`, `422 BadPlaintext` against the transit; every refusal body is `{error, code, detail}`), then queued with a track id (`202`; the same material again answers the same track, before any chain read). fix-gw-highs (audit H-1): before the gate, material that opens no live DEPART the play index holds is `503 RevealNotIndexed` (`409 CommitMismatch` for another host's or bell's root) once the index is caught up, at zero RPC; the gate's reads take the external budget's tokens ([`crate::api_guard`]): spent, `503 KeeperBusy`, except for indexed material, which is queued unchecked. W4-C's pipeline ([`crate::play`]) sends it from the bell start and moves the track: `sent`, `landed` (signature, slot), `refused` (`QuotaRefused`), `expired` (`WindowClosed`) |
+//! | `POST /v1/nudge` | fix-gw-highs (audit H-2): `{province: [P, Q] (i16), bell (u32)}`; `422 BellOutOfRange` past the current bell + 2, `404 UnknownProvince` for a province the caught-up index does not know, one queued per province (a later bell replaces nothing it covers), `503 KeeperBusy` past 1,024 queued; otherwise queued; the province is caught up at once (W4-C); `blocking` lists what holds it now (`[{kind, key}]`: its lag, writes in flight on it, departures waiting for its resolve), as of the last tick |
 //! | `GET /v1/track/{id}` | the track's state |
 
 use std::net::SocketAddr;
@@ -23,6 +23,7 @@ use axum::{Json, Router};
 use base64::Engine as _;
 use serde_json::{json, Value};
 
+use crate::api_guard::SealCheck;
 use crate::reveal_accept::{RevealGate, RevealReq};
 use crate::Shared;
 
@@ -73,17 +74,22 @@ async fn status(State(st): State<ApiState>, h: HeaderMap) -> Response {
     if !authorized(&st, &h) {
         return err(StatusCode::UNAUTHORIZED, "Unauthorized", "bearer token");
     }
-    Json(lock(&st.shared).status.clone()).into_response()
+    let s = lock(&st.shared);
+    let mut v = s.status.clone();
+    if let Some(o) = v.as_object_mut() {
+        o.insert("api".into(), crate::api_guard::status(&s.api));
+    }
+    Json(v).into_response()
 }
 
 async fn metrics(State(st): State<ApiState>, h: HeaderMap) -> Response {
     if !authorized(&st, &h) {
         return err(StatusCode::UNAUTHORIZED, "Unauthorized", "bearer token");
     }
-    (
-        [("content-type", "text/plain; version=0.0.4")],
-        lock(&st.shared).metrics.clone(),
-    )
+    ([("content-type", "text/plain; version=0.0.4")], {
+        let s = lock(&st.shared);
+        format!("{}{}", s.metrics, crate::api_guard::metrics(&s.api))
+    })
         .into_response()
 }
 
@@ -149,11 +155,78 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
         return err(StatusCode::UNAUTHORIZED, "Unauthorized", "bearer token");
     }
     if let Err((c, name, d)) = check_reveal(&v) {
+        api_count(&st, "reveal_refused_shape", true);
         return err(c, name, &d);
     }
     let Some(req) = reveal_req(&v) else {
         return err(StatusCode::BAD_REQUEST, "BadRequest", "reveal material");
     };
+    let dedupe = format!(
+        "{}:{}:{}",
+        req.holding,
+        req.transit_slot,
+        hex::encode(fclient::seal::commit(&req.plain, &req.salt))
+    );
+    // The same material byte for byte (with its ct_hash: another ct_hash
+    // must still meet the gate's CommitMismatch).
+    let exact = format!("{dedupe}:{}", hex::encode(req.ct_hash));
+    // Before any chain read (fix-gw-highs, audit H-1): the journal's tracks,
+    // the same material again, a full queue, and the zero-RPC seal check
+    // against the play index's live DEPARTs.
+    let seal = {
+        let mut s = lock(&st.shared);
+        if s.feed_paused {
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "DiscoveryUnavailable",
+                "keeper discovery is incomplete or unsupported; automatic game writes are paused",
+            );
+        }
+        if let Err(r) = restore_once(&st, &mut s) {
+            return r;
+        }
+        if let Some(id) = s.reveal_keys.get(&exact).cloned() {
+            crate::api_guard::count(&mut s.api, "reveal_deduped", false);
+            return (
+                StatusCode::ACCEPTED,
+                Json(json!({"accepted": true, "track": id})),
+            )
+                .into_response();
+        }
+        if s.reveals.len() >= crate::api_guard::REVEAL_QUEUE_MAX {
+            crate::api_guard::count(&mut s.api, "reveal_busy_queue", true);
+            let b = crate::api_guard::busy();
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                b.code,
+                "the reveal queue is full",
+            );
+        }
+        let seal = s.admission.as_ref().map(|a| a.seal(&req));
+        match seal {
+            Some(SealCheck::Mismatch) => {
+                crate::api_guard::count(&mut s.api, "reveal_refused_mismatch", true);
+                return err(
+                    StatusCode::CONFLICT,
+                    "CommitMismatch",
+                    "the material opens a departure of another host or arrival bell",
+                );
+            }
+            Some(SealCheck::Unknown { ready: true }) => {
+                crate::api_guard::count(&mut s.api, "reveal_refused_unindexed", true);
+                // 503 (not 409): a Depart that landed a moment ago may not be
+                // indexed yet; the page asks again 60 s later.
+                return err(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "RevealNotIndexed",
+                    "no live departure this keeper indexed has this seal root",
+                );
+            }
+            _ => {}
+        }
+        seal
+    };
+    let indexed = seal == Some(SealCheck::Indexed);
     let mut item = v.clone();
     if let Some(g) = &st.gate {
         match g.check(&req).await {
@@ -168,7 +241,17 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
                 item["commit_hex"] = json!(hex::encode(a.commit));
                 item["close"] = json!(a.close);
             }
+            // The external budget is spent, but the material opens a live
+            // DEPART's seal root (only its owner can have it): queued
+            // unchecked; the play duty judges it against the chain before
+            // it sends, as it does every owner material.
+            Err(r) if r.code == "KeeperBusy" && indexed => {
+                item["checked"] = json!(false);
+                item["seal_indexed"] = json!(true);
+                api_count(&st, "reveal_accepted_unchecked", false);
+            }
             Err(r) => {
+                api_count(&st, &format!("reveal_refused_{}", r.code), true);
                 let code = StatusCode::from_u16(r.http).unwrap_or(StatusCode::CONFLICT);
                 return err(code, r.code, &r.detail);
             }
@@ -176,12 +259,6 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
     } else {
         item["checked"] = json!(false);
     }
-    let dedupe = format!(
-        "{}:{}:{}",
-        req.holding,
-        req.transit_slot,
-        hex::encode(fclient::seal::commit(&req.plain, &req.salt))
-    );
     let mut s = lock(&st.shared);
     if s.feed_paused {
         return err(
@@ -190,22 +267,11 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
             "keeper discovery is incomplete or unsupported; automatic game writes are paused",
         );
     }
-    // What this journal acknowledged before a restart, read once before the
-    // first id is given (⑱); unreadable: refused as a failed write is.
-    if let (Some(path), false) = (&st.journal, s.owner_tracks_restored) {
-        if crate::journal::Journal::open(path)
-            .and_then(|j| restore_owner_tracks(&mut s, &j))
-            .is_err()
-        {
-            return err(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "JournalUnavailable",
-                "owner material could not be stored",
-            );
-        }
-        s.owner_tracks_restored = true;
+    if let Err(r) = restore_once(&st, &mut s) {
+        return r;
     }
     if let Some(id) = s.reveal_keys.get(&dedupe).cloned() {
+        crate::api_guard::count(&mut s.api, "reveal_deduped", false);
         return (
             StatusCode::ACCEPTED,
             Json(json!({"accepted": true, "track": id})),
@@ -242,8 +308,10 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
             );
         }
     }
+    crate::api_guard::count(&mut s.api, "reveal_accepted", false);
     s.tracks.insert(id.clone(), json!({"state": "queued"}));
     s.reveal_keys.insert(dedupe, id.clone());
+    s.reveal_keys.insert(exact, id.clone());
     s.reveals.push((id.clone(), item));
     (
         StatusCode::ACCEPTED,
@@ -252,26 +320,53 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
         .into_response()
 }
 
+/// What this journal acknowledged before a restart, read once before the
+/// first id is given or the first duplicate is answered (⑱); unreadable:
+/// refused as a failed write is.
+#[allow(clippy::result_large_err)]
+fn restore_once(st: &ApiState, s: &mut Shared) -> Result<(), Response> {
+    if let (Some(path), false) = (&st.journal, s.owner_tracks_restored) {
+        if crate::journal::Journal::open(path)
+            .and_then(|j| restore_owner_tracks(s, &j))
+            .is_err()
+        {
+            return Err(err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "JournalUnavailable",
+                "owner material could not be stored",
+            ));
+        }
+        s.owner_tracks_restored = true;
+    }
+    Ok(())
+}
+
+fn api_count(st: &ApiState, event: &str, refused: bool) {
+    crate::api_guard::count(&mut lock(&st.shared).api, event, refused);
+}
+
 async fn nudge(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) -> Response {
     if !authorized(&st, &h) {
         return err(StatusCode::UNAUTHORIZED, "Unauthorized", "bearer token");
     }
-    let ok = v
-        .get("province")
-        .and_then(|p| p.as_array())
-        .is_some_and(|a| a.len() == 2 && a.iter().all(|x| x.as_i64().is_some()))
-        && v.get("bell").and_then(|b| b.as_u64()).is_some();
-    if !ok {
-        return err(
-            StatusCode::BAD_REQUEST,
-            "BadRequest",
-            "`{province: [P, Q], bell}`",
-        );
-    }
+    let i16_of = |x: &Value| x.as_i64().and_then(|n| i16::try_from(n).ok());
     let pq = v
         .get("province")
         .and_then(|p| p.as_array())
-        .map(|a| (a[0].as_i64().unwrap_or(0), a[1].as_i64().unwrap_or(0)));
+        .filter(|a| a.len() == 2)
+        .and_then(|a| Some((i16_of(&a[0])?, i16_of(&a[1])?)));
+    let bell = v
+        .get("bell")
+        .and_then(|b| b.as_u64())
+        .and_then(|b| u32::try_from(b).ok());
+    let (Some((p, q)), Some(bell)) = (pq, bell) else {
+        api_count(&st, "nudge_refused_shape", true);
+        return err(
+            StatusCode::BAD_REQUEST,
+            "BadRequest",
+            "`{province: [P, Q] (i16), bell (u32)}`",
+        );
+    };
     let mut s = lock(&st.shared);
     if s.feed_paused {
         return err(
@@ -280,10 +375,63 @@ async fn nudge(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) -
             "keeper discovery is incomplete or unsupported; automatic game writes are paused",
         );
     }
-    let blocking = pq
-        .and_then(|(p, q)| s.blocking.get(&format!("{p},{q}")).cloned())
+    // fix-gw-highs (audit H-2): a bell past now + NUDGE_AHEAD_BELLS held
+    // the province's skip at one bell per SkipQuiet until the season's end;
+    // a province the index does not know stayed in the map for good.
+    let (now_bell, known) = match &s.admission {
+        Some(a) => (a.now_bell, !a.ready || a.provinces.contains(&(p, q))),
+        None => (None, true),
+    };
+    if let Some(now) = now_bell {
+        if bell > now.saturating_add(crate::api_guard::NUDGE_AHEAD_BELLS) {
+            crate::api_guard::count(&mut s.api, "nudge_refused_bell", true);
+            return err(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "BellOutOfRange",
+                &format!(
+                    "bell {bell} is more than {} bells past the current bell {now}",
+                    crate::api_guard::NUDGE_AHEAD_BELLS
+                ),
+            );
+        }
+    }
+    if !known {
+        crate::api_guard::count(&mut s.api, "nudge_refused_province", true);
+        return err(
+            StatusCode::NOT_FOUND,
+            "UnknownProvince",
+            &format!("province ({p}, {q}) is not open"),
+        );
+    }
+    let blocking = s
+        .blocking
+        .get(&format!("{p},{q}"))
+        .cloned()
         .unwrap_or_default();
-    s.nudges.push(v);
+    let same = |n: &Value| {
+        n.get("province")
+            .and_then(|x| x.as_array())
+            .is_some_and(|a| {
+                a.len() == 2 && a[0].as_i64() == Some(p as i64) && a[1].as_i64() == Some(q as i64)
+            })
+            && n.get("bell")
+                .and_then(|b| b.as_u64())
+                .is_some_and(|b| b >= bell as u64)
+    };
+    if s.nudges.iter().any(same) {
+        crate::api_guard::count(&mut s.api, "nudge_deduped", false);
+        return Json(json!({"queued": true, "blocking": blocking})).into_response();
+    }
+    if s.nudges.len() >= crate::api_guard::NUDGE_QUEUE_MAX {
+        crate::api_guard::count(&mut s.api, "nudge_busy_queue", true);
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "KeeperBusy",
+            "the nudge queue is full",
+        );
+    }
+    crate::api_guard::count(&mut s.api, "nudge_queued", false);
+    s.nudges.push(json!({"province": [p, q], "bell": bell}));
     Json(json!({"queued": true, "blocking": blocking})).into_response()
 }
 
@@ -474,7 +622,8 @@ mod tests {
             401
         );
         let (c, v) = call(a, "GET", "/v1/status", Some(&tok), None).await;
-        assert_eq!((c, v), (200, json!({"slot": 5})));
+        assert_eq!((c, &v["slot"]), (200, &json!(5)));
+        assert!(v["api"].is_object(), "the API's counters ride along: {v}");
         let (c, v) = call(a, "GET", "/metrics", Some(&tok), None).await;
         assert_eq!(c, 200);
         assert!(v.as_str().unwrap().contains("frontier_keeper_slot 5"));
@@ -892,6 +1041,245 @@ mod tests {
         assert_eq!(v["error"], "Shielded", "{v}");
         assert_eq!(v["code"], "Shielded", "the W3-C field stays");
         assert!(lock(&shared).reveals.is_empty(), "not queued");
+        r.stop();
+    }
+
+    /// A gate that counts its chain checks and answers `answer`.
+    struct Counting {
+        calls: std::sync::atomic::AtomicUsize,
+        answer: Result<crate::reveal_accept::Accepted, crate::reveal_accept::Refusal>,
+    }
+
+    impl RevealGate for Counting {
+        fn check<'a>(
+            &'a self,
+            _req: &'a RevealReq,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            crate::reveal_accept::Accepted,
+                            crate::reveal_accept::Refusal,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let a = self.answer.clone();
+            Box::pin(async move { a })
+        }
+    }
+
+    fn accepted() -> crate::reveal_accept::Accepted {
+        crate::reveal_accept::Accepted {
+            host_id: 42,
+            faction: 1,
+            arrive: 9,
+            dest: (0, 0),
+            tile: 0,
+            region: 0,
+            commit: [0; 32],
+            close: None,
+        }
+    }
+
+    /// Owner material of host 42 arriving at bell 9 with `salt`, and its seal root.
+    fn material(salt: u8) -> (Value, [u8; 32]) {
+        let p = fclient::seal::Plain {
+            version: 1,
+            host_id: 42,
+            arrive_bell: 9,
+            stance: 1,
+            ..Default::default()
+        };
+        let plain = fclient::seal::pack(&p);
+        let root =
+            fclient::seal::seal_root(&fclient::seal::commit(&plain, &[salt; 32]), &[2u8; 32]);
+        (
+            json!({
+                "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+                "transit_slot": 1,
+                "plain_b64": B64.encode(plain),
+                "salt_b64": B64.encode([salt; 32]),
+                "ct_hash_b64": B64.encode([2u8; 32]),
+            }),
+            root,
+        )
+    }
+
+    fn admission(ready: bool, seals: &[([u8; 32], (u64, u32))]) -> crate::api_guard::Admission {
+        crate::api_guard::Admission {
+            ready,
+            now_bell: Some(100),
+            seals: Arc::new(seals.iter().copied().collect()),
+            provinces: Arc::new([(2i16, -1i16)].into_iter().collect()),
+        }
+    }
+
+    /// fix-gw-highs (audit H-1): once the play index is caught up, a reveal
+    /// that opens no live DEPART's seal root is refused before any chain
+    /// read; the genuine material reaches the gate once, its repeats none.
+    #[tokio::test]
+    async fn forged_reveals_cost_no_chain_read_once_the_index_is_ready() {
+        let (genuine, root) = material(1);
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        lock(&shared).admission = Some(admission(true, &[(root, (42, 9))]));
+        let gate = Arc::new(Counting {
+            calls: Default::default(),
+            answer: Ok(accepted()),
+        });
+        let tok = "t".repeat(32);
+        let app = router_with(shared.clone(), tok.clone(), Some(gate.clone()));
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let a = l.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(l, app).await });
+        for salt in 2..40u8 {
+            let (forged, _) = material(salt);
+            let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(forged)).await;
+            assert_eq!((c, v["code"].as_str()), (503, Some("RevealNotIndexed")));
+        }
+        assert_eq!(
+            gate.calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "no chain read for junk"
+        );
+        let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(genuine.clone())).await;
+        assert_eq!(c, 202, "{v}");
+        let id = v["track"].clone();
+        for _ in 0..5 {
+            let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(genuine.clone())).await;
+            assert_eq!((c, &v["track"]), (202, &id));
+        }
+        assert_eq!(
+            gate.calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "repeats are answered before the gate"
+        );
+        // The root of a DEPART of another host: refused, no read.
+        lock(&shared).admission = Some(admission(true, &[(material(50).1, (43, 9))]));
+        let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(material(50).0)).await;
+        assert_eq!((c, v["code"].as_str()), (409, Some("CommitMismatch")));
+        assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let s = lock(&shared);
+        assert_eq!(s.reveals.len(), 1);
+        assert_eq!(s.api.events["reveal_refused_unindexed"], 38);
+        assert_eq!(s.api.events["reveal_deduped"], 5);
+        assert_eq!(s.api.events["reveal_refused_mismatch"], 1);
+        drop(s);
+        task.abort();
+    }
+
+    /// While the index catches up (or before it is published) unknown
+    /// material goes to the gate, on the external budget only; once that is
+    /// spent, junk is refused `KeeperBusy` without a read, and genuine
+    /// material (an indexed seal root) is still queued, unchecked.
+    #[tokio::test]
+    async fn the_external_budget_caps_gate_reads_and_never_drops_genuine_material() {
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        lock(&shared).admission = Some(admission(false, &[]));
+        let inner = Arc::new(Counting {
+            calls: Default::default(),
+            answer: Err(crate::reveal_accept::Refusal {
+                http: 409,
+                code: "TransitState",
+                detail: "no Holding at that address".into(),
+            }),
+        });
+        let budget = Arc::new(crate::api_guard::ExternalBudget::new(0.0, 6.0));
+        let gate: Arc<dyn RevealGate> = Arc::new(crate::api_guard::BudgetedGate {
+            inner: inner.clone(),
+            budget,
+        });
+        let tok = "t".repeat(32);
+        let app = router_with(shared.clone(), tok.clone(), Some(gate));
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let a = l.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(l, app).await });
+        let mut codes = vec![];
+        for salt in 2..12u8 {
+            let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(material(salt).0)).await;
+            codes.push((c, v["code"].as_str().unwrap_or("").to_string()));
+        }
+        assert_eq!(
+            inner.calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "a burst of two checks: {codes:?}"
+        );
+        assert_eq!(
+            codes
+                .iter()
+                .filter(|x| x.1 == "KeeperBusy" && x.0 == 503)
+                .count(),
+            8
+        );
+        // Caught up, the owner's material: queued although the budget is spent.
+        let (genuine, root) = material(1);
+        lock(&shared).admission = Some(admission(true, &[(root, (42, 9))]));
+        let (c, v) = call(a, "POST", "/v1/reveal", Some(&tok), Some(genuine)).await;
+        assert_eq!(c, 202, "{v}");
+        assert_eq!(inner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        let s = lock(&shared);
+        assert_eq!(s.reveals.len(), 1);
+        assert_eq!(s.reveals[0].1["checked"], false);
+        assert_eq!(s.reveals[0].1["seal_indexed"], true);
+        assert_eq!(s.api.events["reveal_refused_KeeperBusy"], 8);
+        assert_eq!(s.api.events["reveal_accepted_unchecked"], 1);
+        drop(s);
+        task.abort();
+    }
+
+    /// fix-gw-highs (audit H-2): a nudge past now + 2 bells or for a
+    /// province the index does not know is refused; one per province is
+    /// queued; the queue is bounded.
+    #[tokio::test]
+    async fn nudges_are_bounded_to_now_and_known_provinces() {
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        lock(&shared).admission = Some(admission(true, &[]));
+        let tok = "t".repeat(32);
+        let r = serve("127.0.0.1:0".parse().unwrap(), shared.clone(), tok.clone())
+            .await
+            .unwrap();
+        let a = r.addr;
+        let nudge = |p: i64, q: i64, bell: u64| json!({"province": [p, q], "bell": bell});
+        for (body, code, name) in [
+            (nudge(2, -1, 4_294_967_295), 422, "BellOutOfRange"),
+            (nudge(2, -1, 103), 422, "BellOutOfRange"),
+            (nudge(2, -1, 4_294_967_296), 400, "BadRequest"),
+            (nudge(40_000, -1, 100), 400, "BadRequest"),
+            (nudge(9, 9, 100), 404, "UnknownProvince"),
+        ] {
+            let (c, v) = call(a, "POST", "/v1/nudge", Some(&tok), Some(body.clone())).await;
+            assert_eq!((c, v["code"].as_str()), (code, Some(name)), "{body}");
+        }
+        assert!(lock(&shared).nudges.is_empty());
+        // The page's nudges: the province's resolvedNext (behind) and now + 2.
+        for bell in [37, 102, 102, 90] {
+            let (c, _) = call(a, "POST", "/v1/nudge", Some(&tok), Some(nudge(2, -1, bell))).await;
+            assert_eq!(c, 200);
+        }
+        assert_eq!(
+            lock(&shared).nudges.len(),
+            2,
+            "37, then 102; the repeats and 90 are covered"
+        );
+        // Catching up: provinces are not judged, the bell still is.
+        lock(&shared).admission = Some(admission(false, &[]));
+        let (c, _) = call(a, "POST", "/v1/nudge", Some(&tok), Some(nudge(9, 9, 100))).await;
+        assert_eq!(c, 200);
+        {
+            let mut s = lock(&shared);
+            while s.nudges.len() < crate::api_guard::NUDGE_QUEUE_MAX {
+                s.nudges.push(json!({"province": [1, 1], "bell": 1}));
+            }
+        }
+        let (c, v) = call(a, "POST", "/v1/nudge", Some(&tok), Some(nudge(5, 5, 101))).await;
+        assert_eq!((c, v["code"].as_str()), (503, Some("KeeperBusy")));
+        let s = lock(&shared);
+        assert_eq!(s.api.events["nudge_refused_bell"], 2);
+        assert_eq!(s.api.events["nudge_refused_province"], 1);
+        assert_eq!(s.api.events["nudge_refused_shape"], 2);
+        drop(s);
         r.stop();
     }
 }

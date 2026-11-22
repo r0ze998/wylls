@@ -78,6 +78,8 @@ const PV0_PORT_BASE: u16 = 41_680;
 /// P17's (devnet-p17; `OPERATOR_PAGE_WIDE_ACTS_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection). Shares
 /// P11's default base: set the variable to run both at once.
 const P17_PORT_BASE: u16 = 41_500;
+/// PGWF's (fix-gw-highs; `OPERATOR_GW_FLOOD_PORT_BASE` moves them): as P8 plus the gateway (+6 operator, +7 public).
+const PGWF_PORT_BASE: u16 = 41_600;
 
 #[derive(Clone, Copy)]
 struct Ports {
@@ -617,6 +619,27 @@ async fn p8_keeper_a_plays_a_legacy_war_on_the_devnet_so_offline() {
     playable_season(ports("OPERATOR_WAR_PORT_BASE", P8_PORT_BASE), Mode::War).await;
 }
 
+/// PGWF (fix-gw-highs; security audit H-1, H-2): the offline attack replay. P8's legacy war on the devnet `.so` with
+/// keeper A at the devnet runbook's `rpc_min_gap_ms = 250` and the gateway behind the herald's `/gw` (as on devnet,
+/// `--public-proxy xff`). From the Depart on, `gw_flood.mjs` floods `/gw/f/reveal` with forged reveals and
+/// `/gw/f/nudge` with bell 4294967295 for a grid of provinces, first from ONE client address, then from a fresh one
+/// per request. Keeper A must still anchor, reveal, gather, resolve and settle the march (each step's wall time is
+/// recorded), the owner's genuine material posted through `/gw/f/reveal` mid-flood must be accepted, and the keep's
+/// SkipQuiet count must stay P8's. `OPERATOR_GW_FLOOD=0`: the same run with the sampler only (the baseline).
+/// Opt-in (`OPERATOR_GW_FLOOD_RUN=1`): about 30 minutes, ports 41600+ (`OPERATOR_GW_FLOOD_PORT_BASE`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pgwf_keeper_a_keeps_its_cadence_under_a_gw_flood_offline() {
+    if std::env::var("OPERATOR_GW_FLOOD_RUN").ok().as_deref() != Some("1") {
+        eprintln!("pgwf: skipped (opt-in: OPERATOR_GW_FLOOD_RUN=1)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_GW_FLOOD_PORT_BASE", PGWF_PORT_BASE),
+        Mode::Flood,
+    )
+    .await;
+}
+
 /// P11 (devnet-expedition-keeper; devnet runbook gaps P10 + P13): a RIM → WIDE EXPEDITION on the devnet `.so`,
 /// offline. Keeper A as the devnet profile now says: P8's play roles, the wide ring 129 (`wide_rings`), and the new
 /// **`expeditions`** role. A test participant founds its rim village (as P4/P8), musters 400 and sends ONE
@@ -841,6 +864,9 @@ enum Mode {
     Conquest,
     /// PV0 (herald-v0v1-decode): P3 with the participant's Join as v1 and PlaceHome as v0 through its own table.
     Versioned,
+    /// PGWF (fix-gw-highs): P8 with keeper A at the runbook's 250 ms pacing, the gateway behind the herald's `/gw`,
+    /// and a flood of forged reveals and far-future nudges from one and many addresses ([`rim::war::Flood`]).
+    Flood,
 }
 
 async fn playable_season(pt: Ports, mode: Mode) {
@@ -854,6 +880,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Page => "p7",
         Mode::PageWideActs => "p17",
         Mode::War => "p8",
+        Mode::Flood => "pgwf",
         Mode::PageWar => "p9",
         Mode::PageWarHome => "p10",
         Mode::PageWarFog => "pfog",
@@ -867,7 +894,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     };
     let war = matches!(
         mode,
-        Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog
+        Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::Flood
     );
     let page_mode = matches!(
         mode,
@@ -1165,7 +1192,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
             // (P8/P9: the devnet profile's keeper A with the play roles of the S1 playtest's keeper A)
-            Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog => {
+            Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::Flood => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
             }
             // (P11 / P14: the devnet profile's keeper A with P8's play roles and the `expeditions` role, P13)
@@ -1177,6 +1204,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
         rim = match mode {
             Mode::Setup | Mode::Versioned => String::new(),
             Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            // (PGWF: P8's keeper A at the devnet runbook's pacing, `rpc_min_gap_ms = 250`: the budget H-1 drained)
+            Mode::Flood => format!("rim_per_wedge = {}\nrpc_min_gap_ms = 250\n", rim::PER_WEDGE),
             // (PPROV: the profile's rim and provinces on demand, `provinces_reach` = the preset's outpost_range)
             Mode::Provinces | Mode::Floor(_) => format!(
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
@@ -1440,7 +1469,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let hdir = dir.join("herald");
     // (P7: the herald also serves the page, `--web`, and proxies `/gw/*` to the gateway's public listener)
     let (gw_op, gw_pub) = (pt.rpc + 6, pt.rpc + 7);
-    let web_args: Vec<String> = if page_mode {
+    let web_args: Vec<String> = if mode == Mode::Flood {
+        // (PGWF: `/gw/*` only, no page)
+        vec!["--relay".into(), format!("127.0.0.1:{gw_pub}")]
+    } else if page_mode {
         vec![
             "--web".into(),
             repo_root()
@@ -1542,7 +1574,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     // P7: the gateway with its devnet play routes (`--devnet-play`), over THIS chain's RPC in its offline TEST form
     // (`--devnet-play-offline-rpc`: loopback 41000-41999 only; a real devnet gateway names an https RPC). Its relay pool
     // seed and invite secret are made fresh in this test's directory (TEST secrets; the devnet play routes sign nothing).
-    let _gateway = if page_mode {
+    let _gateway = if page_mode || mode == Mode::Flood {
         let gdir = dir.join("gateway");
         std::fs::create_dir_all(&gdir).unwrap();
         let sd = lock().account(&a.season).unwrap().data;
@@ -1557,7 +1589,19 @@ async fn playable_season(pt: Ports, mode: Mode) {
         let keeper_tok = kdir.join("keeper.token").to_str().unwrap().to_string();
         let g = Kill(
             Command::new("node")
-                .arg(repo_root().join("permutation-gateway/src/frontier/server.mjs"))
+                // (PGWF: `OPERATOR_GATEWAY_DIR` runs another gateway tree, e.g. origin/main's for the "before" numbers)
+                .arg(
+                    std::env::var("OPERATOR_GATEWAY_DIR")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|_| repo_root().join("permutation-gateway"))
+                        .join("src/frontier/server.mjs"),
+                )
+                // (PGWF: behind a TLS proxy that sets X-Forwarded-For, fix-gw-highs M-2; an older gateway ignores it)
+                .args(if mode == Mode::Flood {
+                    vec!["--public-proxy", "xff"]
+                } else {
+                    vec![]
+                })
                 .args([
                     "--cluster",
                     "devnet",
@@ -1669,6 +1713,18 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 war: (war || expedition).then(|| rim::War {
                     keeper_api: pt.keeper_api,
                     token: "test-token-operator-playable".into(),
+                    flood: (mode == Mode::Flood).then(|| rim::war::Flood {
+                        herald: pt.herald,
+                        keeper_api: pt.keeper_api,
+                        gw_op,
+                        script: repo_root().join(
+                            "frontier-node/crates/stack/tests/operator_playable/gw_flood.mjs",
+                        ),
+                        out: std::env::var("OPERATOR_EVIDENCE_DIR")
+                            .map(PathBuf::from)
+                            .unwrap_or_else(|_| dir.clone()),
+                        off: std::env::var("OPERATOR_GW_FLOOD").ok().as_deref() == Some("0"),
+                    }),
                     outage: (mode == Mode::PageWarHome).then(|| rim::war::Outage {
                         keeper_bin: keeper_bin.clone(),
                         keeper_config: kdir.join("keeper.toml"),

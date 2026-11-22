@@ -48,6 +48,7 @@
 //! reveal pipeline, gathers, resolves, skips, settlements, closes and claims.
 
 pub mod api;
+pub mod api_guard;
 pub mod archive;
 pub mod beacon;
 pub mod caravans;
@@ -308,6 +309,13 @@ pub struct Shared {
     pub owner_tracks_restored: bool,
     /// `"P,Q"` → what holds the province now (W4-C, `/v1/nudge`).
     pub blocking: BTreeMap<String, Vec<Value>>,
+    /// What `/v1/reveal` and `/v1/nudge` may admit without a chain read
+    /// (published by the play duty after each feed pull; `None` until then:
+    /// the reveal gate's own budget still applies).
+    pub admission: Option<crate::api_guard::Admission>,
+    /// Admissions and refusals of the API (published in `/v1/status`
+    /// `api` and `/metrics`).
+    pub api: crate::api_guard::ApiCounters,
 }
 
 /// What one tick did.

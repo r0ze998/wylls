@@ -397,6 +397,12 @@ pub struct KeeperConfig {
     /// Default 0 (unpaced) with `feed = "localnet"`, 150 ms with `"rpc"`
     /// (≈ 66 calls per 10 s, under the public devnet RPC's per-IP limit).
     pub rpc_min_gap_ms: Option<u64>,
+    /// Least time between two JSON-RPC calls the loopback API makes for
+    /// externally-triggered work (the `/v1/reveal` gate), on a budget of
+    /// its own in front of the shared pacer (fix-gw-highs, audit H-1).
+    /// Default: five `rpc_min_gap_ms` (a fifth of the pacer), 33 ms when
+    /// unpaced; 0 = unlimited (tests only).
+    pub api_rpc_gap_ms: Option<u64>,
 }
 
 /// `keeper.toml` `feed`.
@@ -468,6 +474,7 @@ impl KeeperConfig {
             feed_origin: None,
             feed_witness: None,
             rpc_min_gap_ms: None,
+            api_rpc_gap_ms: None,
         }
     }
 
@@ -775,6 +782,9 @@ impl KeeperConfig {
         num!("feed_max_backoff_ms", feed_max_backoff_ms, u64);
         if let Some(v) = take("rpc_min_gap_ms") {
             c.rpc_min_gap_ms = Some(int(v, "rpc_min_gap_ms")?);
+        }
+        if let Some(v) = take("api_rpc_gap_ms") {
+            c.api_rpc_gap_ms = Some(int(v, "api_rpc_gap_ms")?);
         }
         if let Some(v) = take("feed_origin") {
             let o = s(v, "feed_origin")?;

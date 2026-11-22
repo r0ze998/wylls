@@ -12,6 +12,17 @@
 // last X-Forwarded-For entry (the one the herald added). Nobody else's
 // X-Forwarded-For is read.
 //
+// fix-gw-highs (audit M-2): a herald-forwarded request whose client address
+// is loopback means the TLS proxy in front of the herald sent no
+// X-Forwarded-For (everyone would be "loopback" and exempt). When the relay
+// is told it runs behind such a proxy (`--public-proxy`, required on a
+// non-localnet cluster without --dev, config.mjs), those requests are NOT
+// exempt: they share one bucket (`unattributed`), counted and logged, so a
+// misconfigured proxy shows up as throttling instead of switching every
+// per-address limit off. Direct loopback clients (bots on the public port)
+// stay exempt. Keeper A's routes also pass a global bucket and a dedupe
+// cache (keeper-guard.mjs).
+//
 // A route is `async (ctx, req) => ({status = 200, body})` where `req` is
 // `{method, url, headers, surface, ip, json()}`; it throws a RouteError to
 // fail. `createFrontierHandler` returns a plain Node request handler, so it
@@ -26,6 +37,7 @@ import { BlockhashBook } from '../send.mjs';
 import { ChainView } from './chain.mjs';
 import { QuotaBook } from './quota.mjs';
 import { keeperRoutes } from './routes/keeper.mjs';
+import { KeeperGuard } from './keeper-guard.mjs';
 import { operatorRoutes } from './routes/operator.mjs';
 import { prizeRoutes } from './routes/prize.mjs';
 import { agentRoutes } from './routes/agent.mjs';
@@ -72,8 +84,9 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   ...DEVNET_PLAY_IP_LIMITS,
   'POST /f/relay': { burst: 40, perSecond: 2 },
   'POST /f/join': { burst: 10, perSecond: 0.2 },
-  'POST /f/reveal': { burst: 40, perSecond: 2 },
-  'POST /f/nudge': { burst: 10, perSecond: 1 },
+  // fix-gw-highs: a page reveals a march once (again after 60 s at most ten times) and nudges once a bell.
+  'POST /f/reveal': { burst: 12, perSecond: 0.5 },
+  'POST /f/nudge': { burst: 10, perSecond: 0.5 },
   'GET /f/relay': { burst: 40, perSecond: 3 },
   'GET /f/season': { burst: 20, perSecond: 2 },
   'GET /f/quota': { burst: 20, perSecond: 2 },
@@ -113,6 +126,24 @@ export function clientAddress(req, { heraldPeer }) {
   const last = String(Array.isArray(header) ? header.at(-1) : header).split(',').at(-1).trim();
   return isIP(last) ? last : peer;
 }
+
+/**
+ * The client's address and how it is attributed: `viaHerald` when the herald
+ * forwarded it (its X-Forwarded-For), `exempt` when per-address limits do not
+ * apply (a loopback client — but in strict mode only one that talks to the
+ * public listener directly, not a herald-forwarded loopback address).
+ */
+export function clientOf(req, cfg) {
+  const ip = clientAddress(req, { heraldPeer: cfg.heraldPeer });
+  const peer = req.socket?.remoteAddress ?? 'unknown';
+  const viaHerald = unmap(peer) === unmap(cfg.heraldPeer) && req.headers?.['x-forwarded-for'] !== undefined;
+  const strict = strictClients(cfg);
+  const unattributed = strict && viaHerald && isLoopback(ip);
+  return { ip, viaHerald, unattributed, exempt: isLoopback(ip) && !unattributed };
+}
+
+/** Herald-forwarded loopback clients are limited (the relay runs behind a public proxy, or on a live cluster). */
+export const strictClients = cfg => !!cfg.publicProxy || (cfg.cluster !== 'localnet' && !cfg.dev);
 
 function readJson(req, limit, signal) {
   return new Promise((resolve, reject) => {
@@ -172,7 +203,9 @@ export function createFrontierContext({ cfg, connection, pool, keeper = null, in
     programId: addresses.programId,
     chain: new ChainView({ connection, addresses, now }),
     quota: new QuotaBook({ store }),
-    limiter: limiter ?? new RateLimiter({ now }),
+    limiter: limiter ??= new RateLimiter({ now }),
+    /** fix-gw-highs: global buckets, dedupe and refusal counters of keeper A's public routes. */
+    keeperGuard: new KeeperGuard({ limiter, now, log }),
     relayed: new ReplayCache({ now }),
     blockhashes: blockhashes ?? new BlockhashBook(connection, { now }),
     funds: funds ?? FundsGuard.forSol({ read: () => pool.refresh(connection), minSol: cfg.minPoolSol, now, log }),
@@ -211,7 +244,8 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(toJson({ error: 'bad request URL', code: 'BadRequest' }));
     }
-    const ip = clientAddress(req, { heraldPeer: ctx.cfg.heraldPeer });
+    const who = clientOf(req, ctx.cfg);
+    const ip = who.ip;
     const preview = `${req.method} ${url.pathname}` === EXPEDITION_PREVIEW_ROUTE;
     const prepare = `${req.method} ${url.pathname}` === EXPEDITION_PREPARE_ROUTE;
     const departPrepare = `${req.method} ${url.pathname}` === EXPEDITION_DEPART_PREPARE_ROUTE;
@@ -228,7 +262,15 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
     try {
       const [key, route] = findRoute(routes, req.method, url.pathname);
       if (!route || (pub && !allowed.has(key))) throw new RouteError(404, 'not found', 'NotFound');
-      if (pub && FRONTIER_IP_LIMITS[key] && !isLoopback(ip)) ctx.limiter.check(`f-ip:${key}:${addressBucket(ip)}`, FRONTIER_IP_LIMITS[key]);
+      if (pub && who.unattributed) ctx.keeperGuard.count('unattributed_client', true);
+      if (pub && FRONTIER_IP_LIMITS[key] && !who.exempt) {
+        try {
+          ctx.limiter.check(`f-ip:${key}:${who.unattributed ? 'unattributed' : addressBucket(ip)}`, FRONTIER_IP_LIMITS[key]);
+        } catch (e) {
+          if (key === 'POST /f/reveal' || key === 'POST /f/nudge') ctx.keeperGuard.count(`${key.split('/').at(-1)}_limited_ip`, true);
+          throw e;
+        }
+      }
       if (funded.has(key)) await ctx.funds.check();
       out = await route(ctx, request);
     } catch (e) {
