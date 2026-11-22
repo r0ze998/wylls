@@ -2,6 +2,8 @@
 
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** 廃止（所有者の決定 t333u）。画面側は main にある：塔を描かず、中心を名指さない（PR #30。`map/belltower.mjs` と `map/enginestage.mjs` は削除）。チェーン側の規則 R1・R2・R4・R6 は承認済み（t346u）で、未マージの PR #69 にある。R3・R5 は後回し。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
+> **R5 の計画（2026-11-22、main `8e76a538`）：** [R5-PLAN.md](R5-PLAN.md)。R3 は #79 で main にある。R5 は「同点の決め方」（R5a、最初の devnet 季節のあと、予約バイト 83）と「開いた順の州番号」（R5b、勧めない）に分け、devnet 前にできる herald 側の作業（H1–H3）を挙げた。決めるのは r0ze（Q1–Q3）。
+
 > **状態：廃止（2026-11-18）。** 所有者の決定（2026-11-18 14:41 JST）：中央の塔そのものを廃止し、地図に中心を置かない（果てのない地図）。
 > - 画面からは、鐘楼・Engine の段階（`?engine=N` の見本表示を含む）・大協約の石畳と広場・「大協約」という名前・小地図の印・参加前に塔へ寄るカメラ・題名の絵の塔を取り除いた（ブランチ `grok/ws14-abolish`）。`map/belltower.mjs`、`map/enginestage.mjs`、`specials/engine_*`・`concord_*` の絵は削除。試験は `permutation-gateway/test/web-frontier-no-centre.test.mjs`（PR #27 の `web-frontier-engine-stage.test.mjs` を置き換え）。
 > - 州 (0,0) は座標の原点としてだけ残る（輪＝原点からの距離という内部の数え方）。輪0の中立・輪1の Seat・本拠の輪などチェーン上の規則と ruleset hash は変えていない。それらを中心のない規則にする案（R1〜R6）は「r0ze の OK 待ち」：設計 `~/Projects/wylls-grok-state/reports/ws14-abolish-design.md` §5。

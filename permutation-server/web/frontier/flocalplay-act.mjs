@@ -17,7 +17,7 @@
 import { accountsFor, buildShape } from './fplay.mjs';
 import { localDepartSigned } from './flocalplay-depart.mjs';
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from './flocalplay-wide.mjs';
-import { WIDE_HOST_ACTS, wideHostIntent, wideHostMessage } from './flocalplay-wide-host.mjs';
+import { WIDE_HOST_ACTS, WIDE_BUILT_ACTS, WIDE_VILLAGE_ACTS, wideHostIntent, wideHostMessage } from './flocalplay-wide-host.mjs';
 import { worldIdOf } from './map/wide.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { ringPosition } from './map/wide.mjs';
@@ -55,7 +55,9 @@ export const DEVNET_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', '
  * (FileOutpost, fdevnet-outpost.mjs). Taken only when the gateway's info lists it (fdevnetplay.mjs `devnetPlayOf`): a
  * gateway without it keeps devnet play on with the commands it has, and the page offers no outpost there.
  */
-export const DEVNET_ACT_OPTIONAL = Object.freeze([OUTPOST_ACT]);
+// (devnet-p17, devnet gap P17: and a wide village's own Harvest, Build, Train and Muster — flocalplay-wide-host.mjs
+//  WIDE_VILLAGE_ACTS — taken only all four together, when the gateway lists every one of them)
+export const DEVNET_ACT_OPTIONAL = Object.freeze([OUTPOST_ACT, ...WIDE_VILLAGE_ACTS]);
 /**
  * WHICH TRANSPORT: local play's (the launcher's loopback relay, season 11, the memory-only wallet) — the default
  * everywhere — or a devnet season's (`devnetLane`). Paths, schemas, the cluster the identity must name, the Season id
@@ -75,7 +77,8 @@ export const COEXIST_LOCAL_LANE = Object.freeze({ ...LOCAL_LANE, names: Object.f
 export const localLaneFor = hash => (laneOfRuleset(hash) === COEXIST_LANE ? COEXIST_LOCAL_LANE : LOCAL_LANE);
 export function devnetLane(seasonId, { extra = [] } = {}) {
   if (typeof seasonId !== 'string' || !/^(0|[1-9][0-9]{0,19})$/.test(seasonId)) throw Object.assign(new Error('DevnetPlaySeason'), { code: 'DevnetPlaySeason' });
-  const more = DEVNET_ACT_OPTIONAL.filter(n => Array.isArray(extra) && extra.includes(n));
+  const listed = n => Array.isArray(extra) && extra.includes(n);
+  const more = DEVNET_ACT_OPTIONAL.filter(n => listed(n) && (!WIDE_VILLAGE_ACTS.includes(n) || WIDE_VILLAGE_ACTS.every(listed)));
   return Object.freeze({ kind: 'devnet', cluster: 'devnet', seasonId, names: more.length ? Object.freeze([...DEVNET_ACT_NAMES, ...more]) : DEVNET_ACT_NAMES,
     paths: Object.freeze({ context: DEVNET_ACT_CONTEXT_PATH, submit: DEVNET_ACT_SUBMIT_PATH, status: DEVNET_ACT_STATUS_PATH }),
     schemas: Object.freeze({ context: 'frontier-devnet-play-act-context-v1', submit: 'frontier-devnet-play-act-submit-v1', status: 'frontier-devnet-play-act-status-v1' }) });
@@ -132,7 +135,8 @@ export function localActKey(name, v, fields) {
   // every press (and its session key is always the wallet), so neither may tell two presses apart — a Join whose
   // outcome is unknown must hold the next press of Join a second later exactly as it holds one in the same instant.
   if (name === 'Join') return JSON.stringify(['Join', v?.faction ?? null]);
-  const h = v?.holding, where = h && typeof h === 'object' ? [h.p, h.q, h.site] : null;
+  // (a wide village's own act names its village as `wide` — devnet-p17: two wide villages' same act are two orders)
+  const h = v?.holding ?? v?.wide, where = h && typeof h === 'object' ? [h.p, h.q, h.site] : null;
   return JSON.stringify([name, where, v?.faction ?? null, fields ?? {}], (_, x) => (typeof x === 'bigint' ? `${x}n` : x instanceof Uint8Array ? Array.from(x) : x));
 }
 /**
@@ -307,7 +311,7 @@ export function localActIntentOf(name, v, fields, wallet) {
   }
   // (TEST-ONLY wide play: the wide claim, flocalplay-wide.mjs — its anchor the legacy first home, its target a wide province)
   if (name === WIDE_CLAIM) return wideClaimIntent({ holding: v.holding, target: v.target }, f);
-  if (WIDE_HOST_ACTS.includes(name)) return wideHostIntent(name, v.standing ? { wide: v.wide, standing: v.standing } : { wide: v.wide }, f);
+  if (WIDE_BUILT_ACTS.includes(name)) return wideHostIntent(name, v.standing ? { wide: v.wide, standing: v.standing } : { wide: v.wide }, f);
   if (name === 'FileTicket') {
     check(Array.isArray(v.sites) && v.sites.length === 1 && exact(f, ['sites']) && Array.isArray(f.sites) && f.sites.length === 1, 'LocalActShape');
     const s0 = village(v.sites[0]), f0 = village(f.sites[0]);
@@ -344,7 +348,7 @@ export function localActMessage(intent, identity, rulesetHash, blockhash, lane =
   check(A.season === identity.seasonAddress, 'LocalActIdentity');
   if (intent.name === WIDE_CLAIM) return wideClaimMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   check(lane.names.includes(intent.name), 'LocalActNotAllowed');
-  if (WIDE_HOST_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
+  if (WIDE_BUILT_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   // (TEST-ONLY, the coexist lane: the one builder the relay rebuilds with too)
   if (COEXIST_ACTS.includes(intent.name)) {
     const profile = profileForHash(rulesetHash) ?? (laneOfRuleset(rulesetHash) === COEXIST_LANE ? 3 : null);
