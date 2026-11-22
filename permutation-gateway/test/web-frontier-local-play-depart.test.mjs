@@ -409,7 +409,9 @@ test('the wiring: the page\'s two actions go to the controller\'s local-play ent
   // the controller: the gate is asked with the page's own facts, and the run gets nothing but it, the composer's context, the seal and the live wallet
   assert.match(ctl, /const localDepartGate = \(\) => localDepart\.localDepartAllowed\(\{ localPlay, cluster: io\.pinned\(\)\?\.cluster, relay: io\.relay\(\), wallet: FS\.wallet\?\.address \?\? null, signer: currentEphemeralWallet\(\) \}\);/);
   // (fix-loop6, LP6-1: a press on a draft read as holding, its observation since dropped, reads the conditions again first)
-  assert.match(ctl, /export const sendLocalPlayDeparture = async \(\) => \{\n  if \(!isReadyNow\(\) && outbound\.outboundReadyOnce\(FS\)\) \{\n    await inspectOriginalOutboundContext\(\);\n    if \(!isReadyNow\(\)\) return localDepart\.localDepartOf\(FS\);\n  \}\n  const out = await localDepart\.runLocalDepart\(FS, \{ allowed: localDepartGate, context: expeditionContext,/);
+  // (fix-loop8, LP8-1: then the run, through departWithRetries — a run ended unsent by the clock is tried again, below)
+  assert.match(ctl, /export const sendLocalPlayDeparture = async \(\) => \{\n  if \(!isReadyNow\(\) && outbound\.outboundReadyOnce\(FS\)\) \{\n    await inspectOriginalOutboundContext\(\);\n    if \(!isReadyNow\(\)\) return localDepart\.localDepartOf\(FS\);\n  \}\n  const draft = FS\.expeditionCompose \?\? null;\n  return localDepart\.departWithRetries\(\{ draftNow: \(\) => departDraftNow\(draft\), readyNow: isReadyNow, reread: inspectOriginalOutboundContext,/);
+  assert.match(ctl, /run: async \(\) => \{\n      const out = await localDepart\.runLocalDepart\(FS, \{ allowed: localDepartGate, context: expeditionContext,/);
   assert.match(ctl, /export const reconcileLocalPlayDeparture = \(\) => localDepart\.reconcileLocalDepart\(FS, \{ allowed: localDepartGate, changed: localDepartChanged \}\);/);
   const from = ctl.indexOf('const localDepartGate'), block = ctl.slice(from, ctl.indexOf('export const clearLocalPlayDeparture', from));
   for (const banned of ['fsession', 'FS.session', 'submit(', 'sendMarch', 'act(', 'faucet', 'storage']) assert.ok(!block.includes(banned), banned);
@@ -467,4 +469,52 @@ test('the clock moving on, first noticed at any step of the run, ends it unsent:
   const p = await page(); p.fs.nowBell++; const d = deps(p);
   const s = await LD.runLocalDepart(p.fs, d.options);
   assert.equal(s.status, 'error'); assert.equal(s.error, 'DepartObservationUnavailable'); assert.equal(d.log.seals.length, 1, 'the seal is made'); assert.equal(d.log.posts.length, 0, 'nothing is prepared or sent');
+});
+
+// (fix-loop8, LP8-1: loop-play8 — 「出発できませんでした（DepartDraftChanged）。何も送っていません。」 and the card stood on it)
+test('LP8-1: a run ended unsent by the clock is tried again — reread, the in-time turn when the entered one is too early — never after a send', async () => {
+  const unsent = { status: 'error', error: 'DepartDraftChanged', sent: false };
+  const fake = (outs, { ready = [true, true, true], early = [], draft = () => true, otherwise = true } = {}) => {
+    const log = []; let r = 0, rd = 0, ea = 0;
+    return { log, deps: {
+      run: async () => { log.push('run'); return outs[r++]; }, reread: async () => { log.push('reread'); },
+      readyNow: () => ready[rd++] ?? otherwise, arrivalEarly: () => early[ea++] ?? false, takeInTime: async () => { log.push('in-time'); },
+      draftNow: draft, onRetry: (n, of) => log.push(n === null ? 'end' : `retry ${n}/${of}`) } };
+  };
+  // the clock moved once: read again, run again, departed
+  let f = fake([unsent, { status: 'confirmed', sent: true }]);
+  let out = await LD.departWithRetries(f.deps);
+  assert.equal(out.status, 'confirmed'); assert.deepEqual(f.log, ['run', 'retry 1/3', 'reread', 'run', 'end']);
+  // the entered turn is now too early: the in-time candidate, then the run
+  f = fake([unsent, { status: 'confirmed', sent: true }], { ready: [false, true], early: [true] });
+  out = await LD.departWithRetries(f.deps);
+  assert.equal(out.status, 'confirmed'); assert.deepEqual(f.log, ['run', 'retry 1/3', 'reread', 'in-time', 'run', 'end']);
+  // at most LOCAL_DEPART_RETRIES more runs; the last unsent state is what the card shows
+  assert.equal(LD.LOCAL_DEPART_RETRIES, 3);
+  f = fake([unsent, unsent, unsent, unsent, { status: 'confirmed' }]);
+  out = await LD.departWithRetries(f.deps);
+  assert.equal(out, unsent); assert.equal(f.log.filter(x => x === 'run').length, 4);
+  // anything sent, or any other ending, is never tried again
+  for (const end of [{ status: 'unknown', sent: true }, { status: 'submitted', sent: true }, { status: 'failed', sent: true }, { status: 'error', error: 'DepartDraftChanged', sent: true },
+    { status: 'error', error: 'LocalDepartSigner', sent: false }, { status: 'error', error: 'DepartDraftUnavailable', sent: false }]) {
+    f = fake([end, { status: 'confirmed' }]);
+    assert.equal(await LD.departWithRetries(f.deps), end); assert.deepEqual(f.log, ['run', 'end'], JSON.stringify(end));
+  }
+  // the card closed or another draft: no retry
+  f = fake([unsent, { status: 'confirmed' }], { draft: () => false });
+  assert.equal(await LD.departWithRetries(f.deps), unsent); assert.deepEqual(f.log, ['run', 'end']);
+  // the conditions do not hold after the read: no run on that read
+  f = fake([unsent, { status: 'confirmed' }], { ready: [], otherwise: false });
+  assert.equal(await LD.departWithRetries(f.deps), unsent); assert.deepEqual(f.log.filter(x => x === 'run'), ['run']);
+});
+
+test('LP8-1: the card says the retry while it runs, disables the button, and a new read forgets a refused run\'s line', () => {
+  const read = file => readFileSync(new URL(`../../permutation-server/web/frontier/${file}`, import.meta.url), 'utf8');
+  const hand = read('hud/hand.mjs'), ctl = read('controller.mjs');
+  assert.ok(hand.includes('出発の途中で世界の時計が進みました（何も送っていません）。条件を読み直して、もう一度送ります（${FS.departRetry.n} / ${FS.departRetry.of} 回目）…'));
+  assert.ok(hand.includes("${retry || line}"));
+  assert.ok(hand.includes("raw(d.busy || FS.departRetry || !ready ? 'aria-disabled=\"true\"' : '')"));
+  assert.ok(ctl.includes("const forgetDepartError = () => { if (localDepart.localDepartOf(FS).status === 'error') localDepart.clearLocalDepart(FS); };"));
+  assert.ok(ctl.includes('export const inspectOriginalOutboundRoute = () => { forgetDepartError(); return outboundReadAgain('));
+  assert.ok(ctl.includes('export const inspectOriginalOutboundContext = () => { forgetDepartError(); return outboundReadAgain('));
 });

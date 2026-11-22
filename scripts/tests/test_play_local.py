@@ -86,6 +86,22 @@ class Defaults(unittest.TestCase):
         self.assertIn('/frontier-node/target/debug/localnet-natural-play', line)
 
 
+class CoopBoard(unittest.TestCase):
+    # (fix-loop8, LP8-3: workstream 01's co-op board — and with it the ⑮ titles card — comes with every world)
+    def test_board_by_default_in_every_world(self):
+        for args in [(), ('--demo',), ('--wide',), ('--coexist',), ('--demo', '--two'), ('--coexist', '--demo', '--two')]:
+            self.assertIn('--coop-board ws01-board-v1', plan(*args)['launcher'], args)
+
+    def test_no_coop_board_opts_out(self):
+        for args in [(), ('--demo',), ('--coexist', '--demo', '--two')]:
+            self.assertNotIn('--coop-board', plan('--no-coop-board', *args)['launcher'], args)
+
+    def test_help_names_the_flag(self):
+        code, out, _ = run('--help')
+        self.assertEqual(code, 0)
+        self.assertIn('--no-coop-board', out)
+
+
 class Flags(unittest.TestCase):
     def test_ai(self):
         self.assertNotIn('--operator-residents', plan('--ai', '0')['launcher'])

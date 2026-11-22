@@ -288,6 +288,37 @@ export async function runLocalDepart(fs, { allowed, context, sealInput, seal, si
 }
 
 /**
+ * (fix-loop8, LP8-1) A departure press with its retries. The run (`run()` → runLocalDepart's state) ends UNSENT with
+ * DepartDraftChanged when the world's clock moves under it — at ×60 a clock poll often lands inside the seal — and the
+ * card then stood on that line (loop-play8). Here a run so ended is tried again, at most `retries` more times, and only
+ * while `draftNow()` (the card still shows the same draft): `reread()` reads the conditions again under the new clock; if
+ * they fail only because the entered arrival turn is now too early (`arrivalEarly()`), `takeInTime()` puts the in-time
+ * candidate into the draft and reads again (the card's own button); a new run starts only when `readyNow()`. A run that
+ * sent anything, or ended any other way, is returned as it is: nothing is ever sent twice. `onRetry(n, of)` is told each
+ * retry (n ≥ 1) before its read, and `onRetry(null)` at the end. → the last run's state, or null if none ran.
+ * (The first press's own re-read of a draft read as holding — fix-loop6 LP6-1 — is the caller's, before this.)
+ */
+export const LOCAL_DEPART_RETRIES = 3;
+export const departRetryable = out => out?.status === 'error' && out.error === 'DepartDraftChanged' && out.sent !== true;
+export async function departWithRetries({ run, reread, readyNow, arrivalEarly = () => false, takeInTime = async () => {}, draftNow, onRetry = () => {}, retries = LOCAL_DEPART_RETRIES }) {
+  let out = null;
+  try {
+    for (let i = 0; ; i++) {
+      if (i > 0) {
+        onRetry(i, retries);
+        await reread();
+        if (!draftNow()) return out;
+        if (!readyNow() && arrivalEarly()) await takeInTime();
+        if (!draftNow()) return out;
+        if (!readyNow()) { if (i >= retries) return out; continue; }
+      }
+      out = await run();
+      if (!departRetryable(out) || i >= retries || !draftNow()) return out;
+    }
+  } finally { onRetry(null); }
+}
+
+/**
  * Ask what became of a run whose outcome is not settled (`unknown` or `submitted`): its FIRST signature goes to the
  * status route, and only there. Nothing is sealed, prepared, signed or submitted again. `allowed()` is asked first.
  *   confirmed | finalized → `confirmed`;  failed → `failed` (the chain's error in `code`);

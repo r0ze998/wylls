@@ -62,6 +62,16 @@ It prints one JSON line per step (`key`, `discover`, `mcp`, `decide`, `act`, `st
 - **Act:** the page's own `flocalplay-act.mjs` `submitLocalAct` — context, the game's builder, **one** signature by
   your key, **one** submit to `/gw/f/local-play/act/{context,submit,status}` of your proxy — then `followLocalAct` by
   the signature, never sending it again. Six orders exist: Join, PlaceHome, Harvest, Build, Train, Muster.
+- **Muster waits for its province:** the program refuses a Muster with `NotResident` (code 26) until the village's
+  province is resolved through the turn before last (`resolvedNext + 1 >= turn`, frontier-abi `prologue::resident_ok`;
+  of the six orders only Muster checks it). As the page does, the client reads its own province
+  (`/h/province/P,Q/latest`) and the turn (`/h/season` genesis + `/h/status`) first, and waits (`decide` line with
+  `hold: "Muster"`) instead of sending; an unread province is held, never guessed. After 5 such rounds in a row it skips
+  the Muster for this pass of the rotation (the other orders go on, still one per round) and waits for it again next pass.
+- **Refusals by name:** when the relay answers `LocalActRejected` with the program's code (its `program_code`, or the
+  runner's `Custom(N)`), the `act` line adds `programCode` and `programError` (the name from the ABI error table, e.g.
+  `26` → `NotResident`). `NotResident` is retried on a later turn (`retry: "later turn"`, no cooldown); other refusals
+  cool that order down for 3 rounds, as before.
 - **Limits:** the relay's and the program's, as for a person. The reference client adds its own (at most
   `--max-sends`, one per `--min-gap-ms`); the world adds none.
 
@@ -72,7 +82,9 @@ Replace `decide(mem, {obs, homes, nowSecs, village})` in `rule.mjs`. You get:
 - `obs` — `{joined, faction, holding: {p, q, site, tile?} | null}` from the public herald;
 - `homes` — free first-home sites of your nation (only while you have no village);
 - `nowSecs` — the chain's clock (for the Join's session expiry, as the page counts it);
-- `village` — MCP `get_village_status` (stores, production, caps) once you have a village.
+- `village` — MCP `get_village_status` (stores, production, caps) once you have a village;
+- `province` — `{bell, resolvedNext}`: the turn and how far your own province is resolved (null fields when unread);
+  a Muster sent while `resolvedNext + 1 < bell` is refused `NotResident`.
 
 Return one order `{name, v, fields}` (the page's shapes; see `rule.mjs`) or `{wait: true, why}`. A model, a planner or
 a script may sit here; keep any model call outside these TEST worlds' rules (no paid API is used by this repository's

@@ -917,6 +917,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   if (walletChanged) FS.delegation = null;
   if (walletChanged) FS.agentWallet = undefined;
   FS.homeChoice = null;
+  FS.homeDropped = null;
   FS.homeGrant = null;
   FS.homeFocus = null;
   FS.joinDraft = null;
@@ -1637,8 +1638,12 @@ const outboundReadAgain = async (run, kind) => {
     }
   } finally { if (FS.outboundReread) { FS.outboundReread = null; invalidate('panel'); } }
 };
-export const inspectOriginalOutboundRoute = () => outboundReadAgain(() => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'route');
-export const inspectOriginalOutboundContext = () => outboundReadAgain(() => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'context');
+// (fix-loop8, LP8-1: a departure refused unsent — DepartDraftChanged and the like, status 'error' — no longer stands on the
+//  card over every later read: a new read of the road or of the conditions is a new attempt, and the old line goes.
+//  clearLocalDepart keeps a run in flight or one whose outcome is not known.)
+const forgetDepartError = () => { if (localDepart.localDepartOf(FS).status === 'error') localDepart.clearLocalDepart(FS); };
+export const inspectOriginalOutboundRoute = () => { forgetDepartError(); return outboundReadAgain(() => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'route'); };
+export const inspectOriginalOutboundContext = () => { forgetDepartError(); return outboundReadAgain(() => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') }), 'context'); };
 /**
  * One press on the boundary card: the earliest arrival turn of the observation still bound to this draft goes into
  * the draft's arrival field, and that observation is read again. A local edit and a read, like the two above:
@@ -1660,16 +1665,28 @@ export const localPlayDepartAllowed = () => localDepartGate();
 //  were read as holding (outboundReadyOnce) reads them again first and departs only if they still hold; otherwise the
 //  card shows that read. The departure's own checks, and the program's, are unchanged.)
 const isReadyNow = () => { const c = FS.expeditionCompose?.contextCheck; return c?.status === 'read' && c.ready?.ok === true && c.report?.ok === true; };
+// (fix-loop8, LP8-1: a run that ends UNSENT because the clock moved — DepartDraftChanged — is tried again by the page,
+//  flocalplay-depart.mjs departWithRetries: only while the card shows the same draft, after reading the conditions again
+//  (and taking the in-time arrival candidate when the entered turn is now too early); never after anything was sent)
+const departDraftNow = draft => FS.hand?.pop === outbound.OUTBOUND_POP && FS.expeditionCompose === draft && !!draft?.source;
+const ARRIVAL_EARLY = ['ArrivalTooEarly', 'ArrivalWindowEmpty'];
 export const sendLocalPlayDeparture = async () => {
   if (!isReadyNow() && outbound.outboundReadyOnce(FS)) {
     await inspectOriginalOutboundContext();
     if (!isReadyNow()) return localDepart.localDepartOf(FS);
   }
-  const out = await localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
-    sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
-    seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
-  if (out?.sent) outbound.forgetOutboundReady(FS);
-  return out;
+  const draft = FS.expeditionCompose ?? null;
+  return localDepart.departWithRetries({ draftNow: () => departDraftNow(draft), readyNow: isReadyNow, reread: inspectOriginalOutboundContext,
+    arrivalEarly: () => { const c = FS.expeditionCompose?.contextCheck; return c?.status === 'read' && ARRIVAL_EARLY.includes(c.report?.code); },
+    takeInTime: useEarliestOriginalOutboundArrival,
+    onRetry: (n, of) => { FS.departRetry = n === null ? null : { n, of }; invalidate('panel'); },
+    run: async () => {
+      const out = await localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
+        sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
+        seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
+      if (out?.sent) outbound.forgetOutboundReady(FS);
+      return out;
+    } });
 };
 export const reconcileLocalPlayDeparture = () => localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged });
 export const clearLocalPlayDeparture = () => { const ok = localDepart.clearLocalDepart(FS); if (ok) localDepartChanged(); return ok; };
@@ -2524,7 +2541,16 @@ export function ackHomeGrant() {
 
 /** Real milliseconds a press waits for a candidates reading already under way (then it reads itself). */
 export const HOME_READ_WAIT_MS = 20_000;
+// (fix-loop8, LP8-2: a press made while 「土地の候補を読み込んでいます…」 showed could end with nothing on the page — its
+//  context moved during the wait (`contextSeq !== pressed`) and it returned silently; loop-play8 under load 12–31. The
+//  press is now QUEUED instead: while the viewer, the world and the chosen nation are still those of the press and no
+//  Citizen exists yet, it is made again by itself (at most HOME_CONFIRM_AGAIN times); otherwise the card says why it
+//  stopped (FS.homeDropped, screens/join.mjs). A press is still of its own context: nothing is joined for another wallet.)
+export const HOME_CONFIRM_AGAIN = 2;
+let homeAgainLeft = HOME_CONFIRM_AGAIN, homeAgainNext = false;
 export async function confirmHome() {
+  // (a person's press starts with the whole budget; a press made again by itself carries what is left — pressAgain)
+  const again = homeAgainNext ? homeAgainLeft : (homeAgainLeft = HOME_CONFIRM_AGAIN); homeAgainNext = false;
   if (!instantHomeEnabled(FS.season) || FS.homeChoice?.busy) return;
   // (fix-loop6, LP6-11 — B-8's real cause in the ×60 wide picker: a press made before the candidates were read started a
   //  FORCED reading; the next press, three seconds later, started another, which superseded the first, and the first
@@ -2537,6 +2563,12 @@ export async function confirmHome() {
   //  as it has become: this press does not go on with it.)
   const pressed = contextSeq;
   const faction = wantedHomeFaction();
+  FS.homeDropped = null;
+  const viewer0 = viewerKey() ?? null, world0 = providerWorld();
+  const pressAgain = why => {
+    if (again > 0 && (viewerKey() ?? null) === viewer0 && providerWorld() === world0 && !FS.citizen && wantedHomeFaction() === faction) { homeAgainLeft = again - 1; homeAgainNext = true; return confirmHome(); }
+    if (!FS.citizen && (viewerKey() ?? null) === viewer0) { FS.homeDropped = { faction, why }; invalidate('panel'); }
+  };
   const unread = () => !FS.homeChoice?.selected || (faction !== null && FS.homeChoice.selected.faction !== faction);
   if (unread()) {
     FS.homeConfirmWait = true; invalidate('panel');
@@ -2545,7 +2577,7 @@ export async function confirmHome() {
       if (contextSeq === pressed && unread()) await refreshHomes({ force: true });
     } finally { FS.homeConfirmWait = false; invalidate('panel'); }
   }
-  if (contextSeq !== pressed) return;
+  if (contextSeq !== pressed) return pressAgain('context');
   // (2026-11-18, ⑧ doc 31 §1-A: a visitor whose chosen nation has no free first home (the reading said NoFreeHome for
   //  that nation) is not left at a button that does nothing: this press joins the nation — Join and the in-game key,
   //  the same two steps as below, and no PlaceHome — and the village request (autoTicket) takes it from there. Only
@@ -2554,7 +2586,9 @@ export async function confirmHome() {
   // (the "no free first home" reading that press is made on: it is what the page shows next, so it is kept)
   const reading = requestInstead ? FS.homeChoice.error : null;
   if (requestInstead) { if (FS.homeChoice.busy) return; }
-  else if (!FS.homeChoice?.selected || FS.homeChoice.busy) return;
+  else if (FS.homeChoice?.busy) return;
+  // (fix-loop8, LP8-2: no candidate read for the press even after its wait and its own reading — queued again, or said)
+  else if (!FS.homeChoice?.selected) return FS.homeChoice?.error ? undefined : pressAgain('unread');
   // (2026-11-17, ⑦: THIS confirm — the choice it was pressed on (the object), the context number of that moment
   //  (viewer, herald, world: nextContext), the world, and where that viewer's home record is kept.
   //   - what it shows (pending, error, the selection let go) is written on ITS choice, and only while that choice is
@@ -3618,6 +3652,15 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
   if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
   if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
   if (problem === 'Insufficient') return failed({ code: 'Insufficient' });
+  // (fix-loop8, LP8-3: a ① request's destination whose province is out of sight is not loaded yet: its record is read
+  //  now for the site's tile — the data only; what the map shows of it is unchanged, fog and all)
+  if (dst.coop && !Number.isInteger(dst.tile)) {
+    busy(() => L`依頼の届け先のマスを確かめています…`); prepNote = FS.notice;
+    if (!FS.provinces.get(`${dst.p},${dst.q}`)) await loadEnvelope(dst.p, dst.q).catch(() => null);
+    if (!prepHolds()) return prepChanged();
+    const t = Number(FS.provinces.get(`${dst.p},${dst.q}`)?.province?.sites?.[dst.site]);
+    if (Number.isInteger(t)) dst = { ...dst, tile: t };
+  }
   if (!Number.isInteger(from.tile) || !Number.isInteger(dst.tile)) return s1Refused(L`出発地か行き先のマスがわかりません`);
   if (dst.other && !wallet.connected()) return failed({ code: 'NoWallet' });
   if (dst.other && dst.kind === 'holding') {
@@ -3626,6 +3669,9 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
     if (!prepHolds()) return prepChanged();
     if (!r.ok) return failed(r);
     if (!Number.isInteger(Number(r.holding.gen))) return s1Refused(L`行き先の村はもうありません`);
+    // (fix-loop8, LP8-3: a ① request names its village with its generation; a village rebuilt since is another one —
+    //  the board would not count a caravan to it — so nothing is sent)
+    if (dst.coop && Number.isInteger(dst.coopGen) && Number(r.holding.gen) !== dst.coopGen) return s1Refused(L`依頼の届け先の村は、依頼が出されたあとで建て直されています。板で依頼を確かめてください。隊商は送っていません。`);
     dst = { ...dst, gen: Number(r.holding.gen) };
   }
   busy(() => L`道を探しています…`); prepNote = FS.notice;
@@ -3938,7 +3984,7 @@ function capacityReserve(f) {
 }
 const capJob = (name, d, say, extra = {}) => { const off = custodyOff(); if (off) return off; return custodyAct(name, { facility: cfac(d), ...extra }, { grant: dnum(d, 'grant'), job: dnum(d, 'job') }, say); };
 
-async function wideHostStep(e, mem) {
+async function wideHostStep(e, mem, { auto = false } = {}) {
     const g = localDepartGate();
     if (!g?.ok) return failed({ code: g?.code ?? 'LocalActNotAllowed' });
     const village = { p: String(e.holding.p), q: String(e.holding.q), site: Number(e.holding.site) };
@@ -3959,6 +4005,12 @@ async function wideHostStep(e, mem) {
     FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostSay: { ...wideHostSayOf(w), hold: mem.wideHold ?? null },
       wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
     invalidate('panel');
+    // (fix-loop8, LP8-5: after the keep was TAKEN, the card is followed LOOK-ONLY — a next cycle (train, muster, march) is
+    //  the person's to start: when the planner has a step again, nothing is sent by itself; the button comes back with
+    //  「次の一手を送れます」. loop-play8: the button re-enabled 26 times after the capture and each press sent nothing)
+    if (w.decision && auto && mem.waiting?.reason === 'captured') { wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: true }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
+    FS.ui = { ...FS.ui, wideHostReady: false };
+    if (!w.decision && w.wait === 'march' && mem.wideHold?.outcome === 'taken') { wideHostWait(mem, { reason: 'captured', lag: w.lag ?? null, hold: mem.wideHold }); return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null }; }
     if (!w.decision) {
       // (the province lags, the host forms, the village is not final yet: wait here, ask again about once a turn)
       // (fix-loop6, LP6-5: a march on its way or being decided is looked at again too, so its result shows by itself)
@@ -4301,7 +4353,7 @@ export const ACTIONS = {
     if (d.auto !== true && mem0.waiting) return { ok: false, code: 'WideHostWaiting' };   // (already waiting: the press starts nothing)
     if (mem0.busy) return { ok: false, code: 'WideHostBusy' };
     mem0.busy = true;
-    try { return await wideHostStep(e, mem0); } finally { mem0.busy = false; invalidate('panel'); }
+    try { return await wideHostStep(e, mem0, { auto: d.auto === true }); } finally { mem0.busy = false; invalidate('panel'); }
   },
   'wide-host-stop': () => { const mem = FS.ui?.wideHost; if (mem) wideHostStopWait(mem); invalidate('panel'); },
   harvest: () => { const h = activeHolding(FS); return act('Harvest', { v: { holding: h }, order: orderOf('harvest', 'Harvest', { grown: h ? grownSince(h, now()) : [], say: () => L`収穫を蔵に納めました` }) }); },

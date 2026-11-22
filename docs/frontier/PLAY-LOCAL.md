@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-21 (through #131, #129 and #130: fix-loop6's #130, which fixed the loop-play6 problems, is in. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-22 (through #142, #140 and #137: #137, which fixed the loop-play7 problems, and the loop-play8 check are in. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -177,8 +177,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
       「到着候補：ターン A〜B」 and the button that fills in the arrival turn (step 3). The card scrolls its newest result
       into view by itself. When the world's clock moves during the read, the page reads again by itself up to 2 times
       (「…読み直しています（1 / 2 回目）…」); if that still fails it says 「読み取りの途中で世界の時計が進んだため…
-      もう一度押してください。」: press again. At ×60 the 「到着候補：ターン A〜B」 line is gone after 1–3 s, but step 3's
-      button stays (verify-pr130).
+      もう一度押してください。」: press again. A read's result now stays until you change the road, with
+      「この道を読み取った結果です。道を変えるまで出ています。」 (#137; in loop-play8 an impassable road's 「山や水のマスには進めません
+      N 歩め（西）のマスで止まります。…」 was still there after 15 s).
    3. Press 「間に合う候補（ターン N）を使う」 (at ×60; at 1× it is 「最も早い候補（ターン A）を使う」). At ×60 the proposal is
       the earliest turn A plus the turns the clock moves while you check and send (3) plus the province's settle lag.
       The bare earliest turn had already gone by when the next 「出発条件を確認」 came back, and was refused every time
@@ -320,9 +321,16 @@ view (fog-devnet; runbook §7 P5).
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.
 
-## 8. Known problems (2026-11-21, main through #131 and #129)
+## 8. Known problems (2026-11-22, main through #142)
 
-### 8.1 Still on main (after #130)
+### 8.1 Still on main (after #137; loop-play8's LP8-1 … 11 are fixed by #149)
+
+Fixed by #149 (fix-loop8): the boundary card stuck on the DepartDraftChanged line (LP8-1: the page reads the conditions
+again and sends again up to 3 times, saying 「出発の途中で世界の時計が進みました…（n / 3 回目）」); the nation pick lost
+while loading (LP8-2: the press is made again automatically, or the card says 「…さきほどの「始める」は取り消しました…もう一度押してください。」);
+① co-op board deliveries (LP8-3, §13); the wide village's 「次の一手」 after a capture (LP8-5); telling ⑨/⑩ partners
+apart (LP8-6, 7); the watchtower wear once worded 「塔の消耗」 (LP8-8, old wording); stacked new-village tags (LP8-9); the ×60 intro and remaining time
+(LP8-10); the outside AI resident's Muster (LP8-11); the 国と領土 list (LP7-6).
 
 The problems loop-play6 found (LP6-1 … 15) were fixed by #128 and #130, and verify-pr130 and verify-pr133 played them
 (only the rim village's long-wait text, LP6-9, was not seen: the load never got that high). What is left is below. None
@@ -330,7 +338,6 @@ is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Boundary card (×60) | the 「到着候補：ターン A〜B」 line and a check's result are gone after 1–3 s (every read of the world's clock; V117-1, LP6-8). The 「間に合う候補（ターン N）を使う」 button stays | press the next button anyway (§4 step 3) |
 | Boundary card (×60) | 「出発条件を確認」 is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
 | Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
@@ -340,12 +347,14 @@ is a rules question.
 
 Small ones (nothing blocks play):
 - The 「この試験世界について」 box covers the 「支配する州」 bar and the top of 「全体図」; 「たたむ」 folds it.
-- On the ×60 nation picker 「参加の受付は第 N ターンまで（あと約 2 時間）」 and 「（あと約 73 分）」 alternate. The `--demo`
-  picker's intro may say a turn is about 10 minutes of real time; at ×60 it is about 10 s (verify-pr119).
-- After a march has left, the guide still says 「ガイド 4/7 軍勢の準備を確かめる」; 「国と領土」's reach list offers the keep
-  your host already occupies.
+- For the first seconds of the ×60 nation picker the clock rate is not known yet: the intro says 「ゲーム内の 10 分」 and
+  the remaining time is not shown (#149; before, 「あと約 2 時間」 and 「あと約 73 分」 alternated and the intro said 10 minutes of real time).
 - Selecting a never-seen province says 「未測量 … 地形だけを図にしています。」 but the map draws it blank.
-- With `--coexist`, building a workshop gives a notice with an empty name (「の建設を始めました」).
+- After a wide village (W2) takes a keep, the card waits with 「砦を奪った軍勢は、その砦に残って守っています。…（自動では送りません）」;
+  when the next step can be sent it says 「次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。」. The 「結果：…砦を奪いました。」
+  line stays after the next training is sent (#149, LP8-5).
+- Under heavy load (load average 12–31) a wide village's province can stay 200+ turns behind for tens of minutes
+  (loop-play8 LP8-4; a load matter, only measured in #149).
 
 ### 8.2 How ×60 behaves (after #102, #105, #109, #117, #120)
 
@@ -458,7 +467,7 @@ Steps (「」 are the page's buttons and texts as they are; the page's English m
    bottom of each village screen (e.g. 「州 -2,0」). With different nations the provinces are apart and no caravan
    reaches (a path is at most 32 tiles / 4 provinces).
 2. **A: build a workshop**: in the village's build list open 「ほかの建物（6）」, then 「工房」 → 「建てる」 (60 food, 120 wood, 80 stone, 40 ore).
-   The notice has an empty name: 「の建設を始めました」 (§8.1). The
+   The notice says 「工房の建設を始めました」. The
    build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60). Once it stands, the village is a workshop village
    and makes 4 arms an hour (a workshop can be built only in a `--coexist` world).
 3. **B: build a storehouse**: select a free tile of A's province on the map, 「ここに建てる」 → 「貯蔵庫を建てる」
@@ -568,7 +577,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 ⑨ lend a workshop (A owns the workshop village, B has a storehouse in that province):
 1. A: open 「工房を貸す」, type how many workshops, 「工房を貸し出す」 (the pool opens and the copies leave the village's own
    arms production). 「工房を貸し出しました」.
-2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」, the workshops, 「兵器の上限」 and 「有効な日数」, then
+2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」 (since #149 each option names the village, the storehouse tile and the owner's short address), the workshops, 「兵器の上限」 and 「有効な日数」, then
    「工房を使わせる」 (the wallet signs). 「工房を使う権利を出しました」.
 3. B: under 「使える工房」, set 「使う工房の数」 and 「作る兵器の数」, then 「予約して材料を入れる」: one transaction books the job
    and takes 2 ore + 1 wood per arm from B's storehouse. The job starts two minutes of chain time later.
@@ -577,7 +586,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 5. A: 「取り消す」 ends the grant (a booked job keeps running), 「空いた工房を戻す」 gives the copies back to the village.
 
 ⑩ store ore (B keeps the storehouse, A deposits):
-1. B: open 「鉱石を預かる」, choose 「マス (storehouse) → (nation) の村（マス N）」 (A's village is the one on its tile), the
+1. B: open 「鉱石を預かる」, choose A's village (since #149 each option names the village, its tile and the owner's short address: 「マス (storehouse) → (nation) の村 (name)（マス N · 63hY…y3Qe）」), the
    「鉱石の枠」, then 「預かりの枠を開く」 (wallet). 「預かりの枠を開きました」.
 2. A: 「預けた鉱石」 lists the storehouse. Type an amount, 「鉱石を預ける」: A's own caravan leaves with A's ore. When it has
    arrived and the province it crossed has resolved, 「鉱石を届ける」: 「預ける鉱石が届きました」 (the ② card does not offer
@@ -608,3 +617,33 @@ program's own SeizeVault, RaidDomestic and RaidCaravan; nothing changed on chain
   defend", need a third seat (not built).
 - The herald now drops a delivered custody caravan from the map (D-verify-pr140-5: it stayed as 「隊商 ターン N 着・位置は推定」).
 
+
+## 13. ① The cross-nation request board and ⑮ titles (TEST-only, #149)
+
+`play-local.sh` attaches workstream 01's co-op board to every world (launcher option `--coop-board ws01-board-v1`);
+add `--no-coop-board` to leave it out. With the board, the village's 「交易と防備」 card has 「国をまたぐ依頼を開く」 and the
+page shows ⑮'s 「称号と記録」 card.
+
+From request to delivery (only a `--coexist` world sends caravans; an ordinary world's village sends none):
+
+```bash
+scripts/play-local.sh --coexist --two --demo --ai 0      # ×60, two people in one world (as in §10)
+```
+
+1. **A (asks)**: 村 → 交易と防備 → 「国をまたぐ依頼を開く». The board opens in another window. 「このウォレットで署名する」
+   (the page's test wallet signs the board's records only) → enter wood and stone → 「依頼を出す（署名）」. The destination
+   is A's village (e.g. 「木材 20・石材 20 → … の村 (-1,2) 村5 受付中」).
+2. **B (delivers)**: open the board the same way, 「このウォレットで署名する」 → the request's 「応じる（送るつもり。義務はない）」.
+3. **B**: in the game, 村 → 交易と防備 → 隊商を送る. Within about 15 s the destinations include 「① 依頼の届け先：村（-1, 2 · マス 28）」:
+   only the place the requester published on the board; the land around it stays out of sight (fog unchanged). Enter
+   the amounts → 「隊商を送る」 → 「ほかの人の村か貯蔵庫へ送る隊商は、ウォレットで署名します…」 → 「隊商が出発しました」.
+   (Before #149 this was refused with 「ローカルプレイでは、まだ命令を送れません（読み取りのみ）」, LP8-3.)
+4. **B**: reload the board → 「隊商 #0（木材 20・石材 20）をこの依頼に結び付ける」 → 「結び付けた。数えるのは確定した到着だけ」.
+5. When it arrives, B's 「権利（在庫の交換）」 card shows 「隊商を届ける」 under 「着いた隊商（あなたが届けます）」 (after the
+   provinces on the way have settled past the arrival turn; tens of seconds at ×60). Press it → 「隊商が届きました」.
+6. The board's 「隊商と到着」 row says 「到着（確定）・届いた 木材 20 以上・石材 20 以上（規則から）・Fulfilled」 and the request's
+   fulfilment counts it.
+
+⑮ titles stay at 「まだ称号はありません」 locally: workstream 15's evaluator reads no ① request yet (which request counts
+toward which goal waits on r0ze; the first question in the fix-loop8 report). The only title earnable now is P-raider
+(「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.

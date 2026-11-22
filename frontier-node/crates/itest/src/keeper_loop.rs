@@ -265,6 +265,21 @@ pub enum Sent {
     Unknown { signature: String, why: String },
 }
 
+/// (fix-loop8, LP8-3) Whether a FastForward's outcome is the program's NotQuiet refusal — landed with that error, or
+/// refused by the node's preflight with it (`submit_and_wait` words both). Only a refusal: nothing landed, nothing to
+/// resend; a bell that is not quiet is the origin driver's or a later pass's, as when the simulation says so.
+pub fn fast_forward_not_quiet(sent: &Sent) -> bool {
+    match sent {
+        Sent::Failed(e) => {
+            let hex = format!("custom program error: {:#x}", lk::NOT_QUIET);
+            e.contains(&format!("(code Some({}))", lk::NOT_QUIET))
+                || e.match_indices(&hex)
+                    .any(|(i, _)| !e[i + hex.len()..].starts_with(|c: char| c.is_ascii_hexdigit()))
+        }
+        _ => false,
+    }
+}
+
 /// One transaction: built and submitted under a short lock, then awaited
 /// (lock released, cancellation-aware) until the node's ticker lands it.
 pub(crate) async fn submit_and_wait(
@@ -861,6 +876,16 @@ impl Keeper {
                     &mut self.stop,
                 )
                 .await;
+                // (fix-loop8, LP8-3: a player's order that lands BETWEEN the simulation above and this send — a caravan
+                //  through this province, a muster — can make the bell not quiet. The program then refuses the
+                //  FastForward with NotQuiet: the same case as the simulated one — reported and waited on, nothing is
+                //  sent again for it now. It stopped the keeper, and in a contest pair every village with it
+                //  (loop-play8 / fix-loop8: a caravan to the other player's village froze the whole world at turn 13))
+                if fast_forward_not_quiet(&sent) {
+                    self.status.blocked = Some(format!("bell {} became not quiet before FastForward landed (a pending origin clash, arrival or caravan): FastForward waits", v.resolved_next));
+                    self.observe(state);
+                    return true;
+                }
                 // (NotQuiet: an arrival or combat is pending; reported, nothing hidden)
                 let Some(sig) = self.record(sent) else {
                     return false;
@@ -2410,6 +2435,31 @@ pub async fn run_paced_with(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fix_loop8_fast_forward_not_quiet_is_waited_on_not_a_stop() {
+        use super::{fast_forward_not_quiet, Sent};
+        // (loop-play8 / fix-loop8 live: the very words of the runner's stop)
+        let live = "FastForward(to 12) failed: InstructionError(4, Custom(41)) (code Some(41)) [\"Program 5fQP… failed: custom program error: 0x29\"]";
+        assert!(fast_forward_not_quiet(&Sent::Failed(live.into())));
+        assert!(fast_forward_not_quiet(&Sent::Failed("FastForward(to 12) refused before landing: Transaction simulation failed: custom program error: 0x29".into())));
+        // any other refusal still stops the keeper, and nothing that landed or may have landed is a refusal
+        assert!(!fast_forward_not_quiet(&Sent::Failed(
+            "FastForward(to 12) failed: InstructionError(4, Custom(26)) (code Some(26)) []".into()
+        )));
+        assert!(!fast_forward_not_quiet(&Sent::Failed(
+            "FastForward(to 12) failed: InstructionError(4, Custom(410)) (code Some(410)) []"
+                .into()
+        )));
+        assert!(!fast_forward_not_quiet(&Sent::Failed(
+            "x refused before landing: custom program error: 0x290".into()
+        )));
+        assert!(!fast_forward_not_quiet(&Sent::Landed("sig".into())));
+        assert!(!fast_forward_not_quiet(&Sent::Unknown {
+            signature: "sig".into(),
+            why: "(code Some(41))".into()
+        }));
+    }
+
     use super::*;
 
     // The pace (pure): natural ticks every TICK whatever landed; the TEST-ONLY demo goes short only while work lands,
