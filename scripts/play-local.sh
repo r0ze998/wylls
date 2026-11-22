@@ -70,12 +70,12 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131, with
                   one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
-                  screen's 「広い土地に村を出す」 claims wide land (AI residents do the same). Then a TEST clock of
+                  screen's "Found a village on the wide land" (「広い土地に村を出す」) claims wide land (AI residents do the same). Then a TEST clock of
                   ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
-                  marches into the wide land by 「境界への道を準備」 (after 「地形・時間を確認」 press the card's
-                  「間に合う候補（ターン N）を使う」 for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's 「次の一手（広い土地）」 marches
-                  wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and 「全体図」 draw the wide land as far as you have
-                  seen it (fog of war: no 「記録」 view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
+                  marches into the wide land by "Prepare a boundary route" (「境界への道を準備」; after "Check terrain and time" press the card's
+                  "Use a turn that leaves time to send (N)" for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's "Next step (wide land)" (「次の一手（広い土地）」) marches
+                  wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and the "World" chart (「全体図」) draw the wide land as far as you have
+                  seen it (fog of war: no "Records" view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
                   or --two)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
@@ -92,7 +92,7 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   + 200 stone + 50 gold take most of a day); not with --wide. Its runners, herald and tools are built with their `coexist-lane`
                   feature into $STATE/coexist-bin/ (cargo links them in the shared target dir first, so the
                   next plain world relinks its own binaries: a few seconds). The same world has the preview card
-                  「預かりと工房貸し（試験）」: ⑨ lend a workshop, ⑩ keep another's ore, and the losses as real orders
+                  "Storage and workshop lending (test)" (「預かりと工房貸し（試験）」): ⑨ lend a workshop, ⑩ keep another's ore, and the losses as real orders
                   (seize a storehouse, stop a caravan and take or burn it): PLAY-LOCAL §12
   --coexist-node  TEST-ONLY, no page: the node localnet-coexist-play alone serves a ②+⑨+⑩ chain on 127.0.0.1:BASE
                   (RPC) and BASE+1 (WebSocket), lands a StockSwap, a capacity loan and a custody lot in it, prints its
@@ -111,10 +111,10 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   page's), --ai, --random-map, --coexist, --resume; not --two
   --no-mcp        with --external: do not start the read-only MCP server
   --no-coop-board do not attach workstream 01's co-op board (requests across nations; launcher option
-                  --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, 村 → 交易と防備 →
-                  「国をまたぐ依頼を開く」 opens it; a caravan to a request you accepted (「① 依頼の届け先」) is sent from
+                  --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, Village → Trade and defences (村 → 交易と防備) →
+                  "Open requests across nations" (「国をまたぐ依頼を開く」) opens it; a caravan to a request you accepted ("① Request destination") is sent from
                   the game in --coexist worlds (the lane that carries caravans); delivering to another nation's
-                  request that reaches its amount earns the ⑮ title 「依頼に応えた」 (no win, score or prize effect);
+                  request that reaches its amount earns the ⑮ title "Answered a request" (「依頼に応えた」; no win, score or prize effect);
                   see PLAY-LOCAL §13
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
@@ -704,7 +704,7 @@ finish() {
     say "   この世界は保存されています。続きは同じブラウザで:  scripts/play-local.sh --resume" \
         "   This world is kept. To continue it later, in the same browser:  scripts/play-local.sh --resume"
     say "   (ページのテスト鍵はこのブラウザに保存されています。消すのはページのパネルの「このブラウザに保存した試験用の鍵を消す」です。)" \
-        "   (The page's test key is kept in this browser; the page panel's 「このブラウザに保存した試験用の鍵を消す」 deletes it.)"
+        "   (The page's test key is kept in this browser; the page panel's \"Delete the test key kept in this browser\" deletes it.)"
   else
     say "   ブラウザのタブは閉じてください (タブを閉じるとページのメモリ上のテスト鍵が消えます)。" \
         "   Close the browser tab now (closing it discards the page's memory-only test key)."
@@ -747,8 +747,8 @@ if [ "$WIDE" = 1 ]; then
   say "   TEST 専用の広い版: 地図はリング 128 まで広がり、広い土地 (リング 129〜131) が開いています。時計は ×${SPEED} (1 ターン $((600 / SPEED)) 秒)。テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST-ONLY wide version: the map is grown to ring 128 and the wide land (rings 129-131) is open. The clock runs at ×$SPEED (a turn is $((600 / SPEED)) s). Test keys only. No real key, SOL or devnet. A stop ends this world."
   say "   最初の村は辺境 (リング 128、広い土地のとなり) に置けます。村の画面の「広い土地に村を出す」で広い土地に 2 つめの村を出せます (費用が貯まったら)。" \
-      "   Your first village can stand on the rim (ring 128, beside the wide land). The village screen's 「広い土地に村を出す」 claims a second village on the wide land (once the cost is saved)."
-  say "   広い土地は普通の地図と「全体図」の六つの角の外側に、見えたところまで描かれます (霧の世界: 「記録」の画面は出ません。docs/frontier/PLAY-LOCAL.ja.md §5)。" "   The wide land is drawn on the ordinary map and 「全体図」 outside its six corners, as far as you have seen it (fog of war: no 「記録」 view; docs/frontier/PLAY-LOCAL.md §5)."
+      "   Your first village can stand on the rim (ring 128, beside the wide land). The village screen's \"Found a village on the wide land\" claims a second village on the wide land (once the cost is saved)."
+  say "   広い土地は普通の地図と「全体図」の六つの角の外側に、見えたところまで描かれます (霧の世界: 「記録」の画面は出ません。docs/frontier/PLAY-LOCAL.ja.md §5)。" "   The wide land is drawn on the ordinary map and the \"World\" chart outside its six corners, as far as you have seen it (fog of war: no \"Records\" view; docs/frontier/PLAY-LOCAL.md §5)."
 elif [ "$DEMO" = 1 ]; then
   say "   TEST 専用: ローカルのメモリ上のチェーン、×${SPEED} の時計、テスト鍵だけ。本物の鍵・SOL・devnet は使いません。止めると世界は終わります。" \
       "   TEST ONLY: in-memory local chain, ×$SPEED clock, test keys only. No real key, SOL or devnet. A stop ends this world."

@@ -105,7 +105,7 @@ function rowHtml(r, busy) {
   const ok = r.offer?.eligible === true;
   return html`<li data-outpost="${r.p},${r.q}" data-state="${ok ? 'ready' : 'blocked'}"><span>${where} ${meta} <span class="muted">${L`村の場所 ${fmtNum(r.site + 1)}`}${r.seen === 'memory' ? L`（前に見たときの様子）` : ''}</span></span>
     ${ok ? '' : html` <span class="blocked">${r.offer?.reason ?? L`いまは村を出せません。`}</span>`}
-    <button type="button" class="btn small" data-act="outpost-preview" data-p="${r.p}" data-q="${r.q}" data-site="${r.site}" ${raw(busy || !ok ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`;
+    <button type="button" class="btn small" data-act="outpost-preview" data-p="${r.p}" data-q="${r.q}" data-site="${r.site}" aria-label="${L`ここに村を出す`}: ${L`州（${r.p}, ${r.q}）`} ${L`村の場所 ${fmtNum(r.site + 1)}`}" ${raw(busy || !ok ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`;
 }
 
 function previewHtml(pv, busy) {
