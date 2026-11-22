@@ -127,6 +127,34 @@ function noVisibleReach(FS, r) {
   try { const km = keepsModel(FS, r); return km.state === 'ready' && km.rows.length === 0; } catch { return false; }
 }
 
+/**
+ * (w2-wipeout, D-verify-pr137-3) The next army when the viewer has no host that can march: the press that starts it
+ * from the active village — 「編成」 when its reserve holds a host's worth of combat troops, else 「訓練」. Opens the
+ * village's card only (cg-go); nothing is sent. `{pop: 'train' | 'muster', go}`.
+ */
+export function nextArmyGo(FS) {
+  const h = activeHolding(FS) ?? null;
+  const ready = !!h && [0, 1, 2, 3, 4, 5].some(u => Number(h.reserve?.[u] ?? 0) >= 100);
+  return ready ? { pop: 'muster', go: { act: 'cg-go', data: { pop: 'muster' }, label: L`次の軍勢を編成する` } }
+    : { pop: 'train', go: { act: 'cg-go', data: { pop: 'train' }, label: L`次の軍勢の兵を訓練する` } };
+}
+
+/**
+ * (w2-wipeout, D-verify-pr137-3) After a capture — the guide's seven steps are done — the next thing: a host that can
+ * march goes on to another keep; one forming is waited for; with none (the capturing host stays on as the keep's
+ * garrison), a new army is raised (nextArmyGo). `{text, go}`; never null, the card is never a dead end.
+ */
+export function afterCapture(FS) {
+  let rows = [];
+  try { rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { rows = []; }
+  const ready = rows.find(r => !waitOf(FS, r)) ?? null;
+  if (ready) return { text: L`次の州を狙うなら、軍勢（${unitCount(UNIT_ORDER[ready.unit], Math.floor(Number(ready.troops)))}）で次の砦へ進軍します。`, go: { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` } };
+  if (rows.length) return { text: L`次の州を狙う軍勢が整うのを待っています。`, go: { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` } };
+  const n = nextArmyGo(FS);
+  return { text: n.pop === 'muster' ? L`砦を奪った軍勢は、砦の守備兵として残りました。いま進軍できる軍勢はいません。次の州を狙うなら、控えの兵で新しい軍勢を編成します。`
+    : L`砦を奪った軍勢は、砦の守備兵として残りました。いま進軍できる軍勢はいません。次の州を狙うなら、まず兵を訓練して新しい軍勢を作ります。`, go: n.go };
+}
+
 const TITLE = {
   village: () => L`最初の村`, build: () => L`建物を建てる`, train: () => L`兵を訓練する`, muster: () => L`軍勢を編成する`,
   march: () => L`砦へ進軍する`, hold: hold => L`砦のマスを ${fmtNum(hold)} ターン保つ`, capture: () => L`州を奪う`,
@@ -230,6 +258,24 @@ export function conquestObjective(FS) {
       text = ready ? L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。勝ち目の欄が「十分」の砦を選ぶと、着いたターンに砦のマスに残れる見込みです。命令に封をして出発すると、到着のターンに戦いが決まります。`
         : wait ? back + waitText(wait, FS) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;
       go = ready ? { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` } : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+      // (w2-wipeout, D-verify-pr137-3: no host of the viewer anywhere — none in a province record, none out on a march —
+      //  so 「軍勢の準備を確かめる」 opened an empty list: the last host was wiped out (a settled march says 壊滅) or
+      //  none is left. Say so, and offer the next army's first step instead. A march still out — its survivors may come
+      //  home with its result — is pointed at instead, with what its result decides)
+      if (!ready && !wait && !rows.length) {
+        const marches = FS.marches ?? [];
+        const wiped = marches.find(m => m?.facts?.settled?.outcome === 'Destroyed') ?? null;
+        const pending = marches.filter(m => m?.facts?.settled?.outcome !== 'Destroyed');
+        if (pending.length) {
+          text = L`${back}いま村に軍勢はいません。進軍の記録が締めくくられると、生き残った兵が村に戻ります（全滅していれば戻りません）。`;
+          go = { act: 'tab', data: { tab: 'marches' }, label: L`進軍の結果を見る` };
+        } else {
+          const n = nextArmyGo(FS);
+          const was = wiped?.dest ? L`前の軍勢は${provinceName(FS, wiped.dest.p, wiped.dest.q, { own: false })}で壊滅し、戻った兵はいません。` : back || L`進軍できる軍勢がいません（前の軍勢は戻りませんでした）。`;
+          text = n.pop === 'muster' ? L`${was}砦へ進軍するには新しい軍勢が要ります：控えの兵を編成します。` : L`${was}砦へ進軍するには新しい軍勢が要ります：まず兵を訓練します。`;
+          go = n.go;
+        }
+      }
     }
   } else {
     // hold, then the capture: the count is the keep's own record
@@ -250,8 +296,10 @@ export function renderConquestGuide(FS, { open = true } = {}) {
   const o = conquestObjective(FS);
   const item = s => html`<li class="${s.status === 'done' ? 'done' : s.status === 'current' ? 'now' : ''}" ${raw(s.status === 'current' ? 'aria-current="step"' : '')}><span class="ck-mark" aria-hidden="true">${s.status === 'done' ? icon('check') : ''}</span><span class="ck-name">${s.title}</span>${s.status === 'done' ? html` <span class="visually-hidden">${L`（${L`済み`}）`}</span>` : s.status === 'current' ? html` <span class="visually-hidden">${L`（${L`いま`}）`}</span>` : ''}</li>`;
   const cap = g.facts.captured;
+  // (w2-wipeout, D-verify-pr137-3: after the capture the card offers the next army too — it ended on the result alone)
+  const next = !o && cap ? afterCapture(FS) : null;
   const body = html`${o ? html`<p>${o.text}</p>${o.go ? html`<div class="actions"><button type="button" class="btn primary" data-act="${o.go.act}" ${attrs(o.go.data)}>${o.go.label}</button></div>` : ''}`
-      : html`<p>${cap ? L`第${fmtNum(cap.turn)}ターンに、あなたの国（${factionName(FS.citizen?.faction)}）が州 ${cap.p},${cap.q} を奪いました。シーズンの終わりに、支配する州が最も多い国が勝ちます。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。`}</p>`}
+      : html`<p>${cap ? L`第${fmtNum(cap.turn)}ターンに、あなたの国（${factionName(FS.citizen?.faction)}）が州 ${cap.p},${cap.q} を奪いました。シーズンの終わりに、支配する州が最も多い国が勝ちます。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。`}</p>${next ? html`<p class="cg-next" data-next="after-capture">${next.text}</p><div class="actions"><button type="button" class="btn primary" data-act="${next.go.act}" ${attrs(next.go.data)}>${next.go.label}</button></div>` : ''}`}
     <ol class="checklist">${g.steps.map(item)}</ol>
     <div class="actions ck-foot"><button type="button" class="btn small quiet" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></div>`;
   const head = o ? L`ガイド ${o.n}/${o.total}：${o.title}` : L`ガイド：州を奪いました`;

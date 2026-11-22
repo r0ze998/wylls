@@ -4111,14 +4111,16 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     // (fix-loop8, LP8-5: after the keep was TAKEN, the card is followed LOOK-ONLY — a next cycle (train, muster, march) is
     //  the person's to start: when the planner has a step again, nothing is sent by itself; the button comes back with
     //  「次の一手を送れます」. loop-play8: the button re-enabled 26 times after the capture and each press sent nothing)
-    if (w.decision && auto && mem.waiting?.reason === 'captured') { wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: true }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
+    if (w.decision && !w.decision.rebuild && auto && mem.waiting?.reason === 'captured') { wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: true }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
     // (fix-loop9, LP9-1: after a lost march — every host at home under the march minimum — the card says the result and
     //  OFFERS the new host's first step once (train, then muster): it is not sent by itself while the card waits. A press
     //  sends it; the later steps of that new host go on as the first host's did. loop-play9: stuck for good on 「整列中」)
+    // (w2-wipeout, D-verify-pr137-3: the same once the host was wiped out or became a keep's garrison. The offer comes
+    //  FIRST on a person's press too: a press that met a march's end for the first time sent the new host's step before
+    //  the card had said what happened; now that press shows the result and the offer, and the next press sends)
     if (w.decision?.rebuild) {
       const key = `${mem.lastWideDepart?.arrive ?? 'none'}`;
-      if (auto && mem.rebuildOffered !== key) { mem.rebuildOffered = key; wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: 'rebuild' }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
-      mem.rebuildOffered = key;
+      if (mem.rebuildOffered !== key) { mem.rebuildOffered = key; wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: 'rebuild' }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }
     }
     FS.ui = { ...FS.ui, wideHostReady: false };
     if (!w.decision && w.wait === 'march' && mem.wideHold?.outcome === 'taken') { wideHostWait(mem, { reason: 'captured', lag: w.lag ?? null, hold: mem.wideHold }); return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null }; }
@@ -4156,7 +4158,7 @@ function wideHostSayOf(w) {
   if (d) return { kind: 'decision', name: d.name, n: d.fields?.n ?? null, troops: d.fields?.troops ?? d.troops ?? null, arrive: d.fields?.arrive_bell ?? null,
     to: d.to ? { p: String(d.to.p), q: String(d.to.q), holder: d.to.holder ?? null } : null, village: d.v?.wide ? { p: String(d.v.wide.p), q: String(d.v.wide.q) } : null,
     // (fix-loop9, LP9-1: a new host after a lost march — the last march's result and the troops that came home)
-    ...(d.rebuild ? { rebuild: true, march: w.march ?? null, home: w.home ?? null } : {}) };
+    ...(d.rebuild ? { rebuild: true, march: w.march ?? null, home: w.home ?? null, ...(w.ended ? { ended: w.ended } : {}) } : {}) };
   return { kind: 'wait', wait: w?.wait ?? null, lag: w?.lag ?? null, march: w?.march ?? null, why: w?.why ?? null, ...(w?.cap ? { cap: w.cap } : {}) };
 }
 // (fix-loop5, L5-1) the wide village card's waiting (TEST-ONLY wide -> wide play): one timer, about one turn apart

@@ -44,7 +44,8 @@ test('LP8-5: after the keep is taken the wide host card follows look-only — th
   assert.match(line, /自動では送りません/);
   assert.doesNotMatch(line, /送れるようになったら一手を送ります/, 'not the auto-send words of the other waits');
   const c = src('controller.mjs');
-  assert.ok(c.includes("if (w.decision && auto && mem.waiting?.reason === 'captured') { wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: true }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }"), 'a step found while following after a capture is NOT sent');
+  // (w2-wipeout: a NEW host after the capture — the planner's rebuild step — goes through the rebuild offer instead, same rule)
+  assert.ok(c.includes("if (w.decision && !w.decision.rebuild && auto && mem.waiting?.reason === 'captured') { wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: true }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }"), 'a step found while following after a capture is NOT sent');
   assert.ok(c.includes("if (!w.decision && w.wait === 'march' && mem.wideHold?.outcome === 'taken') { wideHostWait(mem, { reason: 'captured', lag: w.lag ?? null, hold: mem.wideHold });"));
   assert.ok(c.includes("try { return await wideHostStep(e, mem0, { auto: d.auto === true }); }"));
   const w = src('screens/wideholding.mjs');

@@ -85,8 +85,9 @@ test('LP9-1: the card says the result (lost, survivors home) and the new host\'s
 
 test('LP9-1: the controller OFFERS the new host\'s first step once (nothing sent while the card waits); a press sends it', () => {
   const c = src('controller.mjs');
-  assert.ok(c.includes("if (auto && mem.rebuildOffered !== key) { mem.rebuildOffered = key; wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: 'rebuild' }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }"));
-  assert.ok(c.includes("...(d.rebuild ? { rebuild: true, march: w.march ?? null, home: w.home ?? null } : {}) };"));
+  // (w2-wipeout: the offer comes first on a person's press too, not only while the card waits)
+  assert.ok(c.includes("if (mem.rebuildOffered !== key) { mem.rebuildOffered = key; wideHostStopWait(mem); FS.ui = { ...FS.ui, wideHostReady: 'rebuild' }; invalidate('panel'); return { ok: false, code: 'WideHostReady' }; }"));
+  assert.ok(c.includes("...(d.rebuild ? { rebuild: true, march: w.march ?? null, home: w.home ?? null, ...(w.ended ? { ended: w.ended } : {}) } : {}) };"));
   const w = src('screens/wideholding.mjs');
   assert.ok(w.includes("data-wide-host-ready=\"${FS.ui.wideHostReady === 'rebuild' ? 'rebuild' : 'next'}\""));
   assert.match(w, /次の一手を送れます（新しい軍勢づくり）。自動では送りません。押すと上の一手を送ります。/);

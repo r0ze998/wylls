@@ -220,8 +220,16 @@ export function wideHostSayText(say) {
   if (say.kind === 'decision') {
     // (fix-loop9, LP9-1: a new host after a lost march — the result first, then the step that starts the new host)
     if (say.rebuild && (say.name === 'WideTrain' || say.name === 'WideMuster')) {
-      const lost = say.march?.phase === 'gone' && !ended ? L`結果：軍勢は州 ${at(say.march.to)} に残れませんでした（戦いに敗れました）。` : '';
-      const home = Number(say.home?.troops ?? 0) > 0 ? L`生き残った兵 ${fmtNum(Number(say.home.troops))} が村に戻っています。兵 100 未満の軍勢は進軍できないため、新しい軍勢を作ります。` : L`進軍できる軍勢が村にいないため、新しい軍勢を作ります。`;
+      // (w2-wipeout, D-verify-pr137-3: also when the host was wiped out — no survivor home — or became the garrison of
+      //  the keep it took. The hold's own end, when followed, is said by the line under this one — wide-host-held)
+      const garrison = say.ended === 'garrison' || say.hold?.outcome === 'taken';
+      const lost = ended || say.march?.phase !== 'gone' ? ''
+        : garrison ? L`結果：州 ${at(say.march.to)} の砦はあなたの国のものになりました。`
+        : L`結果：軍勢は州 ${at(say.march.to)} に残れませんでした（戦いに敗れました）。`;
+      const home = Number(say.home?.troops ?? 0) > 0 ? L`生き残った兵 ${fmtNum(Number(say.home.troops))} が村に戻っています。兵 100 未満の軍勢は進軍できないため、新しい軍勢を作ります。`
+        : garrison ? L`砦を奪った軍勢は、砦の守備兵としてそこに残りました。この村に軍勢はいないため、次の砦へ向かう新しい軍勢を作ります。`
+        : say.ended === 'wiped' ? L`軍勢は全滅しました：生き残った兵はなく、村に戻った兵はいません。この村に軍勢はいないため、新しい軍勢を作ります。`
+        : L`進軍できる軍勢が村にいないため、新しい軍勢を作ります。`;
       const step = say.name === 'WideTrain' ? L`次の一手：槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練します（兵 100 そろうと編成できます）。` : L`次の一手：槍兵 ${fmtNum(Number(say.troops ?? 0))} の新しい軍勢を編成します。`;
       return [lost, home, step].filter(Boolean).join(' ');
     }

@@ -143,6 +143,8 @@ export function expeditionRows(fs, seals = localDepartReveals) {
     const got = m.get(record.commit) ?? null, stage = expeditionStage(record, got?.facts ?? null, nowBell);
     rows.push({ expedition: { stage, fate: got?.facts?.fate ?? null, troopsAfter: got?.facts?.troopsAfter ?? null, depMass: got?.facts?.depMass ?? null,
       host: record.host, transitSlot: record.transitSlot, arriveBell: record.arriveBell, dest, origin, commit: record.commit,
+      // (w2-wipeout: the village that sent it — the card's 「次の軍勢」 press opens that village)
+      holding: record.holding ?? null,
       // (fix-loop9, LP9-2: the hold of the keep it stands on, when followed — readExpeditionHolds)
       hold: holdsOf.get(fs)?.get(record.commit) ?? null },
     entry: null, transit, dest, region: null, facts: { nowBell, pipeline: null, slotPresent: stage === 'revealed', settleReady: false }, record: null, slot: null, env: null, unread: null });
