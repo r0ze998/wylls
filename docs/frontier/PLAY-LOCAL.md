@@ -219,7 +219,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    - **An expedition that lands on a wide keep's tile holds it** (72 turns take it). The march card follows the hold
      (fix-loop9 LP9-2; it reads that one province about once a turn): 「遠征の軍勢が州 P,Q の砦を占拠中です：n / 72 ターン。…」,
      then 「砦を奪いました：軍勢は砦の守備兵になりました」 and 「結果：遠征の軍勢が州 P,Q の砦を奪いました。…」 (said once as a
-     notice too), or 「結果：州 P,Q の砦は奪えませんでした。…」. The host sees from its tile, so the province is drawn on the map
+     notice too), or 「結果：州 P,Q の砦は奪えませんでした。…」. After a capture, a wiped-out expedition (「全滅：軍勢は失われました」)
+     or a host gone from the keep's tile, the card adds that the next expedition needs a new host and a 「村で次の軍勢を作る」 button
+     (it only opens that village's 編成 or 訓練 card; nothing is sent; w2-wipeout). The host sees from its tile, so the province is drawn on the map
      (the wide land draws no keep icon or host figure yet: verify-pr162), and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
      said nothing.)
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
@@ -257,7 +259,12 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      page cannot dissolve it), the card adds 「生き残った兵 N が村に戻っています。…新しい軍勢を作ります。 次の一手：槍兵 100 を
      訓練します（兵 100 そろうと編成できます）。」 and 「次の一手を送れます（新しい軍勢づくり）。自動では送りません。…」: press
      to train, press again to muster; the new host then marches as the first did (fix-loop9 LP9-1; before, the card waited
-     for good on 「軍勢が整列中か休んでいます。」). A village sends at most 2 marches inside the wide land in a test world; after
+     for good on 「軍勢が整列中か休んでいます。」). When the host was **wiped out with nobody home** the card says 「結果：軍勢は州 P,Q
+     に残れませんでした（戦いに敗れました）。 軍勢は全滅しました：生き残った兵はなく、村に戻った兵はいません。…新しい軍勢を作ります。 次の一手：…」;
+     when it **took the keep and stayed as its garrison**, 「砦を奪った軍勢は、砦の守備兵としてそこに残りました。…次の砦へ向かう新しい軍勢を
+     作ります。 次の一手：…」 — both with the same 「次の一手を送れます（新しい軍勢づくり）。自動では送りません。…」 offer. The first time, a
+     press of your own also only shows the result and the offer; the next press sends (w2-wipeout; before, both cases waited
+     「its host left」 for good and a press sent nothing). A village sends at most 2 marches inside the wide land in a test world; after
      the second the card says the last result and 「…テスト世界では 2 回までです。…」. (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
      立っています」).
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
@@ -380,9 +387,10 @@ Small ones (nothing blocks play):
 - For the first seconds of the ×60 nation picker the clock rate is not known yet: the intro says 「ゲーム内の 10 分」 and
   the remaining time is not shown (#149; before, 「あと約 2 時間」 and 「あと約 73 分」 alternated and the intro said 10 minutes of real time).
 - Selecting a never-seen province says 「未測量 … 地形だけを図にしています。」 but the map draws it blank.
-- After a wide village (W2) takes a keep, the card waits with 「砦を奪った軍勢は、その砦に残って守っています。…（自動では送りません）」;
-  when the next step can be sent it says 「次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。」. The 「結果：…砦を奪いました。」
-  line stays after the next training is sent (#149, LP8-5).
+- After a wide village (W2) takes a keep, until that march's record is closed the card waits with 「砦を奪った軍勢は、その砦に残って守っています。…（自動では送りません）」;
+  then it says 「砦を奪った軍勢は、砦の守備兵としてそこに残りました。…」 with the new host's step and 「次の一手を送れます（新しい軍勢づくり）。
+  自動では送りません。押すと上の一手を送ります。」 (w2-wipeout; #149's text said 「…新しい軍勢の訓練から…」 would appear, but no step ever
+  came and the card kept waiting). The 「結果：…砦を奪いました。」 line stays after the next training is sent (#149, LP8-5).
 - Under heavy load (load average 12–31) a wide village's province can stay 200+ turns behind for tens of minutes
   (loop-play8 LP8-4; a load matter, only measured in #149).
 
