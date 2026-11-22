@@ -18,7 +18,8 @@
 //                                    (legacy-disk) march stay as for the page. The launcher passes it for external
 //                                    residents of a --wide-land world only (plain and demo worlds: unchanged)
 //
-// Binds 127.0.0.1 only, answers loopback peers only, bodies ≤ 16 KiB of JSON.
+// Binds 127.0.0.1 only, answers loopback peers only (Host = this listener's own address, no Origin: no DNS
+// rebinding), bodies ≤ 16 KiB of JSON.
 // Holds no key. Prints one public line when listening.
 import http from 'node:http';
 import { selectLocalLane, COEXIST_LANE } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
@@ -112,6 +113,14 @@ export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null
   const server = http.createServer(async (req, res) => {
     const peer = req.socket.remoteAddress;
     if (peer !== '127.0.0.1' && peer !== '::ffff:127.0.0.1') return json(res, 403, { error: 'loopback only', code: 'LocalPlayLoopbackOnly' });
+    // (security-audit 2026-11-22, DNS rebinding) A page whose name was re-pointed at 127.0.0.1 reaches this port
+    // with ITS OWN name in Host, and a browser always sends Origin on a cross-origin POST. Every legitimate caller —
+    // the world herald's /gw (Host: 127.0.0.1:PORT), the launcher's world proxy, Node clients — names this listener
+    // by address and sends no Origin. Anything else is refused before a route runs.
+    const own = server.address()?.port;
+    if (req.headers.origin !== undefined || ![`127.0.0.1:${own}`, `localhost:${own}`].includes(String(req.headers.host ?? '').toLowerCase())) {
+      return json(res, 403, { error: 'host or origin not allowed', code: 'LocalPlayHostNotAllowed' });
+    }
     const key = `${req.method} ${(req.url ?? '').split('?')[0]}`;
     const handle = handlers[key];
     if (!handle) return json(res, 404, { error: 'not found', code: 'NotFound' });

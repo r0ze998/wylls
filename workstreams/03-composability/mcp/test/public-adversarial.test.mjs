@@ -405,3 +405,29 @@ test('V12 default OFF and loopback; the public bin reaches no acting module', as
   // (the herald client's graph derives addresses with web/sdk/solana-tx.mjs: curve checks and PDAs, never a signature)
   assert.doesNotMatch(text, /\b(sendTransaction|signTransaction|signMessage|secretKey|privateKey|nacl)\b|\.sign\(/);
 });
+
+// (security-audit 2026-11-22) V13: one key flooding past its own rate spent a global token per refused request (the
+// global bucket was charged first), so it could empty the global bucket and every other key got 429 "global".
+// Socket-free: the handler over a fake request/response pair, a frozen clock.
+test('V13 one key over its own rate cannot drain the global bucket for other keys', async () => {
+  const a = newKey({ label: 'a' }), b = newKey({ label: 'b' });
+  const keys = new KeyRing({ keys: [a.entry, b.entry] });
+  const t = 1_000_000;
+  const mcp = createPublicMcp({ reader: { get_world_season: async () => ({ ok: 1 }) } });
+  const h = createPublicHandler({ mcp, keys, allowedHosts: ['127.0.0.1'], now: () => t,
+    limits: { keyRate: { burst: 3, everySecs: 10 }, globalRate: { burst: 10, everySecs: 100 } } });
+  const call = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_world_season', arguments: {} } };
+  const send = async token => {
+    const buf = Buffer.from(JSON.stringify(call));
+    const req = { method: 'POST', url: PUBLIC_PATH, headers: { host: '127.0.0.1:41641', authorization: `Bearer ${token}` }, socket: { remoteAddress: '127.0.0.1' },
+      async *[Symbol.asyncIterator]() { yield buf; } };
+    const res = { status: 0, body: '', writeHead(s) { res.status = s; }, end(c) { res.body += c ?? ''; }, setHeader() {}, once() {}, on() {} };
+    await h(req, res);
+    return res;
+  };
+  const counts = {};
+  for (let i = 0; i < 50; i++) { const r = await send(a.token); counts[r.status] = (counts[r.status] ?? 0) + 1; }
+  assert.deepEqual(counts, { 200: 3, 429: 47 }, 'key A: its burst, then its own limit');
+  const r = await send(b.token);
+  assert.equal(r.status, 200, `key B is not locked out: ${r.body}`);
+});

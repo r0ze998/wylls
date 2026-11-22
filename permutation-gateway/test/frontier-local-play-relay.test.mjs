@@ -131,6 +131,19 @@ test('the loopback listener: info, routes, body limits; the CLI wiring and its a
     assert.equal((await r.json()).code, 'LocalPlayScopeMismatch');
     const ok = await (await post('/f/local-play/depart/prepare', JSON.stringify(request()))).json();
     assert.equal(ok.submit.message_digest, DIGEST);
+    // security-audit (DNS rebinding): another name in Host, or any browser Origin, is refused before a route runs;
+    // the listener's own address (as the herald's /gw and the launcher's proxy send it) and localhost pass.
+    const raw = headers => new Promise((resolve, reject) => {
+      const q = http.request({ hostname: '127.0.0.1', port: s.port, path: '/f/local-play/info', headers }, r => { let b = ''; r.on('data', c => { b += c; }); r.on('end', () => resolve({ status: r.statusCode, body: b })); });
+      q.on('error', reject); q.end();
+    });
+    for (const h of [{ host: `rebind.example:${s.port}` }, { host: `127.0.0.1:${s.port + 1}` }, { host: '127.0.0.1' }, { host: `127.0.0.1:${s.port}`, origin: 'http://rebind.example' },
+      { host: `127.0.0.1:${s.port}`, origin: `http://127.0.0.1:${s.port}` }]) {
+      const r = await raw(h);
+      assert.equal(r.status, 403, JSON.stringify(h));
+      assert.equal(JSON.parse(r.body).code, 'LocalPlayHostNotAllowed');
+    }
+    for (const host of [`127.0.0.1:${s.port}`, `localhost:${s.port}`]) assert.equal((await raw({ host })).status, 200, host);
   } finally {
     await s.close();
   }

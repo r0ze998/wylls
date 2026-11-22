@@ -185,8 +185,11 @@ export function createAgentMcp({ relay, agentId, capability, herald = null, fetc
       case 'ping': return reply({});
       case 'tools/list': return reply({ tools: TOOLS });
       case 'tools/call': {
-        const fn = tools[msg.params?.name];
-        if (!fn) return error(-32602, `unknown tool ${String(msg.params?.name).slice(0, 40)}`);
+        // (security-audit: own tool names only — `constructor`, `__proto__`, `toString` or a non-string are unknown tools,
+        //  as dispatch.mjs already does for the ③ servers; a non-string name is never stringified)
+        const name = msg.params?.name;
+        const fn = typeof name === 'string' && Object.hasOwn(tools, name) ? tools[name] : null;
+        if (!fn) return error(-32602, `unknown tool ${typeof name === 'string' ? name.slice(0, 40) : `(${typeof name})`}`);
         try { return reply(await fn(msg.params?.arguments ?? {})); } catch (e) { return reply(fail('InternalError', scrub(e?.message ?? e))); }
       }
       default: return notification ? null : error(-32601, `method not found: ${msg.method.slice(0, 40)}`);
@@ -203,7 +206,8 @@ export function serveStdio(server, { input = process.stdin, output = process.std
     if (!line.trim()) return;
     let msg;
     try { msg = JSON.parse(line); } catch { output.write(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } }) + '\n'); return; }
-    const res = await server.handle(msg);
+    let res;
+    try { res = await server.handle(msg); } catch { res = { jsonrpc: '2.0', id: null, error: { code: -32603, message: 'internal error' } }; }
     if (res) output.write(JSON.stringify(res) + '\n');
   });
   return rl;
