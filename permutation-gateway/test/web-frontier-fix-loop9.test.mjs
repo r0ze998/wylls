@@ -67,9 +67,16 @@ test('LP9-1: the card says the result (lost, survivors home) and the new host\'s
   assert.doesNotMatch(t, /整列中か休んで/);
   const cap = W.wideHostSayText({ kind: 'wait', wait: 'cap', cap: WIDE_DEPARTS_MAX, march: { phase: 'gone', to: { p: '131', q: '-1' } } });
   assert.match(cap, /^結果：軍勢は州 131,-1 に残れませんでした（戦いに敗れました）。 この村からの広い土地の中の進軍は、テスト世界では 2 回までです。/);
+  // (verify-pr162, live turn 601: the 2nd march's hold TAKEN, then the cap — the cap's words were hidden behind the result)
+  const held = { to: { p: '-67', q: '-62' }, outcome: 'taken', at: 581 };
+  const capTaken = W.wideHostSayText({ kind: 'wait', wait: 'cap', cap: WIDE_DEPARTS_MAX, march: { phase: 'gone', to: { p: '-67', q: '-62' } }, hold: held });
+  assert.equal(capTaken, '結果：州 -67,-62 の砦を奪いました。砦はあなたの国のものです（ターン 581 に確認）。 この村からの広い土地の中の進軍は、テスト世界では 2 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。');
+  assert.match(W.wideHostSayText({ kind: 'wait', wait: 'cap', cap: 2, hold: { ...held, outcome: 'lost', why: 'gone' } }), /^結果：州 -67,-62 の砦は奪えませんでした。.* この村からの広い土地の中の進軍は、テスト世界では 2 回までです。/);
+  // (a lag answer after the cap still says the result alone, as before)
+  assert.equal(W.wideHostSayText({ kind: 'wait', wait: 'lag', lag: 2, hold: held }), '結果：州 -67,-62 の砦を奪いました。砦はあなたの国のものです（ターン 581 に確認）。');
   setLang('en');
   try {
-    for (const x of [say, { ...say, name: WIDE_MUSTER, troops: 100 }, { ...say, home: { troops: 0 } }, { kind: 'wait', wait: 'cap', cap: 2, march: { phase: 'gone', to: { p: '1', q: '2' } } }]) {
+    for (const x of [say, { ...say, name: WIDE_MUSTER, troops: 100 }, { ...say, home: { troops: 0 } }, { kind: 'wait', wait: 'cap', cap: 2, march: { phase: 'gone', to: { p: '1', q: '2' } } }, { kind: 'wait', wait: 'cap', cap: 2, hold: { to: { p: '1', q: '2' }, outcome: 'taken', at: 9 } }]) {
       const e = String(W.wideHostSayText(x)); assert.ok(e.length > 20, e); assert.doesNotMatch(e, /[぀-ヿ一-鿿]/, `English only: ${e}`);
     }
     assert.match(String(W.wideHostSayText(say)), /87 surviving troops are back at the village\. A host under 100 troops cannot march/);

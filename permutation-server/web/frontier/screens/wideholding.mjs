@@ -205,6 +205,13 @@ export function wideHostSayText(say) {
   const at = x => (x ? `${x.p},${x.q}` : '?');
   // (fix-loop7, LP7-5: the hold's end, once known, is what the card says — whatever the planner waits for next)
   const ended = wideHoldOutcomeText(say.hold);
+  // (verify-pr162: at the TEST cap the last result AND why no more — before the plain result below, which returned
+  //  first and hid the cap's words whenever the last march's hold had ended, taken or lost: seen live at turn 601)
+  if (say.wait === 'cap' && say.kind !== 'decision') {
+    const m = say.march;
+    const last = ended || (m?.phase === 'gone' ? L`結果：軍勢は州 ${at(m.to)} に残れませんでした（戦いに敗れました）。` : '');
+    return [last, L`この村からの広い土地の中の進軍は、テスト世界では ${fmtNum(Number(say.cap ?? 2))} 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。`].filter(Boolean).join(' ');
+  }
   if (ended && say.kind !== 'decision') return ended;
   // (and while the hold counts, a wait for the village's own province does not hide it)
   const counting = say.hold && !say.hold.outcome && say.hold.to && Number.isFinite(Number(say.hold.progress))
@@ -224,11 +231,7 @@ export function wideHostSayText(say) {
     return L`次の一手を送ります。`;
   }
   const m = say.march;
-  // (fix-loop9, LP9-1: this village has sent the TEST cap of wide marches — the last one's result, then why no more)
-  if (say.wait === 'cap') {
-    const last = ended || (m?.phase === 'gone' ? L`結果：軍勢は州 ${at(m.to)} に残れませんでした（戦いに敗れました）。` : '');
-    return [last, L`この村からの広い土地の中の進軍は、テスト世界では ${fmtNum(Number(say.cap ?? 2))} 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。`].filter(Boolean).join(' ');
-  }
+  // (fix-loop9, LP9-1: this village has sent the TEST cap of wide marches — said above, before the hold's own result)
   if (m) {
     if (m.phase === 'out') return L`軍勢は州 ${at(m.to)} の砦へ進軍中です。到着はターン ${fmtNum(m.arrive)} です（いまはターン ${fmtNum(m.nowBell)}）。`;
     if (m.phase === 'stands') {
