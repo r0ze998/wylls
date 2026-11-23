@@ -35,7 +35,7 @@ import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
-import { ChainClock, bellChip, bellAt, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
+import { ChainClock, bellChip, bellAt, countdown, seasonClock, bellStart, pollCap, worldContinues } from './clock.mjs';
 import { effectiveStatus } from './fcodec.mjs';
 import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
@@ -337,12 +337,24 @@ export function bannerText(error, haveSeason = false) {
   return !haveSeason && /^HTTP\d{3}$/.test(String(error?.code ?? '')) ? L`${clientText('WorldUnavailable')}（${error.code}）` : error?.text ?? '';
 }
 
+/**
+ * (devnet-end-season) The season's status word: its effective status; and once the end bell is past while EndSeason has
+ * not landed yet (anyone may send it; on devnet the operator does), "no new orders (the end is being confirmed)" rather
+ * than 「進行中」 — the turn chip already says 受付終了 then, and the program refuses every new order.
+ */
+export function seasonStatusText(s, now) {
+  const st = effectiveStatus(s, now);
+  const g = Number(s?.genesisTs), end = Number(s?.endBell);
+  if (st === 'Running' && !worldContinues(s) && Number.isFinite(g) && Number.isFinite(end) && Math.floor((now - g) / 600) >= end) return SEASON_STATUS_TEXT.Over;
+  return SEASON_STATUS_TEXT[st];
+}
+
 function renderStatus() {
   renderSampleTag();
   renderProto();
   const s = FS.season;
   // (the season could not be read: the word is not 「読み込み中…」 for good — the banner below says what happened)
-  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : FS.error ? '' : L`読み込み中…`;
+  const status = s ? seasonStatusText(s, FS.chain?.now() ?? 0) : FS.error ? '' : L`読み込み中…`;
   // the beacon's kind is a detail: "More → details" names it (detailsMarkup)
   setText('season-status', status);
   const err = $('error-line');
@@ -405,7 +417,7 @@ export function rentNote(r) {
  */
 export function detailsMarkup(FS) {
   const s = FS.season;
-  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : L`読み込み中…`;
+  const status = s ? seasonStatusText(s, FS.chain?.now() ?? 0) : L`読み込み中…`;
   const tips = s ? marchScreen.composerChoices(FS).tips : [];
   const costs = tips.map(t => { try { return { text: t.text, ...marchCosts(s, t.lamports) }; } catch { return null; } }).filter(Boolean);
   return html`<section class="vcard vcard-folds" aria-label="${L`詳細`}">${fold('more-details', html`${icon('scroll')}${L`詳細`}<span class="fold-val">${status}</span>`, html`
@@ -3541,7 +3553,11 @@ let viewerKnown = !lastWalletName();
 function introLive() {
   const total = hud.standings(FS.overviews).reduce((a, r) => a + r.holdings, 0);
   const bell = FS.clock ? bellChip(FS.clock, FS.chain?.now() ?? null).bell : null;
-  return title.liveLine({ seasonId: FS.record?.season ?? null, bell, holdings: total });
+  // (verify-pr180) a season whose orders are over says so on the title (終了 / 閉鎖 / 受付終了（終了の確定待ち）), not its turn
+  const s = FS.season, now = FS.chain?.now() ?? 0;
+  const st = s ? effectiveStatus(s, now) : null, words = s ? seasonStatusText(s, now) : null;
+  const over = st === 'Ended' || st === 'Closed' || words === SEASON_STATUS_TEXT.Over ? words : null;
+  return title.liveLine({ seasonId: FS.record?.season ?? null, bell, holdings: total, over });
 }
 let stopTitleScene = null, titleCanvas = null;
 function renderIntro() {

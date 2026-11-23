@@ -89,6 +89,8 @@ export const PIPELINE_TEXT = lazyTable({
 export const SEASON_STATUS_TEXT = lazyTable({
   Announced: () => L`予告済み`, Created: () => L`作成済み`, Seeded: () => L`開始待ち`, Running: () => L`進行中`,
   Ended: () => L`終了`, Closed: () => L`閉鎖`, Aborted: () => L`中止`, Unknown: () => L`不明`,
+  // (devnet-end-season) past the end bell while nobody has sent EndSeason yet: no new orders all the same
+  Over: () => L`受付終了（終了の確定待ち）`,
 });
 
 // ------------------------------------------------------------------ program errors (§5.4)

@@ -25,6 +25,39 @@ pub struct SeasonStatic {
 }
 
 /// `GET /h/season` (`None` until the Season account is captured).
+/// (devnet-end-season) The season's state: `status` (effective: Seeded at or after genesis is Running), its
+/// name, `endBell`, `ended` (the end bell is past, or Ended / Closed: no new orders), `closed` (the tombstone).
+pub fn season_state(f: &Fold) -> Vec<(&'static str, Value)> {
+    use fclient::abi::status as st;
+    let Some(se) = f.season.as_ref() else {
+        return vec![];
+    };
+    let now = f.live.map_or(f.st.last_time, |l| l.1);
+    let eff = se.effective_status(now);
+    let bell = fclient::clock::bell_at(se.genesis_ts, now);
+    let past_end = !se.world_continues() && bell.is_some_and(|b| b >= se.end_bell);
+    let name = match eff {
+        st::ANNOUNCED => "Announced",
+        st::CREATED => "Created",
+        st::SEEDED => "Seeded",
+        st::RUNNING => "Running",
+        st::ENDED => "Ended",
+        st::CLOSED => "Closed",
+        st::ABORTED => "Aborted",
+        _ => "Unknown",
+    };
+    vec![
+        ("status", json!(eff)),
+        ("statusName", json!(name)),
+        ("endBell", json!(se.end_bell)),
+        (
+            "ended",
+            json!(past_end || eff == st::ENDED || eff == st::CLOSED),
+        ),
+        ("closed", json!(eff == st::CLOSED)),
+    ]
+}
+
 pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let addr = f.season_address();
     let c = f.account(&addr)?;
@@ -85,8 +118,18 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         "latestSlot": f.live.map_or(f.st.last_slot, |l| l.0.max(f.st.last_slot)),
         "latestUnix": f.live.map_or(f.st.last_time, |l| l.1),
         "slot": c.slot,
-        "bytes_b64": B64.encode(&c.data),
+        // (devnet-end-season) after CloseSeason the account is the 128-B tombstone: the last full bytes with
+        // their status byte Closed (the page decodes a whole Season); `tombstone` says so
+        "bytes_b64": B64.encode(match &f.season_full {
+            Some(b) if c.data.len() == frontier_abi::layout::world::season::TOMBSTONE_SIZE => b,
+            _ => &c.data,
+        }),
+        "tombstone": c.data.len() == frontier_abi::layout::world::season::TOMBSTONE_SIZE,
     });
+    // (devnet-end-season) the season's state in words, for readers that do not decode the bytes
+    for (k, x) in season_state(f) {
+        v[k] = x;
+    }
     // Map growth (`world.rs`): `rings` above lists the seeded rings only;
     // `ringsOpened` also counts a ring whose seed is on its way, and
     // `ringProvinces[d]` how many of ring d's Provinces are on chain, so a

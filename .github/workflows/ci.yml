@@ -567,6 +567,8 @@ jobs:
         run: |
           cargo clippy --locked -p stack --features playable-lane --all-targets -- -D warnings
           cargo test --locked -p stack --features playable-lane --lib operator::
+          # devnet-end-season (verify-pr180): end-season's plan, order, refunds and flag checks (pure; no key)
+          cargo test --locked -p stack --features playable-lane --lib operator_end::
           # devnet-72bell-pair (PKF): why PPAIR's OUT leg is TEST-sealed (the shipped real quicknet rounds give a
           # season at most one real arrival bell; public signatures verified only), PCAP's lag report and PPAIR's
           # OUT tile (pure). No key is generated, derived or signed.
@@ -817,7 +819,7 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal
           cargo test --locked --workspace
           cargo test --locked --release --workspace
-      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P11, the rim to wide expedition), 41670-41675 (P14, a third party's wide Free City conquest); P7, P9 and P10 need a browser and skip)
+      - name: Operator playable lane end to end (devnet .so fixture, keeper, drand-replay fixture rounds, herald; ports 41450-41459, 41560-41565, 41590-41595, 41650-41655, 41950-41955 (P8, the legacy war), 41500-41505 (P11, the rim to wide expedition), 41670-41675 (P14, a third party's wide Free City conquest), 41540-41545 (PEND, the season's end with frontier-operator end-season); P7, P9 and P10 need a browser and skip)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |

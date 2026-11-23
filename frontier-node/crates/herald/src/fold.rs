@@ -290,6 +290,9 @@ pub struct Fold {
     pub st: State,
     pub out: Out,
     pub season: Option<Season>,
+    /// (devnet-end-season) The last full Season bytes: after CloseSeason's final part the account is a 128-B
+    /// tombstone that no longer decodes; the herald keeps the season it had, its status read as Closed.
+    pub season_full: Option<Vec<u8>>,
     pub provinces: BTreeMap<(i16, i16), ProvMeta>,
     pub rings: BTreeMap<u16, BTreeSet<(i16, i16)>>,
     pub regions: BTreeMap<u8, BTreeSet<(i16, i16)>>,
@@ -355,6 +358,7 @@ impl Fold {
             st,
             out,
             season: None,
+            season_full: None,
             provinces: BTreeMap::new(),
             rings: BTreeMap::new(),
             regions: BTreeMap::new(),
@@ -451,7 +455,24 @@ impl Fold {
                 }
             }
             Some(AccountKind::Season) if *k == self.ctx.season => {
-                self.season = Season::decode(d).ok();
+                use frontier_abi::layout::world::season as S;
+                match Season::decode(d) {
+                    Ok(se) => {
+                        self.season = Some(se);
+                        self.season_full = Some(d.to_vec());
+                    }
+                    // (devnet-end-season) CloseSeason's tombstone: the season as it was, now Closed (else every
+                    // season view went 503 NoSeasonYet for good once the operator closed the season).
+                    Err(_) if d.len() == S::TOMBSTONE_SIZE && d[S::STATUS] == S::STATUS_CLOSED => {
+                        if let Some(se) = self.season.as_mut() {
+                            se.status = S::STATUS_CLOSED;
+                        }
+                        if let Some(b) = self.season_full.as_mut() {
+                            b[S::STATUS] = S::STATUS_CLOSED;
+                        }
+                    }
+                    Err(_) => self.season = None,
+                }
             }
             _ => {}
         }
