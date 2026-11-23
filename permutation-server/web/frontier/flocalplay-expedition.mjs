@@ -23,6 +23,7 @@ import { LOCAL_REVEAL_CONTEXT_PATH, LOCAL_REVEAL_CONTEXT_SCHEMA, localRevealCont
 import { revealAddresses } from './fexpedition-reveal.mjs';
 import { unpackWidePlain, decodeWideProvinceKey } from './fexpedition-seal.mjs';
 import { toHex } from '../sdk/bytes.mjs';
+import { seasonAddresses } from './faddr.mjs';
 
 /** The deployed fate codes (frontier-abi world_index::arrival::wide_arrival). */
 export const EXPEDITION_FATES = Object.freeze({ 1: 'stays', 2: 'withdrew', 3: 'bounced', 4: 'retreated', 5: 'destroyed' });
@@ -126,6 +127,21 @@ export async function readExpeditions(fs, { relay, pin, faction, nowBell, post =
 }
 
 /**
+ * (verify-pr176) Which of the page's villages has the Holding account `address` (a kept expedition's `record.holding`,
+ * written by fexpedition-compose.mjs as `seasonAddresses(program, seasonId).of('Holding', h)`): its index in
+ * `fs.holdings`, or -1. The page's holding objects carry no address of their own — the decoded record has none — so
+ * it is derived here the same way. (w2-wipeout matched `h.address`, never set live: the expedition card's
+ * 「村で次の軍勢を作る」 never showed, and the slot marker was always read from the active village.)
+ */
+export function holdingIndexOf(fs, address) {
+  if (typeof address !== 'string' || !address) return -1;
+  const program = fs?.localPlay?.programId ?? fs?.record?.programId ?? null, seasonId = fs?.season?.seasonId;
+  if (!program || seasonId === undefined || seasonId === null) return -1;
+  let a; try { a = seasonAddresses(program, String(seasonId)); } catch { return -1; }
+  return (fs.holdings ?? []).findIndex(h => { try { return !!h && a.of('Holding', { p: h.p, q: h.q, site: h.site }) === address; } catch { return false; } });
+}
+
+/**
  * The page's march rows of its kept expeditions (pure over the store): one per seal signed for sending, newest last:
  * `{expedition: {stage, fate, troopsAfter, depMass, host, transitSlot, arriveBell, dest: {p, q, tile}, origin}, entry: null,
  * transit, dest, facts: {nowBell}}`. `transit` is the village's inline marker of that slot (state 4) while it stands.
@@ -135,7 +151,8 @@ export function expeditionRows(fs, seals = localDepartReveals) {
   for (const record of seals(fs).filter(r => r.signature)) {
     let typed, dest;
     try { typed = unpackWidePlain(record.plain); const k = decodeWideProvinceKey(typed.dest); dest = { p: Number(k.p), q: Number(k.q), tile: typed.destTile }; } catch { continue; }
-    const holding = (fs.holdings ?? []).find(h => h?.address === record.holding) ?? (fs.holdings ?? [])[fs.activeHolding ?? 0] ?? null;
+    const holdingIndex = holdingIndexOf(fs, record.holding);
+    const holding = (fs.holdings ?? [])[holdingIndex] ?? (fs.holdings ?? []).find(h => h?.address === record.holding) ?? (fs.holdings ?? [])[fs.activeHolding ?? 0] ?? null;
     const marker = holding?.transit?.[record.transitSlot] ?? null;
     const transit = marker && marker.state === 4 && marker.arriveBell === record.arriveBell
       ? { slot: record.transitSlot, state: 4, hostId: marker.hostId, arriveBell: marker.arriveBell, dest: null } : null;
@@ -144,7 +161,7 @@ export function expeditionRows(fs, seals = localDepartReveals) {
     rows.push({ expedition: { stage, fate: got?.facts?.fate ?? null, troopsAfter: got?.facts?.troopsAfter ?? null, depMass: got?.facts?.depMass ?? null,
       host: record.host, transitSlot: record.transitSlot, arriveBell: record.arriveBell, dest, origin, commit: record.commit,
       // (w2-wipeout: the village that sent it — the card's 「次の軍勢」 press opens that village)
-      holding: record.holding ?? null,
+      holding: record.holding ?? null, holdingIndex,
       // (fix-loop9, LP9-2: the hold of the keep it stands on, when followed — readExpeditionHolds)
       hold: holdsOf.get(fs)?.get(record.commit) ?? null },
     entry: null, transit, dest, region: null, facts: { nowBell, pipeline: null, slotPresent: stage === 'revealed', settleReady: false }, record: null, slot: null, env: null, unread: null });

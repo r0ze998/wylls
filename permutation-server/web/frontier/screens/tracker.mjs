@@ -209,7 +209,10 @@ export function expeditionNextText(x) {
 export function renderExpedition(m, FS = null) {
   const x = m.expedition, d = x.dest, nowBell = FS?.nowBell ?? m.facts?.nowBell ?? 0;
   const troops = Number.isInteger(x.troopsAfter) ? Math.floor(x.troopsAfter / 1000) : null;
-  const next = expeditionNextText(x), home = x.holding ? (FS?.holdings ?? []).findIndex(h => h?.address === x.holding) : -1;
+  // (verify-pr176: the sending village's index comes with the row — flocalplay-expedition.mjs holdingIndexOf; the
+  //  page's holding objects carry no address, so matching `h.address` alone never found it live)
+  const next = expeditionNextText(x), home = Number.isInteger(x.holdingIndex) && x.holdingIndex >= 0 && (FS?.holdings ?? [])[x.holdingIndex] ? x.holdingIndex
+    : x.holding ? (FS?.holdings ?? []).findIndex(h => h?.address === x.holding) : -1;
   return html`<li class="vcard march-card" data-march-host="${x.host.slice(-16)}" data-expedition="${x.stage}">
     <div class="march-top">${icon('banner')}<strong class="march-to">${L`広い土地の州 ${d.p},${d.q} へ`}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(x.arriveBell)} に到着`}`, x.stage === 'settled' ? 'ok' : 'info')}</div>
     <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${expeditionPhases(x.stage, x.arriveBell, nowBell).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span></li>`)}</ol>

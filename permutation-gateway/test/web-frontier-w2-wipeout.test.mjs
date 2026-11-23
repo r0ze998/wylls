@@ -203,3 +203,24 @@ test('a REFUSED WideDepart (act answers undefined + FS.notice) is not counted as
   // the controller's refusal path really answers undefined: failed() returns setNotice(), which returns nothing
   assert.ok(c.includes("const setNotice = n => { FS.notice = n; invalidate('panel'); };"));
 });
+
+test('expedition card: the sending village is found by its derived Holding address — live page holdings carry no `address` (verify-pr176: the button never showed)', async () => {
+  const { holdingIndexOf } = await import('../../permutation-server/web/frontier/flocalplay-expedition.mjs');
+  const { renderExpedition } = await import('../../permutation-server/web/frontier/screens/tracker.mjs');
+  setLang('ja');
+  const a = seasonAddresses(PROGRAM, SEASON_ID);
+  // as the live page holds them: decoded records, no address field
+  const holdings = [{ p: -66, q: 128, site: 2 }, { p: -65, q: 128, site: 1 }];
+  const fs = { mode: 'play', localPlay: { programId: PROGRAM }, season: { seasonId: BigInt(SEASON_ID) }, holdings, nowBell: 300 };
+  const addr = a.of('Holding', holdings[1]);
+  assert.equal(holdingIndexOf(fs, addr), 1);
+  assert.equal(holdingIndexOf(fs, a.of('Holding', { p: 0, q: 0, site: 3 })), -1, 'another village: none');
+  assert.equal(holdingIndexOf(fs, null), -1);
+  assert.equal(holdingIndexOf({ ...fs, localPlay: null }, addr), -1, 'no program: none');
+  const row = { expedition: { stage: 'settled', fate: 'stays', troopsAfter: 488_000, host: 'h'.repeat(40), arriveBell: 207, dest: { p: -64, q: 129, tile: 18 },
+    holding: addr, holdingIndex: holdingIndexOf(fs, addr), hold: { to: { p: -64, q: 129 }, outcome: 'taken', at: 280 } } };
+  assert.match(String(renderExpedition(row, fs)), /data-act="next-army" data-holding="1"/, 'the live shape now gets the button');
+  const { holdingIndex, ...noIndex } = row.expedition;
+  assert.doesNotMatch(String(renderExpedition({ expedition: noIndex }, fs)), /data-act="next-army"/, 'without the index (the w2-wipeout lookup) the live shape had no button');
+  assert.ok(src('flocalplay-expedition.mjs').includes('holding: record.holding ?? null, holdingIndex,'));
+});
