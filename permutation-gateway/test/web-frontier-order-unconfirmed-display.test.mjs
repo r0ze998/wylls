@@ -76,7 +76,7 @@ test('the controller marks local play\'s two order notices, and the march send\'
   const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(ctl, /orderUnconfirmed\(order, s\.signature\); setNotice\(\{ busy: false, text: localActUnconfirmedText\(s\.signature\), code: 'LocalActUnconfirmed' \}\);/);
   assert.match(ctl, /orderUnconfirmed\(order, r\.signature\); setNotice\(\{ busy: false, text: localActUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed' \}\);/);
-  assert.match(ctl, /if \(localSent && r\.code !== 'TransactionFailed'\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); if \(localPlay\) recheckHeldMarch\(r\.signature\); \}/);
+  assert.match(ctl, /if \(localHeld\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); if \(localPlay\) recheckHeldMarch\(r\.signature\); \}/);
   assert.doesNotMatch(ctl, /setNotice\(\{ busy: false, text: local(Act|March)UnconfirmedText\([a-z]\.signature\) \}\)/, 'no unmarked "sent, not confirmed" notice is left');
   assert.equal(unconfirmedNotice({ busy: false, text: () => 'x', code: 'LocalActUnconfirmed', unsent: 'march-send' }), true);
 });
