@@ -144,14 +144,28 @@ season driver, gateway starter/gateway, herald, keeper A, Cloudflare quick tunne
     node scripts/devnet/health.mjs            # one line per check, then `overall OK|WARN|FAIL`; exit 0 / 1 / 2
     node scripts/devnet/health.mjs --no-rpc --no-public --json
 
-Checks: the processes the logs say should be up (by command match; a PID other than the deploy-time one is a
-WARN "restarted"), devnet genesis, Season PDA status (Announced/Created/Seeded/Running/Ended) vs the scheduled
+Checks: the processes the logs say should be up (see "Process checks" below), devnet genesis, Season PDA status (Announced/Created/Seeded/Running/Ended) vs the scheduled
 CreateSeason time (late CreateSeason / genesis seed → WARN/FAIL), balances of the deployer, authority and keeper A
 funders vs thresholds, herald `/h/season` + `/h/status` (ingest, alarms) and lag (herald live slot vs RPC slot),
 the gateway's public `/f/season`, keeper A's API (`/v1/status` without a token must answer 401: the token is not
 read, so duties/rent/lag come from its log), tunnel name vs the herald's `public-host`, the public page and
 `/h/season` through the tunnel, the join check's result, disk free, and error/restart/STOP lines in the last
 500 lines of each `devnet-*.log`.
+
+Process checks: a process is found by its command line only — no PID is written in `health.mjs`. Wanted and not
+running = FAIL. "restarted" is a WARN only for a while, so a planned restart (a herald swap) clears by itself:
+
+- with `--state FILE` (the loop uses it): the run that finds a different PID than the previous run did is a WARN
+  (`pid 7001 up 02:10 — was 94463 at the previous run (restarted)`), and it stays a WARN until the new process is
+  30 minutes old (`--restart-warn-min N`); after that it is `OK pid 7001 up 42:00`. A process the state file has
+  not seen before is OK (a first start is not a restart). The state file keeps `procs: {key: {pid, restarted, was}}`.
+- without `--state`: there is no previous run, so a wanted process younger than 30 minutes is the WARN
+  (`started 2 min ago (restarted or first start; …)`).
+- optional `<run-dir>/health-procs.json` (default run dir `~/wylls-devnet-run`; read only, absent = no overrides):
+  `{ "restartWarnMin": 30, "procs": { "proc.herald": { "pid": 12345 }, "proc.keeper": { "pidfile": "keeper-a/keeper.pid" } } }`.
+  A key with an expected PID (given, or read from the pidfile; path relative to the run dir) is OK only with that
+  PID, at any age, and a WARN with any other. A broken file or entry is one `proc.overrides` WARN line and is
+  otherwise ignored. Nothing in the stack writes a pidfile today, so this file is for the operator to write by hand.
 
 It never stops, signals or starts a process, never reads a key, `keeper.seed` or `keeper.token`, and never sends
 a transaction. Devnet RPC: only getGenesisHash / getSlot / getBalance / getAccountInfo to
