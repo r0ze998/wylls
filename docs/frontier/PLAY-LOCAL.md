@@ -672,13 +672,17 @@ The world's operator gives it no privilege and never sees its key. The page show
     turns, builds and training that would spend it wait (a harvest and a muster spend nothing). With the cost in its stores
     it claims the nearest target's first free site (the herald's public route capture, as your card reads it), then waits up
     to 12 turns for the world to settle the claim at a turn's end. A claim whose site was taken at the settle founds nothing
-    and costs the stores (the program's rule); after 3 such claims it stops claiming.
+    and costs the stores (the program's rule); after 3 such claims it stops claiming. The program takes a claim only from a
+    **final** first village (`NotFinal`, Custom 24 — rejected before sending). A rim village becomes final lazily, on its
+    owner's next action after its provisional time, so a resident that only saved first sends a harvest (it spends
+    nothing), then the claim. Your page's card does not check this (D-external-wide-orders-7).
   - **Wide village.** Once its wide village is in its own `/h/me` (read with the page's wide-inventory parser), each turn
     may be the page planner's one act there: train 100, muster up to 300, then march wide → wide onto a neighbouring
     province's keep (at most 2 marches, as the page). A landed training is not asked again for 12 turns.
-  - **Expedition.** A rim village (ring 128) bordering an opened wide province forms a host (muster first, training toward
-    it) and sends one expedition when the page's route check finds a passable path; no passable path (`RouteImpassable`,
-    seen live) means no expedition from that village.
+  - **Expedition.** A rim village (ring 128) bordering an opened wide province forms a host and sends one expedition when
+    the page's route check finds a passable path; no passable path (`RouteImpassable`, seen live) means no expedition from
+    that village. With 100+ in the reserve the host is mustered (it spends nothing) before the save; otherwise its training
+    waits until after the claim.
   - With `--plan` these are ④ plan steps too (`WideClaim`, `WideTrain`, `WideMuster`, `WideDepart`, `Expedition`): a plan
     starts with the claim while it saves, and a build that would spend the saved cost remakes the plan.
   Every one of these is ONE action of its turn, through its own relay's one-action-per-turn lease, rebuilt byte for byte by
