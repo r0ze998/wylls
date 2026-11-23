@@ -169,6 +169,7 @@ export default {
   '開始待ち': 'Starting soon',
   '進行中': 'Running',
   '閉鎖': 'Closed',
+  '受付終了（終了の確定待ち）': 'No new orders (the end is being confirmed)',
   '中止': 'Aborted',
   '不明': 'Unknown',
 

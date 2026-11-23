@@ -80,7 +80,9 @@ impl Msg {
         let view = Message {
             header: d.header,
             account_keys: keys.clone(),
-            recent_blockhash: d.blockhash,
+            // (devnet-end-season, D-dress-1: `Hash` is `Copy` only with solana-hash's `copy` feature, which a
+            //  build of frontier-operator alone does not turn on; a byte copy builds either way)
+            recent_blockhash: d.blockhash.to_bytes().into(),
             instructions: d.instructions.clone(),
         };
         Ok(Msg {

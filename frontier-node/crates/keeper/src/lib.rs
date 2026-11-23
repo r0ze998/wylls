@@ -419,6 +419,9 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     pub spend_by_day: BTreeMap<u32, u64>,
     season_read_slot: Option<u64>,
     wrong_key_alerted: bool,
+    /// (devnet-end-season) The Season is CloseSeason's 128-B tombstone: the season is over for good, every duty
+    /// stops (no read of it can succeed again) and the keeper only polls its in-flight writes.
+    season_closed: bool,
     /// The last payer care: `(slot, Clock now, transfers planned)`.
     care_last: Option<(u64, i64, usize)>,
     /// Older keepers recorded care attempts as "expired" from slot age,
@@ -600,6 +603,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             spend_by_day: BTreeMap::new(),
             season_read_slot: None,
             wrong_key_alerted: false,
+            season_closed: false,
             care_last: None,
             care_legacy_unknown: false,
             budgets_version: abi::PROGRAM_VERSION_V1,
@@ -1164,16 +1168,36 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             t_phase = std::time::Instant::now();
         };
         // The season: every slot until it runs, then every 16 slots.
-        let stale = self.season.as_ref().is_none_or(|s| {
-            s.effective_status(now) != status::RUNNING
-                || self.season_read_slot.is_none_or(|r| slot >= r + 16)
-        });
+        let stale = !self.season_closed
+            && self.season.as_ref().is_none_or(|s| {
+                s.effective_status(now) != status::RUNNING
+                    || self.season_read_slot.is_none_or(|r| slot >= r + 16)
+            });
         if stale {
             let got = self
                 .port
                 .accounts(&[self.addrs.season], 0)
                 .await
                 .map_err(|e| e.to_string())?;
+            let tomb = got[0].as_ref().is_some_and(|a| {
+                use frontier_abi::layout::world::season as S;
+                a.owner == self.addrs.program
+                    && a.data.len() == S::TOMBSTONE_SIZE
+                    && a.data[..8] == S::MAGIC
+                    && a.data[S::STATUS] == S::STATUS_CLOSED
+            });
+            if tomb {
+                self.season_closed = true;
+                self.alert(
+                    slot,
+                    "season-closed",
+                    "the Season is CloseSeason's tombstone: the season is over, every duty stops (stop this keeper; \
+                     its floats close on the tombstone with CloseArrivalSlot / CloseArrivalDay / CloseClashInputs / \
+                     CloseSeedCache)"
+                        .into(),
+                );
+                eprintln!("frontier-keeper: season-closed: the Season is CloseSeason's tombstone; every duty stops");
+            }
             if let Some(s) = got[0]
                 .as_ref()
                 .filter(|a| a.owner == self.addrs.program)
@@ -1236,6 +1260,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .await;
         self.take_outcomes(&r.outcomes, bell.unwrap_or(0));
         phase(&mut rep, "poll", 0);
+        // (devnet-end-season) after the tombstone nothing is left to do: no duty plans, no write is sent.
+        if self.season_closed {
+            rep.idle = true;
+            return Ok(rep);
+        }
         // Duties.
         if let Some(season) = self.season.clone() {
             let sclock = SeasonClock::from_season(&season);

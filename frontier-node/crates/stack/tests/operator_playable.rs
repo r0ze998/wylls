@@ -84,6 +84,8 @@ const PCAP_PORT_BASE: u16 = 41_780;
 const PPAIR_PORT_BASE: u16 = 41_790;
 /// PLOAD (herald-load-50): ports 41500–41508 (`OPERATOR_LOAD_PORT_BASE`).
 const PLOAD_PORT_BASE: u16 = 41_500;
+/// PEND's (devnet-end-season; `OPERATOR_END_PORT_BASE` moves them): RPC +0/+1, drand +2, keeper API +3, herald +5.
+const PEND_PORT_BASE: u16 = 41_540;
 /// PGWF's (fix-gw-highs; `OPERATOR_GW_FLOOD_PORT_BASE` moves them): as P8 plus the gateway (+6 operator, +7 public).
 const PGWF_PORT_BASE: u16 = 41_600;
 
@@ -968,8 +970,21 @@ async fn p17_the_page_sends_its_wide_villages_own_acts_on_the_devnet_so_offline(
     .await;
 }
 
+/// PEND (devnet-end-season, D-dress-6): P5's season (keeper A's rim, a rim village, keeper A's wide ring 129 and a
+/// settled wide village), then its END with `frontier-operator end-season` as r0ze would run it on devnet: refused
+/// before the end bell, EndSeason at it, every CloseProvince / wide province close and CloseSeason part after
+/// `end + 72 h` with the refunds equal to the plan to the lamport, a re-run that sends nothing; keeper A and the
+/// herald after Ended and after the tombstone; the verifier over the whole archive (`operator_playable/end.rs`).
+/// Ports 41540+ (`OPERATOR_END_PORT_BASE`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pend_the_operator_ends_and_closes_a_season_on_the_devnet_so_offline() {
+    playable_season(ports("OPERATOR_END_PORT_BASE", PEND_PORT_BASE), Mode::End).await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
+    /// PEND (devnet-end-season): P5, then the season's end and clean-up.
+    End,
     /// P3: the season's setup only.
     Setup,
     /// P4: the rim first village and the wide claim (the test sends the wide ring, settle and finalize).
@@ -1027,6 +1042,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Setup => "p3",
         Mode::Rim => "p4",
         Mode::KeeperWide => "p5",
+        Mode::End => "pend",
         Mode::AfterWide => "p6",
         Mode::Page => "p7",
         Mode::PageWideActs => "p17",
@@ -1354,6 +1370,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
+            // (PEND: P5's roles and the legacy war's `close`/`claims`, so keeper A's own closes meet the season's end)
+            Mode::End => {
+                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"close\", \"claims\""
+            }
             // (P8/P9: the devnet profile's keeper A with the play roles of the S1 playtest's keeper A)
             Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::Flood => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"reveal\", \"settle-departure\", \"gather\", \"resolve\", \"skip\", \"settle\", \"close\", \"claims\""
@@ -1381,7 +1401,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
                 rim::PER_WEDGE
             ),
-            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs | Mode::Load => format!(
+            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs | Mode::Load | Mode::End => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
@@ -1684,6 +1704,16 @@ async fn playable_season(pt: Ports, mode: Mode) {
             "--relay".into(),
             format!("127.0.0.1:{gw_pub}"),
         ]
+    } else if mode == Mode::End {
+        // (PEND: the page too, without the gateway — a player's view of the season's end, `end_page.mjs`)
+        vec![
+            "--web".into(),
+            repo_root()
+                .join("permutation-server/web")
+                .to_str()
+                .unwrap()
+                .into(),
+        ]
     } else {
         vec![]
     };
@@ -1889,6 +1919,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 keeper_wide: matches!(
                     mode,
                     Mode::KeeperWide
+                        | Mode::End
                         | Mode::AfterWide
                         | Mode::Page
                         | Mode::PageWideActs
@@ -1954,6 +1985,16 @@ async fn playable_season(pt: Ports, mode: Mode) {
                     config: kdir.join("keeper.toml"),
                     api: pt.keeper_api,
                     token: "test-token-operator-playable".into(),
+                }),
+                end: (mode == Mode::End).then(|| rim::end::End {
+                    profile: prof.clone(),
+                    key: key.clone(),
+                    url: url.clone(),
+                    authority: authority.pubkey(),
+                    so_sha256,
+                    keeper_api: pt.keeper_api,
+                    token: "test-token-operator-playable".into(),
+                    record: dir.join("operator-end-record.jsonl"),
                 }),
                 state: state.clone(),
                 a: a.clone(),

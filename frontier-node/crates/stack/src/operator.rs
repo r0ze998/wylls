@@ -1642,7 +1642,9 @@ pub const USAGE: &str = "usage: frontier-operator --profile FILE [--preset NAME]
   (program version 0x4804; WideSetRules after keeper A seeds the season).
   --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D, S1_DEVNET_WIDE_7D.
   Exit: 0 done/plan printed, 1 failed, 2 refused, 3 waiting (t_create_min,
-  or the season to be Seeded); run the same command again to resume.";
+  or the season to be Seeded); run the same command again to resume.
+  frontier-operator end-season --help: the season's end and clean-up
+  (EndSeason, then from end + 72 h the province closes and CloseSeason).";
 
 pub fn parse_args(args: &[String]) -> Result<Opts, String> {
     let mut o = Opts::default();
@@ -1717,6 +1719,10 @@ pub async fn main_with(
     out: &mut dyn FnMut(&str),
     err: &mut dyn FnMut(&str),
 ) -> i32 {
+    // devnet-end-season (D-dress-6): the season's end and clean-up.
+    if args.first().map(String::as_str) == Some("end-season") {
+        return crate::operator_end::main_with(&args[1..], out, err).await;
+    }
     let o = match parse_args(args) {
         Ok(o) => o,
         Err(e) => {

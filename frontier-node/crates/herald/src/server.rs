@@ -512,6 +512,11 @@ async fn status(State(app): State<Shared>) -> Response {
     if let Some(lp) = &app.local_play {
         v["localPlay"] = lp.clone();
     }
+    // (devnet-end-season) the season's state: Running / Ended / Closed, its end bell, whether orders are over
+    let ss = crate::views::season_state(&f);
+    if !ss.is_empty() {
+        v["season"] = Value::Object(ss.into_iter().map(|(k, x)| (k.to_string(), x)).collect());
+    }
     json_answer(&v, "no-store")
 }
 
