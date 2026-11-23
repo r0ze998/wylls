@@ -33,8 +33,9 @@ test('LP12-4: a departure that is SENT drops an earlier departure\'s refusal not
   const s = src('controller.mjs');
   const i = s.indexOf('      if (out?.sent) {\n        outbound.forgetOutboundReady(FS);');
   assert.ok(i > 0, 'the sent branch of sendLocalPlayDeparture');
-  const body = s.slice(i, i + 700);
-  assert.ok(body.includes("if (FS.notice && FS.notice.ok === false && FS.notice.unsent === 'expedition-depart') setNotice(null);"));
+  const body = s.slice(i, i + 1400);
+  assert.ok(body.includes("if (!['failed', 'expired', 'error'].includes(out.status) && FS.notice && FS.notice.ok === false && FS.notice.unsent === 'expedition-depart') setNotice(null);"),
+    'not for a run refused itself: the runner preflight answers after the post, so that run is `sent` too (fix-loop12 live: the first version dropped the notice the refused run had just set)');
   // the refusal notice it drops is the one departRefusedNotice sets
   assert.ok(s.includes("setNotice({ ok: false, busy: false, unsent: 'expedition-depart', retry: false, text: d.status === 'expired'"));
 });

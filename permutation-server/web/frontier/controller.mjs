@@ -1760,8 +1760,10 @@ export const sendLocalPlayDeparture = async () => {
         outbound.forgetOutboundReady(FS);
         // (fix-loop12, LP12-4: an earlier departure's refusal notice — 「遠征は出発していません…軍勢は村にいます」 — stood
         //  at the top for 40 turns after this one departed: a sent departure sets no notice of its own, so the old
-        //  refusal was never replaced. A departure that is sent makes it untrue; it goes. Any other notice stays.)
-        if (FS.notice && FS.notice.ok === false && FS.notice.unsent === 'expedition-depart') setNotice(null);
+        //  refusal was never replaced. A departure that went out and was not refused makes it untrue; it goes. A run
+        //  refused itself — the runner's preflight answers after the bytes were posted, so it is `sent` too — keeps the
+        //  notice it has just set (departRefusedNotice). Any other notice stays.)
+        if (!['failed', 'expired', 'error'].includes(out.status) && FS.notice && FS.notice.ok === false && FS.notice.unsent === 'expedition-depart') setNotice(null);
       }
       return out;
     } });
