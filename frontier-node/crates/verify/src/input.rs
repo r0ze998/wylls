@@ -113,14 +113,17 @@ pub struct Input {
     pub program_so: Option<std::sync::Arc<Vec<u8>>>,
     /// States the archive DECLARES rather than shows: a recorder's
     /// `set_account` patches, each in force from before transaction `at`
-    /// (an index into `txs`). Only VX (as a re-execution's starting state),
-    /// VWL (as the state before an instruction it re-judges,
-    /// verifier-coverage) and V11 (FileTicket, PlaceHome, camp and
-    /// fresh-settlement pre-states, verifier-v11-patches) read them, never
-    /// better than UNVERIFIABLE (the conquest chain walk,
-    /// [`crate::conquest`], also continues its event chains from them);
-    /// every other check sees the archive as before. A real chain archive
-    /// has none.
+    /// (an index into `txs`). VX (as a re-execution's starting state), VWL
+    /// (as the state before an instruction it re-judges, verifier-coverage),
+    /// V7 and V11 (`checks::Before`, verifier-v11-patches /
+    /// verifier-v7-patches) and every check that reads
+    /// `World::state_before` / `lamports_before` / `state_after`
+    /// (verifier-v7-patches) take the later of the last archived post-state
+    /// and the declared patch in force; a judgement that read one is never
+    /// better than `MissingData`, and the season never better than
+    /// UNVERIFIABLE (V0E). The conquest chain walk ([`crate::conquest`])
+    /// also continues its event chains from them; VW1 (experimental) still
+    /// walks archived post-states only. A real chain archive has none.
     pub declared: Vec<Declared>,
     /// What the chain shows about each transaction beyond its bytes and
     /// logs: `getTransaction`'s `meta.preBalances` / `meta.postBalances`
