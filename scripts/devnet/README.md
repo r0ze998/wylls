@@ -94,7 +94,8 @@ The full runbook: [`docs/frontier/devnet/DEVNET-DEPLOY-RUNBOOK.md`](../../docs/f
 node scripts/devnet/preflight.mjs                                   # offline: toolchain, profile, key files, the .so on disk, planner at 5,080
 node scripts/devnet/preflight.mjs --build                           # + rebuild with the profile's build script --twice (key-free)
 node scripts/devnet/preflight.mjs --rpc https://api.devnet.solana.com   # + read-only devnet checks (OFF by default; B5)
-node scripts/devnet/preflight.mjs --public-url https://<host> --services start.sh --keeper-config keeper-a/keeper.toml
+node scripts/devnet/preflight.mjs --services start.sh --keeper-config keeper-a/keeper.toml   # on the host, from the repo root (services up)
+node scripts/devnet/preflight.mjs --public-url https://<host>     # from a machine OUTSIDE the host (only its ep.* lines matter there)
 node scripts/devnet/preflight.mjs --help                            # every flag
 ```
 
@@ -122,11 +123,15 @@ their host, env assignments in the services file by name).
 | `plan.<rate>` | 2/5 | `plan.mjs`'s own dry run, offline, `--json` | totals and faucet request counts at 5,080 (and at `--measured-rate` / the rate read with `--rpc`) |
 | `faucet` | 5 | — | always SKIP (funding is r0ze's) |
 | `ep.tls`, `ep.hsts` (WARN), `ep.season`, `ep.game`, `ep.root` (WARN), `ep.xff`, `ep.ports` | 7/7b | `--public-url` only | https with a valid certificate (`--ca` for a test CA); `/h/season` cluster devnet + the profile's program (WARN `NoSeasonYet` before §6b); `/frontier/frontier/` is the game page; §8a: 15 `POST /gw/f/nudge {}` each with a forged `X-Forwarded-For` → 10 × non-429 then 429s; 41040/41050/41030/41033 closed on the public name (SKIP for a loopback URL) |
-| `cfg.herald`, `cfg.gateway`, `cfg.keeper` | 7b | `--services FILE` (any shell script holding the §8 step 5–7 lines), `--keeper-config FILE` | herald `--source rpc --cluster devnet --rpc-min-gap-ms 100 --poll-ms 1000`, loopback `--listen`, `--public-host`, no test flags; gateway `--public-proxy xff`, no `--dev`, `--devnet-play` + ruleset hash, pool ≥ 150, ports, and the gateway's own `loadFrontierConfig` accepts it (when its `node_modules` exist); keeper `rpc_min_gap_ms` ≥ 250, roles + rings duty = profile, api loopback, seed / token mode 600 |
+| `cfg.herald`, `cfg.gateway`, `cfg.keeper` | 7b | `--services FILE` (any shell script holding the §8 step 5–7 lines), `--keeper-config FILE` | herald `--source rpc --cluster devnet --rpc-min-gap-ms 100 --poll-ms 1000`, loopback `--listen`, `--public-host`, no test flags; gateway `--public-proxy xff`, no `--dev`, `--devnet-play` + ruleset hash, pool ≥ 150, ports, and the gateway's own `loadFrontierConfig` accepts it (when its `node_modules` exist); keeper `rpc_min_gap_ms` ≥ 250, roles + rings duty = profile, api loopback, seed / token mode 600 (a relative `token_file` / `master_seed_file` is looked up from the repository root: the keeper's working directory in runbook §8) |
 | `witness` | 8 | — | always SKIP (retention is the provider's) |
 
 Limits: the X-Forwarded-For check from ONE client cannot tell a proxy that sends no header from a right one (with
 `--public-proxy xff` both put this client into one bucket): confirm from a second outside address that it gets its own
 400s, and that the gateway log shows no growing `unattributed_client` count. Wait 20 s between two runs (the bucket
-refills at 0.5/s), or the 429s start inside the first 10.
+refills at 0.5/s), or the 429s start inside the first 10. A nudge answered with anything but 400 / 429 (e.g. 502: the
+herald could not reach the gateway) is its own FAIL: the bucket cannot be judged from that run.
+
+Exit codes: 0 no FAIL, 1 at least one FAIL (or the run stopped on an unexpected error: "NOT READY (no verdict)"), 2 bad
+arguments (including any send flag of `dry-run.mjs`).
 

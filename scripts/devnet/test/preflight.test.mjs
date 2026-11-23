@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEVNET_GENESIS, EXPECTED_ARTEFACT, FEATURES, RPC_BUDGET, RPC_METHODS, checkArtefact, checkEndpoint, checkGatewayCmd, checkHeraldCmd,
   checkKeeperConfig, checkKeyFiles, checkPlanner, checkProfile, checkRpc, checkServices, checkToolchain, execAllowed, featureState,
-  findServices, formatResults, parseKeeperToml, parsePreflightArgs, preflight, redactUrl, rpcUrlProblem, shellCommands,
+  errText, findServices, formatResults, parseKeeperToml, parsePreflightArgs, preflight, redactUrl, rpcUrlProblem, shellCommands,
 } from '../preflight-checks.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -526,4 +526,48 @@ test('endpoint: a herald with no season yet answers NoSeasonYet → ep.season WA
   const rs = await checkEndpoint(io, filled(), { publicUrl: 'https://play.example.org' });
   assert.equal(byId(rs, 'ep.season').status, 'WARN');
   assert.equal(byId(rs, 'ep.tls').status, 'PASS');
+});
+
+// ------------------------------------------------------------------ verify-pr181 fixes
+
+test('verify-pr181: --solana4 / --node-bin not named solana / node → a FAIL line, never an uncaught allow-list refusal', () => {
+  const io = fakeIo({ stats: { '/t/solana-4.4.1': stat({ mode: 0o100755 }) } });
+  let rs;
+  assert.doesNotThrow(() => { rs = checkToolchain(io, { solana4: '/t/solana-4.4.1', nodeBin: '/t/nodejs' }); });
+  assert.equal(byId(rs, 'tool.solana4').status, 'FAIL');
+  assert.match(byId(rs, 'tool.solana4').detail, /not a bin\/solana/);
+  assert.equal(byId(rs, 'tool.node').status, 'FAIL');
+  assert.ok(!io.calls.exec.some(([c]) => c.startsWith('/t/')), 'neither file was started');
+});
+
+test('verify-pr181: an empty-message AggregateError (ECONNREFUSED to localhost) still prints a reason', async () => {
+  const agg = new AggregateError([Object.assign(new Error('connect ECONNREFUSED ::1:41899'), { code: 'ECONNREFUSED' }), Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:41899'), { code: 'ECONNREFUSED' })], '');
+  assert.equal(agg.message, '');
+  assert.match(errText(agg), /ECONNREFUSED ::1:41899; connect ECONNREFUSED 127\.0\.0\.1:41899/);
+  assert.equal(errText(Object.assign(new Error(''), { code: 'ECONNRESET' })), 'ECONNRESET');
+  const io = fakeIo({ http: () => { throw agg; } });
+  const rs = await checkEndpoint(io, filled(), { publicUrl: 'https://localhost:41899' });
+  for (const id of ['ep.tls', 'ep.game', 'ep.xff']) assert.match(byId(rs, id).detail, /ECONNREFUSED/, id);
+});
+
+test('verify-pr181: a 502 among the nudges is reported as a broken relay path, not as "addresses got their own bucket"', async () => {
+  const right = endpoint();
+  let n = 0;
+  const io = fakeIo({ http: (url, opts) => (new URL(url).pathname === '/gw/f/nudge' && ++n === 14 ? { status: 502, headers: {}, body: 'bad gateway' } : right(url, opts)) });
+  const rs = await checkEndpoint(io, filled(), { publicUrl: 'https://play.example.org', portsHost: false });
+  const x = byId(rs, 'ep.xff');
+  assert.equal(x.status, 'FAIL');
+  assert.match(x.detail, /HTTP 502 is neither/);
+  assert.match(x.fix, /herald could not reach the gateway/);
+});
+
+test('verify-pr181: keeper token / seed relative paths are looked up from the repository root (the keeper\'s working directory)', async () => {
+  // keeper.toml outside the repo: config.rs resolves token_file against the process cwd (= repo root in runbook §8), not the toml's folder
+  const io = fakeIo({ files: { '/etc/wylls/keeper.toml': KEEPER }, stats: { [`${REPO}/keeper-a/keeper.token`]: stat(), [`${REPO}/keeper-a/keeper.seed`]: stat() } });
+  let rs = checkKeeperConfig(io, filled(), { keeperConfig: '/etc/wylls/keeper.toml' });
+  assert.equal(byId(rs, 'cfg.keeper').status, 'PASS', JSON.stringify(rs));
+  const io2 = fakeIo({ files: { '/etc/wylls/keeper.toml': KEEPER }, stats: { '/etc/keeper-a/keeper.token': stat(), '/etc/keeper-a/keeper.seed': stat() } });
+  rs = checkKeeperConfig(io2, filled(), { keeperConfig: '/etc/wylls/keeper.toml' });
+  assert.equal(byId(rs, 'cfg.keeper').status, 'FAIL');
+  assert.match(byId(rs, 'cfg.keeper').detail, /looked at .*keeper-a\/keeper\.token: relative to the repository root/);
 });

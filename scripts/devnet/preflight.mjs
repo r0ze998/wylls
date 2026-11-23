@@ -7,7 +7,7 @@
 //
 // This file only wires the real file system, processes and network into preflight().
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -18,7 +18,10 @@ import { execAllowed, formatResults, preflight } from './preflight-checks.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // The Solana CLIs run `--version` only, with an empty HOME: they read no user config and no key.
-const emptyHome = mkdtempSync(path.join(tmpdir(), 'wylls-preflight-home-'));
+// Made on first use and removed on exit (verify-pr181: it was left behind in $TMPDIR by every run).
+let emptyHome = null;
+const solanaHome = () => (emptyHome ??= mkdtempSync(path.join(tmpdir(), 'wylls-preflight-home-')));
+process.on('exit', () => { if (emptyHome) rmSync(emptyHome, { recursive: true, force: true }); });
 
 function request(url, { method = 'GET', headers = {}, body, ca, timeoutMs = 10_000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -59,7 +62,7 @@ const io = {
   exec: (cmd, args, { cwd } = {}) => {
     if (!execAllowed(cmd, args, { buildScript })) throw new Error(`preflight refuses to start ${cmd} ${args.join(' ')}`);
     const isBuild = cmd === buildScript;
-    const env = path.basename(cmd) === 'solana' ? { ...process.env, HOME: emptyHome } : process.env;
+    const env = path.basename(cmd) === 'solana' ? { ...process.env, HOME: solanaHome() } : process.env;
     const r = spawnSync(cmd, args, { cwd, env, encoding: 'utf8', stdio: isBuild ? ['ignore', 'pipe', 'inherit'] : 'pipe', maxBuffer: 64 * 1024 * 1024 });
     if (isBuild && r.stdout) process.stderr.write(r.stdout);
     return { status: r.status ?? -1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
@@ -85,7 +88,12 @@ try {
   gatewayConfig = a => m.loadFrontierConfig(a, {});
 } catch { gatewayConfig = null; }
 
-const res = await preflight(argv, io, { gatewayConfig });
+let res;
+try { res = await preflight(argv, io, { gatewayConfig }); } catch (e) {
+  // Never exit 0 on an unexpected error (e.g. the process allow-list refusing a command): the run did not judge.
+  console.error(`preflight stopped: ${e?.message ?? e}\nNOT READY (no verdict)`);
+  process.exit(1);
+}
 if (res.error) { console.error(res.error); process.exit(res.exitCode); }
 if (res.help) { console.log(res.help); process.exit(0); }
 if (argv.includes('--json')) console.log(JSON.stringify({ results: res.results, rpcCalls: res.rpcLog, exitCode: res.exitCode }, null, 2));

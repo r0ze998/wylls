@@ -66,6 +66,13 @@ const fail = (id, must, detail, fix) => r(id, must, 'FAIL', detail, fix);
 const warn = (id, must, detail, fix) => r(id, must, 'WARN', detail, fix);
 const skip = (id, must, detail, fix) => r(id, must, 'SKIP', detail, fix);
 
+/** An error's text: Node's ECONNREFUSED to "localhost" is an AggregateError with an EMPTY message (verify-pr181). */
+export function errText(e) {
+  if (e?.message) return e.message;
+  const inner = Array.isArray(e?.errors) ? e.errors.map(x => x?.message || x?.code).filter(Boolean) : [];
+  return inner.length ? [...new Set(inner)].join('; ') : (e?.code ?? String(e));
+}
+
 /** "https://key@host/path?api-key=…" → "https://host" (never print a provider key). */
 export function redactUrl(u) {
   try { const x = new URL(u); return `${x.protocol}//${x.host}${x.pathname && x.pathname !== '/' ? '/…' : ''}`; } catch { return '<not a URL>'; }
@@ -102,7 +109,8 @@ export function checkToolchain(io, opts) {
   };
   // The 4.x CLI beside 3.1.9 (runbook §1a "Two tool versions"; plan.mjs MIN_SOLANA_CLI).
   const s4 = opts.solana4 ?? `${io.home}/solana-4x/bin/solana`;
-  if (!io.exists(s4)) out.push(fail('tool.solana4', '3', `no Solana CLI at ${s4}`, `unpack an agave >= ${MIN_SOLANA_CLI.join('.')} release there (runbook §1a; keep active_release on 3.1.9), or pass --solana4 <path to its bin/solana>`));
+  if (path.basename(s4) !== 'solana') out.push(fail('tool.solana4', '3', `--solana4 ${s4}: not a bin/solana (the preflight starts only a file named solana, with --version)`, `pass the 4.x release's bin/solana (e.g. ~/solana-4x/bin/solana)`));
+  else if (!io.exists(s4)) out.push(fail('tool.solana4', '3', `no Solana CLI at ${s4}`, `unpack an agave >= ${MIN_SOLANA_CLI.join('.')} release there (runbook §1a; keep active_release on 3.1.9), or pass --solana4 <path to its bin/solana>`));
   else {
     const v = ver(s4);
     const p = v.status === 0 ? parseCliVersion(v.stdout) : null;
@@ -125,7 +133,7 @@ export function checkToolchain(io, opts) {
     else out.push(fail('tool.build-sbf', '3/6', `cargo-build-sbf: ${String(v.stdout ?? '').trim().replace(/\n/g, ' ') || 'no version'}`, 'the build is pinned to cargo-build-sbf 3.1.9 + platform-tools v1.52 (scripts/build-frontier.sh)'));
   }
   // node: the gateway and the dry run (CI uses 20; the ⑬ suites need 20, see play-local docs).
-  const n = ver(opts.nodeBin ?? 'node');
+  const n = path.basename(opts.nodeBin ?? 'node') === 'node' ? ver(opts.nodeBin ?? 'node') : { status: -1, stdout: '' };
   const nm = /^v(\d+)\./.exec(String(n.stdout ?? '').trim());
   if (!nm) out.push(fail('tool.node', '3', 'node --version failed', 'install Node.js >= 20'));
   else if (Number(nm[1]) < 20) out.push(fail('tool.node', '3', `node ${String(n.stdout).trim()} (< 20)`, 'install Node.js >= 20 (the gateway and CI use 20)'));
@@ -402,7 +410,7 @@ export async function checkRpc(io, profile, opts) {
       }
     }
   } catch (e) {
-    out.push(fail('rpc.error', '2', `${redactUrl(opts.rpc)}: ${String(e.message).split(opts.rpc).join(redactUrl(opts.rpc))}`, 'retry later (public devnet: ~10 calls/method/10 s, Retry-After 10)'));
+    out.push(fail('rpc.error', '2', `${redactUrl(opts.rpc)}: ${String(errText(e)).split(opts.rpc).join(redactUrl(opts.rpc))}`, 'retry later (public devnet: ~10 calls/method/10 s, Retry-After 10)'));
   }
   return { results: out, rate, rpcLog: c.log };
 }
@@ -440,7 +448,7 @@ export async function checkEndpoint(io, profile, opts) {
       else out.push(pass('ep.season', '7b', `/h/season: cluster ${season.cluster}${season.programId ? `, program ${season.programId}` : ''}${season.rulesetHash ? `, ruleset ${String(season.rulesetHash).slice(0, 12)}…` : ''}`));
     }
   } catch (e) {
-    out.push(fail(base.protocol === 'https:' ? 'ep.tls' : 'ep.season', '7b', `${origin}/h/season: ${e.message}`, base.protocol === 'https:' ? 'a valid certificate for the public name (or --ca FILE for a test CA); proxy listening on 443' : 'start the proxy'));
+    out.push(fail(base.protocol === 'https:' ? 'ep.tls' : 'ep.season', '7b', `${origin}/h/season: ${errText(e)}`, base.protocol === 'https:' ? 'a valid certificate for the public name (or --ca FILE for a test CA); proxy listening on 443' : 'start the proxy'));
   }
   // The game page (§8 step 8, §8a "The page's address").
   try {
@@ -453,7 +461,7 @@ export async function checkEndpoint(io, profile, opts) {
     if ([301, 302, 307, 308].includes(root.status) && loc.endsWith('/frontier/frontier/')) out.push(pass('ep.root', '7b', `/ → ${loc}`));
     else out.push(warn('ep.root', '7b', `/ answers ${root.status}${loc ? ` → ${loc}` : ''} (the old v9 lobby path, not the game)`, 'let the proxy redirect exactly / and /frontier/ to /frontier/frontier/ (§8a)'));
   } catch (e) {
-    out.push(fail('ep.game', '7b', `${origin}/frontier/frontier/: ${e.message}`, 'start the proxy and herald'));
+    out.push(fail('ep.game', '7b', `${origin}/frontier/frontier/: ${errText(e)}`, 'start the proxy and herald'));
   }
   // §8a X-Forwarded-For check: 15 nudges from this machine, each with a forged X-Forwarded-For.
   try {
@@ -466,12 +474,14 @@ export async function checkEndpoint(io, profile, opts) {
     const first = statuses.slice(0, XFF_BURST), rest = statuses.slice(XFF_BURST);
     const n429 = statuses.filter(s => s === 429).length;
     const summary = statuses.join(' ');
-    if (rest.every(s => s === 429) && first.filter(s => s === 429).length === 0) out.push(pass('ep.xff', '7b', `15 nudges with forged X-Forwarded-For: ${summary} → one bucket (burst ${XFF_BURST}, then 429). Also confirm from a SECOND outside address that it gets its own 400s (a proxy sending no header passes this one-client test too)`));
+    const odd = [...new Set(statuses.filter(s => s !== 400 && s !== 429))];
+    if (odd.length) out.push(fail('ep.xff', '7b', `15 nudges: ${summary} — HTTP ${odd.join(', ')} is neither the gateway's 400 (empty nudge) nor its 429 (limited): the check cannot judge the bucket`, '502/504: the herald could not reach the gateway (herald log "/gw/f/nudge: …"; --relay 127.0.0.1:41033, gateway --public-port 41033) — wait 20 s and run again; 404: the proxy must pass /gw/* to the herald'));
+    else if (rest.every(s => s === 429) && first.filter(s => s === 429).length === 0) out.push(pass('ep.xff', '7b', `15 nudges with forged X-Forwarded-For: ${summary} → one bucket (burst ${XFF_BURST}, then 429). Also confirm from a SECOND outside address that it gets its own 400s (a proxy sending no header passes this one-client test too)`));
     else if (n429 === 0) out.push(fail('ep.xff', '7b', `15 nudges: ${summary} — no 429: the client's own X-Forwarded-For reaches the gateway`, 'nginx: proxy_set_header X-Forwarded-For $remote_addr; (NOT $http_x_forwarded_for) / Caddy default / HAProxy http-request set-header X-Forwarded-For %[src] (§8a); gateway with --public-proxy xff'));
     else if (first.some(s => s === 429)) out.push(fail('ep.xff', '7b', `15 nudges: ${summary} — 429 inside the first ${XFF_BURST}: the bucket was not full`, 'wait 20 s (refill 0.5/s) and run again; if it repeats, other clients share this address'));
     else out.push(fail('ep.xff', '7b', `15 nudges: ${summary} — only ${n429} × 429 after the burst`, 'some forged addresses got their own bucket: the proxy appends or passes the client header; set it to the address it saw (§8a)'));
   } catch (e) {
-    out.push(fail('ep.xff', '7b', `POST /gw/f/nudge: ${e.message}`, 'the proxy must pass /gw/* to the herald, which forwards it to the gateway (--relay 127.0.0.1:41033)'));
+    out.push(fail('ep.xff', '7b', `POST /gw/f/nudge: ${errText(e)}`, 'the proxy must pass /gw/* to the herald, which forwards it to the gateway (--relay 127.0.0.1:41033)'));
   }
   // §8a: ports that must not be reachable from outside.
   if (opts.portsHost !== false) {
@@ -688,10 +698,12 @@ export function checkKeeperConfig(io, profile, { keeperConfig, keeperCmd } = {})
   // The keeper's own secrets: stat only, never read.
   for (const key of ['token_file', 'master_seed_file']) {
     if (!k[key]) { p.push(`${key} missing`); continue; }
-    const f = path.isAbsolute(k[key]) ? k[key] : path.join(path.dirname(abs), '..', k[key]);
+    // config.rs keeps these as plain PathBufs: a relative path is relative to the keeper's working directory,
+    // which runbook §8 step 5 makes the repository root.
+    const f = path.isAbsolute(k[key]) ? k[key] : path.join(io.repoRoot, k[key]);
     let st = null;
     try { st = io.stat(f); } catch { st = null; }
-    if (!st) p.push(`${key} ${k[key]} not found (keeper --init-seed / openssl rand; stat only)`);
+    if (!st) p.push(`${key} ${k[key]} not found${f !== k[key] ? ` (looked at ${f}: relative to the repository root, the keeper's working directory)` : ''} (keeper --init-seed / openssl rand; stat only)`);
     else if ((st.mode & 0o077) !== 0) p.push(`${key} ${k[key]} mode ${(st.mode & 0o777).toString(8)} (600)`);
   }
   if (p.length) out.push(fail('cfg.keeper', '7b', p.join('; '), 'use the runbook §8 step 5 keeper.toml as written'));
