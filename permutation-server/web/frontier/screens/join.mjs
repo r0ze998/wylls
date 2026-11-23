@@ -85,6 +85,20 @@ export function factionCards(FS) {
  * another order (controller rereadHomes — reads only). Not while a join / placing or a reading is under way.
  */
 const homeReread = (FS, busy) => (FS.mode === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="home-reread" ${raw(busy || FS.homeChoice?.loading ? 'disabled' : '')}>${icon('return')}${L`土地の候補を読み直す`}</button></div>` : '');
+// (fix-devnet-join-wait, herald-load-50 F3) The confirm's wait for the page's OWN record after a send the chain took
+// (controller.mjs waitForOwn: `homeChoice.ownWait = {what, secs}` while it waits; an error with `retry` when it ended
+// without the record). The wait is said with what it waits for and how long, and a wait that ended offers to look
+// again (home-confirm: the press asks about the noted send and never sends it again) instead of the candidates' reread.
+const OWN_WAIT_WHAT = { join: () => L`参加`, ticket: () => L`村の申し込み`, home: () => L`村の確定` };
+// (cls: `nc-early` on the nation choice's dark confirm plate — readable there, as its other status lines; `home-status` on the placing card)
+const ownWaitLine = (FS, cls = 'home-status') => {
+  const w = FS.homeChoice?.ownWait;
+  if (!w) return '';
+  return html`<p class="${cls}" role="status" data-own-wait="${w.what}">${L`記録を待っています…（${OWN_WAIT_WHAT[w.what]?.() ?? ''}、${fmtNum(w.secs)} 秒）命令は受け付けられました。このページの読み取り先は確定した記録だけを読むので、devnet では反映まで数十秒かかることがあります。押し直す必要はありません。`}</p>`;
+};
+const homeErrorActions = (FS, busy) => (FS.homeChoice?.error?.retry
+  ? html`<div class="actions"><button type="button" class="btn small" data-act="home-confirm" data-own-retry="${FS.homeChoice.error.waited ?? ''}" ${raw(busy ? 'disabled' : '')}>${icon('return')}${L`もう一度確かめる`}</button></div>`
+  : homeReread(FS, busy));
 
 /**
  * (2026-11-18, ⑧ doc 31 §1 option A; page only) The heartland — the land where a first village is placed at once — has
@@ -131,7 +145,8 @@ export function renderNations(FS) {
       ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
-    ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeReread(FS, busy)}` : ''}
+    ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeErrorActions(FS, busy)}` : ''}
+    ${instant ? ownWaitLine(FS, 'nc-early') : ''}
     ${instant && FS.homeChoice?.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     ${instant && FS.homeDropped && !busy && !FS.citizen ? html`<p class="notice" role="status" data-home-dropped="${FS.homeDropped.why ?? 'context'}">${FS.homeDropped.why === 'unread'
       ? L`土地の候補を読み終えられなかったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。`
@@ -359,11 +374,11 @@ function renderInstantPlacing(FS) {
   const title = busy ? L`村を準備しています…` : L`最初の村を置いています`;
   return html`<section class="vcard wait-card" aria-labelledby="join-sites" aria-busy="${busy ? 'true' : 'false'}">
     ${waitHead(FS, title, 'instant')}
-    ${busy ? html`<p class="home-status" role="status">${(pending[choice.pending] ?? pending.confirming)()}</p>` : html`<p>${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</p>`}
-    ${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>${homeReread(FS, busy)}` : ''}
+    ${busy ? html`<p class="home-status" role="status">${(pending[choice.pending] ?? pending.confirming)()}</p>${ownWaitLine(FS)}` : html`<p>${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</p>`}
+    ${choice.error ? html`<p class="notice error" role="alert">${choice.error.text ?? failureText(choice.error)}</p>${homeErrorActions(FS, busy)}` : ''}
     ${choice.loading ? html`<p class="muted" role="status" data-homes="loading">${L`土地の候補を読み込んでいます…`}</p>` : ''}
     ${!FS.citizen ? renderJoinTerms(FS) : ''}
-    ${!busy ? html`<div class="actions"><button type="button" class="btn primary" data-act="home-confirm">${icon('home')}${L`村を築いて始める`}</button></div>` : ''}
+    ${!busy && !choice.error?.retry ? html`<div class="actions"><button type="button" class="btn primary" data-act="home-confirm">${icon('home')}${L`村を築いて始める`}</button></div>` : ''}
   </section>`;
 }
 
@@ -408,7 +423,11 @@ export function render(FS) {
   // (loop-play4 B-7: local play's page-signed economy signs with the page's own test wallet — there is no in-game key to
   //  make or fix (controller.mjs asks for none in local play); while a wide world's rim request settled, this card read as
   //  a key failure for about a minute. The request's own wait view is shown instead)
-  if (!FS.resident && !FS.localPlay && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
+  // (verify-pr172: devnet play likewise — the connected wallet is the Join's session key and signs every command, the
+  //  page makes no in-game key there (controller.mjs confirmHome `!devnetPlay`; the nation card says 「ゲーム内の鍵は作り
+  //  ません」). This card stood over the rim request's wait — its 「記録を待っています…」 line and 「もう一度確かめる」 — and
+  //  over the whole ticket turn, offering 「鍵を作り直す」 for a key devnet never uses)
+  if (!FS.resident && !FS.localPlay && !FS.devnetPlay && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;

@@ -62,7 +62,8 @@ test('K2 the run and its question', () => {
 
 test('K3 what it shows is its own; its end is its own', () => {
   assert.ok(chc.includes("const pending = p => { if (!mine()) return; run.choice.pending = p; invalidate('panel'); };"));
-  assert.ok(chc.includes("const error = (code, text) => { if (!mine()) return; run.choice.error = { code, text }; invalidate('panel'); };"));
+  // (fix-devnet-join-wait: the error may carry `retry` / `waited` — the record of a landed send not shown yet; still only on ITS choice)
+  assert.ok(chc.includes("const error = (code, text, more = null) => { if (!mine()) return; run.choice.error = { code, text, ...(more ?? {}) }; invalidate('panel'); };"));
   const afterRun = chc.slice(chc.indexOf('const run = {'));
   assert.doesNotMatch(afterRun, /FS\.homeChoice\.(busy|pending|error|selected) ?=/, 'nothing is written on "whatever choice stands now"');
   order(chc, 'finally {', 'run.choice.busy = false; run.choice.pending = null;', 'if (FS.homeChoice === run.choice && contextSeq !== run.ctx) FS.homeChoice = null;', "invalidate('panel', 'tabs', 'map');");
@@ -76,8 +77,8 @@ test('K4 a confirm that is no longer its own stops before every later step', () 
   // (after either re-check, before the place is read)
   order(chc, "else if (!tracked.ok && ['failed', 'expired'].includes(tracked.state)) saveHomePatch({ pending: null });", 'if (!mine()) return;', 'let site = run.choice.selected;',
     'const env = await loadEnvelope(site.p, site.q);', 'if (!mine()) return;', 'saveHomePatch({ selected: site });',
-    "pending('joining');", 'if (!await waitForOwn(() => !!FS.citizen)) return error(', 'if (!mine()) return;',
-    'homeJoinStill = mine;', 'const joined = await ACTIONS.join();', 'if (!joined?.ok || !mine()) return;', 'if (!await waitForOwn(() => !!FS.citizen)) return error(', 'if (!mine()) return;', 'saveHomePatch({ pending: null });',
+    "pending('joining');", "if (!await waitForOwn(() => !!FS.citizen, { what: 'join', still: mine })) return notShown(", 'if (!mine()) return;',
+    'homeJoinStill = mine;', 'const joined = await ACTIONS.join();', 'if (!joined?.ok || !mine()) return;', "if (!await waitForOwn(() => !!FS.citizen, { what: 'join', still: mine })) return notShown(", 'if (!mine()) return;', 'saveHomePatch({ pending: null });',
     'await ACTIONS.session(); await refresh();', 'if (!mine() || !FS.session || FS.sessionProblem) return;', "pending('placing');", "const placed = await act('PlaceHome',",
     'if (!mine()) return;', "if (!placed?.ok) { await refresh(); if (mine() && !FS.homeGrant) error(");
 });
@@ -138,14 +139,17 @@ test('K9 unchanged, word for word', () => {
   assert.ok(local.includes('onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } });'));
   assert.doesNotMatch(local, /fsession|FS\.session|SetSession|publicKeyBytes|faucet|payAndJoin|remember\(/);
   assert.match(ch, /const s = await localAct\.recheckLocalPending\(localActLedger, lscope, saved\.pending, \{ origin: g\.relay, still, lane: pl\.lane \}\);\n\s+if \(s\.state === 'left' \|\| !still\(\)\) return;\n\s+if \(s\.state === 'other-scope'\) return error\('PendingHome',/);
-  assert.match(ch, /\} else if \(saved\.pending\) \{\n\s+pending\('confirming'\);\n\s+const tracked = await tx\.track\(saved\.pending\.signature\);\n\s+await refresh\(\);\n\s+if \(FS\.homeGrant\) return;\n\s+if \(saved\.pending\.kind === 'Join' && FS\.citizen\) saveHomePatch\(\{ pending: null \}\);\n\s+else if \(!tracked\.ok && \['failed', 'expired'\]\.includes\(tracked\.state\)\) saveHomePatch\(\{ pending: null \}\);/);
+  // (fix-devnet-join-wait: between the read and the note's clearing, the wait for a landed Join / PlaceHome not shown yet)
+  assert.match(ch, /\} else if \(saved\.pending\) \{\n\s+pending\('confirming'\);\n\s+const tracked = await tx\.track\(saved\.pending\.signature\);\n\s+await refresh\(\);\n\s+if \(FS\.homeGrant\) return;\n[\s\S]{0,900}?\n\s+if \(saved\.pending\.kind === 'Join' && FS\.citizen\) saveHomePatch\(\{ pending: null \}\);\n\s+else if \(!tracked\.ok && \['failed', 'expired'\]\.includes\(tracked\.state\)\) saveHomePatch\(\{ pending: null \}\);/);
   assert.match(ch, /if \(!localPlay && !devnetPlay && !FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s+await ACTIONS\.session\(\);/);
   assert.ok(ch.includes("const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },"));
   assert.ok(joinOrdinary.includes("fields: { faction: FS.joinDraft.faction, session: s.publicKeyBytes, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },"));
 });
 
 test('K10 an unknown outcome is never a leave to send again', () => {
-  assert.equal(chc.split('saveHomePatch({ pending: null })').length - 1, 5, 'local: landed-and-seen, failed; ordinary: the same two; after this confirm\'s own Join is seen');
+  // (fix-devnet-join-wait adds two, both on what the page SEES: a rim village request's ticket or village shown — on the
+  //  re-check of its note, and after this confirm's own request; a landed send not shown yet is waited for, never cleared)
+  assert.equal(chc.split('saveHomePatch({ pending: null })').length - 1, 7, 'local: landed-and-seen, request-seen, failed; ordinary: the same two; after this confirm\'s own Join is seen; after its own request is seen');
   assert.equal(chc.split("return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);").length - 1, 4);
   assert.doesNotMatch(chc.slice(chc.indexOf('const run = {')), /saveHomeAt\(run\.note, \{ pending: null \}\)|storage\.set|localHomeMemory/);
   // (one Join and one PlaceHome asked for per confirm, as before)

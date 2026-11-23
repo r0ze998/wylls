@@ -52,15 +52,18 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --two           TWO people in ONE world (TEST-ONLY launcher option --contest-pair): the second person opens the
                   same page in another browser (or this browser at http://127.0.0.1:<port>/ instead of localhost)
                   and presses the same start button; the first start waits for the second (about 4 minutes, then
-                  press again). Kept worlds and --demo alike; --resume brings the same two back (either may press)
+                  press again). Kept worlds and --demo alike; --resume brings the same two back (either may press).
+                  Not with --wide or --external
   --demo          the 15-minute capture demo instead of a kept world: compressed clock, land preview, memory-only
-                  (a stop ends it for good; not resumable)
+                  (a stop ends it for good; not resumable; not with --resume or --wide)
   --speed N       with --demo or --wide: the compressed TEST clock, 10-60 (default 60: a turn is 10 s; the faster
                   the clock, the further a loaded machine's provinces trail the chain: try 15 to watch a war)
   --minutes N     the world's life in minutes, 15-240 (default 90)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999):
                   22 ports from BASE (14 with --ai 0), 8 more with --external and 1 for its MCP server.
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.
+                  The page answers at http://localhost:BASE/ and http://127.0.0.1:BASE/ only (loopback; any
+                  other host name or machine is refused: PLAY-LOCAL §9)
   --lang ja|en    language of this script's messages (default: from $LANG). The page itself follows the
                   browser's language; its top-right button switches 日本語 ⇄ English.
   --fresh         start a brand-new kept world (the default without --resume)
@@ -75,8 +78,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   marches into the wide land by "Prepare a boundary route" (「境界への道を準備」; after "Check terrain and time" press the card's
                   "Use a turn that leaves time to send (N)" for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's "Next step (wide land)" (「次の一手（広い土地）」) marches
                   wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and the "World" chart (「全体図」) draw the wide land as far as you have
-                  seen it (fog of war: no "Records" view). Memory-only: a stop ends it (not with --demo, --resume, --fresh
-                  or --two)
+                  seen it (fog of war: no "Records" view). Memory-only: a stop ends it (not with --demo, --resume, --fresh,
+                  --two or --coexist; --external works)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the

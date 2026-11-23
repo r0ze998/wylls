@@ -190,6 +190,6 @@ test('the home and land records are the viewer\'s: an NFT\'s own, never its wall
   assert.doesNotMatch(ctl, /if \((?:!localPlay && )?\(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s*await ACTIONS\.session\(\)/, 'no key step that forgets the resident');
   assert.match(ctl, /if \(\(!FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \|\| !Number\.isInteger\(FS\.citizen\?\.faction\) \|\| FS\.autoTicketBusy\) return;/);
   // an NFT's Citizen is never made by the wallet Join
-  assert.match(ctl, /if \(FS\.resident\) \{\n[^\n]*\n[^\n]*\n\s*if \(!await waitForOwn\(\(\) => !!FS\.citizen\)\) return error\('PendingHome'/);
+  assert.match(ctl, /if \(FS\.resident\) \{\n[^\n]*\n[^\n]*\n\s*if \(!await waitForOwn\(\(\) => !!FS\.citizen, \{ what: 'join', still: mine \}\)\) return notShown\('join'\)/);
   assert.match(readFileSync(new URL('../../permutation-server/web/frontier/hud/drawer.mjs', import.meta.url), 'utf8'), /if \(!FS\.wallet \|\| \(!FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\)\) return 'join';/);
 });

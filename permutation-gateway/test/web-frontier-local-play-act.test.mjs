@@ -438,9 +438,15 @@ test('COMING BACK TO A PENDING Join / PlaceHome: asked once at this scope\'s rel
   // the note is WRITTEN with the scope of the send, by both of its writers in local play
   assert.match(ctl, /onSent: \(r, sentUnder\) => saveHomePatch\(\{ pending: \{ kind: 'PlaceHome', signature: r\.signature, \.\.\.\(typeof sentUnder\?\.scope === 'string' \? \{ scope: sentUnder\.scope \} : \{\}\) \} \}\),/);
   assert.match(ctl, /onSent: \(r, sentUnder\) => \{ if \(FS\.homeChoice\?\.busy\) saveHomePatch\(\{ pending: \{ kind: 'Join', signature: r\.signature, \.\.\.\(typeof sentUnder\?\.scope === 'string' \? \{ scope: sentUnder\.scope \} : \{\}\) \} \}\); \},/);
-  assert.equal([...local.matchAll(/saveHomePatch\(\{ pending: null \}\)/g)].length, 2, 'the note is cleared in exactly those two cases');
-  // outside local play the re-check is word for word what it was
-  assert.match(ctl, /\} else if \(saved\.pending\) \{\n\s+pending\('confirming'\);\n\s+const tracked = await tx\.track\(saved\.pending\.signature\);\n\s+await refresh\(\);\n\s+if \(FS\.homeGrant\) return;\n\s+if \(saved\.pending\.kind === 'Join' && FS\.citizen\) saveHomePatch\(\{ pending: null \}\);\n\s+else if \(!tracked\.ok && \['failed', 'expired'\]\.includes\(tracked\.state\)\) saveHomePatch\(\{ pending: null \}\);/);
+  // (fix-devnet-join-wait: a third case, the same rule — a rim village request's note (FileTicket) is cleared when the
+  //  page SEES its ticket or its village; a landed send not shown yet is WAITED for (waitForOwn), never cleared unseen)
+  assert.equal([...local.matchAll(/saveHomePatch\(\{ pending: null \}\)/g)].length, 3, 'the note is cleared in exactly those three cases');
+  assert.match(local, /if \(saved\.pending\.kind === 'FileTicket' && ticketShown\(\)\) \{ saveHomePatch\(\{ pending: null \}\); return; \}/);
+  assert.match(local, /if \(s\.state === 'landed'\) \{[\s\S]*?if \(!await waitForOwn\(shown, \{ what: [^\n]*still: \(\) => still\(\) && mine\(\) \}\)\) return notShown\(/);
+  assert.match(ctl, /onSent: \(r, sentUnder\) => saveHomePatch\(\{ pending: \{ kind: 'FileTicket', signature: r\.signature, \.\.\.\(typeof sentUnder\?\.scope === 'string' \? \{ scope: sentUnder\.scope \} : \{\}\) \} \}\),/);
+  // outside local play the re-check is what it was, with the same wait for a landed Join / PlaceHome not shown yet
+  assert.match(ctl, /\} else if \(saved\.pending\) \{\n\s+pending\('confirming'\);\n\s+const tracked = await tx\.track\(saved\.pending\.signature\);\n\s+await refresh\(\);\n\s+if \(FS\.homeGrant\) return;\n[\s\S]{0,900}?\n\s+if \(saved\.pending\.kind === 'Join' && FS\.citizen\) saveHomePatch\(\{ pending: null \}\);\n\s+else if \(!tracked\.ok && \['failed', 'expired'\]\.includes\(tracked\.state\)\) saveHomePatch\(\{ pending: null \}\);/);
+  assert.match(ctl, /if \(tracked\.ok && saved\.pending\.kind === 'Join' && !FS\.citizen\) \{\n\s+if \(!await waitForOwn\(\(\) => !!FS\.citizen, \{ what: 'join', still: mine \}\)\) return notShown\('join'\);/);
 });
 
 test('the controller: the six are held from the moment they are sent, an unconfirmed outcome is recorded as that (never refused), a held order is only asked about; Join and PlaceHome need no in-game key in local play', () => {
