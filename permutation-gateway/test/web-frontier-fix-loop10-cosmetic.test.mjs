@@ -191,6 +191,17 @@ test('LP10-5: a taken keep\'s count is the chain keep record\'s garrison (and it
   bytes = pvAt({ holder: BOREALIS, garrison: 900 });
   await X.readExpeditionHolds(fs, { ...deps, nowBell: 480 });
   assert.deepEqual([X.expeditionRows(fs, () => [r])[0].expedition.hold.garrison, X.expeditionRows(fs, () => [r])[0].expedition.hold.garrisonAt], [601, 470]);
+  // (verify-pr175) … and the expedition no longer counts as holding that keep: a W2 host that takes it back later takes it
+  // alone (before: the W2 card said 「あなたの遠征の軍勢が先に着いて占拠を進めていた砦です」 for a keep Borealis had retaken)
+  assert.equal(X.expeditionRows(fs, () => [r])[0].expedition.hold.keepLostAt, 480);
+  assert.deepEqual(X.holdingExpeditions(fs, () => [r]), [], 'a keep another nation holds again is not held by the expedition');
+  const solo = followWideHold(null, await marchAt(520, provinceBytes(520, { hosts: [{ seq: 1, troops: 100_000 }], keep: { holder: BOREALIS, contender: ASTER, progress: 2 } })));
+  assert.equal(markWideHoldExpedition(solo, X.holdingExpeditions(fs, () => [r])).shared, undefined);
+  // (the lost keep is not read again, and a later own capture by another host does not move the record)
+  let reads = 0; bytes = pvAt({ holder: ASTER, garrison: 50 });
+  await X.readExpeditionHolds(fs, { ...deps, read: async () => { reads++; return [bytes]; }, nowBell: 600 });
+  assert.equal(reads, 0);
+  assert.deepEqual([X.expeditionRows(fs, () => [r])[0].expedition.hold.garrison, X.expeditionRows(fs, () => [r])[0].expedition.hold.garrisonAt, X.expeditionRows(fs, () => [r])[0].expedition.hold.keepLostAt], [601, 470, 480]);
   // not read: no number rather than the wrong one
   assert.equal(String(expeditionTroopsNote({ fate: 'stays', hold: { outcome: 'taken', at: 434 } }, 1289)), '');
   assert.equal(String(expeditionTroopsNote({ fate: 'destroyed', hold: null }, 0)), '');
