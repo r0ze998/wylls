@@ -3,8 +3,8 @@
 # Read-only like health.mjs (no process of the stack is touched). Start it detached:
 #   nohup zsh scripts/devnet/health-loop.sh >/dev/null 2>&1 &
 # Stop it: `touch $STOP` (it exits before its next run), or `kill $(cat $PIDFILE)`.
-# Env (defaults in brackets): UNTIL [1795521600 = 2026-11-24 21:00 JST], INTERVAL [600],
-#   FAST_FROM/FAST_TO/FAST_INTERVAL [19:30–20:40 JST 11-24 / 120 s: the CreateSeason → joinable window],
+# Env (defaults in brackets): UNTIL [1795550400 = 2026-11-25 05:00 JST], INTERVAL [600],
+#   FAST_FROM/FAST_TO/FAST_INTERVAL [02:12–03:30 JST 11-25 / 120 s: season 2's CreateSeason → joinable window],
 #   STATE_DIR [~/Projects/wylls-grok-state], NODE [/opt/homebrew/opt/node@20/bin/node].
 set -u
 HERE=${0:A:h}
@@ -15,10 +15,10 @@ STOP=$S/logs/devnet-health.stop
 STATE=$S/evidence/devnet-health/state.json
 REPORT=$S/reports/devnet-health.md
 NODE=${NODE:-/opt/homebrew/opt/node@20/bin/node}
-UNTIL=${UNTIL:-1795521600}
+UNTIL=${UNTIL:-1795550400}
 INTERVAL=${INTERVAL:-600}
-FAST_FROM=${FAST_FROM:-1795516200}
-FAST_TO=${FAST_TO:-1795520400}
+FAST_FROM=${FAST_FROM:-1795540320}
+FAST_TO=${FAST_TO:-1795545000}
 FAST_INTERVAL=${FAST_INTERVAL:-120}
 mkdir -p ${STATE:h}
 print -r -- $$ > $PIDFILE
