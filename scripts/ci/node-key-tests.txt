@@ -379,6 +379,7 @@ permutation-gateway/test/web-frontier-test-clock-wait.test.mjs
 permutation-gateway/test/web-frontier-tilt.test.mjs
 permutation-gateway/test/web-frontier-trace.test.mjs
 permutation-gateway/test/web-frontier-uplift.test.mjs
+permutation-gateway/test/web-frontier-w2-wipeout.test.mjs
 permutation-gateway/test/web-frontier-wait.test.mjs
 permutation-gateway/test/web-frontier-wasm.test.mjs
 permutation-gateway/test/web-frontier-wave2-hud.test.mjs
