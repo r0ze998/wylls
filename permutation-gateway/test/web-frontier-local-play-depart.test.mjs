@@ -213,6 +213,33 @@ test('an unknown outcome is not a success: it is asked about by its first signat
   }
 });
 
+// fix-loop11 (live, --wide ×60): the runner's preflight refused a departure (NotResident as the turn rolled under the
+// send) — the relay now says LocalPlayRejected with the program's number; and a departure that never landed is answered
+// `expired_unlanded` by the status route. Both are definite "did not leave": the seal is no march.
+test('fix-loop11: a runner rejection and a never-landed departure end the run, and their seal makes no march', async () => {
+  let p = await page();
+  let d = deps(p, { submit: () => { throw Object.assign(refusal('LocalPlayRejected'), { detail: { code: -32002, program_code: 26, err: { InstructionError: [4, { Custom: 26 }] } } }); } });
+  let s = await LD.runLocalDepart(p.fs, d.options);
+  assert.deepEqual([s.status, s.chain, s.programCode, s.code, s.sent], ['failed', 'rejected', 26, '{"InstructionError":[4,{"Custom":26}]}', true]);
+  assert.equal(d.count(T), 0, 'nothing to ask: the runner said it did not take it');
+  assert.equal(LD.localDepartReveals(p.fs)[0].refused.programCode, 26); assert.deepEqual(LD.localDepartSent(p.fs), []);
+  assert.equal(LD.clearLocalDepart(p.fs), true, 'a settled run');
+  // (a refusal that is NOT a definite rejection stays unknown, as before)
+  p = await page(); d = deps(p, { submit: () => { throw refusal('LocalPlaySendRefused'); }, status: () => ({ status: 'pending' }) });
+  assert.equal((await LD.runLocalDepart(p.fs, d.options)).status, 'unknown');
+  // expired_unlanded: believed only for this run's own last valid height and a context slot past it
+  for (const [label, shape, want] of [['ours', lv => ({ last_valid_block_height: lv, context_slot: Number(lv) + 5 }), 'expired'],
+    ['another height', lv => ({ last_valid_block_height: String(Number(lv) + 1), context_slot: Number(lv) + 9 }), 'submitted'],
+    ['a slot not past it', lv => ({ last_valid_block_height: lv, context_slot: Number(lv) }), 'submitted']]) {
+    p = await page(); let lv = null;
+    d = deps(p, { prepare: request => { const a = honest(request); lv = a.report.blockhash.last_valid_block_height; return a; }, status: () => ({ status: 'expired_unlanded', ...shape(lv) }) });
+    s = await LD.runLocalDepart(p.fs, d.options);
+    assert.equal(s.status, want, label);
+    assert.equal(!!LD.localDepartReveals(p.fs)[0].refused, want === 'expired', label);
+    if (want === 'expired') assert.equal(s.chain, 'expired_unlanded'); else assert.equal(s.error, 'BadLocalDepartStatus');
+  }
+});
+
 test('failed is the chain\'s own error and nothing else; a status that cannot be believed changes nothing', async () => {
   let p = await page(), d = deps(p, { status: () => ({ status: 'failed', err: { InstructionError: [4, { Custom: 58 }] }, slot: 12 }) });
   let s = await LD.runLocalDepart(p.fs, d.options);

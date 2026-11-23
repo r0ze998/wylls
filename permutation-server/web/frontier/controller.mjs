@@ -1721,11 +1721,13 @@ const localDepartGate = () => localDepart.localDepartAllowed({ localPlay, cluste
 const departToldFailed = new WeakSet();
 const departRefusedNotice = () => {
   const d = localDepart.localDepartOf(FS);
-  if (d.status !== 'failed' || !d.signature) return;
+  if (!['failed', 'expired'].includes(d.status) || !d.signature) return;
   const seal = localDepart.localDepartReveals(FS).find(x => x.signature === d.signature);
   if (!seal || departToldFailed.has(seal)) return;
   departToldFailed.add(seal);
-  setNotice({ ok: false, busy: false, text: () => L`遠征の出発はチェーンで断られました：${departRefusedReason(d)}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。` });
+  setNotice({ ok: false, busy: false, text: d.status === 'expired'
+    ? () => L`遠征の出発は期限までにチェーンに記録されませんでした。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。`
+    : () => L`遠征の出発はチェーンで断られました：${departRefusedReason(d)}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。` });
 };
 const localDepartChanged = () => { departRefusedNotice(); invalidate('map', 'panel'); };
 export const localPlayDepartAllowed = () => localDepartGate();

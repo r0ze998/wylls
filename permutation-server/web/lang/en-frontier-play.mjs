@@ -2400,4 +2400,7 @@ export default {
   "遠征の出発はチェーンで断られました：{0}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。": "The chain refused the expedition's departure: {0}. The host is still in the village. Press \"Check departure conditions\" on the boundary card to read again, then you can depart again.",
   "前の進軍はチェーンで断られました（送るあいだにターンが変わりました。NotResident）。軍勢は村にいます。次のターンにもう一度送ります。": "The chain refused the last march (the turn changed while it was being sent; NotResident). The host is still in the village. It is sent again next turn.",
   "前の進軍はチェーンで断られました（上の知らせに理由があります）。軍勢は村にいます。進軍の回数には数えません。": "The chain refused the last march (the notice above gives the reason). The host is still in the village. It does not count as a march.",
+  "出発は期限までにチェーンに記録されませんでした（これから記録されることはありません）。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 {0}": "The departure was not recorded on the chain in time (it never will be). The host did not leave (it is still in the village) and is not listed under marches. Signature {0}",
+  "遠征の出発は期限までにチェーンに記録されませんでした。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。": "The expedition's departure was not recorded on the chain in time. The host is still in the village. Press \"Check departure conditions\" on the boundary card to read again, then you can depart again.",
+  "出発は送る前の確かめで断られました（チェーンには届いていません）。": "The departure was refused by the check before sending (it never reached the chain).",
 };

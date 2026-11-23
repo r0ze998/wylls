@@ -28,6 +28,8 @@ import { seasonPda, seasonAddresses } from '../../../permutation-server/web/fron
 import { localPlayTurnGate } from './local-play-turns.mjs';
 import { createExpeditionDepartPrepare, ExpeditionDepartPrepareError, DEPART_PREPARE_PROGRAM_VERSION } from './expedition-depart-prepare.mjs';
 import { onLocalLane } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
+// (fix-loop11: the runner's definite "not taken" answers, the same reading as the act routes; a function — the import cycle is safe)
+import { runnerRejection } from './local-play-act.mjs';
 
 export const LOCAL_PLAY_PROGRAM = encode(new Uint8Array(32).fill(0x45));
 export const LOCAL_PLAY_SEASON_ID = 11;
@@ -58,6 +60,9 @@ const ERRORS = Object.freeze({
   LocalPlayBusy: [429, 'too many prepared messages are waiting'],
   LocalPlayRpcUnavailable: [503, 'the local-play runner did not answer'],
   LocalPlaySendRefused: [502, 'the local-play runner refused the transaction'],
+  // (fix-loop11: the runner's send answered that it did NOT take the departure — its preflight ran it and the program
+  //  refused it, or the signature does not verify: never queued, never on the chain. detail.program_code when known)
+  LocalPlayRejected: [422, 'the local-play runner rejected the transaction before running it: it was not sent'],
   // (one action per resident per bell, local-play-turns.mjs: only on a relay started with --resident-turns)
   ResidentAlreadyActed: [409, 'this resident already acted in this bell'],
   ResidentTurnUnavailable: [503, 'the resident turn lease cannot be recorded'],
@@ -323,7 +328,11 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
         // timeout / network error after the send began: the outcome is unknown
         return { status: 'unknown', signature: sig, status_route: routes.status };
       }
-      if (sent?.error) fail('LocalPlaySendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig });
+      if (sent?.error) {
+        const rj = runnerRejection(sent.error);
+        if (rj) fail('LocalPlayRejected', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig, err: rj.err, program_code: rj.programCode });
+        fail('LocalPlaySendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig });
+      }
       if (sent?.result !== sig) return { status: 'unknown', signature: sig, status_route: routes.status };
       return { status: 'submitted', signature: sig, status_route: routes.status };
     },

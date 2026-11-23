@@ -545,7 +545,8 @@ function outboundLocalDepart(FS, ready) {
   const line = step ? html`<p class="pop-line local-depart-step" role="status">${step}</p>`
     : d.status === 'confirmed' ? html`<p class="pop-line local-depart-done" role="status">${L`出発が確定しました（ターン ${d.arriveBell} に到着予定・移動枠 ${d.transitSlot}）。署名 ${sig}`}</p>`
     : d.status === 'submitted' ? html`<p class="pop-line local-depart-sent" role="status">${L`送信しました。確定はまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
-    : d.status === 'failed' ? html`<p class="pop-line local-depart-failed" role="alert">${L`出発はチェーンで断られました：${departRefusedReason(d)}。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 ${sig}`}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line local-depart-failed" role="alert">${L`出発はチェーンで断られました：${departRefusedReason(d)}。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 ${sig}`}${d.chain === 'rejected' ? html` <span>${L`出発は送る前の確かめで断られました（チェーンには届いていません）。`}</span>` : ''}</p>`
+    : d.status === 'expired' ? html`<p class="pop-line local-depart-expired" role="alert">${L`出発は期限までにチェーンに記録されませんでした（これから記録されることはありません）。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 ${sig}`}</p>`
     : d.status === 'unknown' ? html`<p class="pop-line local-depart-unknown" role="alert">${L`結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
     : d.status === 'error' ? html`<p class="pop-line local-depart-error" role="alert">${L`出発できませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
   // (fix-loop8, LP8-1: the page's own retry after a run ended unsent because the clock moved — controller sendLocalPlayDeparture)
