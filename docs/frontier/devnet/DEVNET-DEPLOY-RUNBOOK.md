@@ -337,8 +337,9 @@ fbe51529): the same figures at both rates.
 
 **Keeper A, one whole season measured offline** (devnet-dress-rehearsal run4, 2026-11-23: the §8 keeper.toml with
 `wide_rings = 1`, five pages and two external residents, bell 0 to 1,012, rent 5,080): **17,041 transactions, 0.881
-SOL out of its payers, of which 0.273 SOL is fees** (spent) and the rest is rent that its `close` role or the
-season's end returns. By role: SkipQuiet 13,852 sends / 0.225 SOL; GatherClash 78 / 0.537 SOL (ClashInputs float);
+SOL out of its payers, of which 0.273 SOL is fees** (spent) and the rest is rent that its `close` role returns
+while it keeps running (it must drain before `end-season`'s final part: after the tombstone nothing closes those
+floats, §6c step 3). By role: SkipQuiet 13,852 sends / 0.225 SOL; GatherClash 78 / 0.537 SOL (ClashInputs float);
 `wide-resolve` 200 × 64,331 lamports; 2,489 refused ArchiveAnchors ≈ 0.023 SOL (the harness's declared anchors; an
 offline-only refusal, but keeper A has no backoff for a write the chain keeps refusing, D-dress-8). That season was
 small (7 players, 36 wide provinces, few of them known): the "+3 SOL" budget above stays the figure to fund, and the
