@@ -18,11 +18,31 @@
 //
 // usage: node scripts/devnet/health.mjs [--no-rpc] [--no-public] [--json]
 //          [--state FILE] [--report FILE] [--log-lines N] [--run-dir DIR] [--logs DIR]
+//          [--restart-warn-min N]
 //          [--rpc-gap-ms N (>= 1000, default 1100)] [--timeline]
 //   --state FILE   remember the first time each milestone was seen (CreateSeason,
 //                  Seeded, Running, keeper start, WideSetRules, join check) across runs
+//                  and each process's PID, so a restart is seen as "the PID of the
+//                  previous run is gone"
+//   --restart-warn-min N  how long a restart stays a WARN, in minutes [30]
 //   --report FILE  keep an `ALERT …` line at the top of FILE while/after a check fails
 //   --timeline     print the milestone timeline from --state and exit
+//
+// Processes are matched by command pattern only; no PID is written in this file.
+// A wanted process that is not running is a FAIL. "restarted" is a WARN only:
+//   with --state    on the run that finds a different PID than the previous run did,
+//                   and after that until the new process is N minutes old; then OK
+//                   with its current PID and uptime. A process the state file has
+//                   not seen before is OK (a first start is not a restart).
+//   without --state while the process is younger than N minutes (there is no previous
+//                   run to compare with, so a first start shows the same WARN).
+// Optional overrides, read-only, in <run-dir>/health-procs.json (absent = none):
+//   { "restartWarnMin": 30,
+//     "procs": { "proc.herald": { "pid": 12345 },
+//                "proc.keeper": { "pidfile": "keeper-a/keeper.pid" } } }
+// A key with an expected PID (given, or read from the pidfile, path relative to
+// --run-dir) is OK only with that PID at any age and a WARN with any other; a
+// bad file or entry is one `proc.overrides` WARN line and is otherwise ignored.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -144,22 +164,32 @@ export function tunnelHost(text) {
   return all.length ? all[all.length - 1][1] : null;
 }
 
-/** Processes the stack should have now, given what the logs say happened. */
+/**
+ * A shell script run as `[/path/]zsh|bash|sh [-flags] [path/]NAME.sh [args]`. Every pattern is anchored to the
+ * program being run, so a line that only mentions the name (`pgrep -f run-herald.sh`, the season driver's own
+ * `pgrep -f "frontier-keeper --config …"`, `tail -f …`, an editor) is not taken for the process.
+ */
+const shRe = (name) => new RegExp(`^(?:\\S*\\/)?(?:ba|z|da|k)?sh(?:\\s+-\\S+)*\\s+(?:\\S*\\/)?${name}\\.sh(?:\\s|$)`);
+
+/**
+ * Processes the stack should have now, given what the logs say happened. Matched by command pattern only:
+ * no PID is written here (a planned restart changes the PID; see procCheck for what counts as "restarted").
+ */
 export function expectedProcs(ms, joinDone) {
   const setup = Boolean(ms.setupComplete);
   const stop = Boolean(ms.driverStop);
   return [
-    { key: 'proc.season-driver', re: /season-driver\.sh/, want: !setup && !stop, pid: 92587, gone: setup ? 'finished (setup complete)' : 'STOPPED (see driver log)' },
-    { key: 'proc.gateway-starter', re: /gateway-starter\.sh/, want: !ms.gatewayStarted, pid: 95878, gone: 'finished (gateway started)' },
-    { key: 'proc.gateway-supervisor', re: /run-gateway\.sh/, want: Boolean(ms.gatewayStarted), notYet: 'not yet (starts once the herald has a rulesetHash, after CreateSeason)' },
-    { key: 'proc.gateway', re: /permutation-gateway\/src\/frontier\/server\.mjs.*--port 41130/, want: Boolean(ms.gatewayStarted), notYet: 'not yet' },
-    { key: 'proc.herald-supervisor', re: /run-herald\.sh/, want: true, pid: 94338 },
-    { key: 'proc.herald', re: /frontier-herald .*--listen 127\.0\.0\.1:41140/, want: true, pid: 94463 },
-    { key: 'proc.keeper-supervisor', re: /run-keeper\.sh/, want: Boolean(ms.keeperStarted), notYet: 'not yet (the driver starts it after CreateSeason)' },
-    { key: 'proc.keeper', re: /frontier-keeper --config keeper-a\/keeper\.toml/, want: Boolean(ms.keeperStarted), notYet: 'not yet' },
-    { key: 'proc.join-check', re: /join-check\.sh/, want: !joinDone && !stop, pid: 14077, gone: 'finished' },
-    { key: 'proc.tunnel', re: /cloudflared tunnel .*127\.0\.0\.1:41140/, want: true, pid: 93889 },
-    { key: 'proc.caffeinate', re: /caffeinate -is/, want: true, pid: 92887 },
+    { key: 'proc.season-driver', re: shRe('season-driver'), want: !setup && !stop, gone: setup ? 'finished (setup complete)' : 'STOPPED (see driver log)' },
+    { key: 'proc.gateway-starter', re: shRe('gateway-starter'), want: !ms.gatewayStarted, gone: 'finished (gateway started)' },
+    { key: 'proc.gateway-supervisor', re: shRe('run-gateway'), want: Boolean(ms.gatewayStarted), notYet: 'not yet (starts once the herald has a rulesetHash, after CreateSeason)' },
+    { key: 'proc.gateway', re: /^(?:\S*\/)?node(?:\s+-\S+)*\s+(?:\S*\/)?permutation-gateway\/src\/frontier\/server\.mjs\s.*--port 41130(?!\d)/, want: Boolean(ms.gatewayStarted), notYet: 'not yet' },
+    { key: 'proc.herald-supervisor', re: shRe('run-herald'), want: true },
+    { key: 'proc.herald', re: /^(?:\S*\/)?frontier-herald\s.*--listen 127\.0\.0\.1:41140(?!\d)/, want: true },
+    { key: 'proc.keeper-supervisor', re: shRe('run-keeper'), want: Boolean(ms.keeperStarted), notYet: 'not yet (the driver starts it after CreateSeason)' },
+    { key: 'proc.keeper', re: /^(?:\S*\/)?frontier-keeper\s+--config keeper-a\/keeper\.toml(?:\s|$)/, want: Boolean(ms.keeperStarted), notYet: 'not yet' },
+    { key: 'proc.join-check', re: shRe('join-check'), want: !joinDone && !stop, gone: 'finished' },
+    { key: 'proc.tunnel', re: /^(?:\S*\/)?cloudflared\s+tunnel\s.*127\.0\.0\.1:41140(?!\d)/, want: true },
+    { key: 'proc.caffeinate', re: /^(?:\S*\/)?caffeinate\s+-is(?:\s|$)/, want: true },
   ];
 }
 
@@ -169,19 +199,85 @@ export function parsePs(text) {
     .map((m) => ({ pid: Number(m[1]), etime: m[2], cmd: m[3] }));
 }
 
-/** One process check → {level, detail}. */
-export function procCheck(spec, procs) {
-  const hits = procs.filter((p) => spec.re.test(p.cmd) && !/\bgrep\b|health\.mjs/.test(p.cmd));
-  if (hits.length === 0) {
-    if (spec.want) return { level: 'FAIL', detail: 'not running' };
-    return { level: 'OK', detail: spec.gone && !spec.notYet ? spec.gone : (spec.notYet ?? 'not running (not expected)') };
+/** ps etime (`[[dd-]hh:]mm:ss`) → seconds, or null when it is not in that form. */
+export function etimeSeconds(etime) {
+  const m = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(String(etime ?? ''));
+  if (!m) return null;
+  return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]);
+}
+
+export const RESTART_WARN_MIN = 30;
+export const OVERRIDES_FILE = 'health-procs.json';
+
+/**
+ * The optional `<run-dir>/health-procs.json`, read-only:
+ *   { "restartWarnMin": 30, "procs": { "proc.herald": { "pid": 12345 }, "proc.keeper": { "pidfile": "keeper-a/keeper.pid" } } }
+ * `readFile(path)` returns the text or null. → {restartWarnMin?, expect: {key: {pid, src}}, problems: [text]}.
+ * A pidfile path is taken relative to the run dir; only a decimal PID is read from it.
+ */
+export function procOverrides(runDir, readFile) {
+  const r = { expect: {}, problems: [] };
+  const text = readFile(path.join(runDir, OVERRIDES_FILE));
+  if (text == null) return r;
+  let j;
+  try { j = JSON.parse(text); } catch (e) { r.problems.push(`${OVERRIDES_FILE} is not JSON (${e.message}); ignored`); return r; }
+  if (j === null || typeof j !== 'object' || Array.isArray(j)) { r.problems.push(`${OVERRIDES_FILE} is not an object; ignored`); return r; }
+  if (j.restartWarnMin != null) {
+    if (Number.isFinite(j.restartWarnMin) && j.restartWarnMin >= 0) r.restartWarnMin = j.restartWarnMin;
+    else r.problems.push(`restartWarnMin ${JSON.stringify(j.restartWarnMin)} is not a number >= 0; ignored`);
   }
-  const p = hits[0];
-  const moved = spec.pid && !hits.some((h) => h.pid === spec.pid);
-  const more = hits.length > 1 ? ` (+${hits.length - 1} more: ${hits.slice(1).map((h) => h.pid).join(',')})` : '';
-  if (!spec.want) return { level: 'OK', detail: `pid ${p.pid} up ${p.etime} (still running)${more}` };
-  if (moved) return { level: 'WARN', detail: `pid ${p.pid} up ${p.etime} — was ${spec.pid} (restarted)${more}` };
-  return { level: 'OK', detail: `pid ${p.pid} up ${p.etime}${more}` };
+  const isPid = (n) => Number.isSafeInteger(n) && n > 0;
+  for (const [key, v] of Object.entries(j.procs && typeof j.procs === 'object' ? j.procs : {})) {
+    if (v && isPid(v.pid)) r.expect[key] = { pid: v.pid, src: OVERRIDES_FILE };
+    else if (v && typeof v.pidfile === 'string' && v.pidfile) {
+      const t = readFile(path.resolve(runDir, v.pidfile));
+      const m = /^\s*(\d{1,10})\s*$/.exec(t ?? '');
+      if (m && isPid(Number(m[1]))) r.expect[key] = { pid: Number(m[1]), src: `pidfile ${v.pidfile}` };
+      else r.problems.push(`${key}: pidfile ${v.pidfile} ${t == null ? 'not readable' : 'holds no PID'}; ignored`);
+    } else r.problems.push(`${key}: needs "pid" (a number) or "pidfile" (a path); ignored`);
+  }
+  return r;
+}
+
+/**
+ * One process check → {level, detail, rec}. `rec` ({pid, restarted, was}) is what --state keeps for the next run.
+ * ctx (all optional):
+ *   expect   {pid, src}  an expected PID from health-procs.json: any other PID is a WARN, that PID is OK at any age
+ *   tracked  true when --state is in use; prev = this key's record from the previous run. Then "restarted" = the
+ *            PID the previous run saw is gone (WARN on that run), and it stays a WARN until the new process is
+ *            warnMin minutes old. A process first seen by this state file is not a restart.
+ *   warnMin  minutes [30]. Without --state there is no previous run, so a wanted process younger than this is
+ *            the WARN ("restarted or first start").
+ */
+export function procCheck(spec, procs, ctx = {}) {
+  const { expect, tracked = false, prev, warnMin = RESTART_WARN_MIN } = ctx;
+  const hits = procs.filter((p) => spec.re.test(p.cmd) && !/^\S*(?:grep|pkill)\s|health\.mjs/.test(p.cmd));
+  if (hits.length === 0) {
+    if (spec.want) return { level: 'FAIL', detail: 'not running', rec: prev };
+    return { level: 'OK', detail: spec.gone && !spec.notYet ? spec.gone : (spec.notYet ?? 'not running (not expected)'), rec: prev };
+  }
+  const known = [expect?.pid, prev?.pid].filter(Boolean);
+  const p = known.map((pid) => hits.find((h) => h.pid === pid)).find(Boolean) ?? hits[0];
+  const rest = hits.filter((h) => h !== p);
+  const more = rest.length ? ` (+${rest.length} more: ${rest.map((h) => h.pid).join(',')})` : '';
+  const up = etimeSeconds(p.etime);
+  const young = up != null && up < warnMin * 60;
+  const age = up == null ? '' : `${Math.floor(up / 60)} min ago`;
+  const here = `pid ${p.pid} up ${p.etime}`;
+  const sameAsPrev = prev?.pid === p.pid;
+  const rec = { pid: p.pid, restarted: sameAsPrev ? Boolean(prev.restarted) : Boolean(tracked && prev?.pid), ...(sameAsPrev ? (prev.was ? { was: prev.was } : {}) : (prev?.pid ? { was: prev.pid } : {})) };
+  if (!spec.want) return { level: 'OK', detail: `${here} (still running)${more}`, rec };
+  if (expect) {
+    if (p.pid === expect.pid) return { level: 'OK', detail: `${here} (expected pid, ${expect.src})${more}`, rec };
+    return { level: 'WARN', detail: `${here} — expected pid ${expect.pid} (${expect.src}) (restarted)${more}`, rec };
+  }
+  if (tracked) {
+    if (prev?.pid && !sameAsPrev) return { level: 'WARN', detail: `${here} — was ${prev.pid} at the previous run (restarted)${more}`, rec };
+    if (sameAsPrev && prev.restarted && young) return { level: 'WARN', detail: `${here} — restarted ${age}${prev.was ? `, was ${prev.was}` : ''} (WARN until ${warnMin} min old)${more}`, rec };
+    return { level: 'OK', detail: `${here}${more}`, rec };
+  }
+  if (young) return { level: 'WARN', detail: `${here} — started ${age} (restarted or first start; WARN until ${warnMin} min old)${more}`, rec };
+  return { level: 'OK', detail: `${here}${more}`, rec };
 }
 
 /** Season phase vs the clock → {level, detail}. */
@@ -253,6 +349,7 @@ function parseArgs(argv) {
     else if (k === '--report') o.report = v();
     else if (k === '--log-lines') o.logLines = Number(v());
     else if (k === '--run-dir') o.runDir = v();
+    else if (k === '--restart-warn-min') { o.restartWarnMin = Number(v()); if (!(o.restartWarnMin >= 0)) throw new Error('--restart-warn-min needs a number >= 0'); }
     else if (k === '--logs') o.logs = v();
     else if (k === '--rpc-gap-ms') o.rpcGapMs = Math.max(1000, Number(v()));
     else if (k === '-h' || k === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\nimport ')[0]); process.exit(0); }
@@ -331,7 +428,17 @@ export async function runChecks(o) {
   let procs = [];
   try { procs = parsePs(o.psText ?? execFileSync('ps', ['-axo', 'pid=,etime=,command='], { encoding: 'utf8', maxBuffer: 16 << 20 })); }
   catch (e) { add('FAIL', 'proc.ps', `ps failed: ${e.message}`); }
-  for (const spec of expectedProcs(ms, joinDone)) { const r = procCheck(spec, procs); add(r.level, spec.key, r.detail); }
+  // "restarted" is judged against the previous run (--state) or the process's age, never a PID written in this file
+  const prevState = o.prevState ?? (o.state ? JSON.parse(readText(o.state) ?? '{}') : null);
+  const ov = procOverrides(o.runDir, readText);
+  if (ov.problems.length) add('WARN', 'proc.overrides', ov.problems.join('; '));
+  const warnMin = o.restartWarnMin ?? ov.restartWarnMin ?? RESTART_WARN_MIN;
+  const procState = {};
+  for (const spec of expectedProcs(ms, joinDone)) {
+    const r = procCheck(spec, procs, { expect: ov.expect[spec.key], tracked: prevState != null, prev: prevState?.procs?.[spec.key], warnMin });
+    add(r.level, spec.key, r.detail);
+    if (r.rec) procState[spec.key] = r.rec;
+  }
 
   // RPC (read-only): genesis first, then slot, season account, balances
   let rpcSlot = null;
@@ -453,7 +560,7 @@ export async function runChecks(o) {
     add(lv, `log.${f.replace(/^devnet-|\.log$/g, '')}`, `last ${c.lines} lines: ${c.error} error, ${c.restart} restart, ${c.fatal} fatal${last ? ` | ${last.slice(0, 140)}` : ''}`);
   }
 
-  return { at: now, out, ms, season };
+  return { at: now, out, ms, season, procs: procState };
 }
 
 export function overallOf(out) {
@@ -463,8 +570,9 @@ export function overallOf(out) {
 }
 
 /** Merge first-seen milestone times into the state file. */
-export function mergeState(state, { at, ms, season }) {
+export function mergeState(state, { at, ms, season, procs }) {
   const s = { ...state, firstSeen: { ...(state.firstSeen ?? {}) }, fromLogs: { ...(state.fromLogs ?? {}) } };
+  if (procs) s.procs = { ...(state.procs ?? {}), ...procs };
   const seen = (k) => { if (!s.firstSeen[k]) s.firstSeen[k] = jst(at); };
   if (season) {
     seen(`status:${season.statusName}`);
