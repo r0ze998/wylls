@@ -117,6 +117,10 @@ export function seenFlag(FS, f) {
     if (fogActive(FS) && !(FS?.holdings ?? []).length) return { ...f, ...hidden, holder: null, seen: 'never' };
     return { ...f, seen: 'live' };
   }
+  // (fix-loop13, LP13-11: the viewer's own nation's keeps are always known — map/fog.mjs fogKeeps — but in `--wide` the
+  //  page's keep map lacks most rim keeps, so a flag keep the judge says the viewer's nation holds was told "not seen".
+  //  The judge's holder is enough here: telling the viewer that their own nation holds a keep leaks nothing of others)
+  if (nation(FS?.citizen?.faction) && f.holder === FS.citizen.faction) return { ...f, seen: 'live' };
   const keeps = viewKeeps(FS?.conquest?.keeps);
   const k = keeps instanceof Map ? keeps.get(`${f.p},${f.q}`) ?? null : null;
   if (!k) return { ...f, ...hidden, holder: null, seen: 'never' };

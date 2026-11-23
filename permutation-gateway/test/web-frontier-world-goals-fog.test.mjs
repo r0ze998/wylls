@@ -93,6 +93,28 @@ test('world goals card: the viewer\'s own nation\'s flag keep is always told liv
   assert.match(s, /満たすまで あと 104 ターン/);
 }));
 
+test('fix-loop13 LP13-11: an own-nation flag keep missing from the page\'s keep map (a far --wide rim keep) is told live; another nation\'s is not', () => run(() => {
+  // the page's keep map has no entry for the flag keep at all (in --wide it holds ~45 keeps, not the far rim ones)
+  const bare = FS => { F.viewKeeps(new Map()); return { ...FS, conquest: { keeps: new Map() } }; };
+  const mine = bare(world(NONE(), { holder: VIEWER }));
+  assert.equal(UI.seenFlag(mine, answer(VIEWER).flagKeeps.flags[0]).seen, 'live');
+  const s = card(mine, VIEWER);
+  assert.match(s, /（あなたの国）/);
+  assert.match(s, /満たすまで あと 104 ターン/);
+  assert.doesNotMatch(s, /まだ見ていません/);
+  setLang('en');
+  assert.doesNotMatch(card(mine, VIEWER), /not seen/i);
+  setLang('ja');
+  // the same keep held by another nation stays unseen: no holder, no timer, no siege
+  const theirs = bare(world(NONE(), { holder: ENEMY }));
+  const t = card(theirs, ENEMY);
+  assert.match(t, /この州の砦は、まだ見ていません/);
+  assert.doesNotMatch(t, /持ち主 |包囲中|満たすまで/);
+  // and a viewer with no nation read yet gets no shortcut
+  const none = { ...theirs, citizen: null };
+  assert.equal(UI.seenFlag(none, answer(VIEWER).flagKeeps.flags[0]).seen, 'never');
+}));
+
 test('world goals card: without the fog every flag keep is told live (as before)', () => run(() => {
   F.resetFogNow();
   const FS = { season: { seasonId: '11' }, pin: { programId: 'P' }, citizen: { faction: VIEWER }, wallet: { address: 'W' }, conquest: { keeps: new Map() } };
