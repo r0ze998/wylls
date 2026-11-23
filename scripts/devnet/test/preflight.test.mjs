@@ -571,3 +571,18 @@ test('verify-pr181: keeper token / seed relative paths are looked up from the re
   assert.equal(byId(rs, 'cfg.keeper').status, 'FAIL');
   assert.match(byId(rs, 'cfg.keeper').detail, /looked at .*keeper-a\/keeper\.token: relative to the repository root/);
 });
+
+test('verify-pr181: --deployer-address is judged against the deploy peak at the rent just read (30.03 SOL at 6,960), not always 21.93', async () => {
+  const DEPLOYER = 'SysvarC1ock11111111111111111111111111111111';
+  const so = { [SO_PATH]: fakeSo({ len: 3_447_064 }) };
+  const opts = { rpc: 'https://api.devnet.solana.com', deployerAddress: DEPLOYER, profilePath: PROFILE_PATH, soPath: SO_PATH };
+  let io = fakeIo({ files: so, http: rpcAnswers({ rate: 6960, balance: 25e9 }) });
+  let r = await checkRpc(io, filled(), opts);
+  assert.equal(byId(r.results, 'rpc.funds.deployer').status, 'WARN', JSON.stringify(r.results));
+  assert.match(byId(r.results, 'rpc.funds.deployer').detail, /deployer holds 25\.00 SOL; deploy peak 30\.03 at 6,960/);
+  io = fakeIo({ files: so, http: rpcAnswers({ rate: 5080, balance: 25e9 }) });
+  r = await checkRpc(io, filled(), opts);
+  assert.equal(byId(r.results, 'rpc.funds.deployer').status, 'PASS');
+  assert.match(byId(r.results, 'rpc.funds.deployer').detail, /deploy peak 21\.93 at 5,080/);
+  assert.equal(io.calls.exec.length, 0);
+});

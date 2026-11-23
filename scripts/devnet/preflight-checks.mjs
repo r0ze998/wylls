@@ -404,9 +404,12 @@ export async function checkRpc(io, profile, opts) {
       if (!isAddress(opts.deployerAddress)) out.push(fail('rpc.funds.deployer', '5', `--deployer-address ${opts.deployerAddress} is not an address`, 'solana address -k deployer.json'));
       else {
         const b = await c.call('getBalance', [opts.deployerAddress]);
-        const need = 21.93 * LAMPORTS;
-        if (b.value >= need) out.push(pass('rpc.funds.deployer', '5', `deployer holds ${solStr(b.value)} SOL (deploy peak 21.93 at 5,080)`));
-        else out.push(warn('rpc.funds.deployer', '5', `deployer holds ${solStr(b.value)} SOL; the deploy peak is ~21.93 at 5,080 (30.03 at 6,960)`, 'faucet into the deployer before §8 step 3'));
+        // verify-pr181: the deploy peak at the rate just READ (30.03 SOL at 6,960), not always the 5,080 figure.
+        const planned = rate && opts.soPath && opts.profilePath && profile.rent.lamportsPerByteCandidates.includes(rate) ? planAt(io, { profilePath: opts.profilePath, soPath: opts.soPath, rate }) : null;
+        const atRate = planned && !planned.error ? { need: Number(planned.peak), rate } : { need: 21.93 * LAMPORTS, rate: 5080 };
+        const peakText = `deploy peak ${solStr(atRate.need)} at ${atRate.rate.toLocaleString('en-US')}`;
+        if (b.value >= atRate.need) out.push(pass('rpc.funds.deployer', '5', `deployer holds ${solStr(b.value)} SOL (${peakText})`));
+        else out.push(warn('rpc.funds.deployer', '5', `deployer holds ${solStr(b.value)} SOL; ${peakText}`, 'faucet into the deployer before §8 step 3 (5 SOL a request)'));
       }
     }
   } catch (e) {
@@ -793,7 +796,7 @@ export async function preflight(argv, io, extra = {}) {
   results.push(...checkKeyFiles(io, opts));
   const art = checkArtefact(io, profile, opts);
   results.push(...art.results);
-  const rpc = await checkRpc(io, profile, opts);
+  const rpc = await checkRpc(io, profile, { ...opts, profilePath, soPath: art.so ? art.soPath : null });
   results.push(...rpc.results);
   const rates = [{ rate: opts.rate ?? profile.rent.assume, why: opts.rate ? '--rate' : 'profile rent.assume' }];
   const measured = rpc.rate ?? opts.measuredRate;
