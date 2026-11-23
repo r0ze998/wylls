@@ -562,8 +562,11 @@ fund / 20 SOL defence pool float. The deployed program (base 6912906d, .so 67a33
 2c29496f; `devnet_preset_wide.rs` `s1_devnet_wide_continuous_never_ends_and_keeps_growing` on that .so). Season 1
 was announced with the 7-day preset; AnnounceSeason pins the params hash, so the continuous world is season **2**
 (`operator.seasonId` 2) with its own announce and 24 h lead. Season 1 stays Announced and is never created: the
-authority may AbortSeason it (bond back before its genesis round time, burned after; anyone may abort it once its
-7-day window closes, and the bond then burns). Every "per 7-day season" fee below repeats each week.
+authority may AbortSeason it (its 1 SOL bond comes back only before its genesis round time, about 2026-11-24
+19:59 JST, and is burned after; anyone may abort it once its 7-day CreateSeason window closes, 2026-12-01 19:38 JST,
+and the bond then burns). No `frontier-operator` command sends AbortSeason. When the world changes season id, also
+re-point the services (herald/gateway `--season`, keeper.toml `season`, a fresh herald `--data` dir) and the health
+monitor (`scripts/devnet/health.mjs` pins the Season address and its CreateSeason time). Every "per 7-day season" fee below repeats each week.
 
 ### 6b. The playable lane's season: `frontier-operator --preset S1_DEVNET_WIDE_CONTINUOUS` **[r0ze, only after §5a]**
 
@@ -597,7 +600,7 @@ H=<the sha256 r0ze approved in §5a, today (P14 b) 67a33c9231560fe95280d00d56b02
 $B --profile $P --offline        # the plan at rent.assume, no RPC
 $B --profile $P --authority $K   # dry run on devnet: the cluster's rent, the balance, the deployed program's sha256
                                  # and markers, "SEND GATE: OPEN/CLOSED"; sends nothing
-$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-1.jsonl
+$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-2.jsonl
 #   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"
 # 24 h 5 min later, the same command:
 #   → CreateSeason, InitBeaconLogs, InitShards × 6; exit 3 "WideSetRules needs the season Seeded"
@@ -953,7 +956,7 @@ P=scripts/devnet/devnet-playable-profile.json
 K=~/wylls-devnet-keys/authority.json
 $B --profile $P --offline                                  # the plan, no RPC
 $B --profile $P --authority $K                             # dry run on devnet: rent, balance, deployed sha256, gate
-$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-1.jsonl
+$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-2.jsonl
 #   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"
 #   24 h 5 min later, the same line → CreateSeason, InitBeaconLogs, InitShards × 6; exit 3 "WideSetRules needs the season Seeded"
 #   start keeper A (step 5); about 21 min after T it consumes the genesis round; then the same line once more

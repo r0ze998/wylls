@@ -288,8 +288,11 @@ fn s1_devnet_wide_7d_opens_the_rim_and_the_wide_land() {
 /// devnet-continuous-1 (owner 2026-11-23: seasons abolished; t481u Q11): the devnet world as a CONTINUOUS world,
 /// `S1_DEVNET_WIDE_CONTINUOUS` = `continuous(S1_DEVNET_WIDE_7D)`, on the devnet playable build (run it with
 /// `PSF_SO_DEVNET_PLAYABLE` = the deployed .so 67a33c92…). CreateSeason stores the no-end bells and conquest byte
-/// 80 = 1, the map grows to the rim and into the wide land exactly as the 7-day world's, the wide land keeps
-/// growing after the 7-day world's end bell 1,008, and EndSeason is refused (`ContinuousWorld`) at any bell.
+/// 80 = 1, the map grows to the rim and into the wide land exactly as the 7-day world's, and past the 7-day world's
+/// end bell 1,008 (where a 7-day season becomes endable) EndSeason is refused (`ContinuousWorld`) and the Season is
+/// unchanged. (The wide request after bell 1,008 only shows the world still runs there; a 7-day season that nobody
+/// ended would also accept it, since the program requires status Running, not a bell before the end. A Join after
+/// the 7-day join close is not tried on this build.)
 #[test]
 fn s1_devnet_wide_continuous_never_ends_and_keeps_growing() {
     let mut c = chain();
