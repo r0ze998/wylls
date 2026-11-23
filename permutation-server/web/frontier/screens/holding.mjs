@@ -451,7 +451,7 @@ export function render(FS) {
   const queueName = q => queueItemLabel(q.q);
   const build = html`<section class="vcard" id="hp-build" aria-labelledby="hp-build-h">
     ${cardHead({ id: 'hp-build-h', ic: 'hammer', title: first ? L`最初の建設を選ぶ` : L`建設`, side: html`<span class="c-count${queueFull ? ' c-count-warn' : ''}">${L`建設中 ${fmtNum(building.length)}/${fmtNum(m.slots)}`}</span>` })}
-    ${first ? html`<p>${L`農場で食料を増やすか、伐採所で木材を増やすか。村の最初の仕事を選びましょう。`}</p><p class="muted">${L`最初の生産施設の工事は60秒です。ほかの工事があると順番を待ちます。資源の費用は通常どおりです。`}</p>` : ''}
+    ${first ? html`<p>${L`農場で食料を増やすか、伐採場で木材を増やすか。村の最初の仕事を選びましょう。`}</p><p class="muted">${L`最初の生産施設の工事は60秒です。ほかの工事があると順番を待ちます。資源の費用は通常どおりです。`}</p>` : ''}
     ${building.length ? html`<ul class="queue">${building.map(q => html`<li>${icon('hourglass')}<strong>${queueName(q)}</strong><span class="queue-t">${q.running ? L`あと ${span(q.doneIn)}` : L`順番待ち（あと ${span(q.doneIn)}）`}</span></li>`)}</ul>` : html`<p class="muted">${L`建設の列は空です`}</p>`}
     <ul class="build-list">${shown.map(c => buildRow(c, whyOf(c), m.have))}</ul>
     ${rest.length ? fold('v-build', L`ほかの建物（${fmtNum(rest.length)}）`, html`<ul class="build-list">${rest.map(c => buildRow(c, whyOf(c), m.have))}${s1On() && !workshopOffered(FS) ? html`<li class="muted" data-workshop="lane">${L`工房はこの試験世界では建てられません（工房を貸す・権利を出す試験世界 --coexist でだけ建てられます）。`}</li>` : ''}</ul>`) : ''}

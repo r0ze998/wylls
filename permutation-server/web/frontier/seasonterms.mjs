@@ -41,6 +41,9 @@ export const turnSpan = () => spanWords(BELL_SECS);
 /** A turn's length as the player lives it: game time, and on a faster clock the real time too. */
 // (fix-loop8, LP8-10: on a fast clock whose pace is not known yet, the game time alone — never 「10 分」 as if it were real)
 export const turnLine = () => { const r = rate(); return r === null ? L`ゲーム内の ${turnSpan()}` : r > 1 ? L`ゲーム内の ${turnSpan()}（この世界では実時間で約 ${spanWords(BELL_SECS / r)}）` : turnSpan(); };
+/** How long `n` turns last as the player lives them ("約 12 時間"; on a faster clock the real time) — newcomer-ux: the
+ *  guide said "hold 72 turns" and never how long that is (12 hours at the natural clock). */
+export const turnsLine = n => { const r = rate(), g = Math.max(0, Number(n) || 0) * BELL_SECS; return r === null ? L`ゲーム内で約 ${spanWords(g)}` : r > 1 ? L`この世界の実時間で約 ${spanWords(g / r)}` : L`約 ${spanWords(g)}`; };
 
 /** The season's deadlines: `{join: {bell, closed, realLeft}, end: {bell, ended, realLeft}}`, or null without a season or clock
  *  (`realLeft` null while a fast clock's pace is not known yet). */
