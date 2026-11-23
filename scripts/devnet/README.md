@@ -69,7 +69,7 @@ With the gate open, it runs these steps in order and stops at the first failure:
    `cargo-build-sbf` 3.1.9.
 2. `solana address` on both key files. Each address must match the profile.
 3. `solana balance`.
-4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --use-rpc`.
+4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --max-sign-attempts 50` (no `--use-rpc`: the public endpoint throttles `sendTransaction`, so the buffer writes go to the TPUs; runbook §5).
 5. `solana program show`.
 6. `solana program dump`. The dumped bytes, with trailing zeros removed, must hash to the `.so`'s `program_hash`.
 
