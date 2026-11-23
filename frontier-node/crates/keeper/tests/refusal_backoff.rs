@@ -12,6 +12,10 @@
 //!
 //! Healthy duties keep their cadence in both: every anchor of every region
 //! lands, the other 15 regions' day 0 is archived and their caches close.
+//!
+//! A second test refuses **every** region's batches (a systemic refusal: no
+//! ArchiveAnchors lands at all), where the group breaker sends one probe at
+//! a time instead of every key on its own schedule.
 
 mod common;
 mod model;
@@ -41,7 +45,7 @@ struct Run {
     archive_kind: serde_json::Value,
 }
 
-async fn run(old_schedule: bool) -> Run {
+async fn run(old_schedule: bool, every_region: bool) -> Run {
     let w = world().await;
     let genesis_ts = w.season().genesis_ts;
     let mut cfg = keeper_config(&w);
@@ -67,7 +71,7 @@ async fn run(old_schedule: bool) -> Run {
     let (mut ticks, first_slot) = (0u64, w.ip.clock().await.unwrap().slot);
     while w.now() < end {
         for ((_, r), a) in k.beacon.anchors.iter_mut() {
-            if *r == BAD_REGION {
+            if every_region || *r == BAD_REGION {
                 a.rent_to = wrong;
             }
         }
@@ -102,7 +106,7 @@ async fn run(old_schedule: bool) -> Run {
             {
                 continue;
             }
-            if ci.data[1] == BAD_REGION {
+            if every_region || ci.data[1] == BAD_REGION {
                 region0_sends += 1;
                 region0_landed += usize::from(r.err.is_none());
             } else {
@@ -135,8 +139,8 @@ async fn run(old_schedule: bool) -> Run {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refused_archive_backs_off_while_healthy_duties_keep_cadence() {
     let t0 = std::time::Instant::now();
-    let before = run(true).await;
-    let after = run(false).await;
+    let before = run(true, false).await;
+    let after = run(false, false).await;
     for (name, r) in [("before", &before), ("after", &after)] {
         println!(
             "{name}: region-0 ArchiveAnchors sent {} (landed {}), other regions' ArchiveAnchors {}, \
@@ -189,5 +193,49 @@ async fn refused_archive_backs_off_while_healthy_duties_keep_cadence() {
     assert_eq!(before.anchors, after.anchors);
     assert_eq!(before.other_archive_sends, after.other_archive_sends);
     assert_eq!(before.caches_closed, after.caches_closed);
+    assert!(after.anchor_p99 <= before.anchor_p99.map(|p| p + 1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn systemic_archive_refusal_is_probed_one_key_at_a_time() {
+    let t0 = std::time::Instant::now();
+    let before = run(true, true).await;
+    let after = run(false, true).await;
+    for (name, r) in [("before", &before), ("after", &after)] {
+        println!(
+            "{name} (every region refused): ArchiveAnchors sent {} (landed {}), anchors {}, \
+             anchor latency p99 {:?} slots, {} ticks / {} slots, ensure calls held back {}",
+            r.region0_sends,
+            r.region0_landed,
+            r.anchors,
+            r.anchor_p99,
+            r.ticks,
+            r.slots,
+            r.suppressed,
+        );
+        println!(
+            "{name} (every region refused): kinds.archive = {}",
+            r.archive_kind
+        );
+    }
+    let groups = &after.status["groups_open"];
+    println!("after (every region refused): groups_open = {groups}");
+    println!("both runs in {:.1} s", t0.elapsed().as_secs_f64());
+    if before.region0_sends == 0 {
+        println!("the program has no ArchiveAnchors here; nothing to compare");
+        return;
+    }
+    assert_eq!((before.region0_landed, after.region0_landed), (0, 0));
+    assert!(
+        after.region0_sends * 5 <= before.region0_sends,
+        "after {} vs before {}",
+        after.region0_sends,
+        before.region0_sends
+    );
+    assert_eq!(groups.as_array().unwrap().len(), 1, "{groups}");
+    assert_eq!(groups[0]["kind"], "archive");
+    assert_eq!(groups[0]["error"], "BadAccount");
+    // The beacon is exempt and unaffected.
+    assert_eq!(before.anchors, after.anchors);
     assert!(after.anchor_p99 <= before.anchor_p99.map(|p| p + 1));
 }
