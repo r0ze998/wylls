@@ -859,8 +859,20 @@ closed: §8a).
 
 ```sh
 # ── 0. Before anything [r0ze] ────────────────────────────────────────────────────────────────────────────────
+# the preflight: one line per MUST item, PASS / FAIL / WARN / SKIP + the fix; read-only (never sends, never reads a
+# key file, never spends SOL; no cluster contact without --rpc). Exit 0 = no FAIL. Run it until it shows no FAIL:
+node scripts/devnet/preflight.mjs --build --solana4 ~/solana-4x/bin/solana          # toolchain, profile, key files, rebuild --twice + sha256, planner at 5,080
+node scripts/devnet/preflight.mjs --rpc https://api.devnet.solana.com              # + the §3 read-only checks (B5: only when r0ze approves the read); a rent ≠ 5,080 adds the planner line at the measured rate
+#   after steps 5–7 (services up, before opening the season) — ON THE HOST, from the repository root (it stats the keeper's
+#   token / seed files there; relative paths in keeper.toml are relative to the repository root, the keeper's working directory):
+node scripts/devnet/preflight.mjs --services <your start script> --keeper-config keeper-a/keeper.toml   # herald / gateway / keeper flags
+#   and from a machine OUTSIDE the host (a clone of the repository; no keys there):
+node scripts/devnet/preflight.mjs --public-url https://<host>
+#   (TLS, /h/season cluster + program, /frontier/frontier/, the §8a 15-nudge X-Forwarded-For check, closed ports 41040/41050/41030/41033;
+#    the offline lines FAIL there for the keys / 4.x CLI it does not have — read only the ep.* lines. Wait 20 s between two runs.
+#    Flags and checks: scripts/devnet/README.md "Deploy-day preflight")
 scripts/play-local.sh                 # the local play-check (t341u); then: scripts/play-local.sh --wide
-# the read-only checks of §3 again (rent rate, BLS, SBPF v2, SIMD-0500), with the 4.x CLI
+# the read-only checks of §3 again (rent rate, BLS, SBPF v2, SIMD-0500), with the 4.x CLI (the --rpc line above reads the same)
 
 # ── 1. Build, key-free (cargo-build-sbf 3.1.9) ───────────────────────────────────────────────────────────────
 scripts/build-frontier-devnet-playable-sbf.sh --twice     # prints file_sha256 → H (today, P14 b: 67a33c92…06b3)
