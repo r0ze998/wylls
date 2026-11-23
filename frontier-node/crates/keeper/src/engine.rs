@@ -3798,6 +3798,33 @@ mod tests {
         assert_eq!(e.stats["resolve"].suppressed, 0);
     }
 
+    /// One devnet day of a permanently refused, unchanging write: 216,000
+    /// slots, a keeper pass every 45 slots (devnet-dress-rehearsal run4's
+    /// ticks). The old schedule (every code: at most 1,024 slots) resends
+    /// it 208 times; the keeper.toml defaults (9,000 slots, 64 passes) 34
+    /// (13 while the hold doubles, then one an hour).
+    #[tokio::test]
+    async fn a_devnet_day_of_one_refused_write() {
+        let mut got = vec![];
+        for params in [backoff_params(1_024, 0, 0), backoff_params(9_000, 64, 4)] {
+            let port = Script::default();
+            refusing(&port, Arc::new(Mutex::new(Some(BAD_ACCOUNT))));
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut e = Engine::new(Budgets::placeholder(), params);
+            for s in (0..216_000u64).step_by(45) {
+                pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                    e.ensure(marked("archive:0:0:0", "archive", BAD_PROGRAM, 1), s);
+                })
+                .await;
+            }
+            got.push(sends_naming(&port, BAD_PROGRAM));
+        }
+        println!("a devnet day, old schedule vs defaults: {got:?} sends");
+        assert!((195..=215).contains(&got[0]), "old schedule: {got:?}");
+        assert!((28..=40).contains(&got[1]), "defaults: {got:?}");
+    }
+
     /// On a paced RPC one pass spans ~100 slots: the pass gate still
     /// doubles (1, 2, 4, 8 passes, capped).
     #[tokio::test]
