@@ -126,7 +126,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   // B21: what the page knows of the world itself — 'live', 'ended' (confirmed; never taken back) or 'lost' (the launcher
   // cannot be reached). The box then says that, not an earlier keeper answer ("services running") or a coming end time
   let world = 'live';
-  let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false, pairAsking = false, pairAnswer = null;
+  let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false, pairAsking = false, pairAnswer = null, autoFolded = false;
   const label = () => {
     title.textContent = L`この試験世界について`;
     // (TEST-ONLY, a launcher that keeps its worlds: the key is kept in this browser and the world's progress is kept;
@@ -201,6 +201,12 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       world = state; answer = null; label(); paint();
     },
     worldStateNow: () => world,
+    /**
+     * (territory-video-2) The player's first village stands: the notice folds to its one key-loss line, ONCE (the
+     * player's press opens it again and it stays open). Open all session it stood over the provinces strip and the
+     * page's notices at the top of the map: 「被ってる」, the owner on the territory recording of 2026-11-24.
+     */
+    settled() { if (!live || destroyed || autoFolded) return; autoFolded = true; if (!folded) { folded = true; label(); paint(); } },
     endState: () => (end !== null ? 'known' : 'unknown'),
     isDestroyed: () => destroyed,
     unmount() {
@@ -214,3 +220,6 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   mounted.set(doc, handle);
   return handle;
 }
+
+/** (territory-video-2) The page's first village stands: the mounted notice of `doc` folds once (see `settled`). */
+export function sessionSettled(doc = globalThis.document) { mounted.get(doc)?.settled?.(); }

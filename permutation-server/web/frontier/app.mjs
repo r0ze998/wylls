@@ -19,6 +19,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
 import { localPlayRequested, localLauncherRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { sessionSettled } from './flocalplay-session.mjs';
 import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
 import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
@@ -895,6 +896,8 @@ function fogSurveyExtras() {
 }
 function fogUpdate() {
   const sc = scope() || null, w = FS.wallet?.address ?? null;
+  // (territory-video-2: with a village standing, a local world's 「この試験世界について」 folds to one line, once)
+  if ((FS.holdings ?? []).length > 0) sessionSettled();
   FS.fog = fogger({ active: fogActive(FS) && (FS.holdings ?? []).length > 0, survey: FS.survey, overviews: FS.overviews, wide: wideLandRaw?.land?.() ?? null,
     viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells,
     // (fog-devnet: a devnet page's last-known memory is keyed by its Season account too — season + wallet)

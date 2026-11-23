@@ -118,3 +118,24 @@ test('two columns at one place step aside across their road; the figures block t
   const box = marcherBox({ x: 10, y: 50, kind: 'lead' }, 1);
   assert.ok(box.y + box.h === 50 && box.w > 0, 'the box stands on the figure\'s foot');
 });
+
+test('the test world\'s notice folds to one line once a village stands, once; then it stays where the player puts it', async () => {
+  const { mountSessionNotice, sessionSettled } = await import('../../permutation-server/web/frontier/flocalplay-session.mjs');
+  const all = [];
+  const make = tag => { const el = { tag, className: '', textContent: '', id: '', hidden: false, dataset: {}, attrs: {}, children: [], parent: null, on: {},
+    setAttribute(k, v) { el.attrs[k] = v; }, append(...xs) { for (const x of xs) { x.parent = el; el.children.push(x); } }, addEventListener(k, f) { el.on[k] = f; } }; all.push(el); return el; };
+  const doc = { body: make('body'), createElement: make };
+  const n = mountSessionNotice({ doc, win: new EventTarget() });
+  const box = all.find(e => e.className === 'local-play-session'), fold = all.find(e => e.className === 'local-play-session-fold');
+  assert.equal(box.dataset.fold, 'open', 'open while joining');
+  sessionSettled(doc);
+  assert.equal(box.dataset.fold, 'folded', 'folded once the first village stands');
+  fold.on.click();
+  assert.equal(box.dataset.fold, 'open', 'the player opens it again');
+  sessionSettled(doc);
+  assert.equal(box.dataset.fold, 'open', 'and it is not folded a second time');
+  n.unmount();
+  sessionSettled(doc);   // (nothing mounted: nothing happens)
+  const css = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.css', import.meta.url), 'utf8');
+  assert.match(css, /#local-play-session\[data-fold="folded"\] \{ top: auto; bottom: calc\(var\(--dock-h/, 'folded, it stands over the dock, not under the dial');
+});
