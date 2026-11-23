@@ -484,6 +484,7 @@ const CLIENT_TEXT = {
   StoredBookInvalid: () => L`このブラウザに保存されていた進軍の記録を読めませんでした。使いません。`,
   BadLocalMarchStorage: () => L`進軍の記録の保存先が正しくありません。`,
   BadOutcomes: () => L`称号と記録の内容を読めませんでした（BadOutcomes）。`,
+  BadGoals: () => L`世界の目標の内容を読めませんでした（BadGoals）。`,
   WalletNotBound: () => L`このウォレットは、この世界の住民と村にまだ結び付いていません。`,
   WalletBindingMismatch: () => L`このウォレットは、この世界の記録にある結び付きと合いません。`,
   BadHerald: () => L`記録の配信元のアドレスが正しくありません。`,
