@@ -324,7 +324,10 @@ export function deployCommands({ profile, so, soPath, rpcUrl, keypair, programKe
     ['solana', ['balance', '--keypair', keypair, '--url', url]],
     ['solana', ['program', 'deploy', soPath, '--url', url, '--keypair', keypair, '--fee-payer', keypair,
       '--program-id', programKeypair, '--upgrade-authority', upgradeAuthority, '--max-len', String(so.maxLen),
-      '--use-rpc', '--commitment', 'confirmed']],
+      // No --use-rpc: the public api.devnet.solana.com throttles sendTransaction, and the ~4,056 buffer writes then fail
+      // with "Max retries exceeded" (devnet-deploy-1). Without it the CLI sends the writes to the leaders' TPUs over QUIC
+      // and uses the RPC only to confirm (devnet-deploy-2: the whole playable .so landed in 40 s).
+      '--max-sign-attempts', '50', '--commitment', 'confirmed']],
     ['solana', ['program', 'show', profile.programId, '--url', url]],
     ['solana', ['program', 'dump', profile.programId, dumpPath, '--url', url]],
   ];

@@ -1,6 +1,11 @@
 # Devnet deploy runbook for permutation-frontier (DRAFT, 2026-11-18)
 
-> **Status: not run. Nothing has been deployed, funded, airdropped or read on devnet.** Every step marked
+> **Status (2026-11-23): the PLAYABLE lane is deployed on devnet** — program `GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr`,
+> upgrade authority `7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA`, slot 525,401,809, `.so` sha256 `67a33c92…06b3`
+> (§5; `scripts/devnet/devnet-playable-profile.json`). The S1 profile (`devnet-profile.json`) is still not deployed. The
+> public play URL of that run is a Cloudflare **quick tunnel** (`*.trycloudflare.com`, no account): its name changes
+> whenever cloudflared restarts (or the Mac reboots), so the herald's public host must be updated then, and no doc or
+> profile should pin it; a stable name needs a named tunnel (a Cloudflare account, r0ze). Every step marked
 > **[r0ze]** needs r0ze's confirmation at the time it runs (owner rule, 2026-11-18 14:42 JST). This runbook only
 > covers getting the program onto devnet, the season setup (§6, `frontier-operator`, tested on a local chain
 > only) and the services that would follow (§7, blocked on missing code). It builds on [`../m1/PLAYTEST-RUNBOOK.md`](../m1/PLAYTEST-RUNBOOK.md) and
@@ -385,7 +390,27 @@ key files (they must match the profile), `solana balance`, then this deploy comm
 ```sh
 solana program deploy permutation-frontier/target/deploy/permutation_frontier.so --url https://api.devnet.solana.com \
   --keypair deployer.json --fee-payer deployer.json --program-id program.json --upgrade-authority authority.json \
-  --max-len 1765376 --use-rpc --commitment confirmed
+  --max-len 1765376 --max-sign-attempts 50 --commitment confirmed
+```
+
+**No `--use-rpc` on the public endpoint** (devnet-deploy-1/-2, 2026-11-23). With `--use-rpc` every buffer write goes
+through `https://api.devnet.solana.com`'s `sendTransaction`, which the public endpoint throttles (HTTP 429): the first
+real deploy landed about 17 of 4,056 writes in 16 minutes and stopped with `Data writes to account failed: Custom
+error: Max retries exceeded`. Without it the 4.x CLI sends the writes to the leaders' TPUs over QUIC and uses the RPC
+only to confirm: the playable `.so` (67a33c92…06b3) then landed in **40 seconds** (`--max-sign-attempts 50`,
+`--with-compute-unit-price 5000`; 21.9314 SOL out of the deployer = 21.8906 ProgramData rent + 0.0008 Program rent + about 0.040 SOL of fees and priority fees). `dry-run.mjs` runs this form since devnet-deploy-2.
+
+**Run it by hand with a buffer keypair** when you can: `solana-keygen new --no-bip39-passphrase -o buffer.json` and add
+`--buffer buffer.json` to the deploy line. The deploy is then resumable (run the same line again: the CLI rewrites only
+what is missing), and the 4.x CLI does **not** print a recovery phrase. Without `--buffer` it prints the random
+buffer's **12-word recovery phrase** to stdout at the start, so never keep an unredacted log of a deploy.
+The live playable deploy (2026-11-23 19:32 JST, slot 525,401,809) was:
+
+```sh
+solana program deploy permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so \
+  --url https://api.devnet.solana.com --keypair deployer.json --fee-payer deployer.json \
+  --program-id program-playable.json --upgrade-authority authority.json --buffer buffer-playable.json \
+  --max-len 4308992 --with-compute-unit-price 5000 --max-sign-attempts 50 --commitment confirmed
 ```
 
 Then `solana program show <PROGRAM_ID>`, and `solana program dump <PROGRAM_ID> <tmp>`. The dumped bytes, with
@@ -396,16 +421,23 @@ buffer's authority too (agave v3.1.9 `cli/src/program.rs`, `process_program_depl
 `authority.json`:
 
 ```sh
-solana program show --buffers --buffer-authority "$(solana address -k authority.json)" --url devnet
-solana program close --buffers --authority authority.json --recipient "$(solana address -k deployer.json)" --url devnet
+solana program show --buffers --buffer-authority "$(solana address -k authority.json)" --keypair deployer.json --url https://api.devnet.solana.com
+solana program close --buffers --authority authority.json --recipient "$(solana address -k deployer.json)" --keypair deployer.json --url https://api.devnet.solana.com
 ```
+
+Always pass `--keypair deployer.json` and the explicit URL: without them the CLI pays from its default config key and
+cluster (a mainnet default on some machines). A deploy started with `--buffer buffer.json` can instead be **resumed**
+by running the same deploy line again.
 
 **Upgrading** (between seasons, or mid-season only if `PROGRAM_VERSION` and every layout stay the same:
 PLAYTEST-RUNBOOK §6):
 
 ```sh
-solana program deploy <new .so> --program-id <PROGRAM_ID address> --upgrade-authority authority.json --keypair deployer.json --url devnet --use-rpc
+solana program deploy <new .so> --program-id <PROGRAM_ID address> --upgrade-authority authority.json --keypair deployer.json --url https://api.devnet.solana.com --max-sign-attempts 50
 ```
+
+An upgrade writes a new buffer first, so the deployer needs the buffer's rent at its peak (21.89 SOL for the playable
+`.so` at 5,080) on top of the fees; the upgrade returns the buffer's lamports to the spill account (the deployer) when it lands.
 
 A larger `.so` than `--max-len` needs the ProgramData extended first. `solana program deploy` does that by itself
 unless `--no-auto-extend` is given; `solana program extend <PROGRAM_ID> <bytes>` is the manual form [not checked
@@ -898,7 +930,7 @@ node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile
   --program-keypair ~/wylls-devnet-keys/program-playable.json \
   --upgrade-authority ~/wylls-devnet-keys/authority.json \
   --approved-sha256 $H
-#   → solana program deploy … --max-len 4308992 --use-rpc; program show; program dump (hash must equal program_hash)
+#   → solana program deploy … --max-len 4308992 --max-sign-attempts 50 (no --use-rpc, §5); program show; program dump (hash must equal program_hash)
 
 # ── 4. Season start [r0ze] (§6b) ─────────────────────────────────────────────────────────────────────────────
 B=frontier-node/target/release/frontier-operator
@@ -958,11 +990,10 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
 #    2026-11-23, 2057f89d: the page waits up to 180 s for its own record); with its page files 5 of 5 settled.)
 #   (a fresh rim Hamlet's second village — FileOutpost or the wide claim — needs the settler cost from its harvests. The
 #    program charges a second village 800 Food, 800 Wood, 400 Stone, 200 Gold (`settler_cost(holdings_n = 1)`; a third
-#    1,200 / 1,200 / 600 / 300), and the FileOutpost card quotes that. The wide-claim card quotes one step too high
-#    (`screens/holding.mjs` `settlerCost(owned + 1)`: 1,200 / 1,200 / 600 / 300 for the second) and keeps its button off
-#    until the store holds that much — a page bug, open (D-verify-pr177-1). Offline, with harvests only, the outpost was
-#    filed at bell ~106 and the wide-claim card still read short at bell 161 (Food 1,186, Wood 965 of its 1,200): until
-#    the card is fixed expect the first wide villages a day or more after the rim opens)
+#    1,200 / 1,200 / 600 / 300), and the FileOutpost card and the wide-claim card both quote that. (Until #183 the
+#    wide-claim card quoted one step too high — 1,200 / 1,200 / 600 / 300 for the second — and kept its button off until
+#    the store held that much, D-verify-pr177-1: in the offline rehearsal the outpost was filed at bell ~106 while the
+#    wide-claim card still read short at bell 161. Fixed by #183, verify-pr183.))
 
 # ── 9. Check and end ─────────────────────────────────────────────────────────────────────────────────────────
 frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 --rpc $RPC --witness <a second RPC> \

@@ -56,7 +56,8 @@ import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resourc
 
 /**
  * (TEST-ONLY wide play) Whether `holding` (the page's decoder's fields) holds the settler cost of the citizen's next
- * holding (`holdingsN` after it) at chain time `secs`. False when anything is unreadable.
+ * holding at chain time `secs`; `holdingsN` = the villages held BEFORE it, as the program reads it (loop-play11:
+ * 1 + the wide villages, not 2 + — the AI waited for 1.5× the price). False when anything is unreadable.
  */
 export function coversSettlerCost(holding, secs, holdingsN) {
   try {
@@ -242,7 +243,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   if (Array.isArray(wideTargets)) {
     const v = view?.holding;
     const secs = v ? await deps.nowSecs().catch(() => null) : null;
-    wide = { targets: v ? claimTargets(v, wideTargets) : [], canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 2 + (view.wide ?? 0)) };
+    wide = { targets: v ? claimTargets(v, wideTargets) : [], canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + (view.wide ?? 0)) };
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {

@@ -1,6 +1,6 @@
 {
   "schema": "wylls-devnet-profile-v1",
-  "note": "DRAFT devnet profile of the PLAYABLE lane (owner decision B7, 2026-11-18: expedition / wide land + the land preview, program_version 0x4804; the Free City conquest kinds 12-18 are NOT in this build since P14 (b), owner decision 2026-11-22). Nothing here has been deployed. A different program from the S1 profile (its own program id, its own seasons). Every <SET-BY-R0ZE...> value is a placeholder that r0ze fills in; the dry-run refuses to send while any placeholder is left. No key material is ever stored here.",
+  "note": "DRAFT devnet profile of the PLAYABLE lane (owner decision B7, 2026-11-18: expedition / wide land + the land preview, program_version 0x4804; the Free City conquest kinds 12-18 are NOT in this build since P14 (b), owner decision 2026-11-22). Deployed on devnet 2026-11-23 (devnet-deploy-2, slot 525401809, .so sha256 67a33c92...06b3); programId and upgradeAuthority are the live public keys. A different program from the S1 profile (its own program id, its own seasons). A <SET-BY-R0ZE...> value would be a placeholder; the dry-run refuses to send while any placeholder is left. No key material is ever stored here.",
   "cluster": "devnet",
   "rpcUrl": "https://api.devnet.solana.com",
   "allowedRpcHosts": [
@@ -11,8 +11,8 @@
     "api.solana.com",
     "testnet"
   ],
-  "programId": "<SET-BY-R0ZE: program address of the PLAYABLE lane (public key of a second program keypair r0ze creates offline; not the S1 program's)>",
-  "upgradeAuthority": "<SET-BY-R0ZE: upgrade-authority public key (offline key; also the only AnnounceSeason signer, I-51)>",
+  "programId": "GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr",
+  "upgradeAuthority": "7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA",
   "program": {
     "crate": "permutation-frontier",
     "build": "scripts/build-frontier-devnet-playable-sbf.sh",

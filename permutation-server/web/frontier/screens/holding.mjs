@@ -58,7 +58,10 @@ export function wideClaimModel(FS, m) {
   const targets = claimTargets({ p: h.p, q: h.q }, wide.targets).filter(t => !held.has(`${String(t.p)},${String(t.q)}`)).slice(0, 6);
   if (!targets.length) return null;
   const owned = (Array.isArray(FS.holdings) ? FS.holdings.length : 1) + mine.length;
-  const need = settlerCost(Math.min(3, owned + 1));
+  // (loop-play11 / D-verify-pr177-1: the program charges `settler_cost(holdings_n)` with holdings_n = the villages
+  //  held BEFORE the claim — frontier proc wide.rs reads C::HOLDINGS_N — so a second village costs 800/800/400/200,
+  //  not 1,200; asking for `owned + 1` kept the button shut until the stores held 1.5× the price)
+  const need = settlerCost(Math.min(2, owned));
   const short = need.map((n, i) => ({ resource: RESOURCE_ORDER[i], need: n, have: m.have[i] ?? 0 })).filter(x => x.need > 0 && x.have < x.need);
   const tried = FS.ui?.wideTried ?? {};
   return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0 })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1) };

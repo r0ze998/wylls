@@ -142,12 +142,14 @@ test('toolchain: missing / too-old 4.x CLI, wrong build tool, old node, missing 
 // ------------------------------------------------------------------ MUST 4 profile and keys
 
 test('profile: committed file has the right shape but placeholders → shape PASS, keys FAIL; filled → PASS', () => {
-  let rs = checkProfile(profile());
+  // (the committed playable profile is filled since devnet-deploy-1; the placeholder case is its unfilled form)
+  let rs = checkProfile({ ...profile(), programId: '<SET-BY-R0ZE: program>', upgradeAuthority: '<SET-BY-R0ZE: authority>' });
   assert.equal(byId(rs, 'profile.shape').status, 'PASS');
   assert.equal(byId(rs, 'profile.keys').status, 'FAIL');
   assert.match(byId(rs, 'profile.keys').detail, /programId is still a placeholder; upgradeAuthority is still a placeholder/);
   rs = checkProfile(filled());
   assert.deepEqual(rs.map(x => x.status), ['PASS', 'PASS']);
+  assert.deepEqual(checkProfile(profile()).map(x => x.status), ['PASS', 'PASS']);
 });
 
 test('profile: wrong cluster, lane, roles, rings duty, same address twice, bad base58 → FAIL', () => {

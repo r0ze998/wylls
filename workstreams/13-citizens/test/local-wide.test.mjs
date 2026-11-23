@@ -9,7 +9,7 @@ import { localCandidates, localRule, noteOutcome, settled, storesAt, LOCAL_LIMIT
 import { freshState, enterWorld } from '../resident/local/journal.mjs';
 import { localStep } from '../resident/local/runner.mjs';
 import { makePlanSteps, checkStep, wideSteps, PLAN_ORDERS } from '../resident/local/plan.mjs';
-import { WIDE_ORDERS, WIDE_LIMITS, EXPEDITION, claimNotDue, wideInventory, noteWide, wideMem } from '../resident/local/wide.mjs';
+import { WIDE_ORDERS, WIDE_LIMITS, EXPEDITION, claimNotDue, claimCost, wideInventory, noteWide, wideMem } from '../resident/local/wide.mjs';
 import { GOALS } from '../resident/goals.mjs';
 import { createPlanExecutor } from '../resident/local/executor.mjs';
 import { PLAN_LIMITS } from '../resident/local/plan.mjs';
@@ -32,7 +32,7 @@ function village({ stores = [500, 500, 300, 200, 0, 200, 0, 0], reserve = 0, pro
 }
 const TARGET = { p: '-65', q: '-65' };   // ring 130, distance 1
 function wideLand(o = {}) {
-  return { bell: 50, villages: [], bound: 0, need: settlerCost(2), slot: 2, border: [{ p: -65, q: -64 }], targets: [{ ...TARGET, free: [2, 4] }], host: null, expedition: null, ...o };
+  return { bell: 50, villages: [], bound: 0, need: settlerCost(1), slot: 2, border: [{ p: -65, q: -64 }], targets: [{ ...TARGET, free: [2, 4] }], host: null, expedition: null, ...o };
 }
 function obsOf(raw, wl = wideLand(), extra = {}) {
   return { bell: 50, nowSecs: NOW, genesisTs: NOW - 30000, seasonId: '11', programVersion: 1, joined: true, faction: 3, wide: true, holding: { ...RIM },
@@ -75,11 +75,11 @@ test('WO2 a rim village within reach claims wide land when the stores hold the s
 
 test('WO3 short of the settler cost the claim is held and the village SAVES: what would spend the cost waits, when production covers it within the patience', () => {
   // short 700 food at 10/h (≈ 1.7/turn): ≈ 420 turns > 240 → no save, builds go on
-  const slow = localCandidates(obsOf(village({ stores: [500, 1200, 600, 200, 0, 300, 0, 0], production: [10, 30, 20, 15, 0, 15, 5, 0] })), mem());
+  const slow = localCandidates(obsOf(village({ stores: [100, 1200, 600, 200, 0, 300, 0, 0], production: [10, 30, 20, 15, 0, 15, 5, 0] })), mem());
   assert.match(slow.candidates.find(x => x.kind === 'wideclaim').held.join(' '), /saving for the settler cost/);
   assert.ok(!slow.candidates.filter(x => x.kind === 'build').some(x => (x.held ?? []).some(h => /saving for the wide claim/.test(h))));
   // short 100 food: ≈ 15 turns → builds paid in food/wood/stone/gold that would dip below the cost wait
-  const fast = localCandidates(obsOf(village({ stores: [1100, 1300, 700, 400, 0, 320, 0, 0] })), mem());
+  const fast = localCandidates(obsOf(village({ stores: [700, 1300, 700, 400, 0, 320, 0, 0] })), mem());
   const saving = fast.candidates.filter(x => (x.held ?? []).some(h => /saving for the wide claim/.test(h))).map(x => x.id);
   assert.ok(saving.length >= 1, JSON.stringify(fast.candidates.map(x => [x.id, x.held])));
   assert.ok(!saving.includes('harvest') && !saving.includes('muster:0'), 'a harvest and a muster spend nothing');
@@ -151,7 +151,7 @@ test('WO7 ④ plans: the wide steps come first (claim, the wide host chain, the 
   const go = checkStep({ ...steps[0], idx: 0 }, o, m);
   assert.equal(go.go.kind, 'wideclaim'); assert.equal(go.go.order.fields.site, 2); assert.equal(go.go.site, '-65,-65,2');
   // short but coverable: a wait (the save); a wide village since: a replan
-  assert.match(checkStep({ ...steps[0], idx: 0 }, obsOf(village({ stores: [1100, 1300, 700, 400, 0, 320, 0, 0] })), m).wait, /saving for the settler cost/);
+  assert.match(checkStep({ ...steps[0], idx: 0 }, obsOf(village({ stores: [700, 1300, 700, 400, 0, 320, 0, 0] })), m).wait, /saving for the settler cost/);
   const v = { p: '-65', q: '-65', site: 2, slot: 2 };
   assert.match(checkStep({ ...steps[0], idx: 0 }, obsOf(village(), wideLand({ villages: [v], bound: 1 })), m).replan, /wide village already/);
   // the wide host chain from the planner's act; another act than the step's → replan; a planner wait → wait
@@ -164,7 +164,7 @@ test('WO7 ④ plans: the wide steps come first (claim, the wide host chain, the 
   const nh = obsOf(village({ reserve: 0 }), wideLand({ targets: [], expedition: { ok: false, hosts: 0, why: 'no host at home' } }));
   assert.deepEqual(wideSteps(nh, m).map(s => s.name), ['Train', 'Muster', EXPEDITION]);
   // a reserve at home already: muster and send before the save (a muster spends nothing of the settler cost)
-  const withReserve = obsOf(village({ stores: [1100, 1300, 700, 400, 0, 320, 0, 0], reserve: 500 }), wideLand({ expedition: { ok: false, hosts: 0, why: 'no host at home' } }));
+  const withReserve = obsOf(village({ stores: [700, 1300, 700, 400, 0, 320, 0, 0], reserve: 500 }), wideLand({ expedition: { ok: false, hosts: 0, why: 'no host at home' } }));
   assert.deepEqual(wideSteps(withReserve, m).map(s => [s.name, s.fields.troops]), [['Muster', 300], [EXPEDITION, undefined]]);
   const plan = { dest: { p: -65, q: -64 }, arriveBell: 58, host: { id: 7n, troops: 200 } };
   const ready = checkStep({ name: EXPEDITION, idx: 2, fields: {} }, obsOf(village(), wideLand({ targets: [], expedition: { ok: true, plan } })), m);
@@ -173,7 +173,7 @@ test('WO7 ④ plans: the wide steps come first (claim, the wide host chain, the 
   assert.match(checkStep({ name: EXPEDITION, idx: 2, fields: {} }, obsOf(village(), wideLand({ targets: [], expedition: { ok: false, why: 'its host is not ready yet', hosts: 1 } })), m).wait, /not ready/);
   assert.match(checkStep({ name: EXPEDITION, idx: 2, fields: {} }, obsOf(village(), wideLand({ targets: [], expedition: { ok: false, why: 'no passable path into the wide land (x: RouteImpassable)', hosts: 1 } })), m).replan, /RouteImpassable/);
   // a Build step that would spend the claim being saved for: the plan is remade (the next one starts with the claim)
-  const saving = obsOf(village({ stores: [1100, 1300, 700, 400, 0, 320, 0, 0] }));
+  const saving = obsOf(village({ stores: [700, 1300, 700, 400, 0, 320, 0, 0] }));
   const rs = makePlanSteps(saving, goal, { mem: null }).filter(s => s.name === 'Build').map((st, i) => checkStep({ ...st, idx: i }, saving, m));
   assert.ok(rs.some(r => /saving for the wide claim/.test(r.replan ?? '')), JSON.stringify(rs));
   assert.ok(!rs.some(r => r.go), 'no build that spends the claim goes');
@@ -259,4 +259,18 @@ test('WO11 the wide eyes read the wide land once per turn, except a province sti
   assert.equal(asked, 2);
   await eyes.look(obs, st); assert.equal(asked, 2, 'a decision is kept for the turn: no third read');
   await eyes.look({ ...obs, bell: obs.bell + 1 }, st); assert.equal(asked, 3, 'the next turn reads again');
+});
+
+test('WO12 (verify-pr183) the wide eyes ask the program\'s settler cost: villages held BEFORE the claim — 800 … for the second, 1,200 … for the third', async () => {
+  const { createWideEyes } = await import('../resident/local/wide.mjs');
+  const planner = { decide: async () => ({ wait: 'lag', why: 'x' }) };
+  const march = { plan: async () => ({ ok: false, why: 'x', hosts: 1 }), herald: null };
+  const eyes = createWideEyes({ herald: 'http://127.0.0.1:1', identity: { address: 'W', programId: 'P', seasonAddress: 'S' }, wideTargets: [], read: async () => [], getJson: async () => { throw new Error('no'); }, deps: { planner, march } });
+  const first = await eyes.look({ ...obsOf(village()), wideInv: { villages: [], bound: 0 } }, mem());
+  assert.deepEqual([first.need, first.slot], [[800, 800, 400, 0, 0, 200, 0, 0], 2]);
+  const second = await eyes.look({ ...obsOf(village()), bell: 51, wideInv: { villages: [{ p: '-65', q: '-65', site: 2, slot: 2 }], bound: 1 } }, mem());
+  assert.deepEqual([second.need, second.slot], [[1200, 1200, 600, 0, 0, 300, 0, 0], 3]);
+  // exactly the price is enough (the program's pay: have ≥ need)
+  assert.equal(claimCost({ wideLand: first, stores: [800, 800, 400, 0, 0, 200, 0, 0].map(value => ({ value })) }).affordable, true);
+  assert.equal(claimCost({ wideLand: first, stores: [800, 799, 400, 0, 0, 200, 0, 0].map(value => ({ value })) }).affordable, false);
 });
