@@ -638,7 +638,8 @@ export function twoLines(g, text, max) {
  * `place` 'above' or 'below' the point by `gap` screen px; `shake` (px) moves
  * it sideways (a refusal). Returns its box in world px.
  */
-export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'above', gap = 10, size = 12.5, shake = 0, alpha = 1, anchor = null, pass = null, wrap = 0, spare = false } = {}) {
+export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'above', gap = 10, size = 12.5, shake = 0, alpha = 1, anchor = null, pass = null, wrap = 0, spare = false, reach = undefined } = {}) {
+  // `reach`: px the pass may move it (map/labelpass.mjs LABEL_PASS.reach when not given)
   // `anchor` {x, y}: the place on the board the tag belongs to (its tile): the tag stands upright around it (map/tilt.mjs)
   // `pass`: the frame's label pass (map/labelpass.mjs): the tag slides out from under the HUD (it is never left out)
   // `wrap`: a share of the picture's width (the pass knows it): words wider than that stand in two lines, a little smaller
@@ -657,7 +658,7 @@ export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'abo
     g.font = `700 ${sz}px ${face}`;
     const tw2 = Math.max(...lines.map(s => g.measureText?.(s)?.width ?? s.length * sz * 0.6)) + 18 * k, th2 = lh * lines.length + 8 * k;
     const ax2 = anchor?.x ?? x, ay2 = anchor?.y ?? y, top0 = place === 'below' ? y + gap * k : y - gap * k - th2;
-    const mv = pass?.place(ax2, ay2, { x: x - tw2 / 2, y: top0, w: tw2, h: th2 }, { keep: true }) ?? { dx: 0, dy: 0 };
+    const mv = pass?.place(ax2, ay2, { x: x - tw2 / 2, y: top0, w: tw2, h: th2 }, { keep: true, ...(reach ? { reach } : {}) }) ?? { dx: 0, dy: 0 };
     const cx2 = x + shake * k + mv.dx, top2 = top0 + mv.dy;
     upright(g, ax2, ay2, () => {
       g.globalAlpha = alpha;
@@ -670,7 +671,7 @@ export function paintTag(g, x, y, text, { zoom = 1, tone = 'plain', place = 'abo
   }
   const tw = (g.measureText?.(text)?.width ?? text.length * size * k * 0.6) + 18 * k, th = (size + 10) * k;
   const ax = anchor?.x ?? x, ay = anchor?.y ?? y;
-  const placed = pass ? pass.place(ax, ay, { x: x - tw / 2, y: place === 'below' ? y + gap * k : y - gap * k - th, w: tw, h: th }, { keep: !spare }) : null;
+  const placed = pass ? pass.place(ax, ay, { x: x - tw / 2, y: place === 'below' ? y + gap * k : y - gap * k - th, w: tw, h: th }, { keep: !spare, ...(reach ? { reach } : {}) }) : null;
   if (pass && spare && !placed) { g.restore(); return null; }
   const move = placed ?? { dx: 0, dy: 0 };
   const cx = x + shake * k + move.dx, top = (place === 'below' ? y + gap * k : y - gap * k - th) + move.dy;
