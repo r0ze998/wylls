@@ -52,10 +52,8 @@
 > nothing under `permutation-frontier/src` or `frontier-abi` changed since #139, the committed
 > `devnet-playable-67a33c92.so.gz` still unpacks to `67a33c92…06b3` (3,447,064 B), and the planner re-run at 5,080 and
 > 6,960 prints the §4a figures unchanged. **No owner decision is pending.** New in §4b: the wide village's first
-> WideMuster (0.0172 SOL, the dress rehearsal's D-dress-11) and keeper A's measured season. **There is no §8 step 0
-> on main yet:** the deploy-day preflight script (`scripts/devnet/preflight.mjs`) and the step 0 that runs it are PR
-> #181, verified but not merged at the time of this refresh; step 0 applies once #181 merges, and until then §8 starts
-> at step 1.
+> WideMuster (0.0172 SOL, the dress rehearsal's D-dress-11) and keeper A's measured season. The deploy-day
+> preflight (`scripts/devnet/preflight.mjs`, §8 step 0) is #181, merged the same day (main 14eb9bfe): start §8 there.
 
 ## 1. What gets deployed
 
