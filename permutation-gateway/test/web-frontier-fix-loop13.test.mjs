@@ -35,3 +35,20 @@ test('LP13-10: a taken caravan\'s arrival turn is its arrive_ts turn on the map 
   // without a clock the runs still give a turn (as before)
   assert.equal(MARKS.s1Marks({ caravans: { moving: [c], vaults: [] } }, { bell: 56 }).caravans[0].arriveBell, 59);
 });
+
+test('LP13-4: a host check\'s words are read when shown (a map note made from it follows a language switch)', async () => {
+  const { marchCheck, dissolveCheck, exploreCheck } = await import('../../permutation-server/web/frontier/hud/subject.mjs');
+  const { setLang } = await import('../../permutation-server/web/lang.mjs');
+  setLang('ja');
+  try {
+    for (const c of [marchCheck({}, null), dissolveCheck({}, null), exploreCheck({}, null)]) {
+      const ja = c.text;
+      assert.match(ja, /[぀-ヿ一-鿿]/);
+      setLang('en');
+      assert.doesNotMatch(c.text, /[぀-ヿ一-鿿]/, `${c.code}: the same check object now says it in English`);
+      assert.notEqual(c.text, ja);
+      setLang('ja');
+      assert.equal(c.text, ja);
+    }
+  } finally { setLang('ja'); }
+});

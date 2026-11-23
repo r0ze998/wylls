@@ -679,7 +679,11 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
   };
   label();
   // (a language switch while the panel stands: the fixed texts again, then the state's; no longer once the page has booted)
-  const unlabel = onLangChange(() => { label(); again(); });
+  // (fix-loop13, LP13-4: once connected the panel stops following the language, but its hidden role=status line stayed
+  //  in the old one — 「接続しました：…」 on an English page. `unlabel` now leaves that one line following a switch)
+  let statusSaid = null, statusOnly = false;
+  onLangChange(() => { if (statusOnly) { if (statusSaid) status.textContent = statusSaid(); return; } label(); again(); });
+  const unlabel = () => { statusOnly = true; };
   card.append(head, note, addressLabel, address, heraldLabel, herald, button, status, elapsed, list, worldsLabel, worlds, forget);
   root.append(card);
   root.dataset.persist = persisted ? 'local' : '';
@@ -723,7 +727,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
       //  start key, not on the page behind it)
       if (!greeted && idle) { greeted = true; button.focus?.(); }
       before = s.phase;
-      status.textContent = s.phase === 'creating' ? L`試験用ウォレットを作っています…`
+      const said = () => s.phase === 'creating' ? L`試験用ウォレットを作っています…`
         : s.phase === 'stopping' ? L`選んだ世界を終了しています…`
         : s.phase === 'listing' ? L`動いている世界を確認しています…`
         : s.phase === 'waiting' && launcher && s.listed === 0 ? L`動いている世界はありません。`
@@ -746,6 +750,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
         : s.phase === 'destroyed' ? L`ウォレットは破棄されました。ページを開き直してください。`
         : s.phase === 'forgotten' ? L`保存した試験用の鍵を消しました。ページを開き直すと、新しい鍵で新しい世界を始めます（前の世界のフォルダは開始サービス側に残ります）。`
         : s.code ? `${localPlayWhy(s.code)} (${s.detail ? `${s.code}: ${s.detail}` : s.code})` : '';
+      status.textContent = said(); statusSaid = said;
       if (s.phase === 'connected') { root.hidden = true; unlabel(); }
     },
   };

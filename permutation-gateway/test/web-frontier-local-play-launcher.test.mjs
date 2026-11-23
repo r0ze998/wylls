@@ -847,3 +847,19 @@ test('D-verify-pr57-1: the owner proof is read only from the fragment the launch
   assert.match(doc.byId('local-play-status').textContent, /開始サービスが表示したアドレス/);
   assert.deepEqual(rowsOf(doc).map(r => r.where.textContent).sort(), [W1, W2].sort(), 'both worlds are still listed');
 });
+
+test('fix-loop13 LP13-4: after connecting, the hidden status line follows a language switch (the panel\'s other texts do not)', async () => {
+  setLang('ja');
+  const { gate, doc } = open();
+  await made(gate);
+  await gate.connect(); await gate.ready;
+  assert.equal(gate.state().phase, 'connected');
+  const status = doc.byId('local-play-status');
+  assert.match(status.textContent, /接続しました：このウォレットの市民と村を読み込みます/);
+  setLang('en');
+  try {
+    assert.doesNotMatch(status.textContent, /[぀-ヿ一-鿿]/, 'main kept 「接続しました：…」 on the English page');
+    assert.match(status.textContent, /^Connected/);
+  } finally { setLang('ja'); }
+  assert.match(status.textContent, /接続しました/);
+});
