@@ -2,33 +2,33 @@ frontier-operator: season setup plan (DRY RUN, offline: nothing read, nothing se
 cluster    devnet (offline: assumes nothing is done yet)
 program    29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2
 authority  3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3
-season     id 1  8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH  preset S1_DEVNET_WIDE_7D  beacon quicknet
-params     hash e113fc5a669ebcb114c4d58428aae9d92d13da9f82f4aaf9a1853d7e20edaecc  (CreateSeason data: 352 B params + 28 B payout)
+season     id 2  CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio  preset S1_DEVNET_WIDE_CONTINUOUS  beacon quicknet
+params     hash f63f0b363352269127a918bfed4be2f2365d14f29c6fa1dca612bc0162d27a64  (CreateSeason data: 352 B params + 28 B payout)
 lane       playable (program_version 0x4804; + WideSetRules, the wide land's rules, once keeper A has seeded the season); each tx requests cu_limit 1,400,000, loaded data 64 MiB
 rent       5080 lamports/byte (profile rent.assume; the cluster's own rate is read online)
 t_create_min = chain clock at AnnounceSeason + 86700 s (lead 86400 + margin 300)
 done       nothing
 tx 1  AnnounceSeason  [now]
-      data   57 B: tag 0x08, season_id 1, params_hash e113fc5a669ebcb114c4d58428aae9d92d13da9f82f4aaf9a1853d7e20edaecc, t_create_min <chain clock at send + 86700>, bond 1,000,000,000
+      data   57 B: tag 0x08, season_id 2, params_hash f63f0b363352269127a918bfed4be2f2365d14f29c6fa1dca612bc0162d27a64, t_create_min <chain clock at send + 86700>, bond 1,000,000,000
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -w 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
+      acct   -w CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
       acct   -- 29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2 program
       acct   -- C9o5Wb2eviT28iKnHe4MbgtXFr6udZ1PZLVvWSVkTALa ProgramData
       acct   -- 11111111111111111111111111111111 System
       create Season            2048 B  rent    11,054,080  + float 1,000,000,000
       cost   rent 11,054,080 + float 1,000,000,000 + fee 5,000 = 1,011,059,080 lamports
 tx 2  CreateSeason  [after the lead]
-      data   381 B: tag 0x01, sha256 0113b51d8f4278eefabb89df160c828fa4693c4fbba767edfeb1223c96c5ab61
+      data   381 B: tag 0x01, sha256 b9dbf6b8e24cdceecbd5a7bc7e2f8902e762d7abf60bfdcc8a55be5a342e2feb
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -w 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w 3zDuRfsEXasEJAQZ1A2yU79kwsLceyj8zeDC7qS4bgyG Frontier
-      acct   -w AUk2KvbTXxYzqzfNjBATr3UMLVuYDUqYsHRTefv4jcrh ProvinceFund[0]
-      acct   -w 8ve3LJWF64vCdsrhiGt6EJsrtU5Tk66VzTznpC2VzMvd ProvinceFund[1]
-      acct   -w CkZHbfYNDZumVBK3qhswzokYUUZppxuJpW8pKFfWxtRB ProvinceFund[2]
-      acct   -w AP618NkipXuhaSwQTaHPKDNCFtyi7bUYHK1qR1wVta5s ProvinceFund[3]
-      acct   -w D3qRryv32yi5qeV3as4FTNGLbqF8boVQWvGXj6xQHG4x ProvinceFund[4]
-      acct   -w 3UkZN9o2FCwnK7ay4gFo1AWQJLyih4drgnxb4eDyxbzM ProvinceFund[5]
-      acct   -w ANQUCpq9f8sw3VyNpdDjipemhZ1ekGKEZaUqdiu1CdC3 DefencePool
+      acct   -w CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w 6guxz71yPiPx1Ymn6msbxqeHogeGxaMQgmaDwtYpJfzr Frontier
+      acct   -w Ft41CB6ULS9T3c9mgV9yHwdiArSGunNWHKWU8ZLWG1ak ProvinceFund[0]
+      acct   -w 5hzq9Y5FqQZtRt3R4n1nd37pDXHotDiXHUaUXDNDXLAe ProvinceFund[1]
+      acct   -w EEyzZjUnfsZ3VsjBXnsY9qq7qRemeUugXKb1vQBrTmZj ProvinceFund[2]
+      acct   -w B1AMJMU4dZx1e68TF87AHE6RoDFDVrRPXQfpUej1Lw29 ProvinceFund[3]
+      acct   -w 6WTRgvx2v3BeQMsUwuZLca6ghwYpTX1HX3vgb1s5jsaQ ProvinceFund[4]
+      acct   -w 3ERaoALRqpvVwbsiECEvD2QEUNgKDN1YQQ8VaakyfW7n ProvinceFund[5]
+      acct   -w 5XjFvVx1GHjEhdQ3DEqVtbtECewjYBEviZmDR3PRUBmr DefencePool
       acct   -- 11111111111111111111111111111111 System
       create Frontier           512 B  rent     3,251,200
       create ProvinceFund[0]    128 B  rent     1,300,480  + float 6,000,000,000
@@ -42,23 +42,23 @@ tx 2  CreateSeason  [after the lead]
 tx 3  InitBeaconLogs  [after the lead]
       data   1 B: tag 0x09, sha256 2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w GvZNtA3yw4pNKR3oFNkdDje3uvDSw9Cz23zdYNWgemiQ BeaconLog[0]
-      acct   -w EYF9kzuzaiUVkrzUwtDpFPokDcN2AvQjjwLp483RK5bQ BeaconLog[1]
-      acct   -w CHA6UNVp19JUrUZocaWhZQJbFv2npBq68q65farsCiVV BeaconLog[2]
-      acct   -w GTXAMpJCYAjCJ5TAAauWf4YXd6Hvr8W2Eb9nYtA96kGy BeaconLog[3]
-      acct   -w H8W1BnKjTk3VNE3s22RNcvLe1Wgk46hSshLRc8NAPDDe BeaconLog[4]
-      acct   -w 8J7rshkShj72o1tUu8Z4kAvvuxe2Cmgz48cmBqqwaG4K BeaconLog[5]
-      acct   -w Lt1evm1iUGwVq93bRebfpPZv14cWEUGcYY1NVTsaj4Y BeaconLog[6]
-      acct   -w 7XPaGE8BBqa5gSYFnyyF48MbkiaR2cxtYzbkMBuX2qaz BeaconLog[7]
-      acct   -w 5VDTqy1e5ejAfkFUceNBJVtku2yfbqxpo6SvJvLY1Vqi BeaconLog[8]
-      acct   -w 5JuLw3Rm9yYzLujLj5zYwjGh1BmCG5fEZiemGDMeqHuV BeaconLog[9]
-      acct   -w CqsAvgQtN2K9fgzmimCLPqG8e5ahbmTgPMbBsKGD5Pyg BeaconLog[10]
-      acct   -w 4BXpqFccrM4GwwavyiQpZVnjg6A63sayq6ZUCcNbXpoF BeaconLog[11]
-      acct   -w 2oUzgZUbm3C1ouyvzn2wPdbqoDSuiLtX2qx1gWGbRZNF BeaconLog[12]
-      acct   -w GBfiZnRc23BE7zfUDk2i3SuUZPHxiVCXEb7En25ExFNy BeaconLog[13]
-      acct   -w BB7igGNoY7SUY33zdXrbFSa39t7pE4hq5m3BHGZLCuNm BeaconLog[14]
-      acct   -w EzkJMbCrRS2hWiwbJogy5fPaJrq14abic7H6p3SNiHdV BeaconLog[15]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w 7NBkTwMF9sxqi7qGrTxNSr1ix4orotveSXGGtCU6fo9Y BeaconLog[0]
+      acct   -w 32DKP7H9LkMqcK159E51EfY3aAjJrYXrcLteu8MMVLzB BeaconLog[1]
+      acct   -w 24ajZMmC4fjroxrTowouS3WTrgr3ABXRndVBuQyvNABf BeaconLog[2]
+      acct   -w Cwx9CSoPLdC8FZNsPdy6yRusjXkehXaxSgv644882E6P BeaconLog[3]
+      acct   -w E6yzmzpst6MPNX2FWw4dmsdg5JvuB6doQAFwA6EZ2KQu BeaconLog[4]
+      acct   -w D8UmWCMPKTitQrXm37rhCBxNm25hzFgsNTfsPA9dGNNn BeaconLog[5]
+      acct   -w BDCw2G2eb8CGJ25L3PaAuPx6LGyRJoS8DEHayokxznFP BeaconLog[6]
+      acct   -w HFAJkVpK2oaSEiRE3gTgXnjdrPREE1W3apRzkDgyHZz3 BeaconLog[7]
+      acct   -w 3Ubd9Nf9tNgTfHbUV6URGXdCmELD3XZRqvWUeAevG5Eu BeaconLog[8]
+      acct   -w CKAdvNXMZq4U1nL3k5egGLbHWQ1NGMAPRyyRupDZHr3k BeaconLog[9]
+      acct   -w 13CW6UqpcDWAzx3xf1UX1cqAhXawkAFBR29fkcECvs4S BeaconLog[10]
+      acct   -w FZGxsJnbF4mCKY8pgd5DLHjGgsk8YsPE2wKo65FDwXdg BeaconLog[11]
+      acct   -w Gb3VUgqG177m1VUXPN3gmx4pLZNJL2uTbBysFryT8UWz BeaconLog[12]
+      acct   -w ETc8nqxQb8RUVxCxZ53jx4cDaaqw2Qx7hn5Vypp1tx1p BeaconLog[13]
+      acct   -w CdCSqBQnKZxwWqTCPAuyzHAM9osR2fJautiPqSpvEycW BeaconLog[14]
+      acct   -w J3cm7M578qkbk4L5UwU2jLVwnjgpSj4F8zw4Hn7b8Woa BeaconLog[15]
       acct   -- 11111111111111111111111111111111 System
       create BeaconLog[0]       128 B  rent     1,300,480
       create BeaconLog[1]       128 B  rent     1,300,480
@@ -80,15 +80,15 @@ tx 3  InitBeaconLogs  [after the lead]
 tx 4  InitShards(0)  [after the lead]
       data   2 B: tag 0x02, sha256 99be5efb88ca2013bd8e4eb035fd42d5245468fe9afa70d8ba9c1c419a48c4e8
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w Apxekhk3L7edjXU4hd7j9cAjDhCcYFkCCBF4wDnP5p2x JoinShard[0][0]
-      acct   -w G1fyxYDRAcF7BNUvKAnnLcaWg7QpBLRsnFEbCyWZpAii JoinShard[0][1]
-      acct   -w 5cgvFPVvUBJ58RokY9AZFFZRNML8mXrsmEAtEYn2VBRD JoinShard[0][2]
-      acct   -w 3ZsSCMmKMApfkWvfCSgLm6v2R8DLfyfsKq7sQa7EG733 JoinShard[0][3]
-      acct   -w 6KJDuLno1UWo3caitVpfZADMBU1Nwo9qTyqpiYnuMU6c JoinShard[0][4]
-      acct   -w AVLCrxpDtQt8nCmNLqco7fpz6phzrW6y1EEy9wKFgBW9 JoinShard[0][5]
-      acct   -w 9ENBbFFDaEKa3wkW2sYELGQCEwDCoDdyn7SfZLQQaSda JoinShard[0][6]
-      acct   -w 9gHAY5J4YAifrV57g87iR6ju1cwe9gmrEz4foGz22ZUP JoinShard[0][7]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w Cnr3gas5nixeqyG3SjMYfGg1RfCV2WBhNDPKv4eJP2Lg JoinShard[0][0]
+      acct   -w 2kRJbN9xRUFshgPvqu51ohtsc7Tr8bjBnFuKAgT5gvUA JoinShard[0][1]
+      acct   -w HuXMqVMriKcvK23Ni2GRRVZpCAocSfGyWbzRwxsup1Hh JoinShard[0][2]
+      acct   -w A5zj6uEfUhXYzxrtRzA5kd2os5AAVoPLovXqaFkPyK93 JoinShard[0][3]
+      acct   -w DvMcnVAFY1vRv5heZ2nZCiqyuob7XG3vdPh1g6eR3ZV1 JoinShard[0][4]
+      acct   -w EnrasXr3e2mVm83hKN8goBn5iVt4kur9wCWjh11Cr7mq JoinShard[0][5]
+      acct   -w 7opjaei75qW17YACAwKeAfAN9VGdaSXfeMWneWXJjw5n JoinShard[0][6]
+      acct   -w Ayb9mqX87HixSDCxg7XZPKiz7CsTygosXmXX6RU11UpN JoinShard[0][7]
       acct   -- 11111111111111111111111111111111 System
       create JoinShard[0][0]    256 B  rent     1,950,720
       create JoinShard[0][1]    256 B  rent     1,950,720
@@ -102,15 +102,15 @@ tx 4  InitShards(0)  [after the lead]
 tx 5  InitShards(1)  [after the lead]
       data   2 B: tag 0x02, sha256 25dfd29c09617dcc9852281c030e5b3037a338a4712a42a21c907f259c6412a0
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w 7rQ4rEvdoGRkZqEyvbTUeuB8KGofUBiLUYYi89oCHB7V JoinShard[1][0]
-      acct   -w 5sqvq2TMH7UP1cfA8i9Hk76vxdckJ43yND1pDxHkhDDK JoinShard[1][1]
-      acct   -w GUkZDWj57vesxbEZMv9AWQLAuJwrWd7f1NFM7rfTEp3L JoinShard[1][2]
-      acct   -w 3hcqUGXcrQ66kFqi54sxyN5atocMuG1EjJ7bdjR89i67 JoinShard[1][3]
-      acct   -w EhNJxio8Q5kbSJGGr4wbcRxQqJr6ob2m42tBPdjS6SdS JoinShard[1][4]
-      acct   -w 7US9gEygGwDfepHMxcwjzJ9Zd2JEMpqrdouzVxrovwDF JoinShard[1][5]
-      acct   -w 88tUozqUZmSZLeydszwrXMvaPnhZDZk3Br3GfAMteZo7 JoinShard[1][6]
-      acct   -w EfW6uYtXvftWMCi8LBtKbuqYhyCKAgRxUVMCetEeNDmY JoinShard[1][7]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w D8Cz4mD9VVKUz1XKjgsitDAZ7RoqDJDq6WaDqCKNyeHz JoinShard[1][0]
+      acct   -w 2rbDS4UfjFN7ENy2Bwz36jwjG7mE763qJmqF63uK2StP JoinShard[1][1]
+      acct   -w ES3QfjgpB6gfFy4hZ51FdczWGo9QEzhpKkA8JbqfeYLB JoinShard[1][2]
+      acct   -w FNw2Mg5hwnZhokfzEyhwKY3dwwgYDHHiNwAUH5kuuK25 JoinShard[1][3]
+      acct   -w 3JEPoYGvMDj7GRPaAaUgrgCwiLA2MfVG5hq4MVd6tqM4 JoinShard[1][4]
+      acct   -w 2P8wwt5DocigYxvaaPtWWYqBgPujnP5jfineLU3NawqY JoinShard[1][5]
+      acct   -w AwrZtR2QYsNsZ762DvttA9515z14ar1t3HwnX6oPekNU JoinShard[1][6]
+      acct   -w 3nA22nhucD7efyB5TpgzqpNnjBhmB4AA8wwb6RT8H7eX JoinShard[1][7]
       acct   -- 11111111111111111111111111111111 System
       create JoinShard[1][0]    256 B  rent     1,950,720
       create JoinShard[1][1]    256 B  rent     1,950,720
@@ -124,15 +124,15 @@ tx 5  InitShards(1)  [after the lead]
 tx 6  InitShards(2)  [after the lead]
       data   2 B: tag 0x02, sha256 50cff72c8e550546d661ec235431888fb2f9f7bada40c17020d47f6ccc117aae
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w 3Dm74SCWN89x56KdSS12PYFDkPDn2buTbn7E9QrMRjK6 JoinShard[2][0]
-      acct   -w nT1DiN1eatdddcB65sdmdea3ZKVcxLtSPDvRN4rdPg9 JoinShard[2][1]
-      acct   -w GFevcs1S7iA4RMYEoeehkhfsVen6EuiCbjRRpbm5jpGf JoinShard[2][2]
-      acct   -w Dz1pBTGaXKYFVMPphheGUaMxDBZVYQi1MmVB1e7Dr1EC JoinShard[2][3]
-      acct   -w GYMYE6STX2NC8qJMGiS9Ne1j5LodfoXjBBX17zCvndps JoinShard[2][4]
-      acct   -w 6K4iUj5B58mMZx7sXffeBYLEaofBEPB1XsFETSd1c1ha JoinShard[2][5]
-      acct   -w 9SWPqweha6oNvJytdzXhXJQVN96CHH39ep652kipESQ8 JoinShard[2][6]
-      acct   -w Dvv2nxFTzanSfiHCiS315MpBSwenSi2Pi7EjsGHhTs7e JoinShard[2][7]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w J7SQdZh6hM3pWvTAezoBGgX3e3RPuJn9RJSFzrEk2jH7 JoinShard[2][0]
+      acct   -w 6NaCyjG52aNtuyYarZCMu1WcAxzsQUoVBcwiCVBvTsRx JoinShard[2][1]
+      acct   -w azeszCt7C7iASGPPM5dFLYBa6wPN8xsiDp1yeow8TGM JoinShard[2][2]
+      acct   -w BXQEbvh195v2YDeMXPv4nKHGLvZeFjWqfFqN2LhYYUi8 JoinShard[2][3]
+      acct   -w DbHKGmcD8r9yz2UFiML7F5pGeMzqiLMo7qkynHsT8T7S JoinShard[2][4]
+      acct   -w TDuzb4VN38TcEtBiFZjVE372FthkRYTXbdi9vmFWMRn JoinShard[2][5]
+      acct   -w Aj9P3NyZt3KCkWpBScKiGtfL29dPVQiZSN22q4zUuWqn JoinShard[2][6]
+      acct   -w CSUVVqubt9wiDu4qZ16Pbi2JcY6jZy3TcMPBhCGaSjKW JoinShard[2][7]
       acct   -- 11111111111111111111111111111111 System
       create JoinShard[2][0]    256 B  rent     1,950,720
       create JoinShard[2][1]    256 B  rent     1,950,720
@@ -146,15 +146,15 @@ tx 6  InitShards(2)  [after the lead]
 tx 7  InitShards(3)  [after the lead]
       data   2 B: tag 0x02, sha256 ee9040f65c341855e070ff438eb0ea9d5b831b2a2c270fb7ef592d750408e3b3
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w 5sFMA4vmFuR7oDNFHV6qWK8gpNEJvW3qW1fEgw6a91yH JoinShard[3][0]
-      acct   -w sgjT7rgcuUWBsFvQS4bQYAja77Bc5LTwJxcXCv9rwJm JoinShard[3][1]
-      acct   -w 3zuk1D6X4Ffksmy9GzaiUtYHQoByfhEP32T4t7QcgcUh JoinShard[3][2]
-      acct   -w 27vHJ2cQTxdojyJsHbWPn6HYjKPBuUgCzdY21w6wdSbJ JoinShard[3][3]
-      acct   -w Gkt33dfdxRbNQw4XZotDdHT8bGUBSKrpANodQrpmDURe JoinShard[3][4]
-      acct   -w B4FqWNS3gBPE4Thvj5n1sziWWnSBX3ouT9EbP7YZsdEH JoinShard[3][5]
-      acct   -w 8rn3Fg3dRdnPJ1a2BpnbTcnfSemkpHw8mE5SQMzgEhGo JoinShard[3][6]
-      acct   -w BumdpVtzhYv9fdbjpswdCX49SoQNmi3Pv4JTfRUKfEDY JoinShard[3][7]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w 5grQP6znELA1j8Cwgct4vhqA8Fgu1NWuDsFzwK3D7dDE JoinShard[3][0]
+      acct   -w CdGVuWFj5rt5dBQg8pimu57aD2U3qwAWjHU23p11KK4T JoinShard[3][1]
+      acct   -w 9nZqR9qPwd82R8z7rYx9HdPEvwbA1tmm3HejnLacnZX8 JoinShard[3][2]
+      acct   -w 2kZftUFuLqZBCgp3H3kpytXt8K8NeCKtUJCTFwMARsJt JoinShard[3][3]
+      acct   -w Byyk7Lc2avSWB4jDvoSxdfq4w6U8HdgZSDJhc5G257GN JoinShard[3][4]
+      acct   -w 7E31x6dueujVFgPeujbJjfzutYDEMyLiaFHvz1rqykxS JoinShard[3][5]
+      acct   -w wuURnsFPyVmYwd9bP5KEvDnJ8Ybaa9dAsFxv822dQWj JoinShard[3][6]
+      acct   -w 9vsEn6zDWzdgUsKccpVA8RkcKgE3Z6USeSoiuNX2y4Bd JoinShard[3][7]
       acct   -- 11111111111111111111111111111111 System
       create JoinShard[3][0]    256 B  rent     1,950,720
       create JoinShard[3][1]    256 B  rent     1,950,720
@@ -168,15 +168,15 @@ tx 7  InitShards(3)  [after the lead]
 tx 8  InitShards(4)  [after the lead]
       data   2 B: tag 0x02, sha256 421dd6c30feb9149b349ae67525aae7556eb6c552e0b363edd78f8a8d8646ab8
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w 3NuMejYhsNoUzHSpmGz4hkDAXz3SSrb9F37dcXswGgwK JoinShard[4][0]
-      acct   -w fPXL3tHFNB2vk29PvFMjCn1qH29yfBCgnUK3iRGjJjL JoinShard[4][1]
-      acct   -w 6Vpo6b5SnJxPA1DHycQjAbwNDxmo3R2PrsDvqdRtDDSV JoinShard[4][2]
-      acct   -w BsbgJbMjh1xojecgweaaasgQpFoBE1SgA6s6BvRcaEdT JoinShard[4][3]
-      acct   -w 9jNo4LgAXz5EqAwYpvUfRsG33L2BenQtSbWBQexWHYJJ JoinShard[4][4]
-      acct   -w 8m6gwcAZD2gyV7kGHRM4JMvtCqSvPehVZ12D5y2Djtiy JoinShard[4][5]
-      acct   -w 9hi45Ka8eNbimmnB3XXUhg8FKP1VC9h32Wynkbg13j1F JoinShard[4][6]
-      acct   -w 2q5zMveZYFChrzt8sSWoKTB5V24G33Amwmi6DixgskZb JoinShard[4][7]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w J5nh8AYuPBAq6KfEdCWcHJ2XU5jwVS31QyUc3Y2zyDVW JoinShard[4][0]
+      acct   -w BmSDTS4f3eDCXCgAvawCAgeGRpVxckGSsgzKXaWt9s4H JoinShard[4][1]
+      acct   -w 7jcVRGzFuGGtjmnju9cpB3TMXnccpEFK6egfMdDBXu5X JoinShard[4][2]
+      acct   -w HaWiMqhNodFS7ukE5g4wnMTmhU5PUebsT924KiUEWiLZ JoinShard[4][3]
+      acct   -w CAvxp48GoMPo3kP7ZQo3xSxoDmmr1QchFusK883eqiby JoinShard[4][4]
+      acct   -w GKWFHASGTqYPykXVgCUxRapWStJb2zQL5BmWmeJHtko2 JoinShard[4][5]
+      acct   -w GBo7ET7dgtY1pKALMP1Yhby7ZfT8DjUYKksArweHQ77M JoinShard[4][6]
+      acct   -w FrNqLhe5XRJdP3Yy1MCT9RZvuazrPTTdSRVrUq1u9Pap JoinShard[4][7]
       acct   -- 11111111111111111111111111111111 System
       create JoinShard[4][0]    256 B  rent     1,950,720
       create JoinShard[4][1]    256 B  rent     1,950,720
@@ -190,15 +190,15 @@ tx 8  InitShards(4)  [after the lead]
 tx 9  InitShards(5)  [after the lead]
       data   2 B: tag 0x02, sha256 167fa3bd837a7c1db48f1fdd3c79304e9967cc7a3a2cd432d5e4de86386a959a
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w 5RAeZ1fYzEkHGFKemVaJ92zDp2jUEGcT7jFwYjAKYbhs JoinShard[5][0]
-      acct   -w EAx86zgoNqJSYdtQ7LzMGFeqSyzDQJJh2isj1RoGtKbV JoinShard[5][1]
-      acct   -w pieFFhWwbvuHoewXzVrDrWeTAL8yDUnY45SEhnvu6vP JoinShard[5][2]
-      acct   -w ATf7pPM7LUpwNMaSWiqc6vMLXMZKQmhGR6rJpM3sLVWr JoinShard[5][3]
-      acct   -w EpLK7yLTA2QYM6ksuX1vJ4TsJzXofqSXrxfCHqsFhoxh JoinShard[5][4]
-      acct   -w 6ggGmrjXts1A9U8uoNtqeTGn16FtphPcMKMXswmiRxpB JoinShard[5][5]
-      acct   -w 9SUrvyw71EH5MZcj4Wb9hkojFQoZk8gTXHyWh98Q4P5F JoinShard[5][6]
-      acct   -w 2mccqvARsAT1M173cz6gKEiBNS7TeUnq6VDKfBzLCHea JoinShard[5][7]
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w FKJDKT7QpET2TGRri6oXHcMMrCDRdsrxw4MCdFFRXFYM JoinShard[5][0]
+      acct   -w 6rVsar6Y4cwn6QhS4g4izUUQKjDZGTAWSLtbGQXFQ1Ss JoinShard[5][1]
+      acct   -w 6GqGXPtXxSmzUKiPBBKu1BPszsaW5ikhNzF8FnmtgiSf JoinShard[5][2]
+      acct   -w 2U4aQrtz2rGM6cgmGUhsdUPuQTadsRrjM4eTqkRS47CN JoinShard[5][3]
+      acct   -w GDW2rhfhNxogSP1M73PQvLqxkXFrbMndQhEeQeQFNcj1 JoinShard[5][4]
+      acct   -w 8BhZ1bH1AF5KWZgDhj7NS5gAuMCWmbRpWrw6CGPEs7ir JoinShard[5][5]
+      acct   -w 8sfZczxsJDE7RQEJTS3npdNwQ5ozreFL1sfonDGu9Jjz JoinShard[5][6]
+      acct   -w 5Pig7KefhrbgP8dejbTKznzPYdDjk16d1ihkYbYjwFmC JoinShard[5][7]
       acct   -- 11111111111111111111111111111111 System
       create JoinShard[5][0]    256 B  rent     1,950,720
       create JoinShard[5][1]    256 B  rent     1,950,720
@@ -212,8 +212,8 @@ tx 9  InitShards(5)  [after the lead]
 tx 10 WideSetRules  [after keeper A's ConsumeGenesisSeed: the season Seeded]
       data   7 B: tag 0xdb, config_version 2, keep_holder MixedInterleaved(1), free_city DeployedLe32V1(3), camp NoCamp(1), region SortKeyHashV1(1)
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
-      acct   -- 8iYxhdATxQTw4zTh7Cke8DMMn1DUXje6T86JKmmG4dcH Season
-      acct   -w HoQgVF5YoZMzSo36zH345fLnpZeQ8Nc5fWnqWPs6HpFM WideRulesConfig
+      acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
+      acct   -w 8NHCQcYjVD3Kcsazr8xReGyV1doADcrDZt8cqiE4k2BY WideRulesConfig
       acct   -- 11111111111111111111111111111111 System
       create WideRulesConfig     96 B  rent     1,137,920
       cost   rent 1,137,920 + float 0 + fee 5,000 = 1,142,920 lamports
