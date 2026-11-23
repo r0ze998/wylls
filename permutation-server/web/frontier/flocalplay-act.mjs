@@ -311,7 +311,7 @@ export function localActIntentOf(name, v, fields, wallet) {
   }
   // (TEST-ONLY wide play: the wide claim, flocalplay-wide.mjs — its anchor the legacy first home, its target a wide province)
   //  (expansion-gameplay-1: and the reach witness when the card names one — a province of the nation's land)
-  if (name === WIDE_CLAIM) return wideClaimIntent(v.reach ? { holding: v.holding, target: v.target, reach: v.reach } : { holding: v.holding, target: v.target }, f);
+  if (name === WIDE_CLAIM) return wideClaimIntent({ holding: v.holding, target: v.target, ...(v.reach ? { reach: v.reach } : {}), ...(v.previous ? { previous: v.previous } : {}) }, f);
   if (WIDE_BUILT_ACTS.includes(name)) return wideHostIntent(name, v.standing ? { wide: v.wide, standing: v.standing } : { wide: v.wide }, f);
   if (name === 'FileTicket') {
     check(Array.isArray(v.sites) && v.sites.length === 1 && exact(f, ['sites']) && Array.isArray(f.sites) && f.sites.length === 1, 'LocalActShape');

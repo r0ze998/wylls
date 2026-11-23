@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as W from '../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
+import { wideHoldingAddress } from '../../permutation-server/web/frontier/fwide.mjs';
 import * as P from '../src/frontier/local-play-operator-policy.mjs';
 import * as X from '../src/frontier/local-play-operator-expansion.mjs';
 
@@ -112,4 +113,24 @@ test('the AI policy names the witness for a far target, none inside home range',
   assert.deepEqual([d.name, d.fields.site, JSON.parse(JSON.stringify(d.v.reach))], ['WideClaim', 2, LAND]);
   const d2 = P.decideNext(P.createResidentMemory(0), v1, { homes: [], wide: { targets: [{ ...NEAR, free: [0] }], canClaim: true }, nowSecs: 1 });
   assert.equal(Object.hasOwn(d2.v, 'reach'), false);
+});
+
+test('a slot-3 claim names the slot-2 WIDE village as its previous pair (refused before: the anchor pair, BadAccount)', () => {
+  const PREV = { p: '129', q: '-6', site: 4 };
+  refused(() => W.wideClaimIntent({ holding: HOME, target: FAR, reach: LAND }, { site: 1, slot: 3 }), 'LocalActShape');          // slot 3 without it
+  refused(() => W.wideClaimIntent({ holding: HOME, target: NEAR, previous: PREV }, { site: 1, slot: 2 }), 'LocalActShape');      // slot 2 with it
+  refused(() => W.wideClaimIntent({ holding: HOME, target: FAR, reach: LAND, previous: { ...PREV, site: 12 } }, { site: 1, slot: 3 }), 'LocalActShape');
+  const i = W.wideClaimIntent({ holding: HOME, target: FAR, reach: LAND, previous: PREV }, { site: 1, slot: 3 });
+  const ix = W.wideClaimInstruction(i, { programId: LOCAL_PLAY_PROGRAM, seasonId: 11, wallet: WALLET });
+  const season = seasonAddresses(LOCAL_PLAY_PROGRAM, '11').season;
+  assert.equal(ix.keys.length, 13);
+  assert.deepEqual(ix.keys[9], { pubkey: wideHoldingAddress(season, LOCAL_PLAY_PROGRAM, 129n, -6n, 4), isSigner: false, isWritable: true });
+  assert.deepEqual(ix.keys[10], { pubkey: W.wideProvinceAddress(season, LOCAL_PLAY_PROGRAM, '129', '-6'), isSigner: false, isWritable: false });
+  // the AI names its known second village, or waits for one
+  const v1 = { joined: true, faction: 1, holding: { p: 128, q: 0, site: 0, tile: 5 }, wide: 1 };
+  const m = P.createResidentMemory(0); m.claims = 1; m.wideVillages = [PREV];
+  const d = P.decideNext(m, v1, { homes: [], wide: { targets: [{ ...FAR, reach: LAND, free: [2] }], canClaim: true }, nowSecs: 1 });
+  assert.deepEqual([d.name, d.fields.slot, JSON.parse(JSON.stringify(d.v.previous))], ['WideClaim', 3, PREV]);
+  const m2 = P.createResidentMemory(0); m2.claims = 1;
+  assert.equal(P.decideNext(m2, v1, { homes: [], wide: { targets: [{ ...FAR, reach: LAND, free: [2] }], canClaim: true }, nowSecs: 1 }).name, 'Harvest');
 });

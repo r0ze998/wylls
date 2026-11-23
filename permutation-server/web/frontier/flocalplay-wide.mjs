@@ -20,7 +20,7 @@
 //   addresses with_seed(season, 'wp' ‖ hex(sha256('PSF-WIDE-PROVINCE-SEED-v1' ‖ sort key)[..15]), program) and
 //             with_seed(season, 'wt' ‖ hex(sha256('PSF-WIDE-TICKET-SEED-v1' ‖ citizen)[..15]), program)
 import { seasonAddresses, withSeed } from './faddr.mjs';
-import { sortKeyOf } from './fwide.mjs';
+import { sortKeyOf, wideHoldingAddress } from './fwide.mjs';
 import { ringPosition } from './map/wide.mjs';
 import { setComputeUnitLimit, setComputeUnitPrice, setLoadedAccountsDataSizeLimit, requestHeapFrame } from '../sdk/frontier/budgets.mjs';
 import { compileMessage } from '../sdk/solana-tx.mjs';
@@ -67,9 +67,16 @@ export function distance(a, b) {
  * nation's land is the program's check. Site 0-11, slot 2 or 3. Throws a code.
  */
 export function wideClaimIntent(subject, fields, code = 'LocalActShape') {
-  const withReach = subject !== null && typeof subject === 'object' && Object.hasOwn(subject, 'reach');
-  check(exactKeys(subject, withReach ? ['holding', 'target', 'reach'] : ['holding', 'target']) && exactKeys(fields, ['site', 'slot']), code);
-  const h = subject.holding, t = subject.target, w = withReach ? subject.reach : null;
+  const has = k => subject !== null && typeof subject === 'object' && Object.hasOwn(subject, k);
+  const withReach = has('reach'), withPrev = has('previous');
+  const keys = ['holding', 'target', ...(withReach ? ['reach'] : []), ...(withPrev ? ['previous'] : [])];
+  check(exactKeys(subject, keys) && exactKeys(fields, ['site', 'slot']), code);
+  const h = subject.holding, t = subject.target, w = withReach ? subject.reach : null, pv = withPrev ? subject.previous : null;
+  // (expansion-gameplay-1, a bug on main too: a slot-3 claim names the citizen's slot-2 WIDE holding as the previous
+  //  pair — program proc/wide.rs previous_final; the anchor pair is only a slot-2 claim's. Required for slot 3, refused
+  //  for slot 2)
+  check(withPrev === (fields?.slot === 3), code);
+  if (pv) check(exactKeys(pv, ['p', 'q', 'site']) && wideText(pv.p) && wideText(pv.q) && int(pv.site, 0, 11), code);
   check(exactKeys(h, ['p', 'q', 'site']) && Number.isSafeInteger(h.p) && Number.isSafeInteger(h.q) && int(h.site, 0, 11), code);
   check(exactKeys(t, ['p', 'q']) && wideText(t.p) && wideText(t.q), code);
   if (withReach) check(exactKeys(w, ['p', 'q']) && wideText(w.p) && wideText(w.q) && !(w.p === t.p && w.q === t.q), code);
@@ -82,13 +89,14 @@ export function wideClaimIntent(subject, fields, code = 'LocalActShape') {
   check(int(fields.site, 0, 11) && int(fields.slot, 2, 3), code);
   const subj = { holding: Object.freeze({ p: h.p, q: h.q, site: h.site }), target: Object.freeze({ p: t.p, q: t.q }) };
   if (w) subj.reach = Object.freeze({ p: w.p, q: w.q });
+  if (pv) subj.previous = Object.freeze({ p: pv.p, q: pv.q, site: pv.site });
   return Object.freeze({ name: WIDE_CLAIM, subject: Object.freeze(subj), fields: Object.freeze({ site: fields.site, slot: fields.slot }) });
 }
 
 /** The 0xD9 instruction of `intent` for `wallet` (actor and payer) in the Season `seasonId` of `programId`. */
 export function wideClaimInstruction(intent, { programId, seasonId, wallet }) {
   const A = seasonAddresses(programId, String(seasonId));
-  const h = intent.subject.holding, t = intent.subject.target, f = intent.fields;
+  const h = intent.subject.holding, t = intent.subject.target, f = intent.fields, pv = intent.subject.previous ?? null;
   const citizen = A.of('Citizen', { wallet });
   const anchor = A.of('Holding', h), anchorProvince = A.of('Province', h);
   const keys = [
@@ -101,8 +109,9 @@ export function wideClaimInstruction(intent, { programId, seasonId, wallet }) {
     { pubkey: wideTicketAddress(A.season, programId, citizen), isSigner: false, isWritable: true },
     { pubkey: anchor, isSigner: false, isWritable: true },
     { pubkey: anchorProvince, isSigner: false, isWritable: false },
-    { pubkey: anchor, isSigner: false, isWritable: true },
-    { pubkey: anchorProvince, isSigner: false, isWritable: false },
+    // (the previous pair: the slot-2 wide holding and its province for a slot-3 claim, the anchor pair again for slot 2)
+    { pubkey: pv ? wideHoldingAddress(A.season, programId, BigInt(pv.p), BigInt(pv.q), pv.site) : anchor, isSigner: false, isWritable: true },
+    { pubkey: pv ? wideProvinceAddress(A.season, programId, pv.p, pv.q) : anchorProvince, isSigner: false, isWritable: false },
     { pubkey: SYSTEM, isSigner: false, isWritable: false },
   ];
   // (the reach witness, read-only, last: expansion-gameplay-1)

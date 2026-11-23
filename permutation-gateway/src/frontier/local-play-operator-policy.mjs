@@ -257,7 +257,11 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
       const waiting = (memory.claimWaitUntil ?? 0) > memory.decisions || (memory.cooldown.WideClaim ?? 0) > memory.decisions;
       if (wide.canClaim && !waiting) {
         const slot = 2 + Math.min(1, Math.max(Number.isInteger(view.wide) ? view.wide : 0, memory.claims ?? 0));
-        return { name: 'WideClaim', v: { holding: h, target: next.t, ...(next.reach ? { reach: next.reach } : {}) }, fields: { site: next.site, slot },
+        // (a slot-3 claim names the slot-2 wide village as its previous pair — expansion-gameplay-1; before, the AI's
+        //  third village was always refused BadAccount)
+        const prev = slot === 3 ? (memory.wideVillages ?? [])[0] : null;
+        if (slot === 3 && !prev) return { name: 'Harvest', v: { holding: h }, fields: {}, why: 'a third village needs the second wide village known first: harvest' };
+        return { name: 'WideClaim', v: { holding: h, target: next.t, ...(next.reach ? { reach: next.reach } : {}), ...(prev ? { previous: { p: String(prev.p), q: String(prev.q), site: prev.site } } : {}) }, fields: { site: next.site, slot },
           why: `stores cover the settler cost: claim wide land at ${next.t.p},${next.t.q} site ${next.site} (slot ${slot})${next.reach ? ` through the nation's land at ${next.reach.p},${next.reach.q}` : ''}` };
       }
       return { name: 'Harvest', v: { holding: h }, fields: {}, why: waiting ? 'a wide claim is settling: harvest meanwhile' : 'saving for a wide claim (the settler cost): harvest' };
