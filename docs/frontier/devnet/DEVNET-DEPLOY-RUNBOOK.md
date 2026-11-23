@@ -639,7 +639,12 @@ $B end-season --profile $P --rpc $RPC --authority $K --yes-send --i-have-r0ze-ap
 # 2. inside the 72 h: leave keeper A running (it drains: the last bells, transits, defence claims, its floats);
 #    run the final verifier now (§8 step 9) while the witness RPC still serves the whole season (W1)
 # 3. at or after end + 72 h [r0ze approves]: the dry run first (check "found N legacy + M wide provinces (funds count N+M
-#    opened)" and no BLOCKED line), then the same send line → every close; exit 0 "end-season complete: K transaction(s) sent"
+#    opened)" and no BLOCKED line). If it prints a WARNING line, keeper A still holds floats: BellAnchors not archived yet
+#    NEVER close after the final part (ArchiveAnchors needs Running / Ended), and keeper A stops every duty on the
+#    tombstone, so its ArrivalSlot / ArrivalDay / ClashInputs / SeedCache floats would have no sender after it (they stay
+#    closable by anyone, by hand). Leave keeper A running (close + archive roles; from end + 72 h every march record may
+#    close) and re-run the dry run until those lines are gone or stop shrinking (verify-pr180). Then the same send line →
+#    every close; exit 0 "end-season complete: K transaction(s) sent"
 # 4. keeper A logs "season-closed" and stops every duty by itself; stop it, keeper B, the gateway; the herald keeps
 #    serving the ended season (/h/season "statusName": "Closed", the page shows 閉鎖 / 受付終了) — the herald of §8 step 1,
 #    built with land-preview,wide-world-experimental,expedition-records-experimental: a plain `cargo build -p herald`

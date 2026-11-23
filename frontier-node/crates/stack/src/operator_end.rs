@@ -925,7 +925,52 @@ pub fn render(h: &EndHeader, a: &Addresses, o: &EndObserved, steps: &[EndStep]) 
             let _ = writeln!(s, "   {k}: {n} account(s), {} lamports", grouped(*l));
         }
     }
+    for w in keeper_float_warnings(o) {
+        let _ = writeln!(s, "WARNING    {w}");
+    }
     s
+}
+
+/// (verify-pr180) Keeper A's floats still open before the final part: a BellAnchor never closes after it
+/// (ArchiveAnchors needs the season Running or Ended), and keeper A stops every duty on the tombstone, so its
+/// ArrivalSlot / ArrivalDay / ClashInputs / SeedCache floats (closable on the tombstone by anyone) have no sender
+/// after it. Let keeper A drain them first (its `close` / `archive` roles; from end + 72 h the season-end fallback
+/// lets every march record close), then send the final part.
+pub fn keeper_float_warnings(o: &EndObserved) -> Vec<String> {
+    if o.tombstone {
+        return vec![];
+    }
+    let mut out = vec![];
+    let get = |p: &str| {
+        o.others
+            .iter()
+            .filter(|(k, _)| k.starts_with(p))
+            .map(|(_, v)| *v)
+            .fold((0usize, 0u64), |a, v| (a.0 + v.0, a.1 + v.1))
+    };
+    let (n, l) = get("BellAnchor");
+    if n > 0 {
+        out.push(format!(
+            "{n} BellAnchor(s) ({} lamports) are not archived yet: after CloseSeason part 7 they can NEVER close \
+             (ArchiveAnchors needs the season Running or Ended). Let keeper A's archive role archive them first",
+            grouped(l)
+        ));
+    }
+    let mut floats = (0usize, 0u64);
+    for p in ["ArrivalSlot", "ArrivalDay", "ClashInputs", "SeedCache"] {
+        let (n, l) = get(p);
+        floats = (floats.0 + n, floats.1 + l);
+    }
+    if floats.0 > 0 {
+        out.push(format!(
+            "{} keeper float(s) ({} lamports: ArrivalSlot / ArrivalDay / ClashInputs / SeedCache) are still open: \
+             keeper A stops every duty on the tombstone, so let its close / archive roles drain them before the \
+             final part (re-run this dry run until the line stops shrinking); after it they close only by hand",
+            floats.0,
+            grouped(floats.1)
+        ));
+    }
+    out
 }
 
 // ------------------------------------------------------------------ command line
@@ -1494,6 +1539,39 @@ mod tests {
         done.shards = vec![vec![None; 8]; 6];
         done.logs = vec![None; 16];
         assert!(plan(&done, &a, auth).is_empty(), "nothing left: complete");
+    }
+
+    #[test]
+    fn keeper_floats_left_before_the_final_part_are_warned_about() {
+        let (mut o, _, _) = obs(st::ENDED, 2_000_000_000);
+        assert!(keeper_float_warnings(&o).is_empty());
+        o.others
+            .insert("BellAnchor (keeper A's archive role)", (2, 3_000_000));
+        o.others
+            .insert("ClashInputs (keeper A's close role)", (1, 5_000_000));
+        o.others
+            .insert("SeedCache (keeper A's archive role)", (1, 1_000_000));
+        o.others.insert(
+            "Citizen (players: CloseCitizen, anyone, rent to the player)",
+            (9, 9),
+        );
+        let w = keeper_float_warnings(&o);
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(
+            w[0].starts_with("2 BellAnchor(s) (3,000,000 lamports)"),
+            "{}",
+            w[0]
+        );
+        assert!(
+            w[1].starts_with("2 keeper float(s) (6,000,000 lamports"),
+            "{}",
+            w[1]
+        );
+        o.tombstone = true;
+        assert!(
+            keeper_float_warnings(&o).is_empty(),
+            "too late to warn on the tombstone"
+        );
     }
 
     #[test]
