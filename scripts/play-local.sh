@@ -58,7 +58,7 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   (a stop ends it for good; not resumable; not with --resume or --wide)
   --speed N       with --demo or --wide: the compressed TEST clock, 10-60 (default 60: a turn is 10 s; the faster
                   the clock, the further a loaded machine's provinces trail the chain: try 15 to watch a war)
-  --minutes N     the world's life in minutes, 15-240 (default 90)
+  --minutes N     the world's life in minutes, 15-240 (default 90; use 240 to play --wide to the end)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999):
                   22 ports from BASE (14 with --ai 0), 8 more with --external and 1 for its MCP server.
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.
@@ -74,10 +74,11 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's "Found a village on the wide land" (「広い土地に村を出す」) claims wide land (AI residents do the same). Then a TEST clock of
-                  ×--speed (default 60, 10-60): a rim village saves a claim's cost in about 30 min at 60. A rim host
+                  ×--speed (default 60, 10-60): a rim village saves the cost the claim card shows (the program's price:
+                  800 food and wood, 400 stone, 200 gold for a second village) in 30-60 min at 60. A rim host
                   marches into the wide land by "Prepare a boundary route" (「境界への道を準備」; after "Check terrain and time" press the card's
                   "Use a turn that leaves time to send (N)" for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's "Next step (wide land)" (「次の一手（広い土地）」) marches
-                  wide to wide (local-only feature; press once per step, the card waits and sends by itself). The ordinary map and the "World" chart (「全体図」) draw the wide land as far as you have
+                  wide to wide (local-only feature; press once per step, the card waits and sends by itself while that village's screen is open). The ordinary map and the "World" chart (「全体図」) draw the wide land as far as you have
                   seen it (fog of war: no "Records" view). Memory-only: a stop ends it (not with --demo, --resume, --fresh,
                   --two or --coexist; --external works)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
@@ -111,7 +112,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   your own AI"). Workstream ⑬'s resident is another client of the same path, and its own option
                   --plan lets ④'s plan store run multi-turn plans (workstreams/13-citizens/resident/local/client.mjs;
                   PLAY-LOCAL §11). Kept worlds, --demo, --wide (a rim first village by request, FileTicket, as the
-                  page's), --ai, --random-map, --coexist, --resume; not --two
+                  page's; workstream ⑬'s resident also sends the wide land's orders there: wide claim, wide village
+                  train / muster / march, expedition), --ai, --random-map, --coexist, --resume; not --two
   --no-mcp        with --external: do not start the read-only MCP server
   --no-coop-board do not attach workstream 01's co-op board (requests across nations; launcher option
                   --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, Village → Trade and defences (村 → 交易と防備) →
