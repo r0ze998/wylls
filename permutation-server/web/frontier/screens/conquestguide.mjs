@@ -29,6 +29,8 @@ import { hostRows } from './host.mjs';
 import { cardHead } from './parts.mjs';
 import { viewKeeps, fogNow } from '../map/fog.mjs';
 import { holdingModel } from './holding.mjs';
+import { worldContinues } from '../clock.mjs';
+import { turnsLine } from '../seasonterms.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
 
@@ -295,8 +297,8 @@ export function conquestObjective(FS) {
   } else {
     // hold, then the capture: the count is the keep's own record
     const k = x.holding;
-    text = k ? L`${provinceName(FS, k.p, k.q, { own: false })}の砦のマスを、あなたの国が ${fmtNum(k.progress)} / ${fmtNum(k.required)} ターン保っています。${fmtNum(k.required)} ターン続けて保つと、州はあなたの国のものになります。`
-      : L`進軍が砦のマスに着いて勝つと、占拠のターンが数えられます。${fmtNum(hold)} ターン続けて保つと、州はあなたの国のものになります。`;
+    text = k ? L`${provinceName(FS, k.p, k.q, { own: false })}の砦のマスを、あなたの国が ${fmtNum(k.progress)} / ${fmtNum(k.required)} ターン保っています。${fmtNum(k.required)} ターン（${turnsLine(k.required)}）続けて保つと、州はあなたの国のものになります。`
+      : L`進軍が砦のマスに着いて勝つと、占拠のターンが数えられます。${fmtNum(hold)} ターン（${turnsLine(hold)}）続けて保つと、州はあなたの国のものになります。`;
     go = x.target ? { act: 'goto', data: { p: x.target.p, q: x.target.q }, label: L`砦を見る` } : { act: 'tab', data: { tab: 'marches' }, label: L`進軍を見る` };
   }
   return { id, n: g.n, total: g.total, title, text, go, wait };
@@ -313,8 +315,10 @@ export function renderConquestGuide(FS, { open = true } = {}) {
   const cap = g.facts.captured;
   // (w2-wipeout, D-verify-pr137-3: after the capture the card offers the next army too — it ended on the result alone)
   const next = !o && cap ? afterCapture(FS) : null;
+  // (newcomer-ux: a world that goes on has no season end and no winner yet — the 領土 tab says so; the guide said the opposite)
+  const seasonLine = worldContinues(FS.season) ? L`この世界は続きます。戦期の勝敗と集計は未決定です。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。`;
   const body = html`${o ? html`<p>${o.text}</p>${o.go ? html`<div class="actions"><button type="button" class="btn primary" data-act="${o.go.act}" ${attrs(o.go.data)}>${o.go.label}</button></div>` : ''}`
-      : html`<p>${cap ? L`第${fmtNum(cap.turn)}ターンに、あなたの国（${factionName(FS.citizen?.faction)}）が州 ${cap.p},${cap.q} を奪いました。シーズンの終わりに、支配する州が最も多い国が勝ちます。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。`}</p>${next ? html`<p class="cg-next" data-next="after-capture">${next.text}</p><div class="actions"><button type="button" class="btn primary" data-act="${next.go.act}" ${attrs(next.go.data)}>${next.go.label}</button></div>` : ''}`}
+      : html`<p>${cap ? L`第${fmtNum(cap.turn)}ターンに、あなたの国（${factionName(FS.citizen?.faction)}）が州 ${cap.p},${cap.q} を奪いました。${seasonLine}` : seasonLine}</p>${next ? html`<p class="cg-next" data-next="after-capture">${next.text}</p><div class="actions"><button type="button" class="btn primary" data-act="${next.go.act}" ${attrs(next.go.data)}>${next.go.label}</button></div>` : ''}`}
     <ol class="checklist">${g.steps.map(item)}</ol>
     <div class="actions ck-foot"><button type="button" class="btn small quiet" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></div>`;
   const head = o ? L`ガイド ${o.n}/${o.total}：${o.title}` : L`ガイド：州を奪いました`;
