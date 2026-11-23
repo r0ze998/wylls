@@ -643,6 +643,7 @@ list; the table after it keeps each item's detail.
 | P12-cap | ~~The keep's capture on devnet's clock~~ **closed offline by devnet-72bell-pair (PCAP)**: the page's sealed march onto a neighbour's keep (its card, its wallet, its time-lock to the real T(21)), keeper A with the devnet profile's roles (`archive` included) and rings duty (`rim_per_wedge`, `provinces_reach` #138; live Rent sysvar #147; not `wide_rings`, which offline can only bind a shipped round), the preset's real 600 s bells with the chain clock at ×40: taken after exactly 72 held bells (contest from bell 21, `keep_taken` at bell 92, `since_bell` 93), the herald's `/h/keep` history and `/h/conquest/0.json` event, the page's guide 「第92ターンに、あなたの国（…）が州 -128,67 を奪いました」, the donor's return (reserve 0 → 191 at bell 106); keeper A's lag per held bell at ×40 under load 57–154: median 7, p90 10, max 11 bells (71 bells in 1,196 s of wall time, ~16.8 s per bell, i.e. about 3 % of a real 600 s bell). Verifier over the archive (#155): 0 FAIL, UNVERIFIABLE only from the declared beacon (R1). Browser test, not in CI (local recipe §7.0b) | engineering | closed offline; the real-clock run is the first devnet season |
 | P12-pair | ~~The second leg of an out-and-back pair~~ **closed offline by devnet-72bell-pair (PPAIR), one leg declared**: OUT = the page's own march card to the neighbour's tile on the real T(21) (keeper A anchors, opens, reveals, gathers, resolves, settles; the herald shows the host abroad); HOME = the same wallet's Depart at bell 48 — the first bell the host may leave again: a sealed Depart charges 74 stamina whatever its path (cap 120, +1 a bell, so ~28 bells' rest; the old line's plan of a return right after the arrival cannot exist) — sealed to the TEST beacon key over a declared TEST-signed anchor (offline only one bell a season can have a real round: PR CI `pkf_offline_a_season_has_at_most_one_real_arrival_round`), revealed by the wallet, settled by keeper A at the village tile (bell 51 arrival, settled by bell 54); the herald's records of both provinces agree with the chain. Verifier (#155): 0 FAIL, UNVERIFIABLE only from the declared beacon. What stays unproven offline: keeper A opening a SECOND real seal in one season (R1) | engineering | closed offline (one real leg); both legs real only on devnet |
 | P4 | Operator AI residents and the test-token faucet are localnet-only | engineering | open |
+| P4b | ⑬ / ⑤B EXTERNAL AI residents have no devnet path as shipped: the ⑬ client (`workstreams/13-citizens/resident/local/client.mjs`) knows only the launcher and its sponsored local relay, and the external-resident helpers (`03-composability/mcp/examples/external-resident/public.mjs` `getJson`) refuse any herald that is not plain-http loopback, so a TLS-fronted devnet herald is unreachable. devnet-dress-rehearsal ran two ⑬ residents offline through a TEST adapter (⑬'s own brain/journal/runner, the page's `submitLocalAct` with `devnetLane`, its own key as wallet, plain http to the proxy): Join, PlaceHome, about 70 Builds, 160 Harvests and 88 Trains landed wallet-paid over a whole season | engineering | open (D-dress-5) |
 | P3 | Wide → wide marches (and so a wide keep's capture) answer `NotImplemented` in the devnet build | by design (Q-W2) | closed gate |
 | R1 | Real drand rounds: every bell's anchor and seed, and the 125 bells of map growth to ring 128, were **declared patches** offline (the workspace ships 32 real quicknet rounds). On devnet keeper A posts each from the live round | engineering | first exercised by the first devnet season |
 | R2 | ~~The herald does not decode version-0 / version-1 transactions~~ **closed by herald-v0v1-decode**: `fclient::vtx` decodes legacy, v0 (with `meta.loadedAddresses`, carried on every `TxRecord` and archived) and v1 (SIMD-0385) wires; findex `Enriched` fetches a v0 transaction's looked-up writable accounts, so the herald folds them; keeper A's expedition evidence reads v0/v1 Departs/Reveals; the localnet takes, executes, keeps and serves v0 (lookup tables through the real program; SlotHashes now kept) and v1 (offline proof PV0 on the devnet `.so`: a wallet's v1 Join and web3.js v0 PlaceHome through its own table, the herald shows the home, `badRecords` 0). The alarm stays for a wire that decodes as none of them or a v0 one without its loaded addresses. **The verifier (verifier-v0v1)** reads legacy / v0 / v1 too (`verify/src/vmsg.rs`): every check reads a v0 transaction's accounts through the archived `loadedAddresses`, and the new check **VT** (`verify/src/lookup.rs`) checks each of them against the lookup table account read at the pinned slot with the final states (`--rpc`; a finals file or fixture records `lookup_tables`): a difference FAILs (`LookupMismatch`), an unread or closed table is UNVERIFIABLE (`LookupTableUnread`), never PASS — unless (verifier-alt-archive) a **snapshot** settles it: findex archives each table's account, read slot and own create / extend transactions with the first record that uses it (frame key `tables`), and `--rpc` reads a closed table's own transactions itself; a snapshot that contradicts the record FAILs, one that cannot be proven is UNVERIFIABLE (`LookupSnapshotUnproven`), a table read before the transaction is UNVERIFIABLE (`LookupTableStale`), and VS has every witness compare the table bodies and confirm each lookup on its own reads (an account-only snapshot of a closed table cannot be witnessed); VX/VG re-execute v0/v1 as signed (LiteSVM resolves the lookups against tables holding exactly those addresses). A wire of an unknown version, non-canonical or with missing loaded addresses still FAILs `Undecodable`. Offline proof: `verify/tests/versioned_season.rs` (devnet `.so` 67a33c92, v0 OpenProvince/PlaceHome/Harvest, v1 Join/Build/FoldLand: PASS with post-states and by genesis replay; the CLI over a live node, port 41850). **Still legacy-only:** keeper `wideproof` (local-test wide → wide only). Open: the keeper's and herald's default 150 ms RPC gap is tighter than the public endpoint's limit | engineering | v0/v1 decode closed (readers and verifier); #123's D-6, D-7 open |
@@ -684,6 +685,9 @@ OPERATOR_PAGE_PAIR_PORT_BASE=41520 cargo test --locked -p stack --features playa
   `frontier-verify --fixture <run>/pcap-season.json.gz --program-so fixtures/verify/devnet-playable-67a33c92.so.gz --json`
   (or `ppair-season.json.gz`). Expected: verdict UNVERIFIABLE (exit 2), 0 FAIL; every finding is `MissingData` from the
   declared beacon (R1: V0E, V4, V7, V11, V15, VX; PPAIR also V5 for the TEST-sealed HOME leg) plus WARN V9.
+  (devnet-dress-rehearsal D-dress-7: V7 does not read declared states — only V11 does since #169 — so a declared Holding
+  patch (the 400 spearmen) followed by the page's own Harvest before its Muster reads `HoldingReplayMismatch` FAIL on an
+  honest archive; PCAP/PPAIR declare the troops right before the Muster and do not hit it. Offline-only.)
 
 A playable first season does not need any open engineering item above: Join, the rim village, second and third
 villages (FileOutpost, #141, on the provinces #138 opens), the economy, the wide claim, the legacy war and the
@@ -751,11 +755,14 @@ scripts/play-local.sh                 # the local play-check (t341u); then: scri
 # ── 1. Build, key-free (cargo-build-sbf 3.1.9) ───────────────────────────────────────────────────────────────
 scripts/build-frontier-devnet-playable-sbf.sh --twice     # prints file_sha256 → H (today, P14 b: 67a33c92…06b3)
 node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json   # plan + cost; gate CLOSED
-(cd frontier-node && cargo build --locked --release -p stack  --features playable-lane --bin frontier-operator)
+# frontier-operator and frontier-verify in ONE command: `-p stack` alone does not compile (origin/main ed5fcd79, run again by verify-pr177: E0382
+# — verify/src/vmsg.rs:83 moves a `Hash` that is `Copy` only when another package of the build turns on
+# solana-hash's `copy` feature; devnet-dress-rehearsal D-dress-1)
+(cd frontier-node && cargo build --locked --release -p stack -p verify \
+   --features stack/playable-lane,verify/playable-lane --bin frontier-operator --bin frontier-verify)
 (cd frontier-node && cargo build --locked --release -p keeper --features playable-lane --bin frontier-keeper)
 (cd frontier-node && cargo build --locked --release -p herald \
    --features land-preview,wide-world-experimental,expedition-records-experimental --bin frontier-herald)
-(cd frontier-node && cargo build --locked --release -p verify --features playable-lane --bin frontier-verify)
 (cd permutation-gateway && npm ci --ignore-scripts)
 
 # ── 2. Keys [r0ze], offline, outside the repository (§2) ─────────────────────────────────────────────────────
@@ -826,6 +833,16 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
 #   → Harvest / Build / Train → Muster → sealed march → wide claim (once keeper A opened ring 129)
 #   → 2nd / 3rd village by FileOutpost (once keeper A's provinces_reach opened the provinces next to the home)
 #   → rim → wide expedition (「境界への道を準備」: two presses, wallet-signed ExpeditionDepart; keeper A's expeditions role does the rest)
+#   (devnet-dress-rehearsal D-dress-4: before #172 the page's Join → rim ticket STALLED when the herald's read lagged
+#    the Join — 4 of 5 pages offline under load never filed their ticket. Fixed by #172 (fix-devnet-join-wait, merged
+#    2026-11-23, 2057f89d: the page waits up to 180 s for its own record); with its page files 5 of 5 settled.)
+#   (a fresh rim Hamlet's second village — FileOutpost or the wide claim — needs the settler cost from its harvests. The
+#    program charges a second village 800 Food, 800 Wood, 400 Stone, 200 Gold (`settler_cost(holdings_n = 1)`; a third
+#    1,200 / 1,200 / 600 / 300), and the FileOutpost card quotes that. The wide-claim card quotes one step too high
+#    (`screens/holding.mjs` `settlerCost(owned + 1)`: 1,200 / 1,200 / 600 / 300 for the second) and keeps its button off
+#    until the store holds that much — a page bug, open (D-verify-pr177-1). Offline, with harvests only, the outpost was
+#    filed at bell ~106 and the wide-claim card still read short at bell 161 (Food 1,186, Wood 965 of its 1,200): until
+#    the card is fixed expect the first wide villages a day or more after the rim opens)
 
 # ── 9. Check and end ─────────────────────────────────────────────────────────────────────────────────────────
 frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 --rpc $RPC --witness <a second RPC> \
@@ -833,6 +850,11 @@ frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 -
   --program-so permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so
 #   exit 0 PASS, 1 FAIL, 2 cannot verify (UNVERIFIABLE); report.json and report.md in verify-report/
 #   season end at bell 1,008, closes after end + 72 h (PLAYTEST-RUNBOOK §3 steps 13–15);
+#   NOTHING here sends EndSeason (0x04, "anyone sends it", m1 PLAYTEST-RUNBOOK §3 step 13): keeper A has no such duty and
+#   frontier-operator has no step for it (only fclient::ix::end_season and the local stack runner build it). Offline
+#   (devnet-dress-rehearsal) the Season still read status 2 (Seeded) at bell 1,012 with every role running. The
+#   program computes the effective status from the end bell on, but the closes of step 14 need the season Ended:
+#   a tool (or a keeper duty) for EndSeason and the closes is still missing (D-dress-6);
 #   ending the test: solana program close <PROGRAM_ID> --authority … --bypass-warning (§5)
 ```
 
@@ -954,16 +976,22 @@ exactly `/frontier/` with a redirect to `/frontier/frontier/` (a proxy rule; the
   for everyone (one shared bucket). With a CDN in front of the proxy, `$remote_addr` is the CDN's address: restore
   the real one first (nginx `set_real_ip_from` + `real_ip_header`, the CDN's ranges only).
 - Check before the season opens: from an outside address send 15 `POST /gw/f/nudge` with an empty JSON body in one
-  second. The limit is counted before the route reads the body (`app.mjs` `handle`; 10 at once, then 1 a second,
-  `FRONTIER_IP_LIMITS`): the first 10 get the route's own refusal, the rest must be `429`. If none is `429`, the
-  header is wrong.
+  second. The limit is counted before the route reads the body (`app.mjs` `handle`; 10 at once, then one every 2 s
+  since #166, `FRONTIER_IP_LIMITS` `'POST /f/nudge': { burst: 10, perSecond: 0.5 }`): the first 10 get the route's own
+  refusal (`400`), the rest must be `429`. If none is `429`, the header is wrong. (Rehearsed offline by
+  devnet-dress-rehearsal through a TLS stand-in proxy: 10 × `400`, 5 × `429`; the same client with a forged
+  `X-Forwarded-For` stayed in its bucket, `429`; another client got its own; a foreign `Host` got `403`.)
 - The herald's own cap of 64 `WS /h/ws` sockets per client address (#164: `server.rs` `WS_PER_CLIENT`, `429
   TooManySocketsFromClient`) uses the same `client_ip`: without the header every visitor is `127.0.0.1` and all of
   them share one allowance of 64.
-- **After fix-gw-highs (a draft branch, NOT on main; nothing in this bullet exists today):** as drafted, the gateway
-  refuses to start off localnet without `--public-proxy xff|none` and, with it, limits a herald-forwarded loopback
-  address instead of exempting it. Until it is merged the gateway has no such setting and the "No header at all"
-  bullet above is what happens. The header rule above stays the same.
+- **Since fix-gw-highs (#166, merged 2026-11-22):** the gateway refuses to start off localnet without `--dev` unless
+  it has `--public-proxy xff|none` (`config.mjs`), and with `xff` it limits a herald-forwarded loopback address as one
+  shared bucket (counted and logged) instead of exempting it. So with step 7's `--public-proxy xff` the "No header at
+  all" bullet above no longer switches the limits off: every visitor then shares ONE bucket (a proxy that sends no
+  header locks real players out instead of letting abuse through), and the "Passing the client's own header through"
+  bullet no longer exempts anyone either (a loopback address the herald forwards lands in that same shared bucket;
+  other forged addresses still get a bucket each, so only the global caps of `keeper-guard.mjs` hold there). The
+  header rule above stays the same.
 
 **`Host`, `Origin`, CORS.**
 
@@ -1015,7 +1043,7 @@ Also never public: the key files of steps 2 and 5 (`keeper.seed`, `keeper.token`
 secret, `FRONTIER_OPERATOR_TOKEN`) and the directories `keeper-a/`, `relay/`, `herald/`. Everything under
 `--web DIR` is served: point it at `permutation-server/web` and nothing wider, and keep no key file below it.
 
-**Still open in the code (not closed by any proxy setting):** audit H-1 and H-2 (anyone can make keeper A spend
-its RPC budget through `/gw/f/reveal` and `/gw/f/nudge`; fix-gw-highs, not merged) — do not open a season to the
-public before they are merged; keeper A ends on a panic or a fatal journal error and needs a supervisor
-(RUN-A-KEEPER §6).
+**Still open in the code (not closed by any proxy setting):** keeper A ends on a panic or a fatal journal error and
+needs a supervisor (RUN-A-KEEPER §6). (Audit H-1 and H-2 — anyone making keeper A spend its RPC budget through
+`/gw/f/reveal` and `/gw/f/nudge` — were closed by fix-gw-highs, #166, merged 2026-11-22: keeper A refuses forged
+reveals and far-future nudges before any RPC, the gateway caps both routes per address and globally.)
