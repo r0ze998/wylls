@@ -159,8 +159,9 @@ export function noteWide(st, kind, name, outcome, { bell, site = null, meta = nu
  * (the launcher's `wideLand.targets`), `read(addresses)` (its relay's read-only wide read), `fetch` (with the launcher's
  * Origin), `getJson(url)`.
  */
-export function createWideEyes({ herald, identity, wideTargets, read, fetch: f, getJson, limits = WIDE_LIMITS, now = () => Date.now() }) {
-  const march = createWideMarch({ herald, fetch: f, now });
+export function createWideEyes({ herald, identity, wideTargets, read, fetch: f, getJson, limits = WIDE_LIMITS, now = () => Date.now(), deps = {} }) {
+  // (`deps` — tests only: `{march, planner}` stand-ins for the page's modules)
+  const march = deps.march ?? createWideMarch({ herald, fetch: f, now });
   // (the chain's clock and the TEST clock's rate, as the operator residents' wide host reads them: local-play-operator-wide-host.mjs)
   const clock = { at: 0, chain: null, rate: 1 };
   async function chainNow() {
@@ -171,7 +172,7 @@ export function createWideEyes({ herald, identity, wideTargets, read, fetch: f, 
     clock.chain = c; clock.at = t;
     return c;
   }
-  const planner = createWideHostPlanner({ herald: march.herald, read, chainNow, chainRate: () => clock.rate });
+  const planner = deps.planner ?? createWideHostPlanner({ herald: march.herald, read, chainNow, chainRate: () => clock.rate });
   let cache = null;
   const r = Object.freeze({ key: Object.freeze({ address: identity.address }), identity, index: 0 });
   async function look(obs, st) {
@@ -202,7 +203,10 @@ export function createWideEyes({ herald, identity, wideTargets, read, fetch: f, 
     if (!expeditionNotDue(probe, st, limits)) {
       try { value.expedition = await march.plan(r, wideTargets); } catch (e) { value.expedition = { ok: false, why: String(e?.code ?? e?.message ?? e).slice(0, 160) }; }
     }
-    cache = { key: memKey, value };
+    // (a wide province still finishing the last turn — the planner's 'lag' wait — is read again next round, not cached for
+    //  the turn: the first look of a turn is right after it changed, when the province is always behind (LP6-7's trap; live
+    //  run1: WideMuster waited 16+ turns on "resolved to n−2, the turn is n" read once per turn)
+    cache = value.host?.wait === 'lag' ? null : { key: memKey, value };
     return value;
   }
   /** ONE send of an expedition plan through the resident's own world proxy (`onSigned` before the one submit). */

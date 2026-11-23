@@ -16,7 +16,8 @@
 //   intend(use, bell)         the intent, BEFORE anything is signed (refused: TurnUsed, OpenStep, NotDue, Fenced …)
 //   signed(use, signature)    BEFORE the one submit; a throw here means: do not submit (runner's sign hook throws)
 //   settle(use, fact)         the outcome the runner read (landed / failed by signature; refused; not-sent; unknown)
-import { makePlanSteps, planSpec, checkStep, PLAN_LIMITS } from './plan.mjs';
+import { makePlanSteps, planSpec, checkStep, wideSteps, PLAN_LIMITS } from './plan.mjs';
+import { WIDE_ORDERS } from './wide.mjs';
 import { OPEN_LINE_MS } from './journal.mjs';
 import { PLAN_ITEMS, recordBehind } from './brain.mjs';
 
@@ -100,6 +101,13 @@ export function createPlanExecutor({ plans, owner, holder, goal, goalName, limit
         await plans.settle({ plan: active.planId, holder, epoch: h.epoch, step: step.idx, outcome: 'not-sent', code: 'UnsignedIntent' });
         say('reopened', { plan: active.planId, planStep: step.idx, why: 'my unsigned intent of an earlier round: nothing was submitted' });
         step = { ...step, state: 'not-sent' };
+      }
+      // (external-wide-orders: a plan with no wide step left, while the wide land has an act due — a wide village founded
+      //  since, a ready expedition — is remade: the new plan leads with it. Live run1: a claim landed at step 0 of a
+      //  13-step plan; its wide village would have waited for the plan's end)
+      if (step.state !== 'intended' && !active.steps.slice(active.cursor).some(x => WIDE_ORDERS.includes(x.name))) {
+        const due = wideSteps(obs, mem, { limits });
+        if (due.length) { await stopPlan(active.planId, h.epoch, `the wide land has an act due (${due.map(x => x.name).join(', ')})`); return { wait: 'replanning: a wide-land act is due' }; }
       }
       const r = checkStep(step, obs, mem, { patience: limits.maxWaitBells });
       if (r.replan) { await stopPlan(active.planId, h.epoch, `step ${step.idx} (${step.name}): ${r.replan}`); return { wait: `replanning: ${r.replan}` }; }

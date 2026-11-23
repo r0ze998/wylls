@@ -63,7 +63,7 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   // (external-wide-orders: the wide land, read once per turn and memory change — reads only, nothing is sent)
   if (wide && obs.holding) {
     try { obs.wideLand = await wide.look(obs, st); } catch (e) { obs.wideLand = null; log('wide', { what: 'look-failed', why: String(e?.message ?? e).slice(0, 200) }); }
-    const seen = obs.wideLand ? JSON.stringify(seenOf(obs).wide) : null;
+    const seen = obs.wideLand ? JSON.stringify(seenOf(obs).wide).replace(/[0-9]+/g, '#') : null;   // (said when it changes, not each turn's numbers)
     if (seen && st.wideSeen !== seen) { st.wideSeen = seen; log('wide', { what: 'seen', bell: obs.bell, ...seenOf(obs).wide }); }
   }
   store.save();

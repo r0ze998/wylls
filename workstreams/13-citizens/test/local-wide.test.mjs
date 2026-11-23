@@ -11,6 +11,13 @@ import { localStep } from '../resident/local/runner.mjs';
 import { makePlanSteps, checkStep, wideSteps, PLAN_ORDERS } from '../resident/local/plan.mjs';
 import { WIDE_ORDERS, WIDE_LIMITS, EXPEDITION, claimNotDue, wideInventory, noteWide, wideMem } from '../resident/local/wide.mjs';
 import { GOALS } from '../resident/goals.mjs';
+import { createPlanExecutor } from '../resident/local/executor.mjs';
+import { PLAN_LIMITS } from '../resident/local/plan.mjs';
+import { createPlansClient } from '../../04-execution/clients/plans.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { settlerCost } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { LOCAL_ACT_NAMES } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
@@ -199,4 +206,46 @@ test('WO9 the wide inventory is read with the page\'s parser only: a record with
   // a new world forgets the wide memory
   const st = mem({ wide: { ...wideMem({}), claims: 2 } }); enterWorld(st, 'other'); assert.equal(st.wide, null);
   noteWide(st, 'expedition', EXPEDITION, 'landed', { bell: 5 }); assert.equal(st.wide.expeditionUntil, 5 + WIDE_LIMITS.expeditionGapBells);
+});
+
+const BIN = process.env.WS04_RUNEXEC ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../04-execution/target/release/runexec');
+test('WO10 ④ (real runexec): a plan with no wide step left is remade when the wide land has an act due — a wide village founded since leads the next plan', { skip: existsSync(BIN) ? false : `runexec is not built (${BIN})` }, async () => {
+  const d = mkdtempSync(path.join(os.tmpdir(), 'ws13-wide-plan-'));
+  try {
+    const plans = createPlansClient({ bin: BIN, db: path.join(d, 'plans.sqlite') });
+    const logs = [];
+    const ex = createPlanExecutor({ plans, owner: 'Wa11etAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', holder: 'h1', goal: GOALS['village-first'], goalName: 'village-first', limits: PLAN_LIMITS, log: (s, f) => logs.push({ s, ...f }) });
+    const st = mem();
+    // no wide act due (a claim landed and settling): an economy plan
+    const settlingMem = { ...st, wide: { ...wideMem({}), claims: 1, claimWait: { bell: 50, site: '-65,-65,2' } } };
+    const o1 = obsOf(village({ stores: RICH }));
+    const n1 = await ex.next({ obs: o1, mem: settlingMem });
+    assert.ok(n1.use, JSON.stringify(n1)); assert.ok(!logs.find(l => l.what === 'made').steps.some(x => WIDE_ORDERS.some(w => x.startsWith(w))), 'no wide step');
+    // the wide village is founded: the plan is stopped and remade with its host's chain first
+    const v = { p: '-65', q: '-65', site: 2, slot: 2 };
+    const o2 = obsOf(village({ stores: RICH }), wideLand({ villages: [v], bound: 1, host: { decision: { name: 'WideTrain', v: { wide: v }, fields: { unit: 0, n: 100 }, why: 'train' } } }), { bell: 51 });
+    const n2 = await ex.next({ obs: o2, mem: settlingMem });
+    assert.match(n2.wait, /a wide-land act is due/);
+    assert.match(logs.find(l => l.what === 'stopped').why, /the wide land has an act due \(WideTrain, WideMuster, WideDepart\)/);
+    const n3 = await ex.next({ obs: o2, mem: settlingMem });
+    assert.equal(n3.use?.cand.order.name, 'WideTrain', JSON.stringify(n3));
+    assert.deepEqual(logs.filter(l => l.what === 'made').at(-1).steps.slice(0, 1), ['WideTrain']);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+test('WO11 the wide eyes read the wide land once per turn, except a province still finishing its turn (the planner\'s lag wait), read again next round', async () => {
+  const { createWideEyes } = await import('../resident/local/wide.mjs');
+  const v = { p: '-65', q: '-65', site: 2, slot: 2 };
+  const answers = [{ why: 'the province is resolved to 9, the turn is 11', wait: 'lag', lag: 2 }, { decision: { name: 'WideMuster', v: { wide: v }, fields: {} } }];
+  let asked = 0;
+  const planner = { decide: async () => answers[Math.min(asked++, answers.length - 1)] };
+  const march = { plan: async () => ({ ok: false, why: 'x', hosts: 1 }), herald: null };
+  const eyes = createWideEyes({ herald: 'http://127.0.0.1:1', identity: { address: 'W', programId: 'P', seasonAddress: 'S' }, wideTargets: [], read: async () => [], getJson: async () => { throw new Error('no'); }, deps: { planner, march } });
+  const obs = { ...obsOf(village()), wideInv: { villages: [v], bound: 1 } };
+  const st = mem();
+  assert.equal((await eyes.look(obs, st)).host.wait, 'lag');
+  assert.equal((await eyes.look(obs, st)).host.decision.name, 'WideMuster', 'the same turn, read again after a lag');
+  assert.equal(asked, 2);
+  await eyes.look(obs, st); assert.equal(asked, 2, 'a decision is kept for the turn: no third read');
+  await eyes.look({ ...obs, bell: obs.bell + 1 }, st); assert.equal(asked, 3, 'the next turn reads again');
 });
