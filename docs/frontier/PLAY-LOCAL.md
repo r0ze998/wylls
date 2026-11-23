@@ -652,7 +652,7 @@ The world's operator gives it no privilege and never sees its key. The page show
      it costs, and a new plan does not start with it. A building of its own that landed but is not in the herald's record yet
      makes the resident wait for the record, not replan (fix-loop9, LP9-4). On S1 worlds a mine is counted above the village's own
      terrain ore, as the program counts it (LP9-4: before, the resident priced a 4th mine as a 2nd and was refused 8 times).
-   - Plans hold the six orders only: no caravans, no marches (caravans wait on r0ze, Q4).
+   - Plans hold the six orders, and in a `--wide` world the wide land's (below): no caravans, no ordinary marches (caravans wait on r0ze, Q4).
 
 - In `--demo` the ×N clock starts only after **your** first village is placed. Until then a turn is 10 minutes, so
   the resident's second order waits for you.
@@ -663,18 +663,43 @@ The world's operator gives it no privilege and never sees its key. The page show
   free sites of its nation in a settled rim province, farthest ring first. Past the heartland it asks for the village by a
   one-site request (`FileTicket`, the page's 「辺境の村を申し込みました」), which the world settles at a turn's end; it waits
   for that (up to 72 turns) and does not file a second one meanwhile. The request is its action of that turn. After that it
-  plays its rim village with the same six orders. The wide land's own orders (the wide claim, a wide village's
-  train/muster/march, expeditions) are not in an external resident's order set: it never founds a village in the wide land.
-  Its relay refuses them too (verify-pr163, `--no-wide-orders`: the wide claim and a wide village's orders answer
-  `LocalActWideOrderRefused` and are not sent; the expedition routes are not served).
-  The reference resident (`agent.mjs`) still reads heartland sites only (PlaceHome, rings 2–3).
-  Example: `scripts/play-local.sh --wide --random-map --ai 2 --external <address> --speed 60`.
+  plays its rim village with the six orders **and the wide land's own orders, exactly as your page has them there**
+  (external-wide-orders): the wide claim (0xD9, the village screen's 「広い土地に村を出す」), its wide village's
+  train / muster / march onto a neighbouring keep (the page's wide-village planner), and the expedition of a ready rim host
+  into the bordering wide land (the page's depart route). Its rule, with no model and no paid API:
+  - **Save, then claim.** With an opened wide province within reach (3 provinces) and no wide village yet, it saves for the
+    settler cost as your page's card quotes it (slot 2: food 1,200, wood 1,200, stone 600, gold 300 — the program
+    actually takes 800 / 800 / 400 / 200 for a second village, so it over-saves; D-external-wide-orders-8, verify-pr178): when production covers the shortfall within 240
+    turns, builds and training that would spend it wait (a harvest and a muster spend nothing). With the cost in its stores
+    it claims the nearest target's first free site (the herald's public route capture, as your card reads it), then waits up
+    to 12 turns for the world to settle the claim at a turn's end. A claim whose site was taken at the settle founds nothing
+    and costs the stores (the program's rule); after 3 such claims it stops claiming. The program takes a claim only from a
+    **final** first village (`NotFinal`, Custom 24 — rejected before sending). A rim village becomes final lazily, on its
+    owner's next action after its provisional time, so a resident that only saved first sends a harvest (it spends
+    nothing), then the claim. Your page's card does not check this (D-external-wide-orders-7).
+  - **Wide village.** Once its wide village is in its own `/h/me` (read with the page's wide-inventory parser), each turn
+    may be the page planner's one act there: train 100, muster up to 300, then march wide → wide onto a neighbouring
+    province's keep (at most 2 marches, as the page). A landed training is not asked again for 12 turns.
+  - **Expedition.** A rim village (ring 128) bordering an opened wide province forms a host and sends one expedition when
+    the page's route check finds a passable path; no passable path (`RouteImpassable`, seen live) means no expedition from
+    that village. With 100+ in the reserve the host is mustered (it spends nothing) before the save; otherwise its training
+    waits until after the claim.
+  - With `--plan` these are ④ plan steps too (`WideClaim`, `WideTrain`, `WideMuster`, `WideDepart`, `Expedition`): a plan
+    starts with the claim while it saves, and a build that would spend the saved cost remakes the plan.
+  Every one of these is ONE action of its turn, through its own relay's one-action-per-turn lease, rebuilt byte for byte by
+  the relay and judged by the program as your page's. It reads only the launcher's `wideLand` answer (your page gets the
+  same), the public herald through its own world proxy, and its own relay's read-only wide read (your page's
+  `frontier-local-play-act-wide-read-v1`). Its relay is the operator residents' relay: the launcher no longer passes
+  verify-pr163's `--no-wide-orders` (still a relay option).
+  The reference resident (`agent.mjs`) still reads heartland sites only (PlaceHome, rings 2–3) and sends none of these.
+  Example: `scripts/play-local.sh --wide --random-map --ai 2 --external <address> --speed 60`, then
+  `node workstreams/13-citizens/resident/local/client.mjs --launcher http://localhost:<port> --key <file> --dir <abs> --plan --runexec <abs runexec>`.
 - The keeper loop settles an external resident's home province in the same batch as yours (#146; in kept worlds too). In
   `--demo` at ×60 its province is ready for a muster 80–90 % of the time (before: 0–6 %; §8.2).
-- The two residents shipped here send the six orders only (and, in `--wide`, the first village's request): no caravans, no
-  marches, and they do not use the ① board. The resident's relay itself also serves the ordinary march routes (a client of your
-  own could send one; in a `--wide` world it refuses only the wide land's orders and expeditions, and in plain and `--demo`
-  worlds the expedition routes are served too — verify-pr163 D-2; whether external residents may march waits on r0ze). The relay
+- The two residents shipped here send the six orders (and, in `--wide`, the first village's request; ⑬'s resident also the
+  wide land's orders above): no caravans, no ordinary (legacy-disk) marches, and they do not use the ① board. The resident's
+  relay itself also serves the ordinary march routes and, in every world, the expedition routes (a client of your own could
+  send one — verify-pr163 D-2; whether external residents may march on the legacy disk waits on r0ze). The relay
   takes only requests whose Host is its own address and that carry no Origin (#164; a Node resident passes as it is, §9). An external resident cannot pause
   the world's clock or change its speed: those controls need the launcher's own token (#137).
 - Local only: on devnet there is no external-resident admission and no MCP server (the public MCP policy questions

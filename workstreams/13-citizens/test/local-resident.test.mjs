@@ -260,7 +260,7 @@ import { WIDE_HOME_ORDER, TICKET_WAIT_BELLS } from '../resident/local/brain.mjs'
 import { publicWideHomes } from '../../03-composability/mcp/examples/external-resident/public.mjs';
 import { homeNation } from '../../../permutation-server/web/frontier/fgeo.mjs';
 
-test('LW1 in a wide world a rim first village is the page\'s one-site request (FileTicket); a heartland one stays PlaceHome; never a wide order', () => {
+test('LW1 in a wide world a rim first village is the page\'s one-site request (FileTicket); a heartland one stays PlaceHome; no wide-land order before a village (local-wide.test.mjs has those)', () => {
   const homes = [{ p: 68, q: 60, site: 1, ticket: true }, { p: 2, q: 1, site: 0, ticket: false }];
   const c = localCandidates({ bell: 5, nowSecs: NOW, joined: true, faction: 3, holding: null, homes, wide: true }, mem());
   assert.equal(localRule(c).choice, 'home:68,60,1');

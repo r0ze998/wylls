@@ -176,8 +176,13 @@ export function createWideMarch({ herald: base, fetch: f = (...a) => globalThis.
     const ts = await chainNow(), genesisTs = seasonClock(season).genesisTs;
     return { bell: bellAt(genesisTs, ts), nearEnd: nearTurnEnd({ genesisTs, nowTs: ts, bellSecs: BELL_SECS, rate: clock.rate }) };
   }
-  /** ONE send of a judged plan by the resident `r` (`origin`, `signer`, `key`): → `{ok, step, code?, signature?, status?, looks?, waitedMs?}`. */
-  async function send(r, p, { transitSlot = 0, requestId = `wm_${now().toString(36)}_${r.index}`, settle = true } = {}) {
+  /**
+   * ONE send of a judged plan by the resident `r` (`origin`, `signer`, `key`): → `{ok, step, code?, signature?, status?, looks?, waitedMs?}`.
+   * (external-wide-orders) `onSigned(signature)`: called after the signature is checked and BEFORE the one submit (a
+   * restart-safe journal records it there; a throw means nothing is submitted: `{ok: false, step: 'signing'}`).
+   * `r.gw === true`: `r.origin` is a world proxy (an external resident's), so the page's `/gw/` paths are posted as named.
+   */
+  async function send(r, p, { transitSlot = 0, requestId = `wm_${now().toString(36)}_${r.index}`, settle = true, onSigned = null } = {}) {
     const step = { at: 'sealing' }, waited = {};
     try {
       const host = originalHostRef(p.source.world, String(p.host.id));
@@ -197,7 +202,7 @@ export function createWideMarch({ herald: base, fetch: f = (...a) => globalThis.
         arrive_bell: String(p.arriveBell), tip: p.tip, public_commit: pub.commit, public_seal: pub.seal, min_slot: '0' };
       const request = departPreparationRequestOf({ ...scope, proposal: canonicalDepartProposal(scope) });
       // (the page's three /gw/ paths, as the page names them; a resident posts to its own relay directly, without /gw)
-      const post = (path, body) => postLocalDepart(r.origin, path, body, { fetch: (url, init) => f(String(url).replace(`${r.origin}/gw/`, `${r.origin}/`), init) });
+      const post = (path, body) => postLocalDepart(r.origin, path, body, { fetch: (url, init) => f(r.gw === true ? String(url) : String(url).replace(`${r.origin}/gw/`, `${r.origin}/`), init) });
       // (fix-loop6, LP6-7: wait for the home province's settle within the plan's turn and the next, as the page does)
       const once = async () => localDepartPrepared(await post('/gw/f/local-play/depart/prepare', request), request);
       let prepared;
@@ -210,6 +215,7 @@ export function createWideMarch({ herald: base, fetch: f = (...a) => globalThis.
       step.at = 'signing';
       const [out] = await r.signer.wallet.features['solana:signTransaction'].signTransaction({ account: { address: r.key.address }, transaction: wireTransaction(prepared.message, []) });
       const signed = await localDepartSigned(out?.signedTransaction ?? [], prepared, r.key.address);
+      if (onSigned) await onSigned(signed.signature);
       step.at = 'submitting';
       let answer;
       try { answer = localDepartSubmitted(await post('/gw/f/local-play/depart/submit', { schema: LOCAL_DEPART_SUBMIT_SCHEMA, message_digest: prepared.digest, transaction_b64: toBase64(signed.wire) }), signed.signature); } catch (e) {
