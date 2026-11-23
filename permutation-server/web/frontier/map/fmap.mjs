@@ -257,7 +257,8 @@ export const GROUND_FINER = 1.4;
 export const KEPT_SELECTORS = '#sample-tag, [data-proto-chip], .proto-chip-map';
 /** Air round a kept place (px): a label's own rim and shadow stay clear of the chip's dashed line. */
 export const KEPT_AIR = 3;
-export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
+// (territory-video-2: and a local test world's standing notice, #local-play-session — the wide land's plates stood under it)
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner, #local-play-session';
 export const NOGO_EVERY_MS = 300;
 /** The air the map's labels keep round the dial beyond its own box (px). */
 export const DIAL_AIR = 8;

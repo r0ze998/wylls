@@ -139,3 +139,8 @@ test('the test world\'s notice folds to one line once a village stands, once; th
   const css = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.css', import.meta.url), 'utf8');
   assert.match(css, /#local-play-session\[data-fold="folded"\] \{ top: auto; bottom: calc\(var\(--dock-h/, 'folded, it stands over the dock, not under the dial');
 });
+
+test('the label pass steps around the test world\'s notice (the wide land\'s plates stood under it)', async () => {
+  const { NOGO_SELECTORS } = await import('../../permutation-server/web/frontier/map/fmap.mjs');
+  assert.ok(NOGO_SELECTORS.split(',').map(s => s.trim()).includes('#local-play-session'));
+});
