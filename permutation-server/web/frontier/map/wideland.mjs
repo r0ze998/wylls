@@ -101,7 +101,7 @@ export function terrainOfCapture(b64) {
 const ENTRIES_AT = 1064, ENTRY_BYTES = 48, ENTRIES_N = 56, KEEP_AT = 4480, NO_TILE = 0xff, ROSTER = 1;
 /**
  * The keep and the standing hosts of a captured wide province (`bytes_b64`, 4,864 bytes) →
- * `{keep: {tile, holder, contender, progress, required, troops} | null, hosts: [{faction, unit, tile, troops}]}`, or null.
+ * `{keep: {tile, holder, contender, progress, required, troops, changes} | null, hosts: [{faction, unit, tile, troops}]}`, or null.
  * A host is an entry in state ROSTER (1: standing on the land; 2 mustering and 3 departed are not on a tile). A
  * `contender` of 0xFF is none (null here).
  */
@@ -117,7 +117,7 @@ export function keepAndHostsOfCapture(b64) {
     hosts.push({ faction: b[o + 8], unit: b[o + 9], tile: b[o + 10], troops: Math.floor(v.getUint32(o + 12, true) / 1000) });
   }
   const k = KEEP_AT, keep = b[k] === NO_TILE || b[k] >= TILES ? null
-    : { tile: b[k], holder: b[k + 1], contender: b[k + 2] === 0xff ? null : b[k + 2], progress: b[k + 3], required: b[k + 4], troops: v.getUint32(k + 8, true) };
+    : { tile: b[k], holder: b[k + 1], contender: b[k + 2] === 0xff ? null : b[k + 2], progress: b[k + 3], required: b[k + 4], troops: v.getUint32(k + 8, true), changes: v.getUint16(k + 6, true) };
   return { keep, hosts };
 }
 

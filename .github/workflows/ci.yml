@@ -359,6 +359,12 @@ jobs:
           cargo clippy --locked -p permutation-frontier --all-targets -- -D warnings
           cargo test --locked -p permutation-frontier
           cargo test --locked -p permutation-frontier --no-default-features
+      # expansion-gameplay-1: the wide claim's reach from the nation's land (0xD9 with the optional reach witness). The
+      # wide land harness (`wide-world-experimental`) is built by no other step; only this test of it runs here (the
+      # harness's muster/return test fails on main too: reports/expansion-gameplay-1.md).
+      - name: Program host test (wide claim reach)
+        if: hashFiles('permutation-frontier/Cargo.toml') != ''
+        run: cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::wide_claim_reaches_from_the_nations_land_not_only_from_home --exact
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
       # The LiteSVM harness itself (67k lines of tests) was formatted and linted

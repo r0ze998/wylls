@@ -1971,6 +1971,9 @@ export default {
   "村の場所 {0}": "Village site {0}",
   "ここに村を出す": "Found a village here",
   "申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。": "A request is decided at the end of the turn (by lot if someone else chose the same place).",
+  // expansion-gameplay-1: reach from the nation's land
+  "国の土地（{0}, {1}）から": "from your nation's land ({0}, {1})",
+  "自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。": "You can also found a village within 3 provinces of any province where your nation has a village or has taken the keep. The more land your nation holds, the farther you can go.",
   // fix-wide-breaks (TEST-ONLY wide local play): expeditions into the wide land in Marches / Hosts
   "広い土地の州 {0},{1} へ": "To wide-land province {0},{1}",
   "出発を送りました。記録されるのを待っています。": "The departure was sent. Waiting for it to be recorded.",

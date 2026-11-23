@@ -34,7 +34,8 @@ const ALL = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
 test('keep and standing hosts are read from the captured province bytes (Province v2 KEEP @4480, entries @1064)', () => {
   const kh = keepAndHostsOfCapture(capture({ keep: { tile: 30, holder: ENEMY, contender: VIEWER, progress: 11, required: 72, troops: 100 },
     hosts: [{ faction: VIEWER, unit: 0, tile: 30, troops: 88 }, { faction: ENEMY, unit: 1, tile: 12, troops: 40 }, { faction: OTHER, tile: 5, troops: 9, state: 3 }] }));
-  assert.deepEqual(kh.keep, { tile: 30, holder: ENEMY, contender: VIEWER, progress: 11, required: 72, troops: 100 });
+  // (expansion-gameplay-1: and the times the keep was taken, CHANGES @6 — a won keep is reach for a claim)
+  assert.deepEqual(kh.keep, { tile: 30, holder: ENEMY, contender: VIEWER, progress: 11, required: 72, troops: 100, changes: 0 });
   assert.deepEqual(kh.hosts, [{ faction: VIEWER, unit: 0, tile: 30, troops: 88 }, { faction: ENEMY, unit: 1, tile: 12, troops: 40 }], 'a departed entry (state 3) stands on no tile');
   assert.equal(keepAndHostsOfCapture(capture()).keep, null, 'no keep tile (0xFF)');
   assert.equal(keepAndHostsOfCapture(capture({ keep: { tile: 30, holder: 2 } })).keep.contender, null, 'contender 0xFF is none');

@@ -4579,6 +4579,9 @@ export const ACTIONS = {
     const h = activeHolding(FS);
     if (!h || !(localPlay?.wideLand || devnetWideNow())) return;
     const target = { p: String(d.p), q: String(d.q) }, slot = num(d.slot);
+    // (expansion-gameplay-1: a target reached through the nation's land names that province as the reach witness;
+    //  local wide worlds only — the devnet program takes no witness)
+    const reach = localPlay?.wideLand && d.rp !== undefined && d.rq !== undefined ? { p: String(d.rp), q: String(d.rq) } : null;
     // (a claim names a FREE site of the province as the herald last captured it — any other is "taken" at its settle,
     //  the cost spent for nothing; flocalplay-wide.mjs freeWideSites. None known: nothing is sent)
     let site = num(d.site);
@@ -4587,7 +4590,7 @@ export const ACTIONS = {
       const free = r?.ok !== false ? freeWideSites(r?.json ?? r)?.get(`${target.p},${target.q}`) : null;
       if (Array.isArray(free)) { const next = free.find(x => x >= site) ?? free[0]; if (next === undefined) { failed({ code: 'NoFreeHome', text: L`この州には空いている村の場所がありません。` }); return; } site = next; }
     } catch { /* the herald did not answer: the card's own site, as before */ }
-    const r = await act('WideClaim', { v: { holding: { p: h.p, q: h.q, site: h.site }, target }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
+    const r = await act('WideClaim', { v: { holding: { p: h.p, q: h.q, site: h.site }, target, ...(reach ? { reach } : {}) }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
     // (a refused or failed site is not offered again: the next press names the next site)
     if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
     return r;

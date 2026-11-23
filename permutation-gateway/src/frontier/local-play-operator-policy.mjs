@@ -31,8 +31,9 @@
 // (TEST-ONLY wide play, owner t379u 「広い版がんばれ」, 2026-11-19) In a wide-land world (`--wide`: the runner's opened
 // wide provinces) the same rule spreads outward: the PlaceHome candidates are taken rim first (the runner lists the
 // settled rim provinces beside the heartland ones); a village within reach of the wide land saves (Harvest only) until
-// its stores cover the next settler cost, then files a WIDE CLAIM (flocalplay-wide.mjs, 0xD9) on the nearest opened
-// wide province within `outpost_range`, site by site; at most OPERATOR_WIDE_CLAIMS claims, then the usual rotation.
+// its stores cover the next settler cost, then files a WIDE CLAIM (flocalplay-wide.mjs, 0xD9) on the best wide province
+// within reach — `outpost_range` from home or from the nation's land (expansion-gameplay-1,
+// local-play-operator-expansion.mjs: the frontier pushed outward along the resident's heading), site by site; at most OPERATOR_WIDE_CLAIMS claims, then the usual rotation.
 // Still one action per bell; the world's runner settles the claims (itest wide_play).
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
@@ -250,12 +251,14 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     const tried = new Set(memory.triedClaims ?? []);
     // (a target's FREE sites when the herald's capture names them — flocalplay-wide.mjs freeWideSites; else every site)
     const sitesOf = t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site));
-    const next = wide.targets.flatMap(t => sitesOf(t).map(site => ({ t: { p: t.p, q: t.q }, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
+    // (expansion-gameplay-1: a target reached through the nation's land carries its reach witness)
+    const next = wide.targets.flatMap(t => sitesOf(t).map(site => ({ t: { p: t.p, q: t.q }, site, reach: t.reach ? { p: t.reach.p, q: t.reach.q } : null }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
     if (next) {
       const waiting = (memory.claimWaitUntil ?? 0) > memory.decisions || (memory.cooldown.WideClaim ?? 0) > memory.decisions;
       if (wide.canClaim && !waiting) {
         const slot = 2 + Math.min(1, Math.max(Number.isInteger(view.wide) ? view.wide : 0, memory.claims ?? 0));
-        return { name: 'WideClaim', v: { holding: h, target: next.t }, fields: { site: next.site, slot }, why: `stores cover the settler cost: claim wide land at ${next.t.p},${next.t.q} site ${next.site} (slot ${slot})` };
+        return { name: 'WideClaim', v: { holding: h, target: next.t, ...(next.reach ? { reach: next.reach } : {}) }, fields: { site: next.site, slot },
+          why: `stores cover the settler cost: claim wide land at ${next.t.p},${next.t.q} site ${next.site} (slot ${slot})${next.reach ? ` through the nation's land at ${next.reach.p},${next.reach.q}` : ''}` };
       }
       return { name: 'Harvest', v: { holding: h }, fields: {}, why: waiting ? 'a wide claim is settling: harvest meanwhile' : 'saving for a wide claim (the settler cost): harvest' };
     }

@@ -203,6 +203,13 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    - While the first village's name still carries 「仮」 the program refuses this claim (NotFinal). Press 「収穫する」 once
      first to make it final (step 1; the card does not check this).
 
+   - **Reaching out from your nation's land (expansion-gameplay-1, this branch)**: a wide province where your nation has a
+     village, or whose keep your nation has **taken** (a keep it held from the start does not count), is your nation's land,
+     and a claim may also go up to 3 provinces from it. The card lists those below the home ones as 「州（P, Q） … 国の土地
+     （P', Q'）から」 ("from your nation's land (P', Q')"). Nation-mates' villages count too, AI residents' included. The world
+     opens new wide land around your nation's villages and won keeps (at most 3 provinces a turn, out to ring 134). Design:
+     docs/design/expansion/01-reach-from-land.md
+
    Once the village exists, the easiest way to
    open it is the 「W2」 button under the village plate at the bottom left (it opens 「遠方の村 第129輪（枠 2）」);
    inspecting that province on the map → 「あなたの村（広い土地）」 → 「この村を開く」 works too.
@@ -211,8 +218,8 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
 3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host in the
    bottom bar (e.g. 「槍兵 500」) and press 「境界への道を準備」.
    1. Draw the road one step at a time with the direction buttons (東・北東・北西・西・南西・南東) or the dashed tiles
-      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more). Only the provinces of rings
-      129–131 that the map draws are open. When the road ends on an unopened one, the card says at once 「終点の州 P,Q は、
+      on the map, until 「道から決まる終点」 is a wide-land province (ring 129 or more). Only the provinces the map draws
+      are open (at first the strip of rings 129–131; more opens later around villages and won keeps). When the road ends on an unopened one, the card says at once 「終点の州 P,Q は、
       この世界ではまだ開いていません… いちばん近い開いた州は …（N 州先）です。」.
    2. 「地形・時間を確認」. 「山や水のマスには進めません (N)」 means step N is impassable: 「一歩戻す」 or 「道を消す」
       and draw another road (the card draws roads without looking at terrain). A passable road shows
@@ -345,7 +352,9 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
 - **The AI residents** also take rim villages, save up, claim wide land and wage war (loop-play6: 4 wide villages, 70
   departures on keeps). Their battles are on other nations' rims, so the fog hides almost all of it; only an attack on
   your own nation's keep is announced. The AI's rim → wide expeditions land too (#130: 10 of 10 in verify-pr130; before it, 0 of 454 in loop-play6), and so
-  do their marches inside the wide land.
+  do their marches inside the wide land. On this branch (expansion-gameplay-1) they claim by the same reach rule as your
+  card: the best target first, farther from their home, each resident along its own heading (outward, clockwise,
+  counter-clockwise), through the nation's land when that reaches farther.
 - **To watch an AI capture**, `--wide --speed 15` (a turn is 40 s) is the steady choice (the #102 check: standings kept
   up, and a capture reached them about 90 turns after the start). Since runner-throughput the standings keep up at ×60
   too (a few turns behind), but a war goes by fast there. A wide village's cost then takes about 2 hours to save.
