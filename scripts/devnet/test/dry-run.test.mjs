@@ -263,6 +263,8 @@ test('gate open (fake CLI): the exact command sequence, devnet only, no airdrop 
   assert.deepEqual(deploy.slice(deploy.indexOf('--max-len'), deploy.indexOf('--max-len') + 2), ['--max-len', String(maxLenFor(4096))]);
   assert.equal(deploy[deploy.indexOf('--program-id') + 1], KEYS.program);
   assert.equal(deploy[deploy.indexOf('--upgrade-authority') + 1], KEYS.auth);
+  // the writes go to the TPUs, not through the public RPC's throttled sendTransaction (devnet-deploy-1/-2)
+  assert.ok(!deploy.includes('--use-rpc'), deploy.join(' '));
   for (const [, a] of calls) {
     assert.ok(!a.includes('airdrop') && !a.includes('--final'), a.join(' '));
     const u = a.indexOf('--url');

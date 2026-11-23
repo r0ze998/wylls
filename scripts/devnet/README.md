@@ -1,6 +1,6 @@
 # scripts/devnet: the devnet dry run (DRAFT, 2026-11-18)
 
-**Nothing here has been deployed or sent.** The dry run checks the deployable `permutation-frontier` `.so`, computes
+**The PLAYABLE profile (`devnet-playable-profile.json`) is deployed on devnet since 2026-11-23 (devnet-deploy-2); the S1 profile (`devnet-profile.json`) is not.** The dry run checks the deployable `permutation-frontier` `.so`, computes
 what a devnet deploy and one season cost in SOL, and prints the plan and the exact commands. It sends nothing unless
 its gate is open, and only r0ze opens it.
 
@@ -69,7 +69,7 @@ With the gate open, it runs these steps in order and stops at the first failure:
    `cargo-build-sbf` 3.1.9.
 2. `solana address` on both key files. Each address must match the profile.
 3. `solana balance`.
-4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --use-rpc`.
+4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --max-sign-attempts 50` (no `--use-rpc`: the public endpoint throttles `sendTransaction`, so the buffer writes go to the TPUs; runbook §5).
 5. `solana program show`.
 6. `solana program dump`. The dumped bytes, with trailing zeros removed, must hash to the `.so`'s `program_hash`.
 
