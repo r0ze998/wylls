@@ -132,7 +132,7 @@ test('expedition card: wiped out / keep taken / beaten off — what happened and
     assert.match(card, /data-act="next-army" data-holding="1"/, `${k}: the village that sent it`);
   }
   assert.match(expeditionNextText(cases.wiped.expedition), /^遠征の軍勢は全滅しました：生き残った兵はなく、村に戻った兵はいません。/);
-  assert.match(expeditionNextText(cases.garrison.expedition), /^遠征の軍勢は砦の守備兵として残りました。/);
+  assert.match(expeditionNextText(cases.garrison.expedition), /^砦を奪った遠征の軍勢は、そのまま砦に残っています。/);
   // still standing, came home, or under way: nothing offered
   for (const x of [row({}), row({ fate: 'bounced' }), row({ fate: 'retreated' }), row({ stage: 'marching', fate: null }), row({ hold: { to: { p: 1, q: 2 }, outcome: null, progress: 3, required: 72 } })]) {
     assert.equal(expeditionNextText(x.expedition), ''); assert.doesNotMatch(String(renderExpedition(x, fs)), /next-army/);

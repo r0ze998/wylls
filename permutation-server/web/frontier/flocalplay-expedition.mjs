@@ -174,6 +174,16 @@ export const standingExpeditions = (fs, seals = localDepartReveals) => expeditio
   // (fix-loop9, LP9-2: a host followed off its keep — beaten, the hold lost — no longer stands there)
   && !(r.expedition.hold?.outcome === 'lost' && r.expedition.hold.why === 'gone'))
   .map(r => ({ dest: r.expedition.dest, troops: r.expedition.troopsAfter, arriveBell: r.expedition.arriveBell, host: r.expedition.host }));
+/**
+ * (fix-loop10, LP10-2) The kept expeditions that hold or took a wide keep (a followed hold that was not lost):
+ * `[{dest, arriveBell}]` — what a later host of the same player on that keep joined, not began.
+ */
+export const holdingExpeditions = (fs, seals = localDepartReveals) => expeditionRows(fs, seals)
+  .filter(r => r.expedition.hold && r.expedition.hold.outcome !== 'lost' && r.expedition.dest)
+  // (verify-pr175: a keep the expedition took and another nation holds again is no hold of the player's — a host that
+  //  takes it later takes it alone)
+  .filter(r => !Number.isInteger(r.expedition.hold.keepLostAt))
+  .map(r => ({ dest: r.expedition.dest, arriveBell: r.expedition.arriveBell }));
 /** Whether any kept expedition is still under way (not settled): its host is away. */
 export const expeditionsAway = (fs, seals = localDepartReveals) => expeditionRows(fs, seals).some(r => r.expedition.stage !== 'settled');
 
@@ -197,12 +207,20 @@ export const expeditionHoldsOf = fs => { let m = holdsOf.get(fs); if (!m) { m = 
  */
 export function followExpeditionHold(prev, { dest, province, faction, nowBell }) {
   const k = province?.keep ?? null;
+  // (fix-loop10, LP10-5: a TAKEN keep's garrison is the keep record's own count — whole troops, as read at `garrisonAt` —
+  //  while the keep is still the viewer's nation's. loop-play10: the card said （兵 1,289）, the strength the host left
+  //  with; the chain garrison was 644 — a capture leaves half of the holding host in the keep, world_index/resolve.rs)
+  // (verify-pr175: the keep seen as another nation's again → `keepLostAt`, once; the garrison record stops there, with its
+  //  turn, and holdingExpeditions no longer counts this expedition as holding the keep)
+  if (prev?.outcome === 'taken' && !Number.isInteger(prev.keepLostAt) && k && dest && k.tile === dest.tile && k.holder !== faction) return { ...prev, keepLostAt: nowBell };
+  if (prev?.outcome === 'taken') return !Number.isInteger(prev.keepLostAt) && k && dest && k.tile === dest.tile && k.holder === faction && Number.isInteger(k.troops) && (prev.garrison !== k.troops)
+    ? { ...prev, garrison: k.troops, garrisonAt: nowBell } : prev;
   if (prev?.outcome) return prev;                       // (an ended hold stays ended: said once and kept)
   if (!k || !dest || k.tile !== dest.tile) return prev ?? null;
   const to = { p: String(dest.p), q: String(dest.q) };
   const stands = (province.entries ?? []).some(e => e.faction === faction && e.tile === k.tile && e.state >= 1 && e.state <= 3);
   const required = k.required ?? prev?.required ?? null;
-  if (k.holder === faction) return { to, tile: k.tile, progress: required, required, since: prev?.since ?? nowBell, outcome: 'taken', at: nowBell };
+  if (k.holder === faction) return { to, tile: k.tile, progress: required, required, since: prev?.since ?? nowBell, outcome: 'taken', at: nowBell, ...(Number.isInteger(k.troops) ? { garrison: k.troops, garrisonAt: nowBell } : {}) };
   if (k.contender === faction) return { to, tile: k.tile, progress: k.progress, required: k.required, since: prev?.since ?? nowBell, outcome: null, at: nowBell };
   if (prev) return { ...prev, outcome: 'lost', why: stands ? 'held-by-other' : 'gone', holder: k.holder, at: nowBell };
   // (standing on the keep, the count not started yet: the arrival turn's own resolve starts it)
@@ -221,7 +239,8 @@ export async function readExpeditionHolds(fs, { read, parse, address, faction, n
     const x = r.expedition;
     if (x.stage !== 'settled' || x.fate !== 'stays' || !x.dest) continue;
     const prev = holds.get(x.commit) ?? null;
-    if (prev?.outcome) continue;
+    // (fix-loop10, LP10-5: a taken keep is still read — its garrison is the chain's, now — a lost hold is not)
+    if (prev?.outcome && (prev.outcome !== 'taken' || Number.isInteger(prev.keepLostAt))) continue;
     let province;
     try { const [b] = await read([address(String(x.dest.p), String(x.dest.q))]); if (!b) continue; province = parse(b); } catch { continue; }
     const h = followExpeditionHold(prev, { dest: x.dest, province, faction, nowBell });

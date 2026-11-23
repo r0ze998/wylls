@@ -131,7 +131,9 @@ test('LP9-2: an expedition standing on a wide keep is followed — the count, th
   card = String(renderExpedition(row, fs));
   assert.match(card, /砦を奪いました：軍勢は砦の守備兵になりました/); assert.doesNotMatch(card, /留まる：/);
   assert.match(card, /結果：遠征の軍勢が州 -65,-64 の砦を奪いました。砦はあなたの国のものです（ターン 550 に確認）。/);
-  asked = []; await X.readExpeditionHolds(fs, { ...deps, nowBell: 560 }); assert.deepEqual(asked, [], 'an ended hold is not read again');
+  // (fix-loop10, LP10-5: a TAKEN keep is still read — one read, for its garrison — and its end is not changed or said again)
+  asked = []; await X.readExpeditionHolds(fs, { ...deps, nowBell: 560 }); assert.deepEqual(asked, ['wide:-65,-64'], 'a taken keep is read for its garrison');
+  assert.deepEqual([X.expeditionRows(fs, () => [r])[0].expedition.hold.outcome, X.expeditionRows(fs, () => [r])[0].expedition.hold.at], ['taken', 550]);
   assert.deepEqual(X.standingExpeditions(fs, () => [r]).length, 1);
   // the pure follower: lost both ways; not on the keep tile → nothing
   const P = readWideProvince;
