@@ -130,11 +130,11 @@ test('the map\'s search: an empty answer says what the box finds, in both langua
   assert.equal(flat(renderResults([], '')), '');
   assert.equal(flat(renderResults([], '   ')), '');
   const ja = flat(renderResults([], 'zzz'));
-  assert.match(ja, /<p class="search-none"><strong>見つかりません<\/strong><span class="search-hint">州の座標（例：4,0）、国の名前、領主の名前で探せます<\/span><\/p>/);
+  assert.match(ja, /<p class="search-none"><strong>見つかりません<\/strong><span class="search-hint">州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます<\/span><\/p>/);
   setLang('en');
   const en = flat(renderResults([], 'zzz'));
   assert.match(en, /<strong>Nothing found<\/strong>/);
-  assert.match(en, /<span class="search-hint">Search by a province&#39;s coordinates \(for example 4,0\), a nation&#39;s name or a lord&#39;s name<\/span>|<span class="search-hint">Search by a province's coordinates \(for example 4,0\), a nation's name or a lord's name<\/span>/);
+  assert.match(en, /<span class="search-hint">Search by a province&#39;s coordinates \(for example 4,0\), the name of a nation whose village you can see, or a lord&#39;s name<\/span>|<span class="search-hint">Search by a province's coordinates \(for example 4,0\), the name of a nation whose village you can see, or a lord's name<\/span>/);
   assert.doesNotMatch(en, /[぀-ヿ㐀-鿿]/);
   const hits = flat(renderResults([{ kind: 'province', text: 'Province 4,0', p: 4, q: 0 }], '4,0'));
   assert.match(hits, /class="search-hit search-province" data-act="search-go" data-i="0">Province 4,0</, 'results are listed as before');
