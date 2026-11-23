@@ -29,6 +29,7 @@ import { localPlayTurnGate } from './local-play-turns.mjs';
 import { createExpeditionDepartPrepare, ExpeditionDepartPrepareError, DEPART_PREPARE_PROGRAM_VERSION } from './expedition-depart-prepare.mjs';
 import { onLocalLane } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 
+
 export const LOCAL_PLAY_PROGRAM = encode(new Uint8Array(32).fill(0x45));
 export const LOCAL_PLAY_SEASON_ID = 11;
 export let LOCAL_PLAY_RULESET_HASH = 'e9059c9307189f337b00a4b2166b72a46e1cbbf888068ed1057067546d89de70';
@@ -58,6 +59,9 @@ const ERRORS = Object.freeze({
   LocalPlayBusy: [429, 'too many prepared messages are waiting'],
   LocalPlayRpcUnavailable: [503, 'the local-play runner did not answer'],
   LocalPlaySendRefused: [502, 'the local-play runner refused the transaction'],
+  // (fix-loop11: the runner's send answered that it did NOT take the departure — its preflight ran it and the program
+  //  refused it, or the signature does not verify: never queued, never on the chain. detail.program_code when known)
+  LocalPlayRejected: [422, 'the local-play runner rejected the transaction before running it: it was not sent'],
   // (one action per resident per bell, local-play-turns.mjs: only on a relay started with --resident-turns)
   ResidentAlreadyActed: [409, 'this resident already acted in this bell'],
   ResidentTurnUnavailable: [503, 'the resident turn lease cannot be recorded'],
@@ -70,6 +74,22 @@ export class LocalPlayError extends Error {
   }
 }
 const fail = (code, detail) => { throw new LocalPlayError(code, detail); };
+/**
+ * (fix-loop11) The runner's definite "not taken" answer to `sendTransaction`, read exactly as the economy-act routes read
+ * it (their runnerRejection, deliberately not imported here — this core stays apart from them): -32002 "Transaction simulation
+ * failed" with the chain's `data.err` (but NOT AlreadyProcessed: that signature is known), or -32003 signature
+ * verification failure. → null, or `{err, programCode}`.
+ */
+function sendRejection(error) {
+  if (error === null || typeof error !== 'object' || Array.isArray(error)) return null;
+  const data = error.data !== null && typeof error.data === 'object' && !Array.isArray(error.data) ? error.data : {};
+  const message = String(error.message ?? '');
+  if (error.code === -32003 && /signature verification failure/i.test(message)) return { err: 'SignatureFailure', programCode: null };
+  if (error.code !== -32002 || !/^Transaction simulation failed/.test(message)) return null;
+  if (data.err === undefined || data.err === null || data.err === 'AlreadyProcessed' || /already been processed/i.test(message)) return null;
+  const ie = Array.isArray(data.err?.InstructionError) ? data.err.InstructionError[1] : undefined;
+  return { err: data.err, programCode: Number.isInteger(ie?.Custom) ? ie.Custom : null };
+}
 const exact = (v, fields) => v !== null && typeof v === 'object' && !Array.isArray(v)
   && Object.keys(v).length === fields.length && fields.every(k => Object.hasOwn(v, k));
 const address = v => {
@@ -323,7 +343,11 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
         // timeout / network error after the send began: the outcome is unknown
         return { status: 'unknown', signature: sig, status_route: routes.status };
       }
-      if (sent?.error) fail('LocalPlaySendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig });
+      if (sent?.error) {
+        const rj = sendRejection(sent.error);
+        if (rj) fail('LocalPlayRejected', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig, err: rj.err, program_code: rj.programCode });
+        fail('LocalPlaySendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig });
+      }
       if (sent?.result !== sig) return { status: 'unknown', signature: sig, status_route: routes.status };
       return { status: 'submitted', signature: sig, status_route: routes.status };
     },

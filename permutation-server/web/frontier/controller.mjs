@@ -25,7 +25,7 @@ import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, buildItemOf, UNIT_ORDER } from './fland.mjs';
-import { BUILDINGS, TIERS, unitCount, failureText } from './fi18n.mjs';
+import { BUILDINGS, TIERS, unitCount, failureText, departRefusedReason } from './fi18n.mjs';
 import { villageInUse } from './hud/rulebook.mjs';
 import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS, HOST_TROOPS } from './hud/rulebook.mjs';
 import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
@@ -504,7 +504,7 @@ async function localActAsk(name, lo, { order, say, after }) {
     refresh().catch(e => console.error('frontier refresh:', e)); await after?.({ ok: true, signature: s.signature });
     return { ok: true, signature: s.signature, reconciled: true };
   }
-  if (s.state === 'failed') { orderAnswered(order, false, { code: s.code, sent: true, signature: s.signature }); return failed({ ok: false, code: s.code }); }
+  if (s.state === 'failed') { orderAnswered(order, false, { code: s.code, sent: true, signature: s.signature }); return failed({ ok: false, code: s.code, ...(Number.isInteger(s.programCode) ? { programCode: s.programCode } : {}) }); }
   orderUnconfirmed(order, s.signature); setNotice({ busy: false, text: localActUnconfirmedText(s.signature), code: 'LocalActUnconfirmed' });
   return { ok: false, code: 'LocalActUnconfirmed', signature: s.signature, sent: true };
 }
@@ -683,7 +683,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
     const follow = async signature => {
       if (!local) return tx.track(signature);
       const f = await localAct.followLocalAct(signature, { origin: lo.origin, still: stillScope, lane: lo.lane });
-      return f.state === 'landed' ? { ok: true, state: 'landed', slot: f.slot } : f.state === 'failed' ? { ok: false, state: 'failed', code: f.code }
+      return f.state === 'landed' ? { ok: true, state: 'landed', slot: f.slot } : f.state === 'failed' ? { ok: false, state: 'failed', code: f.code, ...(Number.isInteger(f.programCode) ? { programCode: f.programCode } : {}) }
         : f.state === 'left' ? { ok: false, state: 'left', code: 'LocalActScopeChanged' } : { ok: false, state: 'unknown', code: 'Unconfirmed' };
     };
     let r = await send();
@@ -1493,6 +1493,13 @@ async function readMarches() {
   //  them. One read each through the relay's reveal/context route; their rows join the list. Reads only.)
   if (localPlay && localDepart.localDepartReveals(FS).some(r => r.signature)) {
     const gate = localDepartGate();
+    // (fix-loop11, LP11-1: a departure sent and not settled is asked about here too, by its first signature — a read
+    //  only; a refusal marks its seal, so the rows below drop it. loop-play11: the card's one look came before the chain
+    //  had judged it, and nothing asked again until the person pressed 「結果を照合する」)
+    if (gate?.ok && ['submitted', 'unknown'].includes(localDepart.localDepartOf(FS).status)) {
+      await localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged }).catch(() => null);
+      if (!same()) return;
+    }
     if (gate?.ok) {
       await localExpedition.readExpeditions(FS, { relay: gate.relay, pin: { programId: localPlay.programId, seasonAddress: localPlay.seasonAddress },
         faction: Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : null, nowBell: b }).catch(() => null);
@@ -1708,7 +1715,22 @@ export const useEarliestOriginalOutboundArrival = () => outbound.useEarliestOutb
  * relay, the identity's own wallet connected, and that wallet the live memory-only one.
  */
 const localDepartGate = () => localDepart.localDepartAllowed({ localPlay, cluster: io.pinned()?.cluster, relay: io.relay(), wallet: FS.wallet?.address ?? null, signer: currentEphemeralWallet() });
-const localDepartChanged = () => invalidate('map', 'panel');
+// (fix-loop11, LP11-1: a departure the chain refused after 「送信しました」 — its run reconciled `failed`, by the card's
+//  「結果を照合する」 or by the march list's own look below — is said ONCE as a notice too, in plain words: the card may be
+//  closed by then, and loop-play11's player read 「送信しました」 and went to the 進軍 list, where the refused seal stood)
+const departToldFailed = new WeakSet();
+const departRefusedNotice = () => {
+  const d = localDepart.localDepartOf(FS);
+  if (!['failed', 'expired'].includes(d.status) || !d.signature) return;
+  const seal = localDepart.localDepartReveals(FS).find(x => x.signature === d.signature);
+  if (!seal || departToldFailed.has(seal)) return;
+  departToldFailed.add(seal);
+  setNotice({ ok: false, busy: false, unsent: 'expedition-depart', retry: false, text: d.status === 'expired'
+    ? () => L`遠征の出発の取引は、記録されないまま期限が切れました。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。`
+    : d.chain === 'rejected' ? () => L`遠征の出発は送る前の確かめで断られました（チェーンには届いていません）：${departRefusedReason(d)}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。`
+    : () => L`遠征の出発はチェーンで断られました：${departRefusedReason(d)}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。` });
+};
+const localDepartChanged = () => { departRefusedNotice(); invalidate('map', 'panel'); };
 export const localPlayDepartAllowed = () => localDepartGate();
 // (fix-loop6, LP6-1: at ×60 the conditions' observation is dropped by the next clock poll, often before the person's
 //  press on 出発する — the press was refused in place (loop-play6: 17 presses / 18 s). A press on a draft whose conditions
@@ -4208,6 +4230,22 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
       const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
       return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
     };
+    // (fix-loop11, LP11-1 audit: a WideDepart SENT whose outcome was not known — counted as a march, kept below — is asked
+    //  about first, by its signature (a read only). Refused on chain: it was no march — the count and the march memory go
+    //  back to what they were and the card says why; still not known: nothing is planned this time (the host may be out)
+    if (mem.departHeld) {
+      const h = mem.departHeld;
+      let s = null; try { s = await localAct.localActRead({ allowed: localDepartGate, lane: playLane()?.lane ?? localAct.LOCAL_LANE })(h.signature); } catch { s = null; }
+      if (s?.ok && s.state === 'failed') {
+        mem.departHeld = null; mem.wideDeparts = h.wideDeparts; mem.lastWideDepart = h.lastWideDepart;
+        FS.ui = { ...FS.ui, wideHostSay: { kind: 'wait', wait: 'refused', programCode: s.programCode ?? null }, wideHostReady: false };
+        if (Number(s.programCode) === 26) wideHostWait(mem, { reason: 'turn', lag: null }); else wideHostStopWait(mem);
+        invalidate('panel');
+        return failed({ ok: false, code: s.code ?? 'TransactionFailed', unsent: 'wide-host-step', retry: false, ...(Number.isInteger(s.programCode) ? { programCode: s.programCode } : {}) });
+      }
+      if (s?.ok && s.state === 'landed') mem.departHeld = null;
+      else { if (auto || !mem.waiting) wideHostWait(mem, { reason: 'march', lag: null }); return { ok: false, code: 'WideHostWait', why: 'the last wide march was sent and is not confirmed yet', wait: 'march' }; }
+    }
     const { followWideHold, markWideHoldExpedition } = await import('./flocalplay-wide-plan.mjs');
     const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
     let w;
@@ -4249,14 +4287,23 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
       return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null };
     }
     const d = w.decision;
+    const noticeBefore = FS.notice;
     const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
+    // (verify-pr184, live: a W2 step the chain refused — WideMuster NotResident — was told as 「訓練はまだされていません。」
+    //  with 「もう一度」, both from FS.lastAct: the person's last FORM press, a train at the rim village. That retry would
+    //  have trained again there. The refusal is the W2 step's: its own words, and no retry — the card's wait sends again)
+    if (FS.notice !== noticeBefore && FS.notice && !FS.notice.ok && !FS.notice.busy && !FS.notice.waiting) setNotice({ ...FS.notice, unsent: 'wide-host-step', retry: false });
     mem.decisions = (mem.decisions ?? 0) + 1;
     // (`act` answers a refusal with its notice — FS.notice — not with a result)
     const n = r === undefined ? FS.notice : r;
     // (w2-wipeout, live world B turn 473: a WideDepart REFUSED as the turn rolled under it — NotResident — came back as
     //  `undefined`, which `r?.ok !== false` counted as a march: wideDeparts 2 = the TEST cap with no second march sent,
     //  and lastWideDepart pointed at a march that never left. Only a send that was not refused counts)
-    if (n?.ok !== false && d.name === 'WideDepart') {
+    // (fix-loop11, LP11-1 audit: a WideDepart SENT whose outcome is not known yet — `LocalActUnconfirmed`, held by its
+    //  signature — may be out: it counts, and is asked about at the next step — refused on chain, it is taken back)
+    const heldDepart = n?.ok === false && n.sent === true && n.code === 'LocalActUnconfirmed' && typeof n.signature === 'string';
+    if (heldDepart && d.name === 'WideDepart') mem.departHeld = { signature: n.signature, wideDeparts: mem.wideDeparts ?? 0, lastWideDepart: mem.lastWideDepart ?? null };
+    if ((n?.ok !== false || heldDepart) && d.name === 'WideDepart') {
       mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
       // (fix-loop6, LP6-5: kept so the card can follow the march to its result — flocalplay-wide-plan marchState)
       if (d.to && Number.isInteger(d.fields?.arrive_bell)) mem.lastWideDepart = { to: d.to, arrive: d.fields.arrive_bell, troops: d.troops ?? null };
@@ -4265,6 +4312,7 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     // (refused BEFORE it was sent because the turn rolled under it — NotResident 26 — : wait a turn and try again
     //  by itself; any other answer ends the waiting and is shown as it is)
     if (n?.ok === false && (Number(n.programCode) === 26 || n.code === 'NotResident' || n.code === 26)) wideHostWait(mem, { reason: 'turn', lag: null });
+    else if (heldDepart && d.name === 'WideDepart') wideHostWait(mem, { reason: 'march', lag: null });
     else wideHostStopWait(mem);
     return r;
 }
@@ -4600,10 +4648,18 @@ export const ACTIONS = {
   //  lags the chain (or its host forms), nothing is sent; the page asks again by itself about once a turn and sends the
   //  step when it can (「待つのをやめる」 stops it). loop-play5 pressed every 2 s for ~10 min and spent the relay's cap.
   'wide-host-step': async (d = {}) => {
-    const e = fwide.selectedWide(FS);
     FS.ui = { ...(FS.ui ?? {}) };
     const mem0 = (FS.ui.wideHost ??= { decisions: 0 });
-    if (!e?.holding || !localPlay?.wideLand) { wideHostStopWait(mem0); return; }
+    // (fix-loop11, LP11-2: the wait goes on while another village is open. loop-play11: the guide sends the player back to
+    //  the rim village for the expedition; the timer then found no W2 view open, stopped the wait without a word, and the
+    //  card came back with 「80 ターン遅れています」 / 「占拠中 9/72」 and a live button. The page's own timer now follows
+    //  the wide village it was started for — its inventory slot, kept in the same runtime memory (#173) — whichever
+    //  village the screen shows; a person's press still acts on the village on screen)
+    const e = d.auto === true && Number.isInteger(mem0.slot) ? (fwide.wideSlots(FS).find(x => x.inventorySlot === mem0.slot) ?? null) : fwide.selectedWide(FS);
+    if (!localPlay?.wideLand) { wideHostStopWait(mem0); return; }
+    // (the inventory not read just now — a reload of the list, a slow read under load — is no reason to stop: ask again next turn)
+    if (!e?.holding) { if (d.auto === true && mem0.waiting) wideHostWait(mem0, mem0.waiting); else wideHostStopWait(mem0); return; }
+    if (d.auto !== true) mem0.slot = e.inventorySlot;
     if (d.auto !== true && mem0.waiting) return { ok: false, code: 'WideHostWaiting' };   // (already waiting: the press starts nothing)
     if (mem0.busy) return { ok: false, code: 'WideHostBusy' };
     mem0.busy = true;
