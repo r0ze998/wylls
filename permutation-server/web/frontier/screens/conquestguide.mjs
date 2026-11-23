@@ -174,6 +174,18 @@ export function marchesLeft(FS) {
   return { wiped, pending: marches.filter(m => !over(m)) };
 }
 
+/**
+ * (fix-loop12, LP12-3) A march of the viewer that is out — not settled — and whose destination the page does not know
+ * (sealed: no `dest` on its row; a local-play march after a reload): `{arrive}` (its arrival turn, when the transit says
+ * it), or null. An expedition row is not one: it always names its destination.
+ */
+export function sealedMarch(FS) {
+  const m = marchesLeft(FS).pending.find(x => !x?.expedition && !x?.dest) ?? null;
+  if (!m) return null;
+  const arrive = m.entry?.arriveBell ?? m.transit?.arriveBell ?? null;
+  return { arrive: Number.isInteger(arrive) ? arrive : null };
+}
+
 const TITLE = {
   village: () => L`最初の村`, build: () => L`建物を建てる`, train: () => L`兵を訓練する`, muster: () => L`軍勢を編成する`,
   march: () => L`砦へ進軍する`, hold: hold => L`砦のマスを ${fmtNum(hold)} ターン保つ`, capture: () => L`州を奪う`,
@@ -277,6 +289,17 @@ export function conquestObjective(FS) {
       text = ready ? L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。勝ち目の欄が「十分」の砦を選ぶと、着いたターンに砦のマスに残れる見込みです。命令に封をして出発すると、到着のターンに戦いが決まります。`
         : wait ? back + waitText(wait, FS) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;
       go = ready ? { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` } : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+      // (fix-loop12, LP12-3: a march of the viewer is out and its destination is still under seal — after a reload the
+      //  page no longer holds the order it sealed (FS.orders is page memory), and the transit names no destination until
+      //  its arrival turn reveals it — while no host is at home: the departing host stood in the province record as
+      //  「出発の手続き中」, so the guide said 「軍勢の準備を確かめる」 and the press opened 訓練. Said as what it is: out on
+      //  a march, its result to be seen in 進軍)
+      const sealedOut = !ready ? sealedMarch(FS) : null;
+      if (sealedOut && !rows.some(r => !r.inTransit && r.pending !== 1)) {
+        text = int(sealedOut.arrive) ? L`${back}軍勢は進軍に出ています。行き先は封をしたままで、到着のターン ${fmtNum(sealedOut.arrive)} に明かされます。砦に着いて勝てば、占拠のターンが数えられます。`
+          : L`${back}軍勢は進軍に出ています。行き先は封をしたままで、到着のターンに明かされます。砦に着いて勝てば、占拠のターンが数えられます。`;
+        go = { act: 'tab', data: { tab: 'marches' }, label: L`進軍を見る` };
+      }
       // (w2-wipeout, D-verify-pr137-3: no host of the viewer anywhere — none in a province record, none out on a march —
       //  so 「軍勢の準備を確かめる」 opened an empty list: the last host was wiped out (a settled march says 壊滅) or
       //  none is left. Say so, and offer the next army's first step instead. A march still out — its survivors may come

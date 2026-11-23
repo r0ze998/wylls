@@ -1756,7 +1756,13 @@ export const sendLocalPlayDeparture = async () => {
       const out = await localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
         sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
         seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
-      if (out?.sent) outbound.forgetOutboundReady(FS);
+      if (out?.sent) {
+        outbound.forgetOutboundReady(FS);
+        // (fix-loop12, LP12-4: an earlier departure's refusal notice — 「遠征は出発していません…軍勢は村にいます」 — stood
+        //  at the top for 40 turns after this one departed: a sent departure sets no notice of its own, so the old
+        //  refusal was never replaced. A departure that is sent makes it untrue; it goes. Any other notice stays.)
+        if (FS.notice && FS.notice.ok === false && FS.notice.unsent === 'expedition-depart') setNotice(null);
+      }
       return out;
     } });
 };
@@ -2417,8 +2423,16 @@ export async function rereadS1() {
   finally { if (FS.s1Reread === run && run.state === 'loading') FS.s1Reread = null; invalidate('panel', 'map'); }
 }
 
-/** The control / standings files last answered 404, with the bell and world of that answer (refreshConquest). */
+/** The control / standings files last answered 404, with the bell, world and time of that answer (refreshConquest). */
 const conquestMiss = { control: null, standings: null };
+/**
+ * (fix-loop12, LP12-2) In a fresh world's first turns — before its first control snapshot, while a 404 is expected
+ * (`freshWorld` below, the same window that says 'loading') — a 404 is asked again after this long, not at the next turn.
+ * loop-play12 and fix-loop12 (1×): the herald wrote the first snapshot 1 min into turn 2, the page had asked at the
+ * turn's start and waited for turn 3 — 「届く砦を調べています…」 for ~9 more minutes. Past the window (a devnet season
+ * with no snapshot for hours) the next-turn rule stands.
+ */
+const FRESH_MISS_RETRY_MS = 30_000;
 export async function refreshConquest() {
   // (2026-11-17, ⑦: also in a world without conquest, what was read in another world is not kept: the feed, the sheet,
   //  the report and the S1 marks read FS.conquest and FS.s1 without asking whether conquest is on)
@@ -2438,14 +2452,15 @@ export async function refreshConquest() {
   //  complete over every opened province, no standings hour; on a fresh devnet season for hours — was asked again at
   //  every refresh, three times a minute per page. After a 404 it is asked again at the next bell, in the same world.)
   const bellNow = nowBell();
-  const missed = k => conquestMiss[k]?.world === world && conquestMiss[k].bell === bellNow;
+  const freshWorld = !cq.control && bellNow <= 1 + Math.ceil(Number(FS.season.revealWindow ?? 600) / Number(FS.season.bellSecs ?? 600));
+  const missed = k => conquestMiss[k]?.world === world && conquestMiss[k].bell === bellNow && !(freshWorld && Date.now() - conquestMiss[k].at >= FRESH_MISS_RETRY_MS);
   const skipControl = missed('control'), skipStandings = missed('standings');
   const results = await Promise.allSettled([skipControl ? null : herald.control(), skipStandings ? null : herald.standings()]);
   if (!current()) return;
   const control = results[0].status === 'fulfilled' ? results[0].value : null;
   const standings = results[1].status === 'fulfilled' ? results[1].value : null;
-  if (!skipControl) conquestMiss.control = control?.code === 'NotFound' ? { world, bell: bellNow } : null;
-  if (!skipStandings) conquestMiss.standings = standings?.code === 'NotFound' ? { world, bell: bellNow } : null;
+  if (!skipControl) conquestMiss.control = control?.code === 'NotFound' ? { world, bell: bellNow, at: Date.now() } : null;
+  if (!skipStandings) conquestMiss.standings = standings?.code === 'NotFound' ? { world, bell: bellNow, at: Date.now() } : null;
   // (not asked this time: what the last answer made of the page stays as it is)
   if (skipControl) { /* the status of the last answer stands */ }
   else if (control?.ok) {
