@@ -169,6 +169,19 @@ test('home village (conquest guide): after a capture the card offers the next ar
   assert.ok(s.includes("const next = !o && cap ? afterCapture(FS) : null;"), 'the captured card carries the offer');
   assert.ok(s.includes("if (!ready && !wait && !rows.length) {"), 'the march step with no host left');
   assert.ok(s.includes("m?.facts?.settled?.outcome === 'Destroyed'"), 'a settled 壊滅 is said');
+  // (verify-pr176) what counts as still out: an unsettled march only; an expedition until it is over
+  assert.ok(s.includes('const { wiped, pending } = marchesLeft(FS);'));
+  const ml = ms => { const r = G.marchesLeft({ marches: ms }); return [r.pending.length, r.wiped ? 'wiped' : null]; };
+  assert.deepEqual(ml([]), [0, null]);
+  assert.deepEqual(ml([{ dest: { p: 1, q: 2 }, facts: { pipeline: 'resolved' } }]), [1, null], 'turned back, not settled: still out');
+  assert.deepEqual(ml([{ dest: { p: 1, q: 2 }, facts: { settled: { outcome: 'Destroyed' } } }]), [0, 'wiped']);
+  assert.deepEqual(ml([{ dest: { p: 1, q: 2 }, facts: { settled: { outcome: 'Withdrew' } } }]), [0, null], 'settled otherwise: home already, not still out');
+  const xr = x => ({ dest: { p: -65, q: -64 }, facts: { nowBell: 500 }, expedition: { stage: 'settled', fate: 'stays', hold: null, ...x } });
+  assert.deepEqual(ml([xr({ stage: 'revealed', fate: null })]), [1, null], 'an expedition on its way is out');
+  assert.deepEqual(ml([xr({ hold: { outcome: null, progress: 10, required: 72 } })]), [1, null], 'an expedition holding a keep is out');
+  assert.deepEqual(ml([xr({ fate: 'destroyed' })]), [0, 'wiped'], 'an expedition wiped out (live: it counted as out for good)');
+  assert.deepEqual(ml([xr({ hold: { outcome: 'taken' } })]), [0, null], 'the expedition that took the keep is its garrison');
+  assert.deepEqual(ml([xr({ hold: { outcome: 'lost', why: 'gone' } })]), [0, null], 'beaten off the keep');
   setLang('en');
   try {
     for (const r of [[0, 0, 0, 0, 0, 0, 0, 0], [300, 0, 0, 0, 0, 0, 0, 0]]) {

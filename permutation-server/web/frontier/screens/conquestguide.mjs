@@ -155,6 +155,23 @@ export function afterCapture(FS) {
     : L`砦を奪った軍勢は、砦の守備兵として残りました。いま進軍できる軍勢はいません。次の州を狙うなら、まず兵を訓練して新しい軍勢を作ります。`, go: n.go };
 }
 
+/**
+ * (verify-pr176) The viewer's marches as the "no host left" line reads them: `pending` — still out (a march not yet
+ * settled; its survivors, if any, come home with the settlement) — and `wiped`, a march settled as 壊滅 (Destroyed).
+ * A settled march of any other outcome has brought its survivors home already: it is not "still out". An expedition
+ * row (TEST-only wide play, flocalplay-expedition.mjs) has no settlement facts: it is over once it was wiped out
+ * (fate destroyed), took the keep (its host is the garrison) or was beaten off the keep's tile — what the expedition
+ * card's 「次の軍勢」 line says (tracker.mjs expeditionNextText). Before, every expedition row and every settled
+ * non-Destroyed march counted as "still out" for good.
+ */
+export function marchesLeft(FS) {
+  const marches = FS.marches ?? [];
+  const xOver = x => x.hold?.outcome === 'taken' || (x.stage === 'settled' && x.fate === 'destroyed') || (x.hold?.outcome === 'lost' && x.hold.why === 'gone');
+  const over = m => (m?.expedition ? xOver(m.expedition) : !!m?.facts?.settled);
+  const wiped = marches.find(m => (m?.expedition ? m.expedition.stage === 'settled' && m.expedition.fate === 'destroyed' : m?.facts?.settled?.outcome === 'Destroyed')) ?? null;
+  return { wiped, pending: marches.filter(m => !over(m)) };
+}
+
 const TITLE = {
   village: () => L`最初の村`, build: () => L`建物を建てる`, train: () => L`兵を訓練する`, muster: () => L`軍勢を編成する`,
   march: () => L`砦へ進軍する`, hold: hold => L`砦のマスを ${fmtNum(hold)} ターン保つ`, capture: () => L`州を奪う`,
@@ -263,9 +280,7 @@ export function conquestObjective(FS) {
       //  none is left. Say so, and offer the next army's first step instead. A march still out — its survivors may come
       //  home with its result — is pointed at instead, with what its result decides)
       if (!ready && !wait && !rows.length) {
-        const marches = FS.marches ?? [];
-        const wiped = marches.find(m => m?.facts?.settled?.outcome === 'Destroyed') ?? null;
-        const pending = marches.filter(m => m?.facts?.settled?.outcome !== 'Destroyed');
+        const { wiped, pending } = marchesLeft(FS);
         if (pending.length) {
           text = L`${back}いま村に軍勢はいません。進軍の記録が締めくくられると、生き残った兵が村に戻ります（全滅していれば戻りません）。`;
           go = { act: 'tab', data: { tab: 'marches' }, label: L`進軍の結果を見る` };
