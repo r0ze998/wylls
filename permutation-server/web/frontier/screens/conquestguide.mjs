@@ -66,7 +66,9 @@ export function conquestFacts(FS) {
   const back = (FS.marches ?? []).find(turnedBack) ?? null;
   const repelled = back ? { p: back.dest.p, q: back.dest.q, bell: back.entry?.arriveBell ?? back.transit?.arriveBell ?? null } : null;
   const revealed = live.map(keepOf).find(Boolean) ?? null;
-  const sealed = (FS.orders ?? []).map(o => (o?.kind === 'march' && o.dest ? keeps.find(k => k.p === o.dest.p && k.q === o.dest.q && k.tile === o.dest.tile) ?? null : null))
+  // (verify-pr193: a march order the page was answered "no" for — refused before sending, refused on chain, or read
+  //  `expired` — never went: it is not "marched". It moved the guide to 「5/7 砦を見る」 with no march out)
+  const sealed = (FS.orders ?? []).map(o => (o?.kind === 'march' && o.state !== 'refused' && o.dest ? keeps.find(k => k.p === o.dest.p && k.q === o.dest.q && k.tile === o.dest.tile) ?? null : null))
     .find(k => k && !(repelled && repelled.p === k.p && repelled.q === k.q)) ?? null;
   // the contest the viewer is part of: its nation is the contender of the keep the viewer's own host stands on, or the
   // viewer's own march is bound for. Not any keep its nation contends: in a world with others in the nation (people or
