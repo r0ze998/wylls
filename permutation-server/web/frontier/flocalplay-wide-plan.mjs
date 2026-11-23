@@ -91,16 +91,29 @@ export function followWideHold(prev, march) {
   const base = same ? prev : null;
   if (base?.outcome) return base;            // (an ended hold stays ended: taken or lost is said once and kept)
   const to = { p: String(m.to.p), q: String(m.to.q) };
+  // (fix-loop10, LP10-2) WHOSE hold this is. loop-play10: the village's second march (100 troops, arrival 427) went onto a
+  //  keep the player's own EXPEDITION had held since turn ~360; the keep was taken at 433 and the card said 「州 … の砦を
+  //  奪いました」 as if these 100 had. `shared`: the nation's hold of this keep was running before this host arrived —
+  //  'nation' when the count is ahead of this host's own turns there (first sight), 'expedition' when a kept expedition
+  //  of the player's stands in that province and arrived no later (markWideHoldExpedition below, the page's own records).
+  //  `already`: the keep was the nation's when the host was first seen standing there, untouched (state 1, the troops it
+  //  left with: a capture's donor is retired with what the garrison left it — world_index/resolve.rs).
+  const ahead = k => arrive !== null && Number.isInteger(m.nowBell) && Number(k?.progress ?? 0) > Math.max(0, m.nowBell - arrive) + 2;
+  const whose = (h, k) => { const shared = base?.shared ?? (ahead(k) ? 'nation' : null); return shared ? { ...h, shared } : h; };
   const mark = h => (arrive === null ? h : { ...h, arrive });
   // (the capture: the keep is the village nation's. Its holding host became the garrison and left the province's
   //  entries, so this is seen as 'gone' — fix-loop7 live run, turn 451 — or, if a host still stands there, as 'stands')
   if (base && m.keep && m.keep.holder === m.faction && ['stands', 'gone', 'settling'].includes(m.phase)) {
-    return mark({ to, progress: base.required ?? m.keep.required ?? null, required: base.required ?? m.keep.required ?? null, since: base.since, outcome: 'taken', at: m.nowBell });
+    return mark(whose({ to, progress: base.required ?? m.keep.required ?? null, required: base.required ?? m.keep.required ?? null, since: base.since, outcome: 'taken', at: m.nowBell }, null));
   }
   if (m.phase === 'stands' && m.keep) {
     const k = m.keep;
-    if (k.holder === m.faction) return mark({ to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell });
-    if (k.contender === m.faction) return mark({ to, progress: k.progress, required: k.required, since: base?.since ?? m.nowBell, outcome: null });
+    if (k.holder === m.faction) {
+      const untouched = !base && m.state === 1 && Number.isFinite(Number(m.sent)) && m.sent !== null && Number(m.troops) === Number(m.sent);
+      const h = whose({ to, progress: base?.required ?? k.required ?? null, required: base?.required ?? k.required ?? null, since: base?.since ?? m.nowBell, outcome: 'taken', at: m.nowBell }, null);
+      return mark(untouched ? { ...h, already: true } : h);
+    }
+    if (k.contender === m.faction) return mark(whose({ to, progress: k.progress, required: k.required, since: base?.since ?? m.nowBell, outcome: null }, base ? null : k));
     // (the host stands, but its nation no longer contends the keep: another took over the contest, or the count was reset)
     if (base) return { ...base, outcome: 'lost', why: 'held-by-other', holder: k.holder, at: m.nowBell };
     return null;
@@ -109,6 +122,20 @@ export function followWideHold(prev, march) {
   if (m.phase === 'gone' && base) return { ...base, outcome: 'lost', why: 'gone', at: m.nowBell };
   // (still on its way or being decided: the same march's hold as it was; another march has none yet)
   return base;
+}
+
+/**
+ * (fix-loop10, LP10-2) Mark a followed hold as shared with the player's own EXPEDITION: `expeditions` are the kept
+ * expeditions standing in the wide land (flocalplay-expedition.mjs standingExpeditions: `[{dest: {p, q}, arriveBell}]`);
+ * one in the hold's province that arrived no later than this march held the keep first. → the hold (the same object when
+ * nothing changes; pure).
+ */
+export function markWideHoldExpedition(hold, expeditions = []) {
+  if (!hold?.to || hold.shared === 'expedition') return hold ?? null;
+  const arrive = Number.isInteger(hold.arrive) ? hold.arrive : null;
+  const first = (expeditions ?? []).some(x => x?.dest && String(x.dest.p) === String(hold.to.p) && String(x.dest.q) === String(hold.to.q)
+    && (arrive === null || !Number.isInteger(x.arriveBell) || x.arriveBell <= arrive));
+  return first ? { ...hold, shared: 'expedition' } : hold;
 }
 
 /**
@@ -133,7 +160,9 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
     const there = wideHostsIn({ world, village, holding, province: dp });
     if (there.length) {
       const k = dp.keep;
-      return { ...m, phase: 'stands', nowBell, troops: Math.floor(there[0].entry.troops / 1000), faction: holding.faction,
+      // (fix-loop10, LP10-2: `sent` the troops it left with and `state` its entry's state — an untouched host on a keep that
+      //  is already its nation's did not take it)
+      return { ...m, phase: 'stands', nowBell, troops: Math.floor(there[0].entry.troops / 1000), sent: m.troops ?? null, state: there[0].entry.state, faction: holding.faction,
         keep: k ? { holder: k.holder, contender: k.contender, progress: k.progress, required: k.required } : null };
     }
     // (fix-loop7, LP7-5: the destination's keep rides along when no host of this village stands there. A capture turns the

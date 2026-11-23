@@ -192,6 +192,18 @@ export function expeditionHoldText(h) {
   if (h.waiting) return L`遠征の軍勢は州 ${where} の砦のマスに立っています。占拠の数え始めを待っています。`;
   return L`遠征の軍勢が州 ${where} の砦を占拠中です：${fmtNum(Number(h.progress ?? 0))} / ${fmtNum(Number(h.required ?? 0))} ターン。奪えたか、占拠が止まったかを、ここに出します。`;
 }
+/**
+ * (fix-loop10, LP10-5) The count beside an expedition's fate line. After a capture it is the KEEP's garrison as the
+ * chain's keep record has it (`hold.garrison`, read at turn `hold.garrisonAt` — followExpeditionHold), never the host's
+ * strength at its arrival (`troopsAfter`): loop-play10 showed （兵 1,289） over a chain garrison of 644. Not read yet:
+ * no number at all rather than the wrong one.
+ */
+export function expeditionTroopsNote(x, troops) {
+  if (x.hold?.outcome === 'taken') {
+    return Number.isInteger(x.hold.garrison) ? html` <span class="muted" data-garrison="${x.hold.garrison}">${L`（砦の守備兵 ${fmtNum(x.hold.garrison)}・ターン ${fmtNum(Number(x.hold.garrisonAt ?? x.hold.at ?? 0))} の記録）`}</span>` : '';
+  }
+  return troops !== null && x.fate !== 'destroyed' ? html` <span class="muted">${L`（兵 ${fmtNum(troops)}）`}</span>` : '';
+}
 /** One expedition card (TEST-ONLY wide local play, fix-wide-breaks BREAK-1): `m.expedition` of flocalplay-expedition.mjs expeditionRows. */
 export function renderExpedition(m, FS = null) {
   const x = m.expedition, d = x.dest, nowBell = FS?.nowBell ?? m.facts?.nowBell ?? 0;
@@ -200,7 +212,7 @@ export function renderExpedition(m, FS = null) {
     <div class="march-top">${icon('banner')}<strong class="march-to">${L`広い土地の州 ${d.p},${d.q} へ`}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(x.arriveBell)} に到着`}`, x.stage === 'settled' ? 'ok' : 'info')}</div>
     <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${expeditionPhases(x.stage, x.arriveBell, nowBell).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span></li>`)}</ol>
     <p class="march-now"><strong>${EXPEDITION_STAGE_TEXT[x.stage]?.() ?? ''}</strong></p>
-    ${x.fate ? html`<p class="march-out" data-fate="${x.fate}">${x.hold?.outcome === 'taken' ? L`砦を奪いました：軍勢は砦の守備兵になりました` : EXPEDITION_FATE_TEXT[x.fate]?.() ?? x.fate}${troops !== null && x.fate !== 'destroyed' ? html` <span class="muted">${L`（兵 ${fmtNum(troops)}）`}</span>` : ''}</p>` : ''}
+    ${x.fate ? html`<p class="march-out" data-fate="${x.fate}">${x.hold?.outcome === 'taken' ? L`砦を奪いました：軍勢は砦の守備兵になりました` : EXPEDITION_FATE_TEXT[x.fate]?.() ?? x.fate}${expeditionTroopsNote(x, troops)}</p>` : ''}
     ${x.hold ? html`<p class="march-hold" role="status" data-hold="${x.hold.outcome ?? 'counting'}">${expeditionHoldText(x.hold)}</p>` : ''}
     ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="goto" data-p="${d.p}" data-q="${d.q}">${L`地図で見る`}</button></div>` : ''}
   </li>`;

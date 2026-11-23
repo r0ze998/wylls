@@ -1833,6 +1833,11 @@ function hostUnderPress() {
  * set, a check on the chosen tile) and a tap on one of them is the choice (mapTap).
  */
 let pickSeq = 0;
+/** The words of a pick's tag over the lit tiles, as a function: asked at every paint (map/picktile.mjs pickLabelText). */
+const PICK_LABEL = { muster: () => L`ここに集める`, explore: () => L`ここを調べる`, dress: () => L`ここを広げる` };
+const pickLabel = kind => PICK_LABEL[kind] ?? (() => '');
+// (the tag is on the canvas: a language change repaints it while a pick is open)
+onLangChange(() => { if (FS.hand?.pick) { try { mapRef?.tick?.(); } catch { /* before the board is built */ } } });
 const pickMemo = { key: null, model: null };
 function startPick(kind, sub) {
   const h = sub.holding;
@@ -1842,7 +1847,9 @@ function startPick(kind, sub) {
   const open = t => { try { return land === null || ((BigInt(land) >> BigInt(t.tile)) & 1n) === 1n; } catch { return true; } };
   const tiles = kind === 'muster' ? hand.musterTiles(FS, h).filter(open) : (sub.host && hand.exploreCheck(FS, sub.host).targets.map(t => ({ p: sub.host.p, q: sub.host.q, tile: t }))) || [];
   const origin = kind === 'muster' ? { p: h.p, q: h.q, tile: h.tile } : { p: sub.host.p, q: sub.host.q, tile: sub.host.tile };
-  const label = kind === 'muster' ? L`ここに集める` : L`ここを調べる`;
+  // (fix-loop10, LP10-3: a function, not the words — the map's tag is painted in the page's language of that moment.
+  //  loop-play10: 「ここに集める」 stayed Japanese on the canvas after the switch to English)
+  const label = pickLabel(kind);
   const pick = { kind, tiles, origin, max: kind === 'explore' ? 2 : 1, label, token: ++pickSeq, external: false, t0: fxNow() };
   if (!tiles.length) return;
   // (the Scout's tiles are lit by the map already, with the reach: only a board that picks by itself takes them over)
@@ -2143,7 +2150,7 @@ function protoDressPick() {
   // (the world says which tiles this host could add, where it serves that; else the page lights a hint and the world judges the order)
   const tiles = Array.isArray(s.dress?.tiles) ? s.dress.tiles.map(t => ({ p: sub.host.p, q: sub.host.q, tile: t })) : pm.dressTiles(FS, sub.host.p, sub.host.q, s.banner, hand.ownHosts(FS));
   if (!tiles.length) { const say = () => L`広げられるマスが、軍勢のそばにありません（旗の土地のとなりに軍勢を立たせましょう）`; summary(say); FS.notice = { ok: false, code: 'NoHostBeside', text: say }; invalidate('panel'); return; }
-  FS.hand = { ...(FS.hand ?? {}), tile: undefined, pick: { kind: 'dress', tiles, origin: { p: sub.host.p, q: sub.host.q, tile: s.banner.pole }, max: 1, label: L`ここを広げる`, token: ++pickSeq, external: false, t0: fxNow() } };
+  FS.hand = { ...(FS.hand ?? {}), tile: undefined, pick: { kind: 'dress', tiles, origin: { p: sub.host.p, q: sub.host.q, tile: s.banner.pole }, max: 1, label: pickLabel('dress'), token: ++pickSeq, external: false, t0: fxNow() } };
   summary(() => L`光っているマスを押して、広げるマスを選びます`);
   invalidate('map', 'panel');
   // (the lit tiles lie round the banner: it comes into the part of the map above the card, and the view goes back when the card closes)
