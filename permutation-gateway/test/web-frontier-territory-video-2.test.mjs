@@ -144,3 +144,13 @@ test('the label pass steps around the test world\'s notice (the wide land\'s pla
   const { NOGO_SELECTORS } = await import('../../permutation-server/web/frontier/map/fmap.mjs');
   assert.ok(NOGO_SELECTORS.split(',').map(s => s.trim()).includes('#local-play-session'));
 });
+
+test('a plate stands only for a province well inside the view (never slid in beside the HUD)', () => {
+  const kh = keepAndHostsOfCapture(capture({ keep: { tile: 30, holder: ENEMY } }));
+  const land = landOfCells([cellOf(3, 0, ENEMY, kh)], { rings: { min: 3, max: 3 }, reach: 4 });
+  const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : k === 'measureText' ? () => ({ width: 40 }) : /Gradient|Pattern/.test(k) ? () => ({ addColorStop() {} }) : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  const P = widekeepPlace(land.cells[0], 1), at = { x: P.x, y: P.y - P.u * 1.9 };
+  const around = (dx, dy) => ({ x0: at.x - 500 + dx, y0: at.y - 500 + dy, x1: at.x + 500 + dx, y1: at.y + 500 + dy });
+  assert.equal(paintWideNames(ctx, land, { seen: around(0, 0), zoom: 1, level: 'tile' }), 1);
+  assert.equal(paintWideNames(ctx, land, { seen: around(0, 470), zoom: 1, level: 'tile' }), 0, 'its place just under the top edge');
+});

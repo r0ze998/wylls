@@ -29,6 +29,8 @@ import { cellsIn } from './wideland.mjs';
 
 const nation = f => Number.isInteger(f) && f >= 0 && f < 6;
 
+/** How far inside the view (a share of its width and height) a province's plate must stand to be drawn. */
+export const PLATE_INSET = 0.06;
 /** The least a standing host's figure is tall on screen (px), and its unit against a tile's corner radius. */
 export const WIDE_HOST = Object.freeze({ unit: 0.62, minPx: 28 });
 
@@ -119,11 +121,16 @@ export function paintWideNames(o, land, { seen, zoom = 1, level = 'tile', viewer
     const text = h.count > 1 ? L`兵 ${fmtNum(h.troops)} ほか` : L`兵 ${fmtNum(h.troops)}`;
     paintBellTag(o, h.x, h.y + RADIUS * 0.08, text, { zoom, place: 'below', gap: 2, accent: FACTION_COLORS[h.faction] ?? '#c9a24a', anchor: { x: h.x, y: h.y }, pass, size: 11, spare: true });
   }
+  // (a plate stands only where its place is well inside the picture: the label pass slides a label whose place is near
+  //  the edge back into the picture, and a province below the top bar had its name stand beside the turn dial)
+  const mx = (seen.x1 - seen.x0) * PLATE_INSET, my = (seen.y1 - seen.y0) * PLATE_INSET;
+  const inner = p => p.x > seen.x0 + mx && p.x < seen.x1 - mx && p.y > seen.y0 + my * 1.6 && p.y < seen.y1 - my;
   for (const c of cellsIn(land, seen)) {
     const P = widekeepPlace(c, zoom), w = wideProvinceWords(c, viewer);
     const accent = FACTION_COLORS[c.holder] ?? '#8b856d';
     // (over the fortress at the tile view; at the province's middle from farther, where the keep is only a mark)
     const at = level === 'tile' && P ? { x: P.x, y: P.y - P.u * 1.9 } : { x: c.x, y: c.y - RADIUS * 1.2 };
+    if (!inner(at)) continue;
     if (paintBellTag(o, at.x, at.y, w.name, { zoom, place: 'above', gap: 2, accent, anchor: at, pass, size: level === 'tile' ? 13 : 12, spare: true })) n++;
     if (w.sub) paintBellTag(o, at.x, at.y, w.sub, { zoom, place: 'below', gap: 2, accent: FACTION_COLORS[c.keep.contender] ?? accent, anchor: at, pass, size: 11.5, spare: true });
   }
