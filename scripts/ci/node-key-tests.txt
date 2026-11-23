@@ -189,14 +189,11 @@ permutation-gateway/test/citizens-social.test.mjs
 permutation-gateway/test/config.test.mjs
 permutation-gateway/test/constants.test.mjs
 permutation-gateway/test/frontier-conquest-real-evidence-states.test.mjs
-permutation-gateway/test/frontier-conquest-real-evidence.test.mjs
 permutation-gateway/test/frontier-conquest-v2-cli-report.test.mjs
-permutation-gateway/test/frontier-conquest-v2-evidence.test.mjs
 permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
 permutation-gateway/test/frontier-local-play-coexist-lane.test.mjs
-permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
 permutation-gateway/test/frontier-local-play-coop-board.test.mjs
 permutation-gateway/test/frontier-local-play-custody.test.mjs
 permutation-gateway/test/frontier-local-play-external-launcher.test.mjs
@@ -537,9 +534,12 @@ permutation-gateway/test/citizens-probe-target.test.mjs
 permutation-gateway/test/citizens-probe.test.mjs
 permutation-gateway/test/citizens-report.test.mjs
 permutation-gateway/test/citizens-seat-script.test.mjs
+permutation-gateway/test/frontier-conquest-real-evidence.test.mjs
 permutation-gateway/test/frontier-conquest-reservations.test.mjs
+permutation-gateway/test/frontier-conquest-v2-evidence.test.mjs
 permutation-gateway/test/frontier-expedition-preview.test.mjs
 permutation-gateway/test/frontier-local-play-capture-demo.test.mjs
+permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
 permutation-gateway/test/frontier-local-play-contest-pair.test.mjs
 permutation-gateway/test/frontier-local-play-herald-output.test.mjs
 permutation-gateway/test/frontier-local-play-keeper-view.test.mjs
