@@ -927,3 +927,12 @@ In a local world only ring 1 keeps are contestable (rings 2–3 are heartland), 
 flags, need 3. For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
 example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 2 --flag-keeps-hold 72`: capture one neighbouring flag keep
 (72 turns), then hold it 72 more turns.
+
+**AI residents and the flag keeps.** With `--ai N` (at war) the AI residents read the same World goals card as a player
+of their nation, under the same fog: the posting and every nation's count, and each flag keep's holder and siege only
+where their own villages, hosts and their nation's held provinces see it (never the judge's live answer for a keep they
+cannot see). They defend their nation's flag keep under siege before any other keep, and march first on a flag keep held
+by a nation that holds the need minus one or more (still only with 1.5× the keep's garrison). Otherwise a flag keep they
+see only wins a near tie, and a resident with one march already on a flag keep fights the ordinary war with its other
+hosts. In a local world every contestable keep is a flag keep, so this changes which keep they pick, not whether they
+fight. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.

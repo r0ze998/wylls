@@ -28,6 +28,10 @@ import { tileHex, TILE_OFFSETS } from '../../../permutation-server/web/frontier/
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { createLocalMarchSender, readLocalMarchCapability, localMarchReady, LOCAL_MARCH_READY } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { orderableHosts, chooseMarch, MAX_HOSTS } from './local-play-operator-war.mjs';
+// (flag-keeps-ai, F4: the resident's own player view under the fog of war — the page's own survey and keep masks)
+import { anchorsOf, buildSurvey, remember } from '../../../permutation-server/web/frontier/map/survey.mjs';
+import { fogKeeps, nationAnchors, createFogMemory } from '../../../permutation-server/web/frontier/map/fog.mjs';
+import { flagSight, flagWeights, flagMarches, readGoals } from './local-play-operator-goals.mjs';
 
 const WASM_DIR = new URL('../../../permutation-server/web/frontier/wasm/', import.meta.url);
 /** The blocks that only mean "this turn of the province has not settled yet" (the page's muster wait). */
@@ -132,10 +136,33 @@ export async function nearKeeps(keeps, overviews, homes, read) {
  * The world's eyes for war residents (shared by all residents of the process): `{refresh(), world, view(wallet)}`.
  * `refresh()` reads the season, the chain clock, the control snapshot and the ring overviews once per turn.
  */
-export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a) }) {
+/**
+ * (flag-keeps-ai) One resident's fogged keeps, as its play page would show them (map/fog.mjs, the local test world's fog):
+ * the survey's anchors are its villages (`villages` [{p, q, tile, tier}]) and standing hosts (`hosts` [{p, q, tile,
+ * unit}]) plus its nation's held provinces (`territory` [{p, q}], the control snapshot's — map/fog.mjs nationSources
+ * reads the same snapshot); nation-mates' villages are left out (their tiles need the terrain, which the eyes do not
+ * read: a smaller sight, never a larger one). `fog` = `{tiles: Set, mem}` kept per resident (the page's device memory:
+ * tiles seen before stay surveyed, keeps seen before are last-known). → Map "p,q" → keep (fogKeeps' shape).
+ */
+export function residentSeenKeeps(keeps, { villages, hosts, territory, faction, fog, ringsOpen = WIDE_FIRST_RING }) {
+  const anchors = anchorsOf({ villages, hosts, extraAnchors: nationAnchors({ villages: [], territory }) });
+  const survey = buildSurvey({ ringsOpen, anchors, memory: fog.tiles });
+  remember(fog.tiles, survey);
+  return fogKeeps(keeps, { survey, mem: fog.mem, viewer: faction });
+}
+
+/** A resident's fog state (memory only: gone with the process, as a page's memory is gone with its device). */
+export function createResidentFog() {
+  const mem = createFogMemory({ storage: { get: () => null, set: () => false } });
+  mem.use(null);
+  return { tiles: new Set(), mem };
+}
+
+export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fetch(...a), goals = null }) {
   const herald = createHerald({ base, fetch: f });
   let kernel = null, kernelFor = null;
-  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), blocked: [], seeds: [], controlBell: null, bellRead: null, homeRings: new Set(), homes: new Map() };
+  const world = { rate: 1, sampledAt: 0, season: null, record: null, clock: null, beacon: null, now: null, nowBell: null, keeps: new Map(), blocked: [], seeds: [], controlBell: null, bellRead: null, homeRings: new Set(), homes: new Map(), control: null, goals: null, goalsAt: 0 };
+  const fogs = new Map();
   async function refresh() {
     const st = await (await f(`${base}/h/status`, { signal: AbortSignal.timeout(4000) })).json();
     const now = Array.isArray(st?.live) ? Number(st.live[1]) : NaN;
@@ -159,10 +186,13 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
           world.keeps = await nearKeeps(keepsOf(c.control, overviews), overviews, [...world.homes.values()], (p, q) => herald.province(p, q));
           world.blocked = absentHexes(overviews, [...world.homes.values()]);
           world.controlBell = c.control.bell;
+          world.control = c.control;
         }
       }
       world.bellRead = bellAt(world.clock.genesisTs, now);
     }
+    // (flag-keeps-ai: the world's goals, as the page's card reads them — the launcher's judge, at most every 3 s)
+    if (goals && Date.now() - world.goalsAt >= 3000) { world.goalsAt = Date.now(); world.goals = await readGoals(goals, { fetch: f }); }
     // (the chain clock's rate: chain seconds per wall second, from two samples; a synthetic demo clock runs × its scale)
     const at = Date.now();
     if (world.sampledAt && at - world.sampledAt > 500 && now > world.now) world.rate = Math.max(1, Math.round(((now - world.now) * 1000) / (at - world.sampledAt)));
@@ -201,13 +231,25 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     const ready = orderableHosts(hosts, { nowBell, departStamina: DEPART_STAMINA, holdingKey: onKeep });
     const transits = (holding.transit ?? []).filter(t => t.state !== 0).length;
     const free = freeTransitSlot(holding) !== null;
-    let march = null;
+    // (flag-keeps-ai: the posting as THIS resident's player view shows it, and what it weighs for its marches)
+    let sight = null, weights = null;
+    if (world.goals) {
+      const fog = fogs.get(wallet) ?? fogs.set(wallet, createResidentFog()).get(wallet);
+      const villages = me.holdings.filter(h => Number.isInteger(h.tile)).map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0 }));
+      const territory = (world.control?.provinces ?? []).filter(c => c.control === faction).map(c => ({ p: c.p, q: c.q }));
+      const seen = residentSeenKeeps(keeps, { villages, hosts: hosts.filter(h => h.state === 1).map(h => ({ p: h.p, q: h.q, tile: h.tile, unit: h.unit })), territory, faction, fog });
+      sight = flagSight({ answer: world.goals, faction, seenKeeps: seen });
+      weights = flagWeights(sight, faction, { busy: flagMarches(memory?.targets, sight, nowBell) });
+    }
+    let march = null, plainTarget;
     if (ready.length && free && kernel) {
       const near = new Map([...keeps].filter(([, k]) => ready.some(h => provinceDistance(h, k) <= REACH_PROVINCES)));
       const origins = ready.map(h => ({ p: h.p, q: h.q, tile: h.tile, unit: h.unit, host: String(h.id), troops: h.troops }));
       const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: world.blocked });
       const taken = row => (memory?.targets?.[`${row.p},${row.q}`] ?? -1) >= nowBell;
-      if (r.ok) march = chooseMarch(r.rows, { taken });
+      if (r.ok) march = chooseMarch(r.rows, { taken, weights });
+      // (flag-keeps-ai: what the ordinary rule alone would have chosen — logged, so a run measures what the weights changed)
+      if (r.ok && weights?.size) { const plain = chooseMarch(r.rows, { taken }); plainTarget = plain ? `${plain.row.p},${plain.row.q}` : null; }
       if (march) march = { ...march, host: ready.find(h => String(h.id) === march.row.origin.host) ?? null, province: provinces.get(`${march.row.origin.p},${march.row.origin.q}`) ?? null };
     }
     // (the page's own check of a resident action on the village's province, at this turn: while only the turn's
@@ -215,7 +257,8 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     const home = provinces.get(`${holding.p},${holding.q}`) ?? null;
     const blocks = actionBlocks('Muster', { holding, province: home, nowBell, now: world.now });
     const settling = blocks.length > 0 && blocks.every(b => SETTLE_CODES.includes(b));
-    return { faction, holding, hosts, settling, blocks, reserve: Number(holding.reserve?.[0] ?? 0), hostCount: hosts.length + transits, march: march?.host ? march : null, nowBell, ready: ready.length, roomForHosts: hosts.length < MAX_HOSTS };
+    return { faction, holding, hosts, settling, blocks, reserve: Number(holding.reserve?.[0] ?? 0), hostCount: hosts.length + transits, march: march?.host ? march : null, nowBell, ready: ready.length, roomForHosts: hosts.length < MAX_HOSTS,
+      ...(sight ? { goals: { round: sight.round, weighted: [...weights].map(([k, v]) => `${k}:${v.goal}`), ...(plainTarget !== undefined ? { plain: plainTarget } : {}) } } : {}) };
   }
   /**
    * The bell the chain is in NOW, as the page's chain clock extrapolates it from the last sample at the measured rate
