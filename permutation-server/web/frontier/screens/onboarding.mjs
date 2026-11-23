@@ -347,7 +347,7 @@ function renderHomeGuide(FS, st, open) {
     if (queue.length) {
       title = L`建設を待つ間に、周りを知ろう`;
       body = html`<p class="guide-build-clock">${icon('hammer')}<span>${L`最初の建物が完成するまで`}</span><span data-home-deadline="${Number(queue[0].doneAt)}">${countdown(Number(queue[0].doneAt) - now)}</span></p>${renderScoutAction(FS)}`;
-    } else body = html`<p>${L`農場は食料、伐採所は木材を増やします。最初の建物を一つ選び、村が育つ様子を見てみましょう。`}</p><button type="button" class="btn primary" data-act="tab" data-tab="holding">${L`最初の建設を選ぶ`}</button>`;
+    } else body = html`<p>${L`農場は食料、伐採場は木材を増やします。最初の建物を一つ選び、村が育つ様子を見てみましょう。`}</p><button type="button" class="btn primary" data-act="tab" data-tab="holding">${L`最初の建設を選ぶ`}</button>`;
   } else if (st.current === 'scout') body = renderScoutAction(FS);
   else if (st.current === 'march') {
     const target = guideTarget(FS);
