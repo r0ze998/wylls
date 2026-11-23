@@ -86,6 +86,8 @@ test('LP11-1: the run marks its seal refused on the chain\'s `failed`, and the m
   //  its 「もう一度」 would have re-run the muster: the notice names its own action and offers no retry)
   assert.match(c, /setNotice\(\{ ok: false, busy: false, unsent: 'expedition-depart', retry: false, text:/);
   assert.match(readFileSync(new URL('frontier/hud/status.mjs', WEB), 'utf8'), /'expedition-depart': \(\) => L`遠征は出発していません。`,/);
+  // (a runner's preflight rejection never reached the chain: the card does not say 「チェーンで断られました」 for it)
+  assert.match(readFileSync(new URL('frontier/hud/hand.mjs', WEB), 'utf8'), /d\.chain === 'rejected' \? L`出発は送る前の確かめで断られました（チェーンには届いていません）：/);
 });
 
 test('LP11-1 audit: a local act the chain refused carries the program\'s number (the W2 card then waits a turn after NotResident)', async () => {
