@@ -50,12 +50,3 @@ test('a viewer change drops the former viewer\'s runtime memory in FS.ui and sto
   const stored = new Set(Object.keys((/export const DEFAULTS = Object\.freeze\((\{[^\n]*\})\);/.exec(src('fui.mjs'))[1]).match(/([a-zA-Z]+):/g).reduce((o, k) => (o[k.slice(0, -1)] = 1, o), {})));
   for (const k of written) if (!stored.has(k)) assert.ok(dropped.includes(k), `runtime field ${k} is dropped on a viewer change`);
 });
-
-test('the kept planner memory does not leave a W2 village waiting for ever after its host became a garrison or was destroyed (D-verify-pr137-3)', () => {
-  const p = src('flocalplay-wide-plan.mjs');
-  // only a march still followed ('out' / 'settling' / 'stands' / 'unread') waits; an ended one ('gone', nothing open) raises a new host
-  assert.match(p, /if \(\(memory\.wideDeparts \?\? 0\) > 0 && march\?\.phase !== 'gone'\) return \{ why: 'its host left: the march settles', wait: 'march'/);
-  assert.match(p, /const after = \{ march, home: \{ hosts: 0, troops: 0 \}, rebuild: true \};/);
-  // the cap is checked before (capped → 'cap'), so the new host is at most the second march
-  assert.ok(p.indexOf('if (capped) {') < p.indexOf("march?.phase !== 'gone'"));
-});

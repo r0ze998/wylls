@@ -211,22 +211,27 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
         const march = (open || (memory.wideDeparts ?? 0) > 0) && memory.lastWideDepart
           ? await marchState({ m: memory.lastWideDepart, nowBell, open: open > 0, world, village, holding, seasonAddr, program }) : null;
         if (open) return { why: 'its host is away (a march is open)', wait: 'march', ...(march ? { march } : {}) };
-        // (verify-pr173, D-verify-pr137-3: an ENDED march — its host is not at the destination and nothing is open: it
-        //  became the keep's garrison on a capture, or it was destroyed — leaves the village with no host at all. The
-        //  village raises a new one, as after a lost march (LP9-1 `rebuild`: offered once by the card, not sent by itself;
-        //  the cap above still counts). Before, this waited for ever; a tab press hid it by wiping the page's memory —
-        //  the march count with it — until loop-play10 LP10-1 kept that memory.)
-        if ((memory.wideDeparts ?? 0) > 0 && march?.phase !== 'gone') return { why: 'its host left: the march settles', wait: 'march', ...(march ? { march } : {}) };
-        if ((memory.wideDeparts ?? 0) > 0) {
-          const after = { march, home: { hosts: 0, troops: 0 }, rebuild: true };
+        // (w2-wipeout, D-verify-pr137-3: the last march has ENDED and no host of this village is anywhere — wiped out
+        //  with no survivor (survivors come home through the march's own transit record, which is closed now), or turned
+        //  into the garrison of the keep it took — so nothing will ever come home: raise a new host (train, then muster),
+        //  the last march's result riding along so the card says it. Before, the card waited 「its host left」 for ever.
+        //  Only with the march known and read 'gone' (no host of it at the destination, nothing open): a host still on
+        //  its way, standing on the keep, or unread is followed as before; a caller without the march memory (the operator
+        //  AI residents keep none) waits as before.)
+        if ((memory.wideDeparts ?? 0) > 0 && march?.phase === 'gone') {
+          const taken = !!march.keep && Number.isInteger(march.faction) && march.keep.holder === march.faction;
+          const after = { march, home: { hosts: 0, troops: 0 }, rebuild: true, ended: taken ? 'garrison' : 'wiped' };
+          const was = taken ? `its host became the garrison of the keep of ${march.to.p},${march.to.q}` : `its host was lost at ${march.to.p},${march.to.q} with no survivor home`;
           if (holding.reserve[0] >= WIDE_MIN_HOST_TROOPS) {
             const troops = Math.min(holding.reserve[0], WIDE_HOST_TROOPS);
             return { ...after, decision: { name: WIDE_MUSTER, v: { wide: village }, fields: { unit: 0, troops, tile: holding.tile }, wideHostAct: true, rebuild: true,
-              why: `a new host of ${troops} Spearmen at the wide village ${village.p},${village.q} (its last host did not come back from ${march.to?.p},${march.to?.q})` } };
+              why: `a new host of ${troops} Spearmen at the wide village ${village.p},${village.q} (${was})` } };
           }
-          return { ...after, decision: { name: WIDE_TRAIN, v: { wide: village }, fields: { unit: 0, n: 100 }, wideHostAct: true, rebuild: true,
-            why: `train 100 Spearmen at the wide village ${village.p},${village.q} toward a new host (reserve ${holding.reserve[0]}; its last host did not come back from ${march.to?.p},${march.to?.q})` } };
+          const n = 100;
+          return { ...after, decision: { name: WIDE_TRAIN, v: { wide: village }, fields: { unit: 0, n }, wideHostAct: true, rebuild: true,
+            why: `train ${n} Spearmen at the wide village ${village.p},${village.q} toward a new host (reserve ${holding.reserve[0]}; ${was})` } };
         }
+        if ((memory.wideDeparts ?? 0) > 0) return { why: 'its host left: the march settles', wait: 'march', ...(march ? { march } : {}) };
         if (holding.reserve[0] >= 100) {
           return { decision: { name: WIDE_MUSTER, v: { wide: village }, fields: { unit: 0, troops: Math.min(holding.reserve[0], WIDE_HOST_TROOPS), tile: holding.tile }, wideHostAct: true,
             why: `a host of ${Math.min(holding.reserve[0], WIDE_HOST_TROOPS)} Spearmen at the wide village ${village.p},${village.q}` } };
