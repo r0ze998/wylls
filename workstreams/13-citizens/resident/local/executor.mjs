@@ -53,7 +53,7 @@ export function createPlanExecutor({ plans, owner, holder, goal, goalName, limit
         const h = await hold(o.planId);
         if (h.held) continue;
         let r = null;
-        try { r = await follow(o.signature); } catch { r = null; }
+        try { r = await follow(o.signature, o.name); } catch { r = null; }
         if (r === 'landed' || r === 'failed') {
           await plans.settle({ plan: o.planId, holder, epoch: h.epoch, step: o.idx, outcome: r, signature: o.signature, code: r === 'failed' ? 'TransactionFailed' : null });
           say('reconciled', { plan: o.planId, planStep: o.idx, order: o.name, outcome: r, signature: o.signature });

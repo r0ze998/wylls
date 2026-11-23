@@ -48,7 +48,7 @@ export function openState({ dir, wallet, goal, nation, store = null }) {
  */
 export function enterWorld(st, worldKey) {
   if (st.world === worldKey) return false;
-  Object.assign(st, { world: worldKey, journal: {}, failures: {}, triedHomes: [], ticket: null, village: null, refusals: {}, oreSeen: null, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null, wakeInterval: 1, day: { n: -1, acts: 0 }, worlds: (st.worlds ?? 0) + 1 });
+  Object.assign(st, { world: worldKey, journal: {}, failures: {}, triedHomes: [], ticket: null, village: null, refusals: {}, oreSeen: null, wide: null, nextDecisionBell: -1, lastActBell: -1, lastTouchBell: null, wakeInterval: 1, day: { n: -1, acts: 0 }, worlds: (st.worlds ?? 0) + 1 });
   return true;
 }
 
@@ -78,7 +78,9 @@ export function beginLine(st, bell, cand, nowMs) {
   // (a Join has its own line: the world does not count it as the turn's action, so the turn's order gets `b<bell>`)
   const key = cand.kind === 'join' ? `b${bell}:join` : `b${bell}`;
   const prev = st.journal[key];
-  st.journal[key] = { bell, id: cand.id, kind: cand.kind, order: cand.order.name, fields: cand.order.fields, state: 'intended', at: nowMs, attempts: (prev?.attempts ?? 0) + 1 };
+  // (external-wide-orders: a wide claim's site and a wide march's summary ride along — the reconcile's memory needs them)
+  st.journal[key] = { bell, id: cand.id, kind: cand.kind, order: cand.order.name, fields: cand.order.fields, ...(cand.site ? { site: cand.site } : {}), ...(cand.meta ? { meta: cand.meta } : {}),
+    state: 'intended', at: nowMs, attempts: (prev?.attempts ?? 0) + 1 };
   return key;
 }
 

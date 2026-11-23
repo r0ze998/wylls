@@ -139,7 +139,7 @@ test('external-wide: in a --wide-land world the resident is told so as the page 
 
 // (verify-pr163: an EXTERNAL resident's relay in a --wide-land world, `--no-wide-orders`; the act relay's own refusal is
 //  pinned in the key-using frontier-local-play-resident-turns.test.mjs)
-test('verify-pr163: the command line and the launcher — --no-wide-orders needs --resident-turns; only a --wide-land world\'s external relays get it', async () => {
+test('verify-pr163 / external-wide-orders: --no-wide-orders needs --resident-turns (a relay option); the launcher gives it to no external relay', async () => {
   const { parseArgs, actFromArgs, serveLocalPlayRelay } = await import('../src/frontier/local-play-relay-server.mjs');
   const fs = await import('node:fs');
   const cfg = { localPlay: true, rpc: 'http://127.0.0.1:41864', program: OWNER, season: OWNER2, wallet: EXT[0], rulesetHash: 'ab'.repeat(32), prepareBin: '/x/depart', cuLimit: '1000000', loadedLimit: '67108864' };
@@ -165,6 +165,9 @@ test('verify-pr163: the command line and the launcher — --no-wide-orders needs
   } finally { await s.close(); }
   // the launcher (a stand-in launch, no proxy bound: startExternalResidents' argument list only)
   const src = fs.readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
-  assert.ok(src.includes("'--resident-turns', turnsDir, ...(wide === true ? ['--no-wide-orders'] : [])]"));
-  assert.ok(/stopping: \(\) => stopping !== null, limit, wide \}\) : null;/.test(src), 'the world\'s own `wide` is handed to the external residents\' start');
+  // (external-wide-orders: the launcher no longer passes it — an external resident's relay is an operator resident's
+  //  relay in every world: the person's relay arguments plus --resident-turns, nothing removed, nothing added)
+  assert.ok(src.includes("...relayArgsFor(w, ports[i].relay), '--resident-turns', turnsDir]);"));
+  assert.ok(!src.includes("['--no-wide-orders']"), 'no world hands --no-wide-orders to an external relay');
+  assert.ok(/stopping: \(\) => stopping !== null, limit \}\) : null;/.test(src));
 });

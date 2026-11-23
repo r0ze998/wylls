@@ -112,3 +112,18 @@ test('the wide march waits for the home province to settle, then prepares once; 
   r = await run({ answers: [refuse('NotResident')], clocks: [null] });
   assert.equal(r.out.error, 'NotResident'); assert.ok(r.out.waitedMs >= W.SETTLE_WAIT_MAX_MS && r.out.waitedMs < W.SETTLE_WAIT_MAX_MS + 1000);
 });
+
+// (external-wide-orders) An external resident (⑬'s local client) sends the expedition with this same send: its journal
+// records the signature BEFORE the one submit (`onSigned`; a throw means nothing is submitted), and it posts through
+// its world proxy, which serves the page's /gw/ paths as named (`r.gw`). The operator residents pass neither: unchanged.
+test('external-wide-orders: send records the signature before the one submit (onSigned) and keeps /gw/ paths for a world proxy', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/frontier/local-play-operator-wide-march.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('async function send('), src.indexOf('return Object.freeze({ plan, send, herald });'));
+  const signed = body.indexOf('const signed = await localDepartSigned('), hook = body.indexOf('if (onSigned) await onSigned(signed.signature);'), submit = body.indexOf("post('/gw/f/local-play/depart/submit'");
+  assert.ok(signed > 0 && hook > signed && submit > hook, 'checked signature → onSigned → the one submit');
+  assert.ok(body.includes("{ transitSlot = 0, requestId = `wm_${now().toString(36)}_${r.index}`, settle = true, onSigned = null } = {}"), 'absent: as before');
+  assert.ok(body.includes("f(r.gw === true ? String(url) : String(url).replace(`${r.origin}/gw/`, `${r.origin}/`), init)"), 'a relay origin strips /gw, a world proxy keeps it');
+  // a throw in onSigned is inside the send's try: answered as a stop at 'signing', never a submit
+  assert.ok(body.indexOf("step.at = 'signing';") < hook && hook < body.indexOf("step.at = 'submitting';"));
+});
