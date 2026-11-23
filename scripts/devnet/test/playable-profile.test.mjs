@@ -55,8 +55,9 @@ test('the playable profile is valid, devnet-only and names its own build, marker
   assert.equal(p.program.so, 'permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so');
   assert.deepEqual(p.program.requiredMarkers, [MARKER]);
   assert.equal(p.program.programVersion, '0x4804');
-  assert.match(p.programId, /SET-BY-R0ZE/);
-  assert.match(p.upgradeAuthority, /SET-BY-R0ZE/);
+  // filled by devnet-deploy-1 (2026-11-23): the public keys of the devnet program and its upgrade authority
+  assert.equal(p.programId, 'GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr');
+  assert.equal(p.upgradeAuthority, '7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA');
   assert.notEqual(p.programId, s1().programId, 'a different program from the S1 one');
   assert.ok(!/"secret|"private/i.test(read(PLAYABLE_PATH)));
 });
@@ -125,7 +126,7 @@ test('dry run with --profile playable refuses an S1 or localnet artefact (exit 3
 });
 
 test('the send gate stays closed with placeholders even with every flag', () => {
-  const a = fakeIo();
+  const a = fakeIo({ prof: { ...playable(), programId: '<SET-BY-R0ZE: program>', upgradeAuthority: '<SET-BY-R0ZE: authority>' } });
   const so = fakeSo();
   const r = run(['--profile', PROFILE_FILE, APPROVAL_FLAG, '--keypair', '/k/a.json', '--program-keypair', '/k/b.json', '--upgrade-authority', '/k/c.json', '--approved-sha256', checkSo(so, playable()).sha256], a.io);
   assert.equal(r, 0);

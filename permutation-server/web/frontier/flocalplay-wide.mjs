@@ -109,8 +109,10 @@ export function wideClaimMessage(intent, { programId, seasonId, wallet, blockhas
 }
 
 /**
- * The settler cost of a citizen's `holdingsN`-th holding (frontier proc citizen.rs `settler_cost`: catalog
- * SETTLER_COST [800, 800, 400, 0, 0, 200, 0, 0] × (2 + (n−2)²) / 2 per resource), whole units.
+ * The settler cost of a claim by a citizen who holds `holdingsN` villages BEFORE it (frontier proc citizen.rs
+ * `settler_cost(holdings_n)` with C::HOLDINGS_N as read by WideClaim / FileOutpost: catalog SETTLER_COST
+ * [800, 800, 400, 0, 0, 200, 0, 0] × (2 + (n−1)²) / 2 per resource; vectors/v2/web-rules.json `settler_cost`),
+ * whole units: 1 village held → the second costs 800 …, 2 held → the third costs 1,200 … (loop-play11).
  */
 export const SETTLER_BASE = Object.freeze([800, 800, 400, 0, 0, 200, 0, 0]);
 export function settlerCost(holdingsN) {

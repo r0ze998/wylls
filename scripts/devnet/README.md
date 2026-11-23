@@ -1,6 +1,6 @@
 # scripts/devnet: the devnet dry run (DRAFT, 2026-11-18)
 
-**Nothing here has been deployed or sent.** The dry run checks the deployable `permutation-frontier` `.so`, computes
+**The PLAYABLE profile (`devnet-playable-profile.json`) is deployed on devnet since 2026-11-23 (devnet-deploy-2); the S1 profile (`devnet-profile.json`) is not.** The dry run checks the deployable `permutation-frontier` `.so`, computes
 what a devnet deploy and one season cost in SOL, and prints the plan and the exact commands. It sends nothing unless
 its gate is open, and only r0ze opens it.
 
@@ -69,7 +69,7 @@ With the gate open, it runs these steps in order and stops at the first failure:
    `cargo-build-sbf` 3.1.9.
 2. `solana address` on both key files. Each address must match the profile.
 3. `solana balance`.
-4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --use-rpc`.
+4. `solana program deploy … --max-len <round_up(1.25 × .so, 4 KiB)> --max-sign-attempts 50` (no `--use-rpc`: the public endpoint throttles `sendTransaction`, so the buffer writes go to the TPUs; runbook §5).
 5. `solana program show`.
 6. `solana program dump`. The dumped bytes, with trailing zeros removed, must hash to the `.so`'s `program_hash`.
 
@@ -135,3 +135,29 @@ herald could not reach the gateway) is its own FAIL: the bucket cannot be judged
 Exit codes: 0 no FAIL, 1 at least one FAIL (or the run stopped on an unexpected error: "NOT READY (no verdict)"), 2 bad
 arguments (including any send flag of `dry-run.mjs`).
 
+
+## Live-stack health check (`health.mjs`, `health-loop.sh`)
+
+Read-only monitor for the devnet stack running on the operator's Mac (reports/devnet-deploy-2.md):
+season driver, gateway starter/gateway, herald, keeper A, Cloudflare quick tunnel, join check.
+
+    node scripts/devnet/health.mjs            # one line per check, then `overall OK|WARN|FAIL`; exit 0 / 1 / 2
+    node scripts/devnet/health.mjs --no-rpc --no-public --json
+
+Checks: the processes the logs say should be up (by command match; a PID other than the deploy-time one is a
+WARN "restarted"), devnet genesis, Season PDA status (Announced/Created/Seeded/Running/Ended) vs the scheduled
+CreateSeason time (late CreateSeason / genesis seed → WARN/FAIL), balances of the deployer, authority and keeper A
+funders vs thresholds, herald `/h/season` + `/h/status` (ingest, alarms) and lag (herald live slot vs RPC slot),
+the gateway's public `/f/season`, keeper A's API (`/v1/status` without a token must answer 401: the token is not
+read, so duties/rent/lag come from its log), tunnel name vs the herald's `public-host`, the public page and
+`/h/season` through the tunnel, the join check's result, disk free, and error/restart/STOP lines in the last
+500 lines of each `devnet-*.log`.
+
+It never stops, signals or starts a process, never reads a key, `keeper.seed` or `keeper.token`, and never sends
+a transaction. Devnet RPC: only getGenesisHash / getSlot / getBalance / getAccountInfo to
+`https://api.devnet.solana.com` (the genesis hash is checked first), one call per 1.1 s, 9 calls a run.
+
+`health-loop.sh` runs it every 10 min (every 2 min inside 19:30–20:40 JST 11-24) until 21:00 JST 11-24, appending
+to `~/Projects/wylls-grok-state/logs/devnet-health.log`, keeping first-seen milestone times in
+`evidence/devnet-health/state.json` and an `ALERT` line at the top of `reports/devnet-health.md` after a FAIL.
+Stop it with `touch ~/Projects/wylls-grok-state/logs/devnet-health.stop` (or `kill $(cat …/logs/devnet-health-loop.pid)`).

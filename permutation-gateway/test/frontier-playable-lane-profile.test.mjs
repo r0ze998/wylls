@@ -42,11 +42,15 @@ test('localnet RPC rule equals the relay\'s localPlayPort rule', () => {
   }
 });
 
-test('devnet: refused while the program id is r0ze\'s placeholder (the committed profile)', () => {
-  const problems = devnetPlayableProfileProblems(PROFILE());
+test('devnet: refused while the program id is r0ze\'s placeholder; the committed (filled) profile is accepted', () => {
+  // the committed profile holds the devnet program id since devnet-deploy-1 (2026-11-23); its unfilled form is refused
+  const unfilled = { ...PROFILE(), programId: '<SET-BY-R0ZE: program>' };
+  const problems = devnetPlayableProfileProblems(unfilled);
   assert.deepEqual(problems.length, 1);
   assert.match(problems[0], /programId is still a placeholder/);
-  assert.throws(() => devnetPlayableLane(PROFILE()), /devnet playable lane refused/);
+  assert.throws(() => devnetPlayableLane(unfilled), /devnet playable lane refused/);
+  assert.deepEqual(devnetPlayableProfileProblems(PROFILE()), []);
+  assert.equal(PROFILE().programId, 'GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr');
 });
 
 test('devnet: a filled profile gives the lane; wrong profiles are refused', () => {
