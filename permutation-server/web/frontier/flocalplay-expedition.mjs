@@ -161,7 +161,9 @@ export function expeditionRows(fs, seals = localDepartReveals) {
     const holding = (fs.holdings ?? [])[holdingIndex] ?? (fs.holdings ?? []).find(h => h?.address === record.holding) ?? (fs.holdings ?? [])[fs.activeHolding ?? 0] ?? null;
     const marker = holding?.transit?.[record.transitSlot] ?? null;
     const transit = marker && marker.state === 4 && marker.arriveBell === record.arriveBell
-      ? { slot: record.transitSlot, state: 4, hostId: marker.hostId, arriveBell: marker.arriveBell, dest: null } : null;
+      // (territory-video-2: with the marker's own departure turn — the map's column walks the line by it, map/board.mjs
+      //  marchShare; without it the column stood at the village the whole way and appeared at the destination on arrival)
+      ? { slot: record.transitSlot, state: 4, hostId: marker.hostId, departBell: Number.isInteger(marker.departBell) ? marker.departBell : null, arriveBell: marker.arriveBell, dest: null } : null;
     const origin = transit ? { p: marker.originP, q: marker.originQ, tile: marker.originTile } : record.origin ?? null;
     const got = m.get(record.commit) ?? null, stage = expeditionStage(record, got?.facts ?? null, nowBell);
     rows.push({ expedition: { stage, fate: got?.facts?.fate ?? null, troopsAfter: got?.facts?.troopsAfter ?? null, depMass: got?.facts?.depMass ?? null,

@@ -129,7 +129,9 @@ move only once its turn is settled: about 17 minutes later).
    Since #187 the keep list and the guide at the top right also say how long 72 turns are (「約 12 時間」 at 1×,
    「この世界の実時間で約 12 分」 at ×60). In a world that goes on (the kept 1× world) the guide after a capture says
    「この世界は続きます。戦期の勝敗と集計は未決定です。」 (in `--demo` and `--wide` worlds, which end, it still says
-   「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). The same PR made the first-building hints say 「伐採場」, as the
+   「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). Both lines are older than the decisions of 2026-11-23/24
+   (no seasons; the game is won through permanent “world goals” with prizes): the flag-keeps goal has its own card under
+   **Nation & territory** (section 14); the other three goals are a plan ([design 01](../design/win-conditions/01-proposal.ja.md), Japanese). The same PR made the first-building hints say 「伐採場」, as the
    village screen does, and the search's nothing-found hint is now 「州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます」
    (verify-pr187 saw them in a live world).
 
@@ -259,7 +261,7 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      fix-loop10's check: arrived with 189, garrison 177). The result is also said once as the notice at the top of the
      screen (checked for LP10-6: it is the page's single notice slot, shown until the next notice replaces it; there is no
      list to read it again, so if you miss it, look at the march card). After a capture, a wiped-out expedition (「全滅：軍勢は失われました」) or a host gone from the keep's tile, the card adds that the next expedition needs a new host and a 「村で次の軍勢を作る」 button (it only opens that village's 編成 or 訓練 card; nothing is sent; w2-wipeout). When the host that takes the keep has 200 troops or more, the half that does not become the garrison stays on the keep's tile as a host, but the page has no order for it (there is no order for a rim village's host standing in the wide land; verify-pr176: arrived with 488, garrison 242, 242 on the tile; whether it should be usable is undecided). The host sees from its tile, so the province is drawn on the map
-     (the wide land draws no keep icon or host figure yet: verify-pr162), and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
+     (since territory-video-2 each wide province also shows its keep with its holder's standard, the hosts standing on it as one figure per tile with their troops, and a plate "Lands of Aster" / "Your nation's land" / "Dunmar is taking the keep · n/72 turns"; under the fog only hosts on tiles in sight; a province whose holder was never in sight has no plate and no keep, and before the first village no host or keep contest is drawn: verify-pr197), and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
      said nothing.)
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
      「封を開く（ローカルプレイ）」). Before #105, at ×60 on a loaded machine, the keeper did miss the window of about 10 s
@@ -893,7 +895,8 @@ When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcom
   requested amount** (the board's proof by the lower bound of what it counted).
 - Not earned by: answering 「応じる」 alone, a partial delivery to a request that did not reach its amount, a request of someone of
   your own nation, your own request (the board refuses that in the first place).
-- Titles and records only: nothing is added to winning, score, prize or the season's end (owner decision ⑮ B).
+- Titles and records only: nothing is added to winning, score, prize or the season's end (owner decision ⑮ B; the
+  decisions of 2026-11-24 also keep cooperation out of the “world goals”).
 - The other title earnable now is P-raider (「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.
 - The card's 「まだ判定できない達成 N」 is the total of every resident's undecided goals (not necessarily yours).
 

@@ -73,13 +73,14 @@ import { createSurveyor, packMemory } from './survey.mjs';
 import { promotionAt } from './villagework.mjs';
 import { surveyInput } from './viewer.mjs';
 import { paintPlayerFace } from '../people/faces.mjs';
-import { marcherSpots, marcherTop, paintMarcher } from './marcher.mjs';
+import { marcherSpots, marcherTop, paintMarcher, columnLane, marcherBox } from './marcher.mjs';
 // the banner rule's prototype (a design; the sample world alone serves its records): map/protoboard.mjs
 import { ProtoBoard, POLE_AT } from './protoboard.mjs';
 import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
 // the wide land (rings 129+, the herald's recorded wide world) on this map and its chart: map/wideland.mjs
 import { paintWideLand, paintWideTags, wideLevel } from './wideland.mjs';
+import { paintWideMarks, paintWideNames } from './widemarks.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
 import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
 import { syncProtoChip } from './protochip.mjs';
@@ -256,7 +257,8 @@ export const GROUND_FINER = 1.4;
 export const KEPT_SELECTORS = '#sample-tag, [data-proto-chip], .proto-chip-map';
 /** Air round a kept place (px): a label's own rim and shadow stay clear of the chip's dashed line. */
 export const KEPT_AIR = 3;
-export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner';
+// (territory-video-2: and a local test world's standing notice, #local-play-session — the wide land's plates stood under it)
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner, #local-play-session';
 export const NOGO_EVERY_MS = 300;
 /** The air the map's labels keep round the dial beyond its own box (px). */
 export const DIAL_AIR = 8;
@@ -3134,6 +3136,7 @@ export class FrontierMap {
     const { z, fx, still, survey } = F;
     B.markers = [];
     const now = survey.chainNow?.() ?? 0;
+    B.heads = [];
     // (one place at a time: while the character still walks out with its column, its face is not on the ribbon yet)
     const leaving = (this.art?.tokens ?? []).some(t => t.character?.own && t.character.leave);
     for (const m of B.marches) {
@@ -3147,6 +3150,11 @@ export class FrontierMap {
       const unit = B.byId?.get(m.host)?.unit ?? 0, walking = !m.arrived;
       // (a conquest season's board: any other season keeps the marker it had)
       const spots = F.KB ? marcherSpots(at.path, at.k, { zoom: z, lead }).sort((a, b) => a.y - b.y) : [];
+      // (territory-video-2: two columns at the same place — two expeditions out of one village, or arrived at one keep —
+      //  stood in one heap with their tags. Each later column steps aside across its road by a figure's width, as
+      //  Unciv gives each unit of a tile its own slot: map/marcher.mjs columnLane)
+      const lane = columnLane(B.heads ??= [], at, { zoom: z, path: at.path, k: at.k });
+      if (lane.dx || lane.dy) { for (const sp of spots) { sp.x += lane.dx; sp.y += lane.dy; } at.x += lane.dx; at.y += lane.dy; }
       let drawn = 0;
       for (const sp of spots) standing(ctx, F.up?.(sp.x, sp.y) ?? null, sp.x, sp.y, () => { if (paintMarcher(ctx, sp, { zoom: z, faction: F.faction, unit, now: fx, still, walking })) drawn += sp.kind === 'lead' || !lead ? 1 : 0; });
       // (its art is not here yet: the marker it had, the character's hexagon face on a short pin)
@@ -3158,7 +3166,7 @@ export class FrontierMap {
         ctx.restore();
         if (!(lead && paintPlayerFace(ctx, F.faction, at.x - d / 2, at.y - d * 1.3, d, { own: true }))) paintMarkerDisc(ctx, at.x, at.y - d * 0.82, d * 0.92, { faction: F.faction });
       });
-      B.markers.push({ m, at, lead, top: drawn ? marcherTop(z, lead) : d * 1.32 });
+      B.markers.push({ m, at, lead, top: drawn ? marcherTop(z, lead) : d * 1.32, spots: drawn ? spots : [] });
       F.live = true;
 
     }
@@ -3195,6 +3203,9 @@ export class FrontierMap {
       const c = project(hex.q, hex.r);
       paintBellTag(ctx, c.x, c.y + RADIUS * FLATTEN * (h.home ? 1.5 : 0.92), formingText(), { zoom: z, place: 'below', gap: 3, accent: col, anchor: c, pass });
     }
+    // (territory-video-2: the marching figures are things the words keep clear of — the march's tag stood over its own
+    //  column's heads, and another's: each figure's box blocks the label pass before any tag is placed)
+    if (pass?.block) for (const k of B.markers ?? []) for (const sp of k.spots ?? []) { const b = marcherBox(sp, z); pass.block(sp.x, sp.y, b); }
     for (const k of B.markers ?? []) {
       // (the marker stands `top` world px over the ribbon on a flat board; the tag hangs under it, clear of the face)
       paintBellTag(ctx, k.at.x, k.at.y - k.top * (F.up ? 1.1 : 1), markerTagText(k.m), { zoom: z, place: 'above', gap: 5, accent: col, anchor: k.at, pass, size: 12, hud: true });
@@ -3293,6 +3304,11 @@ export class FrontierMap {
       const c = provincePixel(m.p, m.q);
       paintTag(ctx, c.x, c.y, m.text, { zoom: z, place: 'above', size: 11.5, anchor: c, spare: m.state !== 'failed' });
     }
+    // (territory-video-2) the wide land's keeps and the hosts standing on it (map/widemarks.mjs): what its colours belong to
+    if (src.wideLand?.count && F.seen) {
+      this.wideMarks = paintWideMarks(ctx, src.wideLand, { seen: F.seen, zoom: z, level: wideLevel(F.lod, false), viewer: F.faction ?? src.viewerFaction ?? null, dpr: F.dpr ?? 1, now: fx, still,
+        stand: (x, y, fn) => standing(ctx, F.up?.(x, y) ?? null, x, y, fn) });
+    } else this.wideMarks = null;
     if (F.lod === 'tile') {
       // a reach is lit by contrast: everything outside it is a little darker (the land, what stands on it, who walks there)
       if (F.A && F.seen) paintReachDim(ctx, F.A, { box: F.seen, now: fx, still, dim: F.A.dest ? 0.5 : 1 });
@@ -3384,6 +3400,12 @@ export class FrontierMap {
   /** Over the depth dressing: the words of the ground marks (the provisional tag, the acting host, the arrival, a refusal). */
   overPass(ctx, F) {
     const { z, src } = F, pass = F.pass ?? null;
+    // (territory-video-2) whose each province of the wide land is, and the troops of the hosts standing there: after the
+    // board's own words (they give way to them), map/widemarks.mjs
+    // (verify-pr197: with the picture's own px — `seen` is the tilted board's larger flat box — when the pass is the screen's)
+    const plateScreen = pass?.bounds ? { screen: (x, y) => this.project(x, y, { box: true }), bounds: pass.bounds } : {};
+    const wideNames = src.wideLand?.count && F.seen ? () => paintWideNames(ctx, src.wideLand, { seen: F.seen, zoom: z, level: wideLevel(F.lod, false), viewer: F.faction ?? src.viewerFaction ?? null, pass, ...plateScreen }) : () => 0;
+    if (F.lod !== 'tile') wideNames();
     // (at the tile view a provisional village's plate carries 仮: map/plates.mjs)
     if (F.lod === 'province') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });
     if (F.lod !== 'tile') return;
@@ -3394,6 +3416,7 @@ export class FrontierMap {
     const A = F.A;
     const hid = hex => { const at = hex ? locate(hex.q, hex.r) : null; return !!at && !!pass?.hiddenAt(`${at.p},${at.q},${at.idx}`); };
     this.boardOver(ctx, F, hid);
+    wideNames();
     // S1: when each caravan on the road arrives
     for (const t of F.s1Tags ?? []) {
       const [q, r] = inverseHex(t.x, t.y).split(',').map(Number);
