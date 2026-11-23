@@ -239,3 +239,82 @@ async fn systemic_archive_refusal_is_probed_one_key_at_a_time() {
     assert_eq!(before.anchors, after.anchors);
     assert!(after.anchor_p99 <= before.anchor_p99.map(|p| p + 1));
 }
+
+/// verify-pr192: a keeper that starts (or restarts) with an archive backlog
+/// while region 0 is refused for good. The backlog goes out in one pass;
+/// region 0's batches are refused and retried together with nothing else
+/// of the kind in flight, so the archive group breaker opens. `plan_archive`
+/// plans region 0 first: before the fix every probe went to region 0 and
+/// the 15 healthy regions archived nothing more for the rest of the run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stuck_region_backlog_does_not_starve_healthy_archives() {
+    let t0 = std::time::Instant::now();
+    let mut got = vec![];
+    for old_schedule in [true, false] {
+        let w = world().await;
+        let genesis_ts = w.season().genesis_ts;
+        let mut cfg = keeper_config(&w);
+        if old_schedule {
+            cfg.refusal_max_slots = 1_024;
+            cfg.refusal_max_passes = 0;
+            cfg.refusal_group_min = 0;
+        }
+        let mut k = Keeper::new(
+            cfg,
+            w.ip.clone(),
+            w.drand.clone(),
+            &[0x52u8; 32],
+            Some(Journal::open(std::path::Path::new(":memory:")).unwrap()),
+        )
+        .unwrap();
+        fund(&w, &k.payers);
+        k.start().await.unwrap();
+        let wrong = Address::new_from_array([0xd8; 32]);
+        // Archive held off until half of day 1 is archivable too (a backlog
+        // of several batches per region), then 12 h of archive.
+        let flush = genesis_ts + 144 * BELL_SECS + 172_800 + 6 * 3_600;
+        let end = flush + 12 * 3_600;
+        let mut at_flush = None;
+        while w.now() < end {
+            for ((_, r), a) in k.beacon.anchors.iter_mut() {
+                if *r == BAD_REGION {
+                    a.rent_to = wrong;
+                }
+            }
+            k.archive.unsupported = w.now() < flush;
+            if !k.archive.unsupported && at_flush.is_none() {
+                at_flush = Some(k.archive.archived_bells);
+            }
+            k.tick().await.unwrap();
+            w.step();
+        }
+        let at_flush = at_flush.unwrap();
+        let clock = w.ip.clock().await.unwrap();
+        let st = k.status_json(clock.slot, clock.unix_timestamp, None);
+        println!(
+            "{}: archived bells {} (backlog pass and after), caches closed {}, \
+             kinds.archive = {}, groups_open = {}",
+            if old_schedule {
+                "old schedule"
+            } else {
+                "defaults"
+            },
+            k.archive.archived_bells - at_flush,
+            k.archive.caches_closed,
+            st["kinds"]["archive"],
+            st["refusals"]["groups_open"],
+        );
+        got.push(k.archive.archived_bells - at_flush);
+    }
+    println!("both runs in {:.1} s", t0.elapsed().as_secs_f64());
+    if got[0] == 0 {
+        println!("the program has no ArchiveAnchors here; nothing to compare");
+        return;
+    }
+    // The healthy regions archive the same bells under both schedules.
+    assert_eq!(
+        got[1], got[0],
+        "healthy archived bells: old {} vs defaults {}",
+        got[0], got[1]
+    );
+}
