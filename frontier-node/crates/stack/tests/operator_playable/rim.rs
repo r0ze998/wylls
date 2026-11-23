@@ -109,10 +109,13 @@ pub struct Page {
     pub load: bool,
 }
 
+/// PLOAD (herald-load-50): the devnet stack held open for a load test.
+#[path = "end.rs"]
+pub mod end;
 /// P11 (devnet-expedition-keeper): the rim → wide expedition.
 #[path = "expedition.rs"]
 pub mod expedition;
-/// PLOAD (herald-load-50): the devnet stack held open for a load test.
+
 #[path = "load.rs"]
 pub mod load;
 /// PPOST (devnet-page-outpost): the page's second village ([`outpost_page`]).
@@ -163,6 +166,8 @@ pub struct Ctx<'a> {
     pub war: Option<War>,
     /// PPROV (devnet-open-province): the participant's growth into provinces keeper A opens on demand.
     pub provinces: Option<provinces::Input>,
+    /// PEND (devnet-end-season): after P5, the season's end with `frontier-operator end-season` ([`end`]).
+    pub end: Option<end::End>,
     pub state: Arc<Mutex<localnet::Chain>>,
     pub a: Addresses,
     pub program: Address,
@@ -1535,7 +1540,13 @@ pub async fn run(c: Ctx<'_>) -> Value {
 
     let keeper_alive = r.c.keeper.try_wait().ok().flatten().is_none();
     assert!(keeper_alive, "keeper A exited");
+    // PEND: the season's end and clean-up (end.rs), after everything above.
+    let pend = match r.c.end.take() {
+        Some(e) => end::flow(&mut r, &e).await,
+        None => Value::Null,
+    };
     json!({
+        "pend": pend,
         "q_w1": "rim first village by FileTicket + keeper A's tickets role; wide claim from the rim Hamlet (outpost_tier_min 0)",
         "rim_plan": {"per_wedge": PER_WEDGE, "provinces": plan.len(), "opened_by": "keeper A rings duty (rim_per_wedge)",
                      "wall_secs": rim_secs, "open_province_txs": rim_open},

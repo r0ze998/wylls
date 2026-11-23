@@ -42,7 +42,8 @@ test('E2 a good read clears only the season poll\'s error, at the right place', 
 });
 
 test('E3 the readers of FS.error are unchanged', () => {
-  assert.ok(app.includes("const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : FS.error ? '' : L`読み込み中…`;"));
+  // (devnet-end-season: the word comes from seasonStatusText, which adds "past the end bell, not yet Ended")
+  assert.ok(app.includes("const status = s ? seasonStatusText(s, FS.chain?.now() ?? 0) : FS.error ? '' : L`読み込み中…`;"));
   assert.ok(app.includes("if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }"));
 });
 

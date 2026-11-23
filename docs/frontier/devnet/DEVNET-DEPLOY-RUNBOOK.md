@@ -284,6 +284,8 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | Keeper A's pools: reveal 150 payers × up to 0.016, delay 32 × up to 0.1, beneficiary 0.1 | 5.7 | 5.7 | float | profile `season.lamports`, halved (it models keepers A and B) |
 | Keeper A `beacon` / `archive`: AnchorArchives, BellAnchors, SeedCaches | 20.89 | 28.62 | float [model] | §4a's season lines |
 | Keeper A `rings`: RingSeeds 0–128 and the wide ring seeds (§4a's model counts the three the profile's `wide_rings` = 3 opens, rings 129–131; it counted four, 129–132, until 2026-11-21) | 0.17 | 0.24 | float | §4a; P5: 1,632,371 lamports per wide ring request (1,625,600 of it rent) |
+| — of the line above, **never returned**: the three wide ring seeds' rent (`PSFXWRS1`, 192 B; the program has no close for them, D-end-1; the legacy RingSeeds 0–128 come back to keeper A at CloseSeason part 8) | 0.0049 | 0.0067 | locked for good, every season | 3 × 1,625,600 = 4,876,800 lamports at 5,080; 3 × 2,227,200 = 6,681,600 at 6,960 ((192 + 128) B × rate; verify-pr180). A season with more wide rings strands 1 more seed rent per ring |
+| Season end, `frontier-operator end-season` (§6c): EndSeason, then the province closes and CloseSeason parts (about 50 transactions for 79 legacy + 108 wide provinces) | 0.000255 | same | spent (fees); everything the setup line above put in comes back but the defence pay claimed | PEND: 5,000 + 250,000 lamports |
 | Keeper A opening the 42 rim and 108 wide provinces: what its own payers send | 0.014 | 0.015 | 0.009 of fees spent; the rest (0.005 at 5,080) is the three wide ring seeds' rent, already in the line above | P4 (26,332 per rim province), P5 (12,517,785 for the three wide rings: 3 requests with their rent, 3 consumes, 108 opens) |
 | — their rent: 1.04 + 2.74 SOL, **out of the 36 SOL of wedge funds, not new money** | (3.78) | (5.17) | float | #104, #107 |
 | Keeper A per rim first village (SettleTicket) / per wide claim (settle + finalize) | 0.000008 / 0.000015 | same | spent | P4 8,361; P5 14,663 lamports |
@@ -599,6 +601,74 @@ WideSettleTicket 21,410 CU, WideFinalize 6,424 CU. The verifier's VWL judges two
 114 wide-ring transactions and the claim → settle → finalize, with **no FAIL and nothing UNVERIFIABLE**. The wide
 writes carry their own CU limits (`keeper::widelane::WIDE_BUDGETS`; the canonical budgets tables have no wide rows).
 
+### 6c. The season's end and clean-up: `frontier-operator end-season` **[r0ze: key + approval for every send]**
+
+(devnet-end-season, D-dress-6: before this there was no tool and no step; the dress rehearsal's Season stayed
+Seeded at bell 1,012.) What the program allows (`permutation-frontier/src/proc/season.rs`, `proc/map.rs`,
+`proc/wide.rs`; code wins over the m1 PLAYTEST-RUNBOOK §3 steps 13–15, which says the same in short):
+
+| when | instruction | who may sign | what moves |
+|---|---|---|---|
+| bell ≥ `end_bell` (1,008 = 7 days after genesis) | **EndSeason** (0x04) | anyone (`TooEarly` before; `AlreadyDone` after) | status Running → Ended; only its 5,000-lamport fee |
+| Ended, the 72 h grace | nothing closes (`TooEarly`) | — | the Provinces stay readable (a ⑰ prize tally would run here; keeper A still claims defence pay and closes its own floats) |
+| `end + 72 h` | **CloseProvince** (0x24) for every legacy Province, **WideClose(6)** (0xDE) for every wide province | anyone | each Province's rent → its wedge's ProvinceFund (`provinces_opened − 1`) |
+| `end + 72 h` | **CloseSeason** parts 0–5 (48 JoinShards), 6 (16 BeaconLogs), 8 (RingSeeds) | the Season's stored authority (= the upgrade authority that announced it) | shards / logs → authority; each RingSeed → its stored payer (keeper A) |
+| after every province is closed | **CloseSeason part 7** (final) | authority | Frontier, the 6 ProvinceFunds, the DefencePool → authority; the Season shrinks to a 128-B tombstone, everything above its rent (the 1 SOL creation bond included) → authority |
+| on the tombstone | CloseSeason parts 9 (AnchorArchives → `rent_to`), 10 (DefenceClaims → beneficiary) | authority | to those recipients |
+
+`frontier-operator end-season` does all of it in that order, in the setup's style: a **dry run by default** that reads
+the cluster and lists every transaction, every account it closes with its lamports now and who gets them, and the
+totals (fees; back to the authority; to others); `--yes-send` sends what is due, one transaction at a time, re-reading
+the chain before each (**idempotent**: run the same line again to resume; a finished season prints
+`end-season complete: nothing to send`); before the end bell (or before `end + 72 h`) it **refuses** with exit 3 and
+sends nothing. On devnet a send needs the same gate as the setup: `--i-have-r0ze-approval --approved-sha256 $H` and the
+key file of the Season's authority (another key: refused, exit 2); a profile whose `seasonId` / `programId` has no
+Season on the cluster is refused too (exit 2), and so is a mainnet / testnet genesis or an RPC host outside the
+profile's `allowedRpcHosts` (verify-pr180: `stack/tests/operator.rs` O4; interrupted runs — `--max-txs`, a SIGKILL
+between two transactions — resume with no double close, PEND). Build it with the playable-lane feature (without it the wide provinces are not
+listed and the final part stays BLOCKED).
+
+```sh
+# [r0ze] same build and key as §6b
+B=frontier-node/target/release/frontier-operator; P=scripts/devnet/devnet-playable-profile.json; K=~/wylls-devnet-keys/authority.json
+# any time: the plan (key-free without --authority; read-only RPC)
+$B end-season --profile $P --rpc $RPC
+# 1. at or after bell 1,008 [r0ze approves]: EndSeason (5,000 lamports)
+$B end-season --profile $P --rpc $RPC --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record end-record.jsonl
+#    → "landed EndSeason"; exit 3 "CloseProvince x6 is not due before chain clock <end + 72 h>"
+# 2. inside the 72 h: leave keeper A running (it drains: the last bells, transits, defence claims, its floats);
+#    run the final verifier now (§8 step 9) while the witness RPC still serves the whole season (W1)
+# 3. at or after end + 72 h [r0ze approves]: the dry run first (check "found N legacy + M wide provinces (funds count N+M
+#    opened)" and no BLOCKED line). If it prints a WARNING line, keeper A still holds floats: BellAnchors not archived yet
+#    NEVER close after the final part (ArchiveAnchors needs Running / Ended), and keeper A stops every duty on the
+#    tombstone, so its ArrivalSlot / ArrivalDay / ClashInputs / SeedCache floats would have no sender after it (they stay
+#    closable by anyone, by hand). Leave keeper A running (close + archive roles; from end + 72 h every march record may
+#    close) and re-run the dry run until those lines are gone or stop shrinking (verify-pr180). Then the same send line →
+#    every close; exit 0 "end-season complete: K transaction(s) sent"
+# 4. keeper A logs "season-closed" and stops every duty by itself; stop it, keeper B, the gateway; the herald keeps
+#    serving the ended season (/h/season "statusName": "Closed", the page shows 閉鎖 / 受付終了) — the herald of §8 step 1,
+#    built with land-preview,wide-world-experimental,expedition-records-experimental: a plain `cargo build -p herald`
+#    refuses every PSW1 record (UnsupportedWideRecord, "ingest store failed; reopen required") and stops at the first
+#    wide record, at the latest at the first WideClose(6) here (D-end-2; CI's PEND runs that plain build and asserts either)
+# 5. keeper A's and the relay's leftover SOL back to the operator (PLAYTEST-RUNBOOK §3 step 15), then, to end the test:
+#    solana program close <PROGRAM_ID> ... (§5)
+```
+
+**Expected refunds** (offline PEND, `stack/tests/operator_playable.rs`; the devnet figures are the dry run's on the
+day — it prints them exactly): the authority gets back what the setup put in and the season did not spend — the
+creation bond (1 SOL), the Season's rent above the tombstone, the Frontier, the JoinShards and BeaconLogs, the six
+funds (36 SOL less nothing: every province's rent comes back into its fund before the final part) and the DefencePool
+(20 SOL less the defence pay already claimed). Keeper A gets the RingSeeds' rent. Measured offline (PEND, 79 legacy + 108 wide provinces,
+rent 5,080): EndSeason 3,460 CU / 5,000 lamports; then 50 transactions (CloseProvince × 6 per tx ≈ 31,700 CU, WideClose(6)
+× 4 per tx ≈ 27,000 CU, CloseSeason parts 17,900–37,500 CU), fees 250,000 lamports, **57,137,200,640 lamports back to the
+authority** (the setup had spent 57,139,689,040), every recipient's lamports equal to the dry run's line to the lamport. **Not returned by this tool**: the
+players' Citizens and Holdings (CloseCitizen / CloseHolding, anyone, rent to the players; still possible on the
+tombstone), keeper A's ArrivalSlot / ArrivalDay / ClashInputs / SeedCache floats (its `close` / `archive` roles; also
+closable on the tombstone), and the **wide ring seeds** (keeper A's 1,625,600 lamports each at 5,080, 2,227,200 at
+6,960): the program has no close for them (D-end-1), so every devnet season strands the three of `wide_rings` = 3 for
+good: **4,876,800 lamports (0.0049 SOL) at 5,080, 6,681,600 (0.0067 SOL) at 6,960** (§6 operator cost table; a
+program change, blocked on r0ze).
+
 ## 7. Services and play (not ready: never run on devnet)
 
 Re-checked against the code on 2026-11-22 (`origin/main` 6912906d; before: 2026-11-21, 436bb9c1). "Done (code)" and "closed (code)" mean merged
@@ -849,12 +919,8 @@ frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 -
   --ruleset $R --program-hash $H --balances --out verify-report/ \
   --program-so permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so
 #   exit 0 PASS, 1 FAIL, 2 cannot verify (UNVERIFIABLE); report.json and report.md in verify-report/
-#   season end at bell 1,008, closes after end + 72 h (PLAYTEST-RUNBOOK §3 steps 13–15);
-#   NOTHING here sends EndSeason (0x04, "anyone sends it", m1 PLAYTEST-RUNBOOK §3 step 13): keeper A has no such duty and
-#   frontier-operator has no step for it (only fclient::ix::end_season and the local stack runner build it). Offline
-#   (devnet-dress-rehearsal) the Season still read status 2 (Seeded) at bell 1,012 with every role running. The
-#   program computes the effective status from the end bell on, but the closes of step 14 need the season Ended:
-#   a tool (or a keeper duty) for EndSeason and the closes is still missing (D-dress-6);
+#   season end at bell 1,008: frontier-operator end-season (§6c) — EndSeason, then after end + 72 h every close
+#   (run this verifier inside the 72 h, before the closes, while the witness still serves the season; it also runs after);
 #   ending the test: solana program close <PROGRAM_ID> --authority … --bypass-warning (§5)
 ```
 
