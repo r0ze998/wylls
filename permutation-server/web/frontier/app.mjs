@@ -68,6 +68,7 @@ import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
 import { localCoopBoardOptions } from './hud/coopboard-local.mjs';
 import * as coopTitles from './hud/coopoutcomes.mjs';
+import * as worldGoals from './hud/worldgoals.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -492,7 +493,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
   if (d.kind === 'guide') return [...parts, protoHud.guideCard(FS), onboardingCard.render(FS, { open: true }), FS.land?.stage === 'provisional' ? joinScreen.render(FS) : ''];
   // the first minute: the six banners, the wait for the village (with the guide's steps on demand under it), or what must be mended
   if (d.kind === 'home') return [...parts, joinScreen.render(FS)];
-  if (d.kind === 'territory') return [...parts, ...(territoryEnabled(FS) ? [territoryScreen.render(FS)] : [conquestScreen.render(FS), prizeScreen.render(FS)])];
+  if (d.kind === 'territory') return [...parts, worldGoals.render(FS, worldGoals.current()), ...(territoryEnabled(FS) ? [territoryScreen.render(FS)] : [conquestScreen.render(FS), prizeScreen.render(FS)])];
   if (d.kind === 'nation') return [...parts, joinScreen.render(FS)];
   if (d.kind === 'wait' || d.kind === 'join') return [...parts, joinScreen.render(FS)];
   // a dock tab keeps one line of the selection (the inspector itself opens from the map)
@@ -5213,6 +5214,10 @@ export async function boot() {
         //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
         //  (B13: in a launcher world they are read under that world's board mount, beside its board — hud/coopboard-local.mjs)
         try { coopTitles.installCoopOutcomes({ changed: () => invalidate('panel'), ...(coopOptions?.base ? { base: coopOptions.base } : {}) }); } catch (e) { console.error('frontier coop titles:', e); }
+        // (world goals, first slice: the flag keeps judged off chain by the local-play launcher — read only, no money;
+        //  the card in Territory and the gold pennants on the map; nothing on a server without the judge — hud/worldgoals.mjs)
+        const goalsBase = cfg.localPlay ? worldGoals.localGoalsBase(cfg.herald) : null;
+        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); } }); } catch (e) { console.error('frontier world goals:', e); } }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

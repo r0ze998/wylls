@@ -121,6 +121,12 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   the game in --coexist worlds (the lane that carries caravans); delivering to another nation's
                   request that reaches its amount earns the ⑮ title "Answered a request" (「依頼に応えた」; no win, score or prize effect);
                   see PLAY-LOCAL §13
+  --no-world-goals do not judge the world's goals (launcher option --world-goals flag-keeps-v1, on by default): the
+                  flag keeps — a nation that holds half of the designated flag keeps (gold flag marks on the map), each
+                  for 144 turns, achieves the round; Territory (国と領土) → "World goals" (「世界の目標」) shows the progress and,
+                  after an achievement, the prize it WOULD have paid (simulated: no money moves)
+  --flag-keeps-hold N   TEST only: the hold time of the flag keeps in turns (default 144 = 24 hours of the chain clock)
+  --flag-keeps-need N   TEST only: how many flag keeps a nation must hold (default: half of them, rounded up)
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -132,7 +138,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0 COOP=1
+AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0 COOP=1 GOALS=1 FK_HOLD='' FK_NEED=''
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -166,6 +172,9 @@ while [ $# -gt 0 ]; do
     --external) need_val "$@"; EXTERNAL="$2"; shift 2 ;;
     --no-mcp) NO_MCP=1; shift ;;
     --no-coop-board) COOP=0; shift ;;
+    --no-world-goals) GOALS=0; shift ;;
+    --flag-keeps-hold) need_val "$@"; FK_HOLD="$2"; shift 2 ;;
+    --flag-keeps-need) need_val "$@"; FK_NEED="$2"; shift 2 ;;
     --rebuild) REBUILD=1; shift ;;
     --no-build) NOBUILD=1; shift ;;
     --no-open) NOOPEN=1; shift ;;
@@ -275,6 +284,9 @@ if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build 
 is_int "$AI" && [ "$AI" -le 4 ] || { err "--ai は 0〜4 です" "--ai must be 0-4"; exit 2; }
 is_int "$SPEED" && [ "$SPEED" -ge 10 ] && [ "$SPEED" -le 60 ] || { err "--speed は 10〜60 です" "--speed must be 10-60"; exit 2; }
 is_int "$MINUTES" && [ "$MINUTES" -ge 15 ] && [ "$MINUTES" -le 240 ] || { err "--minutes は 15〜240 です" "--minutes must be 15-240"; exit 2; }
+if [ -n "$FK_HOLD" ]; then is_int "$FK_HOLD" && [ "$FK_HOLD" -ge 1 ] && [ "$FK_HOLD" -le 100000 ] || { err "--flag-keeps-hold は 1〜100000 です" "--flag-keeps-hold must be 1-100000"; exit 2; }; fi
+if [ -n "$FK_NEED" ]; then is_int "$FK_NEED" && [ "$FK_NEED" -ge 1 ] && [ "$FK_NEED" -le 12 ] || { err "--flag-keeps-need は 1〜12 です" "--flag-keeps-need must be 1-12"; exit 2; }; fi
+if { [ -n "$FK_HOLD" ] || [ -n "$FK_NEED" ]; } && [ "$GOALS" = 0 ]; then err "--flag-keeps-hold / --flag-keeps-need は --no-world-goals と一緒には使えません" "--flag-keeps-hold / --flag-keeps-need cannot be combined with --no-world-goals"; exit 2; fi
 AI=$((10#$AI)); SPEED=$((10#$SPEED)); MINUTES=$((10#$MINUTES))
 
 # (persistence: only when the launcher on this checkout knows it — PR #38; refused, never faked, otherwise)
@@ -409,6 +421,13 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   # (fix-loop8, LP8-3: workstream 01's co-op board — requests across nations — and the ⑮ titles card come with every world
   #  unless --no-coop-board; only when this checkout's launcher knows the option)
   if [ "$COOP" = 1 ] && grep -q "COOP_BOARD_MODE" "$LAUNCHER" 2>/dev/null; then printf '%s\n' --coop-board ws01-board-v1; fi
+  # (flag-keeps-slice-1: the world's goals judge — flag keeps, no money — with every world unless --no-world-goals;
+  #  only when this checkout's launcher knows the option)
+  if [ "$GOALS" = 1 ] && grep -q "WORLD_GOALS_MODE" "$LAUNCHER" 2>/dev/null; then
+    printf '%s\n' --world-goals flag-keeps-v1
+    if [ -n "$FK_HOLD" ]; then printf '%s\n' --flag-keeps-hold "$FK_HOLD"; fi
+    if [ -n "$FK_NEED" ]; then printf '%s\n' --flag-keeps-need "$FK_NEED"; fi
+  fi
 }
 # (the read-only MCP server reads the first world slot's first external resident's public proxy: its own /h/* and /gw)
 MCP_HERALD="http://localhost:$EXT_BASE"

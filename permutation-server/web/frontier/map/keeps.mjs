@@ -310,6 +310,23 @@ export function paintKeepFortress(g, x, y, u, { faction = null, mine = false, zo
   else paintFortress(g, x, y, u, { faction, mine });
   g.restore();
 }
+/**
+ * A world goal's flag keep (hud/worldgoals.mjs): a gold pennant on a dark pole with its foot at (x, y). Screen sized
+ * (`size` px tall): the same mark near and far, beside the keep's own standard (which keeps the holder's colour).
+ */
+export function paintGoalFlag(g, x, y, { zoom = 1, size = 16, alpha = 1 } = {}) {
+  if (!g?.save || !(alpha > 0)) return;
+  const s = size / zoom;
+  g.save();
+  g.globalAlpha = (g.globalAlpha ?? 1) * alpha; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = '#141c19'; g.lineWidth = 2.4 / zoom; g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - s); g.stroke();
+  g.beginPath(); g.moveTo(x, y - s); g.lineTo(x + s * 0.78, y - s * 0.78); g.lineTo(x, y - s * 0.52); g.closePath();
+  g.strokeStyle = '#141c19'; g.lineWidth = 2.2 / zoom; g.stroke();
+  g.fillStyle = GOLD; g.fill();
+  g.fillStyle = '#fff6cf'; g.beginPath(); g.arc(x + s * 0.24, y - s * 0.77, s * 0.07, 0, Math.PI * 2); g.fill();
+  g.restore();
+}
+
 /** A keep on the world chart: a small tower in its holder's colour, ringed in gold when it is the viewer's nation's. Screen sized. */
 export function paintKeepMark(g, x, y, { zoom = 1, faction = null, mine = false, size = KEEP_LOOK.mark, alpha = 1 } = {}) {
   if (!g?.save || !(alpha > 0)) return;
@@ -458,6 +475,15 @@ export class KeepBoard {
     // the near-view hit test's buckets of keep anchors (map/keepindex.mjs): rebuilt whenever the book's rows Map is
     // another one (each reading, a reset, a sample, another world), so a removed or moved keep is never answered
     this.hits = null;            // (made on the first hit test: keepIndex)
+    this.goalFlags = new Set();  // keys "p,q" of the world goals' flag keeps (hud/worldgoals.mjs): a gold pennant beside the keep
+  }
+  /** The world goals' flag keeps (`[{p, q}]`, hud/worldgoals.mjs mapFlags): marked with a gold pennant. → whether they changed. */
+  setGoalFlags(list = []) {
+    const next = new Set((Array.isArray(list) ? list : []).filter(f => Number.isInteger(f?.p) && Number.isInteger(f?.q)).map(f => keyOf(f.p, f.q)));
+    if (next.size === this.goalFlags.size && [...next].every(k => this.goalFlags.has(k))) return false;
+    this.goalFlags = next;
+    this.invalidate();
+    return true;
   }
   /**
    * Sample records in the records' own shapes (`{recs: Map, events, viewer, bell, reach?}`; the demo switch alone,
@@ -703,6 +729,8 @@ export class KeepBoard {
       const anchor = { x: P.x, y: P.y }, rise = F.up ? 1.08 : 1, dx = P.x + D.x * P.u, dy = P.y - D.up * P.u * rise;
       const head = P.y - (FORTRESS.pole.up * P.u + P.u * KEEP_LOOK.standard * 1.5) * rise;
       const cap = this.capturing(key, fx), c = this.book.contests.get(key) ?? null, br = this.breaks.get(key) ?? null;
+      // a world goal's flag keep: a gold pennant over the keep's right shoulder (world goals, flag keeps)
+      if (this.goalFlags.has(key) && !hid({ q: P.q, r: P.r })) upright(o, P.x, P.y, () => paintGoalFlag(o, P.x + P.u * 0.95, P.y - FORTRESS.pole.up * P.u * 0.55 * rise, { zoom: z }));
       // the contest: a ring dial that fills turn by turn, in the contender's colour (gold when it is the viewer's nation)
       // (a battle staged on the keep's own tile has that place for its numbers and its verdict: the dial and its line
       // step back until the scene is over, as every label of the tile does — the line 「砦を保持中 · 1 / 72」 stood across
@@ -802,6 +830,8 @@ export class KeepBoard {
         paintKeepFortress(g, P.x, P.y, P.u, { faction: holder, mine, zoom: z, dpr, alpha: dim });
         if (nation(holder)) paintStandard(g, P.x + FORTRESS.pole.x * P.u, P.y - FORTRESS.pole.up * P.u, { u: P.u * KEEP_LOOK.standard, zoom: z, faction: holder, now: fx, still, alpha: dim });
       });
+      // a world goal's flag keep from afar: the gold pennant beside its mark
+      if (this.goalFlags.has(key)) paintGoalFlag(g, P.x + (lod === 'world' ? 7 / z : P.u * 0.95), P.y - (lod === 'world' ? 6 / z : FORTRESS.pole.up * P.u * 0.55), { zoom: z, size: lod === 'world' ? 11 : 15 });
       // a keep in reach from afar: a gold ring round its mark
       if (it?.reachable) {
         const beat = still ? 0.5 : 0.5 + 0.5 * Math.sin((fx / 1000) * KEEP_LOOK.reach.beat * Math.PI * 2), r = (lod === 'world' ? 13 : 20) / z * (1 + 0.12 * beat);
