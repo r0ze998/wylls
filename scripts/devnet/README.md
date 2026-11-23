@@ -152,8 +152,9 @@ read, so duties/rent/lag come from its log), tunnel name vs the herald's `public
 `/h/season` through the tunnel, the join check's result, disk free, and error/restart/STOP lines in the last
 500 lines of each `devnet-*.log`.
 
-Process checks: a process is found by its command line only — no PID is written in `health.mjs`. Wanted and not
-running = FAIL. "restarted" is a WARN only for a while, so a planned restart (a herald swap) clears by itself:
+Process checks: a process is found by its command line only — no PID is written in `health.mjs`. Each pattern
+starts at the program being run (`zsh ./run-herald.sh`, `…/frontier-herald … --listen 127.0.0.1:41140`), so a
+line that only names it (`pgrep -f …`, `tail -f …`, an editor) is not taken for it. Wanted and not running = FAIL. "restarted" is a WARN only for a while, so a planned restart (a herald swap) clears by itself:
 
 - with `--state FILE` (the loop uses it): the run that finds a different PID than the previous run did is a WARN
   (`pid 7001 up 02:10 — was 94463 at the previous run (restarted)`), and it stays a WARN until the new process is
