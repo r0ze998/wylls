@@ -23,7 +23,7 @@ English: [PLAY-DEVNET.md](PLAY-DEVNET.md)。手元の Mac だけで遊ぶ方法�
 ## 2. ウォレットを devnet にする
 
 Solana のウォレット（Phantom・Solflare・Backpack など）をブラウザに入れ、ネットワークを devnet に切り替えます。
-ページにも同じ案内が出ます。
+ゲームのページにはこの手順は出ません。ウォレットごとの設定は次のとおりです。
 
 - Phantom：設定 → 開発者設定 →「テストネットモード」をオン（Solana Devnet）
 - Solflare：設定 → ネットワーク →「Devnet」に切り替える

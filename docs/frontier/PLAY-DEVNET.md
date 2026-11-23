@@ -22,8 +22,8 @@ The address ends with `/frontier/frontier/`. You are in the right place when you
 
 ## 2. Set your wallet to devnet
 
-Install a Solana wallet in your browser (Phantom, Solflare, Backpack, …) and switch its network to devnet. The page
-gives the same hints.
+Install a Solana wallet in your browser (Phantom, Solflare, Backpack, …) and switch its network to devnet. The game
+page does not show these steps; they are the wallets' own settings:
 
 - Phantom: Settings → Developer Settings → turn on “Testnet Mode” (Solana Devnet)
 - Solflare: Settings → Network → switch to “Devnet”
