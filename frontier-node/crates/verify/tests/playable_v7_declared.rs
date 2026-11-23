@@ -261,10 +261,13 @@ fn a_declared_owner_the_write_contradicts_fails_on_the_generic_path() {
         .any(|f| f.check == "V16" && f.entity == format!("tx#{next}")));
 }
 
+/// One tamper of an input.
+type Tamper = Box<dyn Fn(&mut Input)>;
+
 /// Every tamper of the declarations: never a PASS.
 #[test]
 fn no_tampered_declaration_passes() {
-    let tampers: Vec<Box<dyn Fn(&mut Input)>> = vec![
+    let tampers: Vec<Tamper> = vec![
         Box::new(|inp| inp.declared.clear()),
         Box::new(|inp| {
             let i = reserve_patches(inp)[0];
