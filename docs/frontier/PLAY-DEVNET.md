@@ -1,0 +1,100 @@
+# Play on devnet (for players, a test)
+
+The playable version of Wylls (villages, marches, keep capture, the wide land) went out on Solana **devnet** on
+2026-11-23. Devnet is a test network: the SOL used here has no value and no real money is involved.
+Japanese: [PLAY-DEVNET.ja.md](PLAY-DEVNET.ja.md). To play on your own Mac only, see [PLAY-LOCAL.md](PLAY-LOCAL.md).
+
+| | |
+|---|---|
+| Network | Solana devnet (not mainnet) |
+| Program id | `GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr` |
+| Season 1 can be joined from | **about 2026-11-24 20:05 JST** (expected between 20:00 and 20:10) |
+| Season length | about 7 days. One turn is 10 minutes; there is no fast clock |
+| Devnet SOL to hold | **about 0.05 SOL**, or **0.1 SOL** if you go to the wide land |
+
+## 1. The page's address
+
+Get the address from the operator's announcement. **The address can change** (today it is a temporary public
+entrance, and it gets a new name when the operator reconnects it). If the page stops opening, look for a new
+announcement. That is why no address is written in this document.
+
+The address ends with `/frontier/frontier/`. You are in the right place when you see the title and the six nations.
+
+## 2. Set your wallet to devnet
+
+Install a Solana wallet in your browser (Phantom, Solflare, Backpack, …) and switch its network to devnet. The page
+gives the same hints.
+
+- Phantom: Settings → Developer Settings → turn on “Testnet Mode” (Solana Devnet)
+- Solflare: Settings → Network → switch to “Devnet”
+- Backpack: Settings → Solana → RPC Connection → switch to “Devnet”
+
+Left on mainnet, the wallet shows mainnet balances and mainnet confirmations: switch first.
+We suggest making a new wallet (account) just for this test.
+
+## 3. Get devnet SOL
+
+Devnet SOL is free from a faucet, for example <https://faucet.solana.com>: choose devnet and enter your wallet's
+address. Faucets limit how often they pay and may refuse; wait a while and try again.
+
+- **0.05 SOL** is enough to found a village and march.
+- Hold **0.1 SOL** if you will found a village on the wide land and muster a host there.
+
+## 4. What each act costs
+
+On devnet your wallet signs each command once and pays its fees and rent (a deposit for keeping a record) itself.
+The page says: “On devnet your wallet signs each command once and pays its fees and rent itself (devnet SOL, of no
+value; no in-game key is made).”
+
+| Act | Devnet SOL | What it is |
+|---|---|---|
+| Join | 0.0026 | the fee and the rent of your resident record |
+| First village (a heartland village, or the request for a rim village) | 0.0072 | the fee and the rent of the village's record |
+| Harvest, build, train, muster | 0.000005 each | the fee only |
+| One march (the march back home counts as one more) | 0.00005 | the fee and the seal's deposit |
+| A second or third village | 0.0072 | the fee and the rent of the village's record |
+| The request for a village on the wide land | 0.0091 | the fee and the rent of the request's record |
+| One expedition from the rim to the wide land | 0.0024 | the fee and the rent of the expedition's record |
+| The first muster in a wide-land province | 0.0172 | the rent of that province's roster; every later muster there, by anyone, is the fee only |
+
+- Each figure was measured on a local chain at devnet's rent rate (5,080 lamports per byte), not on devnet itself.
+  If devnet's rent rate changes, the rent parts change with it.
+- In the dress rehearsal the busiest page spent 0.0173 SOL without the wide land, and 0.0366 SOL with one village on
+  the wide land.
+- Your wallet's confirmation shows what you pay before you send. Cards such as the expedition's take two presses,
+  “Review what will be sent” and then “Sign with the wallet and send”, and show the amount first.
+
+## 5. How a game goes
+
+1. Open the page, press “Enter the Frontier”, then “Connect a wallet”. Choose a nation and join (one signature).
+2. Your first village comes next. It can take tens of seconds for your join to show on the page
+   (“Waiting for the record…”; no need to press again. If it has not shown after 180 seconds, press “Check again”;
+   nothing is sent twice).
+3. Harvest, build and train in the village, muster a host and march on a keep. The screens work as in the local
+   version, so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 is your guide.
+
+Good to know:
+
+- **Time is real time.** One turn is 10 minutes. A keep is taken by holding it for 72 turns (about 12 hours).
+- Every march spends 74 stamina and stamina returns 1 per turn (the cap is 120), so the same host waits about
+  28 turns (about 4 hours 40 minutes) before its next march.
+- For the first while, first villages are placed in the heartland. A rim village can be requested once the map has
+  grown out to the rim (about 21 hours after the start, expected **about 2026-11-25 17:00 JST**). Wide-land requests
+  come after that.
+- A second village or a wide-land village takes a day or more of harvests (a second village, on the wide land:
+  food 800, wood 800, stone 400, gold 200).
+- Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
+  no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
+- Before the season starts the page says “The season's record cannot be read.” Open it again after the start time.
+
+## 6. When something goes wrong
+
+| What happens | What to do |
+|---|---|
+| The page does not open | The address may have changed. Look for the operator's new announcement (§1) |
+| “No wallet found. …” | Install a wallet, then reload the page |
+| The wallet shows a balance of 0, or its confirmation shows mainnet amounts | The wallet is not on devnet (§2) |
+| The wallet or the page refuses for lack of balance | Add devnet SOL (§3) |
+| “Waiting for the record…” goes on | Wait. “Check again” appears after 180 seconds (§5 step 2) |
+
+This is a test. The season may stop or be started over part-way. Devnet records and devnet SOL have no value.

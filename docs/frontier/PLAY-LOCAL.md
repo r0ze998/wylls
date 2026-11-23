@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-23 (through #182; #173–#182 added: tab and setting presses no longer make the page forget a wide village's march #173, the next army offered after a capture or a wipe-out #176 and the text fixes of #175 → §3 step 6 and §4, external AI residents in `--wide` sending the wide land's orders #178 → §11. #177 and #179–#182 are devnet and verifier changes; local play is unchanged by them → §7) and #184 (fix-loop11: a departure the chain refuses no longer stays under 進軍, the W2 wait goes on while another village is open, the cap line also comes while the second march is followed → §4). What is left: §8. Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-23 (through #187; #173–#182 added: tab and setting presses no longer make the page forget a wide village's march #173, the next army offered after a capture or a wipe-out #176 and the text fixes of #175 → §3 step 6 and §4, external AI residents in `--wide` sending the wide land's orders #178 → §11. #177 and #179–#182 are devnet and verifier changes; local play is unchanged by them → §7. #184, fix-loop11: a departure the chain refuses no longer stays under 進軍, the W2 wait goes on while another village is open, the cap line also comes while the second march is followed → §4. #183: the wide-claim card quotes the program's settler cost, 800 for a second village → §4 step 2. #187: text fixes for first-time players (how long a keep must be held, the guide's line in a world that goes on, 伐採場, the search hint) → §3 step 8). What is left: §8. The devnet playable version went out on 2026-11-23; how to play it is in [PLAY-DEVNET.md](PLAY-DEVNET.md). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -104,9 +104,9 @@ move only once its turn is settled: about 17 minutes later).
      keep is in sight from your village (common with `--random-map`). The guide at the top right and the list's card then
      offer 「進軍で地図から選ぶ」 (#130). Press it, or 「進軍」 in the bottom bar, pick the ring-1 keep's tile on the map as the destination (you can
      press it while it is blank under the fog) and 「確認した命令で出発」 (the destination is called 「見えていない土地」).
-     A march spends 10 + 2 × tiles of stamina (28 for 9 tiles, 74 for 32; the cap is 120) and stamina returns 1 per turn:
-     after a scouting march to a far blank tile the host may have to wait for stamina before it can march on a keep
-     (loop-play6: about 30 turns).
+     Every march spends 74 stamina (the same for any path length, nothing comes back for a short one; the cap is 120) and
+     stamina returns 1 per turn: after a scouting march to a far blank tile the host has to wait for stamina (28 turns
+     when it left with full stamina) before it can march on a keep (loop-play6: about 30 turns).
    - **When no host is in the village** (#176): after the host marched out, the guide at the top right says 「いま村に軍勢は
      いません。進軍の記録が締めくくられると、生き残った兵が村に戻ります（全滅していれば戻りません）。」 with 「進軍の結果を見る」.
      When the host did not come back (wiped out, or it took the keep and became its garrison) it says
@@ -122,6 +122,12 @@ move only once its turn is settled: about 17 minutes later).
    and the round number on the keep, or 「奪取まで N/72 ターン」 in the clash report, show the progress. A held turn counts
    whether the province's turn is resolved or skipped (the #120 check: 11 AI captures at ×60 in `--wide --ai 4`, each
    after exactly 72 held turns).
+   Since #187 the keep list and the guide at the top right also say how long 72 turns are (「約 12 時間」 at 1×,
+   「この世界の実時間で約 12 分」 at ×60). In a world that goes on (the kept 1× world) the guide after a capture says
+   「この世界は続きます。戦期の勝敗と集計は未決定です。」 (in `--demo` and `--wide` worlds, which end, it still says
+   「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). The same PR made the first-building hints say 「伐採場」, as the
+   village screen does, and the search's nothing-found hint is now 「州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます」
+   (verify-pr187 saw them in a live world).
 
 Good to know:
 
@@ -393,7 +399,7 @@ view (fog-devnet; runbook §7 P5).
 
 ## 7. Local only, and the same as devnet
 
-| | Local (this script) | The devnet playable version (not deployed yet) |
+| | Local (this script) | The devnet playable version (on devnet since 2026-11-23; how to play: [PLAY-DEVNET.md](PLAY-DEVNET.md)) |
 |---|---|---|
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
 | Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
@@ -413,14 +419,14 @@ view (fog-devnet; runbook §7 P5).
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.
 A local world costs no SOL and no rent (the test keys are funded with test balances). Devnet costs and rent (since #147 and
-#150 they follow the cluster's own rent rate) are in the devnet runbook (`docs/frontier/devnet/`, refreshed by #177 and #182),
+#150 they follow the cluster's own rent rate) are in the devnet runbook (`docs/frontier/devnet/`, refreshed by #177 and #182; what a player pays: [PLAY-DEVNET.md](PLAY-DEVNET.md) §4),
 not in this guide. #179 (the verifier reads declared patches), #180 (the operator's season-end tool `frontier-operator end-season`)
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-23, main through #182)
+## 8. Known problems (2026-11-23, main through #187)
 
-### 8.1 Still on main (after #182)
+### 8.1 Still on main (after #187)
 
 The problems loop-play6 … 9 found (LP6-1 … 15, LP7-1 … 8, LP8-1 … 11, LP9-0 … 8) were fixed by #128, #130, #137, #149, #157
 and #162, and verify-pr130, 133, 137, 149 and 162 played them. The `play-local.sh` build that failed after #154 (LP9-0) was
