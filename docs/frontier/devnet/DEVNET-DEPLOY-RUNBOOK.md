@@ -755,8 +755,8 @@ scripts/play-local.sh                 # the local play-check (t341u); then: scri
 # ── 1. Build, key-free (cargo-build-sbf 3.1.9) ───────────────────────────────────────────────────────────────
 scripts/build-frontier-devnet-playable-sbf.sh --twice     # prints file_sha256 → H (today, P14 b: 67a33c92…06b3)
 node scripts/devnet/dry-run.mjs --profile scripts/devnet/devnet-playable-profile.json   # plan + cost; gate CLOSED
-# frontier-operator and frontier-verify in ONE command: `-p stack` alone does not compile on origin/main 30cd2b0c
-# (verify/src/vmsg.rs:83 moves a `Hash` that is `Copy` only when another package of the build turns on
+# frontier-operator and frontier-verify in ONE command: `-p stack` alone does not compile (origin/main ed5fcd79, run again by verify-pr177: E0382
+# — verify/src/vmsg.rs:83 moves a `Hash` that is `Copy` only when another package of the build turns on
 # solana-hash's `copy` feature; devnet-dress-rehearsal D-dress-1)
 (cd frontier-node && cargo build --locked --release -p stack -p verify \
    --features stack/playable-lane,verify/playable-lane --bin frontier-operator --bin frontier-verify)
@@ -833,12 +833,16 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
 #   → Harvest / Build / Train → Muster → sealed march → wide claim (once keeper A opened ring 129)
 #   → 2nd / 3rd village by FileOutpost (once keeper A's provinces_reach opened the provinces next to the home)
 #   → rim → wide expedition (「境界への道を準備」: two presses, wallet-signed ExpeditionDepart; keeper A's expeditions role does the rest)
-#   (devnet-dress-rehearsal D-dress-4: on origin/main 30cd2b0c the page's Join → rim ticket STALLS when the herald's read
-#    lags the Join — 4 of 5 pages offline under load; the page never files its ticket. Draft #172 (fix-devnet-join-wait)
-#    fixes it; with its page files 5 of 5 settled. Do not open a season before it, or an equivalent, is merged.)
-#   (a fresh rim Hamlet's first wide claim and its FileOutpost need the settler cost — 1,200 Food and 1,200 Wood for the
-#    claim — from harvests: offline, with harvests only, the outpost was filed at bell ~106 and the claim was still short
-#    at bell 161 (Food 1,186, Wood 965): expect the first wide villages a day or more after the rim opens)
+#   (devnet-dress-rehearsal D-dress-4: before #172 the page's Join → rim ticket STALLED when the herald's read lagged
+#    the Join — 4 of 5 pages offline under load never filed their ticket. Fixed by #172 (fix-devnet-join-wait, merged
+#    2026-11-23, 2057f89d: the page waits up to 180 s for its own record); with its page files 5 of 5 settled.)
+#   (a fresh rim Hamlet's second village — FileOutpost or the wide claim — needs the settler cost from its harvests. The
+#    program charges a second village 800 Food, 800 Wood, 400 Stone, 200 Gold (`settler_cost(holdings_n = 1)`; a third
+#    1,200 / 1,200 / 600 / 300), and the FileOutpost card quotes that. The wide-claim card quotes one step too high
+#    (`screens/holding.mjs` `settlerCost(owned + 1)`: 1,200 / 1,200 / 600 / 300 for the second) and keeps its button off
+#    until the store holds that much — a page bug, open (D-verify-pr177-1). Offline, with harvests only, the outpost was
+#    filed at bell ~106 and the wide-claim card still read short at bell 161 (Food 1,186, Wood 965 of its 1,200): until
+#    the card is fixed expect the first wide villages a day or more after the rim opens)
 
 # ── 9. Check and end ─────────────────────────────────────────────────────────────────────────────────────────
 frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 --rpc $RPC --witness <a second RPC> \
@@ -984,7 +988,10 @@ exactly `/frontier/` with a redirect to `/frontier/frontier/` (a proxy rule; the
   it has `--public-proxy xff|none` (`config.mjs`), and with `xff` it limits a herald-forwarded loopback address as one
   shared bucket (counted and logged) instead of exempting it. So with step 7's `--public-proxy xff` the "No header at
   all" bullet above no longer switches the limits off: every visitor then shares ONE bucket (a proxy that sends no
-  header locks real players out instead of letting abuse through). The header rule above stays the same.
+  header locks real players out instead of letting abuse through), and the "Passing the client's own header through"
+  bullet no longer exempts anyone either (a loopback address the herald forwards lands in that same shared bucket;
+  other forged addresses still get a bucket each, so only the global caps of `keeper-guard.mjs` hold there). The
+  header rule above stays the same.
 
 **`Host`, `Origin`, CORS.**
 
