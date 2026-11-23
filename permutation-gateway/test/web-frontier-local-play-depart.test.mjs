@@ -386,7 +386,13 @@ test('the boundary card: the local-play block only in local play, a button that 
     // failed (the chain's error)
     d.options.post = async (o, path, body) => ({ signature: body.signature, status: 'failed', err: { InstructionError: [4, { Custom: 58 }] }, slot: 4 });
     s = await LD.reconcileLocalDepart(p.fs, d.options); assert.equal(s.status, 'failed');
-    c = card(); assert.match(c, /出発は失敗しました/); assert.match(c, /Custom/); assert.doesNotMatch(c, /確定しました/);
+    // (fix-loop11, LP11-1b: the reason in the program's words with its number, not the chain's raw JSON; the host is home)
+    c = card(); assert.match(c, /出発はチェーンで断られました：/); assert.match(c, /（エラー 58）/); assert.doesNotMatch(c, /Custom/); assert.match(c, /村にいます/); assert.doesNotMatch(c, /確定しました/);
+    assert.equal(s.programCode, 58);
+    // (fix-loop11, LP11-1: its seal is marked refused — no march row, no reveal — and is still kept)
+    const seal = LD.localDepartReveals(p.fs).find(x => x.signature === s.signature);
+    assert.equal(seal.refused.programCode, 58); assert.equal(seal.refused.slot, 4);
+    assert.ok(!LD.localDepartSent(p.fs).some(x => x.signature === s.signature), 'not among the sent seals');
     c = card(); assert.match(c, /data-act="outbound-local-depart" aria-disabled="true"/, 'a failed departure used its observation up too');
     // an error before anything was sent says so
     assert.equal(LD.clearLocalDepart(p.fs), true); await observe(p);

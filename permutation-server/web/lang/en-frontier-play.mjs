@@ -2391,4 +2391,13 @@ export default {
   "結果：州 {0} の砦はあなたの国のものになりました（ターン {1} に確認）。あなたの国の別の軍勢が先に占拠を進めていた砦です。この村の軍勢だけで奪ったのではありません。": "Result: the keep of province {0} is now your nation's (seen at turn {1}). Another host of your nation was already holding it. This village's host did not take it alone.",
   "この村の軍勢は、その砦のマスに着いています。この村から次の軍勢を出せるのは、その進軍の記録が締めくくられ、州の決着が追いついたあとです（負荷が高いと数十ターンかかります）。このページが約 1 ターンごとに確かめ、次の一手を送れるようになったらボタンでお知らせします（自動では送りません）。": "This village's host has reached that keep's tile. This village can raise its next host once that march's record is closed and the province's turn has caught up (with a busy machine this takes dozens of turns). The page checks about once a turn and lets you know on the button when the next step can be sent (it does not send it automatically).",
   "（砦の守備兵 {0}・ターン {1} の記録）": "(keep garrison {0}, as recorded at turn {1})",
+  // fix-loop11 (LP11-1 / LP11-2 / LP11-4)
+  "出発はチェーンで断られました：{0}。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 {1}": "The chain refused the departure: {0}. The host did not leave (it is still in the village) and is not listed under marches. Signature {1}",
+  "送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした（NotResident）": "the turn changed while it was being sent, and the province it leaves from had not resolved the previous turn yet (NotResident)",
+  "送るあいだにターンが変わり、この到着ターンには着けなくなりました（ArrivalBell）": "the turn changed while it was being sent, and this arrival turn can no longer be reached (ArrivalBell)",
+  "{0}（エラー {1}）": "{0} (error {1})",
+  "理由 {0}": "reason {0}",
+  "遠征の出発はチェーンで断られました：{0}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。": "The chain refused the expedition's departure: {0}. The host is still in the village. Press \"Check departure conditions\" on the boundary card to read again, then you can depart again.",
+  "前の進軍はチェーンで断られました（送るあいだにターンが変わりました。NotResident）。軍勢は村にいます。次のターンにもう一度送ります。": "The chain refused the last march (the turn changed while it was being sent; NotResident). The host is still in the village. It is sent again next turn.",
+  "前の進軍はチェーンで断られました（上の知らせに理由があります）。軍勢は村にいます。進軍の回数には数えません。": "The chain refused the last march (the notice above gives the reason). The host is still in the village. It does not count as a march.",
 };

@@ -202,7 +202,8 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       if (capped) {
         const march = await marchState({ m: memory.lastWideDepart, nowBell, open: open > 0, world, village, holding, seasonAddr, program });
         // (a march still on its way, being decided or holding is followed as before; only an ended one is the cap's)
-        if (march && ['out', 'settling', 'unread', 'stands'].includes(march.phase)) return { why: 'its host left: the march settles', wait: 'march', march };
+        // (fix-loop11, LP11-4: with the cap, so the card says no further march is planned while it follows this one)
+        if (march && ['out', 'settling', 'unread', 'stands'].includes(march.phase)) return { why: 'its host left: the march settles', wait: 'march', march, cap: WIDE_DEPARTS_MAX };
         return { why: `${WIDE_DEPARTS_MAX} wide marches sent`, wait: 'cap', cap: WIDE_DEPARTS_MAX, ...(march ? { march } : {}) };
       }
       if (!hosts.length) {

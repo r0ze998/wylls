@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-23 (through #172; #157–#172 added: a wide village raising a new host and the expedition's keep hold on the card §4, external AI residents in `--wide` §11, which addresses open the page and what to do after editing the page's files §9, the ① board in English §13. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-23 (through #180) and fix-loop11 (#157–#180 added: a wide village raising a new host and the expedition's keep hold on the card §4; fix-loop11: a departure the chain refuses §4; external AI residents in `--wide` §11, which addresses open the page and what to do after editing the page's files §9, the ① board in English §13. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -233,6 +233,14 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      (§8). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition will never settle.
    - Before sending the next host, press 「結果を照合する」 under the card's 「送信しました。確定はまだ確認できていません」
      once (until then 「出発する」 is not shown).
+   - **The chain can refuse a departure after it was sent** (NotResident when the turn changes between the check and the
+     send). The page checks the result itself each time it reads the 「進軍」 list; when it was refused it says once at the top
+     「遠征の出発はチェーンで断られました：送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした（NotResident）。軍勢は村にいます。…」
+     (EN: "The chain refused the expedition's departure: … (NotResident). The host is still in the village. …"). The card says
+     「出発はチェーンで断られました：…。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。」 and the expedition leaves the
+     「進軍」 list. The host is home: read again with 「出発条件を確認」 and you can depart again (fix-loop11 LP11-1; before, a refused
+     expedition stayed in the list as 「この遠征の記録が見つかりません」 or 「到着しました。封が開けられるのを待っています」, and the reason
+     was raw text such as `{"InstructionError":[4,{"Custom":26}]}`).
    - The bar button says 「送信しません」 (does not send), but in local play the card's last button really departs.
 4. **A march inside the wide land (wide → wide)**: open the village of step 2; it has the card
    「広い土地の軍勢（テスト）」. Pressing 「次の一手（広い土地）」 goes one step at a time: train spearmen → muster a
@@ -254,8 +262,11 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      loop-play5: up to about 180 turns). **Do not keep pressing while the province is behind.** The card says
      「この村の州の決着が N ターン遅れています。…このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を
      送ります。」 and waits by itself (the button reads 「待っています…（押す必要はありません）」 and is disabled;
-     「待つのをやめる」 stops it). Other reasons it waits for: 「軍勢が整列中か休んでいます。」 and the like. A step refused because the turn changed while it was being sent (NotResident), or a march
-     send that failed once, is sent again next turn by itself (verify-pr117: with 「次の一手」 pressed every 2 s for 10
+     「待つのをやめる」 stops it). The wait **goes on while another village (the rim village, say) is open**; back on the card
+     you see what it last checked (fix-loop11 LP11-2; before, closing the W2 view stopped it silently and the card came back
+     with an old 「N ターン遅れています」 and a live button). A page reload stops it. Other reasons it waits for: 「軍勢が整列中か休んでいます。」 and the like. A step refused because the turn changed while it was being sent (NotResident; also when the
+     chain refuses it after sending), or a march send that failed once, is sent again next turn by itself (a march the chain
+     refused does not count toward the 2; fix-loop11) (verify-pr117: with 「次の一手」 pressed every 2 s for 10
      minutes the page sent only 4 acts and got through train → muster → march; loop-play6: the card waited by itself
      through a 187-turn lag and sent about 3 minutes later).
    - The world's keeper opens the march's seal and catches the target province up even when it is far behind
@@ -275,7 +286,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      作ります。 次の一手：…」 — both with the same 「次の一手を送れます（新しい軍勢づくり）。自動では送りません。…」 offer. The first time, a
      press of your own also only shows the result and the offer; the next press sends (w2-wipeout; before, both cases waited
      「its host left」 for good and a press sent nothing). A village sends at most 2 marches inside the wide land in a test world; after
-     the second the card says the last result and 「…テスト世界では 2 回までです。…」. (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
+     the second the card says where that march is (on its way, standing beside a keep, …) and 「…テスト世界では 2 回までです。…」;
+     once it has ended, the last result and the same sentence (fix-loop11 LP11-4; before, a second host standing beside a keep
+     it could not take never got the sentence). (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
      立っています」).
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
   have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
@@ -364,9 +377,9 @@ training are the same rules as devnet.
 A local world costs no SOL and no rent (the test keys are funded with test balances). Devnet costs and rent (since #147 and
 #150 they follow the cluster's own rent rate) are in the devnet runbook, not in this guide.
 
-## 8. Known problems (2026-11-23, main through #172)
+## 8. Known problems (2026-11-23, main through #180)
 
-### 8.1 Still on main (after #172)
+### 8.1 Still on main (after #180)
 
 The problems loop-play6 … 9 found (LP6-1 … 15, LP7-1 … 8, LP8-1 … 11, LP9-0 … 8) were fixed by #128, #130, #137, #149, #157
 and #162, and verify-pr130, 133, 137, 149 and 162 played them. The `play-local.sh` build that failed after #154 (LP9-0) was
@@ -381,11 +394,11 @@ an arrival LP7-6 were seen live only in part). What is left is below. None is a 
 | ⑩ seizing a storehouse | 「貯蔵庫を奪う」 can be pressed while the owner's host stands on the tile; the program refuses it (NotOnTile, as the rules say) | press it when no host of the owner is there |
 | ① co-op board | after a partial delivery the board says 「依頼量に届かなかった（すべて終わり、上限で証明）」. The request stays 「受付中」 and turns to 「依頼量に届いた」 once the rest is delivered (verify-pr152) | deliver the rest and link it (§13) |
 | The external residents' MCP | the MCP server reads the first world only (a second world of the same launcher has no MCP reads; verify-pr142) | test with one world |
-| Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
+| Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. Since fix-loop11 the page checks the result itself on each read and the line turns into confirmed or refused. The card also stays bound to the departed host (「カードを開き直してください」) | wait, or press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
 | Wide village (W2) | the card says 「この村の州の決着が N ターン遅れています。」 twice in a row | none (display only) |
 | Wide village (W2) | the notice after a 「次の一手（広い土地）」 step is sent is an English sentence on the Japanese page too (e.g. “train 100 Spearmen at the wide village -66,-63 …”; verify-pr162) | none (display only; the reason on the card itself is in the page's language) |
-| ⑬ resident's `--plan` (`--wide`) | on a rim village the plan's Build (item 3) is refused `Insufficient` by the check before sending, three times (2 of 2 runs in verify-pr163; cause unknown). The resident then makes a new plan and goes on | none (wait) |
+| ⑬ resident's `--plan` (`--wide`) | in verify-pr163 the plan's Build (item 3) on a rim village was refused `Insufficient` by the check before sending, three times (2 of 2 runs; cause unknown). loop-play10 and 11 saw no refusal (42 and 63 acts) | none (wait) |
 | ② rights caravans | in the caravan form, switching the source from the storehouse to the village leaves that same village as the destination | choose the destination again |
 | ② rights | opening 「権利を出す」 before the workshop is finished (about 9 turns) says 「権利を出すには、工房のある村が要ります。」 | wait for the workshop (§10 step 2) |
 
@@ -535,7 +548,7 @@ Steps (「」 are the page's buttons and texts as they are; the page's English m
 2. **A: build a workshop**: in the village's build list open 「ほかの建物（6）」, then 「工房」 → 「建てる」 (60 food, 120 wood, 80 stone, 40 ore).
    Only a `--coexist` world offers 工房; a plain world's list says 「工房はこの試験世界では建てられません（…--coexist でだけ建てられます）。」 instead (fix-loop9 LP9-3: it was offered and refused).
    The notice says 「工房の建設を始めました」. The
-   build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60). Once it stands, the village is a workshop village
+   build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60); as the village's first build it is 1:00 (「初めての建設」, loop-play11). Once it stands, the village is a workshop village
    and makes 4 arms an hour (a workshop can be built only in a `--coexist` world).
 3. **B: build a storehouse**: select a free tile of A's province on the map, 「ここに建てる」 → 「貯蔵庫を建てる」
    (200 wood, 200 stone, 50 gold from the selected village). It says 「貯蔵庫を建てました」.
@@ -693,7 +706,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 ⑨ lend a workshop (A owns the workshop village, B has a storehouse in that province):
 1. A: open 「工房を貸す」, type how many workshops, 「工房を貸し出す」 (the pool opens and the copies leave the village's own
    arms production). 「工房を貸し出しました」.
-2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」 (since #149 each option names the village, the storehouse tile and the owner's short address), the workshops, 「兵器の上限」 and 「有効な日数」, then
+2. A: choose B under 「使わせる相手（この州に貯蔵庫がある人）」 (since #149 each option names the village, the storehouse tile and a short address — the owner's Citizen record, not their wallet, and shown nowhere else on the page, so tell the options apart by village name and tile), the workshops, 「兵器の上限」 and 「有効な日数」, then
    「工房を使わせる」 (the wallet signs). 「工房を使う権利を出しました」.
 3. B: under 「使える工房」, set 「使う工房の数」 and 「作る兵器の数」, then 「予約して材料を入れる」: one transaction books the job
    and takes 2 ore + 1 wood per arm from B's storehouse. The job starts two minutes of chain time later.
@@ -702,7 +715,7 @@ steps 1–5 (same nation, same province; A builds a 工房, B builds a 貯蔵庫
 5. A: 「取り消す」 ends the grant (a booked job keeps running), 「空いた工房を戻す」 gives the copies back to the village.
 
 ⑩ store ore (B keeps the storehouse, A deposits):
-1. B: open 「鉱石を預かる」, choose A's village (since #149 each option names the village, its tile and the owner's short address: 「マス (storehouse) → (nation) の村 (name)（マス N · 63hY…y3Qe）」; with more than one person to choose from the list starts on 「（預ける人を選んでください）」, or on the one picked last — fix-loop9 LP9-7), the
+1. B: open 「鉱石を預かる」, choose A's village (since #149 each option names the village, its tile and the short address of the owner's Citizen record — not their wallet: 「マス (storehouse) → (nation) の村 (name)（マス N · 63hY…y3Qe）」; with more than one person to choose from the list starts on 「（預ける人を選んでください）」, or on the one picked last — fix-loop9 LP9-7), the
    「鉱石の枠」, then 「預かりの枠を開く」 (wallet). 「預かりの枠を開きました」.
 2. A: 「預けた鉱石」 lists the storehouse. Type an amount, 「鉱石を預ける」: A's own caravan leaves with A's ore. When it has
    arrived and the province it crossed has resolved, 「鉱石を届ける」: 「預ける鉱石が届きました」 (the ② card does not offer
