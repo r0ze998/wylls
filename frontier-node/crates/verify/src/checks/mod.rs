@@ -184,6 +184,11 @@ impl Ctx<'_> {
     }
 }
 
+/// The words every "from a declared state" detail carries (V7/V11's
+/// [`FROM_DECLARED`], VWL's "re-judged exactly, but from a state the archive
+/// only declares").
+const FROM_DECLARED_MARK: &str = "but from a state the archive only declares";
+
 /// The detail of a judgement that passed on a state the archive only
 /// declares ([`Before`]): `MissingData`, never a PASS.
 pub const FROM_DECLARED: &str = "judged exactly, but from a state the archive only declares (a recorder's patch, not an archived transaction's write)";
@@ -229,6 +234,10 @@ impl<'a> Before<'a> {
     pub fn data(&self, k: &crate::world::Key, tx: usize) -> Option<&'a [u8]> {
         if let Some(d) = self.w.declared_before(k, tx) {
             self.read_declared.set(true);
+            // verify-pr179: also in the World's log, so [`run`] softens the
+            // transaction when the judgement leaves without a finding (a
+            // silent skip after a declared read is never a PASS).
+            self.w.declared_reads.borrow_mut().insert((tx, *k));
             return d.map(|a| a.data.as_slice());
         }
         self.w.archived_before(k, tx).map(|a| a.data.as_slice())
@@ -292,10 +301,15 @@ fn soften_declared(cx: &mut Ctx, name: &'static str, mark: usize) {
     }
     for (t, keys) in by_tx {
         let Some(tx) = cx.w.txs.get(t) else { continue };
-        let failed = cx.findings[mark..]
-            .iter()
-            .any(|f| f.severity == Severity::Fail && f.signature == tx.sig);
-        if failed {
+        // A FAIL stays a FAIL; a judgement that already said so per
+        // judgement ([`Ctx::declared_pass`], VX, VWL) is not said twice.
+        let said = cx.findings[mark..].iter().any(|f| {
+            f.signature == tx.sig
+                && (f.severity == Severity::Fail
+                    || (f.severity == Severity::Unverifiable
+                        && f.detail.contains(FROM_DECLARED_MARK)))
+        });
+        if said {
             continue;
         }
         let bell = frontier_abi::prologue::bell_at(cx.f.genesis_ts, tx.time).unwrap_or(0);
