@@ -233,10 +233,11 @@ fn playable_profile(dir: &Path, program: &str, authority: &str, rpc: Option<&str
         std::fs::read_to_string(repo_root().join("scripts/devnet/devnet-playable-profile.json"))
             .unwrap();
     let mut v: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(v["season"]["preset"], "S1_DEVNET_WIDE_7D");
+    // devnet-continuous-1: the devnet world is the continuous preset, season 2 (season 1 was announced 7-day).
+    assert_eq!(v["season"]["preset"], "S1_DEVNET_WIDE_CONTINUOUS");
     assert_eq!(v["program"]["programVersion"], "0x4804");
-    assert!(
-        v["operator"]["seasonId"].is_u64(),
+    assert_eq!(
+        v["operator"]["seasonId"], 2,
         "the playable profile has its operator block"
     );
     v["programId"] = json!(program);
@@ -245,6 +246,23 @@ fn playable_profile(dir: &Path, program: &str, authority: &str, rpc: Option<&str
         v["rpcUrl"] = json!(r);
     }
     let p = dir.join("profile.json");
+    std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    p
+}
+
+/// [`playable_profile`] as the FINITE 7-day world, season 1 (`S1_DEVNET_WIDE_7D`): the loopback seasons below
+/// (P3 onwards, PEND's end and clean-up) run a season that can end; only the preset and the id differ from the
+/// committed continuous profile (`continuous` changes three bytes, devnet_preset_wide.rs covers it on the .so).
+fn finite_playable_profile(
+    dir: &Path,
+    program: &str,
+    authority: &str,
+    rpc: Option<&str>,
+) -> PathBuf {
+    let p = playable_profile(dir, program, authority, rpc);
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    v["season"]["preset"] = json!("S1_DEVNET_WIDE_7D");
+    v["operator"]["seasonId"] = json!(1);
     std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).unwrap();
     p
 }
@@ -327,7 +345,8 @@ async fn p1_offline_plan_of_the_committed_playable_profile() {
     let want = std::fs::read_to_string(&snap).expect("the snapshot (UPDATE_SNAPSHOTS=1 writes it)");
     assert_eq!(r.stdout, want, "the playable offline plan changed");
     assert_eq!(r.stdout.matches("\ntx ").count(), 10);
-    assert!(r.stdout.contains("preset S1_DEVNET_WIDE_7D"));
+    assert!(r.stdout.contains("preset S1_DEVNET_WIDE_CONTINUOUS"));
+    assert!(r.stdout.contains("season     id 2 "));
     assert!(r
         .stdout
         .contains("lane       playable (program_version 0x4804"));
@@ -336,7 +355,7 @@ async fn p1_offline_plan_of_the_committed_playable_profile() {
         .contains("tx 10 WideSetRules  [after keeper A's ConsumeGenesisSeed"));
     assert!(r.stdout.contains("5080 lamports/byte"));
     // The CreateSeason bytes are the preset's at 0x4804 (the plan prints their sha256).
-    let mut sp = frontier_abi::v2::presets::S1_DEVNET_WIDE_7D;
+    let mut sp = frontier_abi::v2::presets::S1_DEVNET_WIDE_CONTINUOUS;
     sp.base.program_version = operator::PLAYABLE_VERSION;
     let sb = operator::lane_bytes(&sp).unwrap();
     assert!(
@@ -1133,7 +1152,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         .expect("bind the RPC ports");
     let url = node.url();
     let key = write_key(&dir, "authority.json", &authority);
-    let prof = playable_profile(
+    let prof = finite_playable_profile(
         &dir,
         &program.to_string(),
         &authority.pubkey().to_string(),
