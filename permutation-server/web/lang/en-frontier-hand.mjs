@@ -69,6 +69,7 @@ export default {
   "六方向から一歩ずつ選んでください。": "Choose one step at a time from the six directions.",
   "終点はまだリング 128 の内側です。境界の外まで道を続けてください。": "The endpoint is still within ring 128. Continue the route beyond the boundary.",
   "到着ターンの候補を入力し、地形・時間を確認してください。": "Enter a proposed arrival turn, then check terrain and timing.",
+  "始まったばかりの世界では、最初のターンの決着がそろうまで（数分）届く砦の一覧は出ません。": "In a world that has just started, the list of keeps in reach appears once the first turn's results are all in (a few minutes).",
   "軍勢・所有者・接続情報が変わりました。カードを開き直してください。": "The host, owner or connection changed. Reopen this card.",
   "この準備は利用できません": "This preparation is unavailable",
   "記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。": "Prepare a route from recorded terrain and estimated time. Current passage conditions and successful departure remain unverified.",

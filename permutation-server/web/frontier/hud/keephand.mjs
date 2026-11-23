@@ -303,7 +303,10 @@ export function renderKeepsPop(FS, model, { head }) {
     <span class="kh-fig kh-fig-arr">${icon('bell')}<span class="kh-fig-v num">${x.arrive === null ? '—' : off ? L`+${fmtNum(Math.max(1, x.arrive - (FS.nowBell ?? 0)))} ターン` : L`ターン ${fmtNum(x.arrive)}`}</span><span class="kh-fig-k">${L`到着（${fmtNum(x.hexes)} マス）`}</span></span>
     <span class="kh-fig kh-fig-hold">${icon('flag')}<span class="kh-fig-v num">${x.contender !== null ? `${fmtNum(x.progress)}/${fmtNum(x.hold)}` : fmtNum(x.hold)}</span><span class="kh-fig-k">${x.contender !== null ? L`${factionName(x.contender)}が占拠中` : L`ターン保てば奪取`}</span></span>
     <span class="kh-row-go" aria-hidden="true">${icon('next')}</span></button></li>`;
-  const body = km.state === 'loading' ? html`<p class="pop-line kh-loading">${L`届く砦を調べています…`}</p>`
+  // (fix-loop12, LP12-2: a fresh world has no control snapshot until its first turn's records are complete — at 1× a few
+  //  minutes into turn 2 — and the list waits for it; said, so the wait is not read as stuck)
+  const firstRecords = km.state === 'loading' && FS.conquest?.status === 'loading' && !FS.conquest?.control;
+  const body = km.state === 'loading' ? html`<p class="pop-line kh-loading">${L`届く砦を調べています…`}</p>${firstRecords ? html`<p class="pop-line muted kh-first">${L`始まったばかりの世界では、最初のターンの決着がそろうまで（数分）届く砦の一覧は出ません。`}</p>` : ''}`
     : km.state === 'error' ? html`<p class="pop-line pop-why">${clientText(km.code)}</p>`
     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
     // (B9: keeps the page cannot place yet — a ring's village list not read — : the list is still being worked out)

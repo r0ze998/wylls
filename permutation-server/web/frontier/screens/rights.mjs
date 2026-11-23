@@ -101,6 +101,19 @@ export function rightsModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
 const btn = (act, data, text, { disabled = false } = {}) => html`<button type="button" class="btn small" data-act="${act}" ${raw(Object.entries(data).map(([k, v]) => `data-${k}="${String(v).replace(/"/g, '')}"`).join(' '))} ${raw(disabled ? 'disabled' : '')}>${text}</button>`;
 const costText = () => L`金 ${fmtNum(GRANT_ISSUE_COST[5])}`;
 
+/**
+ * (fix-loop12, LP12-8) The village an arrived caravan is bound for, named as the caravan form names it — by its tile
+ * (screens/s1.mjs: 「村（-1, 2 · マス 35）」). The caravan's record names a village by its SITE (`dst.at`, 0–11); this list
+ * said that number bare (「村（-1, 2 · 4）」) for the same village. The tile is the viewer's own village's, or the site's tile
+ * in the province record the page holds; without either, the province alone.
+ */
+function villageTo(FS, dst, site) {
+  const p = Number(dst.p), q = Number(dst.q);
+  const own = (FS.holdings ?? []).find(h => h && Number(h.p) === p && Number(h.q) === q && Number(h.site) === site);
+  const tile = Number.isInteger(own?.tile) ? own.tile : Number(FS.provinces?.get?.(`${p},${q}`)?.province?.sites?.[site]);
+  return Number.isInteger(tile) ? L`村（${p}, ${q} · マス ${tile}）へ` : L`村（${p}, ${q}）へ`;
+}
+
 export function renderRights(FS) {
   const m = rightsModel(FS);
   if (!m.on) return '';
@@ -133,7 +146,7 @@ export function renderRights(FS) {
     const kind = Number(c.dst.kind) === 2 ? 'vault' : 'holding', at = Number(c.dst.at ?? c.dst.tile ?? c.dst.site);
     const d = { seq: c.seq, kind, dp: c.dst.p, dq: c.dst.q, at, gen: c.dst.gen ?? 0, path: c.provinces.map(x => `${x.p}_${x.q}`).join('.'), ...(c.ownerTag ? { owner: c.ownerTag } : {}) };
     // (fix-loop6, LP6-14: not offered while a crossed province has not settled past the arrival — it said so only after a refused press)
-    return html`<li data-caravan="${c.seq}">${icon('scroll')}${c.ownerTag ? html`${chip(L`奪った隊商`, 'warn')} ` : ''}${kind === 'vault' ? L`貯蔵庫（${c.dst.p}, ${c.dst.q} · マス ${at}）へ` : L`村（${c.dst.p}, ${c.dst.q} · ${at}）へ`} <span class="muted">${cargoText(c.cargo)}</span>
+    return html`<li data-caravan="${c.seq}">${icon('scroll')}${c.ownerTag ? html`${chip(L`奪った隊商`, 'warn')} ` : ''}${kind === 'vault' ? L`貯蔵庫（${c.dst.p}, ${c.dst.q} · マス ${at}）へ` : villageTo(FS, c.dst, at)} <span class="muted">${cargoText(c.cargo)}</span>
       ${c.settled === false ? html`<span class="muted rights-deliver-wait" role="status">${L`通った州（${c.waitP}, ${c.waitQ}）の決着が到着のターン ${fmtNum(c.waitBell)} を過ぎるのを待っています。過ぎると届けられます（数ターン）。`}</span>`
         : html`<span class="actions">${btn('rights-deliver', d, L`隊商を届ける`)}</span>`}</li>`;
   })}</ul><p class="muted">${L`この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。`}</p>` : '';
