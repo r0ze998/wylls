@@ -170,7 +170,7 @@ test('the sentence: the fort, the nation to choose to defend it, and that the ch
     for (const v of [GOOD, { ...GOOD, state: 'ready' }, { ...GOOD, state: 'not_ready' }, { state: 'pending' }, { state: 'unavailable' }]) {
       const e = pairGuideText(v); assert.doesNotMatch(e, CJK, e); assert.doesNotMatch(e, BANNED_EN, e);
     }
-    assert.match(pairGuideText(GOOD), /fort of Province -2,4/); assert.match(pairGuideText(GOOD), /You may choose another nation/);
+    assert.match(pairGuideText(GOOD), /keep of Province -2,4/); assert.match(pairGuideText(GOOD), /You may choose another nation/);
   } finally { setLang(was); }
 });
 

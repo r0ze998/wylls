@@ -289,6 +289,7 @@ permutation-gateway/test/web-frontier-fx3.test.mjs
 permutation-gateway/test/web-frontier-garrison-checks.test.mjs
 permutation-gateway/test/web-frontier-hand-press.test.mjs
 permutation-gateway/test/web-frontier-hand.test.mjs
+permutation-gateway/test/web-frontier-held-march-guide.test.mjs
 permutation-gateway/test/web-frontier-herald.test.mjs
 permutation-gateway/test/web-frontier-hero.test.mjs
 permutation-gateway/test/web-frontier-holding-projection.test.mjs
