@@ -197,7 +197,10 @@ test('a REFUSED WideDepart (act answers undefined + FS.notice) is not counted as
   assert.ok(at > 0);
   const body = c.slice(at, c.indexOf('return r;', at));
   assert.ok(body.includes('const n = r === undefined ? FS.notice : r;'));
-  assert.ok(body.includes("if (n?.ok !== false && d.name === 'WideDepart') {"), 'counted only when not refused');
+  // (fix-loop11, LP11-1 audit: also a WideDepart sent and not confirmed yet — held by its signature, taken back if the
+  //  chain refuses it at the next step — counts; a refusal before sending still does not)
+  assert.ok(body.includes("if ((n?.ok !== false || heldDepart) && d.name === 'WideDepart') {"), 'counted only when not refused');
+  assert.ok(body.includes("const heldDepart = n?.ok === false && n.sent === true && n.code === 'LocalActUnconfirmed' && typeof n.signature === 'string';"));
   assert.ok(!body.includes("if (r?.ok !== false && d.name === 'WideDepart')"));
   assert.ok(body.indexOf('const n = r === undefined') < body.indexOf("d.name === 'WideDepart'"), 'the refusal is read before the count');
   // the controller's refusal path really answers undefined: failed() returns setNotice(), which returns nothing

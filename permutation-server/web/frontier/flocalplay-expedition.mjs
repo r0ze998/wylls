@@ -19,6 +19,8 @@
 // after its arrival turn is marked `revealed` (by the chain), as checkLocalReveal marks it on RevealAlreadyIn, so the
 // reveal strip lets it go. Reads that fail leave the last facts as they were (never "nothing happened").
 import { localDepartReveals } from './flocalplay-depart.mjs';
+// (fix-loop11, LP11-1: a seal the chain refused — `refused`, flocalplay-depart.mjs localDepartSent — is no expedition)
+const sent = r => !!r?.signature && !r.refused;
 import { LOCAL_REVEAL_CONTEXT_PATH, LOCAL_REVEAL_CONTEXT_SCHEMA, localRevealContext, postLocalReveal } from './flocalplay-reveal.mjs';
 import { revealAddresses } from './fexpedition-reveal.mjs';
 import { unpackWidePlain, decodeWideProvinceKey } from './fexpedition-seal.mjs';
@@ -28,7 +30,7 @@ import { seasonAddresses } from './faddr.mjs';
 /** The deployed fate codes (frontier-abi world_index::arrival::wide_arrival). */
 export const EXPEDITION_FATES = Object.freeze({ 1: 'stays', 2: 'withdrew', 3: 'bounced', 4: 'retreated', 5: 'destroyed' });
 /** The records read, by the fields named here only (frontier-abi expedition_bridge, march::wide_transit, arrival). */
-const BRIDGE = Object.freeze({ LEN: 336, MAGIC: 'PSWLEXP1', T: 16, STATE: 1 });
+const BRIDGE = Object.freeze({ LEN: 336, MAGIC: 'PSWLEXP1', T: 16, STATE: 1, ARRIVE_BELL: 172 });
 const INPUTS = Object.freeze({ MAGIC: 'PSFXWCLI', FLAGS: 18, RESOLVED: 2, SETTLED_MASK: 36, ARRIVALS: 320, ROW: 112, FACTION: 102, PRESENT: 106, FATE: 107, TROOPS_AFTER: 108, DEP_MASS: 88 });
 const SLOT = Object.freeze({ MAGIC: 'PSFXWASL', HOST: 96 });
 const latin = b => String.fromCharCode(...b);
@@ -49,7 +51,11 @@ export function expeditionAccounts(record, { programId, seasonAddress }, faction
 export function expeditionFacts(record, programId, faction, accounts, addresses) {
   const [transitAt, inputsAt, ...slotsAt] = addresses;
   const t = accounts.get(transitAt) ?? null;
-  const open = own(t, programId) && t.data.length === BRIDGE.LEN && latin(t.data.subarray(0, 8)) === BRIDGE.MAGIC;
+  // (fix-loop11, LP11-1: the bridge transit of THIS seal — its arrival turn the seal's. The transit's address is the
+  //  village's and the slot's only, so a later expedition of the same host and slot opens the same account: loop-play11
+  //  read a chain-refused departure as 「到着しました…」 off the next expedition's transit)
+  const mine = x => { try { return new DataView(x.data.buffer, x.data.byteOffset, x.data.byteLength).getUint32(BRIDGE.T + BRIDGE.ARRIVE_BELL, true) === record.arriveBell; } catch { return false; } };
+  const open = own(t, programId) && t.data.length === BRIDGE.LEN && latin(t.data.subarray(0, 8)) === BRIDGE.MAGIC && mine(t);
   const out = { transit: open ? 'open' : 'gone', transitState: open ? t.data[BRIDGE.T + BRIDGE.STATE] : null, slotI: null, present: false, fate: null, troopsAfter: null, depMass: null, resolved: false, settled: false };
   slotsAt.forEach((at, i) => {
     const s = accounts.get(at) ?? null;
@@ -109,7 +115,7 @@ export const expeditionFactsOf = fs => { let m = factsOf.get(fs); if (!m) { m = 
 export async function readExpeditions(fs, { relay, pin, faction, nowBell, post = postLocalReveal, seals = localDepartReveals }) {
   const m = expeditionFactsOf(fs);
   if (!relay || !pin?.programId || !pin?.seasonAddress || !Number.isInteger(faction)) return m;
-  for (const record of seals(fs).filter(r => r.signature)) {
+  for (const record of seals(fs).filter(sent)) {
     const prev = m.get(record.commit) ?? null;
     if (prev && expeditionStage(record, prev.facts, nowBell) === 'settled') continue;
     let addresses;
@@ -148,7 +154,7 @@ export function holdingIndexOf(fs, address) {
  */
 export function expeditionRows(fs, seals = localDepartReveals) {
   const m = expeditionFactsOf(fs), nowBell = fs?.nowBell ?? 0, rows = [];
-  for (const record of seals(fs).filter(r => r.signature)) {
+  for (const record of seals(fs).filter(sent)) {
     let typed, dest;
     try { typed = unpackWidePlain(record.plain); const k = decodeWideProvinceKey(typed.dest); dest = { p: Number(k.p), q: Number(k.q), tile: typed.destTile }; } catch { continue; }
     const holdingIndex = holdingIndexOf(fs, record.holding);
