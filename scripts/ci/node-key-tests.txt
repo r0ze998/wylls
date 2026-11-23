@@ -215,6 +215,7 @@ permutation-gateway/test/frontier-local-play-wide-play.test.mjs
 permutation-gateway/test/frontier-playable-lane-profile.test.mjs
 permutation-gateway/test/frontier-prize-epochs.test.mjs
 permutation-gateway/test/frontier-relay-resume.test.mjs
+permutation-gateway/test/frontier-world-goals-launcher.test.mjs
 permutation-gateway/test/package.test.mjs
 permutation-gateway/test/server.test.mjs
 permutation-gateway/test/web-chainplay.test.mjs
