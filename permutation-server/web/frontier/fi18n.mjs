@@ -542,6 +542,19 @@ export function failureText(r) {
   return L`不明なエラー（${code ?? status ?? '?'}）`;
 }
 
+/**
+ * (fix-loop11, LP11-1b) Why the chain refused a departure, in the page's words: the program's error by its number (the run's
+ * `programCode`, flocalplay-depart.mjs chainErrorCode), with its name; the chain's raw error only when no number is in it.
+ * loop-play11: 「出発は失敗しました（理由 {"InstructionError":[4,{"Custom":26}]}）」.
+ */
+export function departRefusedReason(d) {
+  const pc = d?.programCode;
+  if (pc === 26) return L`送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした（NotResident）`;
+  if (pc === 31) return L`送るあいだにターンが変わり、この到着ターンには着けなくなりました（ArrivalBell）`;
+  if (Number.isInteger(pc)) return L`${errorText(pc)}（エラー ${pc}）`;
+  return L`理由 ${d?.code ?? '?'}`;
+}
+
 /** The route line with singular and plural forms (wave-5 review: "1 provinces"): the composer's and the reach list's. */
 export function routeLine(route) {
   const n = route.hexes;

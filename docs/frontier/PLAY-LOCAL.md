@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-23 (through #182; #173–#182 added: tab and setting presses no longer make the page forget a wide village's march #173, the next army offered after a capture or a wipe-out #176 and the text fixes of #175 → §3 step 6 and §4, external AI residents in `--wide` sending the wide land's orders #178 → §11. #177 and #179–#182 are devnet and verifier changes; local play is unchanged by them → §7. What is left: §8). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-23 (through #182; #173–#182 added: tab and setting presses no longer make the page forget a wide village's march #173, the next army offered after a capture or a wipe-out #176 and the text fixes of #175 → §3 step 6 and §4, external AI residents in `--wide` sending the wide land's orders #178 → §11. #177 and #179–#182 are devnet and verifier changes; local play is unchanged by them → §7) and #184 (fix-loop11: a departure the chain refuses no longer stays under 進軍, the W2 wait goes on while another village is open, the cap line also comes while the second march is followed → §4). What is left: §8. Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -232,15 +232,10 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
         again, or type a later turn in 「詳細」). 「到着ターンはまだ入っていません。「地形・時間を確認」を押すと…」 = the
         arrival field is empty (go back to step 2).
    5. 「出発が確定しました（ターン N に到着予定・移動枠 0）」 means it departed.
-      - **If the card stays on 「送信しました。確定はまだ確認できていません。署名 …」**, press 「結果を照合する」. If nothing
-        changes and the host's chip in the bottom bar (「槍兵 400」 or the like) is still in the village, the departure was
-        **refused by the chain after it was sent** (NotResident, when the turn changed between the check and the send;
-        loop-play11 LP11-1, once at load ~70). The host has not left. Reopening the card shows 「出発は失敗しました（理由
-        {"InstructionError":[4,{"Custom":26}]}）。軍勢は出発していません。署名 …」 (the reason is the chain's raw text;
-        Custom 26 is NotResident). Send it again from step 3's 「間に合う候補」 (in that run the second try departed).
-      - On main the refused expedition nevertheless **stays in the 進軍 list** in the bottom bar (「ターン N に到着」 with
-        「この遠征の記録が見つかりません。結果を読めていません。」, later 「到着しました。封が開けられるのを待っています
-        （ワールドの進行役が公開の鍵で開けます）。」). It never left, so ignore the row (§8.1).
+      - **If the card stays on 「送信しました。確定はまだ確認できていません。署名 …」**, wait for the page's own check or press
+        「結果を照合する」. When the chain refused the departure after it was sent (NotResident, when the turn changed between the
+        check and the send; loop-play11 LP11-1), what the page says and how to send again is under "The chain can refuse a
+        departure after it was sent" below (since #184 a refused expedition does not stay in the 進軍 list).
    - **The world's keeper opens the seal.** After the arrival the map tag goes 「ターン N に到着」 → 「到着 · 開封を
      待っています」 → 「到着 · 封は開きました · 結果の確定を待っています」, and once the target province has caught up the
      march screen says 「結果を受け取りました　留まる：軍勢は広い土地の州に立っています（兵 500）」. Just wait (in fix-loop5,
@@ -259,8 +254,17 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
      「封を開く（ローカルプレイ）」). Before #105, at ×60 on a loaded machine, the keeper did miss the window of about 10 s
      (§8). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition will never settle.
-   - Before sending the next host, press 「結果を照合する」 under the card's 「送信しました。確定はまだ確認できていません」
-     once (until then 「出発する」 is not shown).
+   - While the card says 「送信しました。確定はまだ確認できていません」, the next host's 「出発する」 is not shown. Since
+     fix-loop11 the page checks the result itself on each read and the line turns into confirmed or refused (verify-pr184:
+     confirmed within seconds without a press). If it does not change, press 「結果を照合する」 under it once.
+   - **The chain can refuse a departure after it was sent** (NotResident when the turn changes between the check and the
+     send). The page checks the result itself each time it reads the 「進軍」 list; when it was refused it says once at the top
+     「遠征の出発はチェーンで断られました：送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした（NotResident）。軍勢は村にいます。…」
+     (EN: "The chain refused the expedition's departure: … (NotResident). The host is still in the village. …"). The card says
+     「出発はチェーンで断られました：…。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。」 and the expedition leaves the
+     「進軍」 list. The host is home: read again with 「出発条件を確認」 and you can depart again (fix-loop11 LP11-1; before, a refused
+     expedition stayed in the list as 「この遠征の記録が見つかりません」 or 「到着しました。封が開けられるのを待っています」, and the reason
+     was raw text such as `{"InstructionError":[4,{"Custom":26}]}`).
    - The bar button says 「送信しません」 (does not send), but in local play the card's last button really departs.
 4. **A march inside the wide land (wide → wide)**: open the village of step 2; it has the card
    「広い土地の軍勢（テスト）」. Pressing 「次の一手（広い土地）」 goes one step at a time: train spearmen → muster a
@@ -269,18 +273,18 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      card forget its march (#173; before, one tab press was enough: the card stayed on 「軍勢は進軍に出ています。」 with no
      result and the count for "at most 2" went back to 0. verify-pr173: 40+ presses, and the card still followed the
      arrival → 「占拠中 18 / 72」 → the capture). A page reload still forgets it (§6).
-   - **The card waits and sends by itself only while this wide village's screen is open** (still on main, §8.1;
-     loop-play11 LP11-2). When you go back to the rim village with 「ふつうの村に戻る」 (for step 3's expedition, say) the
-     wait stops without a word. Back on the card you find the earlier line (「…N ターン遅れています。」, 「…占拠中です：9 / 72
-     ターン。」 and the like, with the old number) and a plain 「次の一手（広い土地）」 button. **When you come back, press
-     「次の一手（広い土地）」 once** (it reads again and either goes on waiting or sends the step).
+   - The card's wait goes on when you close this wide village's screen and open the rim village or another tab (#184,
+     fix-loop11 LP11-2; see the province-lag item below. verify-pr184: with W2 closed and 「進軍」, 「国と領土」 and 「村」 open,
+     it checked 2 → 28 times and sent the train by itself).
    - The village's header says 「この村の記録の表示は読み取り専用です。命令は、下の「広い土地の軍勢（テスト）」だけが
      送ります（訓練・編成・進軍）。収穫・建設・隊商・追いつかせる は、この村には送れません。」 (the records are
      read-only; only the card below sends orders; #130).
    - The card states each step's reason in the page's language (#130; English on the English page):
      「広い土地の村で槍兵 N を訓練します。」 (train) → 「広い土地の村で槍兵 N の軍勢を編成します。」 (muster) →
      「軍勢（兵 N）が州 P,Q の砦へ進軍します（（国）が保持）。到着はターン N です。」 (march). Once the host is out it
-     says 「軍勢は進軍に出ています。」: nothing to do now.
+     says 「軍勢は進軍に出ています。」: nothing to do now. Right after the march is sent the card does not read again by itself;
+     one more press of 「次の一手（広い土地）」 shows the result or where the march is and starts following it about once a turn
+     (that press sends nothing; verify-pr184).
    - When the keep this village's host reaches was already being held by your own expedition (the march of step 3), the
      card does not say 「奪いました」 (fix-loop10 LP10-2): 「結果：州 P,Q の砦はあなたの国のものになりました（ターン N に確認）。
      あなたの遠征の軍勢が先に着いて占拠を進めていた砦です。この村の軍勢だけで奪ったのではありません。」 (the keep is now
@@ -291,8 +295,11 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      loop-play5: up to about 180 turns). **Do not keep pressing while the province is behind.** The card says
      「この村の州の決着が N ターン遅れています。…このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を
      送ります。」 and waits by itself (the button reads 「待っています…（押す必要はありません）」 and is disabled;
-     「待つのをやめる」 stops it). Other reasons it waits for: 「軍勢が整列中か休んでいます。」 and the like. A step refused because the turn changed while it was being sent (NotResident), or a march
-     send that failed once, is sent again next turn by itself (verify-pr117: with 「次の一手」 pressed every 2 s for 10
+     「待つのをやめる」 stops it). The wait **goes on while another village (the rim village, say) is open**; back on the card
+     you see what it last checked (fix-loop11 LP11-2; before, closing the W2 view stopped it silently and the card came back
+     with an old 「N ターン遅れています」 and a live button). A page reload stops it. Other reasons it waits for: 「軍勢が整列中か休んでいます。」 and the like. A step refused because the turn changed while it was being sent (NotResident; also when the
+     chain refuses it after sending), or a march send that failed once, is sent again next turn by itself (a march the chain
+     refused does not count toward the 2; fix-loop11) (verify-pr117: with 「次の一手」 pressed every 2 s for 10
      minutes the page sent only 4 acts and got through train → muster → march; loop-play6: the card waited by itself
      through a 187-turn lag and sent about 3 minutes later).
    - The world's keeper opens the march's seal and catches the target province up even when it is far behind
@@ -311,13 +318,15 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      when it **took the keep and stayed as its garrison**, 「砦を奪った軍勢は、砦の守備兵としてそこに残りました。…次の砦へ向かう新しい軍勢を
      作ります。 次の一手：…」 — both with the same 「次の一手を送れます（新しい軍勢づくり）。自動では送りません。…」 offer. The first time, a
      press of your own also only shows the result and the offer; the next press sends (w2-wipeout; before, both cases waited
-     「its host left」 for good and a press sent nothing). A village sends at most 2 marches inside the wide land in a test world. Once the
-     second march has **ended** (beaten, wiped out, or the keep taken and the host its garrison) the card says the last result and
-     「この村からの広い土地の中の進軍は、テスト世界では 2 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。」.
-     While the second host stands on an enemy keep's tile without winning or losing, that line does not come: the card stays on
-     「結果：軍勢（兵 N）は州 P,Q に立っています。砦は（国）が保持しています…」 with a button you can press (a press sends no third
-     march; loop-play11 LP11-4). During a wait, the count in 「占拠中です：n / 72 ターン」 is the last one read while the province
-     lags and cannot be read (verify-pr173: 52 / 72 from turn 429 to 448). (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
+     「its host left」 for good and a press sent nothing). A village sends at most 2 marches inside the wide land in a test world. After
+     the second is sent, the card says where that march is (on its way, being decided, standing beside a keep, …) followed by
+     「この村からの広い土地の中の進軍は、テスト世界では 2 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。」;
+     once it has ended (beaten, wiped out, or the keep taken and the host its garrison), the last result and the same sentence
+     (fix-loop11 LP11-4; before, a second host standing beside a keep it could not take never got the sentence; verify-pr184 saw it
+     after 「…進軍中です。到着はターン 527 です…」). While the village's province lags a few turns, the card shows
+     「この村の州の決着が N ターン遅れています。…」 instead (neither sends a third march). During a wait, the count in
+     「占拠中です：n / 72 ターン」 is the last one read while the province lags and cannot be read (verify-pr173: 52 / 72 from
+     turn 429 to 448). (verify-pr130 saw 「…進軍します」 → 「…過ぎました…」 → 「結果：軍勢（兵 76）は州 -63,-66 に
      立っています」).
 - **What you see**: the wide land is drawn on the ordinary map and on 「全体図」, outside its six corners, **as far as you
   have seen it** (fog). 「支配する州」 and the standings also count rim and wide-land keeps (#102).
@@ -420,21 +429,18 @@ notes below (the Ctrl-C cause LP6-3, the lag under load LP8-4; the rim village's
 an arrival LP7-6 were seen live only in part).
 loop-play10's LP10-1 … 6 are fixed too (a tab press making the W2 card forget its march, LP10-1, by #173; the text items
 LP10-2 … 5 by #175; a W2 village never raising another host after a capture or a wipe-out by #176; verify-pr173, 175, 176 and
-loop-play11 played them). Of LP11-1 … 5, new in loop-play11 (main at #173–#180), LP11-3 (the wide-claim card asked 1,200
-for a second village) is fixed by #183; the rest are still on main (the first two rows of the table and the fine notes; #184,
-which fixes some of them, was a draft when this was written).
+loop-play11 played them). LP11-1 … 5, new in loop-play11 (main at #173–#180), are fixed: LP11-1, 2, 4 and 5 by #184 (verify-pr184 played them),
+LP11-3 (the wide-claim card asked 1,200 for a second village) by #183 (verify-pr183 claimed live with exactly 800).
 What is left is below. None is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Boundary card → the 進軍 list | an expedition the chain refused after it was sent (NotResident) stays in the 進軍 list (「この遠征の記録が見つかりません。…」 → 「到着しました。封が開けられるのを待っています…」). The host is in the village. The reopened card gives the reason as raw text (`{"InstructionError":[4,{"Custom":26}]}`) (LP11-1) | if the host's chip is in the village, send again; ignore the row; §4 step 3 |
-| Wide village (W2) | the card waits by itself only while the W2 screen is open. Back in the rim village the wait stops silently; on return the card shows the old line and a pressable button (LP11-2) | on return press 「次の一手（広い土地）」 once; §4 step 4 |
 | Boundary card (×60) | 「出発条件を確認」 is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
 | ⑩ stopping a caravan (×60) | from the moment 「隊商を止める」 is offered you have in practice about 2 turns (about 20 s) to stop and decide (the limit is 6 turns from the turn the caravan stood; the province settles 2–4 turns late; verify-pr145) | try it with `--speed 15` (§12) |
 | ⑩ seizing a storehouse | 「貯蔵庫を奪う」 can be pressed while the owner's host stands on the tile; the program refuses it (NotOnTile, as the rules say) | press it when no host of the owner is there |
 | ① co-op board | after a partial delivery the board says 「依頼量に届かなかった（すべて終わり、上限で証明）」. The request stays 「受付中」 and turns to 「依頼量に届いた」 once the rest is delivered (verify-pr152) | deliver the rest and link it (§13) |
 | The external residents' MCP | the MCP server reads the first world only (a second world of the same launcher has no MCP reads; verify-pr142) | test with one world |
-| Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. The card also stays bound to the departed host (「カードを開き直してください」) | press 「結果を照合する」 once; reopen the card for the next host |
+| Boundary card | after a departure the card can stay on 「送信しました。確定はまだ確認できていません」 (2 of 5 in verify-pr130); until then the next host's 「出発する」 is not shown. Since fix-loop11 the page checks the result itself on each read and the line turns into confirmed or refused. The card also stays bound to the departed host (「カードを開き直してください」) | wait, or press 「結果を照合する」 once; reopen the card for the next host |
 | Stopping | the cause of the one Ctrl-C that did not end a world hours past its time (LP6-3) is still unknown. #130 added the 20 s bound and the second Ctrl-C; in verify-pr130 all four cases ended in 0.1–2.4 s | press Ctrl-C again (§6 item 1) |
 | Wide village (W2) | the card says 「この村の州の決着が N ターン遅れています。」 twice in a row | none (display only) |
 | Wide village (W2) | the notice after a 「次の一手（広い土地）」 step is sent is an English sentence on the Japanese page too (e.g. “train 100 Spearmen at the wide village -66,-63 …”; verify-pr162) | none (display only; the reason on the card itself is in the page's language) |

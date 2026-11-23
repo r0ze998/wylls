@@ -248,7 +248,7 @@ export async function followLocalAct(signature, { origin, still, post = postLoca
     const s = await read(signature);
     if (!still()) return { state: 'left' };   // (asked again after the await: an answer that arrives for another page is not shown to it)
     if (s?.ok && s.state === 'landed') return { state: 'landed', slot: s.slot ?? null };
-    if (s?.ok && s.state === 'failed') return { state: 'failed', code: s.code ?? 'TransactionFailed' };
+    if (s?.ok && s.state === 'failed') return { state: 'failed', code: s.code ?? 'TransactionFailed', ...(Number.isInteger(s.programCode) ? { programCode: s.programCode } : {}) };
     if (i + 1 < tries) await wait(every);
   }
   return { state: 'unconfirmed' };
@@ -267,7 +267,7 @@ export async function settleLocalAct(ledger, scope, key, read, { still = () => t
   let s; try { s = await read(e.signature); } catch { s = { ok: false }; }
   if (!still()) return { state: 'left', signature: e.signature };
   if (s?.ok && s.state === 'landed') { ledger.release(scope, key); return { state: 'landed', signature: e.signature, slot: s.slot ?? null }; }
-  if (s?.ok && s.state === 'failed') { ledger.release(scope, key); return { state: 'failed', signature: e.signature, code: s.code ?? 'TransactionFailed' }; }
+  if (s?.ok && s.state === 'failed') { ledger.release(scope, key); return { state: 'failed', signature: e.signature, code: s.code ?? 'TransactionFailed', ...(Number.isInteger(s.programCode) ? { programCode: s.programCode } : {}) }; }
   return { state: 'unconfirmed', signature: e.signature };
 }
 
@@ -465,7 +465,9 @@ export function localActRead({ allowed, post = postLocalAct, lane = LOCAL_LANE }
       const v = await post(a.relay, lane.paths.status, { schema: lane.schemas.status, signature });
       check(object(v) && v.signature === signature && ['pending', 'processed', 'confirmed', 'finalized', 'failed'].includes(v.status), 'BadLocalActStatus');
       if (v.status === 'confirmed' || v.status === 'finalized') return { ok: true, state: 'landed', slot: Number.isSafeInteger(v.slot) ? v.slot : null };
-      if (v.status === 'failed') { check(v.err !== null && v.err !== undefined, 'BadLocalActStatus'); return { ok: true, state: 'failed', code: 'TransactionFailed' }; }
+      // (fix-loop11, LP11-1 audit: with the program's error number when the chain's error carries one — the page then says
+      //  the program's reason, and the W2 card waits a turn after NotResident as it does for one refused before sending)
+      if (v.status === 'failed') { check(v.err !== null && v.err !== undefined, 'BadLocalActStatus'); const pc = Array.isArray(v.err?.InstructionError) ? v.err.InstructionError[1]?.Custom : undefined; return { ok: true, state: 'failed', code: 'TransactionFailed', ...(Number.isInteger(pc) && pc >= 0 && pc <= 0xffffffff ? { programCode: pc } : {}) }; }
       return { ok: true, state: 'pending' };
     } catch (e) { return { ok: false, code: codeOf(e, 'LocalActNoAnswer') }; }
   };

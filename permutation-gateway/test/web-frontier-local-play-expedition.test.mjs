@@ -26,7 +26,7 @@ const PIN = { programId: LOCAL_PLAY_PROGRAM, seasonAddress: SEASON };
 const FACTION = 0;
 const rec = (arriveBell = 219) => ({ host: HOST, transitSlot: 0, commit: 'c'.repeat(64), arriveBell, signature: 'sig', plain: plain(arriveBell), holding: HOLDING, revealed: null });
 const latin = s => Uint8Array.from(s, c => c.charCodeAt(0));
-function bridge(state) { const b = new Uint8Array(336); b.set(latin('PSWLEXP1')); b[8] = 2; b[16 + 1] = state; return { owner: LOCAL_PLAY_PROGRAM, data: b }; }
+function bridge(state, arriveBell = 219) { const b = new Uint8Array(336); b.set(latin('PSWLEXP1')); b[8] = 2; b[16 + 1] = state; new DataView(b.buffer).setUint32(16 + 172, arriveBell, true); return { owner: LOCAL_PLAY_PROGRAM, data: b }; }
 function slot(host) { const b = new Uint8Array(288); b.set(latin('PSFXWASL')); b.set(fromHex(host), 96); return { owner: LOCAL_PLAY_PROGRAM, data: b }; }
 function inputs({ k = 0, fate = 1, after = 110_000, resolved = true, settled = false, host = HOST, faction = FACTION } = {}) {
   const b = new Uint8Array(320 + 24 * 112), v = new DataView(b.buffer); b.set(latin('PSFXWCLI'));

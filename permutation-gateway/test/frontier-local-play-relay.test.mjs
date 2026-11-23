@@ -112,6 +112,16 @@ test('an expired message and a runner refusal are reported, never retried', asyn
   const body = { schema: SUBMIT_SCHEMA, message_digest: DIGEST, transaction_b64: wire(MESSAGE) };
   await assert.rejects(refused.relay.submit(body), e => e.code === 'LocalPlaySendRefused' && e.detail.code === -32002);
   await code(refused.relay.submit(body), 'LocalPlayMessageUsed');
+  // (fix-loop11, live: the runner's preflight ran the departure and the PROGRAM refused it — NotResident as the turn rolled
+  //  under the send: a definite "not taken", with the program's number; still never retried, the bytes stay used)
+  const rejected = harness({ send: () => ({ error: { code: -32002, message: 'Transaction simulation failed: InstructionError(4, Custom(26))', data: { err: { InstructionError: [4, { Custom: 26 }] }, logs: [] } } }) });
+  await rejected.relay.prepare(request());
+  await assert.rejects(rejected.relay.submit(body), e => e.code === 'LocalPlayRejected' && e.status === 422 && e.detail.program_code === 26 && e.detail.code === -32002 && typeof e.detail.signature === 'string');
+  await code(rejected.relay.submit(body), 'LocalPlayMessageUsed');
+  // (AlreadyProcessed is no rejection: the signature is known — the outcome stays unknown)
+  const known = harness({ send: () => ({ error: { code: -32002, message: 'Transaction simulation failed: This transaction has already been processed', data: { err: 'AlreadyProcessed' } } }) });
+  await known.relay.prepare(request());
+  await assert.rejects(known.relay.submit(body), e => e.code === 'LocalPlaySendRefused');
 });
 
 test('the loopback listener: info, routes, body limits; the CLI wiring and its arguments', async () => {

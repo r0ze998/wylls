@@ -73,7 +73,7 @@ const latin = b => String.fromCharCode(...b);
 
 /** The held seal this page could reveal: the newest one whose departure was signed for sending and that the chain has not confirmed revealed. Null when there is none. */
 export function localRevealCandidate(fs) {
-  const list = localDepartReveals(fs).filter(r => r.signature && !r.revealed);
+  const list = localDepartReveals(fs).filter(r => r.signature && !r.revealed && !r.refused);   // (fix-loop11 LP11-1: not one the chain refused)
   return list.length ? list.at(-1) : null;
 }
 /** Why a held seal cannot be revealed at all (before anything is read), or null. */

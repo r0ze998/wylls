@@ -221,6 +221,11 @@ export function wideHostSayText(say) {
     return [last, L`この村からの広い土地の中の進軍は、テスト世界では ${fmtNum(Number(say.cap ?? 2))} 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。`].filter(Boolean).join(' ');
   }
   if (ended && say.kind !== 'decision') return ended;
+  // (fix-loop11, LP11-1 audit: the last march was sent, its outcome not known then, and the chain refused it afterwards —
+  //  it never left: the count of marches is taken back and the village's host is still at home)
+  if (say.wait === 'refused') return Number(say.programCode) === 26
+    ? L`前の進軍はチェーンで断られました（送るあいだにターンが変わりました。NotResident）。軍勢は村にいます。次のターンにもう一度送ります。`
+    : L`前の進軍はチェーンで断られました（上の知らせに理由があります）。軍勢は村にいます。進軍の回数には数えません。`;
   // (and while the hold counts, a wait for the village's own province does not hide it)
   const counting = say.hold && !say.hold.outcome && say.hold.to && Number.isFinite(Number(say.hold.progress))
     ? L`あなたの国が州 ${say.hold.to.p},${say.hold.to.q} の砦を占拠中です：${fmtNum(Number(say.hold.progress))} / ${fmtNum(Number(say.hold.required))} ターン。` : '';
@@ -247,8 +252,23 @@ export function wideHostSayText(say) {
     return L`次の一手を送ります。`;
   }
   const m = say.march;
+  // (fix-loop11, LP11-4: the TEST cap's words ride along while the capped march is still followed — on its way, being
+  //  decided, or standing beside a keep it does not take. loop-play11: march #2 stood beside Dunmar's keep (60 vs 61) and
+  //  never ended, so the cap line the guide promised after the second march never came)
+  const capLine = say.cap ? ' ' + L`この村からの広い土地の中の進軍は、テスト世界では ${fmtNum(Number(say.cap))} 回までです。これ以上の進軍は計画しません（辺境の村からの遠征は続けられます）。` : '';
+  if (m && capLine) return marchLine(m, at) + capLine;
   // (fix-loop9, LP9-1: this village has sent the TEST cap of wide marches — said above, before the hold's own result)
-  if (m) {
+  if (m) return marchLine(m, at);
+  if (say.wait === 'march') return L`軍勢は進軍に出ています。`;
+  if (say.wait === 'lag') return L`この村の州の決着が ${fmtNum(Number(say.lag ?? 0))} ターン遅れています。`;
+  if (say.wait === 'host') return L`軍勢が整列中か休んでいます。`;
+  if (say.wait === 'village') return L`広い土地の村がまだ確定していません。`;
+  return L`いまは送れる一手がありません。`;
+}
+
+/** Where the last wide march is (its `phase`), in the page's words. */
+function marchLine(m, at) {
+  {
     if (m.phase === 'out') return L`軍勢は州 ${at(m.to)} の砦へ進軍中です。到着はターン ${fmtNum(m.arrive)} です（いまはターン ${fmtNum(m.nowBell)}）。`;
     if (m.phase === 'stands') {
       const k = m.keep, mine = k && k.contender === m.faction, held = k && k.holder === m.faction;
@@ -259,11 +279,6 @@ export function wideHostSayText(say) {
     if (m.phase === 'gone') return L`結果：軍勢は州 ${at(m.to)} に残れませんでした（戦いに敗れました）。`;
     return L`到着先の州 ${at(m.to)} の記録をまだ読めていません。`;
   }
-  if (say.wait === 'march') return L`軍勢は進軍に出ています。`;
-  if (say.wait === 'lag') return L`この村の州の決着が ${fmtNum(Number(say.lag ?? 0))} ターン遅れています。`;
-  if (say.wait === 'host') return L`軍勢が整列中か休んでいます。`;
-  if (say.wait === 'village') return L`広い土地の村がまだ確定していません。`;
-  return L`いまは送れる一手がありません。`;
 }
 
 export function render(FS) {

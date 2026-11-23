@@ -36,7 +36,8 @@ const PATHS = [LOCAL_DEPART_PREPARE_PATH, LOCAL_DEPART_SUBMIT_PATH, LOCAL_DEPART
 export const LOCAL_DEPART_MAX_BYTES = 64 * 1024;
 export const LOCAL_DEPART_TIMEOUT_MS = 30_000;
 /** The steps of a run, in order; the last four are ends. */
-export const LOCAL_DEPART_STEPS = Object.freeze(['sealing', 'preparing', 'signing', 'submitting', 'submitted', 'confirmed', 'failed', 'unknown', 'error']);
+// (fix-loop11: `expired` — the relay read the transaction as never landed past its last valid height: it never will)
+export const LOCAL_DEPART_STEPS = Object.freeze(['sealing', 'preparing', 'signing', 'submitting', 'submitted', 'confirmed', 'failed', 'expired', 'unknown', 'error']);
 const fail = (code, detail) => { throw Object.assign(new Error(detail ? `${code}: ${detail}` : code), { code }); };
 const check = (ok, code) => { if (!ok) fail(code); };
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -120,7 +121,15 @@ export function localDepartSubmitted(value, signature) {
  * The relay's `status` answer for `signature`: `{status, err, slot}` with status one of pending | processed |
  * confirmed | finalized | failed, or throws. `failed` carries the chain's own error (JSON text, shortened).
  */
-export function localDepartStatus(value, signature) {
+// (fix-loop11, live: the relay also answers `expired_unlanded` — the signature was not found at a slot past the message's
+//  last valid height, so it can never land. The page called that answer malformed (BadLocalDepartStatus) and the refused
+//  departure stood in 進軍 for good. Believed, as flocalplay-return.mjs does, only for this run's own last valid height
+//  `lastValid` (text) and a context slot past it; → `{status: 'expired_unlanded', err: null, slot: context_slot}`)
+export function localDepartStatus(value, signature, lastValid = null) {
+  if (object(value) && value.signature === signature && value.status === 'expired_unlanded') {
+    check(typeof lastValid === 'string' && value.last_valid_block_height === lastValid && Number.isSafeInteger(value.context_slot) && BigInt(value.context_slot) > BigInt(lastValid), 'BadLocalDepartStatus');
+    return Object.freeze({ status: 'expired_unlanded', err: null, slot: value.context_slot });
+  }
   check(object(value) && value.signature === signature && ['pending', 'processed', 'confirmed', 'finalized', 'failed'].includes(value.status), 'BadLocalDepartStatus');
   check((value.status === 'failed') === (value.err !== null && value.err !== undefined), 'BadLocalDepartStatus');
   let err = null; if (value.status === 'failed') { try { err = (typeof value.err === 'string' ? value.err : JSON.stringify(value.err)).slice(0, 200); } catch { err = 'Failed'; } }
@@ -139,7 +148,7 @@ export async function postLocalDepart(origin, path, body, { fetch: fetcher = (..
     const raw = await res.text();
     check(raw.length <= LOCAL_DEPART_MAX_BYTES, 'LocalDepartAnswerTooLarge');
     let value; try { value = JSON.parse(raw); } catch { fail('LocalDepartAnswerMalformed'); }
-    if (!res.ok) throw Object.assign(new Error('the local-play relay refused'), { code: codeOf(object(value) ? value : null, 'LocalDepartRelayRefused'), refused: true });
+    if (!res.ok) throw Object.assign(new Error('the local-play relay refused'), { code: codeOf(object(value) ? value : null, 'LocalDepartRelayRefused'), refused: true, ...(object(value?.detail) ? { detail: value.detail } : {}) });
     return value;
   } finally { clearTimeout(t); signal?.removeEventListener?.('abort', onAbort); }
 }
@@ -156,17 +165,33 @@ const revealKey = (host, transitSlot, commit) => `${host}|${transitSlot}|${commi
  * Memory only: never written, never posted, lost on reload — and with it the way to open that march on arrival.
  */
 export const localDepartReveals = fs => [...revealsOf(fs).values()];
+/**
+ * (fix-loop11, LP11-1) The kept seals whose transaction was signed for sending and that the chain has NOT refused: the
+ * expeditions that may be out. A departure the chain refused (its run reconciled `failed` — NotResident when the turn
+ * rolled between the check and the send) carries `refused` `{code, programCode, slot}` on its seal: its host never left,
+ * so it is no march — no 進軍 row, no reveal, no facts read. loop-play11: such a seal stood in the 進軍 list for 150+
+ * turns (「この遠征の記録が見つかりません」, then 「到着しました…」 read off a later expedition's transit) while the host
+ * was home. The seal itself is still kept (nothing kept here is ever dropped).
+ */
+export const localDepartSent = fs => localDepartReveals(fs).filter(x => x.signature && !x.refused);
+/** (fix-loop11, LP11-1) The program's error number in a chain error `{"InstructionError":[i,{"Custom":n}]}` (object or JSON text), or null. */
+export function chainErrorCode(err) {
+  let v = err;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return null; } }
+  const c = Array.isArray(v?.InstructionError) ? v.InstructionError[1]?.Custom : undefined;
+  return Number.isInteger(c) && c >= 0 && c <= 0xffffffff ? c : null;
+}
 /** The reveals of a host and transit slot (all commits), or the one of a commit (hex). */
 export const localDepartRevealFor = (fs, host, transitSlot, commit = null) => (commit !== null ? revealsOf(fs).get(revealKey(host, transitSlot, commit)) ?? null
   : localDepartReveals(fs).filter(x => x.host === host && x.transitSlot === transitSlot));
 
 // ------------------------------------------------------------------ the run
 const runs = new WeakMap();
-const idle = () => Object.freeze({ status: 'idle', busy: false, requestId: null, signature: null, digest: null, code: null, error: null, arriveBell: null, transitSlot: null, host: null, sent: false, chain: null, slot: null });
+const idle = () => Object.freeze({ status: 'idle', busy: false, requestId: null, signature: null, digest: null, code: null, programCode: null, error: null, arriveBell: null, transitSlot: null, host: null, sent: false, chain: null, slot: null });
 const runOf = fs => { let r = runs.get(fs); if (!r) { r = { state: idle(), busy: false, sent: null, spent: null, seq: 0 }; runs.set(fs, r); } return r; };
 /** The outcomes that are not settled: the transaction was (or may have been) sent and the chain has not said. */
 const OPEN = ['unknown', 'submitted'];
-/** The run's state for the page: `{status, busy, requestId, signature, digest, code, error, arriveBell, transitSlot, host, sent, chain, slot}`. */
+/** The run's state for the page: `{status, busy, requestId, signature, digest, code, programCode, error, arriveBell, transitSlot, host, sent, chain, slot}`. */
 export const localDepartOf = fs => runOf(fs).state;
 /**
  * Whether the draft's observation of the departure conditions is the one a departure was already sent on. A sent
@@ -265,7 +290,7 @@ export async function runLocalDepart(fs, { allowed, context, sealInput, seal, si
     const origin = gate();
     // from here the transaction may reach the chain: its signature is this run's for good, and is the reveal's
     reveal.signature = signed.signature;
-    r.sent = Object.freeze({ origin, signature: signed.signature });
+    r.sent = Object.freeze({ origin, signature: signed.signature, lastValid: prepared.lastValidBlockHeight === undefined || prepared.lastValidBlockHeight === null ? null : String(prepared.lastValidBlockHeight) });
     put('submitting', { signature: signed.signature });
     // (the repaint above is the page's code and may have closed the card, changed the draft or the wallet: asked
     // again, in this same turn of the loop as the POST. Refused here, nothing was sent: `sent` stays false)
@@ -275,6 +300,15 @@ export async function runLocalDepart(fs, { allowed, context, sealInput, seal, si
     r.spent = observation;   // (this observation has been sent on: used up, whatever the outcome)
     let answer;
     try { answer = localDepartSubmitted(await post(origin, LOCAL_DEPART_SUBMIT_PATH, { schema: LOCAL_DEPART_SUBMIT_SCHEMA, message_digest: prepared.digest, transaction_b64: toBase64(signed.wire) }), signed.signature); } catch (e) {
+      // (fix-loop11, live: the runner's own definite "not taken" — its preflight ran the departure and the program refused
+      //  it, e.g. NotResident as the turn rolled under the send: never queued, never on the chain. The relay says so with
+      //  LocalPlayRejected and the program's number; the seal is no march, and the person is told why at once)
+      if (e?.refused === true && e.code === 'LocalPlayRejected') {
+        const pc = Number.isInteger(e.detail?.program_code) ? e.detail.program_code : chainErrorCode(e.detail?.err);
+        let code = 'LocalPlayRejected'; try { if (e.detail?.err !== undefined) code = (typeof e.detail.err === 'string' ? e.detail.err : JSON.stringify(e.detail.err)).slice(0, 200); } catch { /* kept */ }
+        reveal.refused = Object.freeze({ code, programCode: pc, slot: null, by: 'runner' });
+        return end('failed', { code, programCode: pc, error: null, chain: 'rejected' });
+      }
       // no answer, a refusal or one that cannot be believed: whether the transaction went out is not known here.
       // It is asked about by its signature (reconcileLocalDepart); it is never submitted again.
       return end('unknown', { error: codeOf(e, 'LocalDepartOutcomeUnknown') });
@@ -321,7 +355,8 @@ export async function departWithRetries({ run, reread, readyNow, arrivalEarly = 
 /**
  * Ask what became of a run whose outcome is not settled (`unknown` or `submitted`): its FIRST signature goes to the
  * status route, and only there. Nothing is sealed, prepared, signed or submitted again. `allowed()` is asked first.
- *   confirmed | finalized → `confirmed`;  failed → `failed` (the chain's error in `code`);
+ *   confirmed | finalized → `confirmed`;  failed → `failed` (the chain's error in `code`, its program number in
+ *   `programCode`; the run's seal is marked `refused` — localDepartSent);
  *   processed | pending   → the state stays as it was (`chain` says which);
  *   no answer, or a refusal (also "not a signature this relay submitted": a restarted relay has forgotten it, so
  *   that proves nothing) → the state stays, with the error. `failed` is only ever the chain's own error. → the state.
@@ -337,10 +372,20 @@ export async function reconcileLocalDepart(fs, { allowed, post = postLocalDepart
   if (!a?.ok || a.relay !== r.sent.origin) return end(before.status, { error: a?.code ?? 'LocalDepartRelay' });
   put(before.status);
   let s;
-  try { s = localDepartStatus(await post(r.sent.origin, LOCAL_DEPART_STATUS_PATH, { schema: LOCAL_DEPART_STATUS_SCHEMA, signature: r.sent.signature }), r.sent.signature); } catch (e) {
+  try { s = localDepartStatus(await post(r.sent.origin, LOCAL_DEPART_STATUS_PATH, { schema: LOCAL_DEPART_STATUS_SCHEMA, signature: r.sent.signature }), r.sent.signature, r.sent.lastValid ?? null); } catch (e) {
     return end(before.status, { error: codeOf(e, 'LocalDepartStatusUnavailable') });
   }
-  if (s.status === 'failed') return end('failed', { code: s.err, error: null, chain: 'failed', slot: s.slot });
+  if (s.status === 'expired_unlanded') {
+    // (fix-loop11: never landed and never will — no march either)
+    for (const x of revealsOf(fs).values()) if (x.signature === r.sent.signature && !x.refused) x.refused = Object.freeze({ code: 'expired_unlanded', programCode: null, slot: s.slot });
+    return end('expired', { code: null, programCode: null, error: null, chain: 'expired_unlanded', slot: s.slot });
+  }
+  if (s.status === 'failed') {
+    // (fix-loop11, LP11-1: the chain refused it — its seal is no march: marked, so the march list drops it)
+    const programCode = chainErrorCode(s.err);
+    for (const x of revealsOf(fs).values()) if (x.signature === r.sent.signature && !x.refused) x.refused = Object.freeze({ code: s.err, programCode, slot: s.slot });
+    return end('failed', { code: s.err, programCode, error: null, chain: 'failed', slot: s.slot });
+  }
   if (s.status === 'confirmed' || s.status === 'finalized') return end('confirmed', { error: null, code: null, chain: s.status, slot: s.slot });
   return end(before.status, { error: null, chain: s.status, slot: s.slot });
 }
