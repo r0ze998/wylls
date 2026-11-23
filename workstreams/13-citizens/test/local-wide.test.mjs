@@ -36,7 +36,7 @@ function wideLand(o = {}) {
 }
 function obsOf(raw, wl = wideLand(), extra = {}) {
   return { bell: 50, nowSecs: NOW, genesisTs: NOW - 30000, seasonId: '11', programVersion: 1, joined: true, faction: 3, wide: true, holding: { ...RIM },
-    province: { resolvedNext: 49 }, settled: settled(raw, NOW), stores: storesAt(raw, NOW, RESOURCE_ORDER).map(s => ({ resource: s.resource, value: s.value, perHour: s.perHour, cap: s.cap })),
+    province: { resolvedNext: 49 }, landStage: 'final', settled: settled(raw, NOW), stores: storesAt(raw, NOW, RESOURCE_ORDER).map(s => ({ resource: s.resource, value: s.value, perHour: s.perHour, cap: s.cap })),
     ...(wl ? { wideLand: wl } : {}), ...extra };
 }
 const mem = (o = {}) => ({ ...freshState({ wallet: 'W', goal: 'village-first', nation: 3 }), ...o });
@@ -59,6 +59,10 @@ test('WO2 a rim village within reach claims wide land when the stores hold the s
   // a tried site is not asked again; every site tried: no claim
   assert.equal(localCandidates(obsOf(village({ stores: RICH })), mem({ wide: { ...wideMem({}), triedClaims: ['-65,-65,2'] } })).candidates.find(x => x.kind === 'wideclaim').order.fields.site, 4);
   assert.ok(!ids(localCandidates(obsOf(village({ stores: RICH })), mem({ wide: { ...wideMem({}), triedClaims: ['-65,-65,2', '-65,-65,4'] } }))).some(i => i.startsWith('wideclaim')));
+  // a provisional first village: the claim is held (the program refuses NotFinal), the save goes on
+  const prov = localCandidates(obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem()).candidates.find(x => x.kind === 'wideclaim');
+  assert.match(prov.held.join(' '), /not final/);
+  assert.match(checkStep({ name: 'WideClaim', idx: 0, fields: {} }, obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem()).wait, /NotFinal/);
   // a wide village already, or no target in reach, or the tries spent: none
   assert.match(claimNotDue(obsOf(village(), wideLand({ villages: [{ p: '-65', q: '-65', site: 2, slot: 2 }], bound: 1 })), mem()), /wide village already/);
   assert.match(claimNotDue(obsOf(village(), wideLand({ targets: [] })), mem()), /within reach/);
@@ -155,6 +159,9 @@ test('WO7 ④ plans: the wide steps come first (claim, the wide host chain, the 
   // the expedition: no host → [Train, Muster, Expedition]; ready → go
   const nh = obsOf(village({ reserve: 0 }), wideLand({ targets: [], expedition: { ok: false, hosts: 0, why: 'no host at home' } }));
   assert.deepEqual(wideSteps(nh, m).map(s => s.name), ['Train', 'Muster', EXPEDITION]);
+  // a reserve at home already: muster and send before the save (a muster spends nothing of the settler cost)
+  const withReserve = obsOf(village({ stores: [1100, 1300, 700, 400, 0, 320, 0, 0], reserve: 500 }), wideLand({ expedition: { ok: false, hosts: 0, why: 'no host at home' } }));
+  assert.deepEqual(wideSteps(withReserve, m).map(s => [s.name, s.fields.troops]), [['Muster', 300], [EXPEDITION, undefined]]);
   const plan = { dest: { p: -65, q: -64 }, arriveBell: 58, host: { id: 7n, troops: 200 } };
   const ready = checkStep({ name: EXPEDITION, idx: 2, fields: {} }, obsOf(village(), wideLand({ targets: [], expedition: { ok: true, plan } })), m);
   assert.equal(ready.go.plan, plan);

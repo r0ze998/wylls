@@ -15,7 +15,7 @@
 // KEY-FREE.
 import { createHerald } from '../../../../permutation-server/web/frontier/herald.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
-import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
+import { storesAt, landState } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { setS1, s1On } from '../../../../permutation-server/web/frontier/fs1.mjs';
 import { knowVillageOre, terrainOreExtra } from './brain.mjs';
@@ -87,6 +87,8 @@ export function createObserver({ base, wallet, wide = false, identity = null, de
     let province = null;
     try { const pv = await h.province(holding.p, holding.q); if (pv.ok && pv.province) province = { resolvedNext: Number(pv.province.resolvedNext), passableMask: pv.province.passableMask }; } catch { province = null; }
     const wideInv = wide && identity ? wideInventory(me.record, me.citizen, { wallet, programId: identity.programId, seasonAddress: identity.seasonAddress, seasonId: season.seasonId }) : undefined;
-    return { ...base0, joined: true, faction, holding, settled: st, stores, province, ...(wideInv ? { wideInv } : {}) };
+    // (external-wide-orders: the page's land stage of its first village — a wide claim needs it final: NotFinal, Custom 24)
+    let landStage = null; try { landStage = landState(me.citizen).stage; } catch { landStage = null; }
+    return { ...base0, joined: true, faction, holding, settled: st, stores, province, landStage, ...(wideInv ? { wideInv } : {}) };
   };
 }

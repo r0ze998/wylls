@@ -75,6 +75,15 @@ export function claimSettling(obs, st, limits = WIDE_LIMITS) {
   const c = st.wide?.claimWait;
   return c && Number.isInteger(c.bell) && obs.bell < c.bell + limits.claimWaitBells ? `my claim on ${c.site} (turn ${c.bell}) is settled at a turn's end (waited until turn ${c.bell + limits.claimWaitBells})` : null;
 }
+/**
+ * The program's claim needs the first home FINAL (proc/wide.rs claim_site: NotFinal, Custom 24 — live run2: a claim of a
+ * provisional rim village was rejected by the runner's preflight, not sent). The save goes on meanwhile. → why, or null.
+ */
+export function claimNotFinal(obs) {
+  if (obs?.landStage === 'final') return null;
+  return obs?.landStage ? `my first village is ${obs.landStage}, not final: a wide claim needs a final first home (NotFinal)` : 'my first village\'s land stage is not read';
+}
+
 /** The settler cost against the village's stock: `{need, short: {resource: n}, affordable}`. */
 export function claimCost(obs) {
   const need = obs.wideLand?.need ?? settlerCost(2);

@@ -24,7 +24,7 @@ import { buildOffers, trainCost, maxTrain, settled, HOST_TROOPS, TRANSIT_SLOTS, 
 import { BUILD_ITEMS, storesAt, queueItem, TIER_BONUS_PCT } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
 import { s1On, s1OreBase, setOreExtraProvider, holdingOreExtra } from '../../../../permutation-server/web/frontier/fs1.mjs';
-import { WIDE_LIMITS, EXPEDITION, wideMem, claimNotDue, claimSettling, claimCost, claimOrder, saveHold, expeditionNotDue, wideHostDecision, departMeta, expeditionFields, noteWide } from './wide.mjs';
+import { WIDE_LIMITS, EXPEDITION, wideMem, claimNotDue, claimSettling, claimNotFinal, claimCost, claimOrder, saveHold, expeditionNotDue, wideHostDecision, departMeta, expeditionFields, noteWide } from './wide.mjs';
 
 export const BRAIN_KIND = 'ws13-local-brain/1';
 /** The six orders of a local-play page (flocalplay-act.mjs LOCAL_ACT_NAMES' first six): the only ones asked for. */
@@ -255,6 +255,7 @@ export function wideCandidates(obs, mem, out, { bell, limits = LOCAL_LIMITS, a =
     const held = [];
     if (o.why) held.push(o.why);
     if (settling) held.push(settling);
+    const nf = claimNotFinal(obs); if (nf) held.push(nf);
     if (!cost.affordable) held.push(`saving for the settler cost (short ${Object.entries(cost.short).map(([r, n]) => `${r} ${n}`).join(', ')})`);
     const fh = failureHold(mem, 'WideClaim', bell); if (fh) held.push(fh);
     if (o.order) out.push({ id: `wideclaim:${o.site}`, kind: 'wideclaim', site: o.site, order: o.order, ...(held.length ? { held } : {}), score: 1.6,

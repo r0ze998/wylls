@@ -18,7 +18,7 @@ import { planBuildsReal, PLAN_ITEMS, LOCAL_LIMITS, recordBehind, refusalHold, bu
 import { buildOffers, trainCost, HOST_TROOPS, TRANSIT_SLOTS, copyNumber } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { BUILD_ITEMS } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
-import { WIDE_ORDERS, WIDE_HOST_ORDERS, WIDE_LIMITS, EXPEDITION, saveHold, claimNotDue, claimSettling, claimCost, claimOrder, expeditionNotDue, wideHostDecision, departMeta, expeditionFields } from './wide.mjs';
+import { WIDE_ORDERS, WIDE_HOST_ORDERS, WIDE_LIMITS, EXPEDITION, saveHold, claimNotDue, claimSettling, claimNotFinal, claimCost, claimOrder, expeditionNotDue, wideHostDecision, departMeta, expeditionFields } from './wide.mjs';
 
 export const PLAN_SCHEMA = 'p04-plan/0.1';
 /** The orders a plan may hold (workstreams/04-execution src/plans.rs LOCAL_ORDERS). */
@@ -87,6 +87,13 @@ export function wideSteps(obs, mem, { limits = PLAN_LIMITS } = {}) {
   if (!xNot && x?.ok) return [step(EXPEDITION, 'a ready host of my rim village marches into the wide land')];
   const hd = wideHostDecision(obs, mem);
   if (hd.decision) return WIDE_HOST_ORDERS.slice(Math.max(0, WIDE_HOST_ORDERS.indexOf(hd.decision.name))).map(n => step(n, `my wide village: ${n}`));
+  // (an expedition due, no host at home, the reserve already holds one: a muster spends nothing of a claim's settler cost,
+  //  so the host is formed and sent before the save — live run2: a fresh rim village holds a reserve from the start)
+  const reserve0 = Number(obs.settled?.reserve?.[0] ?? 0);
+  if (!xNot && x && x.hosts === 0 && obs.holding.tile !== undefined && reserve0 >= limits.musterTroops) {
+    const troops = Math.min(HOST_TROOPS.max, Math.floor(reserve0 / 100) * 100, 300);
+    return [step('Muster', `a host of ${troops} for an expedition into the wide land`, { unit: 0, troops, tile: obs.holding.tile }, { reserveAtLeast: troops }), step(EXPEDITION, 'the new host marches into the wide land')];
+  }
   if (!claimNotDue(obs, mem) && !claimSettling(obs, mem) && claimOrder(obs, mem).order) {
     const c = coverable(obs, claimCost(obs).need);
     if (Number.isFinite(c.bells) && c.bells <= WIDE_LIMITS.savePatienceBells) return [step('WideClaim', `claim wide land (slot ${obs.wideLand.slot}): the settler cost ${Object.keys(c.short).length ? `in about ${c.bells} turn(s)` : 'is in my stores'}`)];
@@ -218,6 +225,7 @@ export function checkWideStep(step, obs, mem, { patience = 36 } = {}) {
     const no = claimNotDue(obs, mem); if (no) return { replan: no };
     const settling = claimSettling(obs, mem); if (settling) return { wait: settling };
     const o = claimOrder(obs, mem); if (!o.order) return { replan: o.why };
+    const nf = claimNotFinal(obs); if (nf) return { wait: nf };
     const cost = claimCost(obs);
     if (!cost.affordable) {
       const c = coverable(obs, cost.need);
