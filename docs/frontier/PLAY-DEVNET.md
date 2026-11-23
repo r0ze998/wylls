@@ -88,6 +88,11 @@ Good to know:
 - Before the world is created the page says “The season's record cannot be read.” Open it again after the join time.
 - The 7-day “season 1” announced on 2026-11-23 is not created. Seasons were abolished (decision of 2026-11-23), so the
   devnet world is one endless “season 2”. Where the page says “season”, it means this world.
+- **There is no winning or losing yet.** After a keep is taken the guide says 「この世界は続きます。戦期の勝敗と集計は未決定です。」
+  (this world goes on; its result and tally are undecided). The direction decided after that text was written (2026-11-24)
+  is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
+  achieves one receives a prize. That is a plan and is not built: the devnet world has no goals and no prize today.
+  The design record is [design 01](../design/win-conditions/01-proposal.ja.md) (Japanese).
 
 ## 6. When something goes wrong
 

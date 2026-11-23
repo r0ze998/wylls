@@ -79,6 +79,7 @@ import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { expeditionHoldText } from './screens/tracker.mjs';
 import { custodyLosses } from './screens/custody.mjs';
+import { heldMarchAnswer } from './screens/villageorders.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
@@ -462,8 +463,12 @@ const HELD_TOLD = {
   failed: () => L`送信済みだった進軍はチェーンで断られました。軍勢は村にいます。もう一度命令できます。`,
   expired: () => L`送信済みだった進軍は期限までに記録されませんでした（これから記録されることはありません）。軍勢は村にいます。もう一度命令できます。`,
 };
-function heldTold(x) {
+function heldTold(x, signature = null) {
   if (!HELD_TOLD[x]) return false;
+  // (D-verify-pr193-2: the held march's order record takes the answer too — refused when it failed or expired, as the
+  //  first answer's is since #193; left 'unconfirmed', the guide still counted it as "marched")
+  const a = heldMarchAnswer(FS.orders, signature, x);
+  if (a) orderAnswered(a.record, a.ok, a.extra);
   if (x === 'landed') done(HELD_TOLD.landed); else setNotice({ ok: false, busy: false, text: HELD_TOLD[x], unsent: 'march-held', retry: false });
   refresh().catch(e => console.error('frontier refresh:', e));
   return true;
@@ -477,7 +482,7 @@ function recheckHeldMarch(signature, { tries = HELD_RECHECK_TRIES, every = HELD_
     if (sender !== localMarchSender) { heldRechecks.delete(signature); return; }
     let x = 'unconfirmed';
     try { x = await sender.ask(signature); } catch { x = 'unconfirmed'; }
-    if (x !== 'unconfirmed') { heldRechecks.delete(signature); invalidate('panel'); heldTold(x); return; }
+    if (x !== 'unconfirmed') { heldRechecks.delete(signature); invalidate('panel'); heldTold(x, signature); return; }
     if (++n >= tries) { heldRechecks.delete(signature); return; }
     setTimeout(tick, every);
   };
@@ -487,10 +492,10 @@ function recheckHeldMarch(signature, { tries = HELD_RECHECK_TRIES, every = HELD_
 async function askHeldMarches(hostId, { told = false } = {}) {
   if (!localMarchSender) return;
   busy(() => L`送信済みの進軍の結果を確認しています…`);
-  let last = 'unconfirmed';
-  for (const sig of localMarchSender.held(hostId)) { try { last = await localMarchSender.ask(sig); } catch { last = 'unconfirmed'; } if (last !== 'unconfirmed') break; }
+  let last = 'unconfirmed', answered = null;
+  for (const sig of localMarchSender.held(hostId)) { try { last = await localMarchSender.ask(sig); } catch { last = 'unconfirmed'; } if (last !== 'unconfirmed') { answered = sig; break; } }
   invalidate('panel');
-  if (heldTold(last)) return;
+  if (heldTold(last, answered)) return;
   const sig = localMarchSender.held(hostId)[0];
   if (told && sig) setNotice({ busy: false, text: localMarchUnconfirmedText(sig), code: 'LocalActUnconfirmed', unsent: 'march-send' });
 }

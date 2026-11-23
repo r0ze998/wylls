@@ -19,6 +19,7 @@ import { popOf } from '../../permutation-server/web/frontier/hud/subject.mjs';
 import { render as marchCard } from '../../permutation-server/web/frontier/hud/marchcard.mjs';
 import { keepHistory, renderKeep, renderReach } from '../../permutation-server/web/frontier/screens/conquest.mjs';
 import { conquestGuide, conquestObjective, renderConquestGuide, CONQUEST_STEPS } from '../../permutation-server/web/frontier/screens/conquestguide.mjs';
+import { heldMarchAnswer } from '../../permutation-server/web/frontier/screens/villageorders.mjs';
 import { objectiveModel } from '../../permutation-server/web/frontier/screens/onboarding.mjs';
 import { render as prizePanel } from '../../permutation-server/web/frontier/screens/prize.mjs';
 import { render as report } from '../../permutation-server/web/frontier/screens/report.mjs';
@@ -285,6 +286,14 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   assert.notEqual(conquestGuide(ordered()).current, 'march', 'a sealed march order: past the march step');
   assert.notEqual(conquestGuide(ordered('unconfirmed')).current, 'march', 'sent, outcome unknown: it may have gone');
   assert.equal(conquestGuide(ordered('refused')).current, 'march', 'answered "no": no march went');
+  // (D-verify-pr193-2) a march held by its signature and answered LATER (re-check / press): its record takes the answer
+  // the way controller.mjs heldTold → orderAnswered writes it; failed or expired = refused = the step stays
+  const held = { ...ordered('unconfirmed').orders[0], code: 'LocalActUnconfirmed', sent: true, signature: 'SIGheld' };
+  const later = x => { const a = heldMarchAnswer([held], 'SIGheld', x); return { ...withHost, orders: [{ ...a.record, ...a.extra, state: a.ok ? 'accepted' : 'refused' }] }; };
+  assert.notEqual(conquestGuide({ ...withHost, orders: [held] }).current, 'march', 'still held: it may have gone');
+  assert.equal(conquestGuide(later('failed')).current, 'march', 'held, then refused on chain: no march went');
+  assert.equal(conquestGuide(later('expired')).current, 'march', 'held, then expired: no march went');
+  assert.notEqual(conquestGuide(later('landed')).current, 'march', 'held, then landed: marched');
   // the capture record: every step is done
   const taken = fs({ bell: 92 }); taken.conquest.events = [{ seq: '10696', kind: 'keep_taken', bell: 83, p: 4, q: -1, from: 5, to: 0, troops: 241 }];
   assert.equal(conquestGuide(taken).current, 'done');
