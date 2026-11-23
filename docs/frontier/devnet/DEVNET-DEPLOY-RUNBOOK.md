@@ -266,7 +266,7 @@ devnet. Fees are the 5,000-lamport signature fee unless the keeper bids a priori
 | Harvest, Build, Train, Muster | 5,000 each | 5,000 each | fee |
 | Depart (one sealed march; the return home is another Depart) | 50,394 | not computed | fee + the escrowed tip and seal bond, settled by the program |
 | WideClaimSite (one wide village) | 9,108,360 | 12,477,320 | fee + the ticket record's rent and escrow (1,792 B) |
-| The wide village's FIRST WideMuster (P17; later musters 5,000) | 17,155,080 | 23,500,960 (computed) | fee + the rent of the province's 3,248-byte wide roster (`flocalplay-wide-host.mjs` `WIDE_ROSTER_BYTES`); measured offline by devnet-dress-rehearsal (the page's preview total = the debit) |
+| The wide village's FIRST WideMuster (P17; later musters 5,000) | 17,155,080 | 23,501,960 (computed) | fee + the rent of the province's 3,248-byte wide roster (`flocalplay-wide-host.mjs` `WIDE_ROSTER_BYTES`); measured offline by devnet-dress-rehearsal (the page's preview total = the debit) |
 | FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit (rent-live-rest: also at 6,960, measured offline) |
 | ExpeditionDepart (rim → wide; the page sends it on devnet, §7 P15) | 2,407,514 | not computed | fee (5,000) + the escrowed tip and bond (45,394) + the rent of the 336-byte transit record (2,357,120) |
 | **Join → rim village → 10 Harvests → wide claim** (#110, verify-pr110) | **18,921,960 (0.0189 SOL)** | 25,900,520 (0.0259) | |
