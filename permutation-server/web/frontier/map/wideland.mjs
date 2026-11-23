@@ -113,7 +113,8 @@ export function keepAndHostsOfCapture(b64) {
   for (let i = 0; i < ENTRIES_N; i++) {
     const o = ENTRIES_AT + i * ENTRY_BYTES;
     if (b[o + 11] !== ROSTER || b[o + 10] >= TILES || b[o + 8] > 5) continue;
-    hosts.push({ faction: b[o + 8], unit: b[o + 9], tile: b[o + 10], troops: v.getUint32(o + 12, true) });
+    // (an entry's TROOPS are in thousandths of a soldier — the arrival's troops_milli; a keep's TROOPS are whole)
+    hosts.push({ faction: b[o + 8], unit: b[o + 9], tile: b[o + 10], troops: Math.floor(v.getUint32(o + 12, true) / 1000) });
   }
   const k = KEEP_AT, keep = b[k] === NO_TILE || b[k] >= TILES ? null
     : { tile: b[k], holder: b[k + 1], contender: b[k + 2] === 0xff ? null : b[k + 2], progress: b[k + 3], required: b[k + 4], troops: v.getUint32(k + 8, true) };

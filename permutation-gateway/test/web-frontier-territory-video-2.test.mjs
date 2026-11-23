@@ -23,7 +23,7 @@ const VIEWER = 3, ENEMY = 0, OTHER = 4;
 /** A 4,864-byte wide province capture: keep on `keep.tile` (or none), `hosts` `[{faction, unit, tile, troops, state}]`. */
 function capture({ keep = null, hosts = [] } = {}) {
   const b = new Uint8Array(4864), v = new DataView(b.buffer);
-  hosts.forEach((h, i) => { const o = 1064 + i * 48; b[o + 8] = h.faction; b[o + 9] = h.unit ?? 0; b[o + 10] = h.tile; b[o + 11] = h.state ?? 1; v.setUint32(o + 12, h.troops, true); });
+  hosts.forEach((h, i) => { const o = 1064 + i * 48; b[o + 8] = h.faction; b[o + 9] = h.unit ?? 0; b[o + 10] = h.tile; b[o + 11] = h.state ?? 1; v.setUint32(o + 12, h.troops * 1000 + 999, true); });
   if (keep) { b[4480] = keep.tile; b[4481] = keep.holder; b[4482] = keep.contender ?? 0xff; b[4483] = keep.progress ?? 0; b[4484] = keep.required ?? 72; v.setUint32(4488, keep.troops ?? 0, true); }
   else b[4480] = 0xff;
   return Buffer.from(b).toString('base64');
