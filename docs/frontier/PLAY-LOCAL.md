@@ -905,6 +905,10 @@ It reads the world's Province and Citizen accounts and serves the result read-on
 `/goals-world/<world proxy port>/goals/state`. Open **Nation & territory** to see the **World goals** card: the four
 goals, each flag keep with its holder and its hold timer, your nation's progress, and every nation's count. On the map
 each flag keep has a gold pennant beside its standard.
+Under the fog of war the card tells a flag keep as the map does: a keep in sight with its holder, hold timer and siege;
+one you saw before with its last-known holder only; one you have never seen by its place alone ("You have not seen this
+province's keep yet"). Your own nation's flag keeps are always shown. Every nation's count stays public, like the
+provinces-held strip.
 
 After an achievement the card says what the prize **would** have paid you: "If prizes were on, you would have received
 X test USDC". This is an estimate from a simulated vault: one 25 test USDC pass per person, 80 % to the prize, 30 % of
