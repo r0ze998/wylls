@@ -15,8 +15,9 @@
 //                                    Train/Muster/Depart are refused (LocalActWideOrderRefused, before anything is read)
 //                                    and the expedition routes (depart, reveal, expedition preview, Return/Dissolve) are
 //                                    not served (404); /f/local-play/info, the six orders, FileTicket and the ordinary
-//                                    (legacy-disk) march stay as for the page. The launcher passes it for external
-//                                    residents of a --wide-land world only (plain and demo worlds: unchanged)
+//                                    (legacy-disk) march stay as for the page. (external-wide-orders: the launcher no
+//                                    longer passes it — an external resident plays the wide land as an operator
+//                                    resident does, under the same one action per turn; kept as a relay option)
 //
 // Binds 127.0.0.1 only, answers loopback peers only (Host = this listener's own address, no Origin: no DNS
 // rebinding), bodies ≤ 16 KiB of JSON.

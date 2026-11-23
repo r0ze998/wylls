@@ -43,6 +43,18 @@
 > `dormancy` and `sweep` are not in the profile). Verified 2026-11-22 on main 6d0e91f6 (verify-pr144; #137, merged after
 > #139, changed the page, the launcher and the local chain only: nothing the devnet `.so`, the keeper or the planner links).
 
+> **Refreshed 2026-11-23 against `origin/main` fbe51529 (devnet-refresh-4; offline, docs only; still nothing
+> deployed, no key, no SOL, no devnet contact).** Since the 11-22 refresh main gained the public-endpoint hardening
+> (#164, #166: the gateway's `--public-proxy xff`, §8a), keeper A's live rent rate (#147) and the page's / verifier's
+> (#150), the wide village's own acts on the devnet page (#151, P17), the offline 72-bell capture and march pair
+> (#160), the page's wait after Join (#172), the verifier's v0 / v1 and declared-patch reads (#155, #158, #169, #179),
+> the dress rehearsal's runbook fixes (#177) and the season's end tool (#180, §6c). **The artefact is unchanged**:
+> nothing under `permutation-frontier/src` or `frontier-abi` changed since #139, the committed
+> `devnet-playable-67a33c92.so.gz` still unpacks to `67a33c92…06b3` (3,447,064 B), and the planner re-run at 5,080 and
+> 6,960 prints the §4a figures unchanged. **No owner decision is pending.** New in §4b: the wide village's first
+> WideMuster (0.0172 SOL, the dress rehearsal's D-dress-11) and keeper A's measured season. The deploy-day
+> preflight (`scripts/devnet/preflight.mjs`, §8 step 0) is #181, merged the same day (main 14eb9bfe): start §8 there.
+
 ## 1. What gets deployed
 
 | Program | Deployed? | Why |
@@ -268,12 +280,18 @@ devnet. Fees are the 5,000-lamport signature fee unless the keeper bids a priori
 | WideClaimSite (one wide village) | 9,108,360 | 12,477,320 | fee + the ticket record's rent and escrow (1,792 B) |
 | FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit (rent-live-rest: also at 6,960, measured offline) |
 | ExpeditionDepart (rim → wide; the page sends it on devnet, §7 P15) | 2,407,514 | not computed | fee (5,000) + the escrowed tip and bond (45,394) + the rent of the 336-byte transit record (2,357,120) |
+| The **first** WideMuster in a wide province (P17, #151; it creates the province's roster from the sender's wallet, so every later muster there, by anyone, is fee-only) | 17,155,080 | 23,501,960 | fee + the rent of the province's 3,248-byte wide roster ((3,248 + 128) B × the rate); **measured offline** at 5,080 (devnet-dress-rehearsal run6, D-dress-11: the page's preview total = the wallet's debit) |
 | **Join → rim village → 10 Harvests → wide claim** (#110, verify-pr110) | **18,921,960 (0.0189 SOL)** | 25,900,520 (0.0259) | |
 | **Join → rim village → 5 Harvests → Muster → one march** (#118, verify-pr118) | **9,843,994 (0.0098 SOL)** | not computed | |
-| All of the above once, with about 20 fee-only actions | about 21.4 M (**0.021 SOL**) [sum] | about 0.03 SOL | |
+| Join, one village, one march, one wide claim and one expedition, with about 20 fee-only actions (no outpost, no first WideMuster) | about 21.4 M (**0.021 SOL**) [sum] | about 0.03 SOL | |
+| Every row above once (with one outpost and one first WideMuster), with about 20 fee-only actions | about 45.7 M (**0.046 SOL**) [sum] | about 0.063 SOL [sum; the two "not computed" rows scaled by their rent part] | |
 
-So a wallet with **0.05 SOL of devnet SOL** covers a player's season with room to spare. The Citizen's and
-Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOOK §3 step 14).
+So a wallet with **0.05 SOL of devnet SOL** covers a player's season with room to spare **as long as the player
+does not muster from a wide village**: the dress rehearsal's busiest such page spent 17.26 M lamports (0.0173 SOL).
+With a wide province's first WideMuster (0.0172 SOL more) a player who does everything spends about 0.046 SOL at
+5,080 (the rehearsal's wide page: 36,567,040 lamports with one wide village) and about 0.063 SOL at 6,960, so **tell players
+who go to the wide land to hold 0.1 SOL**. The Citizen's and Holding's rent comes back when they are closed after
+the season (PLAYTEST-RUNBOOK §3 step 14).
 
 **The operator** (r0ze's keys: the deployer, the upgrade authority, and keeper A's payers).
 
@@ -312,7 +330,20 @@ outside §4a's total:** SkipQuiet over the provinces opened on demand (up to abo
 SOL** for a small first season (a few wide villages) and **up to about +10 SOL** for a full one; at 5,080 the 120.15
 SOL hold then becomes about 123–130 SOL [derived]. Re-run 2026-11-22 (devnet-refresh-3, offline, on the committed
 `devnet-playable-67a33c92.so.gz`): `dry-run.mjs --profile … --so … --rate 5080` → season 98.2147, total 120.1467 SOL;
-`--rate 6960` → 106.2416, 136.2751 SOL; `SEND GATE: CLOSED`.
+`--rate 6960` → 106.2416, 136.2751 SOL; `SEND GATE: CLOSED`. Re-run again 2026-11-23 (devnet-refresh-4, `origin/main`
+fbe51529): the same figures at both rates.
+
+**Keeper A, one whole season measured offline** (devnet-dress-rehearsal run4, 2026-11-23: the §8 keeper.toml with
+`wide_rings = 1`, five pages and two external residents, bell 0 to 1,012, rent 5,080): **17,041 transactions, 0.881
+SOL out of its payers, of which 0.273 SOL is fees** (spent) and the rest is rent that its `close` role returns
+while it keeps running (it must drain before `end-season`'s final part: after the tombstone nothing closes those
+floats, §6c step 3). By role: SkipQuiet 13,852 sends / 0.225 SOL; GatherClash 78 / 0.537 SOL (ClashInputs float);
+`wide-resolve` 200 × 64,331 lamports; 2,489 refused ArchiveAnchors ≈ 0.023 SOL (the harness's declared anchors; an
+offline-only refusal, but keeper A has no backoff for a write the chain keeps refusing, D-dress-8). That season was
+small (7 players, 36 wide provinces, few of them known): the "+3 SOL" budget above stays the figure to fund, and the
+"+10 SOL" bound is `wide-resolve` over all 108 wide provinces from the first bell (about 7.0) plus SkipQuiet over
+every province opened on demand (about 2.9). Not measured there: the beacon's
+anchors and seeds (declared offline), so the 20.89 SOL beacon / archive float stays a model figure.
 
 ## 5. Deploy **[r0ze]**
 
@@ -676,7 +707,7 @@ and proven **offline only**: the §1a `.so` in an in-process local chain on loop
 gateway and page. **No season, no keeper and no send path has ever run against a real cluster.** §7.0 is the short
 list; the table after it keeps each item's detail.
 
-### 7.0 Done and open (2026-11-22)
+### 7.0 Done and open (2026-11-22; rows for #147–#180 added 2026-11-23)
 
 **Done (code), with the PR that closed it:**
 
@@ -699,6 +730,13 @@ list; the table after it keeps each item's detail.
 | P15, P9 | The page's devnet ExpeditionDepart, wallet-paid; keeper A's `wide-resolve` role keeps the known wide provinces resolved bell by bell | #129 | P12 (browser) |
 | P14 (a) | Keeper A reads every conquest record exactly instead of latching (defence in depth since (b)) | #124 | `operator_playable` P14 on the previous `.so` `da3dc1aa…` (key-tests only) |
 | P16b | The page's second / third village: one wallet-signed FileOutpost (0.00716 SOL), settled by keeper A's `tickets` role | #141 | PPOST (browser) |
+| S1 (H-1, H-2, M-2) | The public endpoint: the gateway refuses to start off localnet without `--public-proxy xff\|none` (or `--dev`); per-address and global caps on `/gw/f/reveal` and `/gw/f/nudge`; keeper A refuses forged reveals and far-future nudges before any RPC; the herald reads the last `X-Forwarded-For` entry, caps `WS /h/ws` at 64 per client and checks `Host` / `Origin` | #164, #166 (checklist #165, §8a) | PGWF flood runs (verify-pr166); the §8a 15-nudge check through a TLS stand-in proxy (devnet-dress-rehearsal) |
+| F1 | Rent at the cluster's rate: keeper A's fund floor, opens and crowding check read the Rent sysvar (`/v1/status` `duties.rent`); the page's escrow previews and the verifier's VX / VG follow it | #147, #150 | verify-pr147, verify-pr150 (PPOST at 5,080 and 6,960) |
+| P17 | The wide village's own acts on the devnet page: WideHarvest, WideBuild, WideTrain, WideMuster, wallet-paid | #151 | P17 (browser); devnet-dress-rehearsal run6 |
+| P1b | The page waits up to 180 s for the herald to show its own Join / village request (`fown-wait.mjs`), then offers 「もう一度確かめる」 | #172 | P7 behind a 30 / 60 / 150 s delaying proxy (verify-pr172) |
+| V1 | The verifier decodes and re-executes v0 / v1 transactions, snapshots lookup tables at first use, and V7 / V11 (every `World::state_before` reader) read declared patches | #155, #158, #169, #179 | 97 archives re-judged (verify-pr179): only the dress rehearsal's season changed, FAIL → UNVERIFIABLE |
+| E1 | The season's end: `frontier-operator end-season` (EndSeason, then from end + 72 h every province close and CloseSeason part; §6c) | #180 | PEND ×5 (verify-pr180): 57,136,950,640 lamports net back to the authority = the dry run's `authority_net`; resumes after `--max-txs` and a SIGKILL |
+| D1 | The whole of §8 / §8a rehearsed offline in order (operator, keeper A from the §8 `keeper.toml`, herald behind a TLS stand-in proxy, gateway `--public-proxy xff`, 5 wallet-paid pages + 2 external residents, to bell 1,012); its runbook fixes | #177 | devnet-dress-rehearsal run4, run6 |
 | P14 (b) | Free City conquest closed in the devnet build (owner decision 2026-11-22: P14 = (a) + (b)): no `conquest-dispatch-experimental`, the wrapper's kinds 12–18 answer `BadData` before any account is read, so no conquest record can latch keeper A's feed guard; new `.so` `67a33c92…` | #139 | `verify/tests/p14b_devnet_no_conquest.rs` (every recorded kind 12–18 transaction re-executed on the new `.so`: refused, no record, keeper A's indexes not latched), `svm-tests/tests/devnet_playable.rs` (the fresh build) |
 
 **Open:**
@@ -819,8 +857,20 @@ closed: §8a).
 
 ```sh
 # ── 0. Before anything [r0ze] ────────────────────────────────────────────────────────────────────────────────
+# the preflight: one line per MUST item, PASS / FAIL / WARN / SKIP + the fix; read-only (never sends, never reads a
+# key file, never spends SOL; no cluster contact without --rpc). Exit 0 = no FAIL. Run it until it shows no FAIL:
+node scripts/devnet/preflight.mjs --build --solana4 ~/solana-4x/bin/solana          # toolchain, profile, key files, rebuild --twice + sha256, planner at 5,080
+node scripts/devnet/preflight.mjs --rpc https://api.devnet.solana.com              # + the §3 read-only checks (B5: only when r0ze approves the read); a rent ≠ 5,080 adds the planner line at the measured rate
+#   after steps 5–7 (services up, before opening the season) — ON THE HOST, from the repository root (it stats the keeper's
+#   token / seed files there; relative paths in keeper.toml are relative to the repository root, the keeper's working directory):
+node scripts/devnet/preflight.mjs --services <your start script> --keeper-config keeper-a/keeper.toml   # herald / gateway / keeper flags
+#   and from a machine OUTSIDE the host (a clone of the repository; no keys there):
+node scripts/devnet/preflight.mjs --public-url https://<host>
+#   (TLS, /h/season cluster + program, /frontier/frontier/, the §8a 15-nudge X-Forwarded-For check, closed ports 41040/41050/41030/41033;
+#    the offline lines FAIL there for the keys / 4.x CLI it does not have — read only the ep.* lines. Wait 20 s between two runs.
+#    Flags and checks: scripts/devnet/README.md "Deploy-day preflight")
 scripts/play-local.sh                 # the local play-check (t341u); then: scripts/play-local.sh --wide
-# the read-only checks of §3 again (rent rate, BLS, SBPF v2, SIMD-0500), with the 4.x CLI
+# the read-only checks of §3 again (rent rate, BLS, SBPF v2, SIMD-0500), with the 4.x CLI (the --rpc line above reads the same)
 
 # ── 1. Build, key-free (cargo-build-sbf 3.1.9) ───────────────────────────────────────────────────────────────
 scripts/build-frontier-devnet-playable-sbf.sh --twice     # prints file_sha256 → H (today, P14 b: 67a33c92…06b3)
