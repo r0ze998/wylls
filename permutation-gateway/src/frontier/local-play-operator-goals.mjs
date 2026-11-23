@@ -97,11 +97,16 @@ export function flagWeights(sight, faction, { busy = 0 } = {}) {
   return out;
 }
 
-/** How many of a resident's live march targets (memory.targets: "p,q" → bell until) are flag keeps of the posting. */
+/**
+ * How many of a resident's live march targets (memory.targets: "p,q" → bell until) are ATTACKS on flag keeps: a flag
+ * keep of the posting that the resident does not see held by its own nation. (Live ×60, world 2: a defence march to its
+ * own flag and a flag its nation had already taken were counted too, and silenced stop-rival while a rival sat at
+ * need − 1.)
+ */
 export function flagMarches(targets, sight, nowBell) {
   if (!sight || !targets) return 0;
-  const flags = new Set(sight.flags.map(f => key(f.p, f.q)));
-  return Object.entries(targets).filter(([k, until]) => flags.has(k) && int(until) && until >= nowBell).length;
+  const attacks = new Set(sight.flags.filter(f => f.holder !== sight.faction).map(f => key(f.p, f.q)));
+  return Object.entries(targets).filter(([k, until]) => attacks.has(k) && int(until) && until >= nowBell).length;
 }
 
 /** The judge's answer from the launcher, or null. `url`: loopback only. */

@@ -87,10 +87,12 @@ test('the goal rides through warStep and decideNext into the Depart decision', (
   assert.equal(plain.goal, undefined);
 });
 
-test('flagMarches counts only live targets on posted flags', () => {
+test('flagMarches counts only live attacks on posted flags — not a defence of its own flag, not a flag already taken', () => {
   const s = flagSight({ answer: answerOf({ flags: [F(1, 0, 0), F(0, 1, 1)], progress: prog([1, 1, 0, 0, 0, 0]) }), faction: 2, seenKeeps: new Map() });
   assert.equal(flagMarches({ '1,0': 120, '0,1': 90, '5,5': 200 }, s, 100), 1);
   assert.equal(flagMarches(undefined, s, 100), 0);
+  const mine = flagSight({ answer: answerOf({ flags: [F(1, 0, 0), F(0, 1, 1), F(-1, 1, 2)], progress: prog([1, 1, 1, 0, 0, 0]) }), faction: 2, seenKeeps: seen([keep(1, 0, 2), keep(-1, 1, 2), keep(0, 1, 1)]) });
+  assert.equal(flagMarches({ '1,0': 200, '-1,1': 200, '0,1': 200 }, mine, 100), 1, 'world 2 live: (1,0) taken and (-1,1) its own flag defended are not attacks');
 });
 
 test('readGoals: loopback only, the judge\'s kind only, null on anything else', async () => {

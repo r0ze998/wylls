@@ -924,8 +924,9 @@ reinforcement is 1 point per 100 troops on the keep). Operator AI residents earn
 nothing is sent, and the chain is not changed.
 
 In a local world rings 2–3 are heartland and round 1 is posted at the start, before ring 4 opens, so the only
-contestable keeps then are ring 1's: each nation has **one** flag keep, 6 flags, need 3 (ring 4's 24 keeps open soon
-after and are contestable, without a flag; a later round is chosen from the keeps open at its posting). For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
+contestable keeps then are ring 1's: each nation has **one** flag keep, 6 flags, need 3 (when ring 4 opens — in one
+×60 run by turn 13, in another not by turn 60 — its 24 keeps are contestable, without a flag; a later round is chosen
+from the keeps open at its posting). For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
 example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 2 --flag-keeps-hold 72`: capture one neighbouring flag keep
 (72 turns), then hold it 72 more turns.
 
@@ -935,5 +936,5 @@ where their own villages, hosts and their nation's held provinces see it (never 
 cannot see). They defend their nation's flag keep under siege before any other keep, and march first on a flag keep held
 by a nation that holds the need minus one or more (still only with 1.5× the keep's garrison). Otherwise a flag keep they
 see only wins a near tie. A resident with one march already on a flag keep gets no more of that tie-break (two for a
-close rival's flags), so its other hosts fight the ordinary war. The ring 4 keeps of a local world are contestable too but carry no flag (round 1 is posted before ring 4 opens),
-so the AI residents keep fighting over them. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.
+close rival's flags), so its other hosts fight the ordinary war. Once ring 4 is open its keeps are contestable too
+but carry no flag in round 1, and the AI residents keep fighting over them. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.
