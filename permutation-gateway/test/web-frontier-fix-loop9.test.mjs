@@ -58,6 +58,39 @@ test('LP9-1: a beaten host home under the march minimum — the planner says the
   assert.equal(w.wait, 'march');
 });
 
+// verify-pr173 (D-verify-pr137-3): after loop-play10 LP10-1 the page KEEPS its planner memory across tab presses, so a march
+// whose host never comes back — it became the keep's garrison on a capture, or it was destroyed — left the planner on
+// 'its host left: the march settles' for good (a tab press used to hide it by wiping the count). It now raises a new host.
+test('verify-pr173: an ended march with no host left (captured keep / destroyed) — a NEW host is offered (train, then muster), under the cap', async () => {
+  const empty = provinceBytes(599, { hosts: [] });
+  const captured = provinceBytes(598, { keep: { holder: 2, troops: 40 } });   // the keep is the village nation's (faction 2): the host is its garrison
+  const decide = (o, mem = lost()) => plannerAt(600, o).decide({ programId: PROGRAM, seasonAddress: SEASON }, mem, { wideTargets: [], villages: [village] });
+  let w = await decide({ holding: holdingBytes({ reserve: 0 }), home: empty, dest: captured });
+  assert.equal(w.decision?.name, WIDE_TRAIN, `a step, not a wait for ever: ${w.why}`);
+  assert.equal(w.decision.rebuild, true, 'offered once by the card (LP9-1 rebuild), not sent by itself');
+  assert.equal(w.march?.phase, 'gone'); assert.deepEqual(w.home, { hosts: 0, troops: 0 });
+  w = await decide({ holding: holdingBytes({ reserve: 100 }), home: empty, dest: captured });
+  assert.equal(w.decision?.name, WIDE_MUSTER); assert.equal(w.decision.fields.troops, 100); assert.equal(w.decision.rebuild, true);
+  // destroyed (the keep still another nation's): the same new host
+  w = await decide({ holding: holdingBytes({ reserve: 0 }), home: empty, dest: provinceBytes(598, { keep: { holder: 4 } }) });
+  assert.equal(w.decision?.name, WIDE_TRAIN); assert.equal(w.decision.rebuild, true);
+  // still on its way / being decided / standing / unread: followed, nothing new
+  w = await decide({ holding: holdingBytes({ reserve: 0 }), home: empty, dest: captured, open: true });
+  assert.equal(w.wait, 'march'); assert.equal(w.decision, undefined);
+  w = await decide({ holding: holdingBytes({ reserve: 0 }), home: empty, dest: null });
+  assert.equal(w.wait, 'march'); assert.equal(w.march?.phase, 'unread');
+  w = await plannerAt(390, { holding: holdingBytes({ reserve: 0 }), home: provinceBytes(389), dest: captured }).decide({ programId: PROGRAM, seasonAddress: SEASON }, lost(), { wideTargets: [], villages: [village] });
+  assert.equal(w.wait, 'march'); assert.equal(w.march?.phase, 'out');
+  // at the cap (2 marches sent) nothing more is planned
+  w = await decide({ holding: holdingBytes({ reserve: 100 }), home: empty, dest: captured }, { ...lost(), wideDeparts: WIDE_DEPARTS_MAX });
+  assert.equal(w.wait, 'cap'); assert.equal(w.decision, undefined);
+  // the card: the capture is the result (the hold line), and the new host's step — not 「戦いに敗れました」
+  setLang('ja');
+  const say = { kind: 'decision', name: WIDE_TRAIN, n: 100, rebuild: true, march: { phase: 'gone', to: { p: '131', q: '-1' }, faction: 2, keep: { holder: 2 } }, home: { hosts: 0, troops: 0 } };
+  assert.equal(W.wideHostSayText(say), '進軍できる軍勢が村にいないため、新しい軍勢を作ります。 次の一手：槍兵 100 を訓練します（兵 100 そろうと編成できます）。');
+  assert.match(W.wideHostSayText({ ...say, march: { ...say.march, keep: { holder: 4 } } }), /^結果：軍勢は州 131,-1 に残れませんでした（戦いに敗れました）。/);
+});
+
 test('LP9-1: the card says the result (lost, survivors home) and the new host\'s step; the cap says the last result and why no more — JA and EN', () => {
   setLang('ja');
   const say = { kind: 'decision', name: WIDE_TRAIN, n: 100, rebuild: true, march: { phase: 'gone', to: { p: '131', q: '-1' } }, home: { hosts: 1, troops: 87 } };

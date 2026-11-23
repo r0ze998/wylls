@@ -218,9 +218,10 @@ export function wideHostSayText(say) {
     ? L`あなたの国が州 ${say.hold.to.p},${say.hold.to.q} の砦を占拠中です：${fmtNum(Number(say.hold.progress))} / ${fmtNum(Number(say.hold.required))} ターン。` : '';
   if (counting && say.kind === 'wait' && say.wait === 'lag') return L`この村の州の決着が ${fmtNum(Number(say.lag ?? 0))} ターン遅れています。` + ' ' + counting;
   if (say.kind === 'decision') {
-    // (fix-loop9, LP9-1: a new host after a lost march — the result first, then the step that starts the new host)
+    // (fix-loop9, LP9-1: a new host after a lost march — the result first, then the step that starts the new host;
+    //  verify-pr173: after a CAPTURE — the host became the keep's garrison, the keep is its nation's — it was not beaten)
     if (say.rebuild && (say.name === 'WideTrain' || say.name === 'WideMuster')) {
-      const lost = say.march?.phase === 'gone' && !ended ? L`結果：軍勢は州 ${at(say.march.to)} に残れませんでした（戦いに敗れました）。` : '';
+      const lost = say.march?.phase === 'gone' && !ended && !(say.march.keep && say.march.keep.holder === say.march.faction) ? L`結果：軍勢は州 ${at(say.march.to)} に残れませんでした（戦いに敗れました）。` : '';
       const home = Number(say.home?.troops ?? 0) > 0 ? L`生き残った兵 ${fmtNum(Number(say.home.troops))} が村に戻っています。兵 100 未満の軍勢は進軍できないため、新しい軍勢を作ります。` : L`進軍できる軍勢が村にいないため、新しい軍勢を作ります。`;
       const step = say.name === 'WideTrain' ? L`次の一手：槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練します（兵 100 そろうと編成できます）。` : L`次の一手：槍兵 ${fmtNum(Number(say.troops ?? 0))} の新しい軍勢を編成します。`;
       return [lost, home, step].filter(Boolean).join(' ');
