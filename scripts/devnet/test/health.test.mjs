@@ -117,6 +117,44 @@ test('etimeSeconds reads every ps etime form', () => {
   assert.equal(etimeSeconds(undefined), null);
 });
 
+test('process patterns match the program being run, not a line that only mentions it', () => {
+  const ms = { keeperStarted: {}, gatewayStarted: {} };
+  const spec = Object.fromEntries(expectedProcs(ms, false).map((s) => [s.key, s]));
+  // the real stack's command lines (ps on the devnet machine, 11-24) and the forms the scripts launch with
+  const real = {
+    'proc.season-driver': ['/bin/zsh ./season-driver.sh 1795516707', 'bash /Users/u/wylls-devnet-run/season-driver.sh 1'],
+    'proc.gateway-starter': ['/bin/zsh ./gateway-starter.sh'],
+    'proc.gateway-supervisor': ['/bin/zsh /Users/u/wylls-devnet-run/run-gateway.sh'],
+    'proc.gateway': ['/opt/homebrew/opt/node@20/bin/node permutation-gateway/src/frontier/server.mjs --cluster devnet --port 41130 --public-port 41133'],
+    'proc.herald-supervisor': ['/bin/zsh ./run-herald.sh', '/bin/zsh -x /r/run-herald.sh'],
+    'proc.herald': ['/Users/u/wylls-devnet-run/bin/frontier-herald --data /r/herald --program G --season 1 --rpc https://api.devnet.solana.com --listen 127.0.0.1:41140 --web w'],
+    'proc.keeper-supervisor': ['/bin/zsh /Users/u/wylls-devnet-run/run-keeper.sh'],
+    'proc.keeper': ['/Users/u/wylls-devnet-run/bin/frontier-keeper --config keeper-a/keeper.toml'],
+    'proc.join-check': ['/bin/zsh ./join-check.sh'],
+    'proc.tunnel': ['/opt/homebrew/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:41140'],
+    'proc.caffeinate': ['caffeinate -is', '/usr/bin/caffeinate -is -w 1'],
+  };
+  for (const [k, cmds] of Object.entries(real)) for (const c of cmds) assert.ok(spec[k].re.test(c), `${k} ${c}`);
+  // lookalikes: with the real process gone, each must still be a FAIL (not a "restarted" WARN)
+  const fake = {
+    'proc.season-driver': ['tail -f season-driver.sh', 'vim ./season-driver.sh', '/bin/zsh ./season-driver-2.sh 1'],
+    'proc.herald-supervisor': ['pgrep -f run-herald.sh', 'ugrep -E run-herald.sh /tmp', 'less /r/run-herald.sh', '/bin/zsh ./run-herald-old.sh'],
+    'proc.keeper': ['pgrep -f frontier-keeper --config keeper-a/keeper.toml', 'pkill -f frontier-keeper --config keeper-a/keeper.toml'],
+    'proc.herald': [
+      '/w/target/debug/frontier-herald --data d --listen 127.0.0.1:41520 --web w', // a local test herald on another port
+      '/w/target/debug/frontier-herald --data d --listen 127.0.0.1:411400',
+      'grep frontier-herald --listen 127.0.0.1:41140',
+    ],
+    'proc.tunnel': ['/opt/homebrew/bin/cloudflared tunnel --url http://127.0.0.1:41141', 'cat /r/logs/cloudflared tunnel 127.0.0.1:41140'],
+    'proc.gateway': ['node permutation-gateway/src/frontier/server.mjs --port 411300', 'grep permutation-gateway/src/frontier/server.mjs --port 41130'],
+    'proc.caffeinate': ['caffeinate -i -t 300', 'pgrep caffeinate -is'],
+  };
+  for (const [k, cmds] of Object.entries(fake)) for (const c of cmds) {
+    const r = procCheck(spec[k], [{ pid: 501, etime: '00:10', cmd: c }], { tracked: true, prev: { pid: 9 } });
+    assert.equal(r.level, 'FAIL', `${k} ${c}: ${r.detail}`);
+  }
+});
+
 test('procCheck without --state: a restart is a WARN only while the process is young', () => {
   const spec = { re: /frontier-herald/, want: true };
   const young = procCheck(spec, parsePs(' 500 12:00 /x/frontier-herald --listen a\n'));

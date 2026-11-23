@@ -165,6 +165,13 @@ export function tunnelHost(text) {
 }
 
 /**
+ * A shell script run as `[/path/]zsh|bash|sh [-flags] [path/]NAME.sh [args]`. Every pattern is anchored to the
+ * program being run, so a line that only mentions the name (`pgrep -f run-herald.sh`, the season driver's own
+ * `pgrep -f "frontier-keeper --config …"`, `tail -f …`, an editor) is not taken for the process.
+ */
+const shRe = (name) => new RegExp(`^(?:\\S*\\/)?(?:ba|z|da|k)?sh(?:\\s+-\\S+)*\\s+(?:\\S*\\/)?${name}\\.sh(?:\\s|$)`);
+
+/**
  * Processes the stack should have now, given what the logs say happened. Matched by command pattern only:
  * no PID is written here (a planned restart changes the PID; see procCheck for what counts as "restarted").
  */
@@ -172,17 +179,17 @@ export function expectedProcs(ms, joinDone) {
   const setup = Boolean(ms.setupComplete);
   const stop = Boolean(ms.driverStop);
   return [
-    { key: 'proc.season-driver', re: /season-driver\.sh/, want: !setup && !stop, gone: setup ? 'finished (setup complete)' : 'STOPPED (see driver log)' },
-    { key: 'proc.gateway-starter', re: /gateway-starter\.sh/, want: !ms.gatewayStarted, gone: 'finished (gateway started)' },
-    { key: 'proc.gateway-supervisor', re: /run-gateway\.sh/, want: Boolean(ms.gatewayStarted), notYet: 'not yet (starts once the herald has a rulesetHash, after CreateSeason)' },
-    { key: 'proc.gateway', re: /permutation-gateway\/src\/frontier\/server\.mjs.*--port 41130/, want: Boolean(ms.gatewayStarted), notYet: 'not yet' },
-    { key: 'proc.herald-supervisor', re: /run-herald\.sh/, want: true },
-    { key: 'proc.herald', re: /frontier-herald .*--listen 127\.0\.0\.1:41140/, want: true },
-    { key: 'proc.keeper-supervisor', re: /run-keeper\.sh/, want: Boolean(ms.keeperStarted), notYet: 'not yet (the driver starts it after CreateSeason)' },
-    { key: 'proc.keeper', re: /frontier-keeper --config keeper-a\/keeper\.toml/, want: Boolean(ms.keeperStarted), notYet: 'not yet' },
-    { key: 'proc.join-check', re: /join-check\.sh/, want: !joinDone && !stop, gone: 'finished' },
-    { key: 'proc.tunnel', re: /cloudflared tunnel .*127\.0\.0\.1:41140/, want: true },
-    { key: 'proc.caffeinate', re: /caffeinate -is/, want: true },
+    { key: 'proc.season-driver', re: shRe('season-driver'), want: !setup && !stop, gone: setup ? 'finished (setup complete)' : 'STOPPED (see driver log)' },
+    { key: 'proc.gateway-starter', re: shRe('gateway-starter'), want: !ms.gatewayStarted, gone: 'finished (gateway started)' },
+    { key: 'proc.gateway-supervisor', re: shRe('run-gateway'), want: Boolean(ms.gatewayStarted), notYet: 'not yet (starts once the herald has a rulesetHash, after CreateSeason)' },
+    { key: 'proc.gateway', re: /^(?:\S*\/)?node(?:\s+-\S+)*\s+(?:\S*\/)?permutation-gateway\/src\/frontier\/server\.mjs\s.*--port 41130(?!\d)/, want: Boolean(ms.gatewayStarted), notYet: 'not yet' },
+    { key: 'proc.herald-supervisor', re: shRe('run-herald'), want: true },
+    { key: 'proc.herald', re: /^(?:\S*\/)?frontier-herald\s.*--listen 127\.0\.0\.1:41140(?!\d)/, want: true },
+    { key: 'proc.keeper-supervisor', re: shRe('run-keeper'), want: Boolean(ms.keeperStarted), notYet: 'not yet (the driver starts it after CreateSeason)' },
+    { key: 'proc.keeper', re: /^(?:\S*\/)?frontier-keeper\s+--config keeper-a\/keeper\.toml(?:\s|$)/, want: Boolean(ms.keeperStarted), notYet: 'not yet' },
+    { key: 'proc.join-check', re: shRe('join-check'), want: !joinDone && !stop, gone: 'finished' },
+    { key: 'proc.tunnel', re: /^(?:\S*\/)?cloudflared\s+tunnel\s.*127\.0\.0\.1:41140(?!\d)/, want: true },
+    { key: 'proc.caffeinate', re: /^(?:\S*\/)?caffeinate\s+-is(?:\s|$)/, want: true },
   ];
 }
 
@@ -244,7 +251,7 @@ export function procOverrides(runDir, readFile) {
  */
 export function procCheck(spec, procs, ctx = {}) {
   const { expect, tracked = false, prev, warnMin = RESTART_WARN_MIN } = ctx;
-  const hits = procs.filter((p) => spec.re.test(p.cmd) && !/\bgrep\b|health\.mjs/.test(p.cmd));
+  const hits = procs.filter((p) => spec.re.test(p.cmd) && !/^\S*(?:grep|pkill)\s|health\.mjs/.test(p.cmd));
   if (hits.length === 0) {
     if (spec.want) return { level: 'FAIL', detail: 'not running', rec: prev };
     return { level: 'OK', detail: spec.gone && !spec.notYet ? spec.gone : (spec.notYet ?? 'not running (not expected)'), rec: prev };
