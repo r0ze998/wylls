@@ -920,11 +920,10 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
 #    2026-11-23, 2057f89d: the page waits up to 180 s for its own record); with its page files 5 of 5 settled.)
 #   (a fresh rim Hamlet's second village — FileOutpost or the wide claim — needs the settler cost from its harvests. The
 #    program charges a second village 800 Food, 800 Wood, 400 Stone, 200 Gold (`settler_cost(holdings_n = 1)`; a third
-#    1,200 / 1,200 / 600 / 300), and the FileOutpost card quotes that. The wide-claim card quotes one step too high
-#    (`screens/holding.mjs` `settlerCost(owned + 1)`: 1,200 / 1,200 / 600 / 300 for the second) and keeps its button off
-#    until the store holds that much — a page bug, open (D-verify-pr177-1). Offline, with harvests only, the outpost was
-#    filed at bell ~106 and the wide-claim card still read short at bell 161 (Food 1,186, Wood 965 of its 1,200): until
-#    the card is fixed expect the first wide villages a day or more after the rim opens)
+#    1,200 / 1,200 / 600 / 300), and the FileOutpost card and the wide-claim card both quote that. (Until #183 the
+#    wide-claim card quoted one step too high — 1,200 / 1,200 / 600 / 300 for the second — and kept its button off until
+#    the store held that much, D-verify-pr177-1: in the offline rehearsal the outpost was filed at bell ~106 while the
+#    wide-claim card still read short at bell 161. Fixed by #183, verify-pr183.))
 
 # ── 9. Check and end ─────────────────────────────────────────────────────────────────────────────────────────
 frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 --rpc $RPC --witness <a second RPC> \

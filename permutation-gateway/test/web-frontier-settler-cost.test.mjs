@@ -38,3 +38,12 @@ test('the operator AI gates its wide claim on the same price (villages held befo
   assert.match(src, /coversSettlerCost\(v\.decoded, secs, 1 \+ \(view\.wide \?\? 0\)\)/);
   assert.doesNotMatch(src, /coversSettlerCost\(v\.decoded, secs, 2 \+/);
 });
+
+test('(verify-pr183) the ⑬ external resident saves for the same price (its wide eyes: villages held before = 1 + its wide-bound slots)', () => {
+  // (⑬'s own suite — workstreams/13-citizens/test/local-wide.test.mjs WO12 — does not run in CI; this pin does)
+  const src = readFileSync(new URL('../../workstreams/13-citizens/resident/local/wide.mjs', import.meta.url), 'utf8');
+  assert.match(src, /const owned = 1 \+ obs\.wideInv\.bound;/);
+  assert.match(src, /need: settlerCost\(Math\.min\(2, owned\)\)/);
+  assert.match(src, /obs\.wideLand\?\.need \?\? settlerCost\(1\)/);
+  assert.doesNotMatch(src, /settlerCost\(Math\.min\(3, owned \+ 1\)\)/);
+});

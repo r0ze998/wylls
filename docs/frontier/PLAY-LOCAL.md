@@ -669,8 +669,8 @@ The world's operator gives it no privilege and never sees its key. The page show
   train / muster / march onto a neighbouring keep (the page's wide-village planner), and the expedition of a ready rim host
   into the bordering wide land (the page's depart route). Its rule, with no model and no paid API:
   - **Save, then claim.** With an opened wide province within reach (3 provinces) and no wide village yet, it saves for the
-    settler cost as your page's card quotes it (slot 2: food 1,200, wood 1,200, stone 600, gold 300 — the program
-    actually takes 800 / 800 / 400 / 200 for a second village, so it over-saves; D-external-wide-orders-8, verify-pr178): when production covers the shortfall within 240
+    settler cost as your page's card quotes it, which is what the program takes (slot 2: food 800, wood 800, stone 400,
+    gold 200; until verify-pr183 it saved for 1,200 / 1,200 / 600 / 300, D-external-wide-orders-8): when production covers the shortfall within 240
     turns, builds and training that would spend it wait (a harvest and a muster spend nothing). With the cost in its stores
     it claims the nearest target's first free site (the herald's public route capture, as your card reads it), then waits up
     to 12 turns for the world to settle the claim at a turn's end. A claim whose site was taken at the settle founds nothing
