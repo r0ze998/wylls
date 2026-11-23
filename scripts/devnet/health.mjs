@@ -57,9 +57,9 @@ export const RPC_METHODS = Object.freeze(['getGenesisHash', 'getSlot', 'getBalan
 export const DEPLOY = Object.freeze({
   program: 'GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr',
   // devnet-continuous-1: the continuous world, season 2 (S1_DEVNET_WIDE_CONTINUOUS, AnnounceSeason 2026-11-24 02:15 JST,
-  // sig HogAwvWz…dDy). Season 1 (HgP9VNZJ…jSXk, the 7-day preset) was announced but is never created.
+  // sig HogAwvWz…dDy). Season 1 (HgP9VNZJ…jSXk, the 7-day preset) was announced, never created, and aborted 2026-11-24 (bond returned).
   season: '47GBAC71CZXDMBsrGLntFDWJbLPRPwtcD2wXGfsXDxnP',
-  createAt: 1795540802, // CreateSeason opens (t_create_min), 2026-11-25 02:20:02 JST; the driver sends at +90 s
+  createAt: 1795540804, // CreateSeason opens (t_create_min as stored on chain), 2026-11-25 02:20:04 JST; the driver sends at +90 s of its own 1795540802 argument
   wallets: [
     { name: 'deployer', address: 'DdnUv5yCGirFwtpWiN5PzYZfmEEFnasdxT6mfKRpFQuP', warn: 5, fail: 1 },
     { name: 'authority', address: '7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA', warn: 0.02, fail: 0.005, preCreateNeed: 56.13 },
