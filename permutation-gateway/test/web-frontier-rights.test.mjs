@@ -104,6 +104,17 @@ test('deliveries: only the viewer\'s own caravans past their arrival, not raided
   assert.equal(rightsModel(f).deliveries[0].settled, true); assert.match(renderRights(f).s, /data-act="rights-deliver"/);
   f.provinces = new Map();
   assert.equal(rightsModel(f).deliveries[0].settled, null); assert.match(renderRights(f).s, /data-act="rights-deliver"/);
+  // (fix-loop12, LP12-8: the village is named by its TILE, as the caravan form names it — loop-play12 read 「村（-1, 2 · 4）へ」,
+  //  the site number, beside the form's 「村（-1, 2 · マス 35）」 for the same village)
+  const held = f.holdings;
+  f.holdings = [];
+  assert.match(renderRights(f).s, /村（3, -2）へ/, 'no record of the site: the province alone, never the bare site number');
+  assert.doesNotMatch(renderRights(f).s, /村（3, -2 · 4）/);
+  f.provinces = new Map([['3,-2', { province: { resolvedNext: 1666, sites: [0, 1, 2, 3, 35, 5, 6, 7, 8, 9, 10, 11] } }]]);
+  assert.match(renderRights(f).s, /村（3, -2 · マス 35）へ/, 'the site\'s tile in the province record');
+  f.holdings = [{ p: 3, q: -2, site: 4, gen: 1, tile: 36 }];
+  assert.match(renderRights(f).s, /村（3, -2 · マス 36）へ/, 'the viewer\'s own village: its own tile');
+  f.holdings = held; f.provinces = new Map();
   assert.ok(COEXIST_ACTS.includes('SettleCaravan'));
   const W = w(1), intent = rightsIntent('SettleCaravan', { seq: 1, dst: { kind: 'holding', p: 3, q: -2, site: 4, gen: 1 }, provinces: [{ p: 3, q: -2 }] }, {});
   const ix = settleCaravanInstruction(intent, { programId: LOCAL_PLAY_PROGRAM, seasonId: '11', wallet: W });
