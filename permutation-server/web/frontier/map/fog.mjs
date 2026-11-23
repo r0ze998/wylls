@@ -278,10 +278,35 @@ export function fogWideLand(land, { survey, mem = null, viewer = null, relayout 
     const snap = { h: holder, v: [...vs].sort((a, b) => a[0] - b[0]) };
     if (mem && inSight && JSON.stringify(snap) !== JSON.stringify(old)) mem.put(pk, snap);
     const villages = snap.v.map(([site, n]) => ({ site, nation: n }));
-    cells.push({ ...c, holder, villages, holdings: villages.length, fog: inSight ? 'sight' : 'memory' });
+    // (territory-video-2: the keep and the hosts standing on the land, map/widemarks.mjs. The keep's tile is the land's
+    //  own (it does not move); its holder is the one remembered and a contest is seen only in sight. A host is seen on a
+    //  tile in sight, or when it is the viewer's nation's own)
+    // (verify-pr197: a province seen only from afar (L2) and never in sight has no remembered holder: its holder is not
+    //  known, which is not "no nation's" — no keep is drawn for it and its plate says nothing, as fogKeeps leaves a keep
+    //  never seen out)
+    const holderKnown = inSight || !!old;
+    const keep = !c.keep || !holderKnown ? null : inSight && seen(c.keep.tile) ? c.keep : { tile: c.keep.tile, holder, contender: null, progress: 0, required: c.keep.required, troops: null };
+    const hosts = inSight ? (c.hosts ?? []).filter(h => (nation(viewer) && h.faction === viewer) || seen(h.tile)) : (c.hosts ?? []).filter(h => nation(viewer) && h.faction === viewer);
+    cells.push({ ...c, holder, holderKnown, villages, holdings: villages.length, keep, hosts, fog: inSight ? 'sight' : 'memory' });
   }
   const out = relayout ? relayout(cells, land) : { ...land, cells, byKey: new Map(cells.map(c => [c.key, c])), count: cells.length };
   return Object.freeze({ ...out, key: `${land.key}|fog:${survey.rev ?? 0}:${cells.length}` });
+}
+
+const unitless = new WeakMap();
+/**
+ * (verify-pr197) The wide land of a fogged page before its first village stands (the fog's mask is not on yet: the
+ * viewer has no vision at all): no host standing on it and no keep being taken is shown — nothing that moves, as the
+ * fog shows units only in current vision. Kept per land (the map asks every frame). → a land of the same shape.
+ */
+export function wideLandUnitless(land) {
+  if (!land?.cells) return land;
+  let out = unitless.get(land);
+  if (out) return out;
+  const cells = land.cells.map(c => ({ ...c, hosts: [], keep: c.keep ? { ...c.keep, contender: null, progress: 0, troops: null } : null }));
+  out = Object.freeze({ ...land, cells, byKey: new Map(cells.map(c => [c.key, c])) });
+  unitless.set(land, out);
+  return out;
 }
 
 /**

@@ -282,7 +282,7 @@ const SERIF = '"Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP",
  * down its left edge. `anchor` the place on the board it belongs to; `pass` the frame's label pass (it slides out
  * from under the HUD). Returns its box in world px.
  */
-export function paintBellTag(g, x, y, text, { zoom = 1, place = 'above', gap = 8, accent = BRASS, alpha = 1, anchor = null, pass = null, size = 13, hud = false } = {}) {
+export function paintBellTag(g, x, y, text, { zoom = 1, place = 'above', gap = 8, accent = BRASS, alpha = 1, anchor = null, pass = null, size = 13, hud = false, spare = false } = {}) {
   if (!g?.save || !text || alpha <= 0.01) return null;
   const k = 1 / zoom;
   g.save();
@@ -293,7 +293,10 @@ export function paintBellTag(g, x, y, text, { zoom = 1, place = 'above', gap = 8
   // (`hud`: a tag that is never left out and that the player reads — when a sealed march arrives —: with no place free of
   // everything it stands clear of the HUD first, over another label, and may go a little farther for it. It stood under the
   // notices beside the order card, 「Arrives on turn 51 · only y…」: the English recording of 2026-10-11)
-  const move = pass?.place(ax, ay, { x: x - tw / 2, y: top0, w: tw, h: th }, hud ? { keep: true, hud: true, reach: 220 } : { keep: true }) ?? { dx: 0, dy: 0 };
+  // (`spare`: a tag that gives way — with no free place it is left out this frame, territory-video-2's wide-land plates)
+  const moved = pass?.place(ax, ay, { x: x - tw / 2, y: top0, w: tw, h: th }, hud ? { keep: true, hud: true, reach: 220 } : { keep: !spare });
+  if (spare && pass && !moved) { g.restore(); return null; }
+  const move = moved ?? { dx: 0, dy: 0 };
   const cx = x + move.dx, top = top0 + move.dy;
   upright(g, ax, ay, () => {
     g.globalAlpha = alpha;
