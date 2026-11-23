@@ -151,3 +151,25 @@ test('fix-loop13 LP13-8: on a faster TEST clock the card says the real time, at 
     assert.equal(UI.turnsText(42), '42 turns (7 h)', 'a fast clock whose pace is not known yet: the chain hours, never a guessed real time');
   } finally { T.setTermsPace(() => 1); setLang('ja'); }
 });
+
+test('fix-loop13 LP13-9: an achievement is a feed line in both languages — quiet on the first read, a notice later, never twice', () => run(() => {
+  const FS = { season: { seasonId: '11' }, pin: { programId: 'P' }, citizen: { faction: VIEWER }, wallet: { address: 'W' }, conquest: { keeps: new Map() } };
+  const ach = { round: 1, bell: 162, nations: [VIEWER], prize: { simulated: true, vaultBefore: '940000000', payout: '282000000', paid: '282000000', returned: '658000000', rows: [{ wallet: 'W', nation: VIEWER, points: 10, eligible: true, amount: '282000000' }] } };
+  const read = achievements => ({ read: 'ok', goals: { ...answer(), achievements } });
+  assert.equal(UI.achievementNews(FS, { read: 'absent' }), null);
+  assert.equal(UI.achievementNews({ ...FS, season: { seasonId: '12' } }, read([ach])), null, 'another world: nothing learned');
+  assert.deepEqual(UI.achievementNews(FS, read([])), []);
+  const [first] = UI.achievementNews(FS, read([ach]), { first: true });
+  assert.equal(first.quiet, true, 'on record before the page read it: in the list, no toast');
+  const [later] = UI.achievementNews(FS, read([ach]));
+  assert.equal(later.id, 'goal:11:1');
+  assert.equal(later.kind, 'goal');
+  assert.equal(later.bell, 162);
+  assert.equal(later.quiet, undefined);
+  assert.equal(later.words.ja, '世界の目標：第 1 回の旗の砦を、あなたの国（' + later.words.ja.match(/（(.+?)）/)[1] + '）が達成しました（ターン 162）。賞金が有効なら、あなたは 282 テスト USDC を受け取っていました');
+  assert.match(later.words.en, /^World goals: your nation \(.+\) achieved round 1 of the flag keeps \(turn 162\)\. If prizes were on, you would have received 282 test USDC$/);
+  const other = UI.achievementNews(FS, read([{ ...ach, nations: [ENEMY], prize: { ...ach.prize, rows: [] } }]))[0];
+  assert.match(other.words.en, /^World goals: .+ achieved round 1 of the flag keeps \(turn 162\)$/);
+  assert.doesNotMatch(other.words.en, /your nation|USDC/);
+  assert.doesNotMatch(other.words.en, /[぀-ヿ一-鿿]/);
+}));

@@ -13,6 +13,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { fogActive, fogNow, viewKeeps } from '../map/fog.mjs';
 import { termsRate, turnsLine } from '../seasonterms.mjs';
+import { said } from './words.mjs';
 
 /** Minutes of the chain's clock in one turn. */
 const TURN_MIN = 10;
@@ -160,6 +161,25 @@ function achievementMarkup(a, FS) {
   return html`<li class="goal-achieved${mine ? ' mine' : ''}" data-round="${a.round}"><h4>${L`第 ${fmtNum(a.round)} 回：${names}が達成（ターン ${fmtNum(a.bell)}）`}</h4>
     ${you}
     <p class="muted small">${L`もし賞金が有効なら：賞金庫 ${usdc(a.prize.vaultBefore)} のうち ${usdc(a.prize.payout)} テスト USDC を、達成した国の ${fmtNum(others)} 人に分けていました（残り ${usdc(a.prize.returned)} は賞金庫へ）`}</p></li>`;
+}
+
+/**
+ * (fix-loop13, LP13-9) An achievement told outside the card too: one feed line per achieved round (`goal:<seasonId>:<round>`,
+ * so the feed never says it twice), in every language (hud/words.mjs said). `first`: the page's first good read — the
+ * achievements already on record then are put in the list quietly (no toast for something long past); later ones are
+ * notices. → items for hud/feed.mjs pushFeed, or null when the read is not this world's (nothing is learned from it).
+ */
+export function achievementNews(FS, b, { first = false } = {}) {
+  if (!b || b.read !== 'ok' || !sameWorld(FS, b.goals)) return null;
+  const me = FS?.citizen?.faction, sid = String(b.goals.season.seasonId);
+  return b.goals.achievements.map(a => {
+    const mine = nation(me) && a.nations.includes(me), row = mine ? viewerPrize(FS, a) : null;
+    return { id: `goal:${sid}:${a.round}`, kind: 'goal', bell: a.bell, ...(first ? { quiet: true } : {}), ...said(() => {
+      const names = a.nations.map(n => factionName(n)).join(L`、`);
+      if (row?.eligible) return L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を、あなたの国（${names}）が達成しました（ターン ${fmtNum(a.bell)}）。賞金が有効なら、あなたは ${usdc(row.amount)} テスト USDC を受け取っていました`;
+      return mine ? L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を、あなたの国（${names}）が達成しました（ターン ${fmtNum(a.bell)}）` : L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を ${names}が達成しました（ターン ${fmtNum(a.bell)}）`;
+    }) };
+  });
 }
 
 /** The card for a read `b` (probeGoals' answer, or null before the first read): '' when there is nothing to show. */

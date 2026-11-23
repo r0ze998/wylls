@@ -5217,7 +5217,10 @@ export async function boot() {
         // (world goals, first slice: the flag keeps judged off chain by the local-play launcher — read only, no money;
         //  the card in Territory and the gold pennants on the map; nothing on a server without the judge — hud/worldgoals.mjs)
         const goalsBase = cfg.localPlay ? worldGoals.localGoalsBase(cfg.herald) : null;
-        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); } }); } catch (e) { console.error('frontier world goals:', e); } }
+        // (fix-loop13, LP13-9: an achievement is also a feed line — a notice when it happens while the page is open)
+        let goalsFirst = true;
+        const goalNews = b => { const items = worldGoals.achievementNews(FS, b, { first: goalsFirst }); if (!items) return; goalsFirst = false; if (items.length) { FS.feed = feed.pushFeed(FS.feed ?? [], items); renderFeed(); } };
+        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); try { goalNews(b); } catch (e) { console.error('frontier world goals news:', e); } } }); } catch (e) { console.error('frontier world goals:', e); } }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
