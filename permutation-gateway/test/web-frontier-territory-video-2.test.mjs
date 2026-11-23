@@ -143,6 +143,10 @@ test('the test world\'s notice folds to one line once a village stands, once; th
 test('the label pass steps around the test world\'s notice (the wide land\'s plates stood under it)', async () => {
   const { NOGO_SELECTORS } = await import('../../permutation-server/web/frontier/map/fmap.mjs');
   assert.ok(NOGO_SELECTORS.split(',').map(s => s.trim()).includes('#local-play-session'));
+  // (verify-pr197: the page feeds the map its own list — hud/insets.mjs NO_GO — and the map's selectors are then not read)
+  const { NO_GO } = await import('../../permutation-server/web/frontier/hud/insets.mjs');
+  assert.ok(NO_GO.some(([id, sel]) => id === 'local-play-session' && sel === '#local-play-session'), 'the page\'s own list has it');
+  assert.ok(NO_GO.some(([id, sel]) => id === 'provinces' && sel === '#prov-strip'), 'and the provinces-held strip (plates stood under it)');
 });
 
 test('a plate stands only for a province well inside the view (never slid in beside the HUD)', () => {
@@ -153,4 +157,63 @@ test('a plate stands only for a province well inside the view (never slid in bes
   const around = (dx, dy) => ({ x0: at.x - 500 + dx, y0: at.y - 500 + dy, x1: at.x + 500 + dx, y1: at.y + 500 + dy });
   assert.equal(paintWideNames(ctx, land, { seen: around(0, 0), zoom: 1, level: 'tile' }), 1);
   assert.equal(paintWideNames(ctx, land, { seen: around(0, 470), zoom: 1, level: 'tile' }), 0, 'its place just under the top edge');
+});
+
+// verify-pr197 (independent check of #197 in a ×30 --wide world, player view):
+//  1. on the tilted board the map's `seen` is the ground canvas's flat box, larger than the picture: plates stood cut by
+//     the screen's left edge and under the turn dial → the plate test is made in the picture's px (`screen`, `bounds`);
+//  2. a province seen only from afar (L2) whose holder was never in sight read 「どの国のものでもない土地」 though it is held
+//     → its holder is unknown: no keep and no plate;
+//  3. before the first village the fog's mask is off and the raw wide land was drawn: other nations' standing hosts and
+//     keep contests on the home-picking map → fog.mjs wideLandUnitless (app.mjs shownWide).
+test('verify-pr197: a plate stands only where the PICTURE shows its place well inside (screen px, not the flat box)', () => {
+  const kh = keepAndHostsOfCapture(capture({ keep: { tile: 30, holder: ENEMY } }));
+  const land = landOfCells([cellOf(3, 0, ENEMY, kh)], { rings: { min: 3, max: 3 }, reach: 4 });
+  const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : k === 'measureText' ? () => ({ width: 40 }) : /Gradient|Pattern/.test(k) ? () => ({ addColorStop() {} }) : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  const P = widekeepPlace(land.cells[0], 1), at = { x: P.x, y: P.y - P.u * 1.9 };
+  const wide = { x0: at.x - 500, y0: at.y - 500, x1: at.x + 500, y1: at.y + 500 };   // the flat box says: well inside
+  const bounds = { w: 1280, h: 800 };
+  assert.equal(paintWideNames(ctx, land, { seen: wide, zoom: 1, level: 'tile', screen: () => ({ x: 640, y: 400 }), bounds }), 1, 'in the middle of the picture');
+  assert.equal(paintWideNames(ctx, land, { seen: wide, zoom: 1, level: 'tile', screen: () => ({ x: -30, y: 300 }), bounds }), 0, 'left of the picture (the tilted board)');
+  assert.equal(paintWideNames(ctx, land, { seen: wide, zoom: 1, level: 'tile', screen: () => ({ x: 660, y: 60 }), bounds }), 0, 'under the top bar and the dial');
+  assert.equal(paintWideNames(ctx, land, { seen: wide, zoom: 1, level: 'tile', screen: () => ({ x: 640, y: 790 }), bounds }), 0, 'at the foot of the picture');
+});
+
+test('verify-pr197: a province whose holder the fog never saw has no keep and no plate (it is not "no nation\'s")', () => {
+  const kh = keepAndHostsOfCapture(capture({ keep: { tile: 30, holder: ENEMY }, hosts: [{ faction: ENEMY, tile: 30, troops: 50 }] }));
+  const land = landOfCells([cellOf(3, 0, ENEMY, kh)], { rings: { min: 3, max: 3 }, reach: 4 });
+  const h = tileHex(3, 0, 30);
+  const look = S.buildSurvey({ ringsOpen: 3, extraOpen: ['3,0'], anchors: [{ q: h.q, r: h.r, radius: 1, level: S.L3, kind: 'host' }] }); look.rev = 2;
+  // (the survey remembers tiles seen before — the wide land's memory has nothing of this province: it was not loaded then,
+  //  as in the live world where the vision's edge reads L2)
+  const far = S.buildSurvey({ ringsOpen: 3, extraOpen: ['3,0'], anchors: [], memory: new Set([...look.tiles].filter(([, v]) => v === S.L3).map(([k]) => k)) }); far.rev = 1;
+  const pv = far.province(3, 0).max;
+  assert.ok(pv >= S.L2 && pv < S.L3, `seen before, not in sight (level ${pv})`);
+  const mem = F.createFogMemory({ storage: { get: () => null, set: () => true } }); mem.use('k2');
+  const c = F.fogWideLand(land, { survey: far, mem, viewer: VIEWER, relayout: landOfCells }).cells[0];
+  assert.deepEqual([c.fog, c.holder, c.holderKnown, c.keep, c.hosts.length], ['memory', null, false, null, 0]);
+  assert.deepEqual(wideProvinceWords(c, VIEWER), { name: null, sub: null });
+  const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : k === 'measureText' ? () => ({ width: 40 }) : /Gradient|Pattern/.test(k) ? () => ({ addColorStop() {} }) : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+  const fogged = landOfCells([c], { rings: { min: 3, max: 3 }, reach: 4 });
+  assert.equal(paintWideNames(ctx, fogged, { seen: ALL, zoom: 0.3, level: 'province', viewer: VIEWER }), 0);
+  assert.deepEqual(paintWideMarks(ctx, fogged, { seen: ALL, zoom: 1, level: 'tile', viewer: VIEWER }), { keeps: 0, hosts: 0 });
+  // (seen in sight once, then away: the remembered holder is known and stays named)
+  F.fogWideLand(land, { survey: look, mem, viewer: VIEWER, relayout: landOfCells });
+  const later = F.fogWideLand(land, { survey: far, mem, viewer: VIEWER, relayout: landOfCells }).cells[0];
+  assert.deepEqual([later.fog, later.holder, later.holderKnown, later.keep?.holder], ['memory', ENEMY, true, ENEMY]);
+});
+
+test('verify-pr197: before the first village a fogged page shows no standing host and no keep being taken', async () => {
+  const kh = keepAndHostsOfCapture(capture({ keep: { tile: 30, holder: ENEMY, contender: OTHER, progress: 9, troops: 100 }, hosts: [{ faction: OTHER, tile: 30, troops: 300 }] }));
+  const land = landOfCells([cellOf(3, 0, ENEMY, kh)], { rings: { min: 3, max: 3 }, reach: 4 });
+  const bare = F.wideLandUnitless(land);
+  assert.equal(F.wideLandUnitless(land), bare, 'kept per land (the map asks every frame)');
+  const c = bare.cells[0];
+  assert.deepEqual([c.hosts.length, c.keep.tile, c.keep.holder, c.keep.contender, c.keep.troops], [0, 30, ENEMY, null, null]);
+  assert.equal(bare.byKey.get(c.key), c);
+  assert.equal(wideHostSpots(bare, ALL).length, 0);
+  assert.equal(wideProvinceWords(c, VIEWER).sub, null);
+  assert.equal(land.cells[0].hosts.length, 1, 'the raw land is not touched');
+  const app = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.ok(app.includes('const shownWide = land => (FS.fog?.on ? FS.fog.wide : fogActive(FS) ? wideLandUnitless(land) : land);'));
 });

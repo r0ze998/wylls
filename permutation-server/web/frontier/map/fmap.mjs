@@ -3402,7 +3402,9 @@ export class FrontierMap {
     const { z, src } = F, pass = F.pass ?? null;
     // (territory-video-2) whose each province of the wide land is, and the troops of the hosts standing there: after the
     // board's own words (they give way to them), map/widemarks.mjs
-    const wideNames = src.wideLand?.count && F.seen ? () => paintWideNames(ctx, src.wideLand, { seen: F.seen, zoom: z, level: wideLevel(F.lod, false), viewer: F.faction ?? src.viewerFaction ?? null, pass }) : () => 0;
+    // (verify-pr197: with the picture's own px — `seen` is the tilted board's larger flat box — when the pass is the screen's)
+    const plateScreen = pass?.bounds ? { screen: (x, y) => this.project(x, y, { box: true }), bounds: pass.bounds } : {};
+    const wideNames = src.wideLand?.count && F.seen ? () => paintWideNames(ctx, src.wideLand, { seen: F.seen, zoom: z, level: wideLevel(F.lod, false), viewer: F.faction ?? src.viewerFaction ?? null, pass, ...plateScreen }) : () => 0;
     if (F.lod !== 'tile') wideNames();
     // (at the tile view a provisional village's plate carries 仮: map/plates.mjs)
     if (F.lod === 'province') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });

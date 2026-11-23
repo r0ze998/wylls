@@ -97,8 +97,11 @@ export function paintWideMarks(ctx, land, { seen, zoom = 1, level = 'tile', view
   return { keeps, hosts };
 }
 
-/** The words of a province's plate: `{name, sub}` (sub null when its keep is not being taken). */
+/** The words of a province's plate: `{name, sub}` (sub null when its keep is not being taken; both null when the fog
+ *  does not know whose it is). */
 export function wideProvinceWords(cell, viewer = null) {
+  // (verify-pr197: under the fog a province whose holder was never seen says nothing — not 「どの国のものでもない土地」)
+  if (cell?.holderKnown === false) return { name: null, sub: null };
   const h = nation(cell?.holder) ? cell.holder : null;
   const name = h === null ? L`どの国のものでもない土地` : h === viewer ? L`あなたの国の土地` : L`${factionName(h)}の土地`;
   const k = cell?.keep;
@@ -114,7 +117,7 @@ export function wideProvinceWords(cell, viewer = null) {
  * its troops. Plates give way to anything placed before them (`pass`: they are never kept over another label).
  * → the number of plates drawn.
  */
-export function paintWideNames(o, land, { seen, zoom = 1, level = 'tile', viewer = null, pass = null } = {}) {
+export function paintWideNames(o, land, { seen, zoom = 1, level = 'tile', viewer = null, pass = null, screen = null, bounds = null } = {}) {
   if (!o?.save || !land?.cells?.length || (level !== 'tile' && level !== 'province')) return 0;
   let n = 0;
   if (level === 'tile') for (const h of wideHostSpots(land, seen)) {
@@ -123,10 +126,16 @@ export function paintWideNames(o, land, { seen, zoom = 1, level = 'tile', viewer
   }
   // (a plate stands only where its place is well inside the picture: the label pass slides a label whose place is near
   //  the edge back into the picture, and a province below the top bar had its name stand beside the turn dial)
+  // (verify-pr197: on a tilted board `seen` is the ground canvas's flat box, larger than the picture — a plate stood cut
+  //  by the left edge of the screen over the cloud and under the turn dial. With `screen(x, y)` (px in the picture) and
+  //  `bounds` {w, h} the test is made where the person sees the place)
   const mx = (seen.x1 - seen.x0) * PLATE_INSET, my = (seen.y1 - seen.y0) * PLATE_INSET;
-  const inner = p => p.x > seen.x0 + mx && p.x < seen.x1 - mx && p.y > seen.y0 + my * 1.6 && p.y < seen.y1 - my;
+  const inner = screen && bounds?.w > 0 && bounds?.h > 0
+    ? p => { const s = screen(p.x, p.y), ix = bounds.w * PLATE_INSET, iy = bounds.h * PLATE_INSET; return !!s && s.x > ix && s.x < bounds.w - ix && s.y > iy * 1.6 && s.y < bounds.h - iy; }
+    : p => p.x > seen.x0 + mx && p.x < seen.x1 - mx && p.y > seen.y0 + my * 1.6 && p.y < seen.y1 - my;
   for (const c of cellsIn(land, seen)) {
     const P = widekeepPlace(c, zoom), w = wideProvinceWords(c, viewer);
+    if (!w.name) continue;
     const accent = FACTION_COLORS[c.holder] ?? '#8b856d';
     // (over the fortress at the tile view; at the province's middle from farther, where the keep is only a mark)
     const at = level === 'tile' && P ? { x: P.x, y: P.y - P.u * 1.9 } : { x: c.x, y: c.y - RADIUS * 1.2 };

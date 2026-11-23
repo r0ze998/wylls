@@ -97,6 +97,12 @@ export const NO_GO = Object.freeze([
   ['plaque-left', '#topbar .strip-l'], ['dial', '#bell-pill'], ['plaque-right', '#topbar .strip-r'],
   ['search', '#search-btn'], ['search-field', '#map-search'], ['todo', '#rail .todo-tab'], ['todo-list', '#rail .todo-list'], ['plate', '#rail .plate'], ['dock', 'nav.tabs'], ['hand', '#hand'], ['hand-card', '#hand-pop[data-mode="card"]'], ['hand-fan', '#hand-pop[data-mode="fan"] .fan-tok'],
   ['lenses', '#lenses'], ['minimap', '#minimap-canvas'], ['map-tools', '.map-tools'], ['notices', '#feed > *'], ['banner', '#mile-banner'],
+  // (verify-pr197: a local test world's standing notice, folded over the dock — the page feeds this list, so the map's own
+  //  NOGO_SELECTORS entry alone never reached the label pass: the wide land's plates stood under the notice)
+  ['local-play-session', '#local-play-session'],
+  // (verify-pr197: the provinces-held strip under the plaque — wider than #hud-tl — had no piece: the wide land's plates
+  //  stood half under 「支配する州」 at the top of the map)
+  ['provinces', '#prov-strip'],
   // (the prototype rule "banners": its fixed chip and its score, present only in a sample world that serves it)
   ['proto-chip', '#proto-chip'], ['proto-chip-map', '.proto-chip-map'], ['proto-score', '#proto-score'], ['drawer', '#panel'],
 ]);

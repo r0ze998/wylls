@@ -42,7 +42,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile, wideLandUnitless } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -923,7 +923,8 @@ function fogWorldPinned() {
 /** The overviews the map shows (fogged under the fog of war). */
 const shownOverviews = () => (FS.fog?.on ? FS.fog.overviews : FS.overviews);
 /** The wide land the map shows (fogged under the fog of war). */
-const shownWide = land => (FS.fog?.on ? FS.fog.wide : land);
+// (verify-pr197: a fogged page before its first village — no vision yet — shows no host and no keep being taken on it)
+const shownWide = land => (FS.fog?.on ? FS.fog.wide : fogActive(FS) ? wideLandUnitless(land) : land);
 /** The chronicle the page shows (under the fog of war: the records in sight or the viewer's own; kept per log and survey). */
 let shownLogCache = { log: null, fog: null, out: null };
 function shownChronicle() {
