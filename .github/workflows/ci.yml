@@ -567,6 +567,8 @@ jobs:
         run: |
           cargo clippy --locked -p stack --features playable-lane --all-targets -- -D warnings
           cargo test --locked -p stack --features playable-lane --lib operator::
+          # devnet-end-season (verify-pr180): end-season's plan, order, refunds and flag checks (pure; no key)
+          cargo test --locked -p stack --features playable-lane --lib operator_end::
           # devnet-72bell-pair (PKF): why PPAIR's OUT leg is TEST-sealed (the shipped real quicknet rounds give a
           # season at most one real arrival bell; public signatures verified only), PCAP's lag report and PPAIR's
           # OUT tile (pure). No key is generated, derived or signed.
