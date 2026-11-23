@@ -82,6 +82,10 @@ test('LP11-1: the run marks its seal refused on the chain\'s `failed`, and the m
   const body = c.slice(at, c.indexOf('marches.push(...localExpedition.expeditionRows(FS));', at));
   assert.ok(at > 0 && body.includes("['submitted', 'unknown'].includes(localDepart.localDepartOf(FS).status)") && body.includes('localDepart.reconcileLocalDepart(FS'), 'an unsettled departure is asked about on each march-list read');
   assert.match(c, /const localDepartChanged = \(\) => \{ departRefusedNotice\(\); invalidate\('map', 'panel'\); \};/, 'and said once as a notice');
+  // (live: the toast's "what was not done" line came from the last control pressed — 「編成はまだ命じられていません。」 — and
+  //  its 「もう一度」 would have re-run the muster: the notice names its own action and offers no retry)
+  assert.match(c, /setNotice\(\{ ok: false, busy: false, unsent: 'expedition-depart', retry: false, text:/);
+  assert.match(readFileSync(new URL('frontier/hud/status.mjs', WEB), 'utf8'), /'expedition-depart': \(\) => L`遠征は出発していません。`,/);
 });
 
 test('LP11-1 audit: a local act the chain refused carries the program\'s number (the W2 card then waits a turn after NotResident)', async () => {
