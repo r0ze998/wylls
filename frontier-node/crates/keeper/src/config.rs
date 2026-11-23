@@ -267,6 +267,15 @@ pub struct KeeperConfig {
     /// at once (`engine::EngineParams::max_unknown_w_versions`; ⑱, owner
     /// decision 2026-11-05). `0` keeps the every-slot ladder.
     pub max_unknown_w_versions: u32,
+    /// fix-keeper-backoff: a write the program refused deterministically
+    /// waits `2 << (n − 1)` slots and `2^(n − 1)` passes after its `n`-th
+    /// refusal in a row with one code, at most these (`engine::EngineParams`).
+    pub refusal_max_slots: u64,
+    pub refusal_max_passes: u64,
+    /// Distinct keys of one duty kind refused with one code (nothing of
+    /// that kind landed since) before the kind sends one probe at a time.
+    /// `0` turns the group breaker off.
+    pub refusal_group_min: u32,
     /// Land (W3-C): Holdings the feed named are re-read every this many
     /// slots (dormancy, sweeps).
     pub land_scan_slots: u64,
@@ -449,6 +458,9 @@ impl KeeperConfig {
             d_resend_slots: 2,
             cap_resend_slots: 16,
             max_unknown_w_versions: 2,
+            refusal_max_slots: crate::engine::REFUSAL_MAX_SLOTS,
+            refusal_max_passes: crate::engine::REFUSAL_MAX_PASSES,
+            refusal_group_min: crate::engine::REFUSAL_GROUP_MIN,
             land_scan_slots: 8,
             stranded_scan_slots: 450,
             dev: false,
@@ -666,6 +678,9 @@ impl KeeperConfig {
         num!("d_resend_slots", d_resend_slots, u64);
         num!("cap_resend_slots", cap_resend_slots, u64);
         num!("max_unknown_w_versions", max_unknown_w_versions, u32);
+        num!("refusal_max_slots", refusal_max_slots, u64);
+        num!("refusal_max_passes", refusal_max_passes, u64);
+        num!("refusal_group_min", refusal_group_min, u32);
         num!("land_scan_slots", land_scan_slots, u64);
         num!("stranded_scan_slots", stranded_scan_slots, u64);
         num!("race_jitter_slots", race_jitter_slots, u64);
@@ -1018,6 +1033,34 @@ mod tests {
                 KeeperConfig::from_toml(&format!("{base}max_unknown_w_versions = {n}\n")).unwrap();
             assert_eq!(c.max_unknown_w_versions, n);
         }
+    }
+
+    #[test]
+    fn refusal_backoff_defaults_and_parses() {
+        let p = Address::new_from_array([5; 32]);
+        let b = Address::new_from_array([6; 32]);
+        let base = format!("program = \"{p}\"\nseason = 1\nbeneficiary = \"{b}\"\n");
+        let c = KeeperConfig::from_toml(&base).unwrap();
+        assert_eq!(
+            (
+                c.refusal_max_slots,
+                c.refusal_max_passes,
+                c.refusal_group_min
+            ),
+            (9_000, 64, 4)
+        );
+        let c = KeeperConfig::from_toml(&format!(
+            "{base}refusal_max_slots = 1024\nrefusal_max_passes = 0\nrefusal_group_min = 0\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            (
+                c.refusal_max_slots,
+                c.refusal_max_passes,
+                c.refusal_group_min
+            ),
+            (1_024, 0, 0)
+        );
     }
 
     #[test]

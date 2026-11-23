@@ -551,6 +551,9 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             d_resend_slots: cfg.d_resend_slots,
             cap_resend_slots: cfg.cap_resend_slots,
             max_unknown_w_versions: cfg.max_unknown_w_versions,
+            refusal_max_slots: cfg.refusal_max_slots,
+            refusal_max_passes: cfg.refusal_max_passes,
+            refusal_group_min: cfg.refusal_group_min,
             ..EngineParams::default()
         };
         let pk96 = drand.info().public_key;
@@ -1161,6 +1164,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             return Ok(rep);
         }
         self.last_slot = Some(slot);
+        // fix-keeper-backoff: refusal holds count passes too.
+        self.engine.begin_pass(slot);
         let mut t_phase = std::time::Instant::now();
         let mut phase = |rep: &mut TickReport, name: &'static str, reads: u64| {
             rep.phases
@@ -1979,6 +1984,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     json!({
                         "writes": s.writes, "versions": s.versions, "landed": s.landed, "failed": s.failed,
                         "dead": s.dead, "fees_charged": s.fees_charged,
+                        "refused": s.refused, "suppressed": s.suppressed,
                         "latency_slots_p50": quantile(&s.latency_slots, 0.5),
                         "latency_slots_p99": quantile(&s.latency_slots, 0.99),
                     }),
@@ -2041,6 +2047,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "land": self.index.feed.status(), "play": self.play.index.feed.status(),
             },
             "pending": self.engine.pending_len(),
+            "refusals": self.refusals_status(slot),
             "kinds": kinds,
             "pools": {
                 "reveal": {"n": self.payers.reveal.keys.len(), "effective_n": self.payers.effective_n(Class::W),
@@ -2065,6 +2072,55 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             status["wide"] = wide;
         }
         status
+    }
+
+    /// fix-keeper-backoff: the writes held after a deterministic refusal
+    /// (`/v1/status.refusals`): how many, the longest-held keys first, and
+    /// the open group breakers.
+    pub fn refusals_status(&self, slot: u64) -> Value {
+        let e = &self.engine;
+        let mut held: Vec<(&String, &crate::engine::Refusal)> = e
+            .refusals()
+            .iter()
+            .filter(|(_, r)| e.refusal_held(r, slot))
+            .collect();
+        held.sort_by_key(|(k, r)| (std::cmp::Reverse(r.count), (*k).clone()));
+        let entry = |k: &String, r: &crate::engine::Refusal| {
+            json!({
+                "key": k, "kind": r.kind, "code": r.code,
+                "error": r.code.and_then(abi::error_name), "detail": r.err,
+                "count": r.count, "first_slot": r.first_slot, "last_slot": r.last_slot,
+                "held_until_slot": r.until_slot, "held_until_pass": r.until_pass,
+                "suppressed": r.suppressed,
+            })
+        };
+        let groups: Vec<Value> = e
+            .refusal_groups()
+            .iter()
+            .filter(|(_, g)| e.group_open(g))
+            .map(|((kind, code), g)| {
+                json!({
+                    "kind": kind, "code": code, "error": code.and_then(abi::error_name),
+                    "keys": g.keys.len(), "probes_failed": g.probes_failed,
+                    "next_probe_slot": g.next_probe_slot, "next_probe_pass": g.next_probe_pass,
+                    "probing": g.probing,
+                })
+            })
+            .collect();
+        json!({
+            "pass": e.pass(),
+            "held": held.len(),
+            "tracked": e.refusals().len(),
+            "refused_total": e.stats.values().map(|s| s.refused).sum::<u64>(),
+            "suppressed_total": e.stats.values().map(|s| s.suppressed).sum::<u64>(),
+            "resets_total": e.refusal_resets,
+            "groups_open": groups,
+            "keys": held.iter().take(crate::engine::REFUSAL_STATUS_KEYS).map(|(k, r)| entry(k, r)).collect::<Vec<_>>(),
+            "params": {
+                "max_slots": e.params.refusal_max_slots, "max_passes": e.params.refusal_max_passes,
+                "group_min": e.params.refusal_group_min,
+            },
+        })
     }
 
     /// The `wide` status entry: the observer's status, or the explicit
@@ -2133,6 +2189,14 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 &format!("frontier_keeper_fees_lamports_total{{kind=\"{k}\"}}"),
                 s.fees_charged.to_string(),
             );
+            line(
+                &format!("frontier_keeper_refused_total{{kind=\"{k}\"}}"),
+                s.refused.to_string(),
+            );
+            line(
+                &format!("frontier_keeper_refusal_suppressed_total{{kind=\"{k}\"}}"),
+                s.suppressed.to_string(),
+            );
             if let Some(p) = quantile(&s.latency_slots, 0.99) {
                 line(
                     &format!("frontier_keeper_latency_slots{{kind=\"{k}\",q=\"0.99\"}}"),
@@ -2162,6 +2226,15 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 p.to_string(),
             );
         }
+        line(
+            "frontier_keeper_refusals_held",
+            self.engine
+                .refusals()
+                .values()
+                .filter(|r| self.engine.refusal_held(r, slot))
+                .count()
+                .to_string(),
+        );
         line(
             "frontier_keeper_alerts_total",
             self.alerts.len().to_string(),
@@ -2367,6 +2440,36 @@ mod tests {
         // Re-reading startup cannot charge the settled journal row again.
         assert_eq!(k.start().await.unwrap(), 0);
         assert_eq!(k.engine.stats["anchor"].fees_charged, attempt.fee);
+    }
+
+    /// fix-keeper-backoff: `/v1/status.refusals` and the metrics carry the
+    /// refusal hold's counters and the keeper.toml parameters; every tick
+    /// is one pass.
+    #[tokio::test]
+    async fn status_shows_refusal_backoff() {
+        let program = Address::new_from_array([0x5f; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        cfg.roles.clear();
+        let port = crate::testkit::FakePort::default();
+        port.set_clock(200, 1_000);
+        let mut k =
+            Keeper::new(cfg, port, crate::testkit::FakeDrand::new(), &[1; 32], None).unwrap();
+        k.tick().await.unwrap();
+        k.port.set_clock(201, 1_001);
+        k.tick().await.unwrap();
+        let st = k.status_json(201, 1_001, None);
+        let r = &st["refusals"];
+        assert_eq!(r["pass"], 2);
+        assert_eq!(r["held"], 0);
+        assert_eq!(r["suppressed_total"], 0);
+        assert_eq!(r["groups_open"], json!([]));
+        assert_eq!(
+            r["params"],
+            json!({"max_slots": 9_000, "max_passes": 64, "group_min": 4})
+        );
+        assert!(k
+            .metrics_text(201, None)
+            .contains("frontier_keeper_refusals_held 0"));
     }
 
     #[tokio::test]

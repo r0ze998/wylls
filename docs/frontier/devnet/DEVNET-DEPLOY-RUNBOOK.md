@@ -344,7 +344,7 @@ SOL out of its payers, of which 0.273 SOL is fees** (spent) and the rest is rent
 while it keeps running (it must drain before `end-season`'s final part: after the tombstone nothing closes those
 floats, §6c step 3). By role: SkipQuiet 13,852 sends / 0.225 SOL; GatherClash 78 / 0.537 SOL (ClashInputs float);
 `wide-resolve` 200 × 64,331 lamports; 2,489 refused ArchiveAnchors ≈ 0.023 SOL (the harness's declared anchors; an
-offline-only refusal, but keeper A has no backoff for a write the chain keeps refusing, D-dress-8). That season was
+offline-only refusal; keeper A's backoff then capped at 1,024 slots for every refusal, D-dress-8 — fix-keeper-backoff holds a deterministic refusal up to ≈ 1 h / 64 passes and probes a refused kind one key at a time, RUN-A-KEEPER §3). That season was
 small (7 players, 36 wide provinces, few of them known): the "+3 SOL" budget above stays the figure to fund, and the
 "+10 SOL" bound is `wide-resolve` over all 108 wide provinces from the first bell (about 7.0) plus SkipQuiet over
 every province opened on demand (about 2.9). Not measured there: the beacon's
