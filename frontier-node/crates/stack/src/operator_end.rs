@@ -233,6 +233,12 @@ fn addr32(b: &[u8]) -> Address {
     Address::new_from_array(b[..32].try_into().expect("32 bytes"))
 }
 
+/// `observe`'s answer when the profile's season is not on the cluster (a wrong `seasonId` or program).
+pub const NO_SEASON: &str =
+    "the season does not exist on this cluster (check the profile's seasonId and programId): nothing to end";
+/// `observe`'s answer when the season's address holds something else.
+pub const NOT_A_SEASON: &str = "the Season address holds another kind of account";
+
 /// Reads everything the plan needs.
 pub async fn observe(chain: &Chain, a: &Addresses) -> Result<EndObserved, String> {
     use fclient::abi::magic;
@@ -259,12 +265,10 @@ pub async fn observe(chain: &Chain, a: &Addresses) -> Result<EndObserved, String
             }
         }
     }
-    let season = got[0]
-        .as_ref()
-        .ok_or("the season does not exist on this cluster: nothing to end")?;
+    let season = got[0].as_ref().ok_or(NO_SEASON)?;
     let d = &season.data;
     if d.len() < S::TOMBSTONE_SIZE || d[..8] != S::MAGIC {
-        return Err("the Season address holds another kind of account".into());
+        return Err(NOT_A_SEASON.into());
     }
     let tombstone = d.len() == S::TOMBSTONE_SIZE;
     let tombstone_rent = chain
@@ -1102,7 +1106,11 @@ async fn run(
         }
     }
     let (_, info) = op::check_program(&chain, &a, authority, &profile).await;
-    let obs = observe(&chain, &a).await.map_err(|e| (EXIT_FAILED, e))?;
+    // (verify-pr180) a wrong `seasonId` / program in the profile is a refusal, not a failure: nothing to end there
+    let obs = observe(&chain, &a).await.map_err(|e| {
+        let wrong = e.starts_with(NO_SEASON) || e.starts_with(NOT_A_SEASON);
+        (if wrong { EXIT_REFUSED } else { EXIT_FAILED }, e)
+    })?;
     let steps = plan(&obs, &a, authority);
     let balance = chain
         .balance(&authority)

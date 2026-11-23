@@ -284,6 +284,8 @@ Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOO
 | Keeper A's pools: reveal 150 payers × up to 0.016, delay 32 × up to 0.1, beneficiary 0.1 | 5.7 | 5.7 | float | profile `season.lamports`, halved (it models keepers A and B) |
 | Keeper A `beacon` / `archive`: AnchorArchives, BellAnchors, SeedCaches | 20.89 | 28.62 | float [model] | §4a's season lines |
 | Keeper A `rings`: RingSeeds 0–128 and the wide ring seeds (§4a's model counts the three the profile's `wide_rings` = 3 opens, rings 129–131; it counted four, 129–132, until 2026-11-21) | 0.17 | 0.24 | float | §4a; P5: 1,632,371 lamports per wide ring request (1,625,600 of it rent) |
+| — of the line above, **never returned**: the three wide ring seeds' rent (`PSFXWRS1`, 192 B; the program has no close for them, D-end-1; the legacy RingSeeds 0–128 come back to keeper A at CloseSeason part 8) | 0.0049 | 0.0067 | locked for good, every season | 3 × 1,625,600 = 4,876,800 lamports at 5,080; 3 × 2,227,200 = 6,681,600 at 6,960 ((192 + 128) B × rate; verify-pr180). A season with more wide rings strands 1 more seed rent per ring |
+| Season end, `frontier-operator end-season` (§6c): EndSeason, then the province closes and CloseSeason parts (about 50 transactions for 79 legacy + 108 wide provinces) | 0.000255 | same | spent (fees); everything the setup line above put in comes back but the defence pay claimed | PEND: 5,000 + 250,000 lamports |
 | Keeper A opening the 42 rim and 108 wide provinces: what its own payers send | 0.014 | 0.015 | 0.009 of fees spent; the rest (0.005 at 5,080) is the three wide ring seeds' rent, already in the line above | P4 (26,332 per rim province), P5 (12,517,785 for the three wide rings: 3 requests with their rent, 3 consumes, 108 opens) |
 | — their rent: 1.04 + 2.74 SOL, **out of the 36 SOL of wedge funds, not new money** | (3.78) | (5.17) | float | #104, #107 |
 | Keeper A per rim first village (SettleTicket) / per wide claim (settle + finalize) | 0.000008 / 0.000015 | same | spent | P4 8,361; P5 14,663 lamports |
@@ -620,7 +622,10 @@ totals (fees; back to the authority; to others); `--yes-send` sends what is due,
 the chain before each (**idempotent**: run the same line again to resume; a finished season prints
 `end-season complete: nothing to send`); before the end bell (or before `end + 72 h`) it **refuses** with exit 3 and
 sends nothing. On devnet a send needs the same gate as the setup: `--i-have-r0ze-approval --approved-sha256 $H` and the
-key file of the Season's authority. Build it with the playable-lane feature (without it the wide provinces are not
+key file of the Season's authority (another key: refused, exit 2); a profile whose `seasonId` / `programId` has no
+Season on the cluster is refused too (exit 2), and so is a mainnet / testnet genesis or an RPC host outside the
+profile's `allowedRpcHosts` (verify-pr180: `stack/tests/operator.rs` O4; interrupted runs — `--max-txs`, a SIGKILL
+between two transactions — resume with no double close, PEND). Build it with the playable-lane feature (without it the wide provinces are not
 listed and the final part stays BLOCKED).
 
 ```sh
@@ -636,7 +641,10 @@ $B end-season --profile $P --rpc $RPC --authority $K --yes-send --i-have-r0ze-ap
 # 3. at or after end + 72 h [r0ze approves]: the dry run first (check "found N legacy + M wide provinces (funds count N+M
 #    opened)" and no BLOCKED line), then the same send line → every close; exit 0 "end-season complete: K transaction(s) sent"
 # 4. keeper A logs "season-closed" and stops every duty by itself; stop it, keeper B, the gateway; the herald keeps
-#    serving the ended season (/h/season "statusName": "Closed", the page shows 閉鎖 / 受付終了)
+#    serving the ended season (/h/season "statusName": "Closed", the page shows 閉鎖 / 受付終了) — the herald of §8 step 1,
+#    built with land-preview,wide-world-experimental,expedition-records-experimental: a plain `cargo build -p herald`
+#    refuses every PSW1 record (UnsupportedWideRecord, "ingest store failed; reopen required") and stops at the first
+#    wide record, at the latest at the first WideClose(6) here (D-end-2; CI's PEND runs that plain build and asserts either)
 # 5. keeper A's and the relay's leftover SOL back to the operator (PLAYTEST-RUNBOOK §3 step 15), then, to end the test:
 #    solana program close <PROGRAM_ID> ... (§5)
 ```
@@ -651,8 +659,10 @@ rent 5,080): EndSeason 3,460 CU / 5,000 lamports; then 50 transactions (ClosePro
 authority** (the setup had spent 57,139,689,040), every recipient's lamports equal to the dry run's line to the lamport. **Not returned by this tool**: the
 players' Citizens and Holdings (CloseCitizen / CloseHolding, anyone, rent to the players; still possible on the
 tombstone), keeper A's ArrivalSlot / ArrivalDay / ClashInputs / SeedCache floats (its `close` / `archive` roles; also
-closable on the tombstone), and the **wide ring seeds** (keeper A's 1,625,600 lamports each at 5,080): the program has
-no close for them (D-end-1).
+closable on the tombstone), and the **wide ring seeds** (keeper A's 1,625,600 lamports each at 5,080, 2,227,200 at
+6,960): the program has no close for them (D-end-1), so every devnet season strands the three of `wide_rings` = 3 for
+good: **4,876,800 lamports (0.0049 SOL) at 5,080, 6,681,600 (0.0067 SOL) at 6,960** (§6 operator cost table; a
+program change, blocked on r0ze).
 
 ## 7. Services and play (not ready: never run on devnet)
 

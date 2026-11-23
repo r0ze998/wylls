@@ -3546,7 +3546,11 @@ let viewerKnown = !lastWalletName();
 function introLive() {
   const total = hud.standings(FS.overviews).reduce((a, r) => a + r.holdings, 0);
   const bell = FS.clock ? bellChip(FS.clock, FS.chain?.now() ?? null).bell : null;
-  return title.liveLine({ seasonId: FS.record?.season ?? null, bell, holdings: total });
+  // (verify-pr180) a season whose orders are over says so on the title (終了 / 閉鎖 / 受付終了（終了の確定待ち）), not its turn
+  const s = FS.season, now = FS.chain?.now() ?? 0;
+  const st = s ? effectiveStatus(s, now) : null, words = s ? seasonStatusText(s, now) : null;
+  const over = st === 'Ended' || st === 'Closed' || words === SEASON_STATUS_TEXT.Over ? words : null;
+  return title.liveLine({ seasonId: FS.record?.season ?? null, bell, holdings: total, over });
 }
 let stopTitleScene = null, titleCanvas = null;
 function renderIntro() {

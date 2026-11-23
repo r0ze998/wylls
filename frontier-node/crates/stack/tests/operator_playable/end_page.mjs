@@ -31,6 +31,8 @@ const read = () => page.evaluate(() => {
   const stale = document.getElementById('stale-banner');
   return {
     seasonStatus: t('season-status'),
+    // (verify-pr180) the title's live line (a first visit opens on the title scene)
+    introLive: document.querySelector('.intro-live')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     errorLine: banner && !banner.hidden ? banner.textContent.trim() : null,
     chip: chip?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     staleBanner: stale && !stale.hidden ? stale.textContent.trim() : null,

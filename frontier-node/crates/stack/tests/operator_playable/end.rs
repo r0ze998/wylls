@@ -161,6 +161,44 @@ async fn run_op(r: &Run<'_>, args: Vec<String>) -> super::super::Run {
     out
 }
 
+/// (verify-pr180) `frontier-operator` as a child process, KILLED (SIGKILL) right after its `after`-th transaction
+/// finalized (between two transactions: the tool sleeps 400 ms after each); returns the transactions it finalized.
+async fn run_op_killed(r: &Run<'_>, args: Vec<String>, after: usize) -> usize {
+    {
+        let mut c = r.lock();
+        c.set_scale(1.0);
+        c.set_paused(false);
+    }
+    let n = tokio::task::spawn_blocking(move || {
+        use std::io::BufRead;
+        let mut ch = std::process::Command::new(env!("CARGO_BIN_EXE_frontier-operator"))
+            .args(&args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("frontier-operator");
+        let mut n = 0;
+        for l in std::io::BufReader::new(ch.stderr.take().unwrap())
+            .lines()
+            .map_while(Result::ok)
+        {
+            if l.ends_with(": finalized") {
+                n += 1;
+                if n == after {
+                    let _ = ch.kill();
+                    break;
+                }
+            }
+        }
+        let _ = ch.wait();
+        n
+    })
+    .await
+    .unwrap();
+    r.lock().set_paused(true);
+    n
+}
+
 /// Lets keeper A run at the chain's real speed for `secs` wall seconds.
 async fn idle(r: &Run<'_>, secs: u64) {
     {
@@ -359,6 +397,41 @@ pub(super) async fn flow(r: &mut Run<'_>, e: &End) -> Value {
     );
     let since_close = r.lock().slot();
     let b2 = bal(r);
+    // (verify-pr180) interrupted twice before it finishes: `--max-txs 3` stops it, then a SIGKILL right after two
+    // more transactions; each re-run re-reads the chain and sends only what is missing (no double close, no fee
+    // more than the plan's: the balance check below covers every run)
+    let mut part = send_args();
+    part.extend(["--max-txs".to_string(), "3".to_string()]);
+    let stopped = run_op(r, part).await;
+    assert_eq!(stopped.code, 0, "{}\n{}", stopped.stdout, stopped.stderr);
+    assert!(
+        stopped
+            .stdout
+            .contains("end-season stopped after --max-txs 3"),
+        "{}",
+        stopped.stdout
+    );
+    assert_eq!(super::super::landed_lines(&stopped.stdout).len(), 3);
+    let killed = run_op_killed(r, send_args(), 2).await;
+    assert_eq!(killed, 2, "the killed run finalized two transactions");
+    let dry_resume = run_op(r, base.clone()).await;
+    assert_eq!(
+        dry_resume.code, 0,
+        "{}\n{}",
+        dry_resume.stdout, dry_resume.stderr
+    );
+    assert!(
+        !dry_resume.stdout.contains("BLOCKED"),
+        "{}",
+        dry_resume.stdout
+    );
+    assert!(
+        dry_resume
+            .stdout
+            .contains(&format!("total      {} transaction(s)", totals.txs - 5)),
+        "{}",
+        dry_resume.stdout
+    );
     let closes = run_op(r, send_args()).await;
     assert_eq!(closes.code, 0, "{}\n{}", closes.stdout, closes.stderr);
     assert!(
@@ -367,7 +440,12 @@ pub(super) async fn flow(r: &mut Run<'_>, e: &End) -> Value {
         closes.stdout
     );
     let landed_closes = super::super::landed_lines(&closes.stdout);
-    assert_eq!(landed_closes.len() as u64, totals.txs, "{}", closes.stdout);
+    assert_eq!(
+        landed_closes.len() as u64 + 5,
+        totals.txs,
+        "{}",
+        closes.stdout
+    );
     let net = bal(r) as i128 - b2 as i128;
     assert_eq!(
         net,
@@ -426,6 +504,44 @@ pub(super) async fn flow(r: &mut Run<'_>, e: &End) -> Value {
         .find(|l| l.contains("season-closed") || l.contains("season-ended"))
         .map(String::from);
 
+    // (verify-pr180) keeper A after the tombstone: alive, nothing sent, nothing failed, `season-closed` logged once.
+    // The herald: Closed, or (CI's default build, D-end-2) stopped at the first wide record (WideClose 6 logs PSW1).
+    assert!(keeper_alive, "keeper A exited after the tombstone");
+    assert_eq!(
+        (keeper_ok_after_tomb, keeper_failed_after_tomb),
+        (0, 0),
+        "{keeper_after_tomb}"
+    );
+    assert_eq!(
+        klog.matches("season-closed").count(),
+        1,
+        "keeper A alerts season-closed once"
+    );
+    let hlog = std::fs::read_to_string(r.c.dir.join("herald.log")).unwrap_or_default();
+    assert!(
+        herald_closed["statusName"] == "Closed"
+            && herald_closed["closed"] == true
+            && herald_closed["tombstone"] == true
+            || hlog.contains("UnsupportedWideRecord"),
+        "herald after the tombstone: {herald_closed}"
+    );
+    assert_eq!(herald_ended["statusName"], "Ended", "{herald_ended}");
+    // (verify-pr180) the page (DEVNET_PAGE_DRIVER=1 only): its status word and the title's live line at each stage
+    for (pg, want) in [
+        (&page_at_end, "受付終了（終了の確定待ち）"),
+        (&page_ended, "終了"),
+        (&page_closed, "閉鎖"),
+    ] {
+        if !pg.is_null() {
+            assert_eq!(pg["seasonStatus"], want, "{pg}");
+            assert!(
+                pg["introLive"].as_str().is_none_or(|l| l.contains(want)),
+                "{pg}"
+            );
+            assert_eq!(pg["pageErrors"], json!([]), "{pg}");
+        }
+    }
+
     // 6. The verifier over the whole archive, the end and the closes included.
     let verifier = r.judge_season("pend");
     let _ = since_end_jump;
@@ -440,7 +556,7 @@ pub(super) async fn flow(r: &mut Run<'_>, e: &End) -> Value {
         "plan": plan_json, "dry_run_closes": dry_close.stdout, "closes_send": closes.stdout, "landed": cus,
         "authority_net": net.to_string(),
         "operator_deltas": deltas.iter().map(|(k, v)| (k.to_string(), json!(v.to_string()))).collect::<serde_json::Map<_, _>>(),
-        "rerun": rerun.stdout,
+        "rerun": rerun.stdout, "max_txs_run": stopped.stdout, "killed_after": killed, "dry_run_resume": dry_resume.stdout,
         "keeper_after_tombstone": {"traffic": keeper_after_tomb, "ok": keeper_ok_after_tomb, "failed": keeper_failed_after_tomb,
             "alive": keeper_alive, "status": keeper_status_closed, "log_line": keeper_closed_line},
         "herald_season_closed": herald_closed, "herald_status_closed": herald_status,
