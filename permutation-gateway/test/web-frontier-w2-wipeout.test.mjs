@@ -177,3 +177,16 @@ test('home village (conquest guide): after a capture the card offers the next ar
     }
   } finally { setLang('ja'); }
 });
+
+test('a REFUSED WideDepart (act answers undefined + FS.notice) is not counted as a march — live world B turn 473: NotResident counted, cap reached with no 2nd march', () => {
+  const c = src('controller.mjs');
+  const at = c.indexOf("const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });");
+  assert.ok(at > 0);
+  const body = c.slice(at, c.indexOf('return r;', at));
+  assert.ok(body.includes('const n = r === undefined ? FS.notice : r;'));
+  assert.ok(body.includes("if (n?.ok !== false && d.name === 'WideDepart') {"), 'counted only when not refused');
+  assert.ok(!body.includes("if (r?.ok !== false && d.name === 'WideDepart')"));
+  assert.ok(body.indexOf('const n = r === undefined') < body.indexOf("d.name === 'WideDepart'"), 'the refusal is read before the count');
+  // the controller's refusal path really answers undefined: failed() returns setNotice(), which returns nothing
+  assert.ok(c.includes("const setNotice = n => { FS.notice = n; invalidate('panel'); };"));
+});

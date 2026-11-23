@@ -4137,7 +4137,12 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     const d = w.decision;
     const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
     mem.decisions = (mem.decisions ?? 0) + 1;
-    if (r?.ok !== false && d.name === 'WideDepart') {
+    // (`act` answers a refusal with its notice — FS.notice — not with a result)
+    const n = r === undefined ? FS.notice : r;
+    // (w2-wipeout, live world B turn 473: a WideDepart REFUSED as the turn rolled under it — NotResident — came back as
+    //  `undefined`, which `r?.ok !== false` counted as a march: wideDeparts 2 = the TEST cap with no second march sent,
+    //  and lastWideDepart pointed at a march that never left. Only a send that was not refused counts)
+    if (n?.ok !== false && d.name === 'WideDepart') {
       mem.wideDeparts = (mem.wideDeparts ?? 0) + 1;
       // (fix-loop6, LP6-5: kept so the card can follow the march to its result — flocalplay-wide-plan marchState)
       if (d.to && Number.isInteger(d.fields?.arrive_bell)) mem.lastWideDepart = { to: d.to, arrive: d.fields.arrive_bell, troops: d.troops ?? null };
@@ -4145,8 +4150,6 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     mem.wideHostUntil = mem.decisions;
     // (refused BEFORE it was sent because the turn rolled under it — NotResident 26 — : wait a turn and try again
     //  by itself; any other answer ends the waiting and is shown as it is)
-    // (`act` answers a refusal with its notice — FS.notice — not with a result)
-    const n = r === undefined ? FS.notice : r;
     if (n?.ok === false && (Number(n.programCode) === 26 || n.code === 'NotResident' || n.code === 26)) wideHostWait(mem, { reason: 'turn', lag: null });
     else wideHostStopWait(mem);
     return r;
