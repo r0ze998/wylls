@@ -40,7 +40,10 @@ bytes are zero in every legacy pool. The legacy decoders (`decodePool`, `prize-s
 The numbers are the owner's defaults, unchanged: **25 test USDC per entry, 80% to the prize, 20% to the operator**
 (`--entry-fee 25000000`, `--prize-ops-bps 2000`). Defaults that are not owner decisions:
 
-- a window is **2,016 bells**, which is 14 days at 600 s, the owner's season length Y6;
+- a window is **2,016 bells**, which is 14 days at 600 s, the owner's season length Y6 (note of 2026-11-24: seasons were
+  abolished on 2026-11-23 and Y6 is superseded; the default stays in the code but no longer matches anything. The
+  window pools are planned to be replaced by pools of the permanent world goals, which are not built:
+  [design 01](../../design/win-conditions/01-proposal.ja.md) §10.1 and §13 B4, Japanese);
 - the claim window is **1,008 bells** (7 days).
 
 ### 2.1 The snapshot without a freeze
