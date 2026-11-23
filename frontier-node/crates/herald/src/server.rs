@@ -1135,6 +1135,76 @@ fn plain(v: &str) -> bool {
     v.bytes().all(|b| b == b'\t' || (0x20..0x7f).contains(&b))
 }
 
+/// Pause before the one reconnect after a refused connect (the request
+/// never left the herald, so a second try cannot double-send it).
+const GW_RECONNECT_PAUSE: Duration = Duration::from_millis(200);
+
+/// One relay round trip on a fresh connection (`Connection: close`; the
+/// herald keeps no pool, so there is no stale keep-alive to reuse).
+///
+/// fix-herald-gw-502 (verify-pr181 O-1): the relay (Node's http server)
+/// answers some requests before reading their body (a 429 from the
+/// per-address limiter, a 404, a 503 from the funds check) and then closes
+/// the socket without lingering. A body that arrives after that close, or
+/// is still unread at it, makes the kernel send RST, and the herald's read
+/// then failed with "Connection reset by peer" although the whole answer was
+/// already in its receive buffer: the player saw 502 `RelayUnavailable`
+/// instead of the relay's 429. So:
+/// - head and body go out in ONE write (two writes let the relay answer
+///   between them; 53/200 resets in evidence/fix-herald-gw-502/race.out);
+/// - a failed write still reads the answer (the relay may have answered
+///   early and reset the rest of the upload);
+/// - a reset after a COMPLETE answer (`Content-Length` met, or the last
+///   chunk) keeps that answer; a truncated one is still an error;
+/// - only a refused connect is tried again, once: nothing was sent. A
+///   request that may have reached the relay is never sent twice (curl's
+///   rule: retry only when no byte of the request can have been acted on).
+async fn gw_exchange(relay: &str, request: &[u8]) -> Result<fclient::http::Response, String> {
+    let connect = || async {
+        tokio::time::timeout(GW_CONNECT, tokio::net::TcpStream::connect(relay))
+            .await
+            .map_err(|_| "connect timeout".to_string())
+    };
+    let mut s = match connect().await? {
+        Ok(s) => s,
+        Err(first) => {
+            tokio::time::sleep(GW_RECONNECT_PAUSE).await;
+            connect()
+                .await?
+                .map_err(|e| format!("{e} (after one reconnect; first: {first})"))?
+        }
+    };
+    let wrote = s.write_all(request).await;
+    let mut buf = vec![];
+    let read = (&mut s).take(GW_MAX_ANSWER).read_to_end(&mut buf).await;
+    match (wrote, read) {
+        (Err(we), Ok(_)) if buf.is_empty() => Err(format!("write: {we}")),
+        (_, Ok(_)) => fclient::http::parse_response(&buf).map_err(|e| format!("{e:?}")),
+        (w, Err(e)) => complete_answer(&buf).ok_or_else(|| match w {
+            Err(we) => format!("write: {we}; read: {e}"),
+            Ok(()) => e.to_string(),
+        }),
+    }
+}
+
+/// The answer in `buf` when it is whole: a `Content-Length` body that is all
+/// there, or a chunked body up to its last chunk. A body that runs to the
+/// close (neither header) cannot be told whole after a reset: `None`.
+fn complete_answer(buf: &[u8]) -> Option<fclient::http::Response> {
+    let end = buf.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = std::str::from_utf8(&buf[..end]).ok()?.to_ascii_lowercase();
+    let framed = head.lines().skip(1).any(|l| {
+        l.split_once(':').is_some_and(|(k, v)| {
+            let k = k.trim();
+            k == "content-length" || (k == "transfer-encoding" && v.trim() == "chunked")
+        })
+    });
+    if !framed {
+        return None;
+    }
+    fclient::http::parse_response(buf).ok()
+}
+
 async fn gw(
     State(app): State<Shared>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -1186,23 +1256,9 @@ async fn gw(
         "X-Forwarded-For: {}\r\n\r\n",
         client_ip(peer.ip(), &h)
     ));
-    let answer = async {
-        let mut s = tokio::time::timeout(GW_CONNECT, tokio::net::TcpStream::connect(relay))
-            .await
-            .map_err(|_| "connect timeout".to_string())?
-            .map_err(|e| e.to_string())?;
-        s.write_all(head.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        s.write_all(body).await.map_err(|e| e.to_string())?;
-        let mut buf = vec![];
-        (&mut s)
-            .take(GW_MAX_ANSWER)
-            .read_to_end(&mut buf)
-            .await
-            .map_err(|e| e.to_string())?;
-        fclient::http::parse_response(&buf).map_err(|e| format!("{e:?}"))
-    };
+    let mut request = head.into_bytes();
+    request.extend_from_slice(body);
+    let answer = gw_exchange(relay, &request);
     let r = match tokio::time::timeout(GW_TIMEOUT, answer).await {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => {

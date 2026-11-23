@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-23 (through #182; #173–#182 added: tab and setting presses no longer make the page forget a wide village's march #173, the next army offered after a capture or a wipe-out #176 and the text fixes of #175 → §3 step 6 and §4, external AI residents in `--wide` sending the wide land's orders #178 → §11. #177 and #179–#182 are devnet and verifier changes; local play is unchanged by them → §7) and #184 (fix-loop11: a departure the chain refuses no longer stays under 進軍, the W2 wait goes on while another village is open, the cap line also comes while the second march is followed → §4). What is left: §8. Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
+Matches main as of 2026-11-23 (through #187; #173–#182 added: tab and setting presses no longer make the page forget a wide village's march #173, the next army offered after a capture or a wipe-out #176 and the text fixes of #175 → §3 step 6 and §4, external AI residents in `--wide` sending the wide land's orders #178 → §11. #177 and #179–#182 are devnet and verifier changes; local play is unchanged by them → §7. #184, fix-loop11: a departure the chain refuses no longer stays under 進軍, the W2 wait goes on while another village is open, the cap line also comes while the second march is followed → §4. #183: the wide-claim card quotes the program's settler cost, 800 for a second village → §4 step 2. #187: text fixes for first-time players (how long a keep must be held, the guide's line in a world that goes on, 伐採場, the search hint) → §3 step 8). What is left: §8. The devnet playable version went out on 2026-11-23; how to play it is in [PLAY-DEVNET.md](PLAY-DEVNET.md). Japanese: [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)
 
 ## 1. Install once
 
@@ -104,9 +104,9 @@ move only once its turn is settled: about 17 minutes later).
      keep is in sight from your village (common with `--random-map`). The guide at the top right and the list's card then
      offer 「進軍で地図から選ぶ」 (#130). Press it, or 「進軍」 in the bottom bar, pick the ring-1 keep's tile on the map as the destination (you can
      press it while it is blank under the fog) and 「確認した命令で出発」 (the destination is called 「見えていない土地」).
-     A march spends 10 + 2 × tiles of stamina (28 for 9 tiles, 74 for 32; the cap is 120) and stamina returns 1 per turn:
-     after a scouting march to a far blank tile the host may have to wait for stamina before it can march on a keep
-     (loop-play6: about 30 turns).
+     Every march spends 74 stamina (the same for any path length, nothing comes back for a short one; the cap is 120) and
+     stamina returns 1 per turn: after a scouting march to a far blank tile the host has to wait for stamina (28 turns
+     when it left with full stamina) before it can march on a keep (loop-play6: about 30 turns).
    - **When no host is in the village** (#176): after the host marched out, the guide at the top right says 「いま村に軍勢は
      いません。進軍の記録が締めくくられると、生き残った兵が村に戻ります（全滅していれば戻りません）。」 with 「進軍の結果を見る」.
      When the host did not come back (wiped out, or it took the keep and became its garrison) it says
@@ -122,6 +122,12 @@ move only once its turn is settled: about 17 minutes later).
    and the round number on the keep, or 「奪取まで N/72 ターン」 in the clash report, show the progress. A held turn counts
    whether the province's turn is resolved or skipped (the #120 check: 11 AI captures at ×60 in `--wide --ai 4`, each
    after exactly 72 held turns).
+   Since #187 the keep list and the guide at the top right also say how long 72 turns are (「約 12 時間」 at 1×,
+   「この世界の実時間で約 12 分」 at ×60). In a world that goes on (the kept 1× world) the guide after a capture says
+   「この世界は続きます。戦期の勝敗と集計は未決定です。」 (in `--demo` and `--wide` worlds, which end, it still says
+   「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). The same PR made the first-building hints say 「伐採場」, as the
+   village screen does, and the search's nothing-found hint is now 「州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます」
+   (verify-pr187 saw them in a live world).
 
 Good to know:
 
@@ -183,12 +189,11 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    - If a card 「留守のあいだ：この端末では、このシーズンとウォレットで確認した記録がありません…」 comes first, close it with
      「確認した」 (the world starts around turn 140; it is not a defect).
 2. **A wide village (30–60 minutes at ×60; 75 under heavy load)**: the village screen's 「広い土地に村を出す（テスト）」 shows
-   the cost (「費用（村の蔵から）: 食料 1,200 · 木材 1,200 · 石材 600 · 金 300」) and the candidate provinces. Once the stores
-   hold that amount, 「ここに村を出す」 can be pressed (until then the card says 「足りません: …」 and the button is off). The claim is
-   decided at the end of the turn and the village is drawn on the map with your nation's sigil.
-   - **The card asks for too much (still on main, §8.1).** For a second village the program really takes food 800, wood 800,
-     stone 400 and gold 200 (seen live in loop-play11 and verify-pr178). The page's card keeps the button off until the
-     stores hold 1,200, so on today's main save up to 1,200 (800 is taken, the rest stays in the stores).
+   the cost — the program's price, for a second village 「費用（村の蔵から）: 食料 800 · 木材 800 · 石材 400 · 金 200」 — and the
+   candidate provinces. Once the stores hold that amount, 「ここに村を出す」 can be pressed (until then the card says
+   「足りません: …」 and the button is off). The claim is decided at the end of the turn and the village is drawn on the map
+   with your nation's sigil. (Until #183 the card asked 1,200 / 1,200 / 600 / 300 and kept the button off until the stores
+   held that much; verify-pr183 claimed live with exactly 800.)
    - While the first village's name still carries 「仮」 the program refuses this claim (NotFinal). Press 「収穫する」 once
      first to make it final (step 1; the card does not check this).
 
@@ -394,7 +399,7 @@ view (fog-devnet; runbook §7 P5).
 
 ## 7. Local only, and the same as devnet
 
-| | Local (this script) | The devnet playable version (not deployed yet) |
+| | Local (this script) | The devnet playable version (on devnet since 2026-11-23; how to play: [PLAY-DEVNET.md](PLAY-DEVNET.md)) |
 |---|---|---|
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
 | Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
@@ -414,14 +419,14 @@ view (fog-devnet; runbook §7 P5).
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
 training are the same rules as devnet.
 A local world costs no SOL and no rent (the test keys are funded with test balances). Devnet costs and rent (since #147 and
-#150 they follow the cluster's own rent rate) are in the devnet runbook (`docs/frontier/devnet/`, refreshed by #177 and #182),
+#150 they follow the cluster's own rent rate) are in the devnet runbook (`docs/frontier/devnet/`, refreshed by #177 and #182; what a player pays: [PLAY-DEVNET.md](PLAY-DEVNET.md) §4),
 not in this guide. #179 (the verifier reads declared patches), #180 (the operator's season-end tool `frontier-operator end-season`)
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-23, main through #182)
+## 8. Known problems (2026-11-23, main through #187)
 
-### 8.1 Still on main (after #182)
+### 8.1 Still on main (after #187)
 
 The problems loop-play6 … 9 found (LP6-1 … 15, LP7-1 … 8, LP8-1 … 11, LP9-0 … 8) were fixed by #128, #130, #137, #149, #157
 and #162, and verify-pr130, 133, 137, 149 and 162 played them. The `play-local.sh` build that failed after #154 (LP9-0) was
@@ -430,13 +435,12 @@ notes below (the Ctrl-C cause LP6-3, the lag under load LP8-4; the rim village's
 an arrival LP7-6 were seen live only in part).
 loop-play10's LP10-1 … 6 are fixed too (a tab press making the W2 card forget its march, LP10-1, by #173; the text items
 LP10-2 … 5 by #175; a W2 village never raising another host after a capture or a wipe-out by #176; verify-pr173, 175, 176 and
-loop-play11 played them). LP11-1 … 5, new in loop-play11 (main at #173–#180): LP11-1, 2, 4 and 5 are fixed by #184 (verify-pr184 played them);
-LP11-3 (the card's cost, the first row below) is #183's (a draft when this was written).
+loop-play11 played them). LP11-1 … 5, new in loop-play11 (main at #173–#180), are fixed: LP11-1, 2, 4 and 5 by #184 (verify-pr184 played them),
+LP11-3 (the wide-claim card asked 1,200 for a second village) by #183 (verify-pr183 claimed live with exactly 800).
 What is left is below. None is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Found a village on the wide land (card) | the card's cost is too high: a second village shows 「食料 1,200 · 木材 1,200 · 石材 600 · 金 300」 and the button stays off until the stores hold it. The program takes 800 / 800 / 400 / 200 (loop-play11 LP11-3, verify-pr177 and 178; the AI residents save up to the same higher amount) | save up to the card's amount (800 is taken); §4 step 2 |
 | Boundary card (×60) | 「出発条件を確認」 is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
 | ⑩ stopping a caravan (×60) | from the moment 「隊商を止める」 is offered you have in practice about 2 turns (about 20 s) to stop and decide (the limit is 6 turns from the turn the caravan stood; the province settles 2–4 turns late; verify-pr145) | try it with `--speed 15` (§12) |
 | ⑩ seizing a storehouse | 「貯蔵庫を奪う」 can be pressed while the owner's host stands on the tile; the program refuses it (NotOnTile, as the rules say) | press it when no host of the owner is there |
@@ -537,8 +541,8 @@ Small ones (nothing blocks play):
   `--wide --random-map --ai 4` came after 72 held turns; provinces ran 5.99 turns a minute).
 - **An expedition's result**: once its seal is open, the map tag changes to 「到着 · 封は開きました · 結果の確定を
   待っています」. The result (「留まる：…」 and so on) shows once the target province has caught up.
-- A wide claim offers free sites only. For a third village the card shows a cost of 2,400 (the program takes 1,200: §8.1,
-  first row), and a Hamlet's stores (cap 2,000) never reach that, so the page's button cannot be pressed.
+- A wide claim offers free sites only. A third village costs food 1,200, wood 1,200, stone 600, gold 300 (the program's
+  price, which the card shows since #183; before it the card said 2,400, which a Hamlet's stores, cap 2,000, never reach).
 - The expedition card draws roads without looking at terrain (「地形・時間を確認」 then says 「山や水のマスには進めません (N)」).
 - The 「記録」 view is not shown in a fog world (it is with `LOCAL_FOG` set to `false`).
 
@@ -741,8 +745,8 @@ The world's operator gives it no privilege and never sees its key. The page show
   train / muster / march onto a neighbouring keep (the page's wide-village planner), and the expedition of a ready rim host
   into the bordering wide land (the page's depart route). Its rule, with no model and no paid API:
   - **Save, then claim.** With an opened wide province within reach (3 provinces) and no wide village yet, it saves for the
-    settler cost as your page's card quotes it (slot 2: food 1,200, wood 1,200, stone 600, gold 300 — the program
-    actually takes 800 / 800 / 400 / 200 for a second village, so it over-saves; D-external-wide-orders-8, verify-pr178): when production covers the shortfall within 240
+    settler cost as your page's card quotes it, which is what the program takes (slot 2: food 800, wood 800, stone 400,
+    gold 200; until verify-pr183 it saved for 1,200 / 1,200 / 600 / 300, D-external-wide-orders-8): when production covers the shortfall within 240
     turns, builds and training that would spend it wait (a harvest and a muster spend nothing). With the cost in its stores
     it claims the nearest target's first free site (the herald's public route capture, as your card reads it), then waits up
     to 12 turns for the world to settle the claim at a turn's end. A claim whose site was taken at the settle founds nothing
