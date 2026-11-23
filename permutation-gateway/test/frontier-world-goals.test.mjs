@@ -249,6 +249,51 @@ test('openWorldGoals: judges over the fake chain, keeps its state in the world d
   g.stop(); g2.stop();
 });
 
+test('verify-pr198: a kept world\'s state lives in its home (stateDir) across starts; another world\'s file is never adopted', async t => {
+  const home = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'wylls-goals-home-')));
+  const start1 = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'wylls-goals-s1-')));
+  const start2 = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'wylls-goals-s2-')));
+  t.after(() => Promise.all([home, start1, start2].map(d => fsp.rm(d, { recursive: true, force: true }))));
+  let chain = fakeChain({ keeps: KEEPS, bell: 10 });
+  const meta = { program: chain.programId, season_id: 11, rpc_url: 'http://127.0.0.1:41999' };
+  const deps = { noTimer: true, call: (...a) => chain.call(...a), fetch: async () => ({ ok: false }) };
+  const g1 = await W.openWorldGoals({ dir: start1, stateDir: home, meta, heraldPort: 41649, deps });
+  await g1.tick(); g1.stop();
+  assert.equal(g1.answer().flagKeeps.postedBell, 10);
+  await assert.rejects(fsp.access(path.join(start1, W.WORLD_GOALS_FILE)), 'not in the start\'s own directory');
+  // the next start of the same kept world (a new start directory, later bell): round 1 is NOT posted again
+  chain = fakeChain({ keeps: KEEPS, bell: 500 });
+  const g2 = await W.openWorldGoals({ dir: start2, stateDir: home, meta, heraldPort: 41649, deps });
+  await g2.tick(); g2.stop();
+  assert.equal(g2.answer().flagKeeps.round, 1);
+  assert.equal(g2.answer().flagKeeps.postedBell, 10, 'the posting of the first start is kept');
+  assert.equal(g2.answer().flagKeeps.hash, g1.answer().flagKeeps.hash);
+  // another world (another Season) in the same home: its rounds are not this world's
+  const other = { ...meta, season_id: 12 };
+  chain = fakeChain({ keeps: KEEPS, bell: 500, seasonId: 12n });
+  const g3 = await W.openWorldGoals({ dir: start2, stateDir: home, meta: other, heraldPort: 41649, deps });
+  await g3.tick(); g3.stop();
+  assert.equal(g3.answer().flagKeeps.postedBell, 500, 'a fresh round 1 for the other world');
+  assert.equal(JSON.parse(await fsp.readFile(path.join(home, W.WORLD_GOALS_FILE), 'utf8')).world.seasonId, '12');
+});
+
+test('verify-pr198: a posted round is judged by its own need and hold time, whatever rules a restarted judge is given', () => {
+  const rules = W.goalRulesOf({ hold: '20', need: '3' });
+  const r0 = G.step(null, { bell: 10, keeps: KEEPS, genesisSeed: SEED }, rules);
+  const cur = r0.state.rounds.at(-1);
+  assert.equal(cur.need, 3); assert.equal(cur.holdBells, 20);
+  const flags1 = cur.flags.filter(f => f.nation === 1);
+  const taken = KEEPS.map(x => (flags1.some(f => f.p === x.p && f.q === x.q) ? { ...x, holder: 0, since: 12 } : x));
+  // restarted with other TEST overrides (need 1, hold 1): the posted round still needs 3 flags held 20 bells
+  const loose = W.goalRulesOf({ hold: '1', need: '1' });
+  const early = G.step(r0.state, { bell: 20, keeps: taken, genesisSeed: SEED }, loose);
+  assert.equal(early.achieved, null, 'not achieved at bell 20 by the looser rules');
+  assert.equal(early.progress.find(x => x.nation === 0).need, 3);
+  const late = G.step(r0.state, { bell: 40, keeps: taken, genesisSeed: SEED }, loose);
+  assert.equal(late.achieved?.bell, 32);
+  assert.equal(late.state.rounds.at(-1).holdBells, 1, 'the NEXT round is posted with the rules of now');
+});
+
 test('goalRulesOf and the mount', () => {
   assert.equal(W.goalRulesOf({}).holdBells, 144);
   assert.equal(W.goalRulesOf({ hold: '30' }).holdBells, 30);

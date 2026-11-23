@@ -147,11 +147,16 @@ export async function settle({ achieved, reader, provinces, members, operators, 
  * One world's judge: reads every `every` ms, keeps its state in `<dir>/world-goals.json`. → `{answer(), tick(), stop(),
  * ports}`. `deps.call` / `deps.fetch` / `deps.now` for tests.
  */
-export async function openWorldGoals({ dir, meta, heraldPort, pairPort = null, rules = FLAG_KEEPS_DEFAULTS, every = GOALS_EVERY_MS, deps = {} }) {
+export async function openWorldGoals({ dir, stateDir = dir, meta, heraldPort, pairPort = null, rules = FLAG_KEEPS_DEFAULTS, every = GOALS_EVERY_MS, deps = {} }) {
   if (typeof meta?.program !== 'string' || !Number.isSafeInteger(meta?.season_id) || typeof meta?.rpc_url !== 'string' || !/^http:\/\/127\.0\.0\.1:\d{4,5}$/.test(meta.rpc_url)) throw Object.assign(new Error('WorldGoalsNotReady'), { code: 'WorldGoalsNotReady', status: 503 });
   const reader = chainReader({ call: deps.call ?? rpcCaller(meta.rpc_url), programId: meta.program, seasonId: meta.season_id, herald: `http://127.0.0.1:${heraldPort}`, fetchImpl: deps.fetch ?? globalThis.fetch });
-  const file = path.join(dir, WORLD_GOALS_FILE);
-  let state = (await readJson(file))?.state ?? null;
+  // (verify-pr198: the state lives in `stateDir` — a kept world's own home, which every start of that world shares; `dir`
+  //  is this start's directory (operators.json, externals.json). A file of another world — another program or Season —
+  //  is never adopted: that world's rounds and achievements are not this one's)
+  const file = path.join(stateDir, WORLD_GOALS_FILE);
+  const world = { program: meta.program, seasonId: String(meta.season_id) };
+  const kept = await readJson(file);
+  let state = kept && kept.world?.program === world.program && kept.world?.seasonId === world.seasonId ? kept.state ?? null : null;
   let last = null, error = null, busy = false, stopped = false;
   const tick = async () => {
     if (busy || stopped) return;
@@ -174,7 +179,7 @@ export async function openWorldGoals({ dir, meta, heraldPort, pairPort = null, r
       state = next;
       last = { bell, keeps, progress: r.progress, at: (deps.now ?? Date.now)(), genesisRound: g.round };
       error = null;
-      await fs.writeFile(file + '.tmp', jsonOut({ v: 1, kind: WORLD_GOALS_KIND, ruleset: FLAG_KEEPS_RULESET, rules, state }));
+      await fs.writeFile(file + '.tmp', jsonOut({ v: 1, kind: WORLD_GOALS_KIND, ruleset: FLAG_KEEPS_RULESET, world, rules, state }));
       await fs.rename(file + '.tmp', file);
     } catch (e) { error = String(e?.code ?? e?.message ?? e).slice(0, 200); } finally { busy = false; }
   };

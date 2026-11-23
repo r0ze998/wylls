@@ -1307,8 +1307,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const coop = c.coopBoard === true ? await (limit.openWorldBoard ?? openWorldBoard)({ dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null }) : null;
     coopStop = typeof coop?.stop === 'function' ? coop.stop : null;
     // (TEST-ONLY `--world-goals flag-keeps-v1`: the world's goals judged off chain in this process — flag keeps only, no
-    //  money; its state in the world's directory, served under /goals-world/<proxy port>/ — local-play-world-goals.mjs)
-    const goals = c.worldGoals ? await (limit.openWorldGoals ?? openWorldGoals)({ dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null, rules: c.worldGoals }) : null;
+    //  money; its state in the world's directory — a kept world's home, so a resume keeps its rounds (verify-pr198) —
+    //  served under /goals-world/<proxy port>/ — local-play-world-goals.mjs)
+    const goals = c.worldGoals ? await (limit.openWorldGoals ?? openWorldGoals)({ dir, stateDir: persist ? home : dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null, rules: c.worldGoals }) : null;
     goalsStop = typeof goals?.stop === 'function' ? goals.stop : null;
     // (TEST-ONLY operator residents, ⑤ option A: only on a natural world whose launcher was started with
     //  `--operator-residents <n>`; each is an ordinary participant — its own memory-only TEST wallet, funded like the

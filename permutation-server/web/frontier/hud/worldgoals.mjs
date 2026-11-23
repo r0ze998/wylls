@@ -11,6 +11,7 @@
 import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
+import { fogNow, viewKeeps } from '../map/fog.mjs';
 
 /** Minutes of the chain's clock in one turn. */
 const TURN_MIN = 10;
@@ -102,14 +103,32 @@ const whyText = why => ({
   'not-a-member-read': L`国民の記録が読めませんでした`,
 }[why] ?? L`受け取れません`);
 
-function flagRow(f, g, FS) {
+/**
+ * (verify-pr198) A flag keep as the viewer may see it under the fog of war of a local test world (map/fog.mjs, the
+ * rule of the keep board and the conquest screen): a keep in sight is told live; one seen before only by its last-known
+ * holder (no timer, no siege — they are live facts); one never seen by its place alone (the posting is public). The
+ * judge's answer carries every flag keep's live holder: without this the card told what the map hides.
+ */
+export function seenFlag(FS, f) {
+  if (!fogNow().on) return { ...f, seen: 'live' };
+  const keeps = viewKeeps(FS?.conquest?.keeps);
+  const k = keeps instanceof Map ? keeps.get(`${f.p},${f.q}`) ?? null : null;
+  const hidden = { since: null, from: null, longAt: null, contender: null, progress: 0, required: 0 };
+  if (!k) return { ...f, ...hidden, holder: null, seen: 'never' };
+  if (k.fog === 'memory') return { ...f, ...hidden, holder: nation(k.holder) ? k.holder : null, seen: 'memory' };
+  return { ...f, seen: 'live' };
+}
+
+function flagRow(raw, g, FS) {
   const me = FS?.citizen?.faction;
+  const f = seenFlag(FS, raw);
+  if (f.seen === 'never') return html`<li class="goal-flag unseen" data-flag="${f.p},${f.q}" data-seen="never"><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · <small class="muted">${L`この州の砦は、まだ見ていません。`}</small></li>`;
   const held = nation(f.holder) ? factionName(f.holder) : L`持ち主なし`;
   const long = f.longAt !== null && g.bell !== null && f.longAt <= g.bell;
   const left = f.longAt !== null && g.bell !== null && !long ? f.longAt - g.bell : null;
   const state = long ? L`保持の時間を満たした` : left !== null ? L`満たすまで あと ${turnsText(left)}` : '';
   const contest = nation(f.contender) ? html` <span class="warn">${L`${factionName(f.contender)}が包囲中 ${fmtNum(f.progress)} / ${fmtNum(f.required)}`}</span>` : '';
-  return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}"><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${state}</small>${contest}</li>`;
+  return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}" data-seen="${f.seen}"><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${f.seen === 'memory' ? L`前に見たときの持ち主です` : state}</small>${contest}</li>`;
 }
 
 function achievementMarkup(a, FS) {

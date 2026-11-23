@@ -237,14 +237,20 @@ export function step(st, r, rules = FLAG_KEEPS_DEFAULTS) {
   let state = st ?? { round: 0, rounds: [], history: [] };
   if (state.round === 0) state = postRound(state, r, 1, r.bell, 0, rules);
   const cur = state.rounds.at(-1);
-  const progress = progressOf({ flags: cur.flags, keeps: r.keeps, bell: r.bell, postedBell: cur.postedBell, rules });
+  // (verify-pr198: a posted round is judged by ITS posting's need and hold time — fixed when posted, §3.2 — not by the
+  //  rules of whoever reads now: a judge restarted with other TEST overrides must not change a round already posted)
+  const progress = progressOf({ flags: cur.flags, keeps: r.keeps, bell: r.bell, postedBell: cur.postedBell, rules: postedRules(cur, rules) });
   const a = achievementOf(progress, r.bell);
   if (!a) return { state, achieved: null, progress };
   const achieved = { round: cur.round, bell: a.bell, readBell: r.bell, nations: a.nations, flags: cur.flags,
     counted: progress.filter(x => a.nations.includes(x.nation)).flatMap(x => x.keeps.filter(k => k.longAt <= a.bell).map(k => ({ ...k, nation: x.nation }))) };
   const next = postRound(state, r, cur.round + 1, r.bell, a.bell, rules);
-  return { state: next, achieved, progress: progressOf({ flags: next.rounds.at(-1).flags, keeps: r.keeps, bell: r.bell, postedBell: next.rounds.at(-1).postedBell, rules }) };
+  const nx = next.rounds.at(-1);
+  return { state: next, achieved, progress: progressOf({ flags: nx.flags, keeps: r.keeps, bell: r.bell, postedBell: nx.postedBell, rules: postedRules(nx, rules) }) };
 }
+
+/** The rules a posted round is judged by: its own need and hold time (the rest — contribution, prize — from `rules`). */
+export const postedRules = (round, rules = FLAG_KEEPS_DEFAULTS) => ({ ...rules, need: Number.isInteger(round?.need) && round.need > 0 ? round.need : rules.need, holdBells: Number.isInteger(round?.holdBells) && round.holdBells > 0 ? round.holdBells : rules.holdBells });
 
 function postRound(state, r, round, postedBell, lastAchievedBell, rules) {
   const seed = roundSeed(r.genesisSeed, round, lastAchievedBell);

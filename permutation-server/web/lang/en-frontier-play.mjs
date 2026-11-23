@@ -2424,6 +2424,8 @@ export default {
   "国民の記録が読めませんでした": "Your membership record could not be read",
   "受け取れません": "Not eligible",
   "持ち主なし": "no holder",
+  // (verify-pr198: a flag keep under the fog of war — hud/worldgoals.mjs seenFlag)
+  "前に見たときの持ち主です": "holder as last seen",
   "保持の時間を満たした": "hold time met",
   "満たすまで あと {0}": "{0} left to meet the hold time",
   "{0}が包囲中 {1} / {2}": "{0} besieging {1} / {2}",
