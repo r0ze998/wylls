@@ -438,7 +438,7 @@ test('the wiring: the page\'s two actions go to the controller\'s local-play ent
   const app = read('app.mjs'), ctl = read('controller.mjs');
   assert.match(app, /\n  'outbound-local-depart': \(\) => sendLocalPlayDeparture\(\),\n  'outbound-local-reconcile': \(\) => reconcileLocalPlayDeparture\(\),\n/);
   assert.match(app, /import \{[^}]*\bsendLocalPlayDeparture, reconcileLocalPlayDeparture\b[^}]*\} from '\.\/controller\.mjs';/);
-  assert.match(app, /'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'\]\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/, 'pressing them keeps the draft');
+  assert.match(app, /'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'\]\.includes\(el\.dataset\.act\) && !OUTBOUND_LOOKS\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/, 'pressing them keeps the draft');
   // the controller: the gate is asked with the page's own facts, and the run gets nothing but it, the composer's context, the seal and the live wallet
   assert.match(ctl, /const localDepartGate = \(\) => localDepart\.localDepartAllowed\(\{ localPlay, cluster: io\.pinned\(\)\?\.cluster, relay: io\.relay\(\), wallet: FS\.wallet\?\.address \?\? null, signer: currentEphemeralWallet\(\) \}\);/);
   // (fix-loop6, LP6-1: a press on a draft read as holding, its observation since dropped, reads the conditions again first)

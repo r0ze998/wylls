@@ -100,6 +100,10 @@ move only once its turn is settled: about 17 minutes later).
 6. **March on a keep**: press the guide at the top right when it says 「届く砦を見る」 (if it stays on
    「軍勢の準備を確かめる」, open 「国と領土」 in the bottom bar once). Pick a keep's row and press 「確認した命令で出発」.
    While the province is settling, the same order is sent once, as soon as it can be. 「最初の出陣」 means it left.
+   - In a kept world that has just started (a turn is 10 min), a press at the start of turn 2 shows 「届く砦を調べています…」
+     and 「始まったばかりの世界では、最初のターンの決着がそろうまで（数分）届く砦の一覧は出ません。」 until the world's first
+     turn results are all in (1–2 minutes into turn 2); the list follows about 30 s later (fix-loop12; before, the page
+     waited until turn 3, up to 10 minutes; loop-play12 LP12-2).
    - When the list says 「届く砦 0」 (「見えている他国の砦で、この軍勢がいま届くものはありません。」), no other nation's
      keep is in sight from your village (common with `--random-map`). The guide at the top right and the list's card then
      offer 「進軍で地図から選ぶ」 (#130). Press it, or 「進軍」 in the bottom bar, pick the ring-1 keep's tile on the map as the destination (you can
@@ -387,6 +391,9 @@ view (fog-devnet; runbook §7 P5).
    ```
 
    The same address opens; press 「世界を開始（保存された世界は続きから）」 and you are back in your village.
+   If you stopped with a march out, the page no longer knows its sealed destination (it is revealed on the arrival turn):
+   the guide at the top right says 「ガイド 4/7 進軍を見る」 and 「軍勢は進軍に出ています。行き先は封をしたままで、到着の
+   ターン N に明かされます。…」 (fix-loop12; before, it fell back to 「軍勢の準備を確かめる」; loop-play12 LP12-3).
 - `--demo` and `--wide` worlds are not kept. Close the browser tab after a stop. **Do not reload the page** while
   playing them (the test key lives in memory only; you could not get back into that world).
 - After a `git pull` that changes the program, the old world cannot continue. The script says so; start again with `--fresh`.

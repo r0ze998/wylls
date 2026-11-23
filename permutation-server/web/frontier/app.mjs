@@ -76,7 +76,7 @@ import { setBoardCharacters, landingAge } from './people/onboard.mjs';
 import { placeName, villageLine } from './map/names.mjs';
 import { lastWalletName } from '../wallet.mjs';
 import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES, unitCount } from './fi18n.mjs';
-import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
+import { L, fmtNum, mountLangToggle, onLangChange, lang, t as tKey, EN, normalizeKey } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
 import * as returnSum from './hud/returnsum.mjs';
@@ -1945,7 +1945,11 @@ function pickModel(pick) {
 /** A control that cannot be pressed now was pressed: it shakes its head and its reason is said in the map's live line (the reason stands on the control too). */
 function refuseInPlace(el) {
   const why = el.querySelector?.('.hand-why, .fan-why')?.textContent?.trim() || el.closest?.('#hand-pop')?.querySelector?.('.pop-why')?.textContent?.trim() || el.title || '';
-  if (why) summary(() => why);
+  // (fix-loop12, LP12-7: the reason is the control's text as shown, in the language of the press; a later switch of the
+  //  language said it again as it was — the hidden live line kept 「軍勢・所有者・接続情報が変わりました…」 on the English
+  //  page. In another language it is said through the English table when the words are a whole entry, else not at all)
+  const at = lang();
+  if (why) summary(() => (lang() === at ? why : at === 'ja' && EN[normalizeKey(why)] !== undefined ? tKey(why) : ''));
   if (calm()) return;
   el.classList.remove('refused'); void el.offsetWidth; el.classList.add('refused');
   setTimeout(() => el.classList.remove('refused'), 400);
@@ -4578,6 +4582,8 @@ function delegate(doc) {
   const run = (p, control = null) => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); })
     .then(() => { if (control && FS.notice && FS.notice.ok === false && !FS.notice.busy) shake(control); });
   const action = name => HUD_ACTIONS[name] ?? W4_ACTIONS[name] ?? (play ? ACTIONS[name] : undefined);
+  // (fix-loop12, LP12-5) presses that only look — a tab of the drawer, closing it — and keep the boundary card's draft
+  const OUTBOUND_LOOKS = Object.freeze(['tab', 'drawer-close']);
   doc.addEventListener('click', e => {
     const el = e.target.closest?.('[data-act]');
     const fn = el && !el.disabled ? action(el.dataset.act) : undefined;
@@ -4588,7 +4594,11 @@ function delegate(doc) {
     // (the return card's local-play controls act on the card's own observation: pressing them keeps it)
     if (FS.hand?.pop === EXPEDITION_POP && !LOCAL_CONQUEST_ACTS.includes(el.dataset.act) && !LOCAL_RETURN_ACTS.includes(el.dataset.act) && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
     // (the seal's strip stands on the boundary card too: pressing it keeps the draft, like the card's own controls)
-    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-devnet-preview', 'outbound-devnet-send', 'outbound-devnet-reconcile', 'outbound-devnet-clear', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
+    // (fix-loop12, LP12-5: so does a look at a list — a tab of the drawer, or closing it. loop-play12: the refusal notice
+    //  said to press 「出発条件を確認」 on the card; the player first opened 進軍 to see that nothing had left, and that press
+    //  emptied the card's road (0/32) and greyed every control, so the card had to be closed, reopened and the road
+    //  entered again. Viewing changes nothing the draft stands on; every read and the send still check its source.)
+    if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-devnet-preview', 'outbound-devnet-send', 'outbound-devnet-reconcile', 'outbound-devnet-clear', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act) && !OUTBOUND_LOOKS.includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);

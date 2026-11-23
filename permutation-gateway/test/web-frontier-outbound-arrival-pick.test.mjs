@@ -315,7 +315,7 @@ test('the page wires every boundary control the card renders, and keeps the draf
   assert.match(table, /\n  'outbound-arrival-earliest': \(\) => useEarliestOriginalOutboundArrival\(\),\n/);
   assert.match(app, /import \{[^}]*\buseEarliestOriginalOutboundArrival\b[^}]*\} from '\.\/controller\.mjs';/);
   // (the local reveal strip's own presses — LOCAL_REVEAL_ACTS — keep the draft too; they are no boundary control)
-  const kept = /FS\.hand\?\.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS\.includes\(el\.dataset\.act\) && !\[([^\]]*)\]\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/.exec(app);
+  const kept = /FS\.hand\?\.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS\.includes\(el\.dataset\.act\) && !\[([^\]]*)\]\.includes\(el\.dataset\.act\) && !OUTBOUND_LOOKS\.includes\(el\.dataset\.act\)\) clearOutbound\(FS\);/.exec(app);
   assert.ok(kept, 'the click handler\'s list of presses that keep the boundary draft');
   assert.deepEqual(kept[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).sort(), acts, 'a control missing here would clear the draft before it runs');
   const reveal = /const LOCAL_REVEAL_ACTS = Object\.freeze\(\[([^\]]*)\]\)/.exec(app);
