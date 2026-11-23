@@ -282,6 +282,15 @@ pub struct World {
     /// neither this program's, a System Program transfer, nor a
     /// compute-budget one (another program could credit them by CPI).
     pub foreign_keys: std::collections::HashMap<usize, std::collections::BTreeSet<Key>>,
+    /// The recorder's declared patches (`Input::declared`) per account, in
+    /// the input's order: `(at, state)`, in force from before `txs[at]`
+    /// ([`World::declare`]; empty for an archive that declares nothing).
+    pub declared: std::collections::HashMap<Key, Vec<(usize, Option<Account>)>>,
+    /// Every `(transaction, account)` whose state before the transaction
+    /// [`World::state_before`] / [`World::lamports_before`] took from a
+    /// declared patch (verifier-v7-patches): a judgement that read one is
+    /// never a PASS (`checks::run` turns it into `MissingData`).
+    pub declared_reads: std::cell::RefCell<std::collections::BTreeSet<(usize, Key)>>,
 }
 
 /// A conquest record (ABI v2 kinds 80–88), owned.
@@ -536,36 +545,106 @@ impl World {
         &self.txs[r.tx]
     }
 
+    /// Takes the recorder's declared patches (`Input::declared`): from
+    /// then on [`World::state_before`] and its kin read the later of the
+    /// last archived post-state and the declared patch in force.
+    pub fn declare(&mut self, declared: &[crate::input::Declared]) {
+        self.declared.clear();
+        for d in declared {
+            self.declared
+                .entry(d.key)
+                .or_default()
+                .push((d.at, d.account.clone()));
+        }
+    }
+
+    /// The last successful transaction before `tx` (exclusive) that carries
+    /// a post-state of `k`.
+    fn last_writer(&self, k: &Key, tx: usize) -> Option<usize> {
+        let v = self.posts.get(k)?;
+        let i = v.partition_point(|&t| t < tx);
+        v.get(i.checked_sub(1)?).copied()
+    }
+
+    /// The declared patch of `k` in force before transaction `tx` that is
+    /// later than its last archived write before `tx` (the rule of
+    /// `vx_reexec::before`, VWL's `acct_before` and `checks::Before`): `Some(state)`
+    /// (`None` inside: declared absent), `None` when the archive's post-state
+    /// (or nothing) stands.
+    pub fn declared_before(&self, k: &Key, tx: usize) -> Option<Option<&Account>> {
+        let (at, a) = self
+            .declared
+            .get(k)?
+            .iter()
+            .rev()
+            .find(|(at, _)| *at <= tx)?;
+        // (a patch made after the last write, before this transaction)
+        match self.last_writer(k, tx) {
+            Some(t) if *at <= t => None,
+            _ => Some(a.as_ref()),
+        }
+    }
+
     /// The post-state of `k` written by the last successful transaction
-    /// before `tx` (exclusive) that wrote it.
+    /// before `tx` (exclusive) that wrote it, archived states only.
+    pub fn archived_before(&self, k: &Key, tx: usize) -> Option<&Account> {
+        let t = self.last_writer(k, tx)?;
+        self.txs[t].post.get(k).and_then(|a| a.as_ref())
+    }
+
+    /// The state of `k` before transaction `tx`: the post-state written by
+    /// the last successful transaction before `tx` that wrote it, or the
+    /// recorder's declared patch in force if that is later
+    /// ([`World::declared_before`]; verifier-v7-patches, D-dress-7: the
+    /// checks read only archived post-states and FAILed an honest season
+    /// whose recorder had patched a Holding after its last archived write).
+    /// A declared read is logged in [`World::declared_reads`].
     pub fn state_before(&self, k: &Key, tx: usize) -> Option<&[u8]> {
-        let v = self.posts.get(k)?;
-        let i = v.partition_point(|&t| t < tx);
-        let t = *v.get(i.checked_sub(1)?)?;
-        self.txs[t]
-            .post
-            .get(k)
-            .and_then(|a| a.as_ref())
-            .map(|a| a.data.as_slice())
+        self.account_before(k, tx).map(|a| a.data.as_slice())
     }
 
-    /// The lamports of `k`'s post-state written by the last successful
-    /// transaction before `tx` (exclusive) that wrote it.
+    /// The lamports of `k` before transaction `tx` ([`World::state_before`]'s
+    /// rule).
     pub fn lamports_before(&self, k: &Key, tx: usize) -> Option<u64> {
-        let v = self.posts.get(k)?;
-        let i = v.partition_point(|&t| t < tx);
-        let t = *v.get(i.checked_sub(1)?)?;
-        self.txs[t]
-            .post
-            .get(k)
-            .and_then(|a| a.as_ref())
-            .map(|a| a.lamports)
+        self.account_before(k, tx).map(|a| a.lamports)
     }
 
-    /// The post-state of `k` after transaction `tx` (inclusive: its own
-    /// post if it wrote `k`, else the last earlier one).
+    fn account_before(&self, k: &Key, tx: usize) -> Option<&Account> {
+        if let Some(d) = self.declared_before(k, tx) {
+            self.declared_reads.borrow_mut().insert((tx, *k));
+            return d;
+        }
+        self.archived_before(k, tx)
+    }
+
+    /// The lamports of `k` after transaction `tx`: its own post-state if it
+    /// wrote `k`, else the state before it.
+    pub fn lamports_after(&self, k: &Key, tx: usize) -> Option<u64> {
+        if self
+            .txs
+            .get(tx)
+            .is_some_and(|t| t.ok && t.post.contains_key(k))
+        {
+            return self.txs[tx].post.get(k)?.as_ref().map(|a| a.lamports);
+        }
+        self.lamports_before(k, tx)
+    }
+
+    /// The state of `k` after transaction `tx` (inclusive: its own post if
+    /// it wrote `k`, else the state before it, [`World::state_before`]).
     pub fn state_after(&self, k: &Key, tx: usize) -> Option<&[u8]> {
-        self.state_before(k, tx + 1)
+        if self
+            .txs
+            .get(tx)
+            .is_some_and(|t| t.ok && t.post.contains_key(k))
+        {
+            return self.txs[tx]
+                .post
+                .get(k)?
+                .as_ref()
+                .map(|a| a.data.as_slice());
+        }
+        self.state_before(k, tx)
     }
 
     /// The last post-state of `k` in the whole archive.

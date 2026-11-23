@@ -184,6 +184,132 @@ impl Ctx<'_> {
     }
 }
 
+/// The detail of a judgement that passed on a state the archive only
+/// declares ([`Before`]): `MissingData`, never a PASS.
+pub const FROM_DECLARED: &str = "judged exactly, but from a state the archive only declares (a recorder's patch, not an archived transaction's write)";
+
+/// The checks' reader of the states before a transaction: the last
+/// archived post-state or the recorder's declared patch in force
+/// (`Input::declared`, "in force from before `txs[at]`"), whichever is
+/// later — the rule of `vx_reexec::before` and VWL's `acct_before`.
+///
+/// verifier-v11-patches moved V11 onto it (D-verify-pr166-5);
+/// verifier-v7-patches moved V7 (and the other replays that compare a
+/// state the transaction wrote with one derived from the state before it)
+/// onto it: they read only archived post-states, so an honest season whose
+/// recorder patched an account after its last archived write (the dress
+/// rehearsal's 400 declared Spearmen, D-dress-7) FAILed at the next owner
+/// action.
+///
+/// A judgement that read a declared state is never a PASS
+/// ([`Ctx::declared_pass`]): `MissingData`, as VWL rules. A FAIL stays a
+/// FAIL: the program ran on the declared state, so an honest archive's
+/// declared state can never contradict a success — and a forged
+/// declaration cannot turn a FAIL into a PASS (the season is UNVERIFIABLE
+/// at best once anything is declared, V0E).
+///
+/// [`World::state_before`] follows the same rule for every other check and
+/// logs its declared reads per transaction ([`run`] softens them after each
+/// check); `Before` tracks them per judgement instead, for the checks that
+/// judge several things in one transaction (V7, V11).
+pub struct Before<'a> {
+    w: &'a World,
+    read_declared: std::cell::Cell<bool>,
+}
+
+impl<'a> Before<'a> {
+    pub fn new(w: &'a World) -> Self {
+        Before {
+            w,
+            read_declared: std::cell::Cell::new(false),
+        }
+    }
+
+    /// The data of `k` before transaction `tx` (`None`: absent or unknown).
+    pub fn data(&self, k: &crate::world::Key, tx: usize) -> Option<&'a [u8]> {
+        if let Some(d) = self.w.declared_before(k, tx) {
+            self.read_declared.set(true);
+            return d.map(|a| a.data.as_slice());
+        }
+        self.w.archived_before(k, tx).map(|a| a.data.as_slice())
+    }
+
+    /// Whether any read since [`Before::new`] / [`Before::reset`] took a
+    /// declared state.
+    pub fn read_declared(&self) -> bool {
+        self.read_declared.get()
+    }
+
+    /// Starts a new judgement (forgets the declared reads so far).
+    pub fn reset(&self) {
+        self.read_declared.set(false);
+    }
+}
+
+impl<'a> Ctx<'a> {
+    /// A [`Before`] reader over this season's archive and declared patches.
+    pub fn before(&self) -> Before<'a> {
+        Before::new(self.w)
+    }
+
+    /// The end of one judgement of `check` that started with
+    /// `self.findings.len() == mark`: when it read a declared state
+    /// ([`Before`]) and found no FAIL of `check`, its PASS is `MissingData`.
+    pub fn declared_pass(
+        &mut self,
+        check: &'static str,
+        pre: &Before,
+        mark: usize,
+        entity: impl Into<String>,
+        bell: u32,
+        tx: Option<usize>,
+    ) {
+        if pre.read_declared()
+            && !self.findings[mark..]
+                .iter()
+                .any(|f| f.check == check && f.severity == Severity::Fail)
+        {
+            self.missing(check, entity, bell, tx, FROM_DECLARED);
+        }
+    }
+}
+
+/// After check `name` (its findings from `mark` on): every transaction at
+/// which it read a declared state through [`World::state_before`] /
+/// [`World::lamports_before`] and found no FAIL is `MissingData`
+/// ([`FROM_DECLARED`]): the judgement agreed, but from a state no archived
+/// transaction wrote (verifier-v7-patches; VX, VWL, V7 and V11 say so per
+/// judgement themselves).
+fn soften_declared(cx: &mut Ctx, name: &'static str, mark: usize) {
+    let reads = std::mem::take(&mut *cx.w.declared_reads.borrow_mut());
+    if reads.is_empty() {
+        return;
+    }
+    let check = name.split(':').next().unwrap_or(name);
+    let mut by_tx: std::collections::BTreeMap<usize, Vec<crate::world::Key>> = Default::default();
+    for (t, k) in reads {
+        by_tx.entry(t).or_default().push(k);
+    }
+    for (t, keys) in by_tx {
+        let Some(tx) = cx.w.txs.get(t) else { continue };
+        let failed = cx.findings[mark..]
+            .iter()
+            .any(|f| f.severity == Severity::Fail && f.signature == tx.sig);
+        if failed {
+            continue;
+        }
+        let bell = frontier_abi::prologue::bell_at(cx.f.genesis_ts, tx.time).unwrap_or(0);
+        let named: Vec<String> = keys.iter().map(b58).collect();
+        cx.missing(
+            check,
+            format!("tx#{t}"),
+            bell,
+            Some(t),
+            format!("{FROM_DECLARED}: {}", named.join(", ")),
+        );
+    }
+}
+
 /// Entity name for a report line.
 pub fn ent(kind: &str, k: &[u8; 32]) -> String {
     format!("{kind}:{}", b58(k))
@@ -191,12 +317,15 @@ pub fn ent(kind: &str, k: &[u8; 32]) -> String {
 
 /// Runs every check that this build has.
 pub fn run(input: &Input) -> Report {
-    let w = World::parse(
+    let mut w = World::parse(
         &input.cfg.program,
         &input.txs,
         input.finals.clone(),
         input.final_slot,
     );
+    // verifier-v7-patches: every state before a transaction is the later of
+    // the archived post-state and the recorder's declared patch.
+    w.declare(&input.declared);
     let f = Facts::build(&w, &input.cfg);
     let mut cx = Ctx {
         w: &w,
@@ -214,15 +343,28 @@ pub fn run(input: &Input) -> Report {
         owner_required: Default::default(),
     };
     let mut ran: Vec<&'static str> = vec![];
+    // The findings of the check that runs next start here ([`soften_declared`]).
+    let mut mark = cx.findings.len();
+    // Each check, once run: its name in the report, and its judgements that
+    // read a declared state through `World::state_before` and found no FAIL
+    // become `MissingData`.
+    macro_rules! ran {
+        ($name:expr) => {{
+            let name: &'static str = $name;
+            ran.push(name);
+            soften_declared(&mut cx, name, mark);
+            mark = cx.findings.len();
+        }};
+    }
     // What this verifier can judge at all: unknown or unmodelled
     // instructions and program versions are never a PASS (V0).
     v0_coverage::run(&mut cx);
-    ran.push("V0");
+    ran!("V0");
     // The evidence those judgements need: logs present and whole, no
     // program call the archive does not show, post-states of what was
     // written (V0E, ⑪).
     v0_evidence::run(&mut cx);
-    ran.push("V0E");
+    ran!("V0E");
     // States the archive DECLARES (a recorder's patches): no archived
     // transaction wrote them, so the season is never a PASS.
     if !input.declared.is_empty() {
@@ -251,7 +393,7 @@ pub fn run(input: &Input) -> Report {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
                 $m::run(&mut cx);
-                ran.push($name);
+                ran!($name);
             }
         };
     }
@@ -259,7 +401,7 @@ pub fn run(input: &Input) -> Report {
     // the conquest audit's CQ1 (`crate::verify` merges it); V1's walk sees
     // only M1's kinds. In an M1 season a conquest record is undecodable.
     if cx.v3 {
-        ran.push("V1:CQ1");
+        ran!("V1:CQ1");
     } else {
         for r in &w.cq_recs {
             cx.fail(
@@ -292,63 +434,63 @@ pub fn run(input: &Input) -> Report {
     // module's note says which), on a conquest season only.
     if cx.v3 {
         v14_sieges::run(&mut cx);
-        ran.push("V14:siege-declaration");
+        ran!("V14:siege-declaration");
         v15_records::run(&mut cx);
-        ran.push("V15:conquest-records");
+        ran!("V15:conquest-records");
         v16_owner::run(&mut cx);
-        ran.push("V16:first-holding-owner");
+        ran!("V16:first-holding-owner");
         v17_captures::run(&mut cx);
-        ran.push("V17:capture-settlement");
+        ran!("V17:capture-settlement");
         v19_folds::run(&mut cx);
-        ran.push("V19:march-folds");
+        ran!("V19:march-folds");
         v20_end::run(&mut cx);
-        ran.push("V20:season-end");
+        ran!("V20:season-end");
         v22_outposts::run(&mut cx);
-        ran.push("V22:outpost-filing");
+        ran!("V22:outpost-filing");
         // Map growth (a local candidate): every ExtendFrontier that stands
         // alone in its transaction re-judged from the states before it, its
         // Frontier post-state and its FRONTIER_EXTENDED record; a bundle
         // with another Frontier writer is MissingData (`v26_growth::guard`).
         v26_growth::run(&mut cx);
-        ran.push("V26:map-growth");
+        ran!("V26:map-growth");
     }
     // S1 stages 1b, 1d and 1e: vaults, caravans, structures and nations, on
     // an S1 season only.
     if cx.s1 {
         v23_caravans::run(&mut cx);
-        ran.push("V23:caravans");
+        ran!("V23:caravans");
         v24_structures::run(&mut cx);
-        ran.push("V24:structures");
+        ran!("V24:structures");
         v25_nations::run(&mut cx);
-        ran.push("V25:nations");
+        ran!("V25:nations");
         v27_residents::run(&mut cx);
-        ran.push("V27:residents");
+        ran!("V27:residents");
         v28_resident_acts::run(&mut cx);
-        ran.push("V28:resident-acts");
+        ran!("V28:resident-acts");
     }
     // Workstream 10: custody is checked in part (V26); any trace of it is
     // never a PASS (a season without custody FAILs on it).
     v26_custody::run(&mut cx);
-    ran.push("V26:custody-guard");
+    ran!("V26:custody-guard");
     // The wide world's event chains (VW1; experimental build only).
     #[cfg(feature = "wide-world-experimental")]
     {
         vw_chains::run(&mut cx);
-        ran.push("VW1:wide-chains");
+        ran!("VW1:wide-chains");
         v28_resident_acts::run_wide(&mut cx);
-        ran.push("V28:wide-resident-acts");
+        ran!("V28:wide-resident-acts");
     }
     if v26_custody::custody_season(&cx) {
-        ran.push("V26:custody-state");
-        ran.push("V26:custody-history");
-        ran.push("V26:custody-replay");
+        ran!("V26:custody-state");
+        ran!("V26:custody-history");
+        ran!("V26:custody-replay");
     }
     // Q16-1: the land preview's FoldLand / ClaimLandYield in a playable-lane
     // season (0x4804), re-run from the states before them.
     #[cfg(feature = "playable-lane")]
     if !cfg!(feature = "mutate-vl") {
         vl_land::run(&mut cx);
-        ran.push("VL:land");
+        ran!("VL:land");
     }
     // Q16-1 continued: the wide land opening, the wide claims, the
     // season-end closes and the wide economy / garrison of a playable-lane
@@ -356,7 +498,7 @@ pub fn run(input: &Input) -> Report {
     #[cfg(feature = "playable-lane")]
     if !cfg!(feature = "mutate-vwl") {
         vwl_wide_land::run(&mut cx);
-        ran.push("VWL:wide-land");
+        ran!("VWL:wide-land");
     }
     // Q16-1 = A (prize gate): the expedition wrapper and Free City conquest
     // of a playable-lane season, re-executed by the pinned program from the
@@ -364,12 +506,13 @@ pub fn run(input: &Input) -> Report {
     #[cfg(feature = "playable-lane")]
     if !cfg!(feature = "mutate-vx") {
         vx_reexec::run(&mut cx);
-        ran.push("VX:re-execution");
+        ran!("VX:re-execution");
     }
     // 02-rights (candidate): the Grant's instructions, records and
     // accounts; on every season (outside S1 the program refuses them, so
     // any is a FAIL of its own).
     check!("mutate-vr", "VR:rights", vr_rights);
+    let _ = mark;
     ran.push("V10");
     counts(&mut cx);
     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {
