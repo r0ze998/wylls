@@ -266,13 +266,18 @@ devnet. Fees are the 5,000-lamport signature fee unless the keeper bids a priori
 | Harvest, Build, Train, Muster | 5,000 each | 5,000 each | fee |
 | Depart (one sealed march; the return home is another Depart) | 50,394 | not computed | fee + the escrowed tip and seal bond, settled by the program |
 | WideClaimSite (one wide village) | 9,108,360 | 12,477,320 | fee + the ticket record's rent and escrow (1,792 B) |
+| The wide village's FIRST WideMuster (P17; later musters 5,000) | 17,155,080 | 23,500,960 (computed) | fee + the rent of the province's 3,248-byte wide roster (`flocalplay-wide-host.mjs` `WIDE_ROSTER_BYTES`); measured offline by devnet-dress-rehearsal (the page's preview total = the debit) |
 | FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit (rent-live-rest: also at 6,960, measured offline) |
 | ExpeditionDepart (rim → wide; the page sends it on devnet, §7 P15) | 2,407,514 | not computed | fee (5,000) + the escrowed tip and bond (45,394) + the rent of the 336-byte transit record (2,357,120) |
 | **Join → rim village → 10 Harvests → wide claim** (#110, verify-pr110) | **18,921,960 (0.0189 SOL)** | 25,900,520 (0.0259) | |
 | **Join → rim village → 5 Harvests → Muster → one march** (#118, verify-pr118) | **9,843,994 (0.0098 SOL)** | not computed | |
 | All of the above once, with about 20 fee-only actions | about 21.4 M (**0.021 SOL**) [sum] | about 0.03 SOL | |
 
-So a wallet with **0.05 SOL of devnet SOL** covers a player's season with room to spare. The Citizen's and
+So a wallet with **0.05 SOL of devnet SOL** covers a player's season with room to spare — **unless the player does
+everything**: Join + rim village + wide claim + the wide village's first WideMuster + a FileOutpost + an expedition +
+a march is 45.6 M lamports before ~200 fee-only actions (about 0.047 SOL at 5,080; about 0.064 at 6,960), so say
+**0.1 SOL** to a player who will use the wide village (devnet-dress-rehearsal D-dress-11: every one of these debits
+measured offline, each equal to its line here). The Citizen's and
 Holding's rent comes back when they are closed after the season (PLAYTEST-RUNBOOK §3 step 14).
 
 **The operator** (r0ze's keys: the deployer, the upgrade authority, and keeper A's payers).
