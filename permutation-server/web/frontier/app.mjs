@@ -216,6 +216,13 @@ import { instantHomeEnabled, homeSites, homeRingsOpen, seasonPlace, homePlaceOf,
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
+/**
+ * Save one UI preference and lay the saved preferences OVER `FS.ui` (as controller.mjs `saveUiPatch`): `FS.ui` also holds
+ * this page's runtime memory (the W2 planner's `wideHost`, `wideHostSay`/`Ready`, `custodyPair`, `wideTried`), which is
+ * not stored. verify-pr173: the settings switches (auto-pan, guide level, effects, battle playback) and a hint's dismiss
+ * replaced `FS.ui` with the stored preferences alone, wiping that memory just as a tab press did (loop-play10 LP10-1).
+ */
+const saveUiOver = (sc, patch) => ({ ...(FS.ui ?? {}), ...saveUi(uiStorage, uiKey(sc), patch) });
 
 /**
  * The turn dial's text in one line: "ターン 1,034 · 残り 6:12" / "Turn 1,034 · 6:12 left".
@@ -4064,7 +4071,7 @@ export const HUD_ACTIONS = {
   // the status at the map: put a refusal away, or send the refused action once more
   'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
   'notice-retry': () => { const r = retryLast(); renderFeed(); return r; },
-  autopan: () => { const sc = scope(); const v = !FS.ui?.autoPan; FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { autoPan: v }) : { ...(FS.ui ?? {}), autoPan: v }; invalidate('panel'); },
+  autopan: () => { const sc = scope(); const v = !FS.ui?.autoPan; FS.ui = sc ? saveUiOver(sc, { autoPan: v }) : { ...(FS.ui ?? {}), autoPan: v }; invalidate('panel'); },
   'battle-play': d => { playAsked(num(d.p), num(d.q), num(d.bell)); },
   'res-open': d => { FS.resOpen = FS.resOpen === d.r ? null : d.r; renderHudTick(FS.chain?.now?.() ?? 0); },
   'res-close': () => closeResPop(),
@@ -4087,7 +4094,7 @@ export const HUD_ACTIONS = {
   'watch-bell': d => { FS.watch = { ...(FS.watch ?? {}), bell: d.bell === '' ? null : num(d.bell) }; invalidate('panel'); },
   'watch-auto': () => { const v = (FS.watch?.auto ?? true) === false; FS.watch = { ...(FS.watch ?? {}), auto: v }; try { globalThis.localStorage?.setItem('ps-fwatch:v1', v ? '1' : '0'); } catch { /* none */ } invalidate('panel'); },
   'ob-go': () => guideGo(),
-  'guide-level': d => { if (!guide.GUIDE_LEVELS.includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { guide: d.v }) : { ...(FS.ui ?? {}), guide: d.v }; guideCache.at = 0; invalidate('panel', 'map', 'rail'); renderHudTick(FS.chain?.now?.() ?? 0); },
+  'guide-level': d => { if (!guide.GUIDE_LEVELS.includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUiOver(sc, { guide: d.v }) : { ...(FS.ui ?? {}), guide: d.v }; guideCache.at = 0; invalidate('panel', 'map', 'rail'); renderHudTick(FS.chain?.now?.() ?? 0); },
   'mile-close': () => closeMilestone(),
   'sel-clear': () => { FS.selected = null; invalidate('map', 'panel'); },
   // (2026-11-17, ⑦ the wide map: the inspector's "read again" — the province's record now, and the ring overviews still
@@ -4238,9 +4245,9 @@ export const HUD_ACTIONS = {
     el.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' });
   },
   // how much may move (fx/motion.mjs reads FS.ui.effects) and the sound's mute (fx/audio.mjs, remembered on this device)
-  'fx-level': d => { if (!['full', 'reduced', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { effects: d.v }) : { ...(FS.ui ?? {}), effects: d.v }; invalidate('panel', 'map'); },
+  'fx-level': d => { if (!['full', 'reduced', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUiOver(sc, { effects: d.v }) : { ...(FS.ui ?? {}), effects: d.v }; invalidate('panel', 'map'); },
   'fx-sound': d => { fxAudio().setMuted(d.v !== 'on'); renderSound(); invalidate('panel'); },
-  'battle-fx': d => { if (!['normal', 'fast', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { battleFx: d.v }) : { ...(FS.ui ?? {}), battleFx: d.v }; invalidate('panel'); },
+  'battle-fx': d => { if (!['normal', 'fast', 'off'].includes(d.v)) return; const sc = scope(); FS.ui = sc ? saveUiOver(sc, { battleFx: d.v }) : { ...(FS.ui ?? {}), battleFx: d.v }; invalidate('panel'); },
   attn: () => {
     const items = pillItems();
     if (!items.length) return;
@@ -4308,7 +4315,7 @@ const num = x => Number.parseInt(x, 10);
 /** Save the onboarding flags (ps-fui `dismissed`) of the pinned season; in memory only before a season is pinned. */
 function setFlags(next) {
   const sc = scope();
-  FS.ui = sc ? saveUi(uiStorage, uiKey(sc), { dismissed: next }) : { ...(FS.ui ?? loadUi(uiStorage, '')), dismissed: next };
+  FS.ui = sc ? saveUiOver(sc, { dismissed: next }) : { ...(FS.ui ?? loadUi(uiStorage, '')), dismissed: next };
   invalidate('panel');
 }
 const setFlag = (flag, add = true) => setFlags(withFlag(FS.ui?.dismissed ?? [], flag, add));

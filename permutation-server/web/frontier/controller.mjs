@@ -103,8 +103,13 @@ const nowBell = () => (FS.clock ? bellAt(FS.clock.genesisTs, now()) ?? 0 : 0);
 /** The margin a departure is planned with (fmarch.mjs `departMargin`): 90 s on the chain's clock, more game seconds on a clock that runs fast. */
 const margin = () => departMargin(FS.chain?.rate);
 const scope = () => io.scope();
-/** Save UI preferences once a season is pinned (convenience only). */
-const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = saveUi(uiStorage, uiKey(sc), patch); };
+/**
+ * Save UI preferences once a season is pinned (convenience only). The saved preferences are laid OVER `FS.ui`: it also
+ * holds this page's runtime memory (the wide host planner's `wideHost`, `wideHostSay`/`Ready`, `custodyPair`, …), which
+ * is not stored. loop-play10: a tab press replaced `FS.ui` with the stored preferences alone, and the W2 card forgot
+ * the march it had sent (it said 「軍勢は進軍に出ています。」 while its host held a keep, then offered a new host).
+ */
+const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = { ...(FS.ui ?? {}), ...saveUi(uiStorage, uiKey(sc), patch) }; };
 /**
  * The land record of this season and viewer (fui.mjs; the automatic site ticket's state), and the first home's record
  * (home.mjs): per Citizen, so keyed by the viewer (⑳: the NFT played, else the wallet — `viewerKey`; one wallet may
@@ -947,6 +952,14 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   if (walletChanged) FS.prizePayment = null;
   // the wide inventory and the wide village on the village screen were the previous viewer's (fwide.mjs)
   fwide.clearWide(FS);
+  // (verify-pr173: and the page's runtime memory in FS.ui was the previous viewer's too — the W2 planner's march, count
+  //  and wait timer, the ⑩ depositor picked, the wide sites tried. A tab press used to wipe it by accident (loop-play10
+  //  LP10-1); now that tab presses keep it, a viewer change drops it here. The stored preferences stay)
+  if (FS.ui) {
+    if (FS.ui.wideHost) wideHostStopWait(FS.ui.wideHost);
+    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ...kept } = FS.ui;
+    FS.ui = kept;
+  }
   FS.notice = null;
   // (⑳: the NFT played and the wallet's NFT list belong to the wallet: a resident NFT chosen under the previous wallet is not this wallet's)
   if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
