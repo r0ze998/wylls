@@ -18,6 +18,7 @@
 //
 // usage: node scripts/devnet/health.mjs [--no-rpc] [--no-public] [--json]
 //          [--state FILE] [--report FILE] [--log-lines N] [--run-dir DIR] [--logs DIR]
+//          [--rpc-gap-ms N (>= 1000, default 1100)] [--timeline]
 //   --state FILE   remember the first time each milestone was seen (CreateSeason,
 //                  Seeded, Running, keeper start, WideSetRules, join check) across runs
 //   --report FILE  keep an `ALERT …` line at the top of FILE while/after a check fails
@@ -55,9 +56,11 @@ const LAMPORTS = 1e9;
 
 /** Season account bytes → {status, statusName, genesisTs, tCreateMin, endBell, bellSecs} (frontier-abi layout/world.rs). */
 export function decodeSeason(buf, now = Math.floor(Date.now() / 1000)) {
-  if (!buf || buf.length < 376) return null;
+  if (!buf || buf.length < 65) return null;
   const magic = buf.subarray(0, 8).toString('latin1');
   const stored = buf[64];
+  // CloseSeason shrinks the account to a 128-byte tombstone (layout/world.rs TOMBSTONE_SIZE): status only
+  if (buf.length < 376) return { magic, stored, status: stored, statusName: STATUS_NAMES[stored] ?? 'Unknown', bellSecs: null, genesisTs: null, endBell: null, tCreateMin: null, size: buf.length };
   const genesisTs = Number(buf.readBigInt64LE(144));
   // Seeded with now >= genesis_ts is Running (never stored)
   const status = stored === 2 && now >= genesisTs ? 3 : stored;
@@ -258,7 +261,7 @@ function parseArgs(argv) {
   return o;
 }
 
-/** A devnet-only, read-only, rate-limited JSON-RPC caller. */
+/** A devnet-only, read-only, rate-limited JSON-RPC caller (fetchFn: tests only; the URL stays devnet). */
 export function makeRpc({ url = DEVNET_RPC, gapMs = 1100, fetchFn = fetch } = {}) {
   if (url !== DEVNET_RPC) throw new Error('health.mjs reads only https://api.devnet.solana.com');
   let last = 0;
@@ -307,22 +310,26 @@ function tailText(p, bytes = 400_000) {
   } catch { return null; }
 }
 
+/**
+ * All checks → {at, out: [{level, key, detail}], ms, season}. `o` is parseArgs's result; tests may also pass
+ * ports, joinResult (path), psText, dfText, rpcFetch (a fake fetch for makeRpc), publicScheme and now.
+ */
 export async function runChecks(o) {
   const out = [];
   const add = (level, key, detail) => out.push({ level, key, detail });
-  const now = Math.floor(Date.now() / 1000);
-  const P = DEPLOY.ports;
+  const now = o.now ?? Math.floor(Date.now() / 1000);
+  const P = o.ports ?? DEPLOY.ports;
 
   // logs and milestones (head of the small driver logs, so the first line wins)
   const texts = {};
   for (const m of MILESTONES) if (!(m.file in texts)) texts[m.file] = readText(path.join(o.logs, m.file));
   const ms = milestonesFrom(texts);
-  const joinResult = readText(path.join(os.homedir(), 'Projects/wylls-grok-state/evidence/devnet-deploy-2/join-check/result.json'));
+  const joinResult = readText(o.joinResult ?? path.join(os.homedir(), 'Projects/wylls-grok-state/evidence/devnet-deploy-2/join-check/result.json'));
   const joinDone = Boolean(ms.joinCheckDone) || Boolean(joinResult);
 
   // processes
   let procs = [];
-  try { procs = parsePs(execFileSync('ps', ['-axo', 'pid=,etime=,command='], { encoding: 'utf8', maxBuffer: 16 << 20 })); }
+  try { procs = parsePs(o.psText ?? execFileSync('ps', ['-axo', 'pid=,etime=,command='], { encoding: 'utf8', maxBuffer: 16 << 20 })); }
   catch (e) { add('FAIL', 'proc.ps', `ps failed: ${e.message}`); }
   for (const spec of expectedProcs(ms, joinDone)) { const r = procCheck(spec, procs); add(r.level, spec.key, r.detail); }
 
@@ -330,7 +337,7 @@ export async function runChecks(o) {
   let rpcSlot = null;
   let season = null;
   if (o.rpc) {
-    const rpc = makeRpc({ gapMs: o.rpcGapMs });
+    const rpc = makeRpc({ gapMs: o.rpcGapMs ?? 1100, ...(o.rpcFetch ? { fetchFn: o.rpcFetch } : {}) });
     try {
       const g = await rpc.call('getGenesisHash');
       if (g !== DEVNET_GENESIS) { add('FAIL', 'rpc.genesis', `genesis ${g} is not devnet: no further RPC`); throw new Error('stop'); }
@@ -408,12 +415,13 @@ export async function runChecks(o) {
   else if (th && th !== host) add('FAIL', 'tunnel.host', `tunnel now serves ${th} but the herald allows ${host}: the tunnel restarted, the public URL changed`);
   else add('OK', 'tunnel.host', `${host}`);
   if (o.public && host) {
+    const base = `${o.publicScheme ?? 'https'}://${host}`;
     try {
-      const p = await getJson(`https://${host}/frontier/frontier/`, 15000);
-      add(p.status === 200 && /<html/i.test(p.text) ? 'OK' : 'FAIL', 'public.page', `https://${host}/frontier/frontier/ HTTP ${p.status} (${p.ms} ms)`);
+      const p = await getJson(`${base}/frontier/frontier/`, 15000);
+      add(p.status === 200 && /<html/i.test(p.text) ? 'OK' : 'FAIL', 'public.page', `${base}/frontier/frontier/ HTTP ${p.status} (${p.ms} ms)`);
     } catch (e) { add('FAIL', 'public.page', `unreachable: ${e.message}`); }
     try {
-      const p = await getJson(`https://${host}/h/season`, 15000);
+      const p = await getJson(`${base}/h/season`, 15000);
       const ok = p.status === 200 || p.body?.code === 'NoSeasonYet';
       add(ok ? 'OK' : 'FAIL', 'public.season', `/h/season HTTP ${p.status} ${p.body?.statusName ?? p.body?.code ?? ''} (${p.ms} ms)`);
     } catch (e) { add('FAIL', 'public.season', `unreachable: ${e.message}`); }
@@ -430,7 +438,7 @@ export async function runChecks(o) {
 
   // disk
   try {
-    const df = execFileSync('df', ['-k', '/System/Volumes/Data'], { encoding: 'utf8' }).trim().split('\n').pop().split(/\s+/);
+    const df = (o.dfText ?? execFileSync('df', ['-k', '/System/Volumes/Data'], { encoding: 'utf8' })).trim().split('\n').pop().split(/\s+/);
     const gib = Number(df[3]) / (1024 * 1024);
     add(gib < 10 ? 'FAIL' : gib < 40 ? 'WARN' : 'OK', 'disk.free', `${gib.toFixed(1)} GiB free (< 40 WARN, < 10 FAIL)`);
   } catch (e) { add('WARN', 'disk.free', `df failed: ${e.message}`); }
@@ -460,7 +468,7 @@ export function mergeState(state, { at, ms, season }) {
   const seen = (k) => { if (!s.firstSeen[k]) s.firstSeen[k] = jst(at); };
   if (season) {
     seen(`status:${season.statusName}`);
-    if (season.status >= 2) s.genesisTs = jst(season.genesisTs);
+    if (season.status >= 2 && season.genesisTs != null) s.genesisTs = jst(season.genesisTs);
   }
   for (const [k, v] of Object.entries(ms)) if (!s.fromLogs[k]) s.fromLogs[k] = v.at;
   s.lastRun = jst(at);
