@@ -563,7 +563,7 @@ fund / 20 SOL defence pool float. The deployed program (base 6912906d, .so 67a33
 was announced with the 7-day preset; AnnounceSeason pins the params hash, so the continuous world is season **2**
 (`operator.seasonId` 2) with its own announce and 24 h lead. Season 1 stays Announced and is never created: the
 authority may AbortSeason it (its 1 SOL bond comes back only before its genesis round time, about 2026-11-24
-19:49 JST (the genesis round time = t_create_min + 661 s, as season 2's plan shows), and is burned after; anyone may abort it once its 7-day CreateSeason window closes, 2026-12-01 19:38 JST,
+19:49 JST (the genesis round time, about t_create_min + 660 s: 19:49:27 for season 1), and is burned after; anyone may abort it once its 7-day CreateSeason window closes, 2026-12-01 19:38 JST,
 and the bond then burns). No `frontier-operator` command sends AbortSeason. When the world changes season id, also
 re-point the services (herald/gateway `--season`, keeper.toml `season`, a fresh herald `--data` dir) and the health
 monitor (`scripts/devnet/health.mjs` pins the Season address and its CreateSeason time). Every "per 7-day season" fee below repeats each week.
