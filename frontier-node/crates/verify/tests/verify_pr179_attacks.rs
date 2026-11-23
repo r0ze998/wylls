@@ -728,3 +728,57 @@ fn a_forged_non_holding_declared_state_before_any_holding_write_never_silences_v
         "V7 silent after reading a forged declared Holding at {silent:?}"
     );
 }
+
+/// verify-pr179 V7-3 (the regression the targeted sweep found on the PR
+/// head): `march-synth.json` transaction 66 writes a Holding. Its write
+/// tampered at byte 168 FAILs V7 (a dishonest write). A forged declared
+/// state of the Holding before it with the magic zeroed made V7's
+/// continuity judgement skip it without a word: no finding at all at the
+/// transaction. Now V7 is `MissingData` there (or FAILs), never silent.
+#[test]
+fn march_synth_t66_a_forged_non_holding_state_does_not_silence_a_dishonest_write() {
+    let inp = common::march();
+    let t = 66;
+    let sig = inp.txs[t].signature.to_string();
+    let magic = &frontier_abi::layout::player::holding::MAGIC;
+    let mut tried = 0;
+    for (p, (a, acc)) in inp.txs[t].post.iter().enumerate() {
+        let k = a.to_bytes();
+        let Some(y) = acc.clone().filter(|y| y.data.starts_with(magic)) else {
+            continue;
+        };
+        let Some(s) = (0..t)
+            .rev()
+            .find(|&s| inp.txs[s].err.is_none() && post_of(&inp, s, &k).is_some())
+        else {
+            continue;
+        };
+        let mut sa = inp.clone();
+        let mut ym = y.clone();
+        ym.data[168] = ym.data[168].wrapping_add(1);
+        sa.txs[t].post[p].1 = Some(ym);
+        if !fails(&verify_core::verify(&sa), &sig).contains("V7") {
+            continue;
+        }
+        tried += 1;
+        let mut g = inp.txs[s].post[post_of(&inp, s, &k).unwrap()]
+            .1
+            .clone()
+            .unwrap();
+        g.data[..8].fill(0);
+        sa.declared.push(Declared {
+            at: t,
+            key: k,
+            account: Some(g),
+            what: "verify-pr179 forged non-Holding".into(),
+        });
+        let rep = verify_core::verify(&sa);
+        assert_ne!(rep.verdict, Verdict::Pass);
+        let v7 = v7_at(&rep, &sig);
+        assert!(!v7.is_empty(), "V7 silent at the dishonest write of tx 66");
+    }
+    assert!(
+        tried > 0,
+        "tx 66's Holding write tampered at byte 168 FAILs V7"
+    );
+}
