@@ -553,10 +553,25 @@ change: the `.so` and its sha256 are unchanged. One 50-player season of this pre
 at 6,960), 15 SOL more float than `S1_LOCAL_7D`. `frontier-operator --preset S1_DEVNET_WIDE_7D` creates this
 season (§6b).
 
-### 6b. The playable lane's season: `frontier-operator --preset S1_DEVNET_WIDE_7D` **[r0ze, only after §5a]**
+**The devnet world is continuous (devnet-continuous-1, 2026-11-24; owner 2026-11-23 22:42 JST: seasons abolished, t481u
+Q11 「変更しよう」).** The profile's preset is now `S1_DEVNET_WIDE_CONTINUOUS` = `continuous(S1_DEVNET_WIDE_7D)`
+(`frontier-abi/src/v2/presets.rs`): the same world with exactly three bytes changed, conquest byte 80 `continuous = 1`
+and `end_bell` = `join_close_bell` = 4,294,967,295 (`NO_END_BELL`). Joins never close; EndSeason is refused at every
+bell (`CqError::ContinuousWorld`, 94), so §6c never applies to it and CloseSeason never returns the 36 SOL province
+fund / 20 SOL defence pool float. The deployed program (base 6912906d, .so 67a33c92) already accepts it (commit
+2c29496f; `devnet_preset_wide.rs` `s1_devnet_wide_continuous_never_ends_and_keeps_growing` on that .so). Season 1
+was announced with the 7-day preset; AnnounceSeason pins the params hash, so the continuous world is season **2**
+(`operator.seasonId` 2) with its own announce and 24 h lead. Season 1 stays Announced and is never created: the
+authority may AbortSeason it (its 1 SOL bond comes back only before its genesis round time, about 2026-11-24
+19:59 JST, and is burned after; anyone may abort it once its 7-day CreateSeason window closes, 2026-12-01 19:38 JST,
+and the bond then burns). No `frontier-operator` command sends AbortSeason. When the world changes season id, also
+re-point the services (herald/gateway `--season`, keeper.toml `season`, a fresh herald `--data` dir) and the health
+monitor (`scripts/devnet/health.mjs` pins the Season address and its CreateSeason time). Every "per 7-day season" fee below repeats each week.
+
+### 6b. The playable lane's season: `frontier-operator --preset S1_DEVNET_WIDE_CONTINUOUS` **[r0ze, only after §5a]**
 
 Built with the stack crate's `playable-lane` feature (the wide-land ABI tables; it also enables `keeper/playable-lane`). It reads
-`scripts/devnet/devnet-playable-profile.json` (its `operator` block: `seasonId` 1, `beacon` quicknet;
+`scripts/devnet/devnet-playable-profile.json` (its `operator` block: `seasonId` 2, `beacon` quicknet;
 `program.programVersion` 0x4804; `program.requiredMarkers` / `refusedMarkers`) and sends, signed by the upgrade
 authority's key file only:
 
@@ -585,7 +600,7 @@ H=<the sha256 r0ze approved in §5a, today (P14 b) 67a33c9231560fe95280d00d56b02
 $B --profile $P --offline        # the plan at rent.assume, no RPC
 $B --profile $P --authority $K   # dry run on devnet: the cluster's rent, the balance, the deployed program's sha256
                                  # and markers, "SEND GATE: OPEN/CLOSED"; sends nothing
-$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-1.jsonl
+$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-2.jsonl
 #   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"
 # 24 h 5 min later, the same command:
 #   → CreateSeason, InitBeaconLogs, InitShards × 6; exit 3 "WideSetRules needs the season Seeded"
@@ -665,6 +680,9 @@ WideSettleTicket 21,410 CU, WideFinalize 6,424 CU. The verifier's VWL judges two
 writes carry their own CU limits (`keeper::widelane::WIDE_BUDGETS`; the canonical budgets tables have no wide rows).
 
 ### 6c. The season's end and clean-up: `frontier-operator end-season` **[r0ze: key + approval for every send]**
+
+(Finite seasons only. The continuous devnet world, season 2, never ends: `end-season` reports EndSeason as blocked,
+`ContinuousWorld`.)
 
 (devnet-end-season, D-dress-6: before this there was no tool and no step; the dress rehearsal's Season stayed
 Seeded at bell 1,012.) What the program allows (`permutation-frontier/src/proc/season.rs`, `proc/map.rs`,
@@ -938,7 +956,7 @@ P=scripts/devnet/devnet-playable-profile.json
 K=~/wylls-devnet-keys/authority.json
 $B --profile $P --offline                                  # the plan, no RPC
 $B --profile $P --authority $K                             # dry run on devnet: rent, balance, deployed sha256, gate
-$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-1.jsonl
+$B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --record ~/wylls-season-2.jsonl
 #   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"
 #   24 h 5 min later, the same line → CreateSeason, InitBeaconLogs, InitShards × 6; exit 3 "WideSetRules needs the season Seeded"
 #   start keeper A (step 5); about 21 min after T it consumes the genesis round; then the same line once more
@@ -955,7 +973,7 @@ $KP --config keeper-a/keeper.toml --print-addresses        # its payers and fund
 $KP --config keeper-a/keeper.toml                          # runs; GET 127.0.0.1:41050/v1/status with the token
 
 # ── 6. Herald (the only public service, behind the TLS proxy) ────────────────────────────────────────────────
-frontier-node/target/release/frontier-herald --data herald/ --program <PROGRAM_ID> --season 1 \
+frontier-node/target/release/frontier-herald --data herald/ --program <PROGRAM_ID> --season 2 \
   --rpc $RPC --source rpc --cluster devnet --rpc-min-gap-ms 100 --poll-ms 1000 \
   --listen 127.0.0.1:41040 --web permutation-server/web --relay 127.0.0.1:41033 \
   --public-host <the public host name> [--witness <a second RPC>]
@@ -969,7 +987,7 @@ curl -s http://127.0.0.1:41040/h/season                    # "rulesetHash" → R
 
 # ── 7. Gateway with the devnet play routes ───────────────────────────────────────────────────────────────────
 FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mjs \
-  --cluster devnet --rpc $RPC --program <PROGRAM_ID> --season 1 \
+  --cluster devnet --rpc $RPC --program <PROGRAM_ID> --season 2 \
   --port 41030 --public-port 41033 \
   --herald http://127.0.0.1:41040 \
   --keeper http://127.0.0.1:41050 --keeper-token-file keeper-a/keeper.token \
@@ -996,7 +1014,7 @@ FRONTIER_OPERATOR_TOKEN=<secret> node permutation-gateway/src/frontier/server.mj
 #    wide-claim card still read short at bell 161. Fixed by #183, verify-pr183.))
 
 # ── 9. Check and end ─────────────────────────────────────────────────────────────────────────────────────────
-frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 1 --rpc $RPC --witness <a second RPC> \
+frontier-node/target/release/frontier-verify --program <PROGRAM_ID> --season 2 --rpc $RPC --witness <a second RPC> \
   --ruleset $R --program-hash $H --balances --out verify-report/ \
   --program-so permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so
 #   exit 0 PASS, 1 FAIL, 2 cannot verify (UNVERIFIABLE); report.json and report.md in verify-report/
@@ -1010,7 +1028,7 @@ run's file with the profile's three wide rings; unknown keys are refused):
 
 ```toml
 program = "<PROGRAM_ID>"
-season = 1
+season = 2
 rpc = ["<$RPC>"]
 feed = "rpc"
 drand = ["https://api.drand.sh", "https://drand.cloudflare.com"]
@@ -1082,8 +1100,8 @@ Notes on what is **not** tested as written:
   UNVERIFIABLE, never PASS.
 - The season timeline on devnet's clock: the 24 h announce lead; about 21 min to the genesis seed; about 21 h of
   map growth (one ring per 10-minute bell) to ring 128, when rim villages become possible; one more bell per wide
-  ring; a sealed march arrives 2–72 bells after its Depart; a keep falls after 72 held bells (12 h); the season
-  ends at bell 1,008 (7 days).
+  ring; a sealed march arrives 2–72 bells after its Depart; a keep falls after 72 held bells (12 h); the
+  continuous world (season 2) never ends (a 7-day preset season ends at bell 1,008).
 
 ### 8a. Public endpoint checklist (security audit 2026-11-22; read from the code on `origin/main` a193b633, i.e. with #164's fixes)
 
