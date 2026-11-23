@@ -56,8 +56,10 @@ export const RPC_METHODS = Object.freeze(['getGenesisHash', 'getSlot', 'getBalan
 // Public addresses only (reports/devnet-deploy-2.md). Thresholds in SOL: below warn = WARN, below fail = FAIL.
 export const DEPLOY = Object.freeze({
   program: 'GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr',
-  season: 'HgP9VNZJnWGECaT1ubc8FSJdkUrWNsSG7MuKp8u5jSXk',
-  createAt: 1795516707, // CreateSeason opens (t_create_min), 2026-11-24 19:38:27 JST; the driver sends at +90 s
+  // devnet-continuous-1: the continuous world, season 2 (S1_DEVNET_WIDE_CONTINUOUS, AnnounceSeason 2026-11-24 02:15 JST,
+  // sig HogAwvWz…dDy). Season 1 (HgP9VNZJ…jSXk, the 7-day preset) was announced but is never created.
+  season: '47GBAC71CZXDMBsrGLntFDWJbLPRPwtcD2wXGfsXDxnP',
+  createAt: 1795540802, // CreateSeason opens (t_create_min), 2026-11-25 02:20:02 JST; the driver sends at +90 s
   wallets: [
     { name: 'deployer', address: 'DdnUv5yCGirFwtpWiN5PzYZfmEEFnasdxT6mfKRpFQuP', warn: 5, fail: 1 },
     { name: 'authority', address: '7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA', warn: 0.02, fail: 0.005, preCreateNeed: 56.13 },
