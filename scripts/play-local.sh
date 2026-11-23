@@ -667,6 +667,9 @@ fi
 ARGV=()
 while IFS= read -r a; do ARGV+=("$a"); done < <(launcher_args "$SHA")
 { echo "# play-local $RUN_ID (TEST-ONLY local world; commit $(git -C "$ROOT" rev-parse --short HEAD))"; printf 'node'; printf ' %q' "${ARGV[@]}"; echo; } >> "$DATA/command.txt"
+# (external-wide-orders: the log exists BEFORE the launcher starts — the background job opens its redirect itself, so the
+#  `sed` on "$LOG" below could run first and, under set -e / pipefail, end this script with the launcher left running)
+: >"$LOG"
 node "${ARGV[@]}" >"$LOG" 2>&1 &
 LPID=$!
 echo "$LPID" > "$DATA/launcher.pid"

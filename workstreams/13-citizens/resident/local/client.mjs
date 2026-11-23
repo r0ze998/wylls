@@ -23,7 +23,10 @@ import { createKeyFile, loadKeyFile } from '../../../03-composability/mcp/exampl
 import { walletShaped, getJson, chainSecondsOf, pagePost } from '../../../03-composability/mcp/examples/external-resident/public.mjs';
 import { discoverWorld, sendOrder } from '../../../03-composability/mcp/examples/external-resident/agent.mjs';
 import { connectMcp } from '../../../03-composability/mcp/examples/external-resident/mcp-client.mjs';
-import { followLocalAct } from '../../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { followLocalAct, LOCAL_ACT_CONTEXT_PATH } from '../../../../permutation-server/web/frontier/flocalplay-act.mjs';
+import { localDepartStatus, postLocalDepart, LOCAL_DEPART_STATUS_PATH, LOCAL_DEPART_STATUS_SCHEMA } from '../../../../permutation-server/web/frontier/flocalplay-depart.mjs';
+import { fromBase64 } from '../../../../permutation-server/web/sdk/bytes.mjs';
+import { createWideEyes, EXPEDITION } from './wide.mjs';
 import { parseTransaction } from '../../../../permutation-server/web/sdk/solana-tx.mjs';
 import { encode } from '../../../../permutation-server/web/sdk/base58.mjs';
 import { bellOf } from '../../../../permutation-gateway/src/frontier/local-play-operator-policy.mjs';
@@ -90,11 +93,31 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   // (external-wide: a local wide-land world — the launcher's start answer says so as it says so to the page)
   const wide = !!found.world?.wideLand;
   if (wide) out('world', { what: 'wide-land', scale: found.world.wideLand.scale ?? null, firstVillage: 'outward, a rim site by request (FileTicket) past the heartland, as the page' });
-  const observeRaw = createObserver({ base: herald, wallet: key.address, wide });
+  const observeRaw = createObserver({ base: herald, wallet: key.address, wide, identity });
+  // (external-wide-orders: the wide land's own orders — wide.mjs — read through its own world proxy with the launcher's
+  //  Origin, as its page posts: the herald's public reads and its own relay's read-only wide read)
+  const originFetch = (url, init = {}) => globalThis.fetch(url, { ...init, headers: { ...(init.headers ?? {}), origin: o.launcher } });
+  const wideRead = async addresses => {
+    const j = await pagePost(o.launcher)(herald, LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
+    if (!Array.isArray(j?.accounts) || j.accounts.length !== addresses.length) throw Object.assign(new Error('WideReadUnavailable'), { code: 'WideReadUnavailable' });
+    return j.accounts.map(a => (a ? fromBase64(a.data_b64) : null));
+  };
+  const wideEyes = wide ? createWideEyes({ herald, identity, wideTargets: found.world.wideLand.targets ?? [], read: wideRead, fetch: originFetch, getJson }) : null;
+  if (wideEyes) out('world', { what: 'wide-orders', targets: (found.world.wideLand.targets ?? []).length, orders: 'WideClaim, WideTrain/WideMuster/WideDepart, Expedition (the page\'s own; one action per turn)' });
   let lastObs = null;
   const observe = async () => { const x = await observeRaw(); if (!x.unreadable) lastObs = x; return x; };
   // the signing step: the page's own signer, and the signature saved (onSigned) before submitLocalAct's one submit
-  const send = async (order, { onSigned }) => sendOrder(order, { herald, info, identity, signer, launcher: o.launcher, signal: stop.signal,
+  // (an Expedition goes on the page's depart route: prepare (a read; the province's settle waited out), ONE signature —
+  //  saved by onSigned before the one submit —, submit, status; a refusal before the signature is held as a refusal)
+  const sendExpedition = async (order, { onSigned }) => {
+    const x = await wideEyes.sendExpedition(order.plan, { signer, onSigned });
+    if (x.ok) return { outcome: 'landed', code: null, signature: x.signature, detail: null };
+    if (x.step === 'failed') return { outcome: 'failed', code: String(x.code ?? 'Failed').slice(0, 64), signature: x.signature ?? null, detail: null };
+    if (x.signature) return { outcome: 'unknown', code: x.code ?? null, signature: x.signature, detail: null };
+    return { outcome: 'refused', code: String(x.code ?? 'ExpeditionNotPrepared').slice(0, 64), signature: null, detail: `the depart route at ${x.step}${x.looks ? ` (${x.looks} look(s))` : ''}`, holdNotSent: true };
+  };
+  const send = async (order, opts) => (order.name === EXPEDITION ? sendExpedition(order, opts) : sendLocal(order, opts));
+  const sendLocal = async (order, { onSigned }) => sendOrder(order, { herald, info, identity, signer, launcher: o.launcher, signal: stop.signal,
     sign: async unsigned => {
       const account = (await signer.wallet.features['standard:connect'].connect()).accounts[0];
       const [res] = await signer.wallet.features['solana:signTransaction'].signTransaction({ account, transaction: unsigned });
@@ -102,7 +125,15 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
       return res.signedTransaction;
     } });
   const post = pagePost(o.launcher);
-  const follow = async sig => { const f = await followLocalAct(sig, { origin: herald, still: () => !stop.signal.aborted, post, tries: 2, every: 500 }); return f.state ?? null; };
+  const followDepart = async sig => {
+    let st = null;
+    try { st = localDepartStatus(await postLocalDepart(herald, LOCAL_DEPART_STATUS_PATH, { schema: LOCAL_DEPART_STATUS_SCHEMA, signature: sig }, { fetch: originFetch }), sig); } catch { return null; }
+    return ['confirmed', 'finalized'].includes(st?.status) ? 'landed' : st?.status === 'failed' ? 'failed' : 'pending';
+  };
+  const follow = async (sig, order = null) => {
+    if (order === EXPEDITION) return followDepart(sig);
+    const f = await followLocalAct(sig, { origin: herald, still: () => !stop.signal.aborted, post, tries: 2, every: 500 }); return f.state ?? null;
+  };
   const bellNow = async () => bellOf(lastObs?.genesisTs, chainSecondsOf(await getJson(`${herald}/h/status`)));
   const halted = () => existsSync(path.join(o.dir, 'HALT'));
   const plan = o.plan ? createPlanExecutor({ plans: createPlansClient({ bin: o.runexec, db: o.planDb }), owner: key.address, holder: `ws13-${process.pid}-${randomBytes(4).toString('hex')}`,
@@ -111,7 +142,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   let misses = 0, quietSince = null, round = 0;
   for (; !stop.signal.aborted && (o.rounds === 0 || round < o.rounds); round++) {
     let r;
-    try { r = await localStep({ store, observe, send, follow, bellNow, halted, log: out, plan }); } catch (e) { r = { did: 'error' }; out('error', { why: String(e?.stack ?? e).slice(0, 400) }); }
+    try { r = await localStep({ store, observe, send, follow, bellNow, halted, log: out, plan, wide: wideEyes }); } catch (e) { r = { did: 'error' }; out('error', { why: String(e?.stack ?? e).slice(0, 400) }); }
     if (r.did === 'unreadable' || r.did === 'error') { if (++misses >= 20) { out('stop', { why: 'world-gone' }); break; } } else misses = 0;
     // (quiet steps — asleep or blocked — are logged once per turn, not every round)
     if (r.did === 'blocked' || r.did === 'asleep') { if (quietSince !== r.bell) { quietSince = r.bell; out('quiet', { bell: r.bell, did: r.did, why: r.why ?? `asleep until turn ${r.until}` }); } }

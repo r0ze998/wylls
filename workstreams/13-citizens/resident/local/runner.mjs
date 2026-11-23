@@ -5,7 +5,10 @@
 //   send(order, {onSigned})        the external-resident path (agent.mjs sendOrder): the page's own submitLocalAct
 //                                  and followLocalAct; `onSigned(signature)` is called inside the signing step, before
 //                                  the one submit. → {outcome, code, signature, detail}
-//   follow(signature)              the relay's status read of an earlier signature → 'landed' | 'failed' | 'pending' | null
+//   follow(signature, order)       the relay's status read of an earlier signature → 'landed' | 'failed' | 'pending' | null
+//                                  (`order`: the journal's order name — an Expedition is read on the depart route)
+//   wide                           (optional, a local wide-land world: wide.mjs createWideEyes) `look(obs, st)` → the wide
+//                                  land as the resident sees it this turn (obs.wideLand), read after the reconcile
 //   bellNow()                      the chain's turn after the send (the later turn books the action, as the operator
 //                                  residents book theirs: local-play-operator-residents.mjs)
 //   halted()                       the operator's halt file (resident.mjs charter.haltFile): a pause, results still read
@@ -23,7 +26,7 @@ export const PASSING = Object.freeze(new Set(['LocalActNoAnswer', 'LocalActFaile
 
 const fieldsFor = order => (order.name === 'Join' ? { ...order.fields, session_expiry: BigInt(order.fields.session_expiry) } : order.fields);
 
-export async function localStep({ store, observe, send, follow, bellNow, halted = () => false, log = () => {}, provider = null, limits = LOCAL_LIMITS, nowMs = () => Date.now(), plan = null }) {
+export async function localStep({ store, observe, send, follow, bellNow, halted = () => false, log = () => {}, provider = null, limits = LOCAL_LIMITS, nowMs = () => Date.now(), plan = null, wide = null }) {
   const st = store.state;
   const obs = await observe();
   if (!obs || obs.unreadable) { log('observe', { outcome: 'unreadable', why: obs?.unreadable ?? 'no answer' }); return { did: 'unreadable' }; }
@@ -33,10 +36,10 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   for (const l of openLines(st)) {
     const line = st.journal[l.key];
     let r = null;
-    try { r = await follow(l.signature); } catch { r = null; }
+    try { r = await follow(l.signature, l.order); } catch { r = null; }
     if (r === 'landed' || r === 'failed') {
       line.state = r; line.settledBy = 'follow';
-      noteOutcome(st, { kind: l.kind, order: { name: l.order, fields: l.fields } }, r, { bell: obs.bell, limits });
+      noteOutcome(st, { kind: l.kind, order: { name: l.order, fields: l.fields }, ...(l.site ? { site: l.site } : {}), ...(l.meta ? { meta: l.meta } : {}) }, r, { bell: obs.bell, limits });
       log('reconcile', { line: l.key, order: l.order, outcome: r, signature: l.signature });
     } else if (nowMs() - (line.signedAtMs ?? 0) >= OPEN_LINE_MS) {
       line.state = 'expired-unknown'; log('reconcile', { line: l.key, order: l.order, outcome: 'expired-unknown', why: 'no landing seen within the blockhash life; never sent again', signature: l.signature });
@@ -56,6 +59,12 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
       log('village', { what: 'terrain-ore', village: st.village?.key ?? null, extra: ore.extra, by: ore.by,
         why: ore.by === 'record' ? 'S1: mines are counted above my Holding\'s own terrain ore' : ore.by === 'landed' ? 'S1: my Holding does not say its terrain ore; mines are counted from my own landed builds' : 'S1: my terrain ore is not known (no TERRAIN_ORE, no complete record of my builds): ore copies are counted above the tier\'s base and may read low; a refusal for resources holds the build' });
     }
+  }
+  // (external-wide-orders: the wide land, read once per turn and memory change — reads only, nothing is sent)
+  if (wide && obs.holding) {
+    try { obs.wideLand = await wide.look(obs, st); } catch (e) { obs.wideLand = null; log('wide', { what: 'look-failed', why: String(e?.message ?? e).slice(0, 200) }); }
+    const seen = obs.wideLand ? JSON.stringify(seenOf(obs).wide).replace(/[0-9]+/g, '#') : null;   // (said when it changes, not each turn's numbers)
+    if (seen && st.wideSeen !== seen) { st.wideSeen = seen; log('wide', { what: 'seen', bell: obs.bell, ...seenOf(obs).wide }); }
   }
   store.save();
   if (halted()) { log('stop', { why: 'halted-by-operator', bell: obs.bell }); return { did: 'halted' }; }
@@ -100,7 +109,7 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   store.save();   // (1) intended, before anything is asked of the relay
   log('decide', { bell: obs.bell, goal: st.goal, choice: cand.id, order: cand.order.name, fields: cand.order.fields, by: d.by, why: d.why, seen: seenOf(obs), assessment: c.assessment, candidates: summary });
   const line = st.journal[key];
-  const r = await send({ name: cand.order.name, v: cand.order.v, fields: fieldsFor(cand.order) }, {
+  const r = await send({ name: cand.order.name, v: cand.order.v, fields: fieldsFor(cand.order), ...(cand.plan ? { plan: cand.plan } : {}) }, {
     onSigned: async sig => {
       if (planned) await plan.signed(planned, sig);   // (2a) the plan store first; a throw here stops the submit
       line.signature = sig; line.state = 'signed'; line.signedAtMs = nowMs(); store.save();   // (2b) before the submit
@@ -124,8 +133,11 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   }
   // (nothing reached the chain: the turn stays open for another attempt, journal.mjs MAX_ATTEMPTS_PER_TURN)
   if (line.state === 'not-sent') st.nextDecisionBell = obs.bell;
+  // (an order the world refused before anything was signed — an expedition's prepare: the program's check on the depart
+  //  route — holds that order as a refusal does; another order may still go in this turn)
+  const holdNotSent = line.state === 'not-sent' && r.holdNotSent === true;
   if (r.signature && line.signature && r.signature !== line.signature) log('warning', { why: 'the relay named another signature than the one saved', saved: line.signature, relay: r.signature });
-  if (outcome !== 'refused-turn-used') noteOutcome(st, cand, line.state === 'unknown' ? 'unknown' : outcome, { bell: obs.bell, code: r.code ?? null, limits, resources: refusedForResources(r), obs });
+  if (outcome !== 'refused-turn-used') noteOutcome(st, cand, holdNotSent ? 'refused' : line.state === 'unknown' ? 'unknown' : outcome, { bell: obs.bell, code: r.code ?? null, limits, resources: refusedForResources(r), obs });
   if (planned) {
     const outcome4 = line.state === 'refused' && r.code === 'ResidentAlreadyActed' ? 'not-sent' : line.state;
     try { await plan.settle(planned, { outcome: outcome4, signature: line.signature ?? null, code: r.code ?? null, bookedBell: line.signature ? st.lastActBell : null }); }

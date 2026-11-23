@@ -15,12 +15,13 @@
 // KEY-FREE.
 import { createHerald } from '../../../../permutation-server/web/frontier/herald.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
-import { storesAt } from '../../../../permutation-server/web/frontier/fland.mjs';
+import { storesAt, landState } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { settled } from '../../../../permutation-server/web/frontier/hud/rulebook.mjs';
 import { setS1, s1On } from '../../../../permutation-server/web/frontier/fs1.mjs';
 import { knowVillageOre, terrainOreExtra } from './brain.mjs';
 import { bellOf } from '../../../../permutation-gateway/src/frontier/local-play-operator-policy.mjs';
 import { chainSecondsOf, publicHomes, publicWideHomes, getJson } from '../../../03-composability/mcp/examples/external-resident/public.mjs';
+import { wideInventory } from './wide.mjs';
 
 const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
 
@@ -31,7 +32,9 @@ const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
  * `wide` (external-wide): the launcher said this world is a local wide-land world (its start answer's `wideLand`, as
  * the page is told): the first-village candidates are the page's outward ones there, each `{p, q, site, ticket}`.
  */
-export function createObserver({ base, wallet, wide = false, deps = {} }) {
+// `identity` (external-wide-orders, a wide world): `{programId, seasonAddress}` of its relay — with it a village's
+// observation carries `wideInv` (wide.mjs wideInventory: its own wide villages from its own /h/me, the page's parser).
+export function createObserver({ base, wallet, wide = false, identity = null, deps = {} }) {
   const h = deps.herald ?? createHerald({ base, fetch: (...a) => globalThis.fetch(...a) });
   const get = deps.getJson ?? getJson;
   const homesOf = deps.publicHomes ?? publicHomes;
@@ -83,6 +86,9 @@ export function createObserver({ base, wallet, wide = false, deps = {} }) {
     reads.push('/h/province/<own>');
     let province = null;
     try { const pv = await h.province(holding.p, holding.q); if (pv.ok && pv.province) province = { resolvedNext: Number(pv.province.resolvedNext), passableMask: pv.province.passableMask }; } catch { province = null; }
-    return { ...base0, joined: true, faction, holding, settled: st, stores, province };
+    const wideInv = wide && identity ? wideInventory(me.record, me.citizen, { wallet, programId: identity.programId, seasonAddress: identity.seasonAddress, seasonId: season.seasonId }) : undefined;
+    // (external-wide-orders: the page's land stage of its first village — a wide claim needs it final: NotFinal, Custom 24)
+    let landStage = null; try { landStage = landState(me.citizen).stage; } catch { landStage = null; }
+    return { ...base0, joined: true, faction, holding, settled: st, stores, province, landStage, ...(wideInv ? { wideInv } : {}) };
   };
 }

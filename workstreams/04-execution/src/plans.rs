@@ -48,6 +48,11 @@ pub const PLAN_SCHEMA: &str = "p04-plan/0.1";
 pub const PLAN_VIEW: &str = "p04-plan-view/0.1";
 /// The six orders of a local-play page (flocalplay-act.mjs LOCAL_ACT_NAMES' first six).
 pub const LOCAL_ORDERS: [&str; 6] = ["Join", "PlaceHome", "Harvest", "Build", "Train", "Muster"];
+/// (external-wide-orders, a LOCAL WIDE-LAND world only) the wide land's orders a page sends there: the wide claim 0xD9,
+/// a wide village's Train / Muster / Depart (flocalplay-wide-host.mjs WIDE_HOST_ACTS) and the rim -> wide expedition (the
+/// page's depart route; ⑬'s journal names it `Expedition`). Which world allows them is the relay's and the program's
+/// to say; the store only keeps the steps. Caravans and the ordinary march stay out (owner question Q4).
+pub const WIDE_ORDERS: [&str; 5] = ["WideClaim", "WideTrain", "WideMuster", "WideDepart", "Expedition"];
 pub const MAX_STEPS: usize = 64;
 pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 /// Step states. `pending` and `not-sent` may be intended; `signed` and
@@ -222,8 +227,8 @@ fn check_spec(spec: &Value) -> Result<(String, String, String, Option<String>, u
         if name.contains("Caravan") {
             return Err(err(2, "NotLocalOrder", format!("steps[{i}]: {name} is not a local order (caravans in plans are owner question Q4)")));
         }
-        if !LOCAL_ORDERS.contains(&name) {
-            return Err(err(2, "NotLocalOrder", format!("steps[{i}]: name must be one of {}", LOCAL_ORDERS.join(", "))));
+        if !LOCAL_ORDERS.contains(&name) && !WIDE_ORDERS.contains(&name) {
+            return Err(err(2, "NotLocalOrder", format!("steps[{i}]: name must be one of {}, {}", LOCAL_ORDERS.join(", "), WIDE_ORDERS.join(", "))));
         }
         if !s.get("fields").is_some_and(Value::is_object) {
             return Err(bad(format!("steps[{i}].fields is an object")));

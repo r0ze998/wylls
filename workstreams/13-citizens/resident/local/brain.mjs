@@ -4,7 +4,7 @@
 // (resident.mjs DEFAULT_LIMITS: the shortest gap between decisions, the idle back-off, the allowance of decisions,
 // the day's actions, the doubling hold after a failed action) and its own memory (journal.mjs) are mapped onto the
 // six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and, in a local
-// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
+// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER) and the wide land's own orders (wide.mjs: WideClaim, WideTrain/WideMuster/WideDepart, the Expedition); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
 // plans with are the page's own (hud/rulebook.mjs buildOffers, trainCost, maxTrain; fland.mjs storesAt), never the
 // test world's (world/rules.mjs). A choice is only a request: the relay and the program refuse it exactly as they
 // refuse a person's.
@@ -24,6 +24,7 @@ import { buildOffers, trainCost, maxTrain, settled, HOST_TROOPS, TRANSIT_SLOTS, 
 import { BUILD_ITEMS, storesAt, queueItem, TIER_BONUS_PCT } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
 import { s1On, s1OreBase, setOreExtraProvider, holdingOreExtra } from '../../../../permutation-server/web/frontier/fs1.mjs';
+import { WIDE_LIMITS, EXPEDITION, wideMem, claimNotDue, claimSettling, claimNotFinal, claimCost, claimOrder, saveHold, expeditionNotDue, wideHostDecision, departMeta, expeditionFields, noteWide } from './wide.mjs';
 
 export const BRAIN_KIND = 'ws13-local-brain/1';
 /** The six orders of a local-play page (flocalplay-act.mjs LOCAL_ACT_NAMES' first six): the only ones asked for. */
@@ -31,9 +32,11 @@ export const LOCAL_ORDERS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Buil
 /**
  * (external-wide) In a LOCAL WIDE-LAND world only, the page's seventh (LOCAL_ACT_NAMES[6]): a first village past the
  * heartland is asked for by a one-site request, FileTicket, which the world's runner settles at a turn's end (itest
- * wide_play run_claims, for every wallet alike) — exactly the page's rim route (controller.mjs confirmHome). The wide
- * land's own orders (the wide claim 0xD9, a wide village's Train/Muster/Depart) are NOT this resident's: it never asks
- * for them, in any world.
+ * wide_play run_claims, for every wallet alike) — exactly the page's rim route (controller.mjs confirmHome).
+ * (external-wide-orders) And the wide land's own orders, as the page has them there (wide.mjs): the wide claim 0xD9, a
+ * wide village's WideTrain / WideMuster / WideDepart, and the rim → wide expedition (the page's depart route). The rule:
+ * rim village → save for the settler cost → wide claim → wide village → train / muster → wide march; and a ready rim
+ * host → an expedition into the bordering wide land. One action per turn, as every other order.
  */
 export const WIDE_HOME_ORDER = 'FileTicket';
 /**
@@ -219,6 +222,7 @@ export function refusalHold(mem, obs, item) {
 }
 
 const failKey = c => (c.kind === 'build' ? `Build:${c.order.fields.item}` : c.kind === 'home' ? (c.order.name === WIDE_HOME_ORDER ? WIDE_HOME_ORDER : 'PlaceHome') : c.order.name);
+export { failKey };
 /** The site of a home order (PlaceHome `{p, q, site}`; FileTicket `{sites: [one]}`) as `"p,q,site"`. */
 const homeSiteKey = order => { const s = order.name === WIDE_HOME_ORDER ? order.fields.sites?.[0] ?? {} : order.fields; return `${s.p},${s.q},${s.site}`; };
 
@@ -226,6 +230,69 @@ const homeSiteKey = order => { const s = order.name === WIDE_HOME_ORDER ? order.
 function failureHold(mem, key, bell) {
   const f = mem.failures?.[key];
   return f && Number.isInteger(f.until) && f.until > bell ? `held after ${f.count} refusal(s) until turn ${f.until}${f.code ? ` (${f.code})` : ''}` : null;
+}
+
+/**
+ * (external-wide-orders) The wide land's candidates, pushed onto `out` (the village's own ones are there already):
+ *   wideclaim   the wide claim on the nearest target in reach, when no wide village is mine yet; held while saving (the
+ *               settler cost not in the stores) or while a landed claim settles. While a claim is saved for and
+ *               production covers its cost within WIDE_LIMITS.savePatienceBells, the village's builds and training that
+ *               would spend that cost are held (the save).
+ *   widehost    the page's wide-village planner's one act (WideTrain / WideMuster / WideDepart)
+ *   expedition  a ready rim host into the bordering wide land (the page's depart route); with no host at home yet, the
+ *               village's Muster (and training toward it) is preferred
+ */
+/** What the next copy of building `item` costs this village (by resource index; the page's duplicateCost on copyNumber). */
+export const buildSpend = (obs, item) => (BUILD_ITEMS[item] && obs?.settled ? BUILD_ITEMS[item].cost.map(c => duplicateCost(c, copyNumber(obs.settled, item))) : null);
+
+export function wideCandidates(obs, mem, out, { bell, limits = LOCAL_LIMITS, a = null, wl = WIDE_LIMITS } = {}) {
+  wideMem(mem);
+  const v = { holding: { p: obs.holding.p, q: obs.holding.q, site: obs.holding.site } };
+  // the claim
+  const notDue = claimNotDue(obs, mem, wl);
+  if (!notDue) {
+    const cost = claimCost(obs), settling = claimSettling(obs, mem, wl), o = claimOrder(obs, mem);
+    const held = [];
+    if (o.why) held.push(o.why);
+    if (settling) held.push(settling);
+    const nf = claimNotFinal(obs); if (nf) held.push(nf);
+    if (!cost.affordable) held.push(`saving for the settler cost (short ${Object.entries(cost.short).map(([r, n]) => `${r} ${n}`).join(', ')})`);
+    const fh = failureHold(mem, 'WideClaim', bell); if (fh) held.push(fh);
+    if (o.order) out.push({ id: `wideclaim:${o.site}`, kind: 'wideclaim', site: o.site, order: o.order, ...(held.length ? { held } : {}), score: 1.6,
+      why: `claim wide land at ${o.order.v.target.p},${o.order.v.target.q} site ${o.order.fields.site} (slot ${o.order.fields.slot}): my village is within reach of the wide land` });
+    // (the save: production covers the cost within the patience → what would spend it waits; wide.mjs saveHold)
+    for (const c of out) {
+      const spend = c.kind === 'build' ? buildSpend(obs, c.order.fields.item) : c.kind === 'train' ? trainCost(0, c.order.fields.n, Number(obs.programVersion ?? 1)) : null;
+      const sh = saveHold(obs, mem, spend, wl);
+      if (sh) c.held = [...(c.held ?? []), sh];
+    }
+  }
+  // the wide village's host
+  const hd = wideHostDecision(obs, mem, wl);
+  if (hd.decision) {
+    const d = hd.decision, held = [];
+    const fh = failureHold(mem, d.name, bell); if (fh) held.push(fh);
+    out.push({ id: `wide:${d.name}`, kind: 'widehost', order: { name: d.name, v: d.v, fields: d.fields }, ...(departMeta(d) ? { meta: departMeta(d) } : {}), ...(held.length ? { held } : {}),
+      score: d.name === 'WideDepart' ? 1.4 : 0.95, why: d.why });
+  }
+  // the expedition
+  const xNot = expeditionNotDue(obs, mem, wl), x = obs.wideLand.expedition;
+  if (!xNot && x?.ok) {
+    const held = [];
+    const fh = failureHold(mem, EXPEDITION, bell); if (fh) held.push(fh);
+    out.push({ id: 'expedition', kind: 'expedition', order: { name: EXPEDITION, v: {}, fields: expeditionFields(x.plan) }, plan: x.plan, ...(held.length ? { held } : {}), score: 1.5,
+      why: `a ready host (${Math.floor(Number(x.plan.host.troops))} troops) of my rim village marches into the wide land at ${x.plan.dest.p},${x.plan.dest.q} (arrival turn ${x.plan.arriveBell})` });
+  } else if (!xNot && x && x.hosts === 0) {
+    // (no host at home: form one for the expedition — the village's own Muster, and its training when the reserve is short)
+    for (const c of out) if (c.kind === 'muster') { c.score += 1.2; c.why += ' (for an expedition into the wide land)'; }
+    const reserve = Number(obs.settled?.reserve?.[0] ?? 0);
+    if (reserve < 100) for (const c of out) if (c.kind === 'train' && c.held?.every(h => /^idle stock/.test(h))) {
+      // (the training is held only for want of idle stock beyond the plan: a hundred for the expedition's host is paid from the stock itself when it covers it)
+      const pv = Number(obs.programVersion ?? 1), cost = trainCost(0, 100, pv), have = (obs.stores ?? []).map(s => s.value);
+      if (cost && cost.every((n, r) => (have[r] ?? 0) >= n)) { delete c.held; c.order = { ...c.order, fields: { unit: 0, n: 100 } }; c.score = 0.9; c.why = 'train 100 spearmen for an expedition host into the wide land'; }
+    }
+  }
+  return out;
 }
 
 /**
@@ -316,6 +383,8 @@ export function localCandidates(obs, mem, { limits = LOCAL_LIMITS } = {}) {
     out.push({ id: 'muster:0', kind: 'muster', order: { name: 'Muster', v, fields: { unit: 0, troops: Math.max(100, troops), tile: obs.holding.tile ?? null } }, ...(held.length ? { held } : {}),
       score: goal.use * 0.35 + 0.05, why: `form a host of ${Math.max(100, troops)} from my reserve (guards the village)` });
   }
+  // (external-wide-orders) the wide land's orders, in a local wide world with a village (obs.wideLand, wide.mjs)
+  if (obs.wideLand) wideCandidates(obs, mem, out, { bell, limits, a });
   // Harvest: the owner's touch, only when the village has not been touched for touchEveryBells turns
   {
     const last = Number.isInteger(mem.lastTouchBell) ? mem.lastTouchBell : -Infinity;
@@ -353,6 +422,11 @@ export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LO
   const key = failKey(cand);
   mem.failures = mem.failures ?? {};
   mem.refusals = mem.refusals ?? {};
+  // (external-wide-orders: the wide land's own memory — claims tried and settling, the wide host's marches, expeditions)
+  if (['wideclaim', 'widehost', 'expedition'].includes(cand.kind)) {
+    const site = cand.kind === 'wideclaim' ? (cand.site ?? `${cand.order.v?.target?.p},${cand.order.v?.target?.q},${cand.order.fields?.site}`) : null;
+    noteWide(mem, cand.kind, cand.order.name, outcome, { bell, site, meta: cand.meta ?? null });
+  }
   if (outcome === 'landed') {
     delete mem.failures[key];
     if (cand.kind !== 'join') mem.lastTouchBell = bell;
@@ -383,12 +457,13 @@ export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LO
   return mem;
 }
 
-export const ORDER_KINDS = Object.freeze({ join: 'Join', home: 'PlaceHome', harvest: 'Harvest', build: 'Build', train: 'Train', muster: 'Muster' });   // (a wide world's rim home: kind 'home', order WIDE_HOME_ORDER)
+export const ORDER_KINDS = Object.freeze({ join: 'Join', home: 'PlaceHome', harvest: 'Harvest', build: 'Build', train: 'Train', muster: 'Muster', wideclaim: 'WideClaim', expedition: EXPEDITION });   // (a wide world's rim home: kind 'home', order WIDE_HOME_ORDER; kind 'widehost': WideTrain / WideMuster / WideDepart)
 /** For logs: the observation reduced to what the brain read. */
 export function seenOf(obs) {
   if (!obs) return null;
   return { bell: obs.bell, joined: obs.joined, faction: obs.faction, village: obs.holding ? `${obs.holding.p},${obs.holding.q},${obs.holding.site}` : null,
     stores: obs.stores ? Object.fromEntries(obs.stores.slice(0, 6).map(s => [s.resource, s.value])) : null, reserve: obs.settled?.reserve?.[0] !== undefined ? Number(obs.settled.reserve[0]) : null,
-    queue: obs.settled?.queue ? obs.settled.queue.filter(q => q && Number(q.doneAt) > (obs.nowSecs ?? 0)).length : null, homesSeen: obs.homes?.length ?? 0 };
+    queue: obs.settled?.queue ? obs.settled.queue.filter(q => q && Number(q.doneAt) > (obs.nowSecs ?? 0)).length : null, homesSeen: obs.homes?.length ?? 0,
+    ...(obs.wideLand ? { wide: { villages: obs.wideLand.villages.map(x => `${x.p},${x.q},${x.site}`), targets: obs.wideLand.targets.length, border: obs.wideLand.border.length, host: obs.wideLand.host?.decision?.name ?? obs.wideLand.host?.why ?? null, expedition: obs.wideLand.expedition ? (obs.wideLand.expedition.ok ? 'ready' : obs.wideLand.expedition.why) : null } } : {}) };
 }
 export { settled, storesAt };

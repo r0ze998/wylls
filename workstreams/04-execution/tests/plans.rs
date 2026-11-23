@@ -89,6 +89,8 @@ fn caravans_and_unknown_orders_are_not_plan_steps() {
     assert_eq!(r.as_ref().unwrap_err().code, "NotLocalOrder");
     assert!(r.unwrap_err().message.contains("Q4"));
     assert_eq!(code(plans::accept(&s, &spec("c", json!([{ "name": "March", "fields": {} }])), 0)), "NotLocalOrder");
+    // (external-wide-orders: the wide land's orders are plan steps; the ordinary march and caravans are not)
+    assert_eq!(code(plans::accept(&s, &spec("c", json!([{ "name": "Depart", "fields": {} }])), 0)), "NotLocalOrder");
     assert_eq!(code(plans::accept(&s, &spec("c", json!([])), 0)), "BadRequest");
     let mut x = spec("c", three());
     x["extra"] = json!(1);
@@ -266,4 +268,22 @@ fn two_processes_racing_for_one_plan_get_one_lease() {
     let answers: Vec<Option<bool>> = hs.into_iter().map(|h| h.join().unwrap()).collect();
     assert_eq!(answers.iter().filter(|a| **a == Some(true)).count(), 1, "{answers:?}");
     assert_eq!(answers.iter().filter(|a| **a == Some(false)).count(), 5, "{answers:?}");
+}
+
+#[test]
+fn wide_land_orders_are_plan_steps() {
+    let s = Store::open(&db("wide")).unwrap();
+    let steps = json!([
+        { "name": "WideClaim", "fields": {}, "expect": {} },
+        { "name": "WideTrain", "fields": { "unit": 0, "n": 100 } },
+        { "name": "WideMuster", "fields": {} },
+        { "name": "WideDepart", "fields": {} },
+        { "name": "Expedition", "fields": {} }
+    ]);
+    let v = plans::accept(&s, &spec("w", steps), 0).unwrap();
+    let names: Vec<&str> = v["steps"].as_array().unwrap().iter().map(|x| x["name"].as_str().unwrap()).collect();
+    assert_eq!(names, plans::WIDE_ORDERS.to_vec());
+    for n in ["WideHarvest", "WideBuild", "SendCaravan", "Reveal"] {
+        assert_eq!(code(plans::accept(&s, &spec(&format!("x{n}"), json!([{ "name": n, "fields": {} }])), 0)), "NotLocalOrder", "{n}");
+    }
 }
