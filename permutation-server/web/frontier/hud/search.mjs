@@ -60,7 +60,7 @@ export function searchMap(query, { recs = new Map(), roster = null, sitesOf = ()
 export function renderResults(list, query) {
   if (!norm(query)) return '';
   // (an empty answer says what the box can find: the field's own hint is gone once something is typed)
-  if (!list.length) return html`<p class="search-none"><strong>${L`見つかりません`}</strong><span class="search-hint">${L`州の座標（例：4,0）、国の名前、領主の名前で探せます`}</span></p>`;
+  if (!list.length) return html`<p class="search-none"><strong>${L`見つかりません`}</strong><span class="search-hint">${L`州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます`}</span></p>`;
   return html`<ul class="search-list">${list.map((x, i) => html`<li><button type="button" class="search-hit search-${x.kind}" data-act="search-go" data-i="${i}">${x.text}</button></li>`)}</ul>`;
 }
 export { lang };
