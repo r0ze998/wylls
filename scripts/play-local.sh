@@ -74,8 +74,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's "Found a village on the wide land" (「広い土地に村を出す」) claims wide land (AI residents do the same). Then a TEST clock of
-                  ×--speed (default 60, 10-60): a rim village saves the cost the claim card shows (1,200 food and wood,
-                  600 stone, 300 gold; the program takes 800/800/400/200 for a second village) in 30-60 min at 60. A rim host
+                  ×--speed (default 60, 10-60): a rim village saves the cost the claim card shows (the program's price:
+                  800 food and wood, 400 stone, 200 gold for a second village) in 30-60 min at 60. A rim host
                   marches into the wide land by "Prepare a boundary route" (「境界への道を準備」; after "Check terrain and time" press the card's
                   "Use a turn that leaves time to send (N)" for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's "Next step (wide land)" (「次の一手（広い土地）」) marches
                   wide to wide (local-only feature; press once per step, the card waits and sends by itself, also while another village is open). The ordinary map and the "World" chart (「全体図」) draw the wide land as far as you have

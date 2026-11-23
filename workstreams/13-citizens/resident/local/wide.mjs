@@ -33,7 +33,8 @@ export const WIDE_ORDERS = Object.freeze([WIDE_CLAIM, ...WIDE_HOST_ORDERS, EXPED
  *   savePatienceBells 240   a claim is saved for (builds and training that would spend its cost are held) only when
  *                           production covers the settler cost within this many turns; else the village grows first
  *                           (a local wide world is always on a compressed clock: ×60 for 150 minutes is 900 turns; a
- *                           fresh rim village, food 40/h and wood 30/h, needs ≈200 turns for slot 2's 1200/1200 — run1)
+ *                           fresh rim village, food 40/h and wood 30/h, needs ≈200 turns for 1200/1200 — run1, which
+ *                           asked 1.5× the price: the program's slot 2 costs 800/800/400/200 — verify-pr183)
  *   trainWaitBells 12       a landed WideTrain is not asked again for this long (training finishes into the reserve)
  *   expeditions 1           rim → wide expeditions in one world; expeditionGapBells between two
  *   routeTargets 4          the nearest claim targets whose free sites are read (one herald read)
@@ -86,7 +87,7 @@ export function claimNotFinal(obs) {
 
 /** The settler cost against the village's stock: `{need, short: {resource: n}, affordable}`. */
 export function claimCost(obs) {
-  const need = obs.wideLand?.need ?? settlerCost(2);
+  const need = obs.wideLand?.need ?? settlerCost(1);   // (one village held: the second's price)
   const have = (obs.stores ?? []).map(s => s.value);
   const short = {};
   need.forEach((n, r) => { if (n > (have[r] ?? 0)) short[RESOURCE_ORDER[r]] = n - (have[r] ?? 0); });
@@ -192,7 +193,10 @@ export function createWideEyes({ herald, identity, wideTargets, read, fetch: f, 
     const own = new Set(obs.wideInv.villages.map(v => `${v.p},${v.q}`));
     let targets = claimTargets(obs.holding, wideTargets).filter(t => !own.has(`${t.p},${t.q}`));
     const owned = 1 + obs.wideInv.bound;
-    const value = { bell: obs.bell, villages: obs.wideInv.villages, bound: obs.wideInv.bound, need: settlerCost(Math.min(3, owned + 1)), slot: Math.min(3, owned + 1),
+    // (verify-pr183 / D-verify-pr177-1: the program charges settler_cost(holdings_n), holdings_n = the villages held
+    //  BEFORE the claim — proc/wide.rs reads C::HOLDINGS_N — so the second village costs 800/800/400/200, not 1,200:
+    //  the page's card, screens/holding.mjs wideClaimModel, asks the same)
+    const value = { bell: obs.bell, villages: obs.wideInv.villages, bound: obs.wideInv.bound, need: settlerCost(Math.min(2, owned)), slot: Math.min(3, owned + 1),
       border: borderTargets(obs.holding, wideTargets), targets, host: null, expedition: null };
     // (a claim due: the free sites of the nearest targets, from the herald's public route capture — the page's card reads it)
     const probe = { ...obs, wideLand: value };
