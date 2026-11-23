@@ -40,6 +40,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { onLocalLane, selectLocalLane, localLane, COEXIST_LANE, COEXIST_MODE, COEXIST_LANE_WORD } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { COOP_BOARD_MODE, openWorldBoard, answerWorldBoard, coopRouteOf, coopTarget } from './local-play-coop-board.mjs';
+import { WORLD_GOALS_MODE, openWorldGoals, answerWorldGoals, goalsRouteOf, goalRulesOf } from './local-play-world-goals.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, parseOperatorResidents, parseOperatorNations, operatorRelayPorts, operatorSlotPorts, homesOf } from './local-play-operator-policy.mjs';
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX } from './local-play-operator-war.mjs';
 import { EXTERNAL_RESIDENTS_MODE, EXTERNAL_RESIDENTS_SCHEMA, EXTERNAL_RESIDENTS_MAX, parseExternalResidents, externalPorts, externalSpan } from './local-play-external-residents.mjs';
@@ -785,6 +786,7 @@ export class WorldManager {
       record.expiry = world.expiry ?? null;
       record.keeper = typeof world.keeper === 'function' ? world.keeper : null;
       record.coop = world.coop ?? null;
+      record.goals = world.goals ?? null;
       record.pairHerald = opts.second ? (world.pair?.second === opts.second && typeof world.pair.herald === 'string' ? world.pair.herald : null) : null;
       record.pairView = opts.second && typeof world.pairView === 'function' ? world.pairView : null;
       if (opts.second && record.pairHerald === null) { await world.stop(); throw fault('PairNotReady', 503); }
@@ -800,6 +802,11 @@ export class WorldManager {
    */
   coopFor(port) {
     for (const w of this.worlds.values()) if (!w.stopping && w.herald && w.coop?.ports.includes(port)) return w.coop;
+    return null;
+  }
+  /** (TEST-ONLY `--world-goals`) The goals judge of the live world one of whose proxies listens on `port`, or null. */
+  goalsFor(port) {
+    for (const w of this.worlds.values()) if (!w.stopping && w.herald && w.goals?.ports.includes(port)) return w.goals;
     return null;
   }
   /** One world's keeper view (`keeperSummary`), named by its public address; none for a world still starting or ending. */
@@ -1149,10 +1156,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   const dir = persist ? path.join(home, 'starts', `${Date.now()}-${randomUUID().slice(0, 8)}`) : path.join(c.data, randomUUID()); await fs.mkdir(dir, persist ? { mode: 0o700 } : undefined);
   const children = [], externalProxies = []; let stopping = null, timer, ready = false, proxy, pairProxy;
   // (fix-loop8: the co-op board's chain-clock sampler, stopped with the world)
-  let coopStop = null;
+  let coopStop = null, goalsStop = null;
   const stop = (reason = 'requested') => (stopping ??= (async () => {
     clearInterval(timer);
     try { coopStop?.(); } catch { /* the sampler only reads */ }
+    try { goalsStop?.(); } catch { /* the judge only reads */ }
     try {
       for (const p of children) if (!exited(p)) p.kill('SIGINT');
       const gone = Promise.all(children.map(p => (exited(p) ? null : new Promise(r => p.once('exit', r)))));
@@ -1298,6 +1306,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     //  directory; served on the launcher's origin under the mount of each of this world's proxies — local-play-coop-board.mjs)
     const coop = c.coopBoard === true ? await (limit.openWorldBoard ?? openWorldBoard)({ dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null }) : null;
     coopStop = typeof coop?.stop === 'function' ? coop.stop : null;
+    // (TEST-ONLY `--world-goals flag-keeps-v1`: the world's goals judged off chain in this process — flag keeps only, no
+    //  money; its state in the world's directory — a kept world's home, so a resume keeps its rounds (verify-pr198) —
+    //  served under /goals-world/<proxy port>/ — local-play-world-goals.mjs)
+    const goals = c.worldGoals ? await (limit.openWorldGoals ?? openWorldGoals)({ dir, stateDir: persist ? home : dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null, rules: c.worldGoals }) : null;
+    goalsStop = typeof goals?.stop === 'function' ? goals.stop : null;
     // (TEST-ONLY operator residents, ⑤ option A: only on a natural world whose launcher was started with
     //  `--operator-residents <n>`; each is an ordinary participant — its own memory-only TEST wallet, funded like the
     //  player's, its own relay — and the page is told nothing about them: they are shown as any other resident is)
@@ -1350,7 +1363,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const keeper = async () => { try { return keeperSummary([...(await keeperLines()).values()]); } catch { return null; } };
     // (TEST-ONLY contest pair: the fort and nations the two players meet over, read only when a player asks)
     const pairView = second !== null ? async () => { try { return pairTargetSummary(await runnerLines(dir)); } catch { return null; } } : null;
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(coop ? { coop } : {}), ...(external ? { external: external.heralds } : {}), ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(c.coexist === true ? { lane: COEXIST_LANE_WORD } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}),
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(coop ? { coop } : {}), ...(goals ? { goals } : {}), ...(external ? { external: external.heralds } : {}), ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(c.coexist === true ? { lane: COEXIST_LANE_WORD } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}),
       ...(wide ? { wideLand: { scale: c.wideScale ?? 1, targets: wideTargetsOf(meta) } } : {}),
       ...(continuous ? { continuous: true } : {}), ...(persist ? { persisted: { resumed: meta.persist.resumed } } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
@@ -1394,6 +1407,9 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
         if (url.pathname === '/local-play/pair') return answer(res, 200, await manager.pair(wallet));
         return answer(res, 200, await manager.start(wallet));
       }
+      // (TEST-ONLY `--world-goals`: the goals judge of one live world, read only — local-play-world-goals.mjs)
+      const goalsRoute = c.worldGoals ? goalsRouteOf(url.pathname) : null;
+      if (goalsRoute) return answerWorldGoals(req, res, { entry: manager.goalsFor(goalsRoute.port), rest: goalsRoute.rest, origin: `http://${req.headers.host}` });
       // (B13, TEST-ONLY `--coop-board`: ①'s board of one live world, under that world's mount — local-play-coop-board.mjs)
       const coopRoute = c.coopBoard === true ? coopRouteOf(url.pathname) : null;
       if (coopRoute) {
@@ -1531,11 +1547,17 @@ export const USAGE = `local-play launcher (this machine only)
        and their answers, signed records; no resource moves), kept in this process with its records in the world's
        directory and served on this launcher's origin under /coop-world/<the world's proxy port>/; the page signs its
        records with its own memory-only key. No caravan is sent from the board's page here (no relay route)]
+    [--world-goals flag-keeps-v1 [--flag-keeps-hold <bells>] [--flag-keeps-need <n>] [--flag-keeps-member <bells>]:
+       TEST-ONLY: each world's goals are judged off chain in this process (first slice: the flag keeps — a nation that
+       holds half of the designated flag keeps, each for 144 bells, achieves the round) and served read only under
+       /goals-world/<the world's proxy port>/goals/state, with the prize it WOULD have won from a simulated vault (no
+       money, no transfer, no chain change). The three numbers override the hold time, the need and the membership time
+       for a TEST world only]
     [--port 41920] [--world-port 41924]
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs', 'coop-board', 'operator-war', 'wide-land', 'wide-scale', 'coexist']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs', 'coop-board', 'operator-war', 'wide-land', 'wide-scale', 'coexist', 'world-goals', 'flag-keeps-hold', 'flag-keeps-need', 'flag-keeps-member']);
   // (⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. This launcher has no prize lane —
   //  paid windows run only under `frontier-stack up --continuous --prize-epochs` — so `--prize-epochs` is always
   //  refused here, and by name when operator AI residents (⑤A) or external AI residents (⑤B) are asked for with it)
@@ -1626,9 +1648,13 @@ export async function parseConfig(args) {
   if (externalResidents !== undefined && Array.from({ length: span }, (_, i) => worldPort + i).includes(41970)) throw fault('InvalidPorts');
   // (B13: the TEST-ONLY co-op board, asked for in exactly its one word)
   if (out['coop-board'] !== undefined && out['coop-board'] !== COOP_BOARD_MODE) throw fault('InvalidCoopBoard');
+  // (the TEST-ONLY world goals judge, asked for in exactly its one word; its three TEST overrides only with it)
+  if (out['world-goals'] !== undefined && out['world-goals'] !== WORLD_GOALS_MODE) throw fault('InvalidWorldGoals');
+  if (out['world-goals'] === undefined && ['flag-keeps-hold', 'flag-keeps-need', 'flag-keeps-member'].some(k => out[k] !== undefined)) throw fault('InvalidWorldGoals');
+  const worldGoals = out['world-goals'] === undefined ? undefined : goalRulesOf({ hold: out['flag-keeps-hold'], need: out['flag-keeps-need'], member: out['flag-keeps-member'] });
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), ...(out['operator-war'] !== undefined ? { operatorWar: true } : {}), ...(out['wide-land'] !== undefined ? { wideLand: true } : {}), ...(out.coexist !== undefined ? { coexist: true } : {}), ...(out['wide-scale'] !== undefined ? { wideScale: parseWideScale(out['wide-scale']) } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), ...(worldGoals ? { worldGoals } : {}), ...(out['operator-war'] !== undefined ? { operatorWar: true } : {}), ...(out['wide-land'] !== undefined ? { wideLand: true } : {}), ...(out.coexist !== undefined ? { coexist: true } : {}), ...(out['wide-scale'] !== undefined ? { wideScale: parseWideScale(out['wide-scale']) } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true });
   // (persisted worlds: their parent is private, made so here, and a looser one refuses the launcher's start)
