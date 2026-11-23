@@ -26,7 +26,8 @@ import { hostParts } from '../faddr.mjs';
 import { hexDistance, ringOf, wedgeOf } from '../fgeo.mjs';
 import { ownTag } from '../people/ui.mjs';
 import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
-import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
+import { S1_WORDS, caravanArriveBell, arriveBellOfTs, caravanId } from '../map/s1marks.mjs';
+import { bellAt } from '../clock.mjs';
 import { cardHead, chip, fold, label } from './parts.mjs';
 import { renderVillageOrders, S1_ORDER_KINDS } from './villageorders.mjs';
 import { swatch } from './shell.mjs';
@@ -406,7 +407,7 @@ export function s1PlanOffers(FS, sel) {
 export function s1VillageModel(FS) {
   const s1 = FS.s1 ?? {}, mine = viewerTag(FS), h = activeHolding(FS);
   const vaults = (s1.caravans?.vaults ?? []).filter(v => isMine(v.ownerTag, mine));
-  const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(holderOf(c), mine)).map(c => ({ ...c, arriveBell: caravanArriveBell(c) }));
+  const caravans = (s1.caravans?.moving ?? []).filter(c => isMine(holderOf(c), mine)).map(c => ({ ...c, arriveBell: arriveBellOfTs(c, ts => (Number.isFinite(Number(FS.season?.genesisTs)) ? bellAt(Number(FS.season.genesisTs), ts) : null)) ?? caravanArriveBell(c) }));
   const structures = (s1.structures?.structures ?? []).filter(s => isMine(s.ownerTag, mine)).map(s => ({ ...s, name: KIND_NAME[s.kind] }));
   // where a caravan may leave from: the village in hand (its stores now) or one of the viewer's storehouses (the stores
   // the herald read from its account; a storehouse whose stores are not known yet offers nothing to send)

@@ -18,3 +18,20 @@ test('LP13-3: with the default reach the line stays cut under the top bar; with 
   const box = { x: tag.x + after.dx, y: top, w: tag.w, h: tag.h };
   for (const r of NOGO) assert.ok(!(box.x < r.x + r.w && r.x < box.x + box.w && box.y < r.y + r.h && r.y < box.y + box.h), `clear of ${JSON.stringify(r)}`);
 });
+
+test('LP13-10: a taken caravan\'s arrival turn is its arrive_ts turn on the map tag too (the chain delivers once now >= arrive_ts)', async () => {
+  const MARKS = await import('../../permutation-server/web/frontier/map/s1marks.mjs');
+  const { bellAt } = await import('../../permutation-server/web/frontier/clock.mjs');
+  const { setLang } = await import('../../permutation-server/web/lang.mjs');
+  const G = 1_800_000_000;
+  // runs end at bell 59 (the first bell that STARTS after the arrival), the arrival itself is 4 minutes into bell 58
+  const c = { ownerTag: 7n, seq: 3, faction: 0, holderTag: 9n, raided: true, arriveTs: G + 58 * 600 + 240, runs: [{ p: -1, q: 2, firstBell: 55, n: 4 }],
+    src: { kind: 3, p: -1, q: 2, tile: 20 }, dst: { kind: 0, p: -1, q: 2, tile: 35 }, cargo: [0, 0, 0, 20, 0, 0, 0, 0] };
+  assert.equal(MARKS.caravanArriveBell(c), 59, 'the runs end');
+  const mk = MARKS.s1Marks({ caravans: { moving: [c], vaults: [] } }, { bell: 56, bellOfTs: ts => bellAt(G, ts) });
+  assert.equal(mk.caravans[0].arriveBell, 58, 'main said 59 here while the rights card said 58');
+  setLang('ja');
+  assert.equal(String(MARKS.caravanTagText(mk.caravans[0].arriveBell, true)), '略奪された隊商 ターン 58 着');
+  // without a clock the runs still give a turn (as before)
+  assert.equal(MARKS.s1Marks({ caravans: { moving: [c], vaults: [] } }, { bell: 56 }).caravans[0].arriveBell, 59);
+});

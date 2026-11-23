@@ -67,13 +67,18 @@ export function heldByRaids(provinces) {
   return out;
 }
 
-/** The bell a caravan arrives at: after its last run (the bells it spends in each province on its way). */
+/** The bell after a caravan's last run (the bells it spends in each province on its way): the first turn that STARTS
+ *  after its arrival. (fix-loop13, LP13-10: the chain delivers a caravan once `now >= arrive_ts` — proc/caravan.rs
+ *  settle_caravan — which is inside the turn before this one; the turn said to the player is `arrive_ts`'s
+ *  (arriveBellOfTs), this one only when no clock is known.) */
 export function caravanArriveBell(c) {
   const last = c.runs?.[c.runs.length - 1];
   return last ? last.firstBell + last.n : null;
 }
 
 /** (fix-loop9, LP9-6) The bell of a caravan's `arriveTs` (`bellOfTs(ts)`, the season's clock), or null. */
+// (fix-loop13, LP13-10: this is the turn the caravan arrives in — the rights card said 「ターン 58 に着きます」 from it while
+//  the map's tag said 「略奪された隊商 ターン 59 着」 from the runs; the map and the S1 card now say this one first)
 export function arriveBellOfTs(c, bellOfTs) {
   const ts = Number(c?.arriveTs);
   if (typeof bellOfTs !== 'function' || !Number.isFinite(ts) || ts <= 0) return null;
@@ -116,7 +121,7 @@ export function s1Marks(s1, { own = null, bell = null, provinces = null, bellOfT
     const at = held.get(caravanId(c.ownerTag, c.seq)) ?? null;
     out.caravans.push({
       kind: 'caravan', ownerTag: c.ownerTag, seq: c.seq, faction: c.faction, own: isOwn(c.holderTag ?? c.ownerTag, own), raided: c.raided || !!at, held: !!at,
-      from: at ?? end(c.src), to: at ?? end(c.dst), cargo: c.cargo, share: at ? 0 : caravanShare(c, bell), arriveBell: caravanArriveBell(c) ?? arriveBellOfTs(c, bellOfTs),
+      from: at ?? end(c.src), to: at ?? end(c.dst), cargo: c.cargo, share: at ? 0 : caravanShare(c, bell), arriveBell: arriveBellOfTs(c, bellOfTs) ?? caravanArriveBell(c),
     });
   }
   return out;
