@@ -57,11 +57,13 @@ fn declared(f: &verify_core::Finding) -> bool {
         && f.code == "MissingData"
         && match f.check {
             "V4" => f.bell != ARRIVE_BELL && f.detail.contains("is not in the archive before it"),
-            "V7" => f.detail.contains("no seed"),
+            "V7" => f.detail.contains("no seed") || f.detail.contains("only declares"),
             "V11" => f.detail.contains("no seed") || f.detail.contains("only declares"),
             "V15" => f.detail.contains("V7 did not replay"),
             "VX" | "V0E" => f.detail.contains("declare") || f.detail.contains("patch"),
-            _ => false,
+            // verifier-v7-patches: a judgement of any check that read a
+            // declared state (World::state_before, V7's replays) and agreed
+            _ => f.detail.contains("only declares"),
         }
 }
 
