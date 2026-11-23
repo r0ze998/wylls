@@ -71,7 +71,7 @@ export const HELD_MARCH_ANSWER_CODES = Object.freeze({ failed: 'TransactionFaile
  */
 export function heldMarchAnswer(orders, signature, x) {
   if (typeof signature !== 'string' || signature === '' || !['landed', 'failed', 'expired'].includes(x)) return null;
-  const record = (orders ?? []).find(o => o?.kind === 'march' && o.state === 'unconfirmed' && o.code === LOCAL_HOLD_CODE && o.signature === signature) ?? null;
+  const record = (orders ?? []).find(o => o?.kind === 'march' && orderOutcome(o) === 'held' && o.signature === signature) ?? null;
   if (!record) return null;
   return x === 'landed' ? { record, ok: true, extra: { code: null, sent: true, signature } }
     : { record, ok: false, extra: { code: HELD_MARCH_ANSWER_CODES[x], sent: true, signature } };
