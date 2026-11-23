@@ -114,7 +114,7 @@ test('two columns at one place step aside across their road; the figures block t
   const b = columnLane(heads, { x: 200, y: 0 }, { zoom: 1, path, k: 0.5 });
   assert.ok(Math.abs(b.dx) < 1e-6 && Math.abs(b.dy) > 20, `stepped across a horizontal road: ${JSON.stringify(b)}`);
   const c = columnLane(heads, { x: 200, y: 0 }, { zoom: 1, path, k: 0.5 });
-  assert.ok(Math.sign(c.dy) !== Math.sign(b.dy), 'the next one steps to the other side');
+  assert.ok(c.dy * b.dy < 0, 'the next one steps to the other side');
   const box = marcherBox({ x: 10, y: 50, kind: 'lead' }, 1);
   assert.ok(box.y + box.h === 50 && box.w > 0, 'the box stands on the figure\'s foot');
 });
