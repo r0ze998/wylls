@@ -454,6 +454,8 @@ const localMarchRejectedText = r => (r.programCode === 26 ? L`送るあいだに
  * its blockhash as past its life and the signature as unknown) — the host is free again and the player is told.
  */
 export const HELD_RECHECK_MS = 5000, HELD_RECHECK_TRIES = 24;
+/** A signed march's answer that is final (not held as "unconfirmed"): refused on chain, or read `expired` — never landed, never will (fmarch.mjs sendMarch: the book already let it go). */
+export const LOCAL_MARCH_ANSWERED = Object.freeze(['TransactionFailed', 'LocalMarchExpired']);
 const heldRechecks = new Set();
 const HELD_TOLD = {
   landed: () => L`送信済みだった進軍は記録されました。軍勢は進軍中です。`,
@@ -3460,7 +3462,11 @@ async function sendTheMarch() {
     // (local play: a march that carries a signature WAS sent — it is never recorded as "not sent". Not confirmed: held
     //  by its signature (the memory book keeps it `sent`; only "ask" is offered). Failed on chain: sent, and refused there)
     const localSent = (localPlay || !!dm) && !r.ok && typeof r.signature === 'string' && r.signature !== '';
-    if (localSent && r.code !== 'TransactionFailed') orderUnconfirmed(marchOrder, r.signature);
+    // (loop-play12: a march the relay read as `expired` — its blockhash ran out before it landed: it never will — is
+    //  answered too, like a chain refusal: sent, not recorded. It was held as "unconfirmed" with a re-check that could
+    //  never answer — the sender's book had already let it go — and 「…まだ確認できていません…自動で確かめます」 stayed)
+    const localHeld = localSent && !LOCAL_MARCH_ANSWERED.includes(r.code);
+    if (localHeld) orderUnconfirmed(marchOrder, r.signature);
     else orderAnswered(marchOrder, r.ok, r.ok ? {} : localSent ? { code: r.code ?? null, sent: true, signature: r.signature } : { code: r.code ?? null, sent: false });
     // (the board keeps the screen: the column sets out there; the marches drawer is one press away. It opened by itself
     // and, on a phone, covered the departing column)
@@ -3477,7 +3483,7 @@ async function sendTheMarch() {
       // (2026-11-19) sent, outcome not known: said as that (the code makes it the "unconfirmed" state, not a refusal titled
       // with another action's words — it read 「編成はまだ命じられていません」), and asked again a bounded number of times;
       // a march the runner rejected, or one refused before the send, goes back to its card: "not sent", with the reason
-      if (localSent && r.code !== 'TransactionFailed') { setNotice({ busy: false, text: localMarchUnconfirmedText(r.signature), code: 'LocalActUnconfirmed', unsent: 'march-send' }); if (localPlay) recheckHeldMarch(r.signature); }
+      if (localHeld) { setNotice({ busy: false, text: localMarchUnconfirmedText(r.signature), code: 'LocalActUnconfirmed', unsent: 'march-send' }); if (localPlay) recheckHeldMarch(r.signature); }
       else if (localPlay && r.code === 'LocalMarchRejected') failed({ ...r, unsent: 'march-send', text: () => `${localMarchRejectedText(r)} ${L`命令は送られていません。カードはそのままです。確かめてから、もう一度押してください。`}` });
       else failed(localPlay ? { ...r, unsent: 'march-send' } : r);
     }

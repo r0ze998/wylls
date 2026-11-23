@@ -278,6 +278,13 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   assert.equal(conquestGuide(others).current, 'march');
   assert.match(conquestObjective(holding).text, /41 \/ 72 ターン保っています/);
   assert.deepEqual(conquestObjective(holding).go.data, { p: 4, q: -1 });
+  // (verify-pr193) this page's sealed march order toward a keep counts as the march — unless the page was answered
+  // "no" for it (refused before sending, refused on chain, read `expired`): that march never went, the step stays
+  const k41 = withHost.conquest.keeps.get('4,-1');
+  const ordered = state => ({ ...withHost, orders: [{ id: 'o1', kind: 'march', name: 'Depart', dest: { p: 4, q: -1, tile: k41.tile }, ...(state ? { state } : {}) }] });
+  assert.notEqual(conquestGuide(ordered()).current, 'march', 'a sealed march order: past the march step');
+  assert.notEqual(conquestGuide(ordered('unconfirmed')).current, 'march', 'sent, outcome unknown: it may have gone');
+  assert.equal(conquestGuide(ordered('refused')).current, 'march', 'answered "no": no march went');
   // the capture record: every step is done
   const taken = fs({ bell: 92 }); taken.conquest.events = [{ seq: '10696', kind: 'keep_taken', bell: 83, p: 4, q: -1, from: 5, to: 0, troops: 241 }];
   assert.equal(conquestGuide(taken).current, 'done');
