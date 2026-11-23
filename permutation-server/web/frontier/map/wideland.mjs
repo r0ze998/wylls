@@ -21,6 +21,8 @@
 //    fmap.mjs paintChartCells does), the borders where the keep nation changes, and the wide land's outer edge;
 //  - province: each cell in the mean colour of its terrain, washed with its nation's colour, the same borders;
 //  - tile: the 61 tiles in their terrain colours, a lighter wash of the nation, the same borders.
+//  (territory-video-3) At the world (unenlarged), province and tile levels each nation's own border runs round the union
+//  of its land in its colour (paintNationBorders) — the outline says whose land it is; the wash under it stays light.
 // Villages (verify-pr88): every captured wide Holding of a province (`e.wide.holdings`, the herald's own capture of the
 // PSFXWHL1 account: a v2 Holding plus a trailer, so its nation is Holding.FACTION @112) is drawn as its nation's sigil
 // — on its own site at the tile view (layers.mjs paintTiles' `rec`, as a legacy province's settled sites), and from

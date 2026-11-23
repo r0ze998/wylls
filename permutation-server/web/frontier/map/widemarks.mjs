@@ -12,8 +12,10 @@
 //   - the HOSTS standing on the land (province entries in state ROSTER): one figure per tile in its nation's colour
 //     (one figure per tile with the tile's total, as freeciv-web draws one unit and a stack mark, and Unciv keeps one
 //     military slot per tile: the figures never pile on each other);
-//   - a NAMEPLATE per province: 「アステルの土地」 / "Aster's land", 「あなたの国の土地」 / "Your nation's land", and while
-//     another nation is taking the keep, who and how far (「ダンマールが奪取中 11/72」).
+//   - a NAMEPLATE: 「アステルの土地」 / "Lands of Aster", 「あなたの国の土地」 / "Your nation's land" — (territory-video-3) one
+//     per nation in the view, on its largest region, and only where provinces are PLATE_MIN_PX across on screen (it was
+//     one per province: the same name two or four times over) — and while another nation is taking a keep, who and how
+//     far, at that keep (「ダンマールが奪取中 11/72」); a standing host of another nation names it (「アステル · 兵 300」).
 // Rendering only: nothing here decides, signs or sends. Under the fog (map/fog.mjs fogWideLand) a province remembered
 // but not in sight keeps its last-known keep holder and shows no hosts and no contest (they are not seen).
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
