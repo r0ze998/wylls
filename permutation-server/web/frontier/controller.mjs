@@ -4195,7 +4195,7 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
       const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: 'frontier-local-play-act-wide-read-v1', addresses });
       return (j?.accounts ?? []).map(a => (a ? fromBase64(a.data_b64) : null));
     };
-    const { followWideHold } = await import('./flocalplay-wide-plan.mjs');
+    const { followWideHold, markWideHoldExpedition } = await import('./flocalplay-wide-plan.mjs');
     const planner = createWideHostPlanner({ herald, read, chainNow: async () => Math.floor(now()), chainRate: () => FS.chain?.rate ?? 1 });
     let w;
     try { w = await planner.decide(localPlay, mem, { wideTargets: localPlay.wideLand.targets, villages: [village] }); } catch (x) { w = { why: String(x?.message ?? x).slice(0, 200) }; }
@@ -4203,6 +4203,9 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     //  wideHostSayText); `wideHostWhy` stays the planner's own words, for the logs and the card's title only)
     // (fix-loop7, LP7-5: the keep's hold by this page's own march, followed to its end — taken or lost)
     if (w.march) mem.wideHold = followWideHold(mem.wideHold ?? null, w.march);
+    // (fix-loop10, LP10-2: and whose hold it is — a kept expedition of the player's standing in that province took or
+    //  holds the keep, not this village's later host: the card says so instead of 「砦を奪いました」)
+    if (w.march && mem.wideHold) { try { mem.wideHold = markWideHoldExpedition(mem.wideHold, localExpedition.holdingExpeditions(FS)); } catch { /* the expedition records are not read: the hold as it is */ } }
     FS.ui = { ...FS.ui, wideHostWhy: w.decision?.why ?? w.why ?? null, wideHostSay: { ...wideHostSayOf(w), hold: mem.wideHold ?? null },
       wideHostAct: w.decision ? { name: w.decision.name, to: w.decision.to ?? null, arrive: w.decision.fields?.arrive_bell ?? null } : null };
     invalidate('panel');

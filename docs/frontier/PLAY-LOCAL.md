@@ -219,8 +219,13 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      verify-pr117 and loop-play6 the keeper opened it inside the window every time).
    - **An expedition that lands on a wide keep's tile holds it** (72 turns take it). The march card follows the hold
      (fix-loop9 LP9-2; it reads that one province about once a turn): 「遠征の軍勢が州 P,Q の砦を占拠中です：n / 72 ターン。…」,
-     then 「砦を奪いました：軍勢は砦の守備兵になりました」 and 「結果：遠征の軍勢が州 P,Q の砦を奪いました。…」 (said once as a
-     notice too), or 「結果：州 P,Q の砦は奪えませんでした。…」. The host sees from its tile, so the province is drawn on the map
+     then 「砦を奪いました：軍勢は砦の守備兵になりました（砦の守備兵 N・ターン T の記録）」 and 「結果：遠征の軍勢が州 P,Q の砦を奪いました。…」,
+     or 「結果：州 P,Q の砦は奪えませんでした。…」. The number in brackets is the garrison in the chain's keep record
+     (fix-loop10 LP10-5; before, the card showed the strength the host arrived with). A capture leaves half of the holding
+     host in the keep, or all of it when the rest would be under 100 (loop-play10: arrived with 1,289, garrison 644;
+     fix-loop10's check: arrived with 189, garrison 177). The result is also said once as the notice at the top of the
+     screen (checked for LP10-6: it is the page's single notice slot, shown until the next notice replaces it; there is no
+     list to read it again, so if you miss it, look at the march card). The host sees from its tile, so the province is drawn on the map
      (the wide land draws no keep icon or host figure yet: verify-pr162), and 国と領土 lists it under 「あなたの軍勢が着いている他国の砦」. (loop-play9: the keep was taken on chain and the page
      said nothing.)
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
@@ -239,6 +244,12 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
      「広い土地の村で槍兵 N を訓練します。」 (train) → 「広い土地の村で槍兵 N の軍勢を編成します。」 (muster) →
      「軍勢（兵 N）が州 P,Q の砦へ進軍します（（国）が保持）。到着はターン N です。」 (march). Once the host is out it
      says 「軍勢は進軍に出ています。」: nothing to do now.
+   - When the keep this village's host reaches was already being held by your own expedition (the march of step 3), the
+     card does not say 「奪いました」 (fix-loop10 LP10-2): 「結果：州 P,Q の砦はあなたの国のものになりました（ターン N に確認）。
+     あなたの遠征の軍勢が先に着いて占拠を進めていた砦です。この村の軍勢だけで奪ったのではありません。」 (the keep is now
+     your nation's; your expedition reached it first; this host did not take it alone). When the keep was already your
+     nation's on arrival: 「結果：州 P,Q の砦は、この村の軍勢が着いたときにはすでにあなたの国のものでした（ターン N に確認）。
+     この軍勢が奪ったのではありません。」. Either way the card goes on with 「この村の軍勢は、その砦のマスに着いています。…」.
    - A new village's province starts far behind the chain (loop-play4: 77 turns after the village was made;
      loop-play5: up to about 180 turns). **Do not keep pressing while the province is behind.** The card says
      「この村の州の決着が N ターン遅れています。…このページが約 1 ターンごとに自動で確かめ、送れるようになったら一手を

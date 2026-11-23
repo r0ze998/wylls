@@ -328,7 +328,7 @@ export const SAMPLES = Object.freeze({
   // the viewer's own count on another nation's banner: the same ring, in gold
   'proto-take': proto(STANDS, () => { const Wx = protoSpot('west'); return { key: 'take', since: 0, hosts: [{ seq: 7, at: Wx }], banners: [{ slot: 2, at: Wx, nation: 2, firm: false, contested: { nation: 0, host: 7, since: -24, at: 12 } }] }; }),
   // picking a tile for a muster: every passable tile of the home province lit in gold-teal, the tag says what a tap does
-  'pick-muster': { secs: STANDS, board: true, run: (c, fx) => { fx.map?.setSample?.(null); fx.map?.pickTile?.({ kind: 'muster', tiles: homeTiles(), origin: homeOf(), label: L`ここに集める` }); } },
+  'pick-muster': { secs: STANDS, board: true, run: (c, fx) => { fx.map?.setSample?.(null); fx.map?.pickTile?.({ kind: 'muster', tiles: homeTiles(), origin: homeOf(), label: () => L`ここに集める` }); } },
   // picking a Scout's tiles: the six round it in sky blue, up to two
   // ---- the keeps of a conquest season (map/keeps.mjs): each sample lays records in the herald's own shapes at a real keep
   // near the viewer's village (fx/keep-demo.mjs), read and drawn by the board as the chain's records are. Under the demo's tag.
