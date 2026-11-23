@@ -192,11 +192,14 @@ test('the controller: a local march with a signature is recorded as SENT (unconf
   const src = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   const from = src.indexOf('async function sendTheMarch()'), body = src.slice(from, src.indexOf('\n}\n', from));
   assert.match(body, /const localSent = \(localPlay \|\| !!dm\) && !r\.ok && typeof r\.signature === 'string' && r\.signature !== '';/);
-  assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) orderUnconfirmed\(marchOrder, r\.signature\);/);
+  // (loop-play12: an `expired` march — never landed, never will — is answered like a chain refusal, not held)
+  assert.match(body, /const localHeld = localSent && !LOCAL_MARCH_ANSWERED\.includes\(r\.code\);/);
+  assert.match(src, /export const LOCAL_MARCH_ANSWERED = Object\.freeze\(\['TransactionFailed', 'LocalMarchExpired'\]\);/);
+  assert.match(body, /if \(localHeld\) orderUnconfirmed\(marchOrder, r\.signature\);/);
   assert.match(body, /localSent \? \{ code: r\.code \?\? null, sent: true, signature: r\.signature \} : \{ code: r\.code \?\? null, sent: false \}/);
   // (2026-11-19, fix-march-held) the unconfirmed notice carries its code (the "unconfirmed" state, never a refusal titled
   // with another action's words) and starts the bounded re-check; a runner rejection goes back to the card as "not sent"
-  assert.match(body, /if \(localSent && r\.code !== 'TransactionFailed'\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); if \(localPlay\) recheckHeldMarch\(r\.signature\); \}/);
+  assert.match(body, /if \(localHeld\) \{ setNotice\(\{ busy: false, text: localMarchUnconfirmedText\(r\.signature\), code: 'LocalActUnconfirmed', unsent: 'march-send' \}\); if \(localPlay\) recheckHeldMarch\(r\.signature\); \}/);
   assert.match(body, /else if \(localPlay && r\.code === 'LocalMarchRejected'\) failed\(\{ \.\.\.r, unsent: 'march-send'/);
   // "sent: false" appears exactly once in the function, and only on the branch without a local signature
   assert.equal(body.split('sent: false').length - 1, 1);
@@ -211,12 +214,14 @@ test('the controller: a local march with a signature is recorded as SENT (unconf
 test('the order record by outcome (the controller\'s branch, replayed): signature + Unconfirmed → unconfirmed; signature + TransactionFailed → refused but sent; no signature → not sent', () => {
   const recordOf = (localPlay, r, dm = null) => {
     const localSent = (localPlay || !!dm) && !r.ok && typeof r.signature === 'string' && r.signature !== '';
-    if (localSent && r.code !== 'TransactionFailed') return { state: 'unconfirmed', sent: true, signature: r.signature };
+    if (localSent && !['TransactionFailed', 'LocalMarchExpired'].includes(r.code)) return { state: 'unconfirmed', sent: true, signature: r.signature };
     return { state: r.ok ? 'accepted' : 'refused', ...(r.ok ? {} : localSent ? { code: r.code, sent: true, signature: r.signature } : { code: r.code, sent: false }) };
   };
   assert.deepEqual(recordOf(true, { ok: false, step: 'onChain', code: 'Unconfirmed', signature: 'S' }), { state: 'unconfirmed', sent: true, signature: 'S' });
   assert.deepEqual(recordOf(true, { ok: false, step: 'onChain', code: 'TransactionFailed', signature: 'S' }), { state: 'refused', code: 'TransactionFailed', sent: true, signature: 'S' });
   assert.deepEqual(recordOf(true, { ok: false, step: 'sent', code: 'LocalMarchCitizen' }), { state: 'refused', code: 'LocalMarchCitizen', sent: false });
+  // (loop-play12: the relay read the signature `expired` — the book let it go; the record says sent, not recorded)
+  assert.deepEqual(recordOf(true, { ok: false, step: 'onChain', code: 'LocalMarchExpired', signature: 'S' }), { state: 'refused', code: 'LocalMarchExpired', sent: true, signature: 'S' });
   assert.deepEqual(recordOf(false, { ok: false, code: 'Unconfirmed', signature: 'S' }), { state: 'refused', code: 'Unconfirmed', sent: false }, 'the chain page is as it was');
   // (devnet-page-war: the devnet sender's march with a signature is SENT, as local play's)
   assert.deepEqual(recordOf(false, { ok: false, step: 'onChain', code: 'Unconfirmed', signature: 'S' }, {}), { state: 'unconfirmed', sent: true, signature: 'S' });
