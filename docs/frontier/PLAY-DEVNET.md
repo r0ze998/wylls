@@ -8,8 +8,8 @@ Japanese: [PLAY-DEVNET.ja.md](PLAY-DEVNET.ja.md). To play on your own Mac only, 
 |---|---|
 | Network | Solana devnet (not mainnet) |
 | Program id | `GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr` |
-| Season 1 can be joined from | **about 2026-11-24 20:05 JST** (expected between 20:00 and 20:10) |
-| Season length | about 7 days. One turn is 10 minutes; there is no fast clock |
+| Can be joined from | **about 2026-11-25 02:47 JST** (expected between 02:45 and 02:55; the world is created automatically) |
+| World length | **it does not end** (a continuous world); you can join at any time. One turn is 10 minutes; there is no fast clock |
 | Devnet SOL to hold | **about 0.05 SOL**, or **0.1 SOL** if you go to the wide land |
 
 ## 1. The page's address
@@ -85,7 +85,9 @@ Good to know:
   food 800, wood 800, stone 400, gold 200).
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
-- Before the season starts the page says “The season's record cannot be read.” Open it again after the start time.
+- Before the world is created the page says “The season's record cannot be read.” Open it again after the join time.
+- The 7-day “season 1” announced on 2026-11-23 is not created. Seasons were abolished (decision of 2026-11-23), so the
+  devnet world is one endless “season 2”. Where the page says “season”, it means this world.
 
 ## 6. When something goes wrong
 
@@ -97,4 +99,4 @@ Good to know:
 | The wallet or the page refuses for lack of balance | Add devnet SOL (§3) |
 | “Waiting for the record…” goes on | Wait. “Check again” appears after 180 seconds (§5 step 2) |
 
-This is a test. The season may stop or be started over part-way. Devnet records and devnet SOL have no value.
+This is a test. The world may stop or be started over part-way. Devnet records and devnet SOL have no value.
