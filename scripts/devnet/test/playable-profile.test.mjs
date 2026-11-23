@@ -152,12 +152,23 @@ test('deploy cost of a playable-sized .so follows the formula (numbers in the re
 // D-1 (verifier-wide-instrs) / devnet-preset-wide: the playable season must be able to reach the wide land
 // (ring 129, which needs the legacy ring 128 seeded). The profile's season block follows the preset frontier-abi
 // generates (vectors/v2/presets.json), and its province fund covers the rim's and ring 129's balance checks.
-test('drift guard: the playable season is S1_DEVNET_WIDE_7D as generated, and its funds reach ring 129', () => {
+test('drift guard: the playable season is S1_DEVNET_WIDE_CONTINUOUS as generated, and its funds reach ring 129', () => {
   const season = playable().season;
-  assert.equal(season.preset, 'S1_DEVNET_WIDE_7D');
+  assert.equal(season.preset, 'S1_DEVNET_WIDE_CONTINUOUS');
+  assert.equal(playable().operator.seasonId, 2, 'season 1 was announced with the 7-day preset');
   const v = JSON.parse(read('frontier-abi/vectors/v2/presets.json'));
   const p = v.presets_s1.find(x => x.name === season.preset);
   assert.ok(p && p.valid, 'the preset is generated and valid');
+  // devnet-continuous-1: the 7-day preset with no end, nothing else changed
+  const finite = v.presets_s1.find(x => x.name === 'S1_DEVNET_WIDE_7D').fields;
+  assert.equal(p.fields.conquest.continuous, 1);
+  assert.equal(p.fields.base.end_bell, 4294967295);
+  assert.equal(p.fields.base.join_close_bell, 4294967295);
+  assert.deepEqual(
+    { ...p.fields.base, end_bell: finite.base.end_bell, join_close_bell: finite.base.join_close_bell },
+    finite.base,
+  );
+  assert.deepEqual({ ...p.fields.conquest, continuous: finite.conquest.continuous }, finite.conquest);
   const { base, conquest } = p.fields;
   assert.equal(season.rMax, base.r_max);
   assert.equal(season.rMaxCeiling, conquest.r_max_ceiling);

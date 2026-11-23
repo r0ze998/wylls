@@ -841,6 +841,17 @@ pub const PFUND_DEVNET_WIDE: u64 = 36_000_000_000;
 /// keeper's `rim_per_wedge`).
 pub const S1_DEVNET_WIDE_7D: SeasonParamsV2 = devnet_wide(S1_LOCAL_7D);
 
+/// The DEVNET playable world as a CONTINUOUS world (owner 2026-11-23 22:42
+/// JST: seasons abolished, "the world continues"; t481u Q11 2026-11-24:
+/// the devnet world changes to it): [`S1_DEVNET_WIDE_7D`] through
+/// [`continuous`], i.e. conquest byte 80 `continuous = 1` and the end and
+/// join-close bells the no-end sentinel, every other byte unchanged. Joins
+/// stay open, `EndSeason` is refused (`CqError::ContinuousWorld`), no
+/// CloseSeason ever runs. The deployed devnet program (base 6912906d)
+/// already validates and stores this shape (commit 2c29496f); no program
+/// change.
+pub const S1_DEVNET_WIDE_CONTINUOUS: SeasonParamsV2 = continuous(S1_DEVNET_WIDE_7D);
+
 /// `outpost_tier_min` of [`S1_DEVNET_WIDE_7D`]: Hamlet (`holding::Tier::Hamlet
 /// as u8`), so a fresh rim first village anchors a wide claim (owner Q-W1, the
 /// local wide world's rule). Every other preset keeps Town (1).
@@ -858,12 +869,13 @@ pub const fn devnet_wide(p: SeasonParamsV2) -> SeasonParamsV2 {
 }
 
 /// Every S1 preset with its name (vectors).
-pub const PRESETS_S1: [(&str, SeasonParamsV2); 5] = [
+pub const PRESETS_S1: [(&str, SeasonParamsV2); 6] = [
     ("S1_LOCAL_7D", S1_LOCAL_7D),
     ("S1_LOCAL_14D", S1_LOCAL_14D),
     ("S1_TEST", S1_TEST),
     ("S1_LOCAL_CONTINUOUS", S1_LOCAL_CONTINUOUS),
     ("S1_DEVNET_WIDE_7D", S1_DEVNET_WIDE_7D),
+    ("S1_DEVNET_WIDE_CONTINUOUS", S1_DEVNET_WIDE_CONTINUOUS),
 ];
 
 #[cfg(test)]
@@ -916,6 +928,10 @@ mod tests {
             }
             if name == "S1_DEVNET_WIDE_7D" {
                 assert_eq!(devnet_wide(S1_LOCAL_7D), p);
+                continue;
+            }
+            if name == "S1_DEVNET_WIDE_CONTINUOUS" {
+                assert_eq!(continuous(devnet_wide(S1_LOCAL_7D)), p);
                 continue;
             }
             let mc = PRESETS
@@ -1110,6 +1126,34 @@ mod tests {
         back.base.end_bell = f.base.end_bell;
         back.base.join_close_bell = f.base.join_close_bell;
         assert_eq!(back, f, "nothing else changed");
+        let raw = c.to_bytes();
+        assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(c));
+        assert_eq!(raw[SEASON_PARAMS_LEN + cq_layout::CONTINUOUS], 1);
+        let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+        assert_ne!(
+            params_hash_v2(&raw, &payout),
+            params_hash_v2(&f.to_bytes(), &payout)
+        );
+    }
+
+    /// devnet-continuous-1: the devnet continuous world is the devnet wide
+    /// preset with exactly the three continuous fields changed (same map
+    /// growth, θ, funds and Hamlet outposts), it round-trips, and it commits
+    /// to another params hash than the announced 7-day season 1.
+    #[test]
+    fn s1_devnet_wide_continuous_is_the_wide_preset_with_no_end() {
+        let (f, c) = (S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS);
+        assert_eq!(c.cq.continuous, 1);
+        assert_eq!(c.base.end_bell, crate::presets::NO_END_BELL);
+        assert_eq!(c.base.join_close_bell, crate::presets::NO_END_BELL);
+        assert_eq!(c.validate(), Ok(()));
+        let mut back = c;
+        back.cq.continuous = 0;
+        back.base.end_bell = f.base.end_bell;
+        back.base.join_close_bell = f.base.join_close_bell;
+        assert_eq!(back, f, "nothing else changed");
+        assert_eq!(c.cq.r_max_ceiling, f.cq.r_max_ceiling);
+        assert_eq!(c.base.pfund_initial, PFUND_DEVNET_WIDE);
         let raw = c.to_bytes();
         assert_eq!(SeasonParamsV2::from_bytes(&raw), Some(c));
         assert_eq!(raw[SEASON_PARAMS_LEN + cq_layout::CONTINUOUS], 1);

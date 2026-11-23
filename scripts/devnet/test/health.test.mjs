@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEVNET_RPC, alertedReport, decodeSeason, expectedProcs, jst, lagLevel, logLevel, lowerBound, makeRpc, mergeState,
-  milestonesFrom, overallOf, parsePs, phaseCheck, procCheck, scanLog, timelineText, tunnelHost,
+  DEVNET_RPC, alertedReport, decodeSeason, etimeSeconds, expectedProcs, jst, lagLevel, logLevel, lowerBound, makeRpc, mergeState,
+  milestonesFrom, overallOf, parsePs, phaseCheck, procCheck, procOverrides, scanLog, timelineText, tunnelHost,
 } from '../health.mjs';
 
 const T = 1795516707; // CreateSeason opens, 2026-11-24 19:38:27 JST
@@ -95,7 +95,7 @@ test('milestonesFrom takes the first matching line and its timestamp', () => {
 });
 
 test('process expectations follow the milestones', () => {
-  const ps = parsePs(' 92587 22:45 /bin/zsh ./season-driver.sh 1795516707\n 94463 22:20 /x/frontier-herald --data d --listen 127.0.0.1:41140 --web w\n 1 1-00:00:00 /sbin/launchd\n');
+  const ps = parsePs(' 92587 22:45:00 /bin/zsh ./season-driver.sh 1795516707\n 94463 22:20:00 /x/frontier-herald --data d --listen 127.0.0.1:41140 --web w\n 1 1-00:00:00 /sbin/launchd\n');
   const before = Object.fromEntries(expectedProcs({}, false).map((s) => [s.key, procCheck(s, ps)]));
   assert.equal(before['proc.season-driver'].level, 'OK');
   assert.equal(before['proc.herald'].level, 'OK');
@@ -104,9 +104,151 @@ test('process expectations follow the milestones', () => {
   const after = Object.fromEntries(expectedProcs({ keeperStarted: {}, setupComplete: {}, gatewayStarted: {} }, true).map((s) => [s.key, procCheck(s, ps)]));
   assert.equal(after['proc.keeper'].level, 'FAIL');
   assert.equal(after['proc.gateway'].level, 'FAIL');
-  const moved = procCheck({ re: /frontier-herald/, want: true, pid: 1 }, ps);
+  // no PID is written in the expectations: a process is found by its command only
+  for (const s of expectedProcs({ keeperStarted: {}, gatewayStarted: {} }, false)) assert.equal(s.pid, undefined, s.key);
+});
+
+test('etimeSeconds reads every ps etime form', () => {
+  assert.equal(etimeSeconds('00:07'), 7);
+  assert.equal(etimeSeconds('22:45'), 22 * 60 + 45);
+  assert.equal(etimeSeconds('01:02:03'), 3723);
+  assert.equal(etimeSeconds('2-03:04:05'), 2 * 86400 + 3 * 3600 + 4 * 60 + 5);
+  assert.equal(etimeSeconds('ELAPSED'), null);
+  assert.equal(etimeSeconds(undefined), null);
+});
+
+test('process patterns match the program being run, not a line that only mentions it', () => {
+  const ms = { keeperStarted: {}, gatewayStarted: {} };
+  const spec = Object.fromEntries(expectedProcs(ms, false).map((s) => [s.key, s]));
+  // the real stack's command lines (ps on the devnet machine, 11-24) and the forms the scripts launch with
+  const real = {
+    'proc.season-driver': ['/bin/zsh ./season-driver.sh 1795516707', 'bash /Users/u/wylls-devnet-run/season-driver.sh 1'],
+    'proc.gateway-starter': ['/bin/zsh ./gateway-starter.sh'],
+    'proc.gateway-supervisor': ['/bin/zsh /Users/u/wylls-devnet-run/run-gateway.sh'],
+    'proc.gateway': ['/opt/homebrew/opt/node@20/bin/node permutation-gateway/src/frontier/server.mjs --cluster devnet --port 41130 --public-port 41133'],
+    'proc.herald-supervisor': ['/bin/zsh ./run-herald.sh', '/bin/zsh -x /r/run-herald.sh'],
+    'proc.herald': ['/Users/u/wylls-devnet-run/bin/frontier-herald --data /r/herald --program G --season 1 --rpc https://api.devnet.solana.com --listen 127.0.0.1:41140 --web w'],
+    'proc.keeper-supervisor': ['/bin/zsh /Users/u/wylls-devnet-run/run-keeper.sh'],
+    'proc.keeper': ['/Users/u/wylls-devnet-run/bin/frontier-keeper --config keeper-a/keeper.toml'],
+    'proc.join-check': ['/bin/zsh ./join-check.sh'],
+    'proc.tunnel': ['/opt/homebrew/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:41140'],
+    'proc.caffeinate': ['caffeinate -is', '/usr/bin/caffeinate -is -w 1'],
+  };
+  for (const [k, cmds] of Object.entries(real)) for (const c of cmds) assert.ok(spec[k].re.test(c), `${k} ${c}`);
+  // lookalikes: with the real process gone, each must still be a FAIL (not a "restarted" WARN)
+  const fake = {
+    'proc.season-driver': ['tail -f season-driver.sh', 'vim ./season-driver.sh', '/bin/zsh ./season-driver-2.sh 1'],
+    'proc.herald-supervisor': ['pgrep -f run-herald.sh', 'ugrep -E run-herald.sh /tmp', 'less /r/run-herald.sh', '/bin/zsh ./run-herald-old.sh'],
+    'proc.keeper': ['pgrep -f frontier-keeper --config keeper-a/keeper.toml', 'pkill -f frontier-keeper --config keeper-a/keeper.toml'],
+    'proc.herald': [
+      '/w/target/debug/frontier-herald --data d --listen 127.0.0.1:41520 --web w', // a local test herald on another port
+      '/w/target/debug/frontier-herald --data d --listen 127.0.0.1:411400',
+      'grep frontier-herald --listen 127.0.0.1:41140',
+    ],
+    'proc.tunnel': ['/opt/homebrew/bin/cloudflared tunnel --url http://127.0.0.1:41141', 'cat /r/logs/cloudflared tunnel 127.0.0.1:41140'],
+    'proc.gateway': ['node permutation-gateway/src/frontier/server.mjs --port 411300', 'grep permutation-gateway/src/frontier/server.mjs --port 41130'],
+    'proc.caffeinate': ['caffeinate -i -t 300', 'pgrep caffeinate -is'],
+  };
+  for (const [k, cmds] of Object.entries(fake)) for (const c of cmds) {
+    const r = procCheck(spec[k], [{ pid: 501, etime: '00:10', cmd: c }], { tracked: true, prev: { pid: 9 } });
+    assert.equal(r.level, 'FAIL', `${k} ${c}: ${r.detail}`);
+  }
+});
+
+test('procCheck without --state: a restart is a WARN only while the process is young', () => {
+  const spec = { re: /frontier-herald/, want: true };
+  const young = procCheck(spec, parsePs(' 500 12:00 /x/frontier-herald --listen a\n'));
+  assert.equal(young.level, 'WARN');
+  assert.match(young.detail, /^pid 500 up 12:00 — started 12 min ago \(restarted or first start; WARN until 30 min old\)$/);
+  const old = procCheck(spec, parsePs(' 500 30:00 /x/frontier-herald --listen a\n'));
+  assert.deepEqual([old.level, old.detail], ['OK', 'pid 500 up 30:00']);
+  // the window is a setting; 0 turns the age rule off
+  assert.equal(procCheck(spec, parsePs(' 500 12:00 /x/frontier-herald\n'), { warnMin: 10 }).level, 'OK');
+  assert.equal(procCheck(spec, parsePs(' 500 00:01 /x/frontier-herald\n'), { warnMin: 0 }).level, 'OK');
+  assert.equal(procCheck(spec, parsePs(' 500 01:00:00 /x/frontier-herald\n'), { warnMin: 90 }).level, 'WARN');
+  // an unreadable etime is not guessed to be young
+  assert.equal(procCheck(spec, [{ pid: 5, etime: '?', cmd: 'frontier-herald' }]).level, 'OK');
+  // a process that is no longer wanted is never "restarted"
+  assert.equal(procCheck({ re: /join-check/, want: false, gone: 'finished' }, parsePs(' 9 00:05 ./join-check.sh\n')).level, 'OK');
+  // this monitor and grep are not the process
+  assert.equal(procCheck(spec, parsePs(' 7 00:05 grep frontier-herald\n 8 00:05 node health.mjs frontier-herald\n')).level, 'FAIL');
+});
+
+test('procCheck with --state: WARN on the run that finds a new PID, then until N minutes old, then OK', () => {
+  const spec = { re: /frontier-herald/, want: true };
+  const run = (line, prev, extra = {}) => procCheck(spec, parsePs(line), { tracked: true, prev, ...extra });
+  // first sighting by this state file: OK even when young (a first start is not a restart)
+  const first = run(' 94463 00:30 /x/frontier-herald\n', undefined);
+  assert.deepEqual([first.level, first.detail], ['OK', 'pid 94463 up 00:30']);
+  assert.deepEqual(first.rec, { pid: 94463, restarted: false });
+  // same PID, any age: OK
+  const same = run(' 94463 1-02:00:00 /x/frontier-herald\n', first.rec);
+  assert.equal(same.level, 'OK');
+  assert.deepEqual(same.rec, first.rec);
+  // planned restart: the PID of the previous run is gone
+  const moved = run(' 7001 02:10 /x/frontier-herald\n', same.rec);
   assert.equal(moved.level, 'WARN');
-  assert.match(moved.detail, /restarted/);
+  assert.equal(moved.detail, 'pid 7001 up 02:10 — was 94463 at the previous run (restarted)');
+  assert.deepEqual(moved.rec, { pid: 7001, restarted: true, was: 94463 });
+  // next run, still inside the window: WARN
+  const soon = run(' 7001 12:10 /x/frontier-herald\n', moved.rec);
+  assert.equal(soon.level, 'WARN');
+  assert.equal(soon.detail, 'pid 7001 up 12:10 — restarted 12 min ago, was 94463 (WARN until 30 min old)');
+  // past the window: OK with the current PID and uptime — the WARN is not sticky
+  const later = run(' 7001 32:10 /x/frontier-herald\n', soon.rec);
+  assert.deepEqual([later.level, later.detail], ['OK', 'pid 7001 up 32:10']);
+  const days = run(' 7001 3-00:00:00 /x/frontier-herald\n', later.rec);
+  assert.deepEqual([days.level, days.detail], ['OK', 'pid 7001 up 3-00:00:00']);
+  // a restart found after a long gap between runs is still reported once, whatever its age
+  const gap = run(' 7002 05:00:00 /x/frontier-herald\n', days.rec);
+  assert.equal(gap.level, 'WARN');
+  assert.match(gap.detail, /was 7001 at the previous run/);
+  assert.equal(run(' 7002 05:10:00 /x/frontier-herald\n', gap.rec).level, 'OK');
+  // gone: FAIL, and the record is kept so the comeback is seen as a restart
+  const gone = run(' 1 10:00 /sbin/launchd\n', days.rec);
+  assert.equal(gone.level, 'FAIL');
+  assert.deepEqual(gone.rec, days.rec);
+  assert.equal(run(' 7100 00:20 /x/frontier-herald\n', gone.rec).level, 'WARN');
+  // several matches (a supervisor's subshell): the remembered PID is the one reported
+  const two = run(' 8000 00:05 /x/frontier-herald\n 7001 3-00:00:00 /x/frontier-herald\n', days.rec);
+  assert.deepEqual([two.level, two.detail], ['OK', 'pid 7001 up 3-00:00:00 (+1 more: 8000)']);
+});
+
+test('procOverrides + procCheck: an expected PID from health-procs.json or a pidfile', () => {
+  const files = {
+    '/run/health-procs.json': JSON.stringify({ restartWarnMin: 5, procs: { 'proc.herald': { pid: 7001 }, 'proc.keeper': { pidfile: 'keeper-a/keeper.pid' }, 'proc.tunnel': { pidfile: 'absent.pid' }, 'proc.gateway': { pidfile: 'junk.pid' }, 'proc.caffeinate': {} } }),
+    '/run/keeper-a/keeper.pid': '8123\n',
+    '/run/junk.pid': 'not a pid',
+  };
+  const read = (p) => files[p] ?? null;
+  const ov = procOverrides('/run', read);
+  assert.equal(ov.restartWarnMin, 5);
+  assert.deepEqual(ov.expect, { 'proc.herald': { pid: 7001, src: 'health-procs.json' }, 'proc.keeper': { pid: 8123, src: 'pidfile keeper-a/keeper.pid' } });
+  assert.deepEqual(ov.problems, [
+    'proc.tunnel: pidfile absent.pid not readable; ignored',
+    'proc.gateway: pidfile junk.pid holds no PID; ignored',
+    'proc.caffeinate: needs "pid" (a number) or "pidfile" (a path); ignored',
+  ]);
+  // no file: nothing expected, nothing wrong
+  assert.deepEqual(procOverrides('/elsewhere', read), { expect: {}, problems: [] });
+  // broken files are reported, never thrown
+  assert.match(procOverrides('/r', () => '{').problems[0], /^health-procs\.json is not JSON/);
+  assert.match(procOverrides('/r', () => '[1]').problems[0], /not an object/);
+  assert.match(procOverrides('/r', () => '{"restartWarnMin":"x"}').problems[0], /restartWarnMin "x"/);
+  assert.match(procOverrides('/r', () => '{"procs":{"proc.herald":{"pid":-4}}}').problems[0], /proc\.herald: needs/);
+
+  const spec = { re: /frontier-herald/, want: true };
+  const expect = ov.expect['proc.herald'];
+  // the expected PID is OK at any age (the operator wrote it down after a planned restart) …
+  const ok = procCheck(spec, parsePs(' 7001 00:10 /x/frontier-herald\n'), { expect });
+  assert.deepEqual([ok.level, ok.detail], ['OK', 'pid 7001 up 00:10 (expected pid, health-procs.json)']);
+  // … and any other PID is a WARN at any age, with or without --state
+  const other = procCheck(spec, parsePs(' 7002 9-00:00:00 /x/frontier-herald\n'), { expect, tracked: true, prev: { pid: 7002, restarted: false } });
+  assert.deepEqual([other.level, other.detail], ['WARN', 'pid 7002 up 9-00:00:00 — expected pid 7001 (health-procs.json) (restarted)']);
+  // of several matches the expected one is reported
+  assert.equal(procCheck(spec, parsePs(' 7002 00:10 /x/frontier-herald\n 7001 00:10 /x/frontier-herald\n'), { expect }).detail, 'pid 7001 up 00:10 (expected pid, health-procs.json) (+1 more: 7002)');
+  // not running stays a FAIL
+  assert.equal(procCheck(spec, [], { expect }).level, 'FAIL');
 });
 
 test('tunnelHost takes the last trycloudflare name', () => {
@@ -174,18 +316,19 @@ function stub(routes) {
   return new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok({ srv, port: srv.address().port })));
 }
 
+// every process five hours old: outside the restart window
 const PS_ALL = [
-  ' 92587 1:00 /bin/zsh ./season-driver.sh 1795516707',
-  ' 95878 1:00 /bin/zsh ./gateway-starter.sh',
-  ' 500 1:00 /bin/zsh /r/run-gateway.sh',
-  ' 501 1:00 node permutation-gateway/src/frontier/server.mjs --cluster devnet --port 41130 --public-port 41133',
-  ' 94338 1:00 /bin/zsh ./run-herald.sh',
-  ' 94463 1:00 /r/bin/frontier-herald --data d --listen 127.0.0.1:41140 --web w',
-  ' 502 1:00 /bin/zsh /r/run-keeper.sh',
-  ' 503 1:00 /r/bin/frontier-keeper --config keeper-a/keeper.toml',
-  ' 14077 1:00 /bin/zsh ./join-check.sh',
-  ' 93889 1:00 /opt/homebrew/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:41140',
-  ' 92887 1:00 caffeinate -is',
+  ' 92587 05:00:00 /bin/zsh ./season-driver.sh 1795516707',
+  ' 95878 05:00:00 /bin/zsh ./gateway-starter.sh',
+  ' 500 05:00:00 /bin/zsh /r/run-gateway.sh',
+  ' 501 05:00:00 node permutation-gateway/src/frontier/server.mjs --cluster devnet --port 41130 --public-port 41133',
+  ' 94338 05:00:00 /bin/zsh ./run-herald.sh',
+  ' 94463 05:00:00 /r/bin/frontier-herald --data d --listen 127.0.0.1:41140 --web w',
+  ' 502 05:00:00 /bin/zsh /r/run-keeper.sh',
+  ' 503 05:00:00 /r/bin/frontier-keeper --config keeper-a/keeper.toml',
+  ' 14077 05:00:00 /bin/zsh ./join-check.sh',
+  ' 93889 05:00:00 /opt/homebrew/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:41140',
+  ' 92887 05:00:00 caffeinate -is',
 ].join('\n');
 const DF = (gib) => `Filesystem 1024-blocks Used Available Capacity\n/dev/disk3s5 999 1 ${Math.round(gib * 1024 * 1024)} 1% /System/Volumes/Data\n`;
 const DRIVER_DONE = [
@@ -213,7 +356,7 @@ function fakeRpc({ genesis = DEVNET_GENESIS, slot = 1000, stored = 2, owner = DE
   return { fn, calls };
 }
 
-async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keeperLog = '', tunnelLog, join = '{"ok":true}', ps = PS_ALL, df = 100, rpc = fakeRpc(), now = T + 3600, publicHost, publicOn = true } = {}) {
+async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keeperLog = '', tunnelLog, join = '{"ok":true}', ps = PS_ALL, df = 100, rpc = fakeRpc(), now = T + 3600, publicHost, publicOn = true, overrides, extra = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-test-'));
   const logs = path.join(dir, 'logs');
   const run = path.join(dir, 'run');
@@ -230,6 +373,7 @@ async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keepe
   const pp = await up(pub ?? { '/frontier/frontier/': { status: 200, body: '<!doctype html><html></html>' }, '/h/season': { status: 200, body: { statusName: 'Running' } } });
   const host = publicHost ?? `127.0.0.1:${pp}`;
   fs.writeFileSync(path.join(run, 'public-host'), host + '\n');
+  if (overrides != null) fs.writeFileSync(path.join(run, 'health-procs.json'), typeof overrides === 'string' ? overrides : JSON.stringify(overrides));
   fs.writeFileSync(path.join(logs, 'devnet-season-driver.log'), driver + '\n');
   fs.writeFileSync(path.join(logs, 'devnet-keeper-a.log'), keeperLog || '2026-11-24 19:41:10 JST supervisor start pid 502\n');
   fs.writeFileSync(path.join(logs, 'devnet-tunnel.log'), tunnelLog ?? '| https://quick-name.trycloudflare.com |\n');
@@ -238,7 +382,7 @@ async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keepe
   try {
     const r = await runChecks({
       rpc: true, public: publicOn, logs, runDir: run, logLines: 500, rpcGapMs: 0, rpcFetch: rpc.fn, now,
-      ports: { herald: ph, gateway: 1, gatewayPublic: pg, keeper: pk }, joinResult, psText: ps, dfText: DF(df), publicScheme: 'http',
+      ports: { herald: ph, gateway: 1, gatewayPublic: pg, keeper: pk }, joinResult, psText: ps, dfText: DF(df), publicScheme: 'http', ...extra,
     });
     return { ...r, by: Object.fromEntries(r.out.map((c) => [c.key, c])), rpcCalls: rpc.calls };
   } finally {
@@ -364,4 +508,89 @@ test('runChecks: before CreateSeason nothing post-create is expected; a finished
   const stopped = await world({ driver: DRIVER_DONE.split('\n').slice(0, 1).concat(['2026-11-24 19:50:00 JST STOP: operator failed 6 times before CreateSeason landed; needs a person']).join('\n'), tunnelLog: 'x',
     ps: PS_ALL.split('\n').filter((l) => !/season-driver/.test(l)).join('\n') });
   assert.equal(stopped.by['log.season-driver'].level, 'FAIL');
+});
+
+const swapPs = (re, line) => PS_ALL.split('\n').map((l) => (re.test(l) ? line : l)).join('\n');
+const HERALD_NEW = ' 7001 02:00 /r/bin/frontier-herald --data d --listen 127.0.0.1:41140 --web w';
+const procLevels = (r) => Object.fromEntries(r.out.filter((c) => c.key.startsWith('proc.')).map((c) => [c.key, c.level]));
+
+test('runChecks: a planned herald restart is a WARN for the window, then OK again (--state)', async () => {
+  // run 1: a state file from before this change (no procs in it) — every process is a first sighting
+  const r1 = await world({ tunnelLog: 'x', extra: { prevState: { firstSeen: {}, fromLogs: {} } } });
+  assert.deepEqual(r1.out.filter((c) => c.level !== 'OK'), []);
+  assert.equal(r1.procs['proc.herald'].pid, 94463);
+  const s1 = mergeState({ firstSeen: { x: 'kept' } }, r1);
+  assert.equal(s1.firstSeen.x, 'kept');
+  assert.equal(Object.keys(s1.procs).length, 11);
+  // run 2: the herald was swapped two minutes ago
+  const r2 = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW), extra: { prevState: s1 } });
+  assert.equal(r2.by['proc.herald'].level, 'WARN');
+  assert.equal(r2.by['proc.herald'].detail, 'pid 7001 up 02:00 — was 94463 at the previous run (restarted)');
+  assert.deepEqual(Object.entries(procLevels(r2)).filter(([, l]) => l !== 'OK'), [['proc.herald', 'WARN']]);
+  assert.equal(overallOf(r2.out).level, 'WARN');
+  const s2 = mergeState(s1, r2);
+  // run 3: 12 minutes old, same PID → still inside the 30-minute window
+  const r3 = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW.replace('02:00', '12:00')), extra: { prevState: s2 } });
+  assert.equal(r3.by['proc.herald'].level, 'WARN');
+  assert.match(r3.by['proc.herald'].detail, /restarted 12 min ago, was 94463/);
+  const s3 = mergeState(s2, r3);
+  // run 4: 42 minutes old → OK with the current PID and uptime, overall OK
+  const r4 = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW.replace('02:00', '42:00')), extra: { prevState: s3 } });
+  assert.equal(r4.by['proc.herald'].detail, 'pid 7001 up 42:00');
+  assert.deepEqual(r4.out.filter((c) => c.level !== 'OK'), []);
+  // --restart-warn-min shortens the window
+  const r3b = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW.replace('02:00', '12:00')), extra: { prevState: s2, restartWarnMin: 10 } });
+  assert.equal(r3b.by['proc.herald'].level, 'OK');
+  // a process that was not wanted before and starts now (state has no record of it) is not a restart
+  const noKeeper = { ...s1, procs: Object.fromEntries(Object.entries(s1.procs).filter(([k]) => !/keeper/.test(k))) };
+  const r5 = await world({ tunnelLog: 'x', ps: swapPs(/frontier-keeper/, ' 503 00:20 /r/bin/frontier-keeper --config keeper-a/keeper.toml'), extra: { prevState: noKeeper } });
+  assert.equal(r5.by['proc.keeper'].level, 'OK');
+});
+
+test('runChecks: --state reads the previous run from the file; without --state a young process is the WARN', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-state-'));
+  try {
+    const state = path.join(dir, 'state.json');
+    // absent state file = first run: all first sightings
+    const r1 = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW), extra: { state } });
+    assert.equal(r1.by['proc.herald'].level, 'OK');
+    assert.equal(fs.existsSync(state), false, 'runChecks writes nothing');
+    fs.writeFileSync(state, JSON.stringify(mergeState({}, r1)));
+    const before = fs.readFileSync(state, 'utf8');
+    const r2 = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW.replace('7001', '7002').replace('02:00', '00:30')), extra: { state } });
+    assert.match(r2.by['proc.herald'].detail, /pid 7002 up 00:30 — was 7001 at the previous run \(restarted\)/);
+    assert.equal(fs.readFileSync(state, 'utf8'), before);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const bare = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW) });
+  assert.equal(bare.by['proc.herald'].level, 'WARN');
+  assert.match(bare.by['proc.herald'].detail, /started 2 min ago \(restarted or first start; WARN until 30 min old\)/);
+  const bareOld = await world({ tunnelLog: 'x', ps: swapPs(/frontier-herald/, HERALD_NEW.replace('02:00', '31:00')) });
+  assert.equal(bareOld.by['proc.herald'].level, 'OK');
+});
+
+test('runChecks: <run-dir>/health-procs.json — expected PID, pidfile, window, and a broken file', async () => {
+  const young = swapPs(/frontier-herald/, HERALD_NEW);
+  // the operator wrote the new PID down: OK straight after the restart
+  const ok = await world({ tunnelLog: 'x', ps: young, overrides: { procs: { 'proc.herald': { pid: 7001 } } } });
+  assert.equal(ok.by['proc.herald'].detail, 'pid 7001 up 02:00 (expected pid, health-procs.json)');
+  assert.deepEqual(ok.out.filter((c) => c.level !== 'OK'), []);
+  assert.equal(ok.by['proc.overrides'], undefined, 'no extra line when the file is fine');
+  // a stale expected PID is a WARN however old the process is
+  const stale = await world({ tunnelLog: 'x', overrides: { procs: { 'proc.herald': { pid: 1 } } } });
+  assert.equal(stale.by['proc.herald'].detail, 'pid 94463 up 05:00:00 — expected pid 1 (health-procs.json) (restarted)');
+  // the window from the file; the command line wins over it
+  const win = await world({ tunnelLog: 'x', ps: young, overrides: { restartWarnMin: 1 } });
+  assert.equal(win.by['proc.herald'].level, 'OK');
+  const cli = await world({ tunnelLog: 'x', ps: young, overrides: { restartWarnMin: 1 }, extra: { restartWarnMin: 30 } });
+  assert.equal(cli.by['proc.herald'].level, 'WARN');
+  // broken JSON: one WARN line, the process checks go on by the default rule
+  const bad = await world({ tunnelLog: 'x', overrides: '{ "procs": ' });
+  assert.equal(bad.by['proc.overrides'].level, 'WARN');
+  assert.match(bad.by['proc.overrides'].detail, /^health-procs\.json is not JSON/);
+  assert.equal(bad.by['proc.herald'].level, 'OK');
+  assert.deepEqual(bad.out.filter((c) => c.level !== 'OK').map((c) => c.key), ['proc.overrides']);
+  // a pidfile entry whose file is missing is reported the same way
+  const nofile = await world({ tunnelLog: 'x', overrides: { procs: { 'proc.keeper': { pidfile: 'keeper-a/keeper.pid' } } } });
+  assert.match(nofile.by['proc.overrides'].detail, /proc\.keeper: pidfile keeper-a\/keeper\.pid not readable; ignored/);
+  assert.equal(nofile.by['proc.keeper'].level, 'OK');
 });
