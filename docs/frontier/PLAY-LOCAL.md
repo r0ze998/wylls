@@ -171,7 +171,8 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    - If a card 「留守のあいだ：この端末では、このシーズンとウォレットで確認した記録がありません…」 comes first, close it with
      「確認した」 (the world starts around turn 140; it is not a defect).
 2. **A wide village (about 30 minutes at ×60)**: the village screen's 「広い土地に村を出す（テスト）」 shows the cost
-   (1,200 wood and more) and the candidate provinces. Once the stores hold it, press 「ここに村を出す」. The claim is
+   (the program's price: 800 food and wood, 400 stone, 200 gold for the second village; until loop-play11 the card said
+   1,200 and kept the button shut even when the stores held enough) and the candidate provinces. Once the stores hold it, press 「ここに村を出す」. The claim is
    decided at the end of the turn and the village is drawn on the map with your nation's sigil. The easiest way to
    open it is the 「W2」 button under the village plate at the bottom left (it opens 「遠方の村 第129輪（枠 2）」);
    inspecting that province on the map → 「あなたの村（広い土地）」 → 「この村を開く」 works too.
@@ -467,7 +468,7 @@ Small ones (nothing blocks play):
   `--wide --random-map --ai 4` came after 72 held turns; provinces ran 5.99 turns a minute).
 - **An expedition's result**: once its seal is open, the map tag changes to 「到着 · 封は開きました · 結果の確定を
   待っています」. The result (「留まる：…」 and so on) shows once the target province has caught up.
-- A wide claim offers free sites only. The third village's cost (2,400) does not fit a Hamlet's stores (cap 2,000).
+- A wide claim offers free sites only. The third village costs 1,200 food and wood and more (the card said 2,400 until loop-play11).
 - The expedition card draws roads without looking at terrain (「地形・時間を確認」 then says 「山や水のマスには進めません (N)」).
 - The 「記録」 view is not shown in a fog world (it is with `LOCAL_FOG` set to `false`).
 
