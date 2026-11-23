@@ -750,6 +750,8 @@ p .btn, li > .btn { margin-top: 2px; margin-bottom: 2px; }
 .blocked, .problems { padding: 6px 10px; border-radius: 2px; }
 .problems { margin: 8px 0; padding-left: 28px; }
 .warn, .locked-note, .callout { padding: 7px 10px; border: 1px dashed rgba(122,82,6,.55); border-radius: 2px; background: rgba(246,226,170,.38); font-size: var(--t2); }
+/* fix-loop13 LP13-8: the world goals card's siege badge ("Aster besieging 10 / 72") broke across two lines in English */
+.goal-flag .warn { display: inline-block; white-space: nowrap; padding: 1px 8px; margin-top: 2px; }
 .callout { margin: 8px 0; }
 .callout h3 { margin-top: 0; }
 .callout > summary { min-height: var(--target); display: flex; align-items: center; cursor: pointer; font-weight: 600; }

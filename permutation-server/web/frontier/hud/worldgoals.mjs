@@ -12,6 +12,7 @@ import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { fogActive, fogNow, viewKeeps } from '../map/fog.mjs';
+import { termsRate, turnsLine } from '../seasonterms.mjs';
 
 /** Minutes of the chain's clock in one turn. */
 const TURN_MIN = 10;
@@ -62,8 +63,12 @@ export function sameWorld(FS, g) {
   return !(program && typeof g.season.programId === 'string' && g.season.programId !== program);
 }
 
-/** Turns as words with their hours: 「12 ターン（2 時間）」. */
+/** Turns as words with their hours: 「12 ターン（2 時間）」; on a faster TEST clock with the real time instead —
+ *  「42 ターン（この世界の実時間で約 7 分）」 (fix-loop13, LP13-8: at ×60 the card said "(7 h)" for 7 real minutes; the
+ *  keep list and the guide already say the real time, seasonterms.mjs turnsLine). */
 export function turnsText(n) {
+  const r = termsRate();
+  if (r !== null && r > 1) return L`${fmtNum(n)} ターン（${turnsLine(n)}）`;
   const min = n * TURN_MIN;
   const h = min / 60;
   return h >= 1 ? L`${fmtNum(n)} ターン（${fmtNum(Math.round(h * 10) / 10)} 時間）` : L`${fmtNum(n)} ターン（${fmtNum(min)} 分）`;

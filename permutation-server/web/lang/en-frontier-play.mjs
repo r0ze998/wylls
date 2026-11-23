@@ -2418,6 +2418,7 @@ export default {
   // (flag-keeps-slice-1, 2026-11-24: the world goals card — hud/worldgoals.mjs; flag keeps only, simulated prize)
   "{0} ターン（{1} 時間）": n => plural(n, '{0} turn ({1} h)', '{0} turns ({1} h)'),
   "{0} ターン（{1} 分）": n => plural(n, '{0} turn ({1} min)', '{0} turns ({1} min)'),
+  "{0} ターン（{1}）": n => plural(n, '{0} turn ({1})', '{0} turns ({1})'),
   "旗の砦（覇権）": "Flag keeps (hegemony)",
   "世界初の技術（学術）": "World-first technology (science)",
   "大建造物（大事業）": "Wonder (great work)",

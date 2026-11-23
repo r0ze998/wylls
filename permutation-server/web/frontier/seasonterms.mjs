@@ -28,6 +28,8 @@ let pace = () => 1;
  *  clock's pace is not known yet — fix-loop8, LP8-10). */
 export function setTermsPace(fn) { pace = typeof fn === 'function' ? fn : () => 1; }
 const rate = () => { const p = pace(); if (p === null) return null; const r = Number(p); return Number.isFinite(r) && r > 1 ? r : 1; };
+/** The chain's pace (1 at the natural clock, e.g. 60 on a ×60 TEST world, null while a fast clock's pace is not known). */
+export const termsRate = () => rate();
 
 /** Seconds in words, at the scale they are long ("10 分", "約 3 時間" style numbers come from the caller). */
 export function spanWords(secs) {

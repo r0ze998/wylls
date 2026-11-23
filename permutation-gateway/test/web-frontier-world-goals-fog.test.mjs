@@ -135,3 +135,19 @@ test('world goals card: before the viewer\'s first village (a fogged local page,
   // a page without the fog (not a local test world, e.g. the sample): told live, as before
   assert.match(card({ ...FS, localPlay: undefined }), /包囲中 12 \/ 72/);
 }));
+
+test('fix-loop13 LP13-8: on a faster TEST clock the card says the real time, at the natural clock the chain hours', async () => {
+  const T = await import('../../permutation-server/web/frontier/seasonterms.mjs');
+  try {
+    setLang('ja');
+    T.setTermsPace(() => 1);
+    assert.equal(UI.turnsText(42), '42 ターン（7 時間）');
+    T.setTermsPace(() => 60);
+    assert.equal(UI.turnsText(42), '42 ターン（この世界の実時間で約 7 分）');
+    assert.equal(UI.turnsText(144), '144 ターン（この世界の実時間で約 24 分）', 'guide §14: 24 minutes at the ×60 TEST clock');
+    setLang('en');
+    assert.equal(UI.turnsText(42), '42 turns (about 7 minutes of real time in this world)');
+    T.setTermsPace(() => null);
+    assert.equal(UI.turnsText(42), '42 turns (7 h)', 'a fast clock whose pace is not known yet: the chain hours, never a guessed real time');
+  } finally { T.setTermsPace(() => 1); setLang('ja'); }
+});
