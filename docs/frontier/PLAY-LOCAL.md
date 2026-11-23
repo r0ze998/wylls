@@ -899,3 +899,34 @@ When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcom
   decisions of 2026-11-24 also keep cooperation out of the “world goals”).
 - The other title earnable now is P-raider (「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.
 - The card's 「まだ判定できない達成 N」 is the total of every resident's undecided goals (not necessarily yours).
+
+## 14. World goals: the flag keeps (TEST-only, first slice, no money)
+
+The world is continuous: there is no season end. Instead it has four permanent goals without a deadline
+(docs/design/win-conditions/01-proposal.ja.md, accepted by r0ze on 2026-11-24). Only the first is judged so far:
+
+- **Flag keeps (hegemony).** Each nation's contestable keeps (not heartland) carry flags: two per nation, border keeps
+  first, ordered by the Season's drand seed. A nation that holds **half of the flag keeps**, each for **144 turns**
+  (24 hours of the chain clock; 24 minutes at the ×60 TEST clock), achieves the round. The next round is posted at once.
+- World-first technology, wonder and unexplored mark are shown as "coming".
+
+Every play-local world has the judge (`--no-world-goals` turns it off). The launcher judges off chain in its own process.
+It reads the world's Province and Citizen accounts and serves the result read-only at
+`/goals-world/<world proxy port>/goals/state`. Open **Nation & territory** to see the **World goals** card: the four
+goals, each flag keep with its holder and its hold timer, your nation's progress, and every nation's count. On the map
+each flag keep has a gold pennant beside its standard.
+Under the fog of war the card tells a flag keep as the map does: a keep in sight with its holder, hold timer and siege;
+one you saw before with its last-known holder only; one you have never seen by its place alone ("You have not seen this
+province's keep yet"). Your own nation's flag keeps are always shown. Every nation's count stays public, like the
+provinces-held strip.
+
+After an achievement the card says what the prize **would** have paid you: "If prizes were on, you would have received
+X test USDC". This is an estimate from a simulated vault: one 25 test USDC pass per person, 80 % to the prize, 30 % of
+the hegemony vault per achievement. Inside the nation the payout is split by contribution points (a capture is 10 points;
+reinforcement is 1 point per 100 troops on the keep). Operator AI residents earn points but no money. Nothing is paid,
+nothing is sent, and the chain is not changed.
+
+In a local world only ring 1 keeps are contestable (rings 2–3 are heartland), so each nation has **one** flag keep: 6
+flags, need 3. For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
+example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 2 --flag-keeps-hold 72`: capture one neighbouring flag keep
+(72 turns), then hold it 72 more turns.
