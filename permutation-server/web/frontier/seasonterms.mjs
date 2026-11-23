@@ -9,7 +9,8 @@
 //
 // The world is to go on without an end (the project's direction; its shared core is 04's and 08's). This program
 // still has an end turn, so the page says it as what it is — the turn after which THIS program takes no new order,
-// an old-style season's — and never as the world ending; when the owners register that the world goes on
+// a TEST world's limit (fix-loop13, LP13-1: the owners abolished seasons, so it is no longer called a season) — and
+// never as the world ending or a rule for winning; when the owners register that the world goes on
 // (hud/worldclock.mjs), the end turn is not said at all.
 import { L, fmtNum } from '../lang.mjs';
 import { BELL_SECS, NO_END_BELL, bellStart, worldContinues as seasonContinues } from './clock.mjs';
@@ -61,15 +62,15 @@ export function deadlineLine(FS) {
   // (a join close at the no-end turn is no deadline: nothing is said of it)
   // (a time left not known yet — a fast clock's pace still being measured — is not said: fix-loop8, LP8-10)
   const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : d.join.realLeft === null ? '' : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
-  const end = worldContinues(FS) ? '' : d.end.ended ? L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました。`
-    : d.end.realLeft === null ? '' : L`このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}）。`;
+  const end = worldContinues(FS) ? '' : d.end.ended ? L`この試しの世界は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました（試しの世界の上限です）。`
+    : d.end.realLeft === null ? '' : L`この試しの世界が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}。試しの世界の上限です）。`;
   return `${join}${end}`;
 }
 /** WrongStatus said with its cause when the cause is the season's clock; null otherwise (the page's own words stand). */
 export function wrongStatusWhy(FS, action = null) {
   const d = deadlines(FS);
   if (!d) return null;
-  if (d.end.ended && !worldContinues(FS)) return L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えたため、この操作は受け付けられません。`;
+  if (d.end.ended && !worldContinues(FS)) return L`この試しの世界は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えたため（試しの世界の上限です）、この操作は受け付けられません。`;
   if (action === 'join' && d.join.closed) return L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。`;
   return null;
 }

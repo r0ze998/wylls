@@ -824,7 +824,7 @@ test('contest pair: while the first player waits, the panel says it is waiting f
   for (let i = 0; i < 100 && !gate.state().pairWaiting; i++) await new Promise(r => setTimeout(r, 1));
   const said = doc.byId('local-play-status').textContent;
   assert.match(said, /もう一人のプレイヤーを待っています/); assert.match(said, /別のタブ/); assert.match(said, /何も送信しません/);
-  assert.doesNotMatch(said, /新しいシーズンを最初から作っています/);
+  assert.doesNotMatch(said, /新しい世界を最初から作っています/);
   setLang('en');
   try { gate.state(); doc.byId('local-play-status'); } finally { setLang('ja'); }
   release(); await connecting; await gate.ready;

@@ -736,7 +736,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
         //  the second person needs another browser, or the other address of this launcher)
         : s.phase === 'starting' && s.pairWaiting && persisted ? L`もう一人のプレイヤーを待っています。もう一人が別のブラウザ（同じブラウザなら localhost と 127.0.0.1 の別のアドレス）で「世界を開始」を押すと、二人で一つの世界が始まります。同じブラウザの別のタブは同じプレイヤーです。待っている間、このタブは何も送信しません。`
         : s.phase === 'starting' && s.pairWaiting ? L`もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。`
-        : s.phase === 'starting' && natural ? L`新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）`
+        : s.phase === 'starting' && natural ? L`新しい世界を最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）`
         : s.phase === 'starting' && accelerated ? L`世界を準備しています…（試験世界の準備として、世界の時間を早送りします。最大150秒）`
         : s.phase === 'starting' ? L`世界を準備しています…（最大70秒）`
         : s.phase === 'waiting' ? L`準備中：このアドレスでランナーと herald を起動してから「接続」を押してください。`
