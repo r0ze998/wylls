@@ -68,7 +68,7 @@ import { leaderWords, paintCandidateLabels, paintHomeTag, paintSiteMarks, paintS
 import { TILT, armUpright, disarmUpright, groundBox, groundView, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
 import { marchShare, watchOf } from './board.mjs';
 import { paintHostRing, MARKER_PX, awayText, markerTagText, exploreFlagText, formingText, marchTagText, paintBellTag, paintMarkerDisc, paintSealedMarch, paintSurveyFlag, paintWatch, paintWatchTop, watchTop, LAND_WORDS } from './hostmarks.mjs';
-import { PICK_KINDS, pickModel, pickPalette, pickStep } from './picktile.mjs';
+import { PICK_KINDS, pickModel, pickPalette, pickStep, pickLabelText } from './picktile.mjs';
 import { createSurveyor, packMemory } from './survey.mjs';
 import { promotionAt } from './villagework.mjs';
 import { surveyInput } from './viewer.mjs';
@@ -1557,7 +1557,7 @@ export class FrontierMap {
       // Escape lets go wherever the focus is (the action bar, the canvas), and lets go of the pick alone: the selection under it stays
       this.pickEsc = ev => { if (ev.key === 'Escape' && this.pick) { ev.preventDefault?.(); ev.stopImmediatePropagation?.(); this.pickCancel(); } };
       this.canvas.ownerDocument?.addEventListener?.('keydown', this.pickEsc, true);
-      fxEmit('pick:open', { kind: model.kind, n: model.tiles.length, max: model.max, label: model.label, again: !!again });
+      fxEmit('pick:open', { kind: model.kind, n: model.tiles.length, max: model.max, label: pickLabelText(model.label), again: !!again });
       // the lit set is framed like a reach: the camera eases out until its edge is in the picture
       if (!again) this.reachFit = null;
       this.invalidate();
@@ -3406,11 +3406,13 @@ export class FrontierMap {
     // the keeps' words and dials (a conquest season)
     if (F.KB) F.KB.over(ctx, F, hid);
     // a pick's own words: what the tap will do, on a bell-metal tag over the lit set
-    if (A?.mode === 'pick' && A.label) {
+    // (fix-loop10, LP10-3: the words are read at every paint — a label function follows a language change)
+    const pickWord = A?.mode === 'pick' ? pickLabelText(A.label) : '';
+    if (A?.mode === 'pick' && pickWord) {
       // (a small set: over its top edge; a set as wide as a province: under the tile it spreads from, where the player is looking)
       const o = A.origin ? tileHex(A.origin.p, A.origin.q, A.origin.tile) : null, wide = A.tiles.length > 19 && !!o;
       const top = wide ? (c => ({ x: c.x, y: c.y + RADIUS * FLATTEN * 1.5 }))(project(o.q, o.r)) : reachTop(A);
-      if (top) paintBellTag(ctx, top.x, top.y, A.label, { zoom: z, place: wide ? 'below' : 'above', gap: wide ? 4 : 9, accent: `rgb(${F.palette.move.rim.join(',')})`, anchor: top, pass, size: 14 });
+      if (top) paintBellTag(ctx, top.x, top.y, pickWord, { zoom: z, place: wide ? 'below' : 'above', gap: wide ? 4 : 9, accent: `rgb(${F.palette.move.rim.join(',')})`, anchor: top, pass, size: 14 });
     }
     // the host that acts, under the selected tile (tap the tile again for the next one)
     if (A && A.mode === 'select' && A.hex && !hid(A.hex) && !(this.proto.on && this.proto.hush(F.fx, A.hex))) {

@@ -52,6 +52,9 @@ export function pickTileOf(t) {
  *            itself a tile to pick unless it is also in `tiles`. Without one: the tile nearest the set's middle
  *   picked   the tiles taken so far (a pick of more than one): each shows a hexagon of its own with a tick
  */
+/** A pick's label as words: a function is asked now (the page's language may have changed since the pick opened). */
+export const pickLabelText = label => { try { return String((typeof label === 'function' ? label() : label) ?? ''); } catch { return ''; } };
+
 export function pickModel({ kind = 'move', tiles = [], origin = null, max = 1, label = '', t0 = 0, picked = [], levelOf = () => 3 } = {}) {
   const list = [], byHex = new Map();
   for (const raw of tiles) { const t = pickTileOf(raw); if (!t || byHex.has(`${t.hq},${t.hr}`)) continue; byHex.set(`${t.hq},${t.hr}`, t); list.push(t); }
@@ -69,7 +72,8 @@ export function pickModel({ kind = 'move', tiles = [], origin = null, max = 1, l
   // (a model with an origin that is not one of the tiles: the reach's shape takes the origin in, as it does a host's own tile)
   const inSet = o && byHex.has(`${o.hq},${o.hr}`);
   return { mode: 'pick', kind: PICK_KINDS[kind] ? kind : 'move', tiles: list, byHex, hex: o && !inSet ? { q: o.hq, r: o.hr } : null, origin: o ? { p: o.p, q: o.q, tile: o.tile } : null, t0, max: Math.max(1, max | 0),
-    label: String(label ?? ''), chosen: list.filter(t => t.kind === 'explore').map(t => t.tile), picked: list.filter(t => t.kind === 'explore').map(t => ({ p: t.p, q: t.q, tile: t.tile })) };
+    // (fix-loop10, LP10-3: `label` may be a function — the words in the page's language NOW, read at every paint)
+    label: typeof label === 'function' ? label : String(label ?? ''), chosen: list.filter(t => t.kind === 'explore').map(t => t.tile), picked: list.filter(t => t.kind === 'explore').map(t => ({ p: t.p, q: t.q, tile: t.tile })) };
 }
 
 /**
