@@ -52,8 +52,10 @@
 > nothing under `permutation-frontier/src` or `frontier-abi` changed since #139, the committed
 > `devnet-playable-67a33c92.so.gz` still unpacks to `67a33c92…06b3` (3,447,064 B), and the planner re-run at 5,080 and
 > 6,960 prints the §4a figures unchanged. **No owner decision is pending.** New in §4b: the wide village's first
-> WideMuster (0.0172 SOL, the dress rehearsal's D-dress-11) and keeper A's measured season. The deploy-day preflight
-> script (§8 step 0) is PR #181, verified but not merged at the time of this refresh.
+> WideMuster (0.0172 SOL, the dress rehearsal's D-dress-11) and keeper A's measured season. **There is no §8 step 0
+> on main yet:** the deploy-day preflight script (`scripts/devnet/preflight.mjs`) and the step 0 that runs it are PR
+> #181, verified but not merged at the time of this refresh; step 0 applies once #181 merges, and until then §8 starts
+> at step 1.
 
 ## 1. What gets deployed
 
@@ -280,15 +282,16 @@ devnet. Fees are the 5,000-lamport signature fee unless the keeper bids a priori
 | WideClaimSite (one wide village) | 9,108,360 | 12,477,320 | fee + the ticket record's rent and escrow (1,792 B) |
 | FileOutpost (a second or third village past the heartland, #141; keeper A's `tickets` role settles it) | 7,157,640 | 9,804,680 | fee + the Holding's rent escrow (1,280 B); PPOST, verify-pr141: the page's preview total = the wallet's debit (rent-live-rest: also at 6,960, measured offline) |
 | ExpeditionDepart (rim → wide; the page sends it on devnet, §7 P15) | 2,407,514 | not computed | fee (5,000) + the escrowed tip and bond (45,394) + the rent of the 336-byte transit record (2,357,120) |
-| The wide village's **first** WideMuster (P17, #151; later musters are fee-only) | 17,155,080 | 23,501,960 | fee + the rent of the province's 3,248-byte wide roster ((3,248 + 128) B × the rate); **measured offline** at 5,080 (devnet-dress-rehearsal run6, D-dress-11: the page's preview total = the wallet's debit) |
+| The **first** WideMuster in a wide province (P17, #151; it creates the province's roster from the sender's wallet, so every later muster there, by anyone, is fee-only) | 17,155,080 | 23,501,960 | fee + the rent of the province's 3,248-byte wide roster ((3,248 + 128) B × the rate); **measured offline** at 5,080 (devnet-dress-rehearsal run6, D-dress-11: the page's preview total = the wallet's debit) |
 | **Join → rim village → 10 Harvests → wide claim** (#110, verify-pr110) | **18,921,960 (0.0189 SOL)** | 25,900,520 (0.0259) | |
 | **Join → rim village → 5 Harvests → Muster → one march** (#118, verify-pr118) | **9,843,994 (0.0098 SOL)** | not computed | |
-| All of the above once, with about 20 fee-only actions | about 21.4 M (**0.021 SOL**) [sum] | about 0.03 SOL | |
+| Join, one village, one march, one wide claim and one expedition, with about 20 fee-only actions (no outpost, no first WideMuster) | about 21.4 M (**0.021 SOL**) [sum] | about 0.03 SOL | |
+| Every row above once (with one outpost and one first WideMuster), with about 20 fee-only actions | about 45.7 M (**0.046 SOL**) [sum] | about 0.063 SOL [sum; the two "not computed" rows scaled by their rent part] | |
 
 So a wallet with **0.05 SOL of devnet SOL** covers a player's season with room to spare **as long as the player
 does not muster from a wide village**: the dress rehearsal's busiest such page spent 17.26 M lamports (0.0173 SOL).
-With the wide village's first WideMuster (0.0172 SOL more) a player who does everything spends about 0.047 SOL at
-5,080 (the rehearsal's wide page: 36,567,040 lamports with one wide village) and more at 6,960, so **tell players
+With a wide province's first WideMuster (0.0172 SOL more) a player who does everything spends about 0.046 SOL at
+5,080 (the rehearsal's wide page: 36,567,040 lamports with one wide village) and about 0.063 SOL at 6,960, so **tell players
 who go to the wide land to hold 0.1 SOL**. The Citizen's and Holding's rent comes back when they are closed after
 the season (PLAYTEST-RUNBOOK §3 step 14).
 
@@ -339,7 +342,8 @@ season's end returns. By role: SkipQuiet 13,852 sends / 0.225 SOL; GatherClash 7
 `wide-resolve` 200 × 64,331 lamports; 2,489 refused ArchiveAnchors ≈ 0.023 SOL (the harness's declared anchors; an
 offline-only refusal, but keeper A has no backoff for a write the chain keeps refusing, D-dress-8). That season was
 small (7 players, 36 wide provinces, few of them known): the "+3 SOL" budget above stays the figure to fund, and the
-"+10 SOL" bound is `wide-resolve` over all 108 wide provinces from the first bell. Not measured there: the beacon's
+"+10 SOL" bound is `wide-resolve` over all 108 wide provinces from the first bell (about 7.0) plus SkipQuiet over
+every province opened on demand (about 2.9). Not measured there: the beacon's
 anchors and seeds (declared offline), so the 20.89 SOL beacon / archive float stays a model figure.
 
 ## 5. Deploy **[r0ze]**
