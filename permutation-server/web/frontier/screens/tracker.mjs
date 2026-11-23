@@ -193,6 +193,22 @@ export function expeditionHoldText(h) {
   return L`遠征の軍勢が州 ${where} の砦を占拠中です：${fmtNum(Number(h.progress ?? 0))} / ${fmtNum(Number(h.required ?? 0))} ターン。奪えたか、占拠が止まったかを、ここに出します。`;
 }
 /**
+ * (w2-wipeout, D-verify-pr137-3) What an ended expedition leaves for the next one: '' while its host is out or came
+ * back; else why a new army is needed — wiped out (fate 全滅: no survivor, none came home), the keep taken (the host stays
+ * as its garrison), or gone off the keep (the hold lost: beaten). The card offers the village's next army by a press
+ * that opens the village's card (app.mjs next-army); nothing is sent.
+ */
+export function expeditionNextText(x) {
+  if (!x) return '';
+  // (verify-pr176: a capture leaves half of the holding host as the keep's garrison and the rest — when 100 or more —
+  //  standing on the keep's tile (live: 488 → garrison 242 + a host of 242 on tile 18). Either way it stays at the keep;
+  //  the page has no order for it, so the next expedition needs a new host)
+  if (x.hold?.outcome === 'taken') return L`砦を奪った遠征の軍勢は、そのまま砦に残っています。次の遠征には、村で新しい軍勢を作ります。`;
+  if (x.stage === 'settled' && x.fate === 'destroyed') return L`遠征の軍勢は全滅しました：生き残った兵はなく、村に戻った兵はいません。次の遠征には、村で新しい軍勢を作ります。`;
+  if (x.hold?.outcome === 'lost' && x.hold.why === 'gone') return L`遠征の軍勢は砦のマスからいなくなりました（戦いに敗れました）。村に戻った軍勢がなければ、次の遠征には新しい軍勢を作ります。`;
+  return '';
+}
+/**
  * (fix-loop10, LP10-5) The count beside an expedition's fate line. After a capture it is the KEEP's garrison as the
  * chain's keep record has it (`hold.garrison`, read at turn `hold.garrisonAt` — followExpeditionHold), never the host's
  * strength at its arrival (`troopsAfter`): loop-play10 showed （兵 1,289） over a chain garrison of 644. Not read yet:
@@ -208,13 +224,18 @@ export function expeditionTroopsNote(x, troops) {
 export function renderExpedition(m, FS = null) {
   const x = m.expedition, d = x.dest, nowBell = FS?.nowBell ?? m.facts?.nowBell ?? 0;
   const troops = Number.isInteger(x.troopsAfter) ? Math.floor(x.troopsAfter / 1000) : null;
+  // (verify-pr176: the sending village's index comes with the row — flocalplay-expedition.mjs holdingIndexOf; the
+  //  page's holding objects carry no address, so matching `h.address` alone never found it live)
+  const next = expeditionNextText(x), home = Number.isInteger(x.holdingIndex) && x.holdingIndex >= 0 && (FS?.holdings ?? [])[x.holdingIndex] ? x.holdingIndex
+    : x.holding ? (FS?.holdings ?? []).findIndex(h => h?.address === x.holding) : -1;
   return html`<li class="vcard march-card" data-march-host="${x.host.slice(-16)}" data-expedition="${x.stage}">
     <div class="march-top">${icon('banner')}<strong class="march-to">${L`広い土地の州 ${d.p},${d.q} へ`}</strong>${chip(html`${icon('bell')}${L`ターン ${fmtNum(x.arriveBell)} に到着`}`, x.stage === 'settled' ? 'ok' : 'info')}</div>
     <ol class="track track-phases" aria-label="${L`進軍の流れ`}">${expeditionPhases(x.stage, x.arriveBell, nowBell).map(s => html`<li class="${s.state}"><span class="track-dot" aria-hidden="true"></span><span class="track-name">${PHASE_TEXT[s.id]()}</span></li>`)}</ol>
     <p class="march-now"><strong>${EXPEDITION_STAGE_TEXT[x.stage]?.() ?? ''}</strong></p>
     ${x.fate ? html`<p class="march-out" data-fate="${x.fate}">${x.hold?.outcome === 'taken' ? L`砦を奪いました：軍勢は砦の守備兵になりました` : EXPEDITION_FATE_TEXT[x.fate]?.() ?? x.fate}${expeditionTroopsNote(x, troops)}</p>` : ''}
     ${x.hold ? html`<p class="march-hold" role="status" data-hold="${x.hold.outcome ?? 'counting'}">${expeditionHoldText(x.hold)}</p>` : ''}
-    ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions"><button type="button" class="btn small" data-act="goto" data-p="${d.p}" data-q="${d.q}">${L`地図で見る`}</button></div>` : ''}
+    ${next ? html`<p class="march-next" role="status" data-next="${x.hold?.outcome === 'taken' ? 'garrison' : x.fate === 'destroyed' ? 'wiped' : 'gone'}">${next}</p>` : ''}
+    ${FS && (FS.mode ?? 'play') === 'play' ? html`<div class="actions">${next && home >= 0 ? html`<button type="button" class="btn primary small" data-act="next-army" data-holding="${home}">${icon('helmet')}${L`村で次の軍勢を作る`}</button>` : ''}<button type="button" class="btn small" data-act="goto" data-p="${d.p}" data-q="${d.q}">${L`地図で見る`}</button></div>` : ''}
   </li>`;
 }
 

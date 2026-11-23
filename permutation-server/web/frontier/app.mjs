@@ -3817,6 +3817,16 @@ export const HUD_ACTIONS = {
   // (the card's own way to the result: the card is put away as the result opens — it stood over the map beside the very
   // table it had led to; the season's end on the local test chain, 2026-10-11)
   'se-go': () => { FS.seasonEndSeen = true; HUD_ACTIONS.tab({ tab: 'territory' }); invalidate('rail'); },
+  // (w2-wipeout, D-verify-pr137-3: an ended expedition's 「村で次の軍勢を作る」 — screens/tracker.mjs renderExpedition —: the
+  //  village that sent it, with its 編成 card open when its reserve holds a host's worth of combat troops, else 訓練.
+  //  Opens the card only; nothing is sent)
+  'next-army': d => {
+    if (FS.mode !== 'play') return;
+    const hi = Number(d.holding), h = (FS.holdings ?? [])[hi];
+    if (!Number.isInteger(hi) || !h) return;
+    leaveReport(); if (FS.compose) ACTIONS['compose-close'](); FS.guideOpen = false;
+    selectVillage(hi, [0, 1, 2, 3, 4, 5].some(u => Number(h.reserve?.[u] ?? 0) >= 100) ? 'muster' : 'train');
+  },
   // the conquest guide's press (screens/conquestguide.mjs): the village with the step's card open, or a host with its list of keeps
   'cg-go': d => {
     if (FS.mode !== 'play' || !keephand.conquestOn(FS)) return;
