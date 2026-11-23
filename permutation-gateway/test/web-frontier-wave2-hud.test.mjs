@@ -49,6 +49,8 @@ test('the title: an opaque scene of its own (the six standards on the chart as a
   assert.doesNotMatch(out, /\sstyle=|<style|<script|https?:\/\/(?!www\.w3\.org)/, 'no inline style, no remote asset');
   // the numbered reference is a turn; nothing claims secrecy
   assert.equal(title.liveLine({ seasonId: 1, bell: 1034, holdings: 1055 }), '第1季 · ターン 1,034 · 1,055 の村 · 6 つの国');
+  // (verify-pr180) once the season's orders are over the status words stand in place of the turn
+  assert.equal(title.liveLine({ seasonId: 1, bell: 1440, holdings: 3, over: '閉鎖' }), '第1季 · 閉鎖 · 3 の村 · 6 つの国');
   assert.doesNotMatch(text(out), /誰にもわからない|秘密|第\d+鐘|知るのは送った者だけ/);
   assert.match(text(out), /10 分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。/);
   assert.deepEqual(title.sentences('Six nations. A bell every ten minutes. Every march sealed.'), ['Six nations. ', 'A bell every ten minutes. ', 'Every march sealed.']);

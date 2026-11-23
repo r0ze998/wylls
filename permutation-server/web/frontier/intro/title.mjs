@@ -57,11 +57,16 @@ export function emblemSvg({ size = 96, title = null } = {}) {
   </svg>`;
 }
 
-/** The live line: season, turn, villages and nations (from what the page already has). */
-export function liveLine({ seasonId = null, bell = null, holdings = 0, factions = 6 } = {}) {
+/**
+ * The live line: season, turn, villages and nations (from what the page already has). `over` (verify-pr180): the
+ * season's status words once its orders are over (past the end bell, Ended, Closed) — said in place of the turn, which
+ * keeps counting on the clock after the end.
+ */
+export function liveLine({ seasonId = null, bell = null, holdings = 0, factions = 6, over = null } = {}) {
   const parts = [];
   if (seasonId !== null && seasonId !== undefined) parts.push(L`第${fmtNum(Number(seasonId))}季`);
-  if (Number.isInteger(bell)) parts.push(L`ターン ${fmtNum(bell)}`);
+  if (over) parts.push(String(over));
+  else if (Number.isInteger(bell)) parts.push(L`ターン ${fmtNum(bell)}`);
   if (holdings > 0) parts.push(L`${fmtNum(holdings)} の村`);
   parts.push(L`${fmtNum(factions)} つの国`);
   return parts.join(' · ');

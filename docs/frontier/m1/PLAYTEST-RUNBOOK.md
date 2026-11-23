@@ -66,11 +66,11 @@ Each is a code change for a later unit (none is W6-E's), listed so the owner can
 
 11. Players open the herald's URL, connect a wallet, redeem an invite (Join co-signed by the relay's gate key), file a site ticket, and follow the onboarding card (first holding ≈ 11–21 minutes after filing, first clash report ≈ 31–41 minutes after the first march departs [model, DESIGN §2.3]).
 12. Watch (§6). Nightly: run `frontier-verify` over devnet (`--rpc`) into a dated report; any FAIL stops new invites until triaged.
-13. The season ends by rule at bell 1,008: anyone sends `EndSeason`; keepers drain (every province resolved or skipped, every transit settled, cohorts closed).
+13. The season ends by rule at bell 1,008: anyone sends `EndSeason` (no keeper sends it: the operator does, `frontier-operator end-season`, DEVNET-DEPLOY-RUNBOOK §6c); keepers drain (every province resolved or skipped, every transit settled, cohorts closed).
 
 **Phase D — wind-down**
 
-14. **[approval]** After `end + 72 h`: CloseClashInputs/ArrivalDay/ArrivalSlot (keepers), CloseHolding and CloseCitizen (anyone; rent to each account's rent payer, escrows to ticket funders), CloseProvince, `CloseSeason` parts 0–10 (RingSeeds → payer, AnchorArchives → `rent_to`, DefenceClaims → beneficiary; ≤ 10 pairs per transaction for parts 8 and 10, ≤ 2 for part 9) — the Season shrinks to a 128-B tombstone.
+14. **[approval]** After `end + 72 h`: CloseClashInputs/ArrivalDay/ArrivalSlot (keepers), CloseHolding and CloseCitizen (anyone; rent to each account's rent payer, escrows to ticket funders), CloseProvince, `CloseSeason` parts 0–10 (RingSeeds → payer, AnchorArchives → `rent_to`, DefenceClaims → beneficiary; ≤ 10 pairs per transaction for parts 8 and 10, ≤ 2 for part 9) — the Season shrinks to a 128-B tombstone. `frontier-operator end-season` (DEVNET-DEPLOY-RUNBOOK §6c) sends CloseProvince (and the wide WideClose(6)) and every CloseSeason part with a dry-run plan of each refund; the players' and keepers' own closes are not in it.
 15. Final verifier run and report; sweep the keepers' and relay's pools back to the operator; archive the herald's data directory, the keepers' journals and the verifier report.
 
 ## 4. Configuration

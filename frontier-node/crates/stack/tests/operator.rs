@@ -649,3 +649,118 @@ async fn o3_refusals() {
         .collect();
     assert!(!all.contains(&raw.join(",")));
 }
+
+/// O4 (verify-pr180): `frontier-operator end-season`'s refusals, before anything but the genesis is read: a
+/// mainnet-beta genesis (send and dry run), a devnet genesis behind a loopback URL without the full approval
+/// (`--yes-send` alone, the approval flag alone, the sha256 alone), a public host in a localnet profile, a public
+/// host the profile does not allow. No `sendTransaction` in any of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn o4_end_season_refusals() {
+    let dir = tmpdir("o4");
+    let _cleanup = Cleanup(dir.clone());
+    let authority = Keypair::new(); // TEST key, never funded
+    let key = write_key(&dir, "authority.json", &authority);
+    let program = Address::new_from_array([0x34; 32]).to_string();
+    let url = format!("http://127.0.0.1:{}", mock_port() + 5);
+    let prof = write_profile(
+        &dir,
+        &url,
+        &program,
+        &authority.pubkey().to_string(),
+        "localnet",
+    );
+    let p = prof.to_str().unwrap();
+    let k = key.to_str().unwrap();
+    let sha = "ab".repeat(32);
+
+    // mainnet-beta behind loopback: the send and the dry run refused after the genesis read only.
+    let (seen, h) = mock_rpc(mock_port() + 5, operator::MAINNET_GENESIS).await;
+    for a in [
+        vec!["end-season", "--profile", p, "--authority", k, "--yes-send"],
+        vec!["end-season", "--profile", p],
+    ] {
+        let r = op(args(&a)).await;
+        assert_eq!(r.code, operator::EXIT_REFUSED, "{}\n{}", r.stdout, r.stderr);
+        assert!(r.stderr.contains("mainnet-beta: refused"), "{}", r.stderr);
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec!["getGenesisHash".to_string(), "getGenesisHash".to_string()]
+    );
+    h.abort();
+
+    // devnet behind loopback: the public gate applies; every partial approval is refused after the genesis read.
+    let (seen, h) = mock_rpc(mock_port() + 6, operator::DEVNET_GENESIS).await;
+    let url6 = format!("http://127.0.0.1:{}", mock_port() + 6);
+    for extra in [
+        vec![],
+        vec![operator::APPROVAL_FLAG],
+        vec!["--approved-sha256", sha.as_str()],
+    ] {
+        let mut a = vec![
+            "end-season",
+            "--profile",
+            p,
+            "--rpc",
+            &url6,
+            "--authority",
+            k,
+            "--yes-send",
+        ];
+        a.extend(extra);
+        let r = op(args(&a)).await;
+        assert_eq!(r.code, operator::EXIT_REFUSED, "{}\n{}", r.stdout, r.stderr);
+        assert!(r.stderr.contains("SEND GATE: CLOSED"), "{}", r.stderr);
+        assert!(r.stderr.contains("genesis"), "{}", r.stderr);
+    }
+    assert_eq!(seen.lock().unwrap().len(), 3);
+    assert!(seen.lock().unwrap().iter().all(|m| m == "getGenesisHash"));
+    h.abort();
+
+    // Public hosts: a localnet profile allows loopback only; a devnet profile only its allowedRpcHosts. Refused
+    // before any request.
+    let r = op(args(&[
+        "end-season",
+        "--profile",
+        p,
+        "--rpc",
+        "https://api.devnet.solana.com",
+    ]))
+    .await;
+    assert_eq!(r.code, operator::EXIT_REFUSED, "{}\n{}", r.stdout, r.stderr);
+    assert!(
+        r.stderr.contains("allows loopback URLs only"),
+        "{}",
+        r.stderr
+    );
+    let dprof = dir.join("devnet");
+    std::fs::create_dir_all(&dprof).unwrap();
+    let dp = write_profile(
+        &dprof,
+        "https://api.devnet.solana.com",
+        &program,
+        &authority.pubkey().to_string(),
+        "devnet",
+    );
+    for u in [
+        "https://api.mainnet-beta.solana.com",
+        "https://rpc.example.org",
+        "http://api.devnet.solana.com",
+    ] {
+        let r = op(args(&[
+            "end-season",
+            "--profile",
+            dp.to_str().unwrap(),
+            "--rpc",
+            u,
+        ]))
+        .await;
+        assert_eq!(
+            r.code,
+            operator::EXIT_REFUSED,
+            "{u}: {}\n{}",
+            r.stdout,
+            r.stderr
+        );
+    }
+}

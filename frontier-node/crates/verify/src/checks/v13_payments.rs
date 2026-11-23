@@ -237,10 +237,9 @@ fn transits(cx: &mut Ctx) {
                 .post
                 .values()
                 .any(|a| a.as_ref().is_some_and(|a| a.owner.to_bytes() != w.program));
-            if let (Some(before), Some(after)) = (
-                w.lamports_before(&hk, r.tx),
-                w.lamports_before(&hk, r.tx + 1),
-            ) {
+            if let (Some(before), Some(after)) =
+                (w.lamports_before(&hk, r.tx), w.lamports_after(&hk, r.tx))
+            {
                 let want = before
                     .checked_sub(leaves)
                     .and_then(|b| b.checked_add(credits));

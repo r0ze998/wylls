@@ -435,7 +435,8 @@ test('the page gives the keyboard back: the term\'s popover to its key, the sear
   assert.match(appSrc, /if \(tabs\) keepState\(tabs, \(\) => setHtml\(tabs, renderTabs\(FS, /);
   assert.doesNotMatch(appSrc, /if \(tabs\) setHtml\(tabs, renderTabs\(/);
   // the season's word: nothing while the season could not be read (the banner says it)
-  assert.match(appSrc, /const status = s \? SEASON_STATUS_TEXT\[effectiveStatus\(s, FS\.chain\?\.now\(\) \?\? 0\)\] : FS\.error \? '' : L`読み込み中…`;/);
+  // (devnet-end-season: the word comes from seasonStatusText — the effective status, or "past the end bell, not yet Ended")
+  assert.match(appSrc, /const status = s \? seasonStatusText\(s, FS\.chain\?\.now\(\) \?\? 0\) : FS\.error \? '' : L`読み込み中…`;/);
   assert.match(css, /\n#season-status:empty \{ display: none !important; \}/);
 });
 

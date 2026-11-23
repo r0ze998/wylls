@@ -1367,6 +1367,11 @@ pub fn replay(cx: &mut Ctx) {
         // Closed before: the last transaction before this one that wrote
         // the account left it closed.
         let closed_before = |k: &[u8; 32]| {
+            // (verifier-v7-patches: a declared patch later than the last
+            // write stands)
+            if let Some(d) = w.declared_before(k, t) {
+                return d.is_none();
+            }
             w.posts.get(k).is_some_and(|v| {
                 let i = v.partition_point(|&u| u < t);
                 i > 0 && matches!(w.txs[v[i - 1]].post.get(k), Some(None))
