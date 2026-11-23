@@ -97,6 +97,30 @@ export function terrainOfCapture(b64) {
   return { terrain, sites, names: TERRAIN, passable };
 }
 
+// the Province v2 entries and keep (frontier-abi v2/layout/province.rs ENTRIES @1064 x56 of 48 bytes, KEEP @4480)
+const ENTRIES_AT = 1064, ENTRY_BYTES = 48, ENTRIES_N = 56, KEEP_AT = 4480, NO_TILE = 0xff, ROSTER = 1;
+/**
+ * The keep and the standing hosts of a captured wide province (`bytes_b64`, 4,864 bytes) →
+ * `{keep: {tile, holder, contender, progress, required, troops} | null, hosts: [{faction, unit, tile, troops}]}`, or null.
+ * A host is an entry in state ROSTER (1: standing on the land; 2 mustering and 3 departed are not on a tile). A
+ * `contender` of 0xFF is none (null here).
+ */
+export function keepAndHostsOfCapture(b64) {
+  let b;
+  try { b = fromBase64(b64); } catch { return null; }
+  if (!(b instanceof Uint8Array) || b.length !== 4864) return null;
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength), hosts = [];
+  for (let i = 0; i < ENTRIES_N; i++) {
+    const o = ENTRIES_AT + i * ENTRY_BYTES;
+    if (b[o + 11] !== ROSTER || b[o + 10] >= TILES || b[o + 8] > 5) continue;
+    // (an entry's TROOPS are in thousandths of a soldier — the arrival's troops_milli; a keep's TROOPS are whole)
+    hosts.push({ faction: b[o + 8], unit: b[o + 9], tile: b[o + 10], troops: Math.floor(v.getUint32(o + 12, true) / 1000) });
+  }
+  const k = KEEP_AT, keep = b[k] === NO_TILE || b[k] >= TILES ? null
+    : { tile: b[k], holder: b[k + 1], contender: b[k + 2] === 0xff ? null : b[k + 2], progress: b[k + 3], required: b[k + 4], troops: v.getUint32(k + 8, true) };
+  return { keep, hosts };
+}
+
 const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const rgbHex = c => `#${c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
 /** The mean colour of a province's tiles (its look from afar). */
@@ -117,7 +141,7 @@ const NEIGHBOURS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
 /**
  * The wide land from a finished WideWalk (map/wide.mjs): `{cells, byKey, rings: {min, max}, reach, far, count, key}`.
- * A cell is `{p, q, key, ring, wedge, holder, terrain, colour, x, y, box}` for every OPEN captured wide province
+ * A cell is `{p, q, key, ring, wedge, holder, terrain, keep, hosts, colour, x, y, box}` for every OPEN captured wide province
  * (ring > 128, a checked capture) within MAP_LIMIT; legacy records (rings ≤ 128) are the ordinary map's own and are
  * skipped. `reach` is the ring count the camera and the sheet must cover (max ring + 1), `far` the provinces past
  * MAP_LIMIT. `edges`: for each cell, the borders to draw — `{a, b, inner}` corner pairs; `inner` false is the wide
@@ -131,9 +155,10 @@ export function wideLandOf(walk) {
     const lim = BigInt(MAP_LIMIT);
     if (e.p > lim || e.p < -lim || e.q > lim || e.q < -lim) { far++; continue; }
     const p = Number(e.p), q = Number(e.q), ring = Number(e.ring);
-    const t = terrainOfCapture(e.wide.capture?.bytes_b64);
+    const t = terrainOfCapture(e.wide.capture?.bytes_b64), kh = keepAndHostsOfCapture(e.wide.capture?.bytes_b64);
     const c = provincePixel(p, q), r = PROVINCE_CIRCUMRADIUS;
     const cell = { p, q, key: `${p},${q}`, ring, wedge: e.wedge, holder: e.wide.keepHolder, holdings: e.wide.holdings?.length ?? 0, villages: villagesOf(e.wide.holdings), terrain: t,
+      keep: kh?.keep ?? null, hosts: kh?.hosts ?? [],
       colour: t ? meanColour(t.terrain) : NEUTRAL_LAND, x: c.x, y: c.y, box: { x0: c.x - r, y0: c.y - r, x1: c.x + r, y1: c.y + r } };
     cells.push(cell); byKey.set(cell.key, cell);
     min = min === null ? ring : Math.min(min, ring); max = max === null ? ring : Math.max(max, ring);

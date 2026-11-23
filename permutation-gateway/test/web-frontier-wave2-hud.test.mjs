@@ -135,7 +135,7 @@ test('what the map keeps out of: the HUD\'s pieces as client rectangles', () => 
   assert.deepEqual(noGoRects(undefined), []);
   // (integration of wave 2: a milestone's banner is listed, and each notice of the stack is a piece of its own instead of the column they stand in)
   // (rewritten for the prototype rule "banners": its fixed chip and its score are pieces too; they are in the page only in a sample world that serves the prototype)
-  assert.deepEqual(NO_GO.map(x => x[0]), ['plaque-left', 'dial', 'plaque-right', 'search', 'search-field', 'todo', 'todo-list', 'plate', 'dock', 'hand', 'hand-card', 'hand-fan', 'lenses', 'minimap', 'map-tools', 'notices', 'banner', 'proto-chip', 'proto-chip-map', 'proto-score', 'drawer']);
+  assert.deepEqual(NO_GO.map(x => x[0]), ['plaque-left', 'dial', 'plaque-right', 'search', 'search-field', 'todo', 'todo-list', 'plate', 'dock', 'hand', 'hand-card', 'hand-fan', 'lenses', 'minimap', 'map-tools', 'notices', 'banner', 'local-play-session', 'provinces', 'proto-chip', 'proto-chip-map', 'proto-score', 'drawer']);
   const toasts = [rect(1080, 64, 348, 60), rect(1080, 132, 348, 44)];
   const withNotices = { ...page, querySelectorAll: sel => (sel === '#feed > *' ? toasts.map(r => ({ getBoundingClientRect: () => r, hidden: false, dataset: {} })) : []) };
   assert.deepEqual(noGoRects(withNotices).filter(r => r.id === 'notices'), [{ id: 'notices', x: 1080, y: 64, width: 348, height: 60 }, { id: 'notices', x: 1080, y: 132, width: 348, height: 44 }]);

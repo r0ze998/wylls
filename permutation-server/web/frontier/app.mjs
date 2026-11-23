@@ -19,6 +19,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
 import { localPlayRequested, localLauncherRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { sessionSettled } from './flocalplay-session.mjs';
 import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
 import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
@@ -41,7 +42,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
-import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile } from './map/fog.mjs';
+import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile, wideLandUnitless } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
 import { reducedMotion } from './map/camera.mjs';
@@ -896,6 +897,8 @@ function fogSurveyExtras() {
 }
 function fogUpdate() {
   const sc = scope() || null, w = FS.wallet?.address ?? null;
+  // (territory-video-2: with a village standing, a local world's 「この試験世界について」 folds to one line, once)
+  if ((FS.holdings ?? []).length > 0) sessionSettled();
   FS.fog = fogger({ active: fogActive(FS) && (FS.holdings ?? []).length > 0, survey: FS.survey, overviews: FS.overviews, wide: wideLandRaw?.land?.() ?? null,
     viewer: FS.citizen?.faction ?? null, terrainOf: terrainRef, terrainRev: terrainRef?.status?.() ?? '', relayout: landOfCells,
     // (fog-devnet: a devnet page's last-known memory is keyed by its Season account too — season + wallet)
@@ -921,7 +924,8 @@ function fogWorldPinned() {
 /** The overviews the map shows (fogged under the fog of war). */
 const shownOverviews = () => (FS.fog?.on ? FS.fog.overviews : FS.overviews);
 /** The wide land the map shows (fogged under the fog of war). */
-const shownWide = land => (FS.fog?.on ? FS.fog.wide : land);
+// (verify-pr197: a fogged page before its first village — no vision yet — shows no host and no keep being taken on it)
+const shownWide = land => (FS.fog?.on ? FS.fog.wide : fogActive(FS) ? wideLandUnitless(land) : land);
 /** The chronicle the page shows (under the fog of war: the records in sight or the viewer's own; kept per log and survey). */
 let shownLogCache = { log: null, fog: null, out: null };
 function shownChronicle() {
