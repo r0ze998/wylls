@@ -100,3 +100,16 @@ test('world goals card: without the fog every flag keep is told live (as before)
   assert.match(s, /包囲中 12 \/ 72/);
   assert.match(s, /満たすまで あと 104 ターン/);
 }));
+
+test('world goals card: before the viewer\'s first village (a fogged local page, no fog view yet) no flag keep is told but by its place', () => run(() => {
+  F.resetFogNow();
+  const FS = { mode: 'play', localPlay: { address: 'W' }, holdings: [], season: { seasonId: '11' }, pin: { programId: 'P' }, wallet: { address: 'W' }, conquest: { keeps: new Map([['-2,0', liveKeep()]]) } };
+  assert.equal(F.fogActive(FS), true);
+  const s = card(FS);
+  assert.match(s, /この州の砦は、まだ見ていません/);
+  assert.doesNotMatch(s, /持ち主 /);
+  assert.doesNotMatch(s, /包囲中/);
+  assert.doesNotMatch(s, /満たすまで/);
+  // a page without the fog (not a local test world, e.g. the sample): told live, as before
+  assert.match(card({ ...FS, localPlay: undefined }), /包囲中 12 \/ 72/);
+}));

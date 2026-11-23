@@ -11,7 +11,7 @@
 import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
-import { fogNow, viewKeeps } from '../map/fog.mjs';
+import { fogActive, fogNow, viewKeeps } from '../map/fog.mjs';
 
 /** Minutes of the chain's clock in one turn. */
 const TURN_MIN = 10;
@@ -110,10 +110,15 @@ const whyText = why => ({
  * judge's answer carries every flag keep's live holder: without this the card told what the map hides.
  */
 export function seenFlag(FS, f) {
-  if (!fogNow().on) return { ...f, seen: 'live' };
+  const hidden = { since: null, from: null, longAt: null, contender: null, progress: 0, required: 0 };
+  if (!fogNow().on) {
+    // (a fogged page before its first village — the page's fog view is made only once the viewer has one, app.mjs:
+    //  nothing is seen yet, so no flag keep is told but by its place; the fog's "show everything" switch is unaffected)
+    if (fogActive(FS) && !(FS?.holdings ?? []).length) return { ...f, ...hidden, holder: null, seen: 'never' };
+    return { ...f, seen: 'live' };
+  }
   const keeps = viewKeeps(FS?.conquest?.keeps);
   const k = keeps instanceof Map ? keeps.get(`${f.p},${f.q}`) ?? null : null;
-  const hidden = { since: null, from: null, longAt: null, contender: null, progress: 0, required: 0 };
   if (!k) return { ...f, ...hidden, holder: null, seen: 'never' };
   if (k.fog === 'memory') return { ...f, ...hidden, holder: nation(k.holder) ? k.holder : null, seen: 'memory' };
   return { ...f, seen: 'live' };
