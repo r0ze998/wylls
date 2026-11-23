@@ -12,6 +12,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land + the land preview, version 0x4804; no Free City conquest kinds since P14 b, 2026-11-22): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080, and the `operator` block read by `frontier-operator --preset S1_DEVNET_WIDE_7D` |
 | `test/dry-run.test.mjs` | 40 tests (33 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 | `test/playable-profile.test.mjs` | 10 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
+| `preflight.mjs`, `preflight-checks.mjs`, `test/preflight.test.mjs` | The **deploy-day preflight** (runbook §8 step 0): every MUST item checked read-only, one PASS / FAIL / WARN / SKIP line each with the fix; 29 tests with fakes (CI job `devnet-dry-run`) |
 | `readonly-guard.mjs`, `test/readonly-guard.test.mjs` | The loopback guard of the read-only devnet runs (B5, #123): a read-method allow-list, batches refused, devnet-only upstream with a genesis check, spacing, a hard request budget, a JSONL log; and its tests |
 
 ```sh
@@ -86,3 +87,46 @@ plus WideSetRules) is the same tool built with `--features playable-lane`; on de
 `--i-have-r0ze-approval` and `--approved-sha256` (runbook §6b).
 
 The full runbook: [`docs/frontier/devnet/DEVNET-DEPLOY-RUNBOOK.md`](../../docs/frontier/devnet/DEVNET-DEPLOY-RUNBOOK.md).
+
+## Deploy-day preflight (`preflight.mjs`)
+
+```sh
+node scripts/devnet/preflight.mjs                                   # offline: toolchain, profile, key files, the .so on disk, planner at 5,080
+node scripts/devnet/preflight.mjs --build                           # + rebuild with the profile's build script --twice (key-free)
+node scripts/devnet/preflight.mjs --rpc https://api.devnet.solana.com   # + read-only devnet checks (OFF by default; B5)
+node scripts/devnet/preflight.mjs --public-url https://<host> --services start.sh --keeper-config keeper-a/keeper.toml
+node scripts/devnet/preflight.mjs --help                            # every flag
+```
+
+**What it can never do** (pinned by `test/preflight.test.mjs`): send a transaction, sign, airdrop or spend SOL (the
+only processes it starts are `<cli> --version`, `rustup toolchain list` and, with `--build`, the profile's build script
+with `--twice`, through an allow-list; the send flags of `dry-run.mjs` are refused outright); read or create a key
+(the three deploy key files and keeper A's seed / token are `stat()`ed: present, regular, mode 600, yours, outside
+the repository — never opened); contact a cluster without `--rpc` (then only `getGenesisHash`, `getVersion`,
+`getMinimumBalanceForRentExemption`, `getMultipleAccounts`, `getBalance`, at most 8 calls 300 ms apart, mainnet /
+testnet hosts refused, and a genesis other than devnet's stops it after the first call); print a secret (RPC URLs as
+their host, env assignments in the services file by name).
+
+| Line | MUST | Checks | PASS when |
+|---|---|---|---|
+| `play-local` | 1 | — | always SKIP (manual: `scripts/play-local.sh`, then `--wide`) |
+| `tool.solana4` | 3 | `--solana4` (default `~/solana-4x/bin/solana`) `--version` | ≥ 4.0.0 (`plan.mjs` `MIN_SOLANA_CLI`) |
+| `tool.build-sbf` | 3/6 | `active_release/bin/cargo-build-sbf --version` | `3.1.9` + `platform-tools v1.52` (what `build-frontier.sh` requires) |
+| `tool.node`, `tool.cargo` | 3/6 | `node --version`, `cargo --version`, `rustup toolchain list` | node ≥ 20; toolchains 1.89.0 and 1.95.0 installed (the two `rust-toolchain.toml`) |
+| `profile.shape` | 4 | the profile | cluster devnet, lane playable, 0x4804, marker, preset, keeper A roles + rings duty = runbook §8 step 5 |
+| `profile.keys` | 4 | `programId`, `upgradeAuthority` | both filled with different 32-byte base58 addresses |
+| `keys.files` (+ `keys.dir` WARN) | 4 | `--keys-dir` (default `~/wylls-devnet-keys`) `deployer.json`, `program-playable.json`, `authority.json` | stat only: present, regular, mode 600, owned, outside the repo, three different files |
+| `so.build` | 6 | `--build`: the profile's build script `--twice` | exit 0 (else SKIP: the .so on disk is checked) |
+| `so.checks`, `so.sha256`, `so.program_hash`, `so.size` | 6 | `plan.mjs` `checkSo` on the .so | checks pass; sha256 / program_hash = `67a33c92…06b3` / `8dcaef87…74bb` (or `--expect-*`, or the profile's `program.expectedSha256` / `expectedProgramHash`); so_len ≤ cap, ProgramData ≤ 10 MiB |
+| `rpc.*` | 2/3/5 | `--rpc` only | devnet genesis; rent = a SIMD-0437 step (WARN if ≠ 5,080: the planner adds that rate); BLS + SBPF v2 active, SIMD-0500 inactive; program id free; authority ≥ 57.14 SOL (WARN), `--deployer-address` ≥ 21.93 (WARN) |
+| `plan.<rate>` | 2/5 | `plan.mjs`'s own dry run, offline, `--json` | totals and faucet request counts at 5,080 (and at `--measured-rate` / the rate read with `--rpc`) |
+| `faucet` | 5 | — | always SKIP (funding is r0ze's) |
+| `ep.tls`, `ep.hsts` (WARN), `ep.season`, `ep.game`, `ep.root` (WARN), `ep.xff`, `ep.ports` | 7/7b | `--public-url` only | https with a valid certificate (`--ca` for a test CA); `/h/season` cluster devnet + the profile's program (WARN `NoSeasonYet` before §6b); `/frontier/frontier/` is the game page; §8a: 15 `POST /gw/f/nudge {}` each with a forged `X-Forwarded-For` → 10 × non-429 then 429s; 41040/41050/41030/41033 closed on the public name (SKIP for a loopback URL) |
+| `cfg.herald`, `cfg.gateway`, `cfg.keeper` | 7b | `--services FILE` (any shell script holding the §8 step 5–7 lines), `--keeper-config FILE` | herald `--source rpc --cluster devnet --rpc-min-gap-ms 100 --poll-ms 1000`, loopback `--listen`, `--public-host`, no test flags; gateway `--public-proxy xff`, no `--dev`, `--devnet-play` + ruleset hash, pool ≥ 150, ports, and the gateway's own `loadFrontierConfig` accepts it (when its `node_modules` exist); keeper `rpc_min_gap_ms` ≥ 250, roles + rings duty = profile, api loopback, seed / token mode 600 |
+| `witness` | 8 | — | always SKIP (retention is the provider's) |
+
+Limits: the X-Forwarded-For check from ONE client cannot tell a proxy that sends no header from a right one (with
+`--public-proxy xff` both put this client into one bucket): confirm from a second outside address that it gets its own
+400s, and that the gateway log shows no growing `unattributed_client` count. Wait 20 s between two runs (the bucket
+refills at 0.5/s), or the 429s start inside the first 10.
+
