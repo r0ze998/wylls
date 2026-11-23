@@ -62,7 +62,11 @@ test('WO2 a rim village within reach claims wide land when the stores hold the s
   // a provisional first village: the claim is held (the program refuses NotFinal), the save goes on
   const prov = localCandidates(obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem()).candidates.find(x => x.kind === 'wideclaim');
   assert.match(prov.held.join(' '), /not final/);
-  assert.match(checkStep({ name: 'WideClaim', idx: 0, fields: {} }, obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem()).wait, /NotFinal/);
+  // (the flip is lazy: untouched → a touch first; the plan's front is [Harvest, WideClaim]; touched recently → wait)
+  assert.match(checkStep({ name: 'WideClaim', idx: 0, fields: {} }, obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem()).replan, /a touch first/);
+  assert.match(checkStep({ name: 'WideClaim', idx: 0, fields: {} }, obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem({ lastTouchBell: 48 })).wait, /NotFinal/);
+  assert.deepEqual(wideSteps(obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), mem()).map(s => s.name), ['Harvest', 'WideClaim']);
+  assert.deepEqual(makePlanSteps(obsOf(village({ stores: RICH }), wideLand(), { landStage: 'provisional' }), GOALS['village-first'], { mem: mem() }).slice(0, 2).map(s => s.name), ['Harvest', 'WideClaim'], 'adjacent');
   // a wide village already, or no target in reach, or the tries spent: none
   assert.match(claimNotDue(obsOf(village(), wideLand({ villages: [{ p: '-65', q: '-65', site: 2, slot: 2 }], bound: 1 })), mem()), /wide village already/);
   assert.match(claimNotDue(obsOf(village(), wideLand({ targets: [] })), mem()), /within reach/);

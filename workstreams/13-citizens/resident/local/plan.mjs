@@ -67,7 +67,8 @@ export function makePlanSteps(obs, goal, { limits = PLAN_LIMITS, mem = null } = 
   if (held(steps[0])) { const i = steps.findIndex(st => !held(st)); if (i > 0) steps.unshift(...steps.splice(i, 1)); }
   // (external-wide-orders: the wide land's steps first, each followed by two of the village's own — wideSteps)
   const front = mem ? wideSteps(obs, mem, { limits }) : [];
-  front.forEach((w, k) => steps.splice(k * 3, 0, w));
+  // (a touch before its claim stays next to it: builds between them would spend the saved cost — live run2)
+  if (front[0]?.name === 'Harvest') steps.unshift(...front); else front.forEach((w, k) => steps.splice(k * 3, 0, w));
   return steps;
 }
 
@@ -96,6 +97,8 @@ export function wideSteps(obs, mem, { limits = PLAN_LIMITS } = {}) {
   }
   if (!claimNotDue(obs, mem) && !claimSettling(obs, mem) && claimOrder(obs, mem).order) {
     const c = coverable(obs, claimCost(obs).need);
+    // (a provisional first village with the cost in the stores: the owner's touch first — the lazy final flip)
+    if (claimNotFinal(obs) && !Object.keys(c.short).length) return [step('Harvest', 'the owner\'s touch: the program flips my provisional village to final on my own next action'), step('WideClaim', `claim wide land (slot ${obs.wideLand.slot})`)];
     if (Number.isFinite(c.bells) && c.bells <= WIDE_LIMITS.savePatienceBells) return [step('WideClaim', `claim wide land (slot ${obs.wideLand.slot}): the settler cost ${Object.keys(c.short).length ? `in about ${c.bells} turn(s)` : 'is in my stores'}`)];
   }
   if (!xNot && x && x.hosts === 0 && obs.holding.tile !== undefined) {
@@ -225,7 +228,15 @@ export function checkWideStep(step, obs, mem, { patience = 36 } = {}) {
     const no = claimNotDue(obs, mem); if (no) return { replan: no };
     const settling = claimSettling(obs, mem); if (settling) return { wait: settling };
     const o = claimOrder(obs, mem); if (!o.order) return { replan: o.why };
-    const nf = claimNotFinal(obs); if (nf) return { wait: nf };
+    // (the provisional → final flip is LAZY: the program applies it in the prologue of the owner's own next action
+    //  (frontier-abi prologue.rs finality_due / apply_finality). A plan that only saves never acts, so the village never
+    //  flips — live run2, provisional 250+ turns. Not final and untouched for a while: the plan is remade with a Harvest
+    //  (the owner's touch, it spends nothing) before the claim; touched recently: wait)
+    const nf = claimNotFinal(obs);
+    if (nf) {
+      const last = Number.isInteger(mem?.lastTouchBell) ? mem.lastTouchBell : -Infinity;
+      return bell - last >= LOCAL_LIMITS.touchEveryBells ? { replan: `${nf}: a touch first (the program flips a due village to final on the owner's next action)` } : { wait: nf };
+    }
     const cost = claimCost(obs);
     if (!cost.affordable) {
       const c = coverable(obs, cost.need);
