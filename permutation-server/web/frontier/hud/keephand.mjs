@@ -35,6 +35,7 @@ import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
 import { formingLine } from './firststeps.mjs';
 import { contestableKeeps, defendableKeeps } from '../fkeepreach.mjs';
 import { fogNow } from '../map/fog.mjs';
+import { turnsLine } from '../seasonterms.mjs';
 
 const int = Number.isInteger;
 const nation = f => int(f) && f >= 0 && f <= 5;
@@ -332,6 +333,6 @@ export function renderKeepsPop(FS, model, { head }) {
   return html`${head(L`砦へ進軍`, sub)}
     ${body}
     <div class="kh-wait-slot">${km.wait ? waitLine(km.wait) : ''}<div class="kh-wait-ghost" aria-hidden="true" inert>${waitLine({ why: 'settling', turn: FS.nowBell ?? 0, nudge: true }, true)}</div></div>
-    <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
+    <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン（${turnsLine(holdTurns(FS))}）続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
     <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の物見櫓で減る兵（最大 30%）は含みません。`}</p>`;
 }
