@@ -1,6 +1,6 @@
 # scripts/devnet: the devnet dry run (DRAFT, 2026-11-18)
 
-**Nothing here has been deployed or sent.** The dry run checks the deployable `permutation-frontier` `.so`, computes
+**The PLAYABLE profile (`devnet-playable-profile.json`) is deployed on devnet since 2026-11-23 (devnet-deploy-2); the S1 profile (`devnet-profile.json`) is not.** The dry run checks the deployable `permutation-frontier` `.so`, computes
 what a devnet deploy and one season cost in SOL, and prints the plan and the exact commands. It sends nothing unless
 its gate is open, and only r0ze opens it.
 

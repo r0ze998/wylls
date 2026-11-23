@@ -1,6 +1,11 @@
 # Devnet deploy runbook for permutation-frontier (DRAFT, 2026-11-18)
 
-> **Status: not run. Nothing has been deployed, funded, airdropped or read on devnet.** Every step marked
+> **Status (2026-11-23): the PLAYABLE lane is deployed on devnet** — program `GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr`,
+> upgrade authority `7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA`, slot 525,401,809, `.so` sha256 `67a33c92…06b3`
+> (§5; `scripts/devnet/devnet-playable-profile.json`). The S1 profile (`devnet-profile.json`) is still not deployed. The
+> public play URL of that run is a Cloudflare **quick tunnel** (`*.trycloudflare.com`, no account): its name changes
+> whenever cloudflared restarts (or the Mac reboots), so the herald's public host must be updated then, and no doc or
+> profile should pin it; a stable name needs a named tunnel (a Cloudflare account, r0ze). Every step marked
 > **[r0ze]** needs r0ze's confirmation at the time it runs (owner rule, 2026-11-18 14:42 JST). This runbook only
 > covers getting the program onto devnet, the season setup (§6, `frontier-operator`, tested on a local chain
 > only) and the services that would follow (§7, blocked on missing code). It builds on [`../m1/PLAYTEST-RUNBOOK.md`](../m1/PLAYTEST-RUNBOOK.md) and
