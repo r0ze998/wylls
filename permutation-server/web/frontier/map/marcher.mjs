@@ -67,3 +67,31 @@ export function paintMarcher(g, spot, { zoom = 1, faction = 0, unit = 0, now = 0
   const s = Math.max(MARCHER.miniUnit, MARCHER.miniMinPx / zoom), kind = MINI_KINDS[unit] ?? MINI_KINDS[0];
   return paintMini(g, spot.x, spot.y, s, kind, { faction, face: spot.face, walking: go, step: go ? t * MARCHER.miniPace + spot.i * 0.37 : 0, shade: MARCHER.shade, own: true });
 }
+
+/**
+ * (territory-video-2) Where a march's column stands aside so it does not stand in another's heap: `heads` the column
+ * heads already placed this frame (world px; this one is added), `at` this column's head, `path`/`k` its road and how far
+ * along. A head within a figure's width of an earlier one steps across its road (the normal of the road there) by a
+ * figure's width per column already there, alternating sides. → `{dx, dy}` world px (0, 0 when it stands clear).
+ */
+export function columnLane(heads, at, { zoom = 1, path = null, k = 0 } = {}) {
+  const w = Math.max(MARCHER.unit * 0.9, (MARCHER.minPx * 0.62) / Math.max(zoom, 1e-9));
+  const near = heads.filter(h => Math.hypot(h.x - at.x, h.y - at.y) < w).length;
+  let dx = 0, dy = 0;
+  if (near > 0) {
+    const a = pathAt(path, Math.max(0, k - 0.01)), b = pathAt(path, Math.min(1, k + 0.01));
+    let tx = b && a ? b.x - a.x : 1, ty = b && a ? b.y - a.y : 0;
+    const len = Math.hypot(tx, ty) || 1; tx /= len; ty /= len;
+    const side = near % 2 ? 1 : -1, step = Math.ceil(near / 2) * w;
+    dx = -ty * step * side; dy = tx * step * side;
+  }
+  // (kept where the road has it, not where it stepped to: the next column at the same place counts it)
+  heads.push({ x: at.x, y: at.y });
+  return { dx, dy };
+}
+
+/** (territory-video-2) A marching figure's box about its foot (world px at `zoom`): what the words keep clear of. */
+export function marcherBox(spot, zoom = 1) {
+  const h = spot.kind === 'lead' ? marcherTop(zoom, true) : marcherTop(zoom, false), w = h * 0.55;
+  return { x: spot.x - w / 2, y: spot.y - h, w, h };
+}

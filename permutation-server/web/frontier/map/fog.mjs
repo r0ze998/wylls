@@ -278,7 +278,12 @@ export function fogWideLand(land, { survey, mem = null, viewer = null, relayout 
     const snap = { h: holder, v: [...vs].sort((a, b) => a[0] - b[0]) };
     if (mem && inSight && JSON.stringify(snap) !== JSON.stringify(old)) mem.put(pk, snap);
     const villages = snap.v.map(([site, n]) => ({ site, nation: n }));
-    cells.push({ ...c, holder, villages, holdings: villages.length, fog: inSight ? 'sight' : 'memory' });
+    // (territory-video-2: the keep and the hosts standing on the land, map/widemarks.mjs. The keep's tile is the land's
+    //  own (it does not move); its holder is the one remembered and a contest is seen only in sight. A host is seen on a
+    //  tile in sight, or when it is the viewer's nation's own)
+    const keep = c.keep ? (inSight && seen(c.keep.tile) ? c.keep : { tile: c.keep.tile, holder, contender: null, progress: 0, required: c.keep.required, troops: null }) : null;
+    const hosts = inSight ? (c.hosts ?? []).filter(h => (nation(viewer) && h.faction === viewer) || seen(h.tile)) : (c.hosts ?? []).filter(h => nation(viewer) && h.faction === viewer);
+    cells.push({ ...c, holder, villages, holdings: villages.length, keep, hosts, fog: inSight ? 'sight' : 'memory' });
   }
   const out = relayout ? relayout(cells, land) : { ...land, cells, byKey: new Map(cells.map(c => [c.key, c])), count: cells.length };
   return Object.freeze({ ...out, key: `${land.key}|fog:${survey.rev ?? 0}:${cells.length}` });
