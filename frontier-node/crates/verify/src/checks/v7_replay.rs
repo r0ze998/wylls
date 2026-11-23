@@ -312,6 +312,9 @@ fn clashes_and_skips(cx: &mut Ctx) {
     let w = cx.w;
     let f = cx.f;
     let builder = ContractBuilder;
+    // verifier-v7-patches: the Province and ClashInputs before a CLASH or
+    // SKIP are the later of the archived post-state and a declared patch.
+    let pre = cx.before();
     let mut next: HashMap<(i32, i32), u32> = HashMap::new();
     // Every REVEAL of the run, first record per ArrivalSlot (integ-W6t: a
     // pre-pass, not only the reveals before the SKIP). The program refuses
@@ -336,6 +339,8 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 let (p, q) = r.pq();
                 let b = r.ku32("bell");
                 let what = format!("clash ({p}, {q}) bell {b}");
+                pre.reset();
+                let mark = cx.findings.len();
                 let want = next.get(&(p, q)).copied();
                 if want != Some(b) {
                     cx.fail(
@@ -350,8 +355,8 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 next.insert((p, q), b + 1);
                 let pk = f.ctx.province(p, q);
                 let (Some(pv), Some(ci)) = (
-                    w.state_before(&pk, r.tx),
-                    w.state_before(&f.ctx.clash_inputs(p, q, b), r.tx),
+                    pre.data(&pk, r.tx),
+                    pre.data(&f.ctx.clash_inputs(p, q, b), r.tx),
                 ) else {
                     cx.missing(V, what, b, Some(r.tx), "no post-states of the Province or the ClashInputs (an archive with post-states is needed)");
                     continue;
@@ -363,7 +368,8 @@ fn clashes_and_skips(cx: &mut Ctx) {
                 // A conquest season's Province is the v2 layout (R-22): the
                 // program's v2 resolve path (`crate::clash_v2`).
                 if let Some(prm) = cx.f.step_params().filter(|_| cx.v3) {
-                    clash_v2(cx, r, what, (p, q), b, pv, ci, &seed, &prm);
+                    clash_v2(cx, r, what.clone(), (p, q), b, pv, ci, &seed, &prm);
+                    cx.declared_pass(V, &pre, mark, what, b, Some(r.tx));
                     continue;
                 }
                 // v1.6 §22: the CLASH input digest (integ-W4 review: pinned,
@@ -447,18 +453,21 @@ fn clashes_and_skips(cx: &mut Ctx) {
                         cx.fail(
                             V,
                             CLASH_REPLAY_MISMATCH,
-                            what,
+                            what.clone(),
                             b,
                             Some(r.tx),
                             "the Province is not resolved through the bell after its CLASH",
                         );
                     }
                 }
+                cx.declared_pass(V, &pre, mark, what, b, Some(r.tx));
             }
             Kind::SKIP => {
                 let (p, q) = r.pq();
                 let (b0, k) = (r.pu32("b0"), r.pu8("n") as u32);
                 let what = format!("skip ({p}, {q}) bells {b0}..{}", b0 + k);
+                pre.reset();
+                let mark = cx.findings.len();
                 let want = next.get(&(p, q)).copied();
                 if want != Some(b0) || k == 0 {
                     cx.fail(
@@ -487,7 +496,7 @@ fn clashes_and_skips(cx: &mut Ctx) {
                         );
                     }
                 }
-                let Some(pv) = w.state_before(&f.ctx.province(p, q), r.tx) else {
+                let Some(pv) = pre.data(&f.ctx.province(p, q), r.tx) else {
                     cx.missing(
                         V,
                         what,
@@ -578,7 +587,7 @@ fn clashes_and_skips(cx: &mut Ctx) {
                                 cx.fail(
                                     V,
                                     CLASH_REPLAY_MISMATCH,
-                                    what,
+                                    what.clone(),
                                     b0,
                                     Some(r.tx),
                                     format!("skip write-back: the Province written differs from the bell-by-bell replay (first at byte {at})"),
@@ -589,12 +598,13 @@ fn clashes_and_skips(cx: &mut Ctx) {
                     Err((b, why)) => cx.fail(
                         V,
                         SKIP_NOT_QUIET,
-                        what,
+                        what.clone(),
                         b,
                         Some(r.tx),
                         format!("bell {b} of the run is not quiet: {why}"),
                     ),
                 }
+                cx.declared_pass(V, &pre, mark, what, b0, Some(r.tx));
             }
             _ => {}
         }
@@ -744,6 +754,9 @@ fn settle_dest(cx: &Ctx, tx: usize) -> Option<SettleDest> {
 fn transits(cx: &mut Ctx) {
     let w = cx.w;
     let f = cx.f;
+    // verifier-v7-patches: the destination's ClashInputs before the
+    // SettleTransit (archived or declared, the later).
+    let pre = cx.before();
     for (n, r) in w
         .recs
         .iter()
@@ -762,6 +775,8 @@ fn transits(cx: &mut Ctx) {
         }
         let host = r.ku64("host_id");
         let what = format!("transit of host {host}");
+        pre.reset();
+        let mark = cx.findings.len();
         let (outcome, code) = (r.pu8("outcome"), r.pu8("seal_code"));
         let Some(d) = f.depart_of(w, host, n, None) else {
             cx.fail(
@@ -788,8 +803,8 @@ fn transits(cx: &mut Ctx) {
                 );
                 continue;
             };
-            let inputs = w
-                .state_before(&ck, r.tx)
+            let inputs = pre
+                .data(&ck, r.tx)
                 .and_then(|x| fclient::decode::ClashInputs::decode(x).ok())
                 .filter(|c| c.flags & CI::FLAG_RESOLVED != 0 && c.bell == arrive);
             match inputs {
@@ -863,7 +878,7 @@ fn transits(cx: &mut Ctx) {
             cx.fail(
                 V,
                 TRANSIT_OUTCOME_MISMATCH,
-                what,
+                what.clone(),
                 arrive,
                 Some(r.tx),
                 format!(
@@ -872,6 +887,7 @@ fn transits(cx: &mut Ctx) {
                 ),
             );
         }
+        cx.declared_pass(V, &pre, mark, what, arrive, Some(r.tx));
     }
 }
 
@@ -969,6 +985,10 @@ fn continuity(cx: &mut Ctx) {
     ];
     let mut bad: Vec<ContinuityFinding> = vec![];
     let pv = f.params.as_ref().map(|p| p.program_version);
+    // verifier-v7-patches: the Holding (and the founding's Province, a
+    // settlement's Caravan) before the write: archived or declared, the
+    // later; a write judged from a declared state is never a PASS.
+    let pre = cx.before();
     for (t, tx) in w.txs.iter().enumerate() {
         if !tx.ok {
             continue;
@@ -993,6 +1013,8 @@ fn continuity(cx: &mut Ctx) {
             if writes(&owner) {
                 continue;
             }
+            pre.reset();
+            let judged_from = bad.len();
             let pqs = (
                 le(&post[H::P..H::P + 2]) as u16 as i16 as i32,
                 le(&post[H::Q..H::Q + 2]) as u16 as i16 as i32,
@@ -1046,7 +1068,7 @@ fn continuity(cx: &mut Ctx) {
                 // the transaction leaves it; the terrain never changes).
                 let ore = if cx.s1 {
                     let pk = f.ctx.province(pqs.0, pqs.1);
-                    match tx.post_data(&pk).or_else(|| w.state_before(&pk, t)) {
+                    match tx.post_data(&pk).or_else(|| pre.data(&pk, t)) {
                         Some(pd) => hr::site_terrain_ore(pd, post[H::TILE]).ok(),
                         None => None,
                     }
@@ -1079,7 +1101,7 @@ fn continuity(cx: &mut Ctx) {
                 }
                 ("the founding SETTLE", want)
             } else {
-                let Some(before) = w.state_before(k, t) else {
+                let Some(before) = pre.data(k, t) else {
                     // Workstream 11 (patch 0003): a Holding written with no
                     // earlier post-state of it (an archive with a gap) is
                     // not judged: UNVERIFIABLE, not a silent pass.
@@ -1104,7 +1126,7 @@ fn continuity(cx: &mut Ctx) {
                         "a DeclareSiege's source (the touch and the stake)",
                         hr::touched_paid(before, tx.time, &stake),
                     )
-                } else if let Some((what, want)) = caravan_holding_write(w, tx, t, k, before) {
+                } else if let Some((what, want)) = caravan_holding_write(&pre, tx, t, k, before) {
                     // S1 1b/1d: BuildVault, BuildStructure and a caravan's holding source pay
                     // after an owner touch; a delivery settles and credits.
                     (what, want)
@@ -1169,6 +1191,15 @@ fn continuity(cx: &mut Ctx) {
                 }
                 Err(e) => bad.push((t, pqs, bell, format!("{what}: the kernel refuses: {e}"))),
             }
+            if pre.read_declared() && bad.len() == judged_from {
+                cx.missing(
+                    V,
+                    format!("holding ({}, {}, {})", pqs.0, pqs.1, pqs.2),
+                    bell,
+                    Some(t),
+                    super::FROM_DECLARED,
+                );
+            }
         }
     }
     for (t, (p, q, s), bell, detail) in bad {
@@ -1188,7 +1219,7 @@ fn continuity(cx: &mut Ctx) {
 /// Citizen's state before the transaction; `None` when no FileOutpost of
 /// the transaction anchors on `k`.
 fn outpost_anchor_holdings(
-    w: &crate::world::World,
+    pre: &super::Before,
     tx: &crate::world::Tx,
     t: usize,
     k: &[u8; 32],
@@ -1200,7 +1231,7 @@ fn outpost_anchor_holdings(
         .filter(|i| i.tag() == Some(tag))
         .find(|i| i.account("anchor_holding").as_ref() == Some(k))
         .and_then(|i| i.account("citizen"))
-        .and_then(|c| w.state_before(&c, t).map(|d| d.to_vec()))
+        .and_then(|c| pre.data(&c, t).map(|d| d.to_vec()))
         .filter(|d| d.len() == C::SIZE)
         .map(|d| d[C::HOLDINGS_N])
 }
@@ -1235,7 +1266,7 @@ fn siege_source_stake(f: &Facts, tx: &crate::world::Tx, k: &[u8; 32]) -> Option<
 /// payment), a SettleCaravan's delivery to it (a settle and the credit; a
 /// lost delivery writes nothing). `None` when none of them writes `k`.
 fn caravan_holding_write(
-    w: &crate::world::World,
+    pre: &super::Before,
     tx: &crate::world::Tx,
     t: usize,
     k: &[u8; 32],
@@ -1282,7 +1313,7 @@ fn caravan_holding_write(
             ));
         }
         if tag == Some(V2::SettleCaravan.tag()) && ix.account("dst").as_ref() == Some(k) {
-            let Some(cd) = ix.account("caravan").and_then(|c| w.state_before(&c, t)) else {
+            let Some(cd) = ix.account("caravan").and_then(|c| pre.data(&c, t)) else {
                 return Some((
                     "a SettleCaravan's destination",
                     Err("no state of the Caravan before the settlement".into()),
@@ -1396,6 +1427,11 @@ fn owner_actions(cx: &mut Ctx) {
             );
             continue;
         }
+        // verifier-v7-patches (D-dress-7): the Holding (its Province, a
+        // FileOutpost's Citizen) before the owner action is the later of
+        // the archived post-state and a declared patch; a replay that read
+        // a declared state and agrees is never a PASS.
+        let pre = cx.before();
         let mut hstate: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
         let mut pstate: BTreeMap<[u8; 32], (Vec<u8>, usize)> = BTreeMap::new();
         let mut skip: std::collections::BTreeSet<[u8; 32]> = Default::default();
@@ -1441,7 +1477,7 @@ fn owner_actions(cx: &mut Ctx) {
                         n: b.n,
                     })
                 }
-                Some(x) if x == outpost => outpost_anchor_holdings(w, tx, t, &hk)
+                Some(x) if x == outpost => outpost_anchor_holdings(&pre, tx, t, &hk)
                     .map(|holdings_n| Action::OutpostAnchor { holdings_n }),
                 _ => None,
             };
@@ -1460,7 +1496,7 @@ fn owner_actions(cx: &mut Ctx) {
             }
             let mut before = match hstate.get(&hk) {
                 Some(d) => d.clone(),
-                None => match w.state_before(&hk, t) {
+                None => match pre.data(&hk, t) {
                     Some(d) => d.to_vec(),
                     None => {
                         cx.missing(
@@ -1500,7 +1536,7 @@ fn owner_actions(cx: &mut Ctx) {
                 let pk = f.ctx.province(p, q);
                 let prov = match pstate.get(&pk) {
                     Some((d, _)) => Some(d.clone()),
-                    None => w.state_before(&pk, t).map(|d| d.to_vec()),
+                    None => pre.data(&pk, t).map(|d| d.to_vec()),
                 };
                 if tx.time >= final_ts
                     && prov.is_some_and(|d| {
@@ -1527,7 +1563,7 @@ fn owner_actions(cx: &mut Ctx) {
                         let pk = f.ctx.province(p, q);
                         let cur = match pstate.get(&pk) {
                             Some((d, _)) => Some(d.clone()),
-                            None => w.state_before(&pk, t).map(|d| d.to_vec()),
+                            None => pre.data(&pk, t).map(|d| d.to_vec()),
                         };
                         match cur.and_then(|d| hr::wall_item(&d, site as usize, item)) {
                             Some(d) => {
@@ -1599,6 +1635,9 @@ fn owner_actions(cx: &mut Ctx) {
                 Some(t),
                 "another instruction of the transaction also writes the Holding: the owner action is not replayed",
             );
+        }
+        if bad.is_empty() && pre.read_declared() {
+            cx.missing(V, what0, first.bell, Some(t), super::FROM_DECLARED);
         }
         for (n, detail) in bad {
             let r = &w.recs[n];

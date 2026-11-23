@@ -3452,7 +3452,9 @@ fn explained(f: &Finding) -> bool {
         }
         "V4" => d.contains("THE anchor"),
         "V11" => d.contains("no seed of ring 128"),
-        _ => false,
+        // verifier-v7-patches: a judgement of any check that read a
+        // declared state (World::state_before) and agreed
+        _ => d.contains("only declares"),
     }
 }
 

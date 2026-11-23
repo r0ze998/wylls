@@ -113,67 +113,25 @@ pub fn terrain_digest(t: &ProvinceTerrain) -> [u8; 32] {
     sha256(&[TERRAIN_DOMAIN, &d[PV::TERRAIN..PV::SITE_MIRROR]])
 }
 
-/// V11's reader of the states before a transaction: the last archived
-/// post-state or the recorder's declared patch in force
-/// (`Input::declared`), whichever is later — the rule of
-/// `vx_reexec::before` and VWL's `acct_before` (verifier-v11-patches:
-/// V11 read only archived post-states and FAILed an honest rim FileTicket
-/// whose Frontier patch, `r_max_ext 128`, no archived write had carried
-/// forward yet; D-verify-pr166-5). A judgement that read a declared state
-/// is never a PASS ([`Before::soften`]): `MissingData`, as VWL rules. A
-/// FAIL stays a FAIL: the program ran on the declared state, so an
-/// honest archive's declared state can never contradict a success.
-struct Before<'a> {
-    w: &'a crate::world::World,
-    declared: &'a [crate::input::Declared],
-    read_declared: std::cell::Cell<bool>,
-}
+/// V11 reads the states before a transaction through the checks' shared
+/// [`Before`] (verifier-v11-patches: V11 read only archived post-states and
+/// FAILed an honest rim FileTicket whose Frontier patch, `r_max_ext 128`,
+/// no archived write had carried forward yet; D-verify-pr166-5).
+use super::Before;
 
-impl<'a> Before<'a> {
-    fn new(cx: &Ctx<'a>) -> Self {
-        let input = cx.input;
-        Before {
-            w: cx.w,
-            declared: &input.declared,
-            read_declared: std::cell::Cell::new(false),
-        }
-    }
-
-    /// The data of `k` before transaction `tx` (`None`: absent or unknown).
-    fn data(&self, k: &Key, tx: usize) -> Option<&'a [u8]> {
-        let posted = self.w.posts.get(k).and_then(|v| {
-            let i = v.partition_point(|&t| t < tx);
-            i.checked_sub(1).and_then(|i| v.get(i)).copied()
-        });
-        // (a patch made after the last write, before this transaction)
-        let decl = self
-            .declared
-            .iter()
-            .rfind(|d| d.key == *k && d.at <= tx)
-            .filter(|d| posted.is_none_or(|t| d.at > t));
-        if let Some(d) = decl {
-            self.read_declared.set(true);
-            return d.account.as_ref().map(|a| a.data.as_slice());
-        }
-        self.w.state_before(k, tx)
-    }
-
-    /// A judgement's verdict once its states are known: a PASS from a
-    /// declared state is `MissingData`.
-    fn soften(&self, j: Judgement) -> Judgement {
-        match j {
-            Judgement::Pass if self.read_declared.get() => Judgement::Missing(
-                "judged exactly, but from a state the archive only declares (a recorder's patch, not an archived transaction's write)".into(),
-            ),
-            j => j,
-        }
+/// A judgement's verdict once its states are known: a PASS from a declared
+/// state is `MissingData`.
+fn soften(pre: &Before, j: Judgement) -> Judgement {
+    match j {
+        Judgement::Pass if pre.read_declared() => Judgement::Missing(super::FROM_DECLARED.into()),
+        j => j,
     }
 }
 
 /// A check of record `r` that passed: `MissingData` if it read a declared
-/// state ([`Before::soften`]).
+/// state ([`soften`]).
 fn declared_pass(cx: &mut Ctx, pre: &Before, what: String, r: &crate::world::Rec) {
-    if let Judgement::Missing(why) = pre.soften(Judgement::Pass) {
+    if let Judgement::Missing(why) = soften(pre, Judgement::Pass) {
         cx.missing(V, what, r.bell, Some(r.tx), why);
     }
 }
@@ -298,7 +256,7 @@ pub fn run(cx: &mut Ctx) {
         let (p, q) = r.pq();
         let what = format!("camp ({p}, {q})");
         let pk = f.ctx.province(p, q);
-        let pre = Before::new(cx);
+        let pre = cx.before();
         let Some(before) = pre.data(&pk, r.tx) else {
             cx.missing(
                 V,
@@ -539,7 +497,7 @@ fn settle(
     // earlier ticket cohort of the same Province is open (filed > settled,
     // within its 24 bells), as the Province stood before.
     if outcome == settle_outcome::FRESH && r.bell != NO_BELL {
-        let pre = Before::new(cx);
+        let pre = cx.before();
         if let Some(pv) = pre
             .data(&f.ctx.province(p, q), r.tx)
             .and_then(|d| fclient::decode::Province::decode(d).ok())
@@ -678,7 +636,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
     let tx = &w.txs[r.tx];
     let (p, q, site) = r.pqs();
     let what = format!("home ({p}, {q}, {site})");
-    let pre = Before::new(cx);
+    let pre = cx.before();
     let check = || -> Result<bool, String> {
         let ix = tx
             .ix(Ix::PlaceHome.tag())
@@ -830,7 +788,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
         ),
         Err(e) => Judgement::Missing(e),
     };
-    match pre.soften(judged) {
+    match soften(&pre, judged) {
         Judgement::Pass => {}
         Judgement::Fail(why) => cx.fail(V, HOME_PLACEMENT_MISMATCH, what, r.bell, Some(r.tx), why),
         Judgement::Missing(why) => cx.missing(V, what, r.bell, Some(r.tx), why),
@@ -1207,7 +1165,7 @@ fn filed_ticket(cx: &mut Ctx, r: &crate::world::Rec) {
         .iter()
         .filter(|&&n| w.recs[n].kind == Kind::TICKET && w.recs[n].k("citizen_tag15") == &tag15[..])
         .count();
-    let pre = Before::new(cx);
+    let pre = cx.before();
     let judged = (|| -> Judgement {
         let ix = match route_ticket(&tx.ixs, &ck, &f.ctx.frontier(), n_records) {
             TicketRoute::Isolated(ix) => ix,
@@ -1238,7 +1196,7 @@ fn filed_ticket(cx: &mut Ctx, r: &crate::world::Rec) {
             sites: r.p("sites"),
         })
     })();
-    match pre.soften(judged) {
+    match soften(&pre, judged) {
         Judgement::Pass => {}
         Judgement::Fail(why) => {
             cx.fail(V, TICKET_PLACEMENT_MISMATCH, what, r.bell, Some(r.tx), why)
