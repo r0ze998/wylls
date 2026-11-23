@@ -26,7 +26,7 @@ import { LAYOUTS } from '../client/src/frontier/abi-v2-layouts.mjs';
 import { excludeIx, PRIZE_ERRORS } from '../client/src/frontier/prize.mjs';
 import {
   achieveIx, buyPassIx, decodeGoal, decodeGoalPool, decodePass, goalAddress, goalClaimIx, goalPoolAddresses, goalShares, goalSweepIx,
-  goalWithdrawOpsIx, initGoalPoolIx, passAddress, postGoalIx, RECOMMENDED, setGoalSharesIx,
+  goalWithdrawOpsIx, initGoalPoolIx, passAddress, postGoalIx, receiptAddress, RECOMMENDED, setGoalSharesIx,
 } from '../client/src/frontier/goal-prize.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -241,6 +241,9 @@ async function main() {
   await rpc('frontier_setScale', [100]);
   await sleep(600);
   await writeKeeps(await bellNow());
+  // verify-pr202 adversarial (SBF): the goal pool in the goal's seat (both 448 B), and the flags out of posted order.
+  await refused([achieveIx({ gp, goal: gp.gpool, season: fa.season, provinces })], [c.kp], 'Achieve with the goal pool as the goal', 'BadAccount');
+  await refused([achieveIx({ gp, goal, season: fa.season, provinces: [provinces[1], provinces[0], ...provinces.slice(2)] })], [c.kp], 'Achieve with the flags out of order', 'BadAccount');
   await ok([achieveIx({ gp, goal, season: fa.season, provinces })], [c.kp], 'Achieve (6 flag provinces)');
   const g = decodeGoal(await data(goal));
   check('the on-chain judge names nation 2 at the third keep\'s hold bell', g.state === 2 && g.winnersMask === 1 << NATION && g.achievedBell === target,
@@ -277,7 +280,16 @@ async function main() {
   await refused([claim(d, NATION, 5n)], [d.kp], 'd (joined less than 144 bells before)', 'MemberTooRecent');
   await refused([claim(f, NATION, 5n)], [f.kp], 'f (no pass)', 'PassNotValid');
   await refused([claim(e, NATION, 20n)], [e.kp], 'e (the operator\'s AI resident)', 'OperatorMember');
+  // verify-pr202 adversarial (SBF): e dodges its operator-member mark with a's (empty) exclusion address.
+  const dodge = claim(e, NATION, 20n);
+  dodge.keys[6] = { ...dodge.keys[6], pubkey: claim(a, NATION, 30n).keys[6].pubkey };
+  await refused([dodge], [e.kp], 'e with a swapped exclusion account', 'BadAccount');
+  // verify-pr202 adversarial (SBF): a griefer pre-funds b's receipt PDA; b's claim must still land, once.
+  const rb = receiptAddress(prizeId, goal, b.wallet);
+  const grief = await send([SystemProgram.transfer({ fromPubkey: c.kp.publicKey, toPubkey: new PublicKey(rb), lamports: 1_000_000 })], [c.kp]);
+  check('a griefer pre-funded b\'s receipt PDA', !grief.err, JSON.stringify(grief.err));
   await ok([claim(b, NATION, 10n, shares.proofs.get(b.wallet))], [b.kp], 'GoalClaim b');
+  await refused([claim(b, NATION, 10n, shares.proofs.get(b.wallet))], [b.kp], 'a second claim by b (pre-funded receipt)', 'AlreadyClaimed');
 
   // 7. The claim window ends; the unclaimed rest returns to hegemony.
   await refused([goalSweepIx({ gp, goal })], [c.kp], 'GoalSweep inside the claim window', 'ClaimWindowOpen');
@@ -295,6 +307,9 @@ async function main() {
 
   // 8. The operator's part, then every token.
   const opsTo = await tokenAccount(operator, new PublicKey(mint), operator.publicKey, 0n);
+  // verify-pr202 adversarial (SBF): a stranger in the operator's seat cannot take the operator's part.
+  const cTo = await tokenAccount(operator, new PublicKey(mint), c.kp.publicKey, 0n);
+  await refused([goalWithdrawOpsIx({ gp, operator: c.wallet, dest: cTo })], [c.kp], 'GoalWithdrawOps by a stranger', 'NotOperator');
   await ok([goalWithdrawOpsIx({ gp, operator: operator.publicKey.toBase58(), dest: opsTo })], [operator], 'GoalWithdrawOps');
   check('the operator took 20 % of 5 passes', (await tokenBal(opsTo)) === 25_000_000n, String(await tokenBal(opsTo)));
   const fin = decodeGoalPool(await data(gp.gpool));

@@ -100,9 +100,9 @@ receipt rent, as in Jito's distributor.
 | Suite | What | Where it runs |
 |---|---|---|
 | `cargo test --features goals` (permutation-prize) | layouts; init params; fee split into kinds; pass renew/lapse; the flag judge (ties, lag, overflow); payout; data builders | CI `prize-program` (add `--features goals`, see the PR) |
-| `workstreams/04-execution/e2e-native/tests/chain_goals.rs` | the program's own code on the host: passes, PostGoal, Achieve, shares, claims with every refusal, sweep, ops, attested kinds (dispute, void, return, tie), retire, legal gate | CI `exec-native` (key-free) |
+| `workstreams/04-execution/e2e-native/tests/chain_goals.rs` | the program's own code on the host: passes, PostGoal, Achieve, shares, claims with every refusal, sweep, ops, attested kinds (dispute, void, return, tie), retire, legal gate; verify-pr202 adversarial cases (type confusion, substituted provinces, stranger as operator, pre-funded PDAs, swapped pass/exclusion, fake mint, a ledger whose totals undercount its leaves) | CI `exec-native` (key-free) |
 | `permutation-gateway/test/frontier-goal-prize.test.mjs` | SDK addresses against web3.js, instruction bytes, decoders, `goalShares` eligibility and split | local (`node-key-tests.txt`) |
-| `permutation-gateway/scripts/goal-prize-localnet-e2e.mjs` | the SBF `--features goals` build on frontier-localnet, real signed transactions, 37 checks, compute units | local (needs the `.so` and `frontier-localnet`) |
+| `permutation-gateway/scripts/goal-prize-localnet-e2e.mjs` | the SBF `--features goals` build on frontier-localnet, real signed transactions, 43 checks (6 adversarial from verify-pr202: goal pool as goal, flags out of order, swapped exclusion, pre-funded receipt PDA, second claim, stranger as operator), compute units | local (needs the `.so` and `frontier-localnet`) |
 
 ## 6. Not done here
 

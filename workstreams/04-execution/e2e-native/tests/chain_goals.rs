@@ -923,3 +923,226 @@ fn only_test_assets_in_a_continuous_world() {
     fails(init(&mut w, MINT, &bad), E::BadParams);
     init(&mut w, MINT, &params()).unwrap();
 }
+
+/// A claim with every account given by hand (the adversarial cases below
+/// swap one at a time).
+#[allow(clippy::too_many_arguments)]
+fn claim_raw(
+    w: &mut World,
+    goal: Pubkey,
+    wallet: Pubkey,
+    pass: Pubkey,
+    excl: Pubkey,
+    citizen: Pubkey,
+    to: Pubkey,
+    mint: Pubkey,
+    nation: u8,
+    points: u64,
+    proof: &[[u8; 32]],
+) -> Result<(), String> {
+    let mut d = vec![tag::GOAL_CLAIM];
+    d.extend_from_slice(&goals::claim_data(nation, points, proof));
+    let receipt = goals::receipt_address(&w.h.prize, &goal, &wallet).0;
+    let i = ix(
+        w,
+        vec![
+            AccountMeta::new(wallet, true),
+            AccountMeta::new(goal, false),
+            AccountMeta::new(w.gpool, false),
+            AccountMeta::new_readonly(pass, false),
+            AccountMeta::new(receipt, false),
+            AccountMeta::new_readonly(citizen, false),
+            AccountMeta::new_readonly(excl, false),
+            AccountMeta::new(w.vault, false),
+            AccountMeta::new(to, false),
+            AccountMeta::new_readonly(mint, false),
+            AccountMeta::new_readonly(TOKEN, false),
+            AccountMeta::new_readonly(SYSTEM, false),
+        ],
+        d,
+    );
+    w.h.send(&[i], &[wallet])
+}
+
+/// verify-pr202 (independent verification): adversarial cases the author's
+/// suite does not cover — account type confusion (the goal pool and a goal
+/// are both 448 B), substituted flag provinces, a stranger in the operator's
+/// seat, griefers pre-funding the receipt and pass PDAs, swapped pass and
+/// exclusion accounts, a fake mint, and a dishonest ledger whose totals are
+/// smaller than its leaves (the program must still never pay more than the
+/// goal's payout, so no other goal's or kind's money can leave the vault).
+#[test]
+fn adversarial_accounts_and_ledgers_are_refused() {
+    let mut w = world();
+    init(&mut w, MINT, &params()).unwrap();
+    let a = member(&mut w, 11, 2, 0);
+    let b = member(&mut w, 12, 2, 0);
+    let z = member(&mut w, 19, 2, 0);
+    let e = member(&mut w, 15, 2, 0);
+    // A griefer pre-funds a's pass PDA: BuyPass still creates it.
+    let pa = pass_of(&w, &a.wallet);
+    w.h.fund(pa, 5_000);
+    for who in [&a, &b, &z] {
+        buy_pass(&mut w, &who.wallet, &who.token).unwrap();
+    }
+    assert_eq!(&data(&w, &pa)[..8], &goals::pass::MAGIC);
+    // The operator AI resident with a swapped (empty) exclusion account.
+    exclude(&mut w, &e.wallet).unwrap();
+    let i = ix(
+        &w,
+        vec![
+            AccountMeta::new_readonly(e.wallet, true),
+            AccountMeta::new(e.wallet, true),
+            AccountMeta::new(w.gpool, false),
+            AccountMeta::new(pass_of(&w, &e.wallet), false),
+            AccountMeta::new(e.token, false),
+            AccountMeta::new(w.vault, false),
+            AccountMeta::new_readonly(w.mint, false),
+            AccountMeta::new_readonly(TOKEN, false),
+            AccountMeta::new_readonly(SYSTEM, false),
+            AccountMeta::new_readonly(exclusion(&w, &a.wallet), false),
+        ],
+        vec![tag::BUY_PASS],
+    );
+    fails(w.h.send(&[i], &[e.wallet]), E::BadAccount);
+
+    post(&mut w, 0, 1, 3, 144, 3_000, &FLAGS).unwrap();
+    let g1 = goal_of(&w, 0, 1);
+    for (i, (holder, since)) in [(2u8, 380u32), (2, 410), (2, 420), (3, 0), (255, 0), (5, 0)]
+        .iter()
+        .enumerate()
+    {
+        set_keep(&mut w, FLAGS[i], *holder, *since, 570);
+    }
+    advance(&mut w, 170 * BELL_SECS as i64);
+
+    // Type confusion: the goal pool in the goal's seat (both 448 B).
+    let mut acc = vec![
+        AccountMeta::new(w.gpool, false),
+        AccountMeta::new(w.gpool, false),
+        AccountMeta::new_readonly(w.season, false),
+    ];
+    acc.extend(
+        FLAGS
+            .iter()
+            .map(|f| AccountMeta::new_readonly(province(&w, *f), false)),
+    );
+    let i = ix(&w, acc, vec![tag::ACHIEVE]);
+    fails(w.h.send(&[i], &[]), E::BadAccount);
+    // Flags out of their posted order.
+    let mut swapped = FLAGS;
+    swapped.swap(0, 1);
+    fails(achieve(&mut w, 1, &swapped), E::BadAccount);
+    // A province at the right address but owned by another program, then of
+    // another season: refused.
+    let p0 = province(&w, FLAGS[0]);
+    let real = w.h.get(&p0).unwrap().clone();
+    let mut forged = real.clone();
+    forged.owner = key(99);
+    w.h.set(p0, forged);
+    fails(achieve(&mut w, 1, &FLAGS), E::BadAccount);
+    let mut other = real.clone();
+    other.data[P::SEASON_ID..P::SEASON_ID + 8].copy_from_slice(&(SEASON_ID + 1).to_le_bytes());
+    w.h.set(p0, other);
+    fails(achieve(&mut w, 1, &FLAGS), E::BadAccount);
+    w.h.set(p0, real);
+    achieve(&mut w, 1, &FLAGS).unwrap();
+    let payout = u64_at(&data(&w, &g1), goal::PAYOUT);
+    assert_eq!(payout, 18_000_000); // 30 % of 3 × 20
+
+    // A stranger in the operator's seat.
+    let stranger = key(98);
+    w.h.fund(stranger, SOL);
+    let i = ix(
+        &w,
+        vec![
+            AccountMeta::new_readonly(stranger, true),
+            AccountMeta::new(g1, false),
+            AccountMeta::new(w.gpool, false),
+        ],
+        {
+            let mut d = vec![tag::SET_GOAL_SHARES];
+            d.extend_from_slice(&shares_data(goal::MODE_RETURN, [0; 6], [0; 32]));
+            d
+        },
+    );
+    fails(w.h.send(&[i], &[stranger]), E::NotOperator);
+    let st = token_account(&mut w, 240, &stranger);
+    let i = ix(
+        &w,
+        vec![
+            AccountMeta::new_readonly(stranger, true),
+            AccountMeta::new(w.gpool, false),
+            AccountMeta::new(w.vault, false),
+            AccountMeta::new(st, false),
+            AccountMeta::new_readonly(w.mint, false),
+            AccountMeta::new_readonly(TOKEN, false),
+        ],
+        vec![tag::GOAL_WITHDRAW_OPS],
+    );
+    fails(w.h.send(&[i], &[stranger]), E::NotOperator);
+
+    // A dishonest (or buggy) ledger: nation 2's total says 10, yet a and b
+    // each hold a 10-point leaf and z an 11-point one.
+    let rows = [(&a, 10u64), (&b, 10), (&z, 11)];
+    let leaves: Vec<[u8; 32]> = rows
+        .iter()
+        .map(|(who, pts)| leaf(&g1.to_bytes(), &who.wallet.to_bytes(), 2, *pts))
+        .collect();
+    let (root, proofs) = tree(&leaves);
+    let mut totals = [0u64; 6];
+    totals[2] = 10;
+    op_ix(
+        &mut w,
+        tag::SET_GOAL_SHARES,
+        g1,
+        &shares_data(goal::MODE_SHARES, totals, root),
+    )
+    .unwrap();
+    // Swapped pass (b's valid pass under a's claim) and swapped exclusion.
+    let pb = pass_of(&w, &b.wallet);
+    let mint = w.mint;
+    let ex_a = exclusion(&w, &a.wallet);
+    let ex_b = exclusion(&w, &b.wallet);
+    fails(
+        claim_raw(
+            &mut w, g1, a.wallet, pb, ex_a, a.citizen, a.token, mint, 2, 10, &proofs[0],
+        ),
+        E::BadAccount,
+    );
+    fails(
+        claim_raw(
+            &mut w, g1, a.wallet, pa, ex_b, a.citizen, a.token, mint, 2, 10, &proofs[0],
+        ),
+        E::BadAccount,
+    );
+    // A fake mint.
+    let fake_mint = key(97);
+    make_mint(&mut w.h, &w.operator.clone(), &fake_mint);
+    fails(
+        claim_raw(
+            &mut w, g1, a.wallet, pa, ex_a, a.citizen, a.token, fake_mint, 2, 10, &proofs[0],
+        ),
+        E::BadAccount,
+    );
+    // z's leaf claims more points than the nation's total.
+    fails(claim(&mut w, g1, &z, 2, 11, &proofs[2]), E::BadShares);
+    // A griefer pre-funds a's receipt PDA: a's claim still lands, once.
+    let ra = goals::receipt_address(&w.h.prize, &g1, &a.wallet).0;
+    w.h.fund(ra, 1);
+    let vault_before = bal(&w, &w.vault);
+    let before = bal(&w, &a.token);
+    claim(&mut w, g1, &a, 2, 10, &proofs[0]).unwrap();
+    assert_eq!(bal(&w, &a.token) - before, payout); // 10/10 of the only nation
+    fails(claim(&mut w, g1, &a, 2, 10, &proofs[0]), E::AlreadyClaimed);
+    // b's equally valid-looking leaf: the goal's payout is spent; the cap
+    // refuses it, so nothing beyond the payout leaves the vault.
+    fails(claim(&mut w, g1, &b, 2, 10, &proofs[1]), E::Overflow);
+    assert_eq!(vault_before - bal(&w, &w.vault), payout);
+    let treasuries: u64 = (0..4).map(|k| treasury(&w, k)).sum();
+    let gd = data(&w, &w.gpool);
+    assert_eq!(
+        bal(&w, &w.vault),
+        treasuries + u64_at(&gd, gpool::OPS) - u64_at(&gd, gpool::OPS_WITHDRAWN)
+    );
+}
