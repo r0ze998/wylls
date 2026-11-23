@@ -9,7 +9,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-profile.json` | Cluster URL, allowed RPC hosts, program-id and upgrade-authority **placeholders**, rent rates, the season cost lines (sizes from `frontier-abi/vectors/v2/layouts.json`), the `operator` block read by `frontier-operator` |
 | `plan.mjs` | The cost model, the `.so` checks (ported from `scripts/build-frontier.sh`), the send gate and the command list; no side effects of its own |
 | `dry-run.mjs` | The command line: wires the real file system and processes into `plan.mjs` |
-| `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land + the land preview, version 0x4804; no Free City conquest kinds since P14 b, 2026-11-22): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080, and the `operator` block read by `frontier-operator --preset S1_DEVNET_WIDE_7D` |
+| `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land + the land preview, version 0x4804; no Free City conquest kinds since P14 b, 2026-11-22): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080, and the `operator` block read by `frontier-operator` (preset `S1_DEVNET_WIDE_CONTINUOUS` since devnet-continuous-1: the continuous world, season 2; `S1_DEVNET_WIDE_7D` before) |
 | `test/dry-run.test.mjs` | 40 tests (33 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 | `test/playable-profile.test.mjs` | 10 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
 | `preflight.mjs`, `preflight-checks.mjs`, `test/preflight.test.mjs` | The **deploy-day preflight** (runbook §8 step 0): every MUST item checked read-only, one PASS / FAIL / WARN / SKIP line each with the fix; 29 tests with fakes (CI job `devnet-dry-run`) |
@@ -82,7 +82,7 @@ program could never start a season) and no season step. The season setup (Announ
 InitBeaconLogs, InitShards) is a separate tool, `frontier-operator` (`frontier-node/crates/stack`), run **after** r0ze
 has confirmed the deploy. It reads this profile (`rpcUrl`, the host lists, `programId`, `upgradeAuthority`,
 `rent.assume`, `season.preset` and the `operator` block) and is a dry run unless given `--yes-send`. See the
-runbook §6. The playable lane's season (`devnet-playable-profile.json`, preset `S1_DEVNET_WIDE_7D`, version 0x4804,
+runbook §6. The playable lane's season (`devnet-playable-profile.json`, preset `S1_DEVNET_WIDE_CONTINUOUS` (season 2, no end; was `S1_DEVNET_WIDE_7D`), version 0x4804,
 plus WideSetRules) is the same tool built with `--features playable-lane`; on devnet a send also needs
 `--i-have-r0ze-approval` and `--approved-sha256` (runbook §6b).
 

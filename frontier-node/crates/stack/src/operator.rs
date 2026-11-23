@@ -20,7 +20,9 @@
 //! - **Key file guard.** A regular file (no symlink) of this user, mode
 //!   600 or stricter, in the Solana CLI format. Its bytes are never printed.
 //! - **The playable lane** (owner decision B7, devnet blocker B3): preset
-//!   `S1_DEVNET_WIDE_7D` creates a program-version 0x4804 season (the
+//!   `S1_DEVNET_WIDE_7D` (or its continuous world
+//!   `S1_DEVNET_WIDE_CONTINUOUS`: no end bell, joins always open, EndSeason
+//!   refused) creates a program-version 0x4804 season (the
 //!   `devnet-playable-sbf` build) and adds the authority's one wide-land
 //!   transaction, WideSetRules (write-once; it needs the season Seeded, so
 //!   it follows keeper A's ConsumeGenesisSeed). Built with the
@@ -223,12 +225,18 @@ pub fn parse_profile(text: &str) -> Result<Profile, String> {
 
 /// The presets the operator may create, by the profile's `season.preset`
 /// (or `--preset`).
-pub const PRESETS: [&str; 3] = ["S1_LOCAL_7D", "S1_LOCAL_14D", "S1_DEVNET_WIDE_7D"];
+pub const PRESETS: [&str; 4] = [
+    "S1_LOCAL_7D",
+    "S1_LOCAL_14D",
+    "S1_DEVNET_WIDE_7D",
+    "S1_DEVNET_WIDE_CONTINUOUS",
+];
 
 /// The presets of the playable lane: program version [`PLAYABLE_VERSION`]
-/// and the wide land's WideSetRules after the season is Seeded.
+/// and the wide land's WideSetRules after the season is Seeded. The
+/// continuous world (owner 2026-11-23: seasons abolished) is the same lane.
 pub fn is_wide_preset(name: &str) -> bool {
-    name == "S1_DEVNET_WIDE_7D"
+    name == "S1_DEVNET_WIDE_7D" || name == "S1_DEVNET_WIDE_CONTINUOUS"
 }
 
 /// The preset's parameters as the season is created: the beacon key and
@@ -239,6 +247,7 @@ pub fn season_params(p: &Profile) -> Result<frontier_abi::v2::presets::SeasonPar
         "S1_LOCAL_7D" => v2::S1_LOCAL_7D,
         "S1_LOCAL_14D" => v2::S1_LOCAL_14D,
         "S1_DEVNET_WIDE_7D" => v2::S1_DEVNET_WIDE_7D,
+        "S1_DEVNET_WIDE_CONTINUOUS" => v2::S1_DEVNET_WIDE_CONTINUOUS,
         x => return Err(format!("season.preset {x}: one of {}", PRESETS.join(", "))),
     };
     let version = p.program_version.unwrap_or(if is_wide_preset(&p.preset) {
@@ -1638,9 +1647,11 @@ pub const USAGE: &str = "usage: frontier-operator --profile FILE [--preset NAME]
   --yes-send sends what is missing, signed by the --authority key file
   (mode 600, the program's upgrade authority). On a public cluster (devnet)
   a send also needs --i-have-r0ze-approval and --approved-sha256 (the
-  deployed program's sha256). --preset S1_DEVNET_WIDE_7D: the playable lane
+  deployed program's sha256). --preset S1_DEVNET_WIDE_7D or
+  S1_DEVNET_WIDE_CONTINUOUS (the same world with no end): the playable lane
   (program version 0x4804; WideSetRules after keeper A seeds the season).
-  --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D, S1_DEVNET_WIDE_7D.
+  --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D,
+  S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS.
   Exit: 0 done/plan printed, 1 failed, 2 refused, 3 waiting (t_create_min,
   or the season to be Seeded); run the same command again to resume.
   frontier-operator end-season --help: the season's end and clean-up
@@ -2252,6 +2263,37 @@ mod tests {
         w.program_version = Some(S1_VERSION);
         assert!(season_params(&w).is_err());
         assert!(is_wide_preset("S1_DEVNET_WIDE_7D") && !is_wide_preset("S1_LOCAL_7D"));
+        assert!(is_wide_preset("S1_DEVNET_WIDE_CONTINUOUS"));
+    }
+
+    /// devnet-continuous-1: the continuous devnet world is the playable
+    /// lane (0x4804, WideSetRules) with no end bell, and commits to another
+    /// params hash than the 7-day preset (a new AnnounceSeason, a new id).
+    #[test]
+    fn continuous_wide_preset() {
+        let mut w = wide_profile();
+        w.preset = "S1_DEVNET_WIDE_CONTINUOUS".into();
+        let r = season_params(&w);
+        if !cfg!(feature = "playable-lane") {
+            assert!(r.unwrap_err().contains("--features playable-lane"));
+            return;
+        }
+        let sp = r.unwrap();
+        assert_eq!(sp.base.program_version, PLAYABLE_VERSION);
+        assert_eq!(sp.cq.continuous, 1);
+        assert_eq!(sp.base.end_bell, frontier_abi::presets::NO_END_BELL);
+        assert_eq!(sp.base.join_close_bell, frontier_abi::presets::NO_END_BELL);
+        assert_eq!(sp.cq.r_max_ceiling, 128);
+        let sb = season_bytes(&w).unwrap();
+        assert_eq!(sb.pfund_initial, 36_000_000_000);
+        let finite = season_bytes(&wide_profile()).unwrap();
+        assert_ne!(sb.params_hash, finite.params_hash);
+        assert_eq!(sb.params.len(), finite.params.len());
+        // genesis does not depend on the end bell.
+        assert_eq!(
+            genesis_of(&sp, 1_790_456_787),
+            genesis_of(&season_params(&wide_profile()).unwrap(), 1_790_456_787)
+        );
     }
 
     /// The offset of `program_version` in CreateSeason's params bytes.

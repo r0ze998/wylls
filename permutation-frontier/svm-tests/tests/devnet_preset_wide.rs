@@ -28,8 +28,14 @@
 //! assume and the devnet preset lacked: rings 0..=128 opened by the program and wide land open at ring 129.
 
 use frontier_abi::addr::AddrCtx;
+use frontier_abi::layout::world::season as SL;
 use frontier_abi::layout::world::{frontier as FR, ring_seed as RS};
-use frontier_abi::v2::presets::{SeasonParamsV2, S1_DEVNET_WIDE_7D, S1_LOCAL_7D};
+use frontier_abi::presets::NO_END_BELL;
+use frontier_abi::v2::error::CqError;
+use frontier_abi::v2::presets::{
+    cq_layout, SeasonParamsV2, S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS, S1_LOCAL_7D,
+    SEASON_CQ_OFFSET,
+};
 use frontier_abi::world_index::land::{
     self as wl, province as WP, WideProvince, WideRingSeed, FIRST_WIDE_RING,
 };
@@ -41,6 +47,7 @@ use frontier_abi::world_index::WideCoord;
 use permutation_frontier_svm_tests::chain::{
     assert_code, expect_lands, program_id, repo_root, Build, Chain, Profile, SendResult,
 };
+use permutation_frontier_svm_tests::ix::season::end_season;
 use permutation_frontier_svm_tests::world::land::{rd_u16, rd_u32};
 use permutation_frontier_svm_tests::world::{params_v2_for, World};
 use permutation_frontier_svm_tests::{
@@ -275,56 +282,100 @@ fn s1_local_7d_never_reaches_the_wide_land() {
 #[test]
 fn s1_devnet_wide_7d_opens_the_rim_and_the_wide_land() {
     let mut c = chain();
-    let p = S1_DEVNET_WIDE_7D;
-    let w = lane_season(&mut c, 22, p);
-    assert_eq!(w.rings_opened(&c), 4, "genesis rings 0-3");
-    w.fold(&mut c);
-    one_settler(&mut c, &w);
+    rim_and_wide_land(&mut c, 22, S1_DEVNET_WIDE_7D);
+}
+
+/// devnet-continuous-1 (owner 2026-11-23: seasons abolished; t481u Q11): the devnet world as a CONTINUOUS world,
+/// `S1_DEVNET_WIDE_CONTINUOUS` = `continuous(S1_DEVNET_WIDE_7D)`, on the devnet playable build (run it with
+/// `PSF_SO_DEVNET_PLAYABLE` = the deployed .so 67a33c92…). CreateSeason stores the no-end bells and conquest byte
+/// 80 = 1, the map grows to the rim and into the wide land exactly as the 7-day world's, the wide land keeps
+/// growing after the 7-day world's end bell 1,008, and EndSeason is refused (`ContinuousWorld`) at any bell.
+#[test]
+fn s1_devnet_wide_continuous_never_ends_and_keeps_growing() {
+    let mut c = chain();
+    let p = S1_DEVNET_WIDE_CONTINUOUS;
+    let w = rim_and_wide_land(&mut c, 24, p);
+    let sd = c.data(&w.a.season);
+    assert_eq!(rd_u32(&sd, SL::END_BELL), NO_END_BELL);
+    assert_eq!(rd_u32(&sd, SL::JOIN_CLOSE_BELL), NO_END_BELL);
+    assert_eq!(sd[SEASON_CQ_OFFSET + cq_layout::CONTINUOUS], 1);
+    assert_eq!(&sd[SL::PARAMS_HASH..SL::PARAMS_HASH + 32], &w.params.hash());
+
+    // Past the 7-day world's end (bell 1,008, join close 756): ring 130 seeded, ring 131 still opens.
+    seed_wide(&mut c, &w, FIRST_WIDE_RING + 1);
+    let late = S1_DEVNET_WIDE_7D.base.end_bell + 24;
+    c.set_time(w.bell_end(late));
+    assert!(w.now_bell(&c) > S1_DEVNET_WIDE_7D.base.end_bell);
+    expect_lands(
+        request_wide(&mut c, &w, FIRST_WIDE_RING + 2),
+        "WideRequestRingSeed(131) after bell 1,008",
+    );
+
+    // Nobody can end it.
+    let any = c.funded(b"devnet-continuous-end", 1);
+    let before = c.account(&w.a.season).unwrap();
+    assert_code(
+        c.send(&[end_season(&w.a, any.pubkey())], &[&any]),
+        CqError::ContinuousWorld,
+    );
+    assert_eq!(
+        c.account(&w.a.season).unwrap(),
+        before,
+        "EndSeason changed nothing"
+    );
+}
+
+/// The rim / wide-land walk of a devnet wide preset `p` (season `id`); returns the world after ring 130's request.
+fn rim_and_wide_land(c: &mut Chain, id: u64, p: SeasonParamsV2) -> World {
+    let w = lane_season(c, id, p);
+    assert_eq!(w.rings_opened(c), 4, "genesis rings 0-3");
+    w.fold(c);
+    one_settler(c, &w);
 
     // No province past the genesis rings is opened (a keeper's `lazy_provinces`), so the one settler keeps θ.
     let g = p.base.genesis_ring as u16;
-    let start_bell = w.now_bell(&c);
+    let start_bell = w.now_bell(c);
     for d in g + 1..=R_MAX_HARD {
         c.advance(BELL);
         if d > p.base.r_max {
             // The same bell as the last opening is refused, as OpenRing's (shown once, at the first extension).
-            let l = expect_lands(extend(&mut c, &w, d), "ExtendFrontier");
+            let l = expect_lands(extend(c, &w, d), "ExtendFrontier");
             assert!(l.cu < 200_000);
         }
-        expect_lands(w.open_ring(&mut c, d), "OpenRing (crowding ring)");
-        seed_legacy(&mut c, &w, d);
+        expect_lands(w.open_ring(c, d), "OpenRing (crowding ring)");
+        seed_legacy(c, &w, d);
     }
-    assert_eq!(w.rings_opened(&c), R_MAX_HARD + 1);
+    assert_eq!(w.rings_opened(c), R_MAX_HARD + 1);
     assert_eq!(rd_u16(&c.data(&w.a.frontier()), FR::R_MAX_EXT), R_MAX_HARD);
-    let bells = w.now_bell(&c) - start_bell;
+    let bells = w.now_bell(c) - start_bell;
     assert_eq!(
         bells,
         (R_MAX_HARD - g) as u32,
         "one ring per bell: 125 bells, ~21 h"
     );
-    assert!(w.now_bell(&c) < p.base.join_close_bell);
+    assert!(w.now_bell(c) < p.base.join_close_bell);
     // The ceiling holds.
     c.advance(BELL);
-    assert_code(extend(&mut c, &w, R_MAX_HARD + 1), E::BadData);
-    assert_code(w.open_ring(&mut c, R_MAX_HARD + 1), E::BadData);
+    assert_code(extend(c, &w, R_MAX_HARD + 1), E::BadData);
+    assert_code(w.open_ring(c, R_MAX_HARD + 1), E::BadData);
 
     // Wide ring 129 on the program's own rules (previous seeded, a bell since, θ, every fund ≥ 129 × rent).
     let l = expect_lands(
-        request_wide(&mut c, &w, FIRST_WIDE_RING),
+        request_wide(c, &w, FIRST_WIDE_RING),
         "WideRequestRingSeed(129)",
     );
     eprintln!("WideRequestRingSeed(129): {} CU", l.cu);
-    assert_code(request_wide(&mut c, &w, FIRST_WIDE_RING), E::AlreadyDone);
-    let seed = seed_wide(&mut c, &w, FIRST_WIDE_RING);
+    assert_code(request_wide(c, &w, FIRST_WIDE_RING), E::AlreadyDone);
+    let seed = seed_wide(c, &w, FIRST_WIDE_RING);
     // Ring 130 needs a bell since 129 opened.
-    assert_code(request_wide(&mut c, &w, FIRST_WIDE_RING + 1), E::TooEarly);
+    assert_code(request_wide(c, &w, FIRST_WIDE_RING + 1), E::TooEarly);
 
-    expect_lands(set_rules(&mut c, &w), "WideSetRules");
+    expect_lands(set_rules(c, &w), "WideSetRules");
     let coord = WideCoord::checked(FIRST_WIDE_RING as i64, 0).expect("ring 129");
     assert_eq!(coord.ring(), FIRST_WIDE_RING);
     let fund = w.a.province_fund(coord.wedge().unwrap_or(0));
     let before = c.lamports(&fund);
-    let l = expect_lands(open_wide(&mut c, &w, coord), "WideOpenProvince (ring 129)");
+    let l = expect_lands(open_wide(c, &w, coord), "WideOpenProvince (ring 129)");
     eprintln!("WideOpenProvince(129, 0): {} CU", l.cu);
     let pk = addr(wl::province_address(&ctx(&w), coord));
     let pd = c.data(&pk);
@@ -337,14 +388,15 @@ fn s1_devnet_wide_7d_opens_the_rim_and_the_wide_land() {
         c.lamports(&pk),
         "paid from its wedge fund"
     );
-    assert_code(open_wide(&mut c, &w, coord), E::AlreadyDone);
+    assert_code(open_wide(c, &w, coord), E::AlreadyDone);
 
     // The next wide ring follows one bell later.
     c.advance(BELL);
     expect_lands(
-        request_wide(&mut c, &w, FIRST_WIDE_RING + 1),
+        request_wide(c, &w, FIRST_WIDE_RING + 1),
         "WideRequestRingSeed(130)",
     );
+    w
 }
 
 /// The fund check of the first wide ring, at its exact boundary: every wedge fund must hold `129 × rent(4,864)`
