@@ -25,10 +25,13 @@ import { FORTRESS } from './village.mjs';
 import { paintStandard } from './ownland.mjs';
 import { MINI_KINDS, paintMini } from '../people/minis.mjs';
 import { paintBellTag } from './hostmarks.mjs';
-import { cellsIn } from './wideland.mjs';
+import { cellsIn, NEUTRAL } from './wideland.mjs';
+import { PROVINCE_CIRCUMRADIUS } from './layers.mjs';
 
 const nation = f => Number.isInteger(f) && f >= 0 && f < 6;
 
+/** The least a province is across on screen (CSS px) for the wide land's names to stand on it (territory-video-3). */
+export const PLATE_MIN_PX = 150;
 /** How far inside the view (a share of its width and height) a province's plate must stand to be drawn. */
 export const PLATE_INSET = 0.06;
 /** The least a standing host's figure is tall on screen (px), and its unit against a tile's corner radius. */
@@ -112,16 +115,55 @@ export function wideProvinceWords(cell, viewer = null) {
 }
 
 /**
+ * The words under a standing host's figure (territory-video-3, owner: an army on the land said only 「兵 300」 — whose?):
+ * another nation's host says its nation, 「アステル · 兵 300」 / "Aster · 300 troops"; the viewer's own says its troops.
+ */
+export function wideHostWords(spot, viewer = null) {
+  const n = fmtNum(spot?.troops ?? 0), more = (spot?.count ?? 1) > 1;
+  if (!nation(spot?.faction) || spot.faction === viewer) return more ? L`兵 ${n} ほか` : L`兵 ${n}`;
+  const who = factionName(spot.faction);
+  return more ? L`${who} · 兵 ${n} ほか` : L`${who} · 兵 ${n}`;
+}
+
+const STEPS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+/**
+ * The regions of the wide land in `seen` (territory-video-3): each run of neighbouring provinces with one known holder
+ * (a nation, or NEUTRAL for no nation's) → `[{holder, cells}]`, largest first. A province the fog never saw the holder of
+ * is in none. One region carries one name (two provinces of Aster side by side read 「アステルの土地」 twice before).
+ */
+export function wideRegions(land, seen) {
+  const cells = cellsIn(land, seen).filter(c => c.holderKnown !== false);
+  const here = new Map(cells.map(c => [c.key, c])), done = new Set(), out = [];
+  const holderOf = c => (nation(c.holder) ? c.holder : NEUTRAL);
+  for (const c of cells) {
+    if (done.has(c.key)) continue;
+    const h = holderOf(c), group = [], todo = [c];
+    done.add(c.key);
+    while (todo.length) {
+      const x = todo.pop();
+      group.push(x);
+      for (const [dp, dq] of STEPS) {
+        const n = here.get(`${x.p + dp},${x.q + dq}`);
+        if (n && !done.has(n.key) && holderOf(n) === h) { done.add(n.key); todo.push(n); }
+      }
+    }
+    out.push({ holder: h, cells: group });
+  }
+  return out.sort((a, b) => b.cells.length - a.cells.length || a.holder - b.holder);
+}
+
+/**
  * The words over the wide land (`o` the label canvas in the map's world transform, `pass` map/labelpass.mjs): one plate
- * per province in `seen` saying whose land it is (over its keep, or its middle), and under each standing host's figure
- * its troops. Plates give way to anything placed before them (`pass`: they are never kept over another label).
+ * per REGION in `seen` saying whose land it is (over the keep of its province nearest the region's middle that stands
+ * well inside the picture), each keep being taken its own line, and under each standing host's figure its nation and
+ * troops. Plates give way to anything placed before them (`pass`: they are never kept over another label).
  * → the number of plates drawn.
  */
 export function paintWideNames(o, land, { seen, zoom = 1, level = 'tile', viewer = null, pass = null, screen = null, bounds = null } = {}) {
   if (!o?.save || !land?.cells?.length || (level !== 'tile' && level !== 'province')) return 0;
   let n = 0;
   if (level === 'tile') for (const h of wideHostSpots(land, seen)) {
-    const text = h.count > 1 ? L`兵 ${fmtNum(h.troops)} ほか` : L`兵 ${fmtNum(h.troops)}`;
+    const text = wideHostWords(h, viewer);
     paintBellTag(o, h.x, h.y + RADIUS * 0.08, text, { zoom, place: 'below', gap: 2, accent: FACTION_COLORS[h.faction] ?? '#c9a24a', anchor: { x: h.x, y: h.y }, pass, size: 11, spare: true });
   }
   // (a plate stands only where its place is well inside the picture: the label pass slides a label whose place is near
@@ -133,15 +175,29 @@ export function paintWideNames(o, land, { seen, zoom = 1, level = 'tile', viewer
   const inner = screen && bounds?.w > 0 && bounds?.h > 0
     ? p => { const s = screen(p.x, p.y), ix = bounds.w * PLATE_INSET, iy = bounds.h * PLATE_INSET; return !!s && s.x > ix && s.x < bounds.w - ix && s.y > iy * 1.6 && s.y < bounds.h - iy; }
     : p => p.x > seen.x0 + mx && p.x < seen.x1 - mx && p.y > seen.y0 + my * 1.6 && p.y < seen.y1 - my;
-  for (const c of cellsIn(land, seen)) {
-    const P = widekeepPlace(c, zoom), w = wideProvinceWords(c, viewer);
+  // (over the fortress at the tile view; at the province's middle from farther, where the keep is only a mark)
+  const placeOf = c => { const P = widekeepPlace(c, zoom); return level === 'tile' && P ? { x: P.x, y: P.y - P.u * 1.9 } : { x: c.x, y: c.y - RADIUS * 1.2 }; };
+  const named = new Set(), plated = new Set();
+  // (territory-video-3, live at the province view: a province a few dozen px across carried a plate, nine plates over
+  //  eleven provinces. A plate stands only where a province is at least PLATE_MIN_PX across on screen, and one a nation
+  //  in the view — on its largest region; the legend (map/widelegend.mjs) names every colour drawn)
+  const big = 2 * PROVINCE_CIRCUMRADIUS * zoom >= PLATE_MIN_PX;
+  for (const r of big ? wideRegions(land, seen) : []) {
+    if (plated.has(r.holder)) continue;
+    const mx = r.cells.reduce((a, c) => a + c.x, 0) / r.cells.length, my = r.cells.reduce((a, c) => a + c.y, 0) / r.cells.length;
+    const pick = r.cells.map(c => ({ c, at: placeOf(c) })).filter(x => inner(x.at)).sort((a, b) => Math.hypot(a.c.x - mx, a.c.y - my) - Math.hypot(b.c.x - mx, b.c.y - my))[0];
+    if (!pick) continue;
+    const w = wideProvinceWords(pick.c, viewer);
     if (!w.name) continue;
-    const accent = FACTION_COLORS[c.holder] ?? '#8b856d';
-    // (over the fortress at the tile view; at the province's middle from farther, where the keep is only a mark)
-    const at = level === 'tile' && P ? { x: P.x, y: P.y - P.u * 1.9 } : { x: c.x, y: c.y - RADIUS * 1.2 };
-    if (!inner(at)) continue;
-    if (paintBellTag(o, at.x, at.y, w.name, { zoom, place: 'above', gap: 2, accent, anchor: at, pass, size: level === 'tile' ? 13 : 12, spare: true })) n++;
-    if (w.sub) paintBellTag(o, at.x, at.y, w.sub, { zoom, place: 'below', gap: 2, accent: FACTION_COLORS[c.keep.contender] ?? accent, anchor: at, pass, size: 11.5, spare: true });
+    const accent = FACTION_COLORS[pick.c.holder] ?? '#8b856d';
+    plated.add(r.holder);
+    if (paintBellTag(o, pick.at.x, pick.at.y, w.name, { zoom, place: 'above', gap: 2, accent, anchor: pick.at, pass, size: level === 'tile' ? 13 : 12, spare: true })) { n++; named.add(pick.c.key); }
+  }
+  // (each keep being taken says who and how far, at its own keep: under the region's name when the name stands there)
+  for (const c of cellsIn(land, seen)) {
+    const w = wideProvinceWords(c, viewer), at = placeOf(c);
+    if (!w.sub || !inner(at)) continue;
+    paintBellTag(o, at.x, at.y, w.sub, { zoom, place: named.has(c.key) ? 'below' : 'above', gap: 2, accent: FACTION_COLORS[c.keep.contender] ?? '#8b856d', anchor: at, pass, size: 11.5, spare: true });
   }
   return n;
 }

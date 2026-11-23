@@ -182,9 +182,15 @@ export function landOfCells(cells, land) {
 /** Each cell's `corners` and `edges` (see wideLandOf), from its neighbours in `byKey`. */
 function bordersOf(cells, byKey) {
   for (const cell of cells) {
-    const corners = cell.corners = provinceCorners(cell.p, cell.q), edges = [];
+    const corners = cell.corners = provinceCorners(cell.p, cell.q), edges = [], rim = [];
     for (const [dp, dq] of NEIGHBOURS) {
       const n = byKey.get(`${cell.p + dp},${cell.q + dq}`);
+      // (territory-video-3: the nation's own border, on this cell's side, wherever the land beyond is not known to be the
+      //  same nation's — another nation's, no nation's, one the fog never saw the holder of, or no recorded land at all)
+      if (!n || n.holder !== cell.holder || known(n) !== known(cell)) {
+        const s = sharedEdge(corners, provinceCorners(cell.p + dp, cell.q + dq));
+        if (s) rim.push({ a: s[0], b: s[1] });
+      }
       if (n && n.holder === cell.holder) continue;
       // (a neighbour that is a wide province of another nation: one border, drawn once, from the lower key)
       if (n && n.key < cell.key) continue;
@@ -192,8 +198,14 @@ function bordersOf(cells, byKey) {
       if (shared) edges.push({ a: shared[0], b: shared[1], inner: !!n, other: n?.holder ?? null });
     }
     cell.edges = edges;
+    cell.rim = rim;
   }
 }
+
+/** Whether the holder of a cell is known (the fog of war, map/fog.mjs fogWideLand, marks one it never saw `holderKnown: false`). */
+const known = c => c?.holderKnown !== false;
+/** The nation (0–5) whose border a cell carries, or null (no nation's, or a holder the fog does not know). */
+export const borderNation = c => (known(c) && Number.isInteger(c?.holder) && c.holder >= 0 && c.holder < 6 ? c.holder : null);
 
 /** The two corners two neighbouring cells share (within a pixel), or null. */
 function sharedEdge(a, b) {
@@ -250,11 +262,11 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     const ring = 2.4 / zoom / PROVINCE_CIRCUMRADIUS;
     ctx.fillStyle = 'rgba(27,46,40,.9)'; fills += fillCells(ctx, cells, grow + ring);
     const base = new Map();
-    for (const c of cells) { const colour = holderFill(c.holder); if (!base.has(colour)) base.set(colour, []); base.get(colour).push(c); }
+    for (const c of cells) { const colour = landFill(c); if (!base.has(colour)) base.set(colour, []); base.get(colour).push(c); }
     for (const [colour, group] of base) { ctx.fillStyle = colour; fills += fillCells(ctx, group, grow); }
     const villages = paintVillageMarks(ctx, cells, { zoom, grow });
     ctx.restore();
-    return { cells: cells.length, fills, grow, villages };
+    return { cells: cells.length, fills, grow, villages, holders: holdersOf(cells) };
   }
   if (level === 'tile') {
     for (const c of cells) {
@@ -266,7 +278,7 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     // the land itself (the chart and the world view: the nation's colour is the land's; nearer, the terrain's mean)
     const base = new Map();
     for (const c of cells) {
-      const colour = level === 'province' ? c.colour : holderFill(c.holder);
+      const colour = level === 'province' ? c.colour : landFill(c);
       if (!base.has(colour)) base.set(colour, []);
       base.get(colour).push(c);
     }
@@ -276,6 +288,8 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
   if (level === 'province' || level === 'tile') {
     const wash = new Map();
     for (const c of cells) {
+      // (territory-video-3: a province whose holder the fog never saw is not washed as "no nation's": its terrain alone)
+      if (!known(c)) continue;
       const colour = holderFill(c.holder);
       if (!wash.has(colour)) wash.set(colour, []);
       wash.get(colour).push(c);
@@ -284,6 +298,10 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     for (const [colour, group] of wash) { ctx.fillStyle = colour; fills += fillCells(ctx, group); }
     ctx.globalAlpha = 1;
   }
+  // (territory-video-3) each nation's own border round all its land: its colour on its side of the line, a soft band
+  // fading inward, a dark seam at the edge (map/wideland.mjs paintNationBorders)
+  const borders = paintNationBorders(ctx, cells, { zoom, level });
+  fills += borders.strokes;
   // borders: between keep nations, in ink with a paper halo under it; the wide land's outer edge, a dashed ink line
   ctx.lineCap = 'round';
   const inner = [], outer = [];
@@ -306,7 +324,61 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
   const villages = level === 'tile' ? cells.reduce((n, c) => n + (c.terrain ? (c.villages ?? []).filter(v => v.nation !== null).length : 0), 0)
     : paintVillageMarks(ctx, cells, { zoom, grow });
   ctx.restore();
-  return { cells: cells.length, fills, grow, villages };
+  return { cells: cells.length, fills, grow, villages, holders: holdersOf(cells), borders: borders.nations };
+}
+
+/** The fill of a cell from afar: its keep nation's land colour; a holder the fog never saw, the terrain's own colour. */
+const landFill = c => (known(c) ? holderFill(c.holder) : c.colour);
+/** The holders drawn (`cells`), for the page's legend: nations 0–5 and NEUTRAL, each once, ascending; unknown ones left out. */
+export const holdersOf = cells => [...new Set(cells.filter(known).map(c => (Number.isInteger(c.holder) && c.holder >= 0 && c.holder < 6 ? c.holder : NEUTRAL)))].sort((a, b) => a - b);
+
+/**
+ * A nation's border, by level of detail (CSS px, inside its land): `band` its colour along the edge, `seam` the dark line
+ * on the edge itself, `glow` the soft band fading inward and `alpha` that band's strength. Civilization-style national
+ * borders (reports/territory-video-3.md: Unciv's two-colour edge sprites, freeciv's per-edge player-colour lines, Civ's
+ * line with an inner gradient): the outline says whose land it is; the fill under it stays light.
+ */
+export const NATION_BORDER = Object.freeze({
+  tile: Object.freeze({ band: 6, seam: 1.6, glow: 26, alpha: 0.34 }),
+  province: Object.freeze({ band: 5, seam: 1.4, glow: 18, alpha: 0.32 }),
+  world: Object.freeze({ band: 3.2, seam: 1, glow: 9, alpha: 0.3 }),
+});
+/**
+ * Draws each nation's border round the union of its `cells` (each cell's `rim`, see bordersOf): one clip per nation to
+ * its own land, then lines centred on the rim, so only their inner half shows — the borders of two neighbouring nations
+ * stand side by side, each in its own land, and joins between provinces of one nation are seamless. A province whose
+ * holder is no nation's or unknown to the fog carries none. → `{nations, strokes}`.
+ */
+export function paintNationBorders(ctx, cells, { zoom = 1, level = 'province' } = {}) {
+  const look = NATION_BORDER[level];
+  if (!look || !ctx?.clip) return { nations: [], strokes: 0 };
+  const by = new Map();
+  for (const c of cells) { const h = borderNation(c); if (h === null) continue; if (!by.has(h)) by.set(h, []); by.get(h).push(c); }
+  const z = Math.max(zoom, 1e-9), nations = [];
+  let strokes = 0;
+  for (const [h, group] of [...by].sort((a, b) => a[0] - b[0])) {
+    const rim = group.flatMap(c => c.rim ?? []);
+    if (!rim.length) continue;
+    ctx.save();
+    path(ctx, group); ctx.clip();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const line = (style, width, alpha = 1) => {
+      ctx.strokeStyle = style; ctx.lineWidth = 2 * width / z; ctx.globalAlpha = alpha;
+      for (let i = 0; i < rim.length; i += PATH_CHUNK) {
+        ctx.beginPath();
+        for (const e of rim.slice(i, i + PATH_CHUNK)) { ctx.moveTo(e.a[0], e.a[1]); ctx.lineTo(e.b[0], e.b[1]); }
+        ctx.stroke(); strokes++;
+      }
+    };
+    line(NATION_LAND[h], look.glow, look.alpha * 0.5);
+    line(NATION_LAND[h], look.glow * 0.5, look.alpha);
+    line(NATION_LAND[h], look.band);
+    line(NATION_DARK[h], look.seam);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    nations.push(h);
+  }
+  return { nations, strokes };
 }
 
 /**

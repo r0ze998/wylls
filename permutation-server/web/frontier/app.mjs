@@ -42,6 +42,7 @@ import { FrontierMap } from './map/fmap.mjs';
 import { openHint, heroZoom } from './map/opening.mjs';
 import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
+import { mountWideLegend } from './map/widelegend.mjs';
 import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile, wideLandUnitless } from './map/fog.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
@@ -857,6 +858,8 @@ function renderMode() {
 let mapRef = null;
 let wideModeRef = null;
 let wideLandRef = null;
+/** The wide land's key over the map (map/widelegend.mjs): who holds the land the last frame drew. */
+let wideLegendRef = null;
 /** The wide land as the herald records it (wideLandRef is what the map shows: the same, fogged under the fog of war). */
 let wideLandRaw = null;
 let terrainRef = null;
@@ -5079,10 +5082,13 @@ export async function boot() {
       insets: () => hudInsets(),
       // what follows the picture on screen: the minimap's frame while the camera travels
       onDraw: () => { if (map?.cam?.moving) renderMinimap(); if (handPopEl && !handPopEl.hidden && handPopEl.dataset.mode === 'fan') placeHandPop(); },
+      // (territory-video-3: the wide land's key follows what the frame drew — the fogged land's holders only)
+      onPainted: () => wideLegendRef?.update(map?.wideDrawn ?? null, FS.citizen?.faction ?? null),
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });
     mapRef = map;
+    try { wideLegendRef = mountWideLegend({ onLang: onLangChange }); } catch (e) { console.error('frontier wide legend:', e); }
     // the recorded wide world (read-only, experimental): refused on a sample world, explicit when the herald has
     // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
     // namespace is never shown

@@ -258,7 +258,7 @@ export const KEPT_SELECTORS = '#sample-tag, [data-proto-chip], .proto-chip-map';
 /** Air round a kept place (px): a label's own rim and shadow stay clear of the chip's dashed line. */
 export const KEPT_AIR = 3;
 // (territory-video-2: and a local test world's standing notice, #local-play-session — the wide land's plates stood under it)
-export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner, #local-play-session';
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner, #local-play-session, #wide-legend';
 export const NOGO_EVERY_MS = 300;
 /** The air the map's labels keep round the dial beyond its own box (px). */
 export const DIAL_AIR = 8;
@@ -657,7 +657,7 @@ export class FrontierMap {
    * {terrain, sites, names} | null, open: opening.mjs openHint};
    * `onSelect(hit)`; `onView(view, lod)` (the logical view).
    */
-  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false, tilt = undefined }) {
+  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, onPainted = null, insets = null, art = false, tilt = undefined }) {
     this.canvas = canvas;
     // The tilted stage (map/tilt.mjs, UX brief §11.1): the ground is painted on `#map-ground` inside `#map-stage`,
     // which carries the tilt; this canvas lies flat above it, takes every input and carries what must stay
@@ -685,6 +685,8 @@ export class FrontierMap {
     this.insetsOf = insets;
     /** Called after every picture with the view on screen and the canvas size (things of the page that follow the map: the objective's place). */
     this.onDraw = onDraw;
+    // (territory-video-3: after each painted scene — the page's wide-land key reads `wideDrawn`)
+    this.onPainted = onPainted;
     // (the demo switch may lay sample records over the page's own: `setSample`; every other caller sees the page's)
     this.source = () => this.sampled(source());
     /** A tile is being picked on the board for an order (`pickTile`), else null. */
@@ -2116,6 +2118,7 @@ export class FrontierMap {
     PROBE.end(out.kind, ctx);
     PROBE.paint(octx, size);
     try { this.onDraw?.(v, size, lod); } catch { /* the page's own follower */ }
+    try { this.onPainted?.(this.wideDrawn ?? null, lod); } catch { /* the page's own follower */ }
   }
 
   /**
