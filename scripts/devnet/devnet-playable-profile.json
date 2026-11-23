@@ -11,8 +11,8 @@
     "api.solana.com",
     "testnet"
   ],
-  "programId": "<SET-BY-R0ZE: program address of the PLAYABLE lane (public key of a second program keypair r0ze creates offline; not the S1 program's)>",
-  "upgradeAuthority": "<SET-BY-R0ZE: upgrade-authority public key (offline key; also the only AnnounceSeason signer, I-51)>",
+  "programId": "GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr",
+  "upgradeAuthority": "7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA",
   "program": {
     "crate": "permutation-frontier",
     "build": "scripts/build-frontier-devnet-playable-sbf.sh",
