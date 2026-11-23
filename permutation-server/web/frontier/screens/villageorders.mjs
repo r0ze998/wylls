@@ -61,6 +61,22 @@ export function orderOutcome(o) {
   return o?.state === 'accepted' ? 'accepted' : null;
 }
 
+/** The order code a held march's later answer is recorded with (the same codes as the first answer's, controller.mjs LOCAL_MARCH_ANSWERED). */
+export const HELD_MARCH_ANSWER_CODES = Object.freeze({ failed: 'TransactionFailed', expired: 'LocalMarchExpired' });
+/**
+ * (D-verify-pr193-2) A march first held by its signature (`state: 'unconfirmed'`, the local hold's code) and answered
+ * LATER by a re-check or a press — `x`: 'landed' | 'failed' | 'expired' (fmarch / flocalplay-march `ask`): the answer
+ * for its order record, `{record, ok, extra}` for controller.mjs orderAnswered, or null (no such held record, or no
+ * answer yet). A held record left 'unconfirmed' after a refusal was still counted by the guide as "marched".
+ */
+export function heldMarchAnswer(orders, signature, x) {
+  if (typeof signature !== 'string' || signature === '' || !['landed', 'failed', 'expired'].includes(x)) return null;
+  const record = (orders ?? []).find(o => o?.kind === 'march' && o.state === 'unconfirmed' && o.code === LOCAL_HOLD_CODE && o.signature === signature) ?? null;
+  if (!record) return null;
+  return x === 'landed' ? { record, ok: true, extra: { code: null, sent: true, signature } }
+    : { record, ok: false, extra: { code: HELD_MARCH_ANSWER_CODES[x], sent: true, signature } };
+}
+
 /** What the order was, in a few words. */
 export function villageOrderName(o) {
   switch (o.kind) {
