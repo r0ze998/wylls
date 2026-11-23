@@ -23,8 +23,10 @@
 //   flag         any other flag keep held by another nation that the resident sees: + FLAG_BONUS (a tie-breaker between
 //                attacks of about the same strength — ordinary war otherwise).
 // Anti all-in (§9, the brief's "no all-in on flags"): a resident with FLAG_MARCH_CAP of its own marches already on flag
-// keeps (marching or holding, its memory's `targets`) gets no attack weight for flags until one ends — its other hosts
-// fight the ordinary war. Defence is never capped (it was the first rule before this module too).
+// keeps (marching or holding, its memory's `targets`) gets no more plain `flag` bonus, and with STOP_RIVAL_CAP no more
+// `stop-rival` weight, until one ends — its other hosts fight the ordinary war. (The live ×60 run showed why the two
+// differ: after a round of sieges every resident had a flag target, and one shared cap of 1 silenced every stop-rival
+// weight the moment a nation reached need − 1.) Defence is never capped (it was the first rule before this module too).
 // References compared (see reports/flag-keeps-ai.md): 0 A.D. Petra victoryManager (victory-condition entities guarded as
 // "critical"), Unciv MotivationToAttackAutomation (score table this adds a bonus to), TripleA/Athena Crisis requests to
 // rank victory targets first — here as a bounded bonus, not an override, so ordinary war remains.
@@ -36,6 +38,8 @@ export const STOP_RIVAL_BONUS = 25;
 export const FLAG_BONUS = 3;
 /** A resident's own marches on flag keeps at once before flags weigh nothing more for its attacks. */
 export const FLAG_MARCH_CAP = 1;
+/** …and this many before a close rival's flag keeps weigh nothing more (a rival about to complete is worth a second host). */
+export const STOP_RIVAL_CAP = 2;
 
 const nation = f => Number.isInteger(f) && f >= 0 && f < NATIONS;
 const int = Number.isSafeInteger;
@@ -74,20 +78,21 @@ export function closeRivals(sight, faction) {
 
 /**
  * The weights of the flag keeps for one resident: Map "p,q" → `{goal: 'defend-flag' | 'stop-rival' | 'flag', bonus}`.
- * `busy`: how many of the resident's own marches are already on flag keeps (FLAG_MARCH_CAP: no attack weight then).
+ * `busy`: how many of the resident's own marches are already on flag keeps (FLAG_MARCH_CAP: no plain flag bonus then;
+ * STOP_RIVAL_CAP: no stop-rival weight either).
  */
 export function flagWeights(sight, faction, { busy = 0 } = {}) {
   const out = new Map();
   if (!sight || !nation(faction)) return out;
   const rivals = closeRivals(sight, faction);
-  const attackOk = busy < FLAG_MARCH_CAP;
   for (const f of sight.flags) {
     if (f.holder === faction) {
       if (nation(f.contender) && f.contender !== faction) out.set(key(f.p, f.q), Object.freeze({ goal: 'defend-flag', bonus: 0 }));
       continue;
     }
-    if (!attackOk || !nation(f.holder)) continue;
-    out.set(key(f.p, f.q), rivals.has(f.holder) ? Object.freeze({ goal: 'stop-rival', bonus: STOP_RIVAL_BONUS, rival: f.holder }) : Object.freeze({ goal: 'flag', bonus: FLAG_BONUS }));
+    if (!nation(f.holder)) continue;
+    if (rivals.has(f.holder)) { if (busy < STOP_RIVAL_CAP) out.set(key(f.p, f.q), Object.freeze({ goal: 'stop-rival', bonus: STOP_RIVAL_BONUS, rival: f.holder })); }
+    else if (busy < FLAG_MARCH_CAP) out.set(key(f.p, f.q), Object.freeze({ goal: 'flag', bonus: FLAG_BONUS }));
   }
   return out;
 }

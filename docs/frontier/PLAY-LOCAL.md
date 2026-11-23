@@ -934,6 +934,6 @@ of their nation, under the same fog: the posting and every nation's count, and e
 where their own villages, hosts and their nation's held provinces see it (never the judge's live answer for a keep they
 cannot see). They defend their nation's flag keep under siege before any other keep, and march first on a flag keep held
 by a nation that holds the need minus one or more (still only with 1.5× the keep's garrison). Otherwise a flag keep they
-see only wins a near tie, and a resident with one march already on a flag keep fights the ordinary war with its other
-hosts. The ring 4 keeps of a local world are contestable too but carry no flag (round 1 is posted before ring 4 opens),
+see only wins a near tie. A resident with one march already on a flag keep gets no more of that tie-break (two for a
+close rival's flags), so its other hosts fight the ordinary war. The ring 4 keeps of a local world are contestable too but carry no flag (round 1 is posted before ring 4 opens),
 so the AI residents keep fighting over them. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.

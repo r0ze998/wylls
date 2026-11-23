@@ -2,7 +2,7 @@
 // target weights, and chooseMarch with them. Pure: no process, no port, no network, no key, no launcher import (CI-able).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { flagSight, closeRivals, flagWeights, flagMarches, readGoals, STOP_RIVAL_BONUS, FLAG_BONUS, FLAG_MARCH_CAP } from '../src/frontier/local-play-operator-goals.mjs';
+import { flagSight, closeRivals, flagWeights, flagMarches, readGoals, STOP_RIVAL_BONUS, FLAG_BONUS, FLAG_MARCH_CAP, STOP_RIVAL_CAP } from '../src/frontier/local-play-operator-goals.mjs';
 import { chooseMarch, strengthScore, warStep } from '../src/frontier/local-play-operator-war.mjs';
 import { decideNext, createResidentMemory } from '../src/frontier/local-play-operator-policy.mjs';
 
@@ -41,8 +41,11 @@ test('flagWeights: defend own flag under siege, stop the close rival, a small bo
     'nation 2 holds 2 (need 3): its flags are stop-rival; nation 3\'s is a plain flag; (0,-1) and (1,-1) never seen');
   assert.equal(w.get('0,1').bonus, STOP_RIVAL_BONUS);
   assert.equal(w.get('-1,0').bonus, FLAG_BONUS);
-  const busy = flagWeights(flagSight({ answer, faction: 0, seenKeeps: sk }), 0, { busy: FLAG_MARCH_CAP });
-  assert.deepEqual([...busy.keys()], ['1,0'], 'anti all-in: a resident already marching on a flag gets defence only');
+  const one = flagWeights(flagSight({ answer, faction: 0, seenKeeps: sk }), 0, { busy: FLAG_MARCH_CAP });
+  assert.deepEqual(Object.fromEntries([...one].map(([k, v]) => [k, v.goal])), { '1,0': 'defend-flag', '0,1': 'stop-rival', '-1,1': 'stop-rival' },
+    'anti all-in: one flag march already — no plain flag bonus, but a close rival still draws a second host (live ×60: a shared cap of 1 silenced it)');
+  const two = flagWeights(flagSight({ answer, faction: 0, seenKeeps: sk }), 0, { busy: STOP_RIVAL_CAP });
+  assert.deepEqual([...two.keys()], ['1,0'], 'two flag marches already: defence only');
   assert.equal(flagWeights(null, 0).size, 0);
 });
 

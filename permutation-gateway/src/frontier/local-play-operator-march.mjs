@@ -245,6 +245,10 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     if (ready.length && free && kernel) {
       const near = new Map([...keeps].filter(([, k]) => ready.some(h => provinceDistance(h, k) <= REACH_PROVINCES)));
       const origins = ready.map(h => ({ p: h.p, q: h.q, tile: h.tile, unit: h.unit, host: String(h.id), troops: h.troops }));
+      // (flag-keeps-ai, documented: the target finder reads the UNFOGGED keeps of the herald within REACH_PROVINCES —
+      //  holder, garrison, contest — as the war eyes did since #68; a player's page masks them under the fog of war. Only
+      //  the flag weights above are limited to the resident's fogged view. Whether the war AI itself should be fogged is
+      //  left to the owner (reports/flag-keeps-ai.md))
       const r = reachableKeeps({ kernel, keeps: near, origins, seeds: world.seeds, faction, nowBell, blocked: world.blocked });
       const taken = row => (memory?.targets?.[`${row.p},${row.q}`] ?? -1) >= nowBell;
       if (r.ok) march = chooseMarch(r.rows, { taken, weights });
