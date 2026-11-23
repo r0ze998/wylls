@@ -155,9 +155,15 @@ test('profile: committed file has the right shape but placeholders → shape PAS
 test('profile: wrong cluster, lane, roles, rings duty, same address twice, bad base58 → FAIL', () => {
   const p = filled();
   p.cluster = 'mainnet-beta'; p.lane = 's1'; p.services.keeperA.roles = p.services.keeperA.roles.filter(x => x !== 'wide-resolve'); p.services.keeperA.ringsDuty.wide_rings = 4;
+  p.season.preset = 'S1_LOCAL_7D';
   let rs = checkProfile(p);
   const d = byId(rs, 'profile.shape').detail;
-  for (const s of ['cluster mainnet-beta', 'lane s1', 'missing wide-resolve', 'wide_rings = 4']) assert.ok(d.includes(s), `${s} in ${d}`);
+  for (const s of ['cluster mainnet-beta', 'lane s1', 'missing wide-resolve', 'wide_rings = 4', 'season.preset S1_LOCAL_7D']) assert.ok(d.includes(s), `${s} in ${d}`);
+  // devnet-continuous-1: both playable presets pass the shape
+  for (const preset of ['S1_DEVNET_WIDE_CONTINUOUS', 'S1_DEVNET_WIDE_7D']) {
+    const q = filled(); q.season.preset = preset;
+    assert.equal(byId(checkProfile(q), 'profile.shape').status, 'PASS', preset);
+  }
   rs = checkProfile({ ...filled(), upgradeAuthority: PROGRAM });
   assert.match(byId(rs, 'profile.keys').detail, /same address/);
   rs = checkProfile({ ...filled(), programId: 'not-base58-0OIl' });
@@ -390,12 +396,12 @@ test('endpoint: no --public-url → SKIP, no call; loopback host skips the port 
 const SERVICES = `#!/bin/sh
 # deploy-day services (runbook §8 steps 5-7)
 frontier-node/target/release/frontier-keeper --config keeper-a/keeper.toml
-frontier-node/target/release/frontier-herald --data herald/ --program ${PROGRAM} --season 1 \\
+frontier-node/target/release/frontier-herald --data herald/ --program ${PROGRAM} --season 2 \\
   --rpc $RPC --source rpc --cluster devnet --rpc-min-gap-ms 100 --poll-ms 1000 \\
   --listen 127.0.0.1:41040 --web permutation-server/web --relay 127.0.0.1:41033 \\
   --public-host play.example.org
 FRONTIER_OPERATOR_TOKEN=very-secret-token node permutation-gateway/src/frontier/server.mjs \\
-  --cluster devnet --rpc $RPC --program ${PROGRAM} --season 1 \\
+  --cluster devnet --rpc $RPC --program ${PROGRAM} --season 2 \\
   --port 41030 --public-port 41033 \\
   --herald http://127.0.0.1:41040 \\
   --keeper http://127.0.0.1:41050 --keeper-token-file keeper-a/keeper.token \\
@@ -405,7 +411,7 @@ FRONTIER_OPERATOR_TOKEN=very-secret-token node permutation-gateway/src/frontier/
   --public-proxy xff        # required off localnet without --dev
 `;
 const KEEPER = `program = "${PROGRAM}"
-season = 1
+season = 2
 rpc = ["https://api.devnet.solana.com"]
 feed = "rpc"
 drand = ["https://api.drand.sh", "https://drand.cloudflare.com"]

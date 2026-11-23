@@ -153,6 +153,10 @@ export function checkToolchain(io, opts) {
 
 // ------------------------------------------------------------------ MUST 4: profile and key files
 
+/** The playable lane's presets (frontier-operator `is_wide_preset`): the continuous devnet world
+ * (devnet-continuous-1, seasons abolished 2026-11-23) and the 7-day preset it was made from. */
+export const PLAYABLE_PRESETS = ['S1_DEVNET_WIDE_CONTINUOUS', 'S1_DEVNET_WIDE_7D'];
+
 export function checkProfile(profile, { profilePath } = {}) {
   const out = [];
   const shape = [];
@@ -161,7 +165,7 @@ export function checkProfile(profile, { profilePath } = {}) {
   if (profile.lane !== 'playable') shape.push(`lane ${profile.lane} (the playable lane, B7)`);
   if (profile.program?.programVersion !== '0x4804') shape.push(`program.programVersion ${profile.program?.programVersion} (0x4804)`);
   if (!(profile.program?.requiredMarkers ?? []).includes('PSF_DEVNET_PLAYABLE_BUILD')) shape.push('program.requiredMarkers lacks PSF_DEVNET_PLAYABLE_BUILD');
-  if (profile.season?.preset !== 'S1_DEVNET_WIDE_7D') shape.push(`season.preset ${profile.season?.preset} (S1_DEVNET_WIDE_7D)`);
+  if (!PLAYABLE_PRESETS.includes(profile.season?.preset)) shape.push(`season.preset ${profile.season?.preset} (${PLAYABLE_PRESETS.join(' or ')})`);
   if (profile.operator?.beacon !== 'quicknet') shape.push(`operator.beacon ${profile.operator?.beacon} (quicknet)`);
   try {
     const host = new URL(profile.rpcUrl).hostname;
@@ -175,7 +179,7 @@ export function checkProfile(profile, { profilePath } = {}) {
   if (missingRoles.length || extraRoles.length) shape.push(`services.keeperA.roles differ from runbook §8 (missing ${missingRoles.join(',') || '-'}; extra ${extraRoles.join(',') || '-'})`);
   for (const [k, v] of Object.entries(RUNBOOK_RINGS_DUTY)) if (ka.ringsDuty?.[k] !== v) shape.push(`services.keeperA.ringsDuty.${k} = ${ka.ringsDuty?.[k]} (runbook: ${v})`);
   if (shape.length) out.push(fail('profile.shape', '4', shape.join('; '), `restore ${profilePath ?? 'the profile'} from origin/main; only programId and upgradeAuthority are r0ze's to change`));
-  else out.push(pass('profile.shape', '4', 'cluster devnet, lane playable 0x4804, marker PSF_DEVNET_PLAYABLE_BUILD, preset S1_DEVNET_WIDE_7D, keeper A roles + rings duty = runbook'));
+  else out.push(pass('profile.shape', '4', `cluster devnet, lane playable 0x4804, marker PSF_DEVNET_PLAYABLE_BUILD, preset ${profile.season.preset}, keeper A roles + rings duty = runbook`));
   const addr = [];
   for (const k of ['programId', 'upgradeAuthority']) {
     if (isPlaceholder(profile[k])) addr.push(`${k} is still a placeholder`);
