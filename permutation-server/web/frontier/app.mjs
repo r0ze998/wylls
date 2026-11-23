@@ -5082,8 +5082,9 @@ export async function boot() {
       insets: () => hudInsets(),
       // what follows the picture on screen: the minimap's frame while the camera travels
       onDraw: () => { if (map?.cam?.moving) renderMinimap(); if (handPopEl && !handPopEl.hidden && handPopEl.dataset.mode === 'fan') placeHandPop(); },
-      // (territory-video-3: the wide land's key follows what the frame drew — the fogged land's holders only)
-      onPainted: () => wideLegendRef?.update(map?.wideDrawn ?? null, FS.citizen?.faction ?? null),
+      // (territory-video-3: the wide land's key follows what the frame drew — the fogged land's holders only. verify-pr205:
+      //  none before the first village — the fog view needs one (verify-pr198), the home-picking map shows the raw land)
+      onPainted: () => wideLegendRef?.update(fogActive(FS) && !FS.holdings?.length ? null : map?.wideDrawn ?? null, FS.citizen?.faction ?? null),
       // Sprite art at tile LOD, opt-in with ?art=1 (docs/frontier/art/tiles/LOD.md).
       art: ART_ON,
     });

@@ -31,8 +31,8 @@ export function wideLegendRows(holders, viewer = null) {
 
 /**
  * Mounts the legend in `doc` (once): `{update(drawn, viewer), unmount()}`. `drawn` is the map's last wide-land paint
- * (`{holders}`, or null when no wide land was drawn): the box is shown only when it has rows, and rewritten only when
- * they change (the map draws many frames a second).
+ * (`{holders, shown}`, or null when no wide land was drawn; `shown`, the holders of the land in the picture, wins when
+ * present): the box is shown only when it has rows, and rewritten only when they change (many frames a second).
  */
 export function mountWideLegend({ doc = globalThis.document, parent = null, onLang = null } = {}) {
   if (!doc?.createElement) return null;
@@ -42,7 +42,8 @@ export function mountWideLegend({ doc = globalThis.document, parent = null, onLa
   (parent ?? doc.querySelector?.('main') ?? doc.body)?.append(box);
   let last = null, drawnNow = null, viewerNow = null;
   const write = () => {
-    const rows = wideLegendRows(drawnNow?.holders ?? [], viewerNow);
+    // (verify-pr205: the holders of the land in the picture, `shown`; `holders` is all the frame painted, margin included)
+    const rows = wideLegendRows(drawnNow?.shown ?? drawnNow?.holders ?? [], viewerNow);
     const key = `${L`土地の持ち主`}|${rows.map(r => `${r.key}:${r.text}`).join(',')}`;
     if (key === last) return rows;
     last = key;

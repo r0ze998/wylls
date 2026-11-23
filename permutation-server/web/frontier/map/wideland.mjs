@@ -333,6 +333,33 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
 const landFill = c => (known(c) ? holderFill(c.holder) : c.colour);
 /** The holders drawn (`cells`), for the page's legend: nations 0–5 and NEUTRAL, each once, ascending; unknown ones left out. */
 export const holdersOf = cells => [...new Set(cells.filter(known).map(c => (Number.isInteger(c.holder) && c.holder >= 0 && c.holder < 6 ? c.holder : NEUTRAL)))].sort((a, b) => a - b);
+/** Whether the world point (x, y) lies inside the convex polygon `poly` ([{x, y}], either winding). */
+function insideConvex(poly, x, y) {
+  let pos = false, neg = false;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], k = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (k > 0) pos = true; else if (k < 0) neg = true;
+    if (pos && neg) return false;
+  }
+  return true;
+}
+/**
+ * The holders of the `cells` that stand in the picture (verify-pr205): `view` is the picture's four world corners (the
+ * tilted board's trapezoid, or the flat screen's box). The canvas paints a margin round the screen (the tilted ground is
+ * larger than it), so the legend read the holders of land drawn but out of sight — "Fjordal" in the key with no Fjordal
+ * land on the screen, or four nations listed over an empty stretch of paper. A cell counts when its middle or a corner is
+ * in the picture, or a corner of the picture is in the cell's hexagon. Unknown holders are left out, as in holdersOf.
+ */
+export function holdersInView(cells, view) {
+  if (!Array.isArray(view) || view.length < 3) return holdersOf(cells);
+  return holdersOf(cells.filter(c => {
+    if (insideConvex(view, c.x, c.y)) return true;
+    for (const k of c.corners ?? []) if (insideConvex(view, k[0], k[1])) return true;
+    // (a picture wholly inside one province: a corner of the picture in the province's own hexagon)
+    const hex = (c.corners ?? []).map(k => ({ x: k[0], y: k[1] }));
+    return hex.length >= 3 && view.some(p => insideConvex(hex, p.x, p.y));
+  }));
+}
 
 /**
  * A nation's border, by level of detail (CSS px, inside its land): `band` its colour along the edge, `seam` the dark line
@@ -346,38 +373,84 @@ export const NATION_BORDER = Object.freeze({
   world: Object.freeze({ band: 3.2, seam: 1, glow: 9, alpha: 0.3 }),
 });
 /**
- * Draws each nation's border round the union of its `cells` (each cell's `rim`, see bordersOf): one clip per nation to
- * its own land, then lines centred on the rim, so only their inner half shows — the borders of two neighbouring nations
- * stand side by side, each in its own land, and joins between provinces of one nation are seamless. A province whose
- * holder is no nation's or unknown to the fog carries none. → `{nations, strokes}`.
+ * The bands along the rim of a nation's `cells` (the union's edge), `d` world units deep, inside its land (verify-pr205):
+ * one quadrilateral per rim side, its outer edge the side itself, its inner edge the side moved `d` inward. At each end
+ * it meets the band of the next side of the union's edge — in the same province or the neighbouring one of the same
+ * nation — on the mitre (where the two moved sides cross), so the bands of a nation's provinces join without a seam or a
+ * notch, as one line round the union does. Where the edge does not simply continue (two provinces touching at a corner
+ * only) the band ends square on its own province's next side. `d` is held under half a province's depth. → [[[x, y] × 4]].
+ */
+export function nationBands(cells, d) {
+  if (!(d > 0)) return [];
+  const sides = [], at = new Map(), keyOf = p => `${Math.round(p[0] * 2)},${Math.round(p[1] * 2)}`;
+  let depth = Infinity;
+  for (const cell of cells) {
+    const k = cell.corners, n = k?.length ?? 0;
+    if (n < 3 || !cell.rim?.length) continue;
+    let cx = 0, cy = 0;
+    for (const c of k) { cx += c[0] / n; cy += c[1] / n; }
+    const normal = k.map((a, i) => {
+      const b = k[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      let nx = -(b[1] - a[1]) / l, ny = (b[0] - a[0]) / l;
+      if ((cx - a[0]) * nx + (cy - a[1]) * ny < 0) { nx = -nx; ny = -ny; }
+      depth = Math.min(depth, (cx - a[0]) * nx + (cy - a[1]) * ny);
+      return [nx, ny];
+    });
+    const rim = new Array(n).fill(false);
+    for (const e of cell.rim) { const i = k.indexOf(e.a), j = k.indexOf(e.b); if (i >= 0 && j >= 0) rim[(i + 1) % n === j ? i : j] = true; }
+    for (let i = 0; i < n; i++) {
+      if (!rim[i]) continue;
+      const side = { a: k[i], b: k[(i + 1) % n], n: normal[i], before: rim[(i - 1 + n) % n] ? null : normal[(i - 1 + n) % n], after: rim[(i + 1) % n] ? null : normal[(i + 1) % n] };
+      sides.push(side);
+      for (const p of [side.a, side.b]) { const kk = keyOf(p); if (!at.has(kk)) at.set(kk, []); at.get(kk).push(side); }
+    }
+  }
+  const w = Math.min(d, depth * 0.45);
+  // the point `w` inside both lines (through X, inward normals u and v): where the two moved sides cross
+  const cross = (X, u, du, v, dv) => {
+    const det = u[0] * v[1] - u[1] * v[0];
+    if (Math.abs(det) < 1e-9) return [X[0] + u[0] * du, X[1] + u[1] * du];
+    return [X[0] + (du * v[1] - u[1] * dv) / det, X[1] + (u[0] * dv - du * v[0]) / det];
+  };
+  const inner = (side, X, own) => {
+    const others = at.get(keyOf(X)).filter(o => o !== side);
+    if (others.length === 1) return cross(X, side.n, w, others[0].n, w);
+    // (no single next side of the union here: square on this province's own next side)
+    return own ? cross(X, side.n, w, own, 0) : [X[0] + side.n[0] * w, X[1] + side.n[1] * w];
+  };
+  return sides.map(s => [s.a, s.b, inner(s, s.b, s.after), inner(s, s.a, s.before)]);
+}
+
+/**
+ * Draws each nation's border round the union of its `cells` (each cell's `rim`, see bordersOf), inside its own land:
+ * the soft band fading inward, the band in its colour, the dark seam on the edge — each a fill of the rim's bands
+ * (nationBands), so the borders of two neighbouring nations stand side by side, each in its own land, and joins between
+ * provinces of one nation are seamless. (verify-pr205: it was drawn as lines centred on the rim under a clip to the
+ * nation's land — the same picture, but a clip makes the wide lines about four times dearer to paint.) A province
+ * whose holder is no nation's or unknown to the fog carries none. → `{nations, strokes}` (strokes: the fills made).
  */
 export function paintNationBorders(ctx, cells, { zoom = 1, level = 'province' } = {}) {
   const look = NATION_BORDER[level];
-  if (!look || !ctx?.clip) return { nations: [], strokes: 0 };
+  if (!look || !ctx?.fill) return { nations: [], strokes: 0 };
   const by = new Map();
-  for (const c of cells) { const h = borderNation(c); if (h === null) continue; if (!by.has(h)) by.set(h, []); by.get(h).push(c); }
+  for (const c of cells) { const h = borderNation(c); if (h === null || !c.rim?.length) continue; if (!by.has(h)) by.set(h, []); by.get(h).push(c); }
   const z = Math.max(zoom, 1e-9), nations = [];
   let strokes = 0;
   for (const [h, group] of [...by].sort((a, b) => a[0] - b[0])) {
-    const rim = group.flatMap(c => c.rim ?? []);
-    if (!rim.length) continue;
-    ctx.save();
-    path(ctx, group); ctx.clip();
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const line = (style, width, alpha = 1) => {
-      ctx.strokeStyle = style; ctx.lineWidth = 2 * width / z; ctx.globalAlpha = alpha;
-      for (let i = 0; i < rim.length; i += PATH_CHUNK) {
+    const band = (style, width, alpha = 1) => {
+      ctx.fillStyle = style; ctx.globalAlpha = alpha;
+      const quads = nationBands(group, width / z);
+      for (let i = 0; i < quads.length; i += PATH_CHUNK) {
         ctx.beginPath();
-        for (const e of rim.slice(i, i + PATH_CHUNK)) { ctx.moveTo(e.a[0], e.a[1]); ctx.lineTo(e.b[0], e.b[1]); }
-        ctx.stroke(); strokes++;
+        for (const q of quads.slice(i, i + PATH_CHUNK)) { ctx.moveTo(q[0][0], q[0][1]); ctx.lineTo(q[1][0], q[1][1]); ctx.lineTo(q[2][0], q[2][1]); ctx.lineTo(q[3][0], q[3][1]); ctx.closePath(); }
+        ctx.fill(); strokes++;
       }
     };
-    line(NATION_LAND[h], look.glow, look.alpha * 0.5);
-    line(NATION_LAND[h], look.glow * 0.5, look.alpha);
-    line(NATION_LAND[h], look.band);
-    line(NATION_DARK[h], look.seam);
+    band(NATION_LAND[h], look.glow, look.alpha * 0.5);
+    band(NATION_LAND[h], look.glow * 0.5, look.alpha);
+    band(NATION_LAND[h], look.band);
+    band(NATION_DARK[h], look.seam);
     ctx.globalAlpha = 1;
-    ctx.restore();
     nations.push(h);
   }
   return { nations, strokes };

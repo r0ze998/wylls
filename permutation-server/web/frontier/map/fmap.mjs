@@ -79,7 +79,7 @@ import { ProtoBoard, POLE_AT } from './protoboard.mjs';
 import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
 // the wide land (rings 129+, the herald's recorded wide world) on this map and its chart: map/wideland.mjs
-import { paintWideLand, paintWideTags, wideLevel } from './wideland.mjs';
+import { paintWideLand, paintWideTags, wideLevel, cellsIn, holdersInView } from './wideland.mjs';
 import { paintWideMarks, paintWideNames } from './widemarks.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
 import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
@@ -2586,6 +2586,9 @@ export class FrontierMap {
     // frame's level of detail; a place the record does not list stays cloud (unknown, not land)
     const wideLand = src.wideLand?.count ? src.wideLand : null;
     if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse) }); }
+    // (verify-pr205: and the holders of the drawn land that stands in the picture — the canvas paints a margin past the
+    //  screen, the tilted board more; the page's key names only colours the player can see: `shown`)
+    if (this.wideDrawn) this.wideDrawn.shown = holdersInView(cellsIn(wideLand, seen), quad ?? corners);
     else this.wideDrawn = null;
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
