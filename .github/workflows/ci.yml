@@ -473,6 +473,9 @@ jobs:
           # records): old archives byte-identical, malformed ones refused.
           cargo test --locked -p findex --test pr158_archive_tables
           cargo test --locked -p herald --lib
+          # fix-herald-gw-502: the /gw relay proxy when the relay answers early
+          # and resets (429 kept, one write, no re-send). Loopback fakes only.
+          cargo test --locked -p herald --test gw_relay_reset
           # B5 (read-only devnet run): the recorded devnet answers replayed
           # offline on loopback (429 + Retry-After retried and bounded, a
           # version-1 transaction read and never stalling the keeper feed),
