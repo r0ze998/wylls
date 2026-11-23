@@ -129,7 +129,9 @@ move only once its turn is settled: about 17 minutes later).
    Since #187 the keep list and the guide at the top right also say how long 72 turns are (「約 12 時間」 at 1×,
    「この世界の実時間で約 12 分」 at ×60). In a world that goes on (the kept 1× world) the guide after a capture says
    「この世界は続きます。戦期の勝敗と集計は未決定です。」 (in `--demo` and `--wide` worlds, which end, it still says
-   「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). The same PR made the first-building hints say 「伐採場」, as the
+   「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). Both lines are older than the decisions of 2026-11-23/24
+   (no seasons; the game is won through permanent “world goals” with prizes): the world goals are a plan and are not on
+   the page yet ([design 01](../design/win-conditions/01-proposal.ja.md), Japanese). The same PR made the first-building hints say 「伐採場」, as the
    village screen does, and the search's nothing-found hint is now 「州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます」
    (verify-pr187 saw them in a live world).
 
@@ -893,6 +895,7 @@ When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcom
   requested amount** (the board's proof by the lower bound of what it counted).
 - Not earned by: answering 「応じる」 alone, a partial delivery to a request that did not reach its amount, a request of someone of
   your own nation, your own request (the board refuses that in the first place).
-- Titles and records only: nothing is added to winning, score, prize or the season's end (owner decision ⑮ B).
+- Titles and records only: nothing is added to winning, score, prize or the season's end (owner decision ⑮ B; the
+  decisions of 2026-11-24 also keep cooperation out of the “world goals”).
 - The other title earnable now is P-raider (「他の国の隊商から奪った（国内の襲撃は数えない）」), which has nothing to do with requests.
 - The card's 「まだ判定できない達成 N」 is the total of every resident's undecided goals (not necessarily yours).
