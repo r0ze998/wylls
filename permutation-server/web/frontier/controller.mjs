@@ -4241,7 +4241,7 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
         FS.ui = { ...FS.ui, wideHostSay: { kind: 'wait', wait: 'refused', programCode: s.programCode ?? null }, wideHostReady: false };
         if (Number(s.programCode) === 26) wideHostWait(mem, { reason: 'turn', lag: null }); else wideHostStopWait(mem);
         invalidate('panel');
-        return failed({ ok: false, code: s.code ?? 'TransactionFailed', ...(Number.isInteger(s.programCode) ? { programCode: s.programCode } : {}) });
+        return failed({ ok: false, code: s.code ?? 'TransactionFailed', unsent: 'wide-host-step', retry: false, ...(Number.isInteger(s.programCode) ? { programCode: s.programCode } : {}) });
       }
       if (s?.ok && s.state === 'landed') mem.departHeld = null;
       else { if (auto || !mem.waiting) wideHostWait(mem, { reason: 'march', lag: null }); return { ok: false, code: 'WideHostWait', why: 'the last wide march was sent and is not confirmed yet', wait: 'march' }; }
@@ -4287,7 +4287,12 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
       return { ok: false, code: 'WideHostWait', why: w.why, wait: w.wait ?? null };
     }
     const d = w.decision;
+    const noticeBefore = FS.notice;
     const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
+    // (verify-pr184, live: a W2 step the chain refused — WideMuster NotResident — was told as 「訓練はまだされていません。」
+    //  with 「もう一度」, both from FS.lastAct: the person's last FORM press, a train at the rim village. That retry would
+    //  have trained again there. The refusal is the W2 step's: its own words, and no retry — the card's wait sends again)
+    if (FS.notice !== noticeBefore && FS.notice && !FS.notice.ok && !FS.notice.busy && !FS.notice.waiting) setNotice({ ...FS.notice, unsent: 'wide-host-step', retry: false });
     mem.decisions = (mem.decisions ?? 0) + 1;
     // (`act` answers a refusal with its notice — FS.notice — not with a result)
     const n = r === undefined ? FS.notice : r;

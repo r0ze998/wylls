@@ -2403,6 +2403,7 @@ export default {
   "出発の取引は期限が切れました（記録されないままで、これから記録されることはありません）。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 {0}": "The departure's transaction expired without being recorded (it never will be). The host did not leave (it is still in the village) and is not listed under marches. Signature {0}",
   "遠征の出発の取引は、記録されないまま期限が切れました。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。": "The expedition's departure expired without being recorded. The host is still in the village. Press \"Check departure conditions\" on the boundary card to read again, then you can depart again.",
   "遠征は出発していません。": "The expedition has not left.",
+  "広い土地の村の一手はまだ通っていません。": "The wide-land village's step has not gone through yet.",
   "出発は送る前の確かめで断られました（チェーンには届いていません）：{0}。軍勢は出発していません（村にいます）。進軍の一覧にも出しません。署名 {1}": "The departure was refused by the check before sending (it never reached the chain): {0}. The host did not leave (it is still in the village) and is not listed under marches. Signature {1}",
   "遠征の出発は送る前の確かめで断られました（チェーンには届いていません）：{0}。軍勢は村にいます。境界のカードで「出発条件を確認」を押して読み直すと、もう一度出発できます。": "The expedition's departure was refused by the check before sending (it never reached the chain): {0}. The host is still in the village. Press \"Check departure conditions\" on the boundary card to read again, then you can depart again.",
 };

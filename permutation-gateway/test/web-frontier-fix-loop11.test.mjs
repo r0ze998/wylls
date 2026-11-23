@@ -149,3 +149,27 @@ test('LP11-4: the TEST cap line comes after the 2nd march while it still stands 
   // (no cap: the march line alone, as before)
   assert.doesNotMatch(W.wideHostSayText({ ...say, cap: undefined }), /回までです/);
 });
+
+// ------------------------------------------------------------------ verify-pr184: the W2 step's refusal toast
+test('verify-pr184: a W2 step refused (by the chain or before sending) names the W2 step, not FS.lastAct, and offers no retry, JA and EN', async () => {
+  const { statusOf } = await import('../../permutation-server/web/frontier/hud/status.mjs');
+  // live: the last FORM press was a train at the rim village; the refused act was W2's WideMuster (NotResident on chain)
+  const FS = { lastAct: { kind: 'form', name: 'train', values: { unit: '0', n: '100' } },
+    notice: { ok: false, state: 'failed', code: 'TransactionFailed', programCode: 26, text: null, unsent: 'wide-host-step', retry: false } };
+  setLang('ja');
+  const st = statusOf(FS, { canRetry: true });
+  assert.equal(st.state, 'refused');
+  assert.equal(st.what, '広い土地の村の一手はまだ通っていません。');
+  assert.equal(st.retry, false, 'no 「もう一度」: it would re-run the rim village\'s train');
+  setLang('en');
+  const en = statusOf(FS, { canRetry: true });
+  assert.doesNotMatch(String(en.what), JA);
+  setLang('ja');
+  // before: the same notice without the W2 step's fields told the train and offered the retry
+  const before = statusOf({ ...FS, notice: { ...FS.notice, unsent: undefined, retry: undefined } }, { canRetry: true });
+  assert.equal(before.what, '訓練はまだされていません。'); assert.equal(before.retry, true);
+  // the source: both W2 refusal doors carry the fields
+  const c = src('controller.mjs');
+  assert.match(c, /setNotice\(\{ \.\.\.FS\.notice, unsent: 'wide-host-step', retry: false \}\)/);
+  assert.match(c, /code: s\.code \?\? 'TransactionFailed', unsent: 'wide-host-step', retry: false/);
+});

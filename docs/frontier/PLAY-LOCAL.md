@@ -231,8 +231,9 @@ The default 90 minutes may not reach step 4 below, so add `--minutes 180`.
    - As a backup, on the arrival turn this page can open the seal too (「封を開けるか確認する」 inside the boundary card →
      「封を開く（ローカルプレイ）」). Before #105, at ×60 on a loaded machine, the keeper did miss the window of about 10 s
      (§8). 「封を開ける期間が終わっています。(RevealWindowClosed)」 means that expedition will never settle.
-   - Before sending the next host, press 「結果を照合する」 under the card's 「送信しました。確定はまだ確認できていません」
-     once (until then 「出発する」 is not shown).
+   - While the card says 「送信しました。確定はまだ確認できていません」, the next host's 「出発する」 is not shown. Since
+     fix-loop11 the page checks the result itself on each read and the line turns into confirmed or refused (verify-pr184:
+     confirmed within seconds without a press). If it does not change, press 「結果を照合する」 under it once.
    - **The chain can refuse a departure after it was sent** (NotResident when the turn changes between the check and the
      send). The page checks the result itself each time it reads the 「進軍」 list; when it was refused it says once at the top
      「遠征の出発はチェーンで断られました：送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした（NotResident）。軍勢は村にいます。…」
