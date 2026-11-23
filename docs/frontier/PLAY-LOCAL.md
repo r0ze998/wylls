@@ -130,8 +130,8 @@ move only once its turn is settled: about 17 minutes later).
    「この世界の実時間で約 12 分」 at ×60). In a world that goes on (the kept 1× world) the guide after a capture says
    「この世界は続きます。戦期の勝敗と集計は未決定です。」 (in `--demo` and `--wide` worlds, which end, it still says
    「シーズンの終わりに、支配する州が最も多い国が勝ちます。」). Both lines are older than the decisions of 2026-11-23/24
-   (no seasons; the game is won through permanent “world goals” with prizes): the world goals are a plan and are not on
-   the page yet ([design 01](../design/win-conditions/01-proposal.ja.md), Japanese). The same PR made the first-building hints say 「伐採場」, as the
+   (no seasons; the game is won through permanent “world goals” with prizes): the flag-keeps goal has its own card under
+   **Nation & territory** (section 14); the other three goals are a plan ([design 01](../design/win-conditions/01-proposal.ja.md), Japanese). The same PR made the first-building hints say 「伐採場」, as the
    village screen does, and the search's nothing-found hint is now 「州の座標（例：4,0）、見えている村の国の名前、領主の名前で探せます」
    (verify-pr187 saw them in a live world).
 
