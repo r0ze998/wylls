@@ -212,7 +212,7 @@ export function renderCustody(FS) {
       ${e.reconcile ? btn('lot-reconcile', { ...d, caravans: e.reconcile.caravans.join('.') }, L`帳簿を確かめる`) : ''}
       ${e.canClose ? btn('lot-close', { ...d, rent: e.lot.rentTo }, L`枠を閉じる`) : ''}</span></li>`;
   })}</ul>` : '';
-  const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? chip(L`奪われた`, 'warn') : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
+  const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? html`${chip(L`奪われた`, 'warn')} ` : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
   // (fix-loop9, LP9-7: the select chose the province's FIRST village — an AI's or a test village — and a lot opened for
   //  the wrong person unless one noticed: one choice is chosen; more are left to the person, except the one picked last)
   const pairPick = openPairPick(m.openChoices, FS.ui?.custodyPair ?? null);

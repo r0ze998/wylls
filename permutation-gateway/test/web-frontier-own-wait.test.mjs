@@ -133,7 +133,11 @@ test('F5: no prize pool → asked again every 10 min (same relay, world, wallet)
   assert.match(ctl, /export const PRIZE_ABSENT_MS = 600_000;/);
   const cq = fn('export async function refreshConquest() {');
   assert.match(cq, /skipControl \? null : herald\.control\(\), skipStandings \? null : herald\.standings\(\)/);
-  assert.match(cq, /conquestMiss\.control = control\?\.code === 'NotFound' \? \{ world, bell: bellNow \} : null;/);
+  assert.match(cq, /conquestMiss\.control = control\?\.code === 'NotFound' \? \{ world, bell: bellNow, at: Date\.now\(\) \} : null;/);
+  // (fix-loop12, LP12-2: only in a fresh world's first turns, before its first snapshot, a 404 is asked again after 30 s)
+  assert.match(cq, /const freshWorld = !cq\.control && bellNow <= 1 \+ Math\.ceil\(/);
+  assert.match(cq, /conquestMiss\[k\]\.bell === bellNow && !\(freshWorld && Date\.now\(\) - conquestMiss\[k\]\.at >= FRESH_MISS_RETRY_MS\);/);
+  assert.match(ctl, /const FRESH_MISS_RETRY_MS = 30_000;/);
   assert.match(cq, /if \(skipControl\) \{ \/\* the status of the last answer stands \*\/ \}\n\s+else if \(control\?\.ok\) \{/);
 });
 
