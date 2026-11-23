@@ -2902,7 +2902,11 @@ mod tests {
         assert_eq!(bounds_in(REQUEST_RING_SEED), (12, 12));
         assert_eq!(bounds_in(CONSUME_RING_SEED), (3, 3));
         assert_eq!(bounds_in(OPEN_PROVINCE), (7, 7));
-        assert_eq!(bounds_in(CLAIM_SITE), (12, 13), "the reach witness is optional");
+        assert_eq!(
+            bounds_in(CLAIM_SITE),
+            (12, 13),
+            "the reach witness is optional"
+        );
         assert_eq!(bounds_in(DEPART), (13, 13));
         assert_eq!(
             crate::v2::prologue::count_bounds(crate::v2::Ix::Depart),
