@@ -56,8 +56,33 @@
 //! versions, and when the hold ended one landed and 23 failed `OutOfOrder`;
 //! a keeper tick that ran past its slot sent a second version of writes
 //! whose first landed one slot later (3 `OutOfOrder` in the smoke).
+//!
+//! **Refusal back-off (fix-keeper-backoff, D-dress-8):** a write that ended
+//! `Failed` waits before its duty may plan it again. A *transient* refusal
+//! ([`transient_refusal`]: "not yet" / "someone moved first", e.g.
+//! `NoAnchor`, `TooEarly`, `NotQuiet`) keeps the short backoff: 2, 4, …
+//! slots, at most 1,024. Every other refusal — a program code outside that
+//! list, a chain error without a code (except a payer's
+//! `InsufficientFunds…`), or a `Dead` end other than a deadline — is
+//! deterministic for the same instruction and takes the **refusal hold**:
+//! after the `n`-th refusal in a row with the same code the key
+//! waits `2 << (n − 1)` slots (at most [`EngineParams::refusal_max_slots`])
+//! **and** `2^(n − 1)` keeper passes (at most
+//! [`EngineParams::refusal_max_passes`]; a pass on a paced public RPC spans
+//! tens of slots). The hold ends when the write lands (the streak too),
+//! and is lifted for one send when the duty plans a different instruction
+//! for the key ([`spec_fingerprint`]: the chain state it read changed); the
+//! streak goes on if that one is refused with the same code. The **group breaker**: once
+//! [`EngineParams::refusal_group_min`] distinct keys of one duty kind were
+//! refused with the same code and nothing of that kind landed since, the
+//! kind sends one probe at a time at doubling gaps until one lands (W
+//! writes, beacon kinds and payer care are exempt). Before this, the 1,024-slot
+//! cap applied to every refusal (≈ 7 min: about 200 resends a day per key at
+//! 1×) and a `Dead` write was planned again the next pass. Holds are in
+//! memory: a restart starts them over. RPC errors (429, timeouts) are send
+//! errors, not outcomes, and are untouched. `/v1/status.refusals` shows them.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use solana_address::Address;
@@ -139,6 +164,21 @@ pub struct EngineParams {
     /// `AlreadyDone`. A new version waits until an older one settles or
     /// expires. `0` keeps the old every-slot ladder.
     pub max_unknown_w_versions: u32,
+    /// fix-keeper-backoff: a write the program refused deterministically
+    /// (a code outside [`transient_refusal`], a chain error without a code,
+    /// or a `Dead` end other than a deadline) is held for `2 << (n − 1)`
+    /// slots after its `n`-th refusal in a row with one code, at most this many slots
+    /// (the old cap, 1,024, stays for transient codes).
+    pub refusal_max_slots: u64,
+    /// … and also for `2^(n − 1)` keeper passes ([`Engine::begin_pass`]),
+    /// at most this many. `0` (the engine's own default) turns the pass
+    /// gate off; the keeper sets it from `keeper.toml` (default 64).
+    pub refusal_max_passes: u64,
+    /// The group breaker: once this many distinct keys of one duty kind
+    /// were refused with the same code and nothing of that kind landed
+    /// since, the whole kind waits for one probe at a time (W writes,
+    /// beacon kinds and payer care are exempt). `0` turns it off.
+    pub refusal_group_min: u32,
 }
 
 impl Default for EngineParams {
@@ -158,6 +198,9 @@ impl Default for EngineParams {
             // Off here (the engine's own tests keep the every-slot ladder);
             // the keeper sets it from `keeper.toml` (default 2).
             max_unknown_w_versions: 0,
+            refusal_max_slots: REFUSAL_MAX_SLOTS,
+            refusal_max_passes: 0,
+            refusal_group_min: 0,
         }
     }
 }
@@ -306,6 +349,11 @@ pub struct KindStats {
     pub latency_slots: Vec<u64>,
     /// Fees of landed-or-failed versions (charged).
     pub fees_charged: u64,
+    /// fix-keeper-backoff: deterministic refusals recorded (each starts or
+    /// extends a refusal hold).
+    pub refused: u64,
+    /// `ensure` calls turned away by a refusal hold or an open group.
+    pub suppressed: u64,
 }
 
 pub struct Engine {
@@ -315,6 +363,21 @@ pub struct Engine {
     backoff: HashMap<String, u64>,
     /// Consecutive program refusals per key (the backoff doubles with each).
     failures: HashMap<String, u32>,
+    /// fix-keeper-backoff: deterministic refusals per key (module docs,
+    /// "Refusal back-off").
+    refusals: BTreeMap<String, Refusal>,
+    /// The group breaker per `(kind, code)`.
+    refusal_groups: BTreeMap<(&'static str, Option<u32>), RefusalGroup>,
+    /// Keeper passes so far ([`Self::begin_pass`]).
+    pass: u64,
+    /// Holds lifted early because the duty planned a different instruction.
+    pub refusal_resets: u64,
+    /// verify-pr192: keys an open group turned away this pass, per kind …
+    refusal_asked: BTreeMap<&'static str, BTreeSet<String>>,
+    /// … and the one chosen at the pass start to take the kind's next probe
+    /// (a key outside the group first, else the one refused longest ago),
+    /// so a refused key planned before healthy ones cannot take every probe.
+    refusal_pick: BTreeMap<&'static str, String>,
     /// Versions whose write is gone (cancelled, adopted after a restart):
     /// polled until resolved so the journal is complete.
     orphans: Vec<(Signature, u64)>,
@@ -369,6 +432,137 @@ pub fn is_heap_fault(e: &str) -> bool {
 }
 
 const BACKOFF_SLOTS: u64 = 2;
+/// The text of a write that ran out of versions or fee cap with a
+/// signature still unknown ([`Outcome::Failed`], code `None`).
+const RETRY_WINDOW_UNRESOLVED: &str = "versions unresolved after retry window";
+/// The default cap of a refusal hold in slots (≈ 1 h at 400 ms).
+pub const REFUSAL_MAX_SLOTS: u64 = 9_000;
+/// The keeper's default cap of a refusal hold in passes.
+pub const REFUSAL_MAX_PASSES: u64 = 64;
+/// The keeper's default group-breaker threshold.
+pub const REFUSAL_GROUP_MIN: u32 = 4;
+/// Refusal entries a status shows at most.
+pub const REFUSAL_STATUS_KEYS: usize = 32;
+
+/// A refusal that means "not yet" or "someone else moved first": the duty
+/// re-plans it on the next chain read and it normally lands soon. These
+/// keep the short backoff (2, 4, … 1,024 slots); every other program
+/// refusal is deterministic for the same instruction and takes the refusal
+/// hold. (The first ten are the codes `Keeper::note_step` never alerted
+/// on; the rest wait on another write or on time.)
+pub fn transient_refusal(code: u32) -> bool {
+    matches!(
+        code,
+        err::NO_ANCHOR
+            | err::SEED_NOT_READY
+            | err::FOLD_STALE
+            | err::TICKET_STATE
+            | err::NOT_QUIET
+            | err::SLOT_MOVED
+            | err::QUOTA_REFUSED
+            | err::TOO_EARLY
+            | err::DEPARTURE_UNSETTLED
+            | err::FOLD_TOO_EARLY
+            | err::NOT_GATHERED
+            | err::INPUTS_OPEN
+            | err::NOT_DUE
+            | err::HOST_IN_TRANSIT
+            | err::NEED_ARRIVAL_DAY
+            | err::CAPTURE_PENDING
+            | err::STAKE_UNSETTLED
+            | err::SIEGE_BUSY
+    )
+}
+
+/// Kinds the group breaker never closes (time-critical or not a program write).
+fn group_exempt(kind: &str, class: Class) -> bool {
+    class == Class::W
+        || matches!(
+            kind,
+            "anchor" | "anchor-multi" | "seed" | "beacon-log" | "genesis-seed" | PAYER_CARE_KIND
+        )
+}
+
+/// What an ended write says for the refusal hold: `Some(code)` when the
+/// program refused it deterministically, `None` otherwise.
+fn refusal_of(o: &Outcome) -> Option<Option<u32>> {
+    match o {
+        Outcome::Failed { code: Some(c), .. } if transient_refusal(*c) => None,
+        // A payer short of lamports is the payer's state (care tops it up and
+        // the next version draws another payer), not the write's.
+        Outcome::Failed {
+            code: None, err, ..
+        } if err.contains("InsufficientFunds") => None,
+        // verify-pr192: a write that ran out of versions or fee cap while
+        // signatures were unknown (congestion, a paced RPC) keeps this
+        // provisional outcome even when a late status carries the real
+        // code; it is not the program's refusal of the instruction.
+        Outcome::Failed {
+            code: None, err, ..
+        } if err.contains(RETRY_WINDOW_UNRESOLVED) => None,
+        Outcome::Failed { code, .. } => Some(*code),
+        Outcome::Dead { reason, code } => {
+            (reason != "deadline" && reason != "reveal cutoff").then_some(*code)
+        }
+        _ => None,
+    }
+}
+
+/// A stable digest of the instructions a spec builds for a fixed payer:
+/// the duty planned the same write again iff this is unchanged.
+pub fn spec_fingerprint(spec: &WriteSpec) -> u64 {
+    use std::hash::{Hash as _, Hasher};
+    let ctx = BuildCtx {
+        payer: Address::default(),
+        version: 0,
+        slots_waiting: 0,
+    };
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    spec.tag.hash(&mut h);
+    for ix in (spec.build)(&ctx) {
+        ix.program_id.to_bytes().hash(&mut h);
+        for a in &ix.accounts {
+            (a.pubkey.to_bytes(), a.is_signer, a.is_writable).hash(&mut h);
+        }
+        ix.data.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// One key's deterministic refusals (fix-keeper-backoff).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub kind: &'static str,
+    pub code: Option<u32>,
+    /// The refusal's text, shortened.
+    pub err: String,
+    /// Refusals in a row with the same code (a landing or another code
+    /// starts over).
+    pub count: u32,
+    /// The digest of the instruction last refused or released.
+    pub fingerprint: u64,
+    pub first_slot: u64,
+    pub last_slot: u64,
+    /// No new write of this key before this slot …
+    pub until_slot: u64,
+    /// … and before this pass.
+    pub until_pass: u64,
+    /// `ensure` calls turned away while held.
+    pub suppressed: u64,
+}
+
+/// The group breaker of one `(kind, code)`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RefusalGroup {
+    /// Distinct keys refused since the kind last landed.
+    pub keys: BTreeSet<String>,
+    /// Refusals of the group while open (the probe interval doubles).
+    pub probes_failed: u32,
+    pub next_probe_slot: u64,
+    pub next_probe_pass: u64,
+    /// The key now probing (one at a time).
+    pub probing: Option<String>,
+}
 /// Slot-based retry horizon for a sent version. Passing it does not prove
 /// non-landing (blockhash validity is measured in block heights).
 pub const EXPIRY_SLOTS: u64 = 151;
@@ -384,6 +578,12 @@ impl Engine {
             pending: BTreeMap::new(),
             backoff: HashMap::new(),
             failures: HashMap::new(),
+            refusals: BTreeMap::new(),
+            refusal_groups: BTreeMap::new(),
+            pass: 0,
+            refusal_resets: 0,
+            refusal_asked: BTreeMap::new(),
+            refusal_pick: BTreeMap::new(),
             orphans: vec![],
             cancelled_orphans: HashMap::new(),
             held_replans: HashMap::new(),
@@ -545,6 +745,10 @@ impl Engine {
         {
             return false;
         }
+        if !self.refusal_admits(&spec, slot) {
+            self.stats.entry(spec.kind.into()).or_default().suppressed += 1;
+            return false;
+        }
         self.backoff.remove(&spec.key);
         let b = self.budgets.get(spec.tag);
         let adopted = self.adopted.remove(&spec.key).unwrap_or_default();
@@ -567,6 +771,196 @@ impl Engine {
             },
         );
         true
+    }
+
+    /// fix-keeper-backoff: one keeper pass begins (the refusal holds count
+    /// passes as well as slots, so a slow pass on a paced public RPC still
+    /// waits). Also forgets refusals the duties stopped planning.
+    pub fn begin_pass(&mut self, slot: u64) {
+        self.pass += 1;
+        let horizon = self
+            .params
+            .refusal_max_slots
+            .max(BACKOFF_SLOTS)
+            .saturating_mul(4);
+        let pass = self.pass;
+        let gate = self.params.refusal_max_passes > 0;
+        self.refusals.retain(|_, r| {
+            slot < r.last_slot.saturating_add(horizon)
+                || slot < r.until_slot
+                || (gate && pass < r.until_pass)
+        });
+        self.refusal_groups.retain(|_, g| !g.keys.is_empty());
+        // verify-pr192: choose each blocked kind's next probe from the keys
+        // that asked last pass (duties re-plan every pass). Plan order would
+        // otherwise hand every probe to the first key planned: a stuck
+        // region-0 batch ahead of healthy ones closed the kind for good.
+        self.refusal_pick.clear();
+        let min = self.params.refusal_group_min as usize;
+        for (kind, asked) in std::mem::take(&mut self.refusal_asked) {
+            let members: BTreeSet<&String> = self
+                .refusal_groups
+                .iter()
+                .filter(|(gk, g)| gk.0 == kind && min > 0 && g.keys.len() >= min)
+                .flat_map(|(_, g)| g.keys.iter())
+                .collect();
+            let pick = asked.iter().find(|k| !members.contains(k)).or_else(|| {
+                asked
+                    .iter()
+                    .min_by_key(|k| self.refusals.get(*k).map_or(0, |r| r.last_slot))
+            });
+            if let Some(k) = pick {
+                self.refusal_pick.insert(kind, k.clone());
+            }
+        }
+    }
+
+    pub fn pass(&self) -> u64 {
+        self.pass
+    }
+
+    /// Whether a refusal still holds its key at `slot`.
+    pub fn refusal_held(&self, r: &Refusal, slot: u64) -> bool {
+        slot < r.until_slot || (self.params.refusal_max_passes > 0 && self.pass < r.until_pass)
+    }
+
+    pub fn refusals(&self) -> &BTreeMap<String, Refusal> {
+        &self.refusals
+    }
+
+    pub fn refusal_groups(&self) -> &BTreeMap<(&'static str, Option<u32>), RefusalGroup> {
+        &self.refusal_groups
+    }
+
+    /// Whether a group is open (its kind waits for one probe at a time).
+    pub fn group_open(&self, g: &RefusalGroup) -> bool {
+        self.params.refusal_group_min > 0 && g.keys.len() >= self.params.refusal_group_min as usize
+    }
+
+    /// The refusal hold and the group breaker (`ensure`). A held key whose
+    /// duty now plans a different instruction (the chain state it read
+    /// changed) is released at once.
+    fn refusal_admits(&mut self, spec: &WriteSpec, slot: u64) -> bool {
+        if let Some(r) = self.refusals.get(&spec.key) {
+            if self.refusal_held(r, slot) {
+                let fp = spec_fingerprint(spec);
+                let pass = self.pass;
+                let r = self.refusals.get_mut(&spec.key).expect("refusal");
+                if fp == r.fingerprint {
+                    r.suppressed += 1;
+                    return false;
+                }
+                // A different instruction (the chain state the duty read
+                // changed): this one goes out now. The streak, and so the
+                // next hold, continues if it is refused the same way again:
+                // an archive batch that grows by one bell every bell would
+                // otherwise restart at 2 slots every bell.
+                r.until_slot = slot;
+                r.until_pass = pass;
+                r.fingerprint = fp;
+                self.refusal_resets += 1;
+            }
+        }
+        if self.params.refusal_group_min == 0 || group_exempt(spec.kind, spec.class) {
+            return true;
+        }
+        let min = self.params.refusal_group_min as usize;
+        let gate = self.params.refusal_max_passes > 0;
+        let (pass, pending) = (self.pass, &self.pending);
+        let mut blocked = false;
+        let mut due = true;
+        for (gk, g) in self.refusal_groups.iter_mut() {
+            if gk.0 != spec.kind || g.keys.len() < min {
+                continue;
+            }
+            blocked = true;
+            // A probe that ended without a refusal (cancelled, unresolved).
+            if g.probing.as_ref().is_some_and(|k| !pending.contains_key(k)) {
+                g.probing = None;
+            }
+            if g.probing.is_some() || slot < g.next_probe_slot || (gate && pass < g.next_probe_pass)
+            {
+                due = false;
+            }
+        }
+        if !blocked {
+            return true;
+        }
+        // verify-pr192: only the key chosen at the pass start probes.
+        if due && self.refusal_pick.get(spec.kind) == Some(&spec.key) {
+            self.refusal_pick.remove(spec.kind);
+            for (gk, g) in self.refusal_groups.iter_mut() {
+                if gk.0 == spec.kind && g.keys.len() >= min {
+                    g.probing = Some(spec.key.clone());
+                }
+            }
+            return true;
+        }
+        self.refusal_asked
+            .entry(spec.kind)
+            .or_default()
+            .insert(spec.key.clone());
+        false
+    }
+
+    /// Records a deterministic refusal of `key` (the write just ended).
+    fn note_refusal(
+        &mut self,
+        key: &str,
+        spec: &WriteSpec,
+        code: Option<u32>,
+        err: &str,
+        slot: u64,
+    ) {
+        let fp = spec_fingerprint(spec);
+        // The same code again continues the streak, even for an instruction
+        // released early as changed (`refusal_admits`).
+        let prev = self.refusals.get(key).filter(|r| r.code == code).cloned();
+        let n = prev.as_ref().map_or(1, |r| r.count.saturating_add(1));
+        let sh = (n - 1).min(20);
+        let max_s = self.params.refusal_max_slots.max(BACKOFF_SLOTS);
+        let wait_s = (BACKOFF_SLOTS << sh).min(max_s);
+        let wait_p = (1u64 << sh).min(self.params.refusal_max_passes);
+        let mut text: String = err.chars().take(160).collect();
+        if text.is_empty() {
+            text = code.and_then(abi::error_name).unwrap_or("?").into();
+        }
+        self.refusals.insert(
+            key.to_string(),
+            Refusal {
+                kind: spec.kind,
+                code,
+                err: text,
+                count: n,
+                fingerprint: fp,
+                first_slot: prev.as_ref().map_or(slot, |r| r.first_slot),
+                last_slot: slot,
+                until_slot: slot + wait_s,
+                until_pass: self.pass + wait_p,
+                suppressed: prev.as_ref().map_or(0, |r| r.suppressed),
+            },
+        );
+        self.stats.entry(spec.kind.into()).or_default().refused += 1;
+        let min = self.params.refusal_group_min as usize;
+        if min == 0 || group_exempt(spec.kind, spec.class) {
+            return;
+        }
+        let max_p = self.params.refusal_max_passes;
+        let pass = self.pass;
+        let g = self.refusal_groups.entry((spec.kind, code)).or_default();
+        let was_open = g.keys.len() >= min;
+        g.keys.insert(key.to_string());
+        if g.probing.as_deref() == Some(key) {
+            // The probe was refused the same way: the next one waits longer.
+            g.probing = None;
+            g.probes_failed = g.probes_failed.saturating_add(1);
+            let sh = g.probes_failed.min(20);
+            g.next_probe_slot = slot + (BACKOFF_SLOTS << sh).min(max_s);
+            g.next_probe_pass = pass + (1u64 << sh).min(max_p);
+        } else if !was_open && g.keys.len() >= min {
+            g.next_probe_slot = slot + BACKOFF_SLOTS;
+            g.next_probe_pass = pass + 1.min(max_p);
+        }
     }
 
     /// Requests the retry heap frame from the first version of a pending write (a duty that knows its write needs
@@ -973,6 +1367,7 @@ impl Engine {
         }
         for (k, o) in finished {
             if let Some(p) = self.pending.remove(&k) {
+                let refusal = refusal_of(&o);
                 let s = self.stats.entry(p.spec.kind.into()).or_default();
                 match &o {
                     Outcome::Landed {
@@ -986,14 +1381,32 @@ impl Engine {
                     }
                     Outcome::Failed { .. } => {
                         s.failed += 1;
-                        let n = self.failures.entry(k.clone()).or_default();
-                        *n = n.saturating_add(1);
-                        // 2, 4, 8, … slots, at most 1,024 (≈ 7 min of slots).
-                        let wait = BACKOFF_SLOTS << (*n - 1).min(9);
-                        self.backoff.insert(k.clone(), slot + wait);
+                        // Transient refusals: 2, 4, 8, … slots, at most
+                        // 1,024 (≈ 7 min of slots). Deterministic ones take
+                        // the refusal hold below instead.
+                        if refusal.is_none() {
+                            let n = self.failures.entry(k.clone()).or_default();
+                            *n = n.saturating_add(1);
+                            let wait = BACKOFF_SLOTS << (*n - 1).min(9);
+                            self.backoff.insert(k.clone(), slot + wait);
+                        }
                     }
                     Outcome::Unresolved { .. } => {}
                     Outcome::Dead { .. } => s.dead += 1,
+                }
+                if matches!(o, Outcome::Landed { .. }) {
+                    // Success ends the key's hold and closes every group of its kind.
+                    self.refusals.remove(&k);
+                    let kind = p.spec.kind;
+                    self.refusal_groups.retain(|g, _| g.0 != kind);
+                }
+                if let Some(code) = refusal {
+                    let text = match &o {
+                        Outcome::Failed { err, .. } => err.clone(),
+                        Outcome::Dead { reason, .. } => reason.clone(),
+                        _ => String::new(),
+                    };
+                    self.note_refusal(&k, &p.spec, code, &text, slot);
                 }
                 self.hold_unsettled(&k, &p);
                 report.outcomes.push((k, o));
@@ -1183,7 +1596,7 @@ impl Engine {
                         > self.params.per_write_cap)
             {
                 let err = format!(
-                    "{} versions unresolved after retry window (cap {} versions, {} lamports)",
+                    "{} {RETRY_WINDOW_UNRESOLVED} (cap {} versions, {} lamports)",
                     p.versions.len(),
                     self.params.max_versions,
                     self.params.per_write_cap
@@ -3306,5 +3719,445 @@ mod tests {
         assert!(err::is_done(abi::tag::SETTLE_TICKET, 23));
         assert!(!err::is_done(abi::tag::POST_SEED, 23));
         assert!(err::is_done(abi::tag::POST_SEED, 52));
+    }
+
+    // ---- fix-keeper-backoff: the refusal hold and the group breaker ----
+
+    const BAD_PROGRAM: [u8; 32] = [0xba; 32];
+    const BAD_ACCOUNT: u32 = frontier_abi::error::FrontierError::BadAccount.code();
+
+    /// A spec of `kind` whose instruction goes to `program` with `data`
+    /// (the Script refuses every transaction naming [`BAD_PROGRAM`]).
+    fn marked(key: &str, kind: &'static str, program: [u8; 32], data: u8) -> WriteSpec {
+        WriteSpec {
+            kind,
+            build: Arc::new(move |c: &BuildCtx| {
+                vec![Instruction {
+                    program_id: Address::new_from_array(program),
+                    accounts: vec![solana_instruction::AccountMeta::new(c.payer, true)],
+                    data: vec![data],
+                }]
+            }),
+            ..spec(key, Class::D, abi::tag::POST_SEED)
+        }
+    }
+
+    fn names(t: &fclient::Transaction, program: [u8; 32]) -> bool {
+        t.message
+            .account_keys
+            .contains(&Address::new_from_array(program))
+    }
+
+    /// The program refuses [`BAD_PROGRAM`] with `code` (`None`: lands).
+    fn refusing(port: &Script, code: Arc<Mutex<Option<u32>>>) {
+        *port.answer.lock().unwrap() = Box::new(move |t| {
+            let c = *code.lock().unwrap();
+            Some(match c.filter(|_| names(t, BAD_PROGRAM)) {
+                Some(c) => Status {
+                    slot: 1,
+                    err: Some(format!("InstructionError(2, Custom({c}))")),
+                    code: Some(c),
+                },
+                None => Status {
+                    slot: 1,
+                    err: None,
+                    code: None,
+                },
+            })
+        });
+    }
+
+    fn sends_naming(port: &Script, program: [u8; 32]) -> usize {
+        port.sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| names(t, program))
+            .count()
+    }
+
+    /// One keeper pass as `Keeper::tick` runs it: begin, poll, plan, send.
+    async fn pass(
+        e: &mut Engine,
+        port: &Script,
+        payers: &mut Payers,
+        slot: u64,
+        plan: &mut dyn FnMut(&mut Engine, u64),
+    ) -> StepReport {
+        e.begin_pass(slot);
+        let mut r = e.poll(port, None, slot).await;
+        plan(e, slot);
+        e.send(port, payers, None, slot, &mut r).await;
+        r
+    }
+
+    fn backoff_params(max_slots: u64, max_passes: u64, group_min: u32) -> EngineParams {
+        EngineParams {
+            refusal_max_slots: max_slots,
+            refusal_max_passes: max_passes,
+            refusal_group_min: group_min,
+            ..EngineParams::default()
+        }
+    }
+
+    /// D-dress-8: a write the program keeps refusing (BadAccount) goes out
+    /// at gaps 3, 5, 9, 17, 33, then every `refusal_max_slots + 1`, while a
+    /// healthy duty planning one new write every pass lands every pass.
+    #[tokio::test]
+    async fn refused_write_backs_off_while_healthy_writes_keep_cadence() {
+        let port = Script::default();
+        refusing(&port, Arc::new(Mutex::new(Some(BAD_ACCOUNT))));
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), backoff_params(64, 0, 0));
+        let mut bad_slots = vec![];
+        let mut healthy_landed = 0;
+        for s in 0..400u64 {
+            let before = sends_naming(&port, BAD_PROGRAM);
+            let r = pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                e.ensure(marked("archive:3:1:144", "archive", BAD_PROGRAM, 1), s);
+                e.ensure(marked(&format!("ok:{s}"), "resolve", [7; 32], 1), s);
+            })
+            .await;
+            if sends_naming(&port, BAD_PROGRAM) > before {
+                bad_slots.push(s);
+            }
+            healthy_landed += r
+                .outcomes
+                .iter()
+                .filter(|(k, o)| k.starts_with("ok:") && matches!(o, Outcome::Landed { .. }))
+                .count();
+        }
+        let gaps: Vec<u64> = bad_slots.windows(2).map(|w| w[1] - w[0]).collect();
+        assert_eq!(&gaps[..6], &[3, 5, 9, 17, 33, 65], "gaps {gaps:?}");
+        assert!(gaps[5..].iter().all(|&g| g == 65), "capped: {gaps:?}");
+        // (Before: the same doubling but capped at 1,024 slots for every
+        // code; the cap is now `refusal_max_slots`, 9,000 by default, 64 here.)
+        assert_eq!(bad_slots.len(), 11, "{bad_slots:?}");
+        assert_eq!(
+            healthy_landed, 399,
+            "every pass's healthy write landed the next pass"
+        );
+        let r = &e.refusals()["archive:3:1:144"];
+        assert_eq!((r.code, r.count), (Some(BAD_ACCOUNT), 11));
+        assert!(r.suppressed > 300);
+        assert_eq!(e.stats["archive"].refused, 11);
+        assert_eq!(e.stats["archive"].suppressed, r.suppressed);
+        assert_eq!(e.stats["resolve"].refused, 0);
+        assert_eq!(e.stats["resolve"].suppressed, 0);
+    }
+
+    /// One devnet day of a permanently refused, unchanging write: 216,000
+    /// slots, a keeper pass every 45 slots (devnet-dress-rehearsal run4's
+    /// ticks). The old schedule (every code: at most 1,024 slots) resends
+    /// it 208 times; the keeper.toml defaults (9,000 slots, 64 passes) 34
+    /// (13 while the hold doubles, then one an hour).
+    #[tokio::test]
+    async fn a_devnet_day_of_one_refused_write() {
+        let mut got = vec![];
+        for params in [backoff_params(1_024, 0, 0), backoff_params(9_000, 64, 4)] {
+            let port = Script::default();
+            refusing(&port, Arc::new(Mutex::new(Some(BAD_ACCOUNT))));
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut e = Engine::new(Budgets::placeholder(), params);
+            for s in (0..216_000u64).step_by(45) {
+                pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                    e.ensure(marked("archive:0:0:0", "archive", BAD_PROGRAM, 1), s);
+                })
+                .await;
+            }
+            got.push(sends_naming(&port, BAD_PROGRAM));
+        }
+        println!("a devnet day, old schedule vs defaults: {got:?} sends");
+        assert!((195..=215).contains(&got[0]), "old schedule: {got:?}");
+        assert!((28..=40).contains(&got[1]), "defaults: {got:?}");
+    }
+
+    /// On a paced RPC one pass spans ~100 slots: the pass gate still
+    /// doubles (1, 2, 4, 8 passes, capped).
+    #[tokio::test]
+    async fn pass_gate_holds_when_each_pass_spans_many_slots() {
+        let port = Script::default();
+        refusing(&port, Arc::new(Mutex::new(Some(BAD_ACCOUNT))));
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), backoff_params(9_000, 8, 0));
+        let mut bad_passes = vec![];
+        for n in 0..60u64 {
+            let before = sends_naming(&port, BAD_PROGRAM);
+            pass(&mut e, &port, &mut payers, n * 100, &mut |e, s| {
+                e.ensure(marked("k", "archive", BAD_PROGRAM, 1), s);
+            })
+            .await;
+            if sends_naming(&port, BAD_PROGRAM) > before {
+                bad_passes.push(n);
+            }
+        }
+        let gaps: Vec<u64> = bad_passes.windows(2).map(|w| w[1] - w[0]).collect();
+        // Slot waits (2 << n, under 800 slots = 8 passes until n = 9) never
+        // bind here: the pass gate alone gives 2, 3, 5, 9, then its cap 8 + 1.
+        assert_eq!(&gaps[..4], &[2, 3, 5, 9], "gaps {gaps:?}");
+        assert!(gaps.iter().skip(3).all(|&g| g == 9), "gaps {gaps:?}");
+        assert_eq!(bad_passes.len(), 9, "{bad_passes:?}");
+    }
+
+    /// The duty planning a different instruction for the held key (the
+    /// state it read changed) sends it at once (the streak goes on if it is
+    /// refused the same way); a success ends hold and streak; the same
+    /// instruction stays held.
+    #[tokio::test]
+    async fn state_change_or_success_ends_the_hold() {
+        let port = Script::default();
+        let code = Arc::new(Mutex::new(Some(BAD_ACCOUNT)));
+        refusing(&port, code.clone());
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), backoff_params(9_000, 64, 0));
+        for s in 0..40u64 {
+            pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                e.ensure(marked("k", "archive", BAD_PROGRAM, 1), s);
+            })
+            .await;
+        }
+        let held = e.refusals()["k"].clone();
+        assert!(held.count >= 4 && e.refusal_held(&held, 40), "{held:?}");
+        assert!(
+            !e.ensure(marked("k", "archive", BAD_PROGRAM, 1), 40),
+            "same write: held"
+        );
+        assert!(
+            e.ensure(marked("k", "archive", BAD_PROGRAM, 2), 40),
+            "new instruction: released"
+        );
+        assert_eq!(e.refusal_resets, 1);
+        assert!(!e.refusal_held(&e.refusals()["k"], 40));
+        // Refused the same way again: the streak goes on (no 2-slot ramp
+        // per change), and the new instruction is held.
+        let mut r = StepReport::default();
+        e.send(&port, &mut payers, None, 40, &mut r).await;
+        e.begin_pass(41);
+        e.poll(&port, None, 41).await;
+        let again = e.refusals()["k"].clone();
+        assert_eq!(again.count, held.count + 1);
+        assert!(e.refusal_held(&again, 41));
+        assert!(!e.ensure(marked("k", "archive", BAD_PROGRAM, 2), 41));
+        // The cause is fixed and the duty plans again (a changed instruction
+        // goes out at once): the landing clears hold and streak.
+        *code.lock().unwrap() = None;
+        for s in 43..60u64 {
+            pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                e.ensure(marked("k", "archive", BAD_PROGRAM, 3), s);
+            })
+            .await;
+        }
+        assert!(!e.refusals().contains_key("k"));
+        assert!(e.stats["archive"].landed >= 1);
+    }
+
+    /// Transient codes (NoAnchor …), a payer short of lamports and a
+    /// deadline keep the old behaviour: no refusal hold.
+    #[tokio::test]
+    async fn transient_refusals_keep_the_short_backoff() {
+        for (code, err_text) in [
+            (
+                Some(err::NO_ANCHOR),
+                "InstructionError(2, Custom(NoAnchor))",
+            ),
+            (
+                Some(err::NOT_GATHERED),
+                "InstructionError(2, Custom(NotGathered))",
+            ),
+            (None, "InsufficientFundsForRent { account_index: 1 }"),
+        ] {
+            let port = Script::default();
+            *port.answer.lock().unwrap() = Box::new(move |_| {
+                Some(Status {
+                    slot: 1,
+                    err: Some(err_text.into()),
+                    code,
+                })
+            });
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut e = Engine::new(Budgets::placeholder(), backoff_params(9_000, 64, 1));
+            for s in 0..20u64 {
+                pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                    e.ensure(spec("t", Class::D, abi::tag::POST_SEED), s);
+                })
+                .await;
+            }
+            assert!(e.refusals().is_empty(), "{code:?}");
+            assert!(e.refusal_groups().is_empty(), "{code:?}");
+            assert_eq!(e.stats["test"].refused, 0);
+            // Old schedule: gaps 3, 5, 9 → sends at 0, 3, 8, 17.
+            assert_eq!(port.sent.lock().unwrap().len(), 4, "{code:?}");
+        }
+        assert!(refusal_of(&Outcome::Dead {
+            reason: "deadline".into(),
+            code: None
+        })
+        .is_none());
+        // verify-pr192: the version/fee cap's provisional outcome (it wins
+        // over a late status's real code) is not a refusal.
+        assert!(refusal_of(&Outcome::Failed {
+            code: None,
+            err: format!("3 {RETRY_WINDOW_UNRESOLVED} (cap 3 versions, 20000000 lamports)"),
+            slot: 9
+        })
+        .is_none());
+        assert_eq!(
+            refusal_of(&Outcome::Dead {
+                reason: "WindowClosed".into(),
+                code: Some(err::WINDOW_CLOSED)
+            }),
+            Some(Some(err::WINDOW_CLOSED))
+        );
+        assert_eq!(
+            refusal_of(&Outcome::Dead {
+                reason: "compute budget exceeded at 1.4M".into(),
+                code: None
+            }),
+            Some(None)
+        );
+    }
+
+    /// A Dead end (WindowClosed) used to be re-planned at once, every pass;
+    /// now it is held like a Failed refusal.
+    #[tokio::test]
+    async fn dead_writes_are_held_too() {
+        let port = Script::default();
+        refusing(&port, Arc::new(Mutex::new(Some(err::WINDOW_CLOSED))));
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), backoff_params(64, 0, 0));
+        for s in 0..100u64 {
+            pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                e.ensure(marked("close:1:2", "close", BAD_PROGRAM, 1), s);
+            })
+            .await;
+        }
+        assert_eq!(
+            sends_naming(&port, BAD_PROGRAM),
+            6,
+            "0, 3, 8, 17, 34, 67 (before: no hold on Dead, 100 = every pass)"
+        );
+        assert_eq!(e.stats["close"].dead, 6);
+        assert_eq!(e.refusals()["close:1:2"].code, Some(err::WINDOW_CLOSED));
+    }
+
+    /// The group breaker: an archive duty planning a new batch every pass,
+    /// every one refused BadAccount (the rehearsal's 2,489). After 4 keys
+    /// the kind sends one probe at a time at doubling gaps; another kind
+    /// keeps landing every pass; once the probe lands the kind flows again.
+    #[tokio::test]
+    async fn group_breaker_probes_one_key_and_reopens_on_success() {
+        let port = Script::default();
+        let code = Arc::new(Mutex::new(Some(BAD_ACCOUNT)));
+        refusing(&port, code.clone());
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), backoff_params(256, 0, 4));
+        let mut healthy = 0;
+        let mut plan = |e: &mut Engine, s: u64| {
+            // Every archive batch ever planned so far is re-planned.
+            for b in 0..=s.min(300) {
+                e.ensure(
+                    marked(&format!("archive:{b}"), "archive", BAD_PROGRAM, b as u8),
+                    s,
+                );
+            }
+            e.ensure(marked(&format!("ok:{s}"), "resolve", [7; 32], 1), s);
+        };
+        for s in 0..300u64 {
+            let r = pass(&mut e, &port, &mut payers, s, &mut plan).await;
+            healthy += r
+                .outcomes
+                .iter()
+                .filter(|(k, _)| k.starts_with("ok:"))
+                .count();
+        }
+        let bad = sends_naming(&port, BAD_PROGRAM);
+        // Without the breaker: 300 keys each at 3, 5, 9 … ≈ 1,900 sends.
+        assert!(bad < 20, "group breaker: {bad} sends");
+        assert_eq!(healthy, 299);
+        let g = &e.refusal_groups()[&("archive", Some(BAD_ACCOUNT))];
+        assert!(e.group_open(g) && g.probes_failed >= 3, "{g:?}");
+        // The cause is fixed: the next probe lands and the kind reopens.
+        *code.lock().unwrap() = None;
+        for s in 300..700u64 {
+            pass(&mut e, &port, &mut payers, s, &mut plan).await;
+        }
+        assert!(e.refusal_groups().is_empty());
+        assert!(e.stats["archive"].landed >= 290, "{:?}", e.stats["archive"]);
+    }
+
+    /// verify-pr192: a stuck key planned *before* healthy keys of its kind
+    /// (D-dress-8's region 0: `plan_archive` goes region by region) must
+    /// not take every group probe. Backlog: six region-0 batches refused
+    /// `BadAccount` together with nothing of the kind landing (a restart),
+    /// so the archive group opens; then region 1 plans one new batch a bell
+    /// (1,500 slots, a pass every 45 slots, keeper.toml defaults). Every
+    /// healthy batch lands within the hold cap plus a few passes.
+    #[tokio::test]
+    async fn group_probe_does_not_starve_healthy_keys_behind_a_stuck_one() {
+        let port = Script::default();
+        refusing(&port, Arc::new(Mutex::new(Some(BAD_ACCOUNT))));
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(
+            Budgets::placeholder(),
+            backoff_params(REFUSAL_MAX_SLOTS, REFUSAL_MAX_PASSES, REFUSAL_GROUP_MIN),
+        );
+        let mut planned_at: BTreeMap<u64, u64> = BTreeMap::new();
+        let mut landed_at: BTreeMap<u64, u64> = BTreeMap::new();
+        for s in (0..216_000u64).step_by(45) {
+            let bell = s / 1_500;
+            if bell >= 1 {
+                planned_at.entry(bell).or_insert(s);
+            }
+            let open: Vec<u64> = planned_at
+                .keys()
+                .copied()
+                .filter(|b| !landed_at.contains_key(b))
+                .collect();
+            let r = pass(&mut e, &port, &mut payers, s, &mut |e, s| {
+                for b in 0..6u8 {
+                    e.ensure(
+                        marked(&format!("archive:0:{b}"), "archive", BAD_PROGRAM, b),
+                        s,
+                    );
+                }
+                for &b in &open {
+                    e.ensure(marked(&format!("archive:1:{b}"), "archive", [7; 32], 1), s);
+                }
+            })
+            .await;
+            for (k, o) in &r.outcomes {
+                if let (Some(b), Outcome::Landed { .. }) = (k.strip_prefix("archive:1:"), o) {
+                    landed_at.insert(b.parse().unwrap(), s);
+                }
+            }
+        }
+        let worst = planned_at
+            .iter()
+            .filter(|(b, _)| **b < 140)
+            .map(|(b, p)| landed_at.get(b).map_or(u64::MAX, |l| l - p))
+            .max()
+            .unwrap();
+        println!(
+            "healthy batches landed {}/{}, worst wait {worst} slots, stuck sends {}",
+            landed_at.len(),
+            planned_at.len(),
+            sends_naming(&port, BAD_PROGRAM)
+        );
+        assert!(
+            worst <= REFUSAL_MAX_SLOTS + 10 * 45,
+            "a healthy archive batch waited {worst} slots behind the stuck region"
+        );
+        // Each healthy landing closes the group; the six stuck keys then
+        // keep their own holds (≈ 34 sends a key a day, as in
+        // `a_devnet_day_of_one_refused_write`; the old schedule: ≈ 6 × 208).
+        assert!(sends_naming(&port, BAD_PROGRAM) <= 6 * 40);
     }
 }
