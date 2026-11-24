@@ -583,7 +583,7 @@ pub(super) async fn phase(
     let pend = player_of(r, &citizen).unwrap();
     assert_eq!(
         pend.released,
-        before.released + 2 + 0,
+        before.released + 2,
         "two tiles released by decay"
     );
     // keeper A's own word
