@@ -210,7 +210,7 @@ tx 9  InitShards(5)  [after the lead]
       create JoinShard[5][7]    256 B  rent     1,950,720
       cost   rent 15,605,760 + float 0 + fee 5,000 = 15,610,760 lamports
 tx 10 WideSetRules  [after keeper A's ConsumeGenesisSeed: the season Seeded]
-      data   7 B: tag 0xdb, config_version 2, keep_holder MixedInterleaved(1), free_city DeployedLe32V1(3), camp NoCamp(1), region SortKeyHashV1(1)
+      data   7 B: tag 0xdb, config_version 3, keep_holder MixedInterleaved(1), free_city DeployedLe32V1(3), camp NoCamp(1), region SortKeyHashV1(1)
       acct   sw 3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3 authority
       acct   -- CYWGFWeYujQ4SSHMZ3EJ9vBdiRfVY2HvbCBcLTYh6iio Season
       acct   -w 8NHCQcYjVD3Kcsazr8xReGyV1doADcrDZt8cqiE4k2BY WideRulesConfig
