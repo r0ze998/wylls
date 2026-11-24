@@ -851,6 +851,12 @@ export default {
   'あなたの国が砦を奪取中 {0}/{1} ターン': 'Your nation is taking the keep · {0}/{1} turns',
   '{0}が砦を奪取中 {1}/{2} ターン': '{0} is taking the keep · {1}/{2} turns',
   '兵 {0} ほか': '{0} troops (+ others)',
+  // (territory-video-3: a standing host names its nation; the wide land's key)
+  '{0} · 兵 {1}': '{0} · {1} troops',
+  '{0} · 兵 {1} ほか': '{0} · {1} troops (+ others)',
+  '土地の持ち主': 'Who holds the land',
+  'あなたの国（{0}）': 'Your nation ({0})',
+  'どの国にも属さない土地': 'No nation',
   '記録': 'Records',
   '記録された世界を開く（読み取り専用）': 'Open the recorded world (read-only)',
   '記録された世界を閉じる': 'Close the recorded world',

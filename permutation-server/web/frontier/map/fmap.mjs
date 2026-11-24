@@ -79,7 +79,7 @@ import { ProtoBoard, POLE_AT } from './protoboard.mjs';
 import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
 // the wide land (rings 129+, the herald's recorded wide world) on this map and its chart: map/wideland.mjs
-import { paintWideLand, paintWideTags, wideLevel } from './wideland.mjs';
+import { paintWideLand, paintWideTags, wideLevel, cellsIn, holdersInView } from './wideland.mjs';
 import { paintWideMarks, paintWideNames } from './widemarks.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
 import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
@@ -258,7 +258,7 @@ export const KEPT_SELECTORS = '#sample-tag, [data-proto-chip], .proto-chip-map';
 /** Air round a kept place (px): a label's own rim and shadow stay clear of the chip's dashed line. */
 export const KEPT_AIR = 3;
 // (territory-video-2: and a local test world's standing notice, #local-play-session — the wide land's plates stood under it)
-export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner, #local-play-session';
+export const NOGO_SELECTORS = '#bell-pill, #bell-pill .dial-top, #topbar .strip-side, #hud-tl > *, #rail > *, #minimap, .map-tools, #tabs, #panel, #ob-map, .feed > *, #mile-banner, #local-play-session, #wide-legend';
 export const NOGO_EVERY_MS = 300;
 /** The air the map's labels keep round the dial beyond its own box (px). */
 export const DIAL_AIR = 8;
@@ -657,7 +657,7 @@ export class FrontierMap {
    * {terrain, sites, names} | null, open: opening.mjs openHint};
    * `onSelect(hit)`; `onView(view, lod)` (the logical view).
    */
-  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, insets = null, art = false, tilt = undefined }) {
+  constructor(canvas, { source, onSelect = () => {}, onView = () => {}, onHover = () => {}, onDraw = null, onPainted = null, insets = null, art = false, tilt = undefined }) {
     this.canvas = canvas;
     // The tilted stage (map/tilt.mjs, UX brief §11.1): the ground is painted on `#map-ground` inside `#map-stage`,
     // which carries the tilt; this canvas lies flat above it, takes every input and carries what must stay
@@ -685,6 +685,8 @@ export class FrontierMap {
     this.insetsOf = insets;
     /** Called after every picture with the view on screen and the canvas size (things of the page that follow the map: the objective's place). */
     this.onDraw = onDraw;
+    // (territory-video-3: after each painted scene — the page's wide-land key reads `wideDrawn`)
+    this.onPainted = onPainted;
     // (the demo switch may lay sample records over the page's own: `setSample`; every other caller sees the page's)
     this.source = () => this.sampled(source());
     /** A tile is being picked on the board for an order (`pickTile`), else null. */
@@ -2116,6 +2118,7 @@ export class FrontierMap {
     PROBE.end(out.kind, ctx);
     PROBE.paint(octx, size);
     try { this.onDraw?.(v, size, lod); } catch { /* the page's own follower */ }
+    try { this.onPainted?.(this.wideDrawn ?? null, lod); } catch { /* the page's own follower */ }
   }
 
   /**
@@ -2583,6 +2586,9 @@ export class FrontierMap {
     // frame's level of detail; a place the record does not list stays cloud (unknown, not land)
     const wideLand = src.wideLand?.count ? src.wideLand : null;
     if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse) }); }
+    // (verify-pr205: and the holders of the drawn land that stands in the picture — the canvas paints a margin past the
+    //  screen, the tilted board more; the page's key names only colours the player can see: `shown`)
+    if (this.wideDrawn) this.wideDrawn.shown = holdersInView(cellsIn(wideLand, seen), quad ?? corners);
     else this.wideDrawn = null;
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);

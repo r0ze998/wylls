@@ -137,7 +137,9 @@ test('the test world\'s notice folds to one line once a village stands, once; th
   n.unmount();
   sessionSettled(doc);   // (nothing mounted: nothing happens)
   const css = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.css', import.meta.url), 'utf8');
-  assert.match(css, /#local-play-session\[data-fold="folded"\] \{ top: auto; bottom: calc\(var\(--dock-h/, 'folded, it stands over the dock, not under the dial');
+  // (territory-video-3: over the dock the host card covered it whenever a host was selected — folded, it now stands at the
+  //  left under the provinces strip; web-frontier-territory-video-3.test.mjs)
+  assert.match(css, /#local-play-session\[data-fold="folded"\] \{ top: calc\(var\(--strip\)[^}]*bottom: auto; left: var\(--edge\)/, 'folded, it leaves the top middle (the dial) for the left under the strip');
 });
 
 test('the label pass steps around the test world\'s notice (the wide land\'s plates stood under it)', async () => {
