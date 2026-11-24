@@ -38,7 +38,7 @@
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, warStep, warHomeOrder } from './local-play-operator-war.mjs';
-import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { nearerOwnVillage, claimCostV1 } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
 export const OPERATOR_RESIDENTS_SCHEMA = 'frontier-local-play-operator-residents-v1';
@@ -229,13 +229,16 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (verify-pr206-209, owner TQ-2: a tile's upkeep distance is from the NEAREST own village — an own wide village
   //  nearer than the first home is named in the claim)
   const nearer = t => { const v = nearerOwnVillage(h, t, memory.wideVillages); return v ? { village: v } : {}; };
+  // (verify-pr206-209: live, 2 of 3 growth claims were refused Insufficient — a tile claim is sent only when the ore
+  //  read covers the next tile's price; an unknown ore read does not block)
+  const oreCovers = () => !Number.isFinite(wide?.ore) || wide.ore >= claimCostV1((memory.ownTiles ?? []).length);
   // (territory-impl: grow the land — one more tile next to the resident's own, a turn apart, up to OPERATOR_TILES_MAX;
   //  the reach is its own tile's province (witness 'own'); a refused tile is not asked again. verify-pr206-209: also
   //  while it saves for its next village — a tile costs ore, not the settler's goods — so AI land grows by tiles, not
   //  only by village sites: before, the save-for-a-village Harvest came first and no growth claim was ever sent)
   const grow = () => {
     const own = memory.ownTiles ?? [];
-    if (!(wide && own.length && own.length < OPERATOR_TILES_MAX && (memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && memory.decisions % 2 === 0)) return null;
+    if (!(wide && own.length && own.length < OPERATOR_TILES_MAX && (memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && memory.decisions % 2 === 0 && oreCovers())) return null;
     const tried = new Set(memory.triedTiles ?? []);
     for (const o of own) {
       const t = (wide.targets ?? []).find(x => x.p === o.p && x.q === o.q && x.territory);
@@ -288,9 +291,11 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
       const owned = terr && (memory.ownTiles ?? []).some(o => o.p === next.t.p && o.q === next.t.q && o.tile === tile);
       if (terr && !owned) {
         if (!Number.isInteger(tile)) { (memory.triedClaims ??= []).push(`${next.t.p},${next.t.q},${next.site}`); return { name: 'Harvest', v: { holding: h }, fields: {}, why: 'that site has no tile: harvest' }; }
-        if ((memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions)
+        if ((memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && oreCovers())
           return { name: 'TerritoryClaim', v: { holding: h, target: next.t, ...(next.reach ? { witness: { kind: 'nation', p: next.reach.p, q: next.reach.q } } : {}), ...nearer(next.t) }, fields: { tile }, site: next.site, blocked: [...terr.siteTiles, terr.keepTile],
             why: `claim the tile of site ${next.site} at ${next.t.p},${next.t.q} first (a village stands on one's own land)${next.reach ? ` through the nation's land at ${next.reach.p},${next.reach.q}` : ''}` };
+        // (verify-pr206-209: the village cannot stand on a tile not yet its own — never sent then, it would be refused)
+        return { name: 'Harvest', v: { holding: h }, fields: {}, why: 'the site\'s tile first (ore or the turn\'s claim): harvest meanwhile' };
       }
       if (wide.canClaim && !waiting) {
         const slot = 2 + Math.min(1, Math.max(Number.isInteger(view.wide) ? view.wide : 0, memory.claims ?? 0));

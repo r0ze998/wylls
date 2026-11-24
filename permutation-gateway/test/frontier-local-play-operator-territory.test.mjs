@@ -95,3 +95,17 @@ test('a resident saving for its next village still grows its land a tile at a ti
   m.decisions = 5;
   assert.equal(decideNext(m, RIM, { homes: [], wide }).name, 'Harvest');
 });
+
+// verify-pr206-209: live, 2 of 3 growth claims were refused Insufficient (Custom 21). A tile claim waits for the ore.
+test('no tile claim while the ore read is short of the next tile; never the village before its tile', () => {
+  const m = createResidentMemory(0);
+  m.ownTiles = [{ p: '129', q: '0', tile: 5 }, { p: '129', q: '1', tile: 5 }];
+  m.decisions = 4;
+  const wide = { targets: [{ p: '129', q: '1', territory: TERR }, { p: '129', q: '0', territory: TERR }], canClaim: false, ore: 9 };
+  assert.equal(decideNext(m, RIM, { homes: [], wide }).name, 'Harvest');
+  assert.equal(decideNext(m, RIM, { homes: [], wide: { ...wide, ore: 10 } }).name, 'TerritoryClaim');
+  // a site's tile not owned and no ore: the village claim is NOT sent (it would be refused NotOwner)
+  const m2 = createResidentMemory(0);
+  const d = decideNext(m2, RIM, { homes: [], wide: { targets: [{ p: '129', q: '0', territory: TERR }], canClaim: true, ore: 0 } });
+  assert.equal(d.name, 'Harvest');
+});

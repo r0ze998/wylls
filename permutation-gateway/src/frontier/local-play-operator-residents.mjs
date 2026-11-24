@@ -60,6 +60,10 @@ import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resourc
  * holding at chain time `secs`; `holdingsN` = the villages held BEFORE it, as the program reads it (loop-play11:
  * 1 + the wide villages, not 2 + — the AI waited for 1.5× the price). False when anything is unreadable.
  */
+/** The village's ore (whole units) at `secs`, or null when unreadable (verify-pr206-209: tile claims are paid in ore). */
+export function oreAt(holding, secs) {
+  try { return Number.isSafeInteger(secs) ? Number(storesAt(holding, secs, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Ore')]?.value ?? null) : null; } catch { return null; }
+}
 export function coversSettlerCost(holding, secs, holdingsN) {
   try {
     const have = storesAt(holding, secs, RESOURCE_ORDER).map(x => x.value), need = settlerCost(holdingsN);
@@ -258,7 +262,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     //  after a wide village settles and the third village was priced as a second — 800 for a 1,200 cost, refused
     //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)
     const wideHeld = Math.max(Number.isInteger(view?.wide) ? view.wide : 0, (r.memory.wideVillages ?? []).length);
-    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld) };
+    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld), ore: oreAt(v?.decoded, secs) };
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {
