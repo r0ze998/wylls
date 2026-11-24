@@ -12,6 +12,11 @@
 // 「この遠方の村への命令」 — a refused muster (empty reserve, JA and EN), Harvest, Build (a building, the walls), Train,
 // and (after `<sync>/ready-muster` → the test's `<sync>/go-muster`) Muster — each two presses (「費用を確認」, then
 // 「署名して送る」), its result read back on the card; `<sync>/done-wide.json` says what the page showed.
+// P18 (devnet-territory-dev, `--territory`): a territory world — the wide claim card's first press previews the site's
+// TILE (ore + SOL), the second signs it, the third files the village on it. Then, on the test's `<sync>/go-tile-<n>`
+// ({row, en}), 「1マス取る」 on that province row: the preview (and its English, when `en`), 「署名して取る」 → its
+// signature in `<sync>/done-tile-<n>.json`; on `<sync>/go-refusal`, the same press while the land is unpaid: refused
+// before anything is signed, JA and EN (`done-refusal.json`); `<sync>/go-end` ends.
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -23,6 +28,7 @@ const require = createRequire(path.join(here, '../../../../../permutation-gatewa
 const { chromium } = require('playwright-core');
 const arg = name => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const WIDE_ACTS = process.argv.includes('--wide-acts');
+const TERRITORY = process.argv.includes('--territory');
 const URL0 = arg('url'), OUT = arg('out'), SEED = fs.readFileSync(arg('seed-file'), 'utf8').trim(), NATION = Number(arg('nation')), INSPECT = Number(arg('inspect')), SYNC = arg('sync');
 fs.mkdirSync(OUT, { recursive: true });
 const t0 = Date.now();
@@ -36,6 +42,9 @@ page.on('pageerror', e => log('pageerror', String(e).slice(0, 300)));
 page.on('response', r => { if (r.url().includes('/gw/f/nudge')) fs.appendFileSync(path.join(OUT, 'nudge.log'), `${((Date.now() - t0) / 1000).toFixed(1)} ${r.status()}\n`); });
 page.on('console', m => { if (m.type() === 'error') fs.appendFileSync(path.join(OUT, 'console.log'), m.text() + '\n'); });
 page.on('request', q => { if (q.url().includes('/gw/f/devnet-play/')) fs.appendFileSync(path.join(OUT, 'devnet-play-requests.log'), `${q.method()} ${new URL(q.url()).pathname} ${(q.postData() ?? '').slice(0, 160)}\n`); });
+// (P18: every act the gateway took — its name and signature — as the gateway answered the page)
+const submits = [];
+page.on('response', async r => { if (r.url().includes('/gw/f/devnet-play/act/submit')) { try { const j = await r.json(); submits.push({ name: j?.name ?? null, signature: j?.signature ?? null, status: r.status(), code: j?.code ?? j?.error ?? null }); } catch { submits.push({ status: r.status() }); } } });
 const shot = async name => { const f = `${String(++shotN).padStart(2, '0')}-${name}.png`; await page.screenshot({ path: path.join(OUT, f) }); log('still', f); return f; };
 const ev = (fn, a) => page.evaluate(fn, a);
 const wait = ms => page.waitForTimeout(ms);
@@ -137,6 +146,14 @@ while (!fs.existsSync(path.join(SYNC, 'go-final'))) {
     const a = await state();
     log('after the wide claim', { notice: a.notice });
     await shot('wide-claim-sent');
+    // (P18: the first press previews the site's tile, the second claims it, the third files the village)
+    if (TERRITORY) {
+      const tp = await ev(async () => { const { FS } = await import('/frontier/frontier/fstate.mjs'); return FS.tilePreview ? { step: FS.tilePreview.step, total: String(FS.tilePreview.cost?.total ?? ''), ore: FS.tilePreview.cost?.ore ?? null } : null; });
+      log('territory claim press', { preview: tp, submits: submits.slice(-2) });
+      if (tp?.step === 'preview') await shot('wide-claim-tile-preview');
+      if (submits.some(x => x.name === 'WideClaim' && x.signature)) claimed = true;
+      continue;
+    }
     if (a.notice?.ok === true) claimed = true;
     continue;
   }
@@ -164,6 +181,7 @@ await shot('map-final');
 fs.writeFileSync(path.join(SYNC, 'done.json'), JSON.stringify({ wideVillageFinal: !!s, wideSlots: fin.wideSlots, holdings: fin.holdings, devnetPlay: fin.devnetPlay, stills: shotN }, null, 2));
 log('done');
 if (WIDE_ACTS) await wideActs();
+if (TERRITORY) await territory();
 await wait(1000);
 await browser.close();
 process.exit(0);
@@ -283,4 +301,96 @@ async function wideActs() {
   const end = await ws();
   fs.writeFileSync(path.join(SYNC, 'done-wide.json'), JSON.stringify({ refusal, chainRefusal, acts, end, stills: shotN }, null, 2));
   log('done-wide');
+}
+
+// ------------------------------------------------------------------ P18 (devnet-territory-dev): tiles on the devnet page
+async function territory() {
+  const exists = f => fs.existsSync(path.join(SYNC, f));
+  const Lg = '/frontier/lang.mjs';
+  const ts = () => ev(async () => {
+    const { FS } = await import('/frontier/frontier/fstate.mjs');
+    const pv = FS.tilePreview;
+    return { pv: pv ? { step: pv.step, target: pv.target, tile: pv.tile, total: String(pv.cost.total), ore: pv.cost.ore, deposit: String(pv.cost.deposit),
+        provinceDeposit: String(pv.cost.provinceDeposit), playerDeposit: String(pv.cost.playerDeposit), fee: String(pv.cost.fee), provinceNew: pv.cost.provinceNew, playerNew: pv.cost.playerNew, tiles: pv.tiles } : null,
+      notice: FS.notice ? { ok: FS.notice.ok, code: FS.notice.code ?? null, text: typeof FS.notice.text === 'function' ? FS.notice.text() : FS.notice.text ?? null } : null,
+      toastText: document.querySelector('.toast .toast-text')?.innerText ?? null, busy: !!FS.homeActionBusy,
+      previewText: document.querySelector('#hp-tile-preview')?.innerText ?? null, devnetTerritory: FS.devnetTerritory ?? null,
+      rows: [...document.querySelectorAll('#hp-wide button[data-act="territory-tile"]')].map(b => ({ p: b.dataset.p, q: b.dataset.q, disabled: b.disabled })) };
+  });
+  const untilT = async (what, ok, { secs = 120, every = 1000 } = {}) => {
+    const end = Date.now() + secs * 1000; let x, n = 0;
+    while (Date.now() < end) { x = await ts(); if (ok(x)) return x; if (n++ % 15 === 0) log(what, x); await wait(every); }
+    log('TIMEOUT', what, x); return hold(`timeout: ${what}`);
+  };
+  const clear = () => ev(async () => { const { FS } = await import('/frontier/frontier/fstate.mjs'); FS.notice = null; });
+  // the village screen with its wide claim card (the tab toggles: pressed only while the card is not shown)
+  const showCard = async () => {
+    for (let i = 0; i < 10; i++) {
+      const x = await ts();
+      if (x.rows.length) return x;
+      // (the wide village's own screen hides the first home's card: back to the ordinary village first)
+      const back = page.locator('button[data-act="wide-close"]:visible').first();
+      if (await back.count()) { await back.click({ timeout: 5000 }).catch(() => {}); await wait(1500); continue; }
+      const open = await page.locator('#hp-build:visible').count();
+      if (!open) await openVillage(); else await wait(1500);
+    }
+    return ts();
+  };
+  for (let n = 1; ; n++) {
+    while (!exists(`go-tile-${n}`) && !exists('go-refusal') && !exists('go-end')) await wait(500);
+    if (!exists(`go-tile-${n}`)) break;
+    const go = JSON.parse(fs.readFileSync(path.join(SYNC, `go-tile-${n}`), 'utf8'));
+    await clear();
+    let x = await showCard();
+    log(`tile ${n}: rows`, x.rows, 'devnetTerritory', x.devnetTerritory);
+    const row = x.rows.filter(r => !r.disabled)[go.row];
+    if (!row) return hold(`tile ${n}: no enabled row ${go.row}: ${JSON.stringify(x.rows)}`);
+    await page.locator(`#hp-wide button[data-act="territory-tile"][data-p="${row.p}"][data-q="${row.q}"]`).click({ timeout: 8000 });
+    x = await untilT(`tile ${n}: the preview`, y => y.pv?.step === 'preview' || (y.notice?.ok === false && !y.busy), { secs: 120 });
+    if (x.pv?.step !== 'preview') return hold(`tile ${n}: refused at the preview: ${JSON.stringify(x.notice)}`);
+    await page.locator('#hp-tile-preview').scrollIntoViewIfNeeded().catch(() => {});
+    await shot(`tile-${n}-preview`);
+    const preview = x.pv, text = x.previewText;
+    let textEn = null;
+    if (go.en) {
+      await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, 'en']);
+      await wait(1200);
+      textEn = (await ts()).previewText;
+      await page.locator('#hp-tile-preview').scrollIntoViewIfNeeded().catch(() => {});
+      await shot(`tile-${n}-preview-en`);
+      await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, 'ja']);
+      await wait(1200);
+    }
+    const before = submits.length;
+    await page.locator('#hp-tile-preview button[data-act="territory-tile"], #hp-tile-preview button[data-act="wide-claim"]').first().click({ timeout: 8000 });
+    await untilT(`tile ${n}: the gateway takes the signed claim`, () => submits.slice(before).some(s => s.name === 'TerritoryClaim' && s.signature), { secs: 120 });
+    const sent = submits.slice(before).find(s => s.name === 'TerritoryClaim');
+    const after = await untilT(`tile ${n}: the page's answer`, y => !y.busy && y.notice, { secs: 120 });
+    await shot(`tile-${n}-sent`);
+    log(`tile ${n}`, { preview, sent, notice: after.notice });
+    fs.writeFileSync(path.join(SYNC, `done-tile-${n}.json`), JSON.stringify({ target: preview.target, tile: preview.tile, preview, signature: sent.signature, notice: after.notice, text, text_en: textEn }, null, 2));
+  }
+  if (exists('go-refusal')) {
+    const go = JSON.parse(fs.readFileSync(path.join(SYNC, 'go-refusal'), 'utf8'));
+    const out = { sent: false };
+    const before = submits.length;
+    for (const lang of ['ja', 'en']) {
+      await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, lang]);
+      await wait(1200); await clear();
+      const x = await showCard();
+      const row = x.rows.filter(r => !r.disabled)[go.row] ?? x.rows[0];
+      if (!row) return hold(`refusal: no row: ${JSON.stringify(x.rows)}`);
+      await page.locator(`#hp-wide button[data-act="territory-tile"][data-p="${row.p}"][data-q="${row.q}"]`).click({ timeout: 8000 });
+      const y = await untilT(`the ${lang} refusal of a claim while unpaid`, z => z.notice?.ok === false && !z.busy, { secs: 120 });
+      out[lang] = { code: y.notice.code, text: y.notice.text, toast: y.toastText, preview: y.pv };
+      log('refusal', lang, out[lang]);
+      await shot(`tile-refusal-unpaid-${lang}`);
+    }
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, 'ja']);
+    out.sent = submits.length > before;
+    fs.writeFileSync(path.join(SYNC, 'done-refusal.json'), JSON.stringify(out, null, 2));
+  }
+  while (!exists('go-end')) await wait(500);
+  await shot('territory-end');
+  log('done-territory');
 }

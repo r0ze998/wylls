@@ -14,7 +14,6 @@
 //!
 //! [`plan`] is pure over the program's accounts; nothing is written directly. Every line printed says
 //! `test_only: true`.
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use fclient::addr::Addresses;
@@ -24,7 +23,6 @@ use frontier_abi::layout::player::holding as H;
 use frontier_abi::world_index::holding::{self as wh, SlotBinding};
 use frontier_abi::world_index::land::{self as wl, WideProvince};
 use frontier_abi::world_index::territory::{self as wtr, TerritoryPlayer, TerritoryProvince};
-use frontier_abi::world_index::WideCoord;
 use keeper_core::widelane::territory as kt;
 use localnet::server::{lock, Shared};
 use localnet::Chain;
@@ -41,107 +39,7 @@ fn ctx_of(a: &Addresses) -> AddrCtx {
     }
 }
 
-/// One crank step of [`plan`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Step {
-    /// Settle `citizen`'s upkeep.
-    Settle { citizen: [u8; 32] },
-    /// Settle, then decay `tile` of `province`.
-    Decay {
-        citizen: [u8; 32],
-        province: WideCoord,
-        tile: u8,
-    },
-    /// Settle both, then move `loser`'s tiles of `province` to the captor.
-    Conquer {
-        province: WideCoord,
-        loser: [u8; 32],
-        captor: [u8; 32],
-        captor_has_summary: bool,
-        captor_holding: wl::KeepCaptor,
-    },
-}
-
-/// The chain as [`plan`] sees it.
-#[derive(Default)]
-pub struct View {
-    pub players: Vec<TerritoryPlayer>,
-    pub provinces: Vec<TerritoryProvince>,
-    /// Wide provinces with a captor record at the keep's current generation: (coord, captor, keep holder).
-    pub captured: Vec<(WideCoord, wl::KeepCaptor, u8)>,
-    /// The owner Citizen of each captor home village, by the captor record.
-    pub captor_citizen: BTreeMap<(WideCoord, u8), ([u8; 32], u8)>,
-}
-
-/// Pure: the bell's steps, conquest first (it moves tiles a decay would otherwise pick), then decay, then settle.
-pub fn plan(v: &View, bell: u32, now_ts: i64) -> Vec<Step> {
-    let mut out = vec![];
-    let by_tag: BTreeMap<u64, &TerritoryPlayer> =
-        v.players.iter().map(|p| (p.citizen_tag, p)).collect();
-    for (coord, cap, holder) in &v.captured {
-        let Some((captor, cfaction)) = v.captor_citizen.get(&(cap.home, cap.site)) else {
-            continue;
-        };
-        if cfaction != holder {
-            continue;
-        }
-        let Some(tp) = v.provinces.iter().find(|p| p.coord == *coord) else {
-            continue;
-        };
-        let captor_has_summary = v.players.iter().any(|p| p.citizen == *captor);
-        let mut losers: Vec<[u8; 32]> = vec![];
-        for o in tp.owner.iter().filter(|o| **o != 0) {
-            let Some(pl) = by_tag.get(o) else { continue };
-            if pl.citizen != *captor && pl.faction != *cfaction && !losers.contains(&pl.citizen) {
-                losers.push(pl.citizen);
-            }
-        }
-        for loser in losers {
-            out.push(Step::Conquer {
-                province: *coord,
-                loser,
-                captor: *captor,
-                captor_has_summary,
-                captor_holding: *cap,
-            });
-        }
-    }
-    for pl in &v.players {
-        if wtr::may_decay(pl, bell) {
-            // a tile of the farthest bucket
-            let b = pl.farthest_bucket();
-            let pick = v.provinces.iter().find_map(|tp| {
-                (0..tp.owner.len()).find_map(|i| {
-                    (tp.owner[i] == pl.citizen_tag
-                        && Some((tp.dist[i] as usize).min(wtr::HIST_BUCKETS - 1)) == b)
-                        .then_some((tp.coord, i as u8))
-                })
-            });
-            if let Some((province, tile)) = pick {
-                // the settle alone first (verify-pr206-209): a home that can
-                // pay again makes the decay refuse, and its transaction then
-                // rolled back its own settle too — upkeep was never taken
-                if pl.paid_to < now_ts {
-                    out.push(Step::Settle {
-                        citizen: pl.citizen,
-                    });
-                }
-                out.push(Step::Decay {
-                    citizen: pl.citizen,
-                    province,
-                    tile,
-                });
-                continue;
-            }
-        }
-        if pl.tiles > 0 && pl.paid_to < now_ts {
-            out.push(Step::Settle {
-                citizen: pl.citizen,
-            });
-        }
-    }
-    out
-}
+pub use keeper_core::widelane::territory::{plan, Step, View};
 
 /// The program's territory records and captured wide provinces of this season.
 fn scan(c: &Chain, a: &Addresses) -> View {
@@ -169,6 +67,8 @@ fn scan(c: &Chain, a: &Addresses) -> View {
             };
             if keep.gen == cap.keep_gen {
                 v.captured.push((p.coord, cap, keep.holder));
+                v.village_tiles
+                    .insert(p.coord, kt::village_tiles_of(&acc.data));
             }
         }
     }
@@ -332,104 +232,5 @@ pub async fn run(
             _ = tokio::time::sleep(Duration::from_millis(1500)) => {}
             _ = stop.changed() => {}
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use frontier_abi::world_index::key::WorldId;
-    use frontier_abi::world_index::territory::{ClaimOk, TerritoryRule};
-
-    fn c(p: i64, q: i64) -> WideCoord {
-        WideCoord::checked(p, q).unwrap()
-    }
-
-    fn world() -> WorldId {
-        WorldId::new([7; 32]).unwrap()
-    }
-
-    fn pl(tag: u64, faction: u8) -> TerritoryPlayer {
-        TerritoryPlayer::new(
-            1,
-            TerritoryRule::V1,
-            world(),
-            [tag as u8; 32],
-            tag,
-            faction,
-            0,
-            [9; 32],
-        )
-    }
-
-    #[test]
-    fn settles_owners_decays_the_farthest_and_moves_conquered_tiles() {
-        let mut tp = TerritoryProvince::new(1, TerritoryRule::V1, world(), c(130, 0), 30, [9; 32]);
-        let mut a = pl(1, 0);
-        let mut b = pl(2, 1);
-        let mut mate = pl(3, 1);
-        wtr::apply_claim(&mut tp, &mut a, 1, ClaimOk { cost: 0, dist: 2 }, 1).unwrap();
-        wtr::apply_claim(&mut tp, &mut a, 2, ClaimOk { cost: 0, dist: 7 }, 2).unwrap();
-        wtr::apply_claim(&mut tp, &mut mate, 3, ClaimOk { cost: 0, dist: 1 }, 1).unwrap();
-        let mut v = View {
-            players: vec![a.clone(), b.clone(), mate.clone()],
-            provinces: vec![tp.clone()],
-            ..View::default()
-        };
-        // settle: owners with tiles and a clock behind now; B owns nothing
-        let s = plan(&v, 5, 100);
-        assert_eq!(
-            s,
-            vec![
-                Step::Settle { citizen: a.citizen },
-                Step::Settle {
-                    citizen: mate.citizen
-                }
-            ]
-        );
-        // A unpaid for 24 bells: its farthest tile (distance 7, tile 2) decays instead of a plain settle
-        a.unpaid_since = Some(10);
-        v.players[0] = a.clone();
-        let s = plan(&v, 34, 100);
-        assert_eq!(
-            s[0],
-            Step::Decay {
-                citizen: a.citizen,
-                province: c(130, 0),
-                tile: 2
-            }
-        );
-        // B's nation took the keep from B's home village: A's tiles move, the teammate's stay
-        let cap = wl::KeepCaptor {
-            home: c(128, 0),
-            site: 1,
-            gen: 1,
-            keep_gen: 3,
-        };
-        v.captured.push((c(130, 0), cap, 1));
-        v.captor_citizen.insert((c(128, 0), 1), (b.citizen, 1));
-        b.tiles = 0;
-        let s = plan(&v, 34, 100);
-        assert_eq!(
-            s[0],
-            Step::Conquer {
-                province: c(130, 0),
-                loser: a.citizen,
-                captor: b.citizen,
-                captor_has_summary: true,
-                captor_holding: cap
-            }
-        );
-        assert_eq!(
-            s.iter()
-                .filter(|x| matches!(x, Step::Conquer { .. }))
-                .count(),
-            1
-        );
-        // a captor whose nation no longer holds the keep moves nothing
-        v.captured[0].2 = 4;
-        assert!(!plan(&v, 34, 100)
-            .iter()
-            .any(|x| matches!(x, Step::Conquer { .. })));
     }
 }

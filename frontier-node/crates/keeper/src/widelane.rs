@@ -378,11 +378,126 @@ mod tests {
 // ------------------------------------------------------------ territory (territory-impl)
 
 /// Player territory's class-D cranks (territory-impl, owner 2026-11-24 12:09; program
-/// `proc/wide_territory.rs`, accounts `wide_ix::TERRITORY_*`). The keeper's devnet role and the local runner's duty
-/// (`itest::wide_territory`) send these; the claim itself (0xDA op 7) is a player's.
+/// `proc/wide_territory.rs`, accounts `wide_ix::TERRITORY_*`). The keeper's `territory` role
+/// ([`crate::territory`], devnet-territory-dev) and the local runner's duty (`itest::wide_territory`) plan with
+/// [`territory::plan`] and send these; the claim itself (0xDA op 7) is a player's.
 pub mod territory {
     use super::*;
     use frontier_abi::world_index::territory as wtr;
+    use frontier_abi::world_index::territory::{TerritoryPlayer, TerritoryProvince};
+
+    // ---- the crank's plan (pure; one copy: the keeper's `territory` role and the local runner's duty)
+
+    /// One crank step of [`plan`].
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Step {
+        /// Settle `citizen`'s upkeep.
+        Settle { citizen: [u8; 32] },
+        /// Settle, then decay `tile` of `province`.
+        Decay {
+            citizen: [u8; 32],
+            province: WideCoord,
+            tile: u8,
+        },
+        /// Settle both, then move `loser`'s tiles of `province` to the captor.
+        Conquer {
+            province: WideCoord,
+            loser: [u8; 32],
+            captor: [u8; 32],
+            captor_has_summary: bool,
+            captor_holding: wl::KeepCaptor,
+        },
+    }
+
+    /// The chain as [`plan`] sees it.
+    #[derive(Clone, Default)]
+    pub struct View {
+        pub players: Vec<TerritoryPlayer>,
+        pub provinces: Vec<TerritoryProvince>,
+        /// Wide provinces with a captor record at the keep's current generation: (coord, captor, keep holder).
+        pub captured: Vec<(WideCoord, wl::KeepCaptor, u8)>,
+        /// The owner Citizen of each captor home village, by the captor record.
+        pub captor_citizen: BTreeMap<(WideCoord, u8), ([u8; 32], u8)>,
+        /// devnet-territory-dev: the tiles of each captured province with a village on them ([`village_tiles_of`]):
+        /// they stay with their village (verify-pr206-209), so an owner holding only such tiles there is no loser
+        /// (the program refuses that transfer `NotDue`/TooEarly; before, the plan asked it again every bell).
+        pub village_tiles: BTreeMap<WideCoord, Vec<u8>>,
+    }
+
+    /// Pure: the bell's steps, conquest first (it moves tiles a decay would otherwise pick), then decay, then settle.
+    pub fn plan(v: &View, bell: u32, now_ts: i64) -> Vec<Step> {
+        let mut out = vec![];
+        let by_tag: BTreeMap<u64, &TerritoryPlayer> =
+            v.players.iter().map(|p| (p.citizen_tag, p)).collect();
+        for (coord, cap, holder) in &v.captured {
+            let Some((captor, cfaction)) = v.captor_citizen.get(&(cap.home, cap.site)) else {
+                continue;
+            };
+            if cfaction != holder {
+                continue;
+            }
+            let Some(tp) = v.provinces.iter().find(|p| p.coord == *coord) else {
+                continue;
+            };
+            let captor_has_summary = v.players.iter().any(|p| p.citizen == *captor);
+            let mut losers: Vec<[u8; 32]> = vec![];
+            let villages = v.village_tiles.get(coord).map(Vec::as_slice).unwrap_or(&[]);
+            for (i, o) in tp.owner.iter().enumerate().filter(|(_, o)| **o != 0) {
+                if villages.contains(&(i as u8)) {
+                    continue;
+                }
+                let Some(pl) = by_tag.get(o) else { continue };
+                if pl.citizen != *captor && pl.faction != *cfaction && !losers.contains(&pl.citizen)
+                {
+                    losers.push(pl.citizen);
+                }
+            }
+            for loser in losers {
+                out.push(Step::Conquer {
+                    province: *coord,
+                    loser,
+                    captor: *captor,
+                    captor_has_summary,
+                    captor_holding: *cap,
+                });
+            }
+        }
+        for pl in &v.players {
+            if wtr::may_decay(pl, bell) {
+                // a tile of the farthest bucket
+                let b = pl.farthest_bucket();
+                let pick = v.provinces.iter().find_map(|tp| {
+                    (0..tp.owner.len()).find_map(|i| {
+                        (tp.owner[i] == pl.citizen_tag
+                            && Some((tp.dist[i] as usize).min(wtr::HIST_BUCKETS - 1)) == b)
+                            .then_some((tp.coord, i as u8))
+                    })
+                });
+                if let Some((province, tile)) = pick {
+                    // the settle alone first (verify-pr206-209): a home that can
+                    // pay again makes the decay refuse, and its transaction then
+                    // rolled back its own settle too — upkeep was never taken
+                    if pl.paid_to < now_ts {
+                        out.push(Step::Settle {
+                            citizen: pl.citizen,
+                        });
+                    }
+                    out.push(Step::Decay {
+                        citizen: pl.citizen,
+                        province,
+                        tile,
+                    });
+                    continue;
+                }
+            }
+            if pl.tiles > 0 && pl.paid_to < now_ts {
+                out.push(Step::Settle {
+                    citizen: pl.citizen,
+                });
+            }
+        }
+        out
+    }
 
     /// 0xDC op 12 WideTerritorySettle: `[payer s,w] [season r] [territory_player w] [citizen w] [home_holding w]`.
     pub fn settle(a: &Addresses, payer: Address, citizen: &[u8; 32], home: Address) -> Instruction {
@@ -449,6 +564,17 @@ pub mod territory {
         )
     }
 
+    /// The tiles of a wide province (its account bytes) with a village on them: each site whose state is a holding
+    /// (the program's `conquer` reads the same, `proc/wide_territory.rs`).
+    pub fn village_tiles_of(pd: &[u8]) -> Vec<u8> {
+        use frontier_abi::v2::layout::province::{province as PV, site as SM};
+        let n = pd.get(PV::SITE_COUNT).map_or(0, |n| (*n as usize).min(12));
+        (0..n)
+            .filter(|&j| pd.get(PV::site(j) + SM::STATE) == Some(&SM::STATE_HOLDING))
+            .filter_map(|j| pd.get(PV::SITES + j).copied())
+            .collect()
+    }
+
     /// The home village of a keep captor record: legacy (ring ≤ 128) or wide.
     pub fn captor_holding(a: &Addresses, cap: &wl::KeepCaptor) -> Address {
         let c = ctx(a);
@@ -504,5 +630,134 @@ pub mod territory {
             .to_bytes()
             .to_vec(),
         )
+    }
+}
+
+#[cfg(test)]
+mod territory_plan_tests {
+    use super::territory::*;
+    use frontier_abi::world_index::key::WorldId;
+    use frontier_abi::world_index::land as wl;
+    use frontier_abi::world_index::territory::{self as wtr, TerritoryPlayer, TerritoryProvince};
+    use frontier_abi::world_index::territory::{ClaimOk, TerritoryRule};
+    use frontier_abi::world_index::WideCoord;
+
+    fn c(p: i64, q: i64) -> WideCoord {
+        WideCoord::checked(p, q).unwrap()
+    }
+
+    fn world() -> WorldId {
+        WorldId::new([7; 32]).unwrap()
+    }
+
+    fn pl(tag: u64, faction: u8) -> TerritoryPlayer {
+        TerritoryPlayer::new(
+            1,
+            TerritoryRule::V1,
+            world(),
+            [tag as u8; 32],
+            tag,
+            faction,
+            0,
+            [9; 32],
+        )
+    }
+
+    #[test]
+    fn settles_owners_decays_the_farthest_and_moves_conquered_tiles() {
+        let mut tp = TerritoryProvince::new(1, TerritoryRule::V1, world(), c(130, 0), 30, [9; 32]);
+        let mut a = pl(1, 0);
+        let mut b = pl(2, 1);
+        let mut mate = pl(3, 1);
+        wtr::apply_claim(&mut tp, &mut a, 1, ClaimOk { cost: 0, dist: 2 }, 1).unwrap();
+        wtr::apply_claim(&mut tp, &mut a, 2, ClaimOk { cost: 0, dist: 7 }, 2).unwrap();
+        wtr::apply_claim(&mut tp, &mut mate, 3, ClaimOk { cost: 0, dist: 1 }, 1).unwrap();
+        let mut v = View {
+            players: vec![a.clone(), b.clone(), mate.clone()],
+            provinces: vec![tp.clone()],
+            ..View::default()
+        };
+        // settle: owners with tiles and a clock behind now; B owns nothing
+        let s = plan(&v, 5, 100);
+        assert_eq!(
+            s,
+            vec![
+                Step::Settle { citizen: a.citizen },
+                Step::Settle {
+                    citizen: mate.citizen
+                }
+            ]
+        );
+        // A unpaid for 24 bells: its farthest tile (distance 7, tile 2) decays; the settle alone goes first
+        // (verify-pr206-209: a home that can pay again refuses the decay, whose transaction would roll back its own
+        // settle too). (devnet-territory-dev: this test, then in itest and only `cargo check`ed by CI, still expected
+        // the decay first and failed on main ca317418.)
+        a.unpaid_since = Some(10);
+        v.players[0] = a.clone();
+        let s = plan(&v, 34, 100);
+        assert_eq!(s[0], Step::Settle { citizen: a.citizen });
+        assert_eq!(
+            s[1],
+            Step::Decay {
+                citizen: a.citizen,
+                province: c(130, 0),
+                tile: 2
+            }
+        );
+        // a summary already settled this second: no settle-alone step, the decay only
+        let mut paid = a.clone();
+        paid.paid_to = 100;
+        v.players[0] = paid;
+        assert_eq!(
+            plan(&v, 34, 100)[0],
+            Step::Decay {
+                citizen: a.citizen,
+                province: c(130, 0),
+                tile: 2
+            }
+        );
+        v.players[0] = a.clone();
+        // B's nation took the keep from B's home village: A's tiles move, the teammate's stay
+        let cap = wl::KeepCaptor {
+            home: c(128, 0),
+            site: 1,
+            gen: 1,
+            keep_gen: 3,
+        };
+        v.captured.push((c(130, 0), cap, 1));
+        v.captor_citizen.insert((c(128, 0), 1), (b.citizen, 1));
+        b.tiles = 0;
+        let s = plan(&v, 34, 100);
+        assert_eq!(
+            s[0],
+            Step::Conquer {
+                province: c(130, 0),
+                loser: a.citizen,
+                captor: b.citizen,
+                captor_has_summary: true,
+                captor_holding: cap
+            }
+        );
+        assert_eq!(
+            s.iter()
+                .filter(|x| matches!(x, Step::Conquer { .. }))
+                .count(),
+            1
+        );
+        // (devnet-territory-dev) an owner whose only tile there carries its village is no loser
+        let mut only_village = v.clone();
+        only_village.village_tiles.insert(c(130, 0), vec![1, 2]);
+        assert!(!plan(&only_village, 34, 100)
+            .iter()
+            .any(|x| matches!(x, Step::Conquer { .. })));
+        only_village.village_tiles.insert(c(130, 0), vec![1]);
+        assert!(plan(&only_village, 34, 100)
+            .iter()
+            .any(|x| matches!(x, Step::Conquer { loser, .. } if *loser == a.citizen)));
+        // a captor whose nation no longer holds the keep moves nothing
+        v.captured[0].2 = 4;
+        assert!(!plan(&v, 34, 100)
+            .iter()
+            .any(|x| matches!(x, Step::Conquer { .. })));
     }
 }

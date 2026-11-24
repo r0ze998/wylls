@@ -25,6 +25,9 @@ import { toHex, utf8 } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
 
 export const TERRITORY_CLAIM = 'TerritoryClaim';
+/** The two territory records' sizes (frontier-abi territory_province::SIZE / territory_player::SIZE): the first claim of
+ * a province creates its record from the payer, a player's first claim its summary (devnet: the claimer pays, owner TQ-12 (a)). */
+export const TERRITORY_PROVINCE_BYTES = 672, TERRITORY_PLAYER_BYTES = 320;
 /** The claim's CU limit: the runtime's ceiling, as the wide claim (not measured on the SBF build yet). */
 export const TERRITORY_CLAIM_CU = 1_400_000;
 export const TERRITORY_CLAIM_HEAP = 256 * 1024;

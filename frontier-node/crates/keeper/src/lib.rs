@@ -88,6 +88,9 @@ pub mod reveal_accept;
 pub mod rings;
 pub mod rounds;
 pub mod seeds;
+/// devnet-territory-dev: the `territory` role (upkeep settles, decay, conquest transfer).
+#[cfg(feature = "playable-lane")]
+pub mod territory;
 #[cfg(test)]
 pub(crate) mod testkit;
 pub mod tickets;
@@ -163,7 +166,7 @@ use crate::seeds::SeedFinder;
 use crate::tickets::TicketDuty;
 
 /// Land roles that need the feed index.
-const LAND_ROLES: [&str; 7] = [
+const LAND_ROLES: [&str; 8] = [
     "tickets",
     "explore",
     "dormancy",
@@ -174,6 +177,8 @@ const LAND_ROLES: [&str; 7] = [
     "wide-tickets",
     // (P9: its provinces come from the feed index's PSW1 records and Citizens)
     "wide-resolve",
+    // (devnet-territory-dev: its Citizens and claimed provinces come from the feed index)
+    "territory",
 ];
 /// Play roles (W4-C). **MC (W2R2-D3):** the conquest duty (settles, folds,
 /// the season-end flush) runs inside the play duty, on the Provinces and
@@ -230,6 +235,7 @@ fn role_of_key(key: &str) -> Option<&'static str> {
         "claim" => Some("claims"),
         "wide-settle" | "wide-final" => Some("wide-tickets"),
         "wres" => Some("wide-resolve"),
+        "terr-settle" | "terr-decay" | "terr-conquer" => Some("territory"),
         "exp-origin" | "exp-reveal" | "exp-gather" | "exp-resolve" | "exp-settle" => {
             Some("expeditions")
         }
@@ -401,6 +407,9 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     /// P9 (`playable-lane`): the `wide-resolve` role.
     #[cfg(feature = "playable-lane")]
     pub wide_resolve: wideresolve::WideResolveDuty,
+    /// devnet-territory-dev (`playable-lane`): the `territory` role.
+    #[cfg(feature = "playable-lane")]
+    pub territory: territory::TerritoryDuty,
     pub explore: ExploreDuty,
     pub holdings: HoldingDuty,
     pub index: LandIndex,
@@ -588,6 +597,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             expeditions: expeditions::ExpeditionDuty::default(),
             #[cfg(feature = "playable-lane")]
             wide_resolve: wideresolve::WideResolveDuty::default(),
+            #[cfg(feature = "playable-lane")]
+            territory: territory::TerritoryDuty::default(),
             explore: ExploreDuty::default(),
             holdings: HoldingDuty::default(),
             index: LandIndex::default(),
@@ -1074,6 +1085,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         }
     }
 
+    fn territory_status(&self) -> Value {
+        #[cfg(feature = "playable-lane")]
+        {
+            self.territory.status(&self.index)
+        }
+        #[cfg(not(feature = "playable-lane"))]
+        {
+            Value::Null
+        }
+    }
+
     fn wide_tickets_status(&self) -> Value {
         #[cfg(feature = "playable-lane")]
         {
@@ -1495,6 +1517,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     )
                     .await
                     .map_err(|e| e.to_string())?;
+                #[cfg(feature = "playable-lane")]
+                self.territory
+                    .plan(&t, &self.port, &mut self.engine, &self.index)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let mut provinces = self.rings.opened.clone();
                 provinces.extend(
                     self.index
@@ -1754,6 +1781,10 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             #[cfg(feature = "playable-lane")]
             if wideresolve::is_key(k) {
                 self.wide_resolve.on_outcome(k, o);
+            }
+            #[cfg(feature = "playable-lane")]
+            if territory::is_key(k) {
+                self.territory.on_outcome(k, o);
             }
             self.play
                 .conquest
@@ -2027,6 +2058,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "wide_tickets": self.wide_tickets_status(),
                 "expeditions": self.expeditions_status(),
                 "wide_resolve": self.wide_resolve_status(),
+                "territory": self.territory_status(),
                 "folded_bells": self.fold.folded.len(),
                 "tickets_open": self.index.tickets.len(),
                 "tickets_settled": self.tickets.settled.len(),

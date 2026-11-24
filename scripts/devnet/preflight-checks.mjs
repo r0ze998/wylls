@@ -40,6 +40,11 @@ export const FEATURES = Object.freeze({
 });
 /** Keeper A's roles and rings duty as runbook §8 step 5 / §6b list them (and the profile's services.keeperA). */
 export const RUNBOOK_KEEPER_ROLES = Object.freeze(['beacon', 'archive', 'rings', 'fold', 'tickets', 'wide-tickets', 'reveal', 'settle-departure', 'gather', 'resolve', 'skip', 'settle', 'close', 'claims', 'expeditions', 'wide-resolve']);
+/** devnet-territory-dev: a territory world's keeper A runs the runbook's roles AND `territory` (the upkeep settles, decay
+ * and conquest transfer; owner NWP-2: territory must be playable on devnet before world 3). */
+export const TERRITORY_KEEPER_ROLES = Object.freeze([...RUNBOOK_KEEPER_ROLES, 'territory']);
+/** The roles a profile's keeper A must list: the runbook's, plus `territory` for the S1_DEVNET_TERRITORY world. */
+export const keeperRolesFor = profile => (profile?.season?.preset === 'S1_DEVNET_TERRITORY' ? TERRITORY_KEEPER_ROLES : RUNBOOK_KEEPER_ROLES);
 export const RUNBOOK_RINGS_DUTY = Object.freeze({ extend: true, extend_max_ring: 128, lazy_provinces: true, rim_per_wedge: 6, provinces_reach: 3, wide_rings: 3, wide_per_wedge: 6 });
 /** Runbook §8 step 5's keeper.toml value (the herald's and keeper's own default is 150 ms). */
 export const KEEPER_RPC_MIN_GAP_MS = 250;
@@ -183,8 +188,9 @@ export function checkProfile(profile, { profilePath } = {}) {
   } catch { shape.push('rpcUrl is not a URL'); }
   const ka = profile.services?.keeperA ?? {};
   const roles = ka.roles ?? [];
-  const missingRoles = RUNBOOK_KEEPER_ROLES.filter(x => !roles.includes(x));
-  const extraRoles = roles.filter(x => !RUNBOOK_KEEPER_ROLES.includes(x));
+  const wantRoles = keeperRolesFor(profile);
+  const missingRoles = wantRoles.filter(x => !roles.includes(x));
+  const extraRoles = roles.filter(x => !wantRoles.includes(x));
   if (missingRoles.length || extraRoles.length) shape.push(`services.keeperA.roles differ from runbook §8 (missing ${missingRoles.join(',') || '-'}; extra ${extraRoles.join(',') || '-'})`);
   for (const [k, v] of Object.entries(RUNBOOK_RINGS_DUTY)) if (ka.ringsDuty?.[k] !== v) shape.push(`services.keeperA.ringsDuty.${k} = ${ka.ringsDuty?.[k]} (runbook: ${v})`);
   if (shape.length) out.push(fail('profile.shape', '4', shape.join('; '), `restore ${profilePath ?? 'the profile'} from origin/main; only programId and upgradeAuthority are r0ze's to change`));

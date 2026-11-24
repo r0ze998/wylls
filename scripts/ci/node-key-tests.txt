@@ -97,6 +97,7 @@ permutation-gateway/test/web-frontier-devnet-depart.test.mjs
 permutation-gateway/test/web-frontier-devnet-march.test.mjs
 permutation-gateway/test/web-frontier-devnet-outpost.test.mjs
 permutation-gateway/test/web-frontier-devnet-play.test.mjs
+permutation-gateway/test/web-frontier-devnet-territory.test.mjs
 permutation-gateway/test/web-frontier-devnet-wide-village.test.mjs
 permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs
 permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs

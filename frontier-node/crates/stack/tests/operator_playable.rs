@@ -78,6 +78,9 @@ const PV0_PORT_BASE: u16 = 41_680;
 /// P17's (devnet-p17; `OPERATOR_PAGE_WIDE_ACTS_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection). Shares
 /// P11's default base: set the variable to run both at once.
 const P17_PORT_BASE: u16 = 41_500;
+/// P18's (devnet-territory-dev; `OPERATOR_PAGE_TERRITORY_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection),
+/// inside the run's brief range 41610–41649.
+const P18_PORT_BASE: u16 = 41_620;
 /// PCAP's (devnet-72bell-pair; `OPERATOR_PAGE_CAPTURE_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
 const PCAP_PORT_BASE: u16 = 41_780;
 /// PPAIR's (devnet-72bell-pair; `OPERATOR_PAGE_PAIR_PORT_BASE` moves them): as P9.
@@ -180,6 +183,52 @@ fn devnet_build(conquest: bool) -> (&'static str, &'static str, &'static str) {
     } else {
         (DEVNET_SO_SHA256, DEVNET_PROGRAM_HASH, "3,447,064")
     }
+}
+
+/// P18 (devnet-territory-dev): the NEW devnet `.so` a run deploys, from `OPERATOR_TERRITORY_SO` (the build of
+/// `scripts/build-frontier-devnet-playable-sbf.sh` on the commit under test; not committed: it changes with main) →
+/// (bytes, sha256, solana-verify program hash, the ELF length as the operator prints it). `None` when unset.
+fn territory_so() -> Option<(Vec<u8>, &'static str, &'static str, &'static str)> {
+    let p = std::env::var("OPERATOR_TERRITORY_SO")
+        .ok()
+        .filter(|p| !p.is_empty())?;
+    let so = std::fs::read(&p).unwrap_or_else(|e| panic!("OPERATOR_TERRITORY_SO {p}: {e}"));
+    let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&so));
+    // (solana-verify's hash: the ELF with its trailing zero bytes stripped)
+    let n = so.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+    let ph = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&so[..n]));
+    let len = so.len().to_string();
+    let mut grouped = String::new();
+    for (i, ch) in len.chars().enumerate() {
+        if i > 0 && (len.len() - i) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    Some((so, leak(sha), leak(ph), leak(grouped)))
+}
+
+/// P18 (devnet-territory-dev): the COMMITTED new-world profile (scripts/devnet/devnet-new-world-profile.json: preset
+/// S1_DEVNET_TERRITORY, wide.keepHolder NeutralTerritoryV1) with its program and authority filled, and the operator's
+/// season id 1 of this fresh chain (the harness's Addresses; on devnet it is 3). Nothing else changed.
+fn territory_profile(dir: &Path, program: &str, authority: &str) -> PathBuf {
+    let text =
+        std::fs::read_to_string(repo_root().join("scripts/devnet/devnet-new-world-profile.json"))
+            .unwrap();
+    let mut v: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(v["season"]["preset"], "S1_DEVNET_TERRITORY");
+    assert_eq!(v["wide"]["keepHolder"], "NeutralTerritoryV1");
+    assert_eq!(
+        v["operator"]["seasonId"], 3,
+        "the new world is on-chain id 3 (owner NWP-4)"
+    );
+    v["programId"] = json!(program);
+    v["upgradeAuthority"] = json!(authority);
+    v["operator"]["seasonId"] = json!(1);
+    let p = dir.join("profile.json");
+    std::fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    p
 }
 
 fn devnet_so_of(conquest: bool) -> Vec<u8> {
@@ -989,6 +1038,29 @@ async fn p17_the_page_sends_its_wide_villages_own_acts_on_the_devnet_so_offline(
     .await;
 }
 
+/// P18 (devnet-territory-dev; owner NWP-2: territory playable on devnet before world 3): the NEW devnet `.so`
+/// (`OPERATOR_TERRITORY_SO`, built from the commit under test) set up by the operator from the committed new-world
+/// profile (S1_DEVNET_TERRITORY, WideSetRules keep holder NeutralTerritoryV1), keeper A with the devnet profile's
+/// roles plus `territory`, the herald and the gateway in their devnet modes, and the WEB PAGE as the participant: its
+/// rim village, the wide village on its OWN tile (tile preview → signed claim → village), one more tile from the card
+/// (the preview names ore + SOL; the wallet pays exactly that), keeper A's upkeep settles, a declared keep capture by
+/// another nation → keeper A's conquest transfer (the village tile stays), a declared starved first home → unpaid → the
+/// page refuses a claim (JA/EN) → after 24 bells keeper A's decay, farthest first, one a bell
+/// (`operator_playable/territory_page.rs`). `DEVNET_PAGE_DRIVER=1` and `OPERATOR_TERRITORY_SO` only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn p18_the_page_plays_player_territory_on_the_new_devnet_so_offline() {
+    if std::env::var("DEVNET_PAGE_DRIVER").ok().as_deref() != Some("1") || territory_so().is_none()
+    {
+        eprintln!("p18: skipped (set DEVNET_PAGE_DRIVER=1 and OPERATOR_TERRITORY_SO=<the new devnet .so>)");
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_PAGE_TERRITORY_PORT_BASE", P18_PORT_BASE),
+        Mode::PageTerritory,
+    )
+    .await;
+}
+
 /// PEND (devnet-end-season, D-dress-6): P5's season (keeper A's rim, a rim village, keeper A's wide ring 129 and a
 /// settled wide village), then its END with `frontier-operator end-season` as r0ze would run it on devnet: refused
 /// before the end bell, EndSeason at it, every CloseProvince / wide province close and CloseSeason part after
@@ -1016,6 +1088,8 @@ enum Mode {
     Page,
     /// P17 (devnet-p17): P7, then the page's wide village's own acts.
     PageWideActs,
+    /// P18 (devnet-territory-dev): P7 on the NEW `.so` in a territory world, keeper A's `territory` role.
+    PageTerritory,
     /// P8 (devnet-page-war): the rim world of P4, keeper A with the play roles, and a legacy war (muster, sealed
     /// Depart onto a keep, reveal, clash, capture, return) by a test participant.
     War,
@@ -1065,6 +1139,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::AfterWide => "p6",
         Mode::Page => "p7",
         Mode::PageWideActs => "p17",
+        Mode::PageTerritory => "p18",
         Mode::War => "p8",
         Mode::Flood => "pgwf",
         Mode::PageWar => "p9",
@@ -1095,6 +1170,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         mode,
         Mode::Page
             | Mode::PageWideActs
+            | Mode::PageTerritory
             | Mode::PageWar
             | Mode::PageWarHome
             | Mode::PageWarFog
@@ -1114,8 +1190,13 @@ async fn playable_season(pt: Ports, mode: Mode) {
     } else {
         GENESIS_ROUND
     };
-    let (so_sha256, so_program_hash, so_elf_len) = devnet_build(mode == Mode::Conquest);
-    let so = devnet_so_of(mode == Mode::Conquest);
+    // (P18: the NEW .so of the commit under test)
+    let (so, so_sha256, so_program_hash, so_elf_len) = if mode == Mode::PageTerritory {
+        territory_so().expect("OPERATOR_TERRITORY_SO")
+    } else {
+        let (a, b, c) = devnet_build(mode == Mode::Conquest);
+        (devnet_so_of(mode == Mode::Conquest), a, b, c)
+    };
     let keeper_bin = sibling_bin("FRONTIER_KEEPER_BIN", "frontier-keeper");
     let drand_bin = sibling_bin("DRAND_REPLAY_BIN", "drand-replay");
     let dir = tmpdir(tag);
@@ -1152,12 +1233,16 @@ async fn playable_season(pt: Ports, mode: Mode) {
         .expect("bind the RPC ports");
     let url = node.url();
     let key = write_key(&dir, "authority.json", &authority);
-    let prof = finite_playable_profile(
-        &dir,
-        &program.to_string(),
-        &authority.pubkey().to_string(),
-        None,
-    );
+    let prof = if mode == Mode::PageTerritory {
+        territory_profile(&dir, &program.to_string(), &authority.pubkey().to_string())
+    } else {
+        finite_playable_profile(
+            &dir,
+            &program.to_string(),
+            &authority.pubkey().to_string(),
+            None,
+        )
+    };
     let record = dir.join("operator-record.jsonl");
     let (p, k, rec) = (
         prof.to_str().unwrap(),
@@ -1389,6 +1474,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\""
             }
+            // (P18: P17's keeper A and the `territory` role, as scripts/devnet/devnet-new-world-profile.json lists it)
+            Mode::PageTerritory => {
+                "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"territory\""
+            }
             // (PEND: P5's roles and the legacy war's `close`/`claims`, so keeper A's own closes meet the season's end)
             Mode::End => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"close\", \"claims\""
@@ -1420,7 +1509,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 "rim_per_wedge = {}\nprovinces_reach = {PPROV_REACH}\nprovinces_scan_slots = 10\n",
                 rim::PER_WEDGE
             ),
-            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs | Mode::Load | Mode::End => format!(
+            Mode::KeeperWide | Mode::AfterWide | Mode::Page | Mode::PageWideActs | Mode::PageTerritory | Mode::Load | Mode::End => format!(
                 "rim_per_wedge = {n}\nwide_rings = {w}\nwide_per_wedge = {n}\nwide_scan_slots = 5\n",
                 n = rim::PER_WEDGE,
                 w = rim::WIDE_RINGS
@@ -1570,9 +1659,14 @@ async fn playable_season(pt: Ports, mode: Mode) {
     let rc = frontier_stack::operator::wide::rules_config(&a);
     let rules = lock().account(&rc).expect("the RulesConfig");
     assert_eq!(rules.owner, program);
+    // (P18: the new world's keep holder, NeutralTerritoryV1 = 4, from the committed profile)
     assert_eq!(
         operator::wide::rules_of(&rules.data),
-        Some(operator::wide::ours())
+        Some(if mode == Mode::PageTerritory {
+            operator::wide::ours_for(Some(4))
+        } else {
+            operator::wide::ours()
+        })
     );
     let b_after = balance();
     let r = op(send(&[])).await;
@@ -1927,6 +2021,10 @@ async fn playable_season(pt: Ports, mode: Mode) {
         fog: mode == Mode::PageWarFog,
         outpost: mode == Mode::PageOutpost,
         wide_acts: mode == Mode::PageWideActs,
+        territory: (mode == Mode::PageTerritory).then(|| rim::territory_page::Input {
+            keeper_api: pt.keeper_api,
+            token: "test-token-operator-playable".into(),
+        }),
         capture: mode == Mode::PageCapture,
         pair: mode == Mode::PagePair,
         load: mode == Mode::Load,
@@ -1942,6 +2040,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                         | Mode::AfterWide
                         | Mode::Page
                         | Mode::PageWideActs
+                        | Mode::PageTerritory
                         | Mode::Load
                         | Mode::Expedition
                         | Mode::PageExpedition
@@ -1950,6 +2049,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 wide_rings: if expedition { 1 } else { rim::WIDE_RINGS },
                 expedition,
                 conquest: mode == Mode::Conquest,
+                so_sha256,
                 page: page.clone(),
                 provinces: matches!(mode, Mode::Provinces | Mode::Floor(_)).then(|| {
                     rim::provinces::Input {

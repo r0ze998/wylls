@@ -31,9 +31,12 @@ test('new-world profile: only the documented fields differ from the live playabl
     delete y.note; delete y.wide;
     delete y.season.preset; delete y.season.newWorldNote;
     delete y.operator.seasonId; delete y.operator.note;
+    // (devnet-territory-dev: keeper A's `territory` role, the new world's only service difference)
+    delete y.services.keeperA.roles; delete y.services.keeperA.rolesWhy;
     return y;
   };
   assert.deepEqual(strip(p), strip(live));
+  assert.deepEqual(p.services.keeperA.roles, [...live.services.keeperA.roles, 'territory'], 'the live roles and territory');
   assert.deepEqual(Object.keys(p), [...Object.keys(live).slice(0, Object.keys(live).indexOf('season') + 1), 'wide',
     ...Object.keys(live).slice(Object.keys(live).indexOf('season') + 1)]);
 });
@@ -42,4 +45,18 @@ test('new-world profile: the deploy-day preflight accepts its shape and keys', (
   const rs = checkProfile(read('devnet-new-world-profile.json'), { profilePath: 'scripts/devnet/devnet-new-world-profile.json' });
   assert.deepEqual(rs.map(r => [r.id, r.status]), [['profile.shape', 'PASS'], ['profile.keys', 'PASS']], JSON.stringify(rs));
   assert.match(rs[0].detail, /preset S1_DEVNET_TERRITORY, keep holder NeutralTerritoryV1/);
+});
+
+test('new-world profile: keeper A runs `territory` (devnet-territory-dev); a territory profile without it fails the preflight', () => {
+  const p = read('devnet-new-world-profile.json');
+  assert.ok(p.services.keeperA.roles.includes('territory'));
+  assert.match(p.services.keeperA.rolesWhy, /territory \(devnet-territory-dev/);
+  const without = structuredClone(p);
+  without.services.keeperA.roles = without.services.keeperA.roles.filter(r => r !== 'territory');
+  const rs = checkProfile(without, { profilePath: 'x' });
+  assert.equal(rs[0].status, 'FAIL'); assert.match(rs[0].detail, /missing territory/);
+  // (the live, non-territory profile must NOT list it)
+  const live = read('devnet-playable-profile.json');
+  const extra = structuredClone(live); extra.services.keeperA.roles = [...extra.services.keeperA.roles, 'territory'];
+  assert.match(checkProfile(extra, { profilePath: 'x' })[0].detail, /extra territory/);
 });

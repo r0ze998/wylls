@@ -99,6 +99,9 @@ pub struct Page {
     pub outpost: bool,
     /// P17 (devnet-p17): after the wide village is final, the page sends its own acts ([`wide_acts_page`]).
     pub wide_acts: bool,
+    /// P18 (devnet-territory-dev): a territory world — the wide village on the page's own tile, then
+    /// [`territory_page`] (tiles, keeper A's settle / conquest / decay).
+    pub territory: Option<territory_page::Input>,
     /// PCAP (devnet-72bell-pair): P9's keep march held through all 72 bells; the capture on chain, in the herald and on
     /// the page (`war_page.rs` [`war::PCAP_AFTER_BELLS`]).
     pub capture: bool,
@@ -124,6 +127,9 @@ pub mod outpost_page;
 /// PPROV (devnet-open-province): keeper A's provinces on demand ([`provinces`]).
 #[path = "provinces.rs"]
 pub mod provinces;
+/// P18 (devnet-territory-dev): player territory on the devnet page and keeper A's `territory` role.
+#[path = "territory_page.rs"]
+pub mod territory_page;
 /// P17 (devnet-p17): the page's wide village's own acts ([`wide_acts_page`]).
 #[path = "wide_acts_page.rs"]
 pub mod wide_acts_page;
@@ -155,6 +161,8 @@ pub struct Ctx<'a> {
     pub expedition: bool,
     /// P14: after P11's expedition (onto a Free City's tile), a third party's Free City conquest ([`conquest`]).
     pub conquest: bool,
+    /// The sha256 of the `.so` this run deployed (P18: the new build from `OPERATOR_TERRITORY_SO`; else the fixture's).
+    pub so_sha256: &'static str,
     /// P6 (gap P8): after P5, the wide village acts and keeper A must keep every duty.
     pub after_wide: Option<Restart>,
     /// P11 with `OPERATOR_P11_RESTARTS=1` (verify-pr121): keeper A is killed and restarted from the same config and
@@ -691,10 +699,7 @@ impl<'a> Run<'a> {
 
 /// A witnessed segment as the verifier reads it (the exact devnet `.so`'s hash).
 fn segment_of(r: &Run<'_>, wit: &Witness, scenario: &str) -> verify_core::input::Input {
-    let so_hash: [u8; 32] = hex::decode(super::devnet_build(r.c.conquest).0)
-        .unwrap()
-        .try_into()
-        .unwrap();
+    let so_hash: [u8; 32] = hex::decode(r.c.so_sha256).unwrap().try_into().unwrap();
     verify_core::input::Input {
         cfg: verify_core::input::Config {
             program: r.c.program,
@@ -2305,6 +2310,7 @@ async fn page_flow(
                 sync.to_str().unwrap(),
             ])
             .args(pg.wide_acts.then_some("--wide-acts"))
+            .args(pg.territory.is_some().then_some("--territory"))
             .stdout(std::fs::File::create(pg.out.join("driver.out.log")).unwrap())
             .stderr(std::fs::File::create(pg.out.join("driver.err.log")).unwrap())
             .spawn()
@@ -2376,6 +2382,11 @@ async fn page_flow(
     let ring = ProvinceCoord::new(rp, rq).ring();
     assert!((126..=128).contains(&ring), "on the rim: ring {ring}");
     let final_ts = le_i64(&hd, H::FINAL_TS);
+    // (P18: a territory world's village stands on the page's own tile, and a tile costs ore (10 + 2 % a tile owned);
+    //  a rim first village's terrain yields none. Declared: the first home's ore.)
+    if pg.territory.is_some() {
+        territory_page::declare_ore(r, holding);
+    }
     // 3. The clock runs on in 4-hour steps; the page harvests after each (its own button), and presses the wide claim
     //    once the village's stores cover the settler cost.
     let tk = adr(wt::ticket_address(&ctx, &citizen.to_bytes()));
@@ -2495,6 +2506,23 @@ async fn page_flow(
         tokio::time::sleep(Duration::from_millis(500)).await;
     };
     assert_eq!(done["wideVillageFinal"], true, "{done}");
+    // P18 (devnet-territory-dev): tiles, keeper A's settle, conquest transfer and decay, from the page.
+    let p18 = if let Some(ti) = &pg.territory {
+        territory_page::phase(
+            r,
+            ti,
+            &sync,
+            &mut || alive(&mut driver),
+            w,
+            holding,
+            joined_nation,
+            rec.coord,
+            rec.site,
+        )
+        .await
+    } else {
+        Value::Null
+    };
     // P17 (devnet-p17): the wide village's own acts, from the page.
     let p17 = if pg.wide_acts {
         wide_acts_page::phase(r, &sync, &mut || alive(&mut driver), w, rec.coord, rec.site).await
@@ -2532,5 +2560,6 @@ async fn page_flow(
         "keeper_wide_settle": ws, "keeper_wide_finalize": wf,
         "page_transactions": page_txs, "driver": done, "declared_patches": r.patches, "setup": extra,
         "p17": p17,
+        "p18": p18,
     })
 }
