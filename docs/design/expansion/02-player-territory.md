@@ -1,9 +1,9 @@
 # Expansion 2: player territory instead of "villages + the 3-holding cap" (owner Q-2)
 
-Status: **design + parameter seams only** (territory-q2, draft PR stacked on #206, 2026-11-24). No rule is live in
-any world. Nothing is deployed. The open owner questions T-1 … T-13 block every number and most of the on-chain shape.
-They are listed in full in `~/Projects/wylls-grok-state/inbox/2026-11-24-0933-territory-q2-questions.md` and in
-§6 below.
+Status (2026-11-24 evening): **implemented** on PR #209 (territory-impl) from the owner decisions of 12:07 (U3),
+12:09 (T-1 … T-8, E-Q1) and the numbers of 13:15 (TQ-1 … TQ-8). Local `--wide` worlds play it; nothing is deployed.
+§9 is what was built, §10 the devnet upgrade and new-world checklist. §1–§7 are the design history (written while
+T-1 … T-13 were open).
 
 ## 1. What r0ze decided (2026-11-24 09:24 JST, Q-2)
 
@@ -117,3 +117,34 @@ Options and recommendations: the inbox file named at the top.
   PR (no program file is touched), so CU and size are unchanged; to be measured when instructions exist.
 - #206's reach witness and the `Neutral` wide-rules candidate ride the same upgrade. Devnet's wide-rules config is
   write-once (E-Q4).
+
+
+## 9. What is implemented (territory-impl)
+
+| Decision | Code |
+|---|---|
+| T-1 one tile | `frontier-abi/src/world_index/territory.rs` `TerritoryProvince` (record `wn‖hash(sort key)`, 672 B: 61 owner Citizen tags + each tile's distance) |
+| T-2 / TQ-4 reach | WideClaimTile's witness: none (3 provinces from the first home), a nation-land province (own or teammates' village, a keep the nation won: `reach::is_nation_land`), or a territory record where the claimer owns a tile |
+| T-3 / TQ-3 claim | 0xDA op 7 WideClaimTile: instant, 10 ore + 2 % per tile owned from the first home, 1 per turn (bell), first transaction wins (the owner field) |
+| T-4 / TQ-1 / TQ-2 upkeep | `TerritoryPlayer` summary (`wu‖hash(citizen)`, 320 B): tiles × 33 + 16 × Σ max(0, distance − 3) milli-food/h; distance = provinces to the claimer's nearest OWN village (home or a named own wide village), fixed at the claim; 0xDC op 12 WideTerritorySettle charges the first home's food all-or-nothing, the sub-unit remainder carried |
+| T-5 / TQ-5 unpaid | claims refused (NotEligible) while unpaid; 0xDC op 13 WideTerritoryDecay after 24 unpaid turns releases one tile of the farthest distance bucket per turn (the summary's 64-bucket histogram proves "farthest") |
+| T-6 / TQ-6 villages | WideClaimSite in a territory world needs the site's tile to be the claimer's (13th account = the territory record) and no village on a site within 3 tiles (`SITE_NEIGHBOUR_TILES`); the 3-village cap stays (uncap staged next) |
+| T-7 | an owned tile is never claimable (SiteTaken) |
+| T-8 / TQ-7 conquest | WideResolve records the capturing host's home village in the province trailer (`land::KeepCaptor`); 0xDC op 14 WideTerritoryConquer moves every tile of one non-teammate owner to that village's owner (distance from the capturing village) |
+| E-Q1 / TQ-8 | `KeepHolderRule::NeutralTerritoryV1` (byte 4, rules table v3): every wide keep unowned with 50 troops, 72-turn hold unchanged; the same byte turns territory V1 on (trailer byte `RSV_53`) |
+| U3 | `RELEASE_DORMANT_NEVER`; ReleaseDormant refused; preset `S1_DEVNET_TERRITORY` |
+| Local play | itest `wide_land` sets the bundle; `wide_territory` duty settles / decays / transfers; page card claims the site's tile first; operator AI residents do the same and grow one tile a turn |
+
+## 10. Devnet upgrade and the new world (do not deploy without r0ze; never 01:30–03:30 JST)
+
+1. Build: `scripts/build-frontier-devnet-playable-sbf.sh --twice` on the merged commit. Measured on this branch
+   (2f1dc354 + later JS-only commits): 3,511,888 B, under the deployed `max_len` 4,308,992 (≈ 797 KB spare; no
+   extend needed). sha256 of that build: 603544700edb… (report territory-impl). Rebuild on the merged commit.
+2. Upgrade the program in place (the world is not created yet; U2 12:07).
+3. AnnounceSeason / CreateSeason with `S1_DEVNET_TERRITORY` (continuous, no idle-home release).
+4. WideSetRules with keep holder `NeutralTerritoryV1` (4), config version 3, free city / camp / region as the
+   operator's current bytes (`stack/src/operator.rs` still sends `MixedInterleaved`: change it before the create).
+5. Keeper: add a territory role (settle each summary once a turn, settle+decay when due, settle+settle+conquer after a
+   capture; builders in `keeper::widelane::territory`); the local runner's `itest::wide_territory` is the model.
+6. Gateway devnet act list: add `TerritoryClaim` (DEVNET_ACT_NAMES) so the page can claim tiles there.
+7. Verifier: the four ops are not replayed yet (gap); a run with territory activity will show them as unknown.

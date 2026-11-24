@@ -965,7 +965,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   //  LP10-1); now that tab presses keep it, a viewer change drops it here. The stored preferences stay)
   if (FS.ui) {
     if (FS.ui.wideHost) wideHostStopWait(FS.ui.wideHost);
-    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ...kept } = FS.ui;
+    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ownTiles: _o, ...kept } = FS.ui;
     FS.ui = kept;
   }
   FS.notice = null;
