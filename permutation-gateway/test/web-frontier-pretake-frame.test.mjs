@@ -69,7 +69,14 @@ test('"Provinces held" ends before the turn dial at the film\'s width: all six f
   for (const hook of ['class="ps-k"', 'class="ps-rows"', 'class="ps-name"', 'class="ps-v num"', 'class="ps-you"', 'class="ps-go"']) assert.ok(strip.includes(hook), `provstrip.mjs writes ${hook}`);
   assert.match(strip, /\$\{r\.mine \? ' ps-mine' : ''\}/);
   // outside that width nothing of the strip is changed: the rules stand only inside the condition
-  assert.doesNotMatch(css('conquest-hand.css').replace(media(css('conquest-hand.css'), FRAME), ''), /\.ps-go \{ display: none; \}/);
+  // (en-ui-audit: the same strip also ran under the dial at 1024 px — tablets, 760 to 1099 px — and has its own, narrower
+  //  rules there; every figure still stays, only the "You" tag gives way to the gold ring and the name)
+  const TABLET = '(min-width: 760px) and (max-width: 1099px)';
+  const t = media(css('conquest-hand.css'), TABLET);
+  assert.match(t, /\.prov-strip \{ left: 44px; \}/);
+  assert.match(t, /\.ps-k \.ic, \.ps-go \{ display: none; \}/);
+  assert.doesNotMatch(t, /\.ps-(v|n|mine|name)[^{]*\{[^}]*display: none/, 'no figure and no nation is put away at 1024 px either');
+  assert.doesNotMatch(css('conquest-hand.css').replace(media(css('conquest-hand.css'), FRAME), '').replace(t, ''), /\.ps-go \{ display: none; \}/);
 });
 
 test('the film\'s width with the side drawer open: the bar, its card and the dock keep to the map the drawer leaves free', () => {

@@ -2703,6 +2703,38 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 .wide-legend-swatch[data-key="n0"] { background: #cc303b; border-color: #81242c; } .wide-legend-swatch[data-key="n1"] { background: #31bedb; border-color: #237489; } .wide-legend-swatch[data-key="n2"] { background: #eac21b; border-color: #8c721c; } .wide-legend-swatch[data-key="n3"] { background: #a34cd8; border-color: #69338c; } .wide-legend-swatch[data-key="n4"] { background: #58727e; border-color: #5f6a68; } .wide-legend-swatch[data-key="n5"] { background: #f19232; border-color: #9c581f; }
 @media (max-width: 720px) { #wide-legend { display: none; } }
 
+/* ---- en-ui-audit (English at 1280×800 and 1024×700): layout only, no rule or flow change */
+/* "Who holds the land" stood under the lens row and the minimap wherever those are raised: on tablets (they stand above
+   the dock's row) and whenever the village / host hand bar is open (they stand above the bar). It follows them now. */
+@media (min-width: 760px) and (max-width: 1099px) {
+  #wide-legend { bottom: calc(var(--dock-h) + 2 * var(--edge) + 224px); }
+}
+@media (min-width: 760px) and (max-width: 1399px) {
+  body:is([data-hand="village"], [data-hand="host"]) #wide-legend { bottom: calc(var(--hand-h, 118px) + var(--edge) + 224px); }
+}
+/* the guide chip in the top strip: at 1024 px the English step read 「See the …」 / 「Open the build l…」 (75 px of text).
+   There it takes two short lines instead of an ellipsis; the "N more" count gives way (the list button beside it opens
+   all the steps). */
+@media (min-width: 760px) and (max-width: 1099px) {
+  html[lang="en"] .strip-r .attn-long, html[lang="en"] .strip-r .attn-long:has(> .next-more) { display: block; white-space: normal; font-size: 11.5px; line-height: 1.15; max-height: 27px; text-align: left; text-wrap: balance; }
+  html[lang="en"] .strip-r .attn-long > strong { white-space: normal; overflow: visible; }
+  html[lang="en"] .strip-r .attn-long > .next-more { display: none; }
+}
+/* the troop cards with their costs: four columns of 79 px broke the English lines into 5–9 lines each
+   (「Heavy / mounted. / Strong / against / ranged / (×1.5). …」) and 「Crossbowman」 ran out of its card. In English
+   they stand two to a row, the picture beside the text. */
+html[lang="en"] .unit-picks-costs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html[lang="en"] .unit-picks-costs .unit-pick { grid-template-columns: 44px minmax(0, 1fr); justify-items: start; column-gap: 6px; padding: 5px 6px; text-align: left; }
+html[lang="en"] .unit-picks-costs .unit-pick .unit-card { grid-row: 1 / span 3; }
+html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { grid-column: 2; }
+/* phones (390 px): 「Nation & territory」 is 113 px in a 65 px tab and ran over 「More」; the English labels may take two
+   short lines. The guide row of the bottom sheet cut 「Check your host's readi…」: a size down, it fits. */
+@media (max-width: 759px) {
+  html[lang="en"] .tab-label { max-width: 100%; white-space: normal; font-size: 10.5px; line-height: 1.05; text-align: center; overflow-wrap: normal; }
+  html[lang="en"] .tab { gap: 2px; }
+  html[lang="en"] .next-row-t strong { font-size: 15px; letter-spacing: 0; }
+}
+
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
