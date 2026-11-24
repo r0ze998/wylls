@@ -7,10 +7,11 @@ import { chooseMarch, strengthScore, warStep } from '../src/frontier/local-play-
 import { decideNext, createResidentMemory } from '../src/frontier/local-play-operator-policy.mjs';
 
 // A judge's answer (local-play-world-goals.mjs answerOf shape): 6 flags, one per nation, need 3 — the local world's.
-const answerOf = ({ flags, progress, need = 3 }) => ({ ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v1', bell: 100,
+const answerOf = ({ flags, progress, need = 3 }) => ({ ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v2', bell: 100,
   flagKeeps: { round: 1, postedBell: 10, need, holdBells: 144, flags, progress } });
 const F = (p, q, nation, holder = nation, extra = {}) => ({ p, q, nation, holder, since: 5, from: 10, longAt: 154, contender: null, progress: 0, required: 0, ...extra });
-const prog = held => held.map((h, nation) => ({ nation, held: h, heldLong: 0, need: 3, reachAt: null }));
+// (flag-keeps-v2: `prog(captured)` — each nation's CAPTURED flag keeps, the only ones that count; `held` adds its own starting one)
+const prog = captured => captured.map((c, nation) => ({ nation, held: c + 1, own: 1, captured: c, capturedLong: 0, need: 3, reachAt: null }));
 const keep = (p, q, holder, extra = {}) => ({ p, q, tile: 30, holder, troops: 100, contender: 7, progress: 0, ...extra });
 const seen = list => new Map(list.map(k => [`${k.p},${k.q}`, k]));
 
@@ -19,30 +20,35 @@ test('flagSight: only what the resident\'s fogged keeps show — the judge\'s li
   const s = flagSight({ answer, faction: 1, seenKeeps: seen([keep(0, 1, 4), { ...keep(-1, 1, 5), fog: 'memory', contender: 2, progress: 30 }]) });
   assert.deepEqual(s.flags.map(f => [f.seen, f.holder, f.contender, f.progress]), [['never', null, null, 0], ['live', 4, null, 0], ['memory', 5, null, 0]],
     'never seen: nothing (not the answer\'s holder 3 or its siege); last-known: the remembered holder, no contest; live: as seen');
-  assert.deepEqual(s.nations.map(x => x.held), [0, 0, 1, 1, 1, 0], 'every nation\'s count: public on the card');
+  assert.deepEqual(s.nations.map(x => x.captured), [0, 0, 1, 1, 1, 0], 'every nation\'s count of captured flag keeps: public on the card');
   assert.equal('reachAt' in s.nations[0], false, 'another nation\'s timer is not on the card: not read');
   assert.equal(flagSight({ answer: { ...answer, flagKeeps: null }, faction: 1, seenKeeps: new Map() }), null);
   assert.equal(flagSight({ answer: null, faction: 1, seenKeeps: new Map() }), null);
 });
 
-test('closeRivals: a nation holding need − 1 or more flag keeps (never the resident\'s own)', () => {
+test('closeRivals: a nation holding need − 1 or more CAPTURED flag keeps (never the resident\'s own)', () => {
   const s = n => flagSight({ answer: answerOf({ flags: [], progress: prog(n) }), faction: 0, seenKeeps: new Map() });
-  assert.deepEqual([...closeRivals(s([1, 1, 1, 1, 1, 1]), 0)], [], 'the local start: each nation its own flag, need 3');
+  assert.deepEqual([...closeRivals(s([0, 0, 0, 0, 0, 0]), 0)], [], 'the local start: each nation its own flag only (nothing captured), need 3');
+  // (flag-keeps-v2) own starting flag keeps bring no nation close: with need 2 and every nation holding its own flag
+  // keep, nobody is a close rival (the old count made every nation one, and every flag a stop-rival target)
+  const need2 = flagSight({ answer: answerOf({ flags: [], progress: prog([0, 0, 0, 0, 0, 0]), need: 2 }), faction: 0, seenKeeps: new Map() });
+  assert.deepEqual([...closeRivals(need2, 0)], []);
+  assert.deepEqual([...closeRivals(flagSight({ answer: answerOf({ flags: [], progress: prog([0, 1, 0, 0, 0, 0]), need: 2 }), faction: 0, seenKeeps: new Map() }), 0)], [1], 'one captured of two needed: close');
   assert.deepEqual([...closeRivals(s([2, 1, 2, 3, 0, 1]), 0)], [2, 3]);
   assert.deepEqual([...closeRivals(s([3, 0, 0, 0, 0, 0]), 0)], [], 'its own nation is not a rival');
 });
 
 test('flagWeights: defend own flag under siege, stop the close rival, a small bonus otherwise; never-seen flags weigh nothing', () => {
   const flags = [F(1, 0, 0), F(0, 1, 1), F(-1, 1, 2), F(-1, 0, 3), F(0, -1, 4), F(1, -1, 5)];
-  const answer = answerOf({ flags, progress: prog([1, 0, 2, 1, 1, 1]) });
+  const answer = answerOf({ flags, progress: prog([0, 0, 2, 0, 0, 0]) });
   const sk = seen([keep(1, 0, 0, { contender: 1, progress: 12 }), keep(-1, 1, 2), keep(-1, 0, 3), keep(0, 1, 2)]);
   const w = flagWeights(flagSight({ answer, faction: 0, seenKeeps: sk }), 0);
-  assert.deepEqual(Object.fromEntries([...w].map(([k, v]) => [k, v.goal])), { '1,0': 'defend-flag', '0,1': 'stop-rival', '-1,1': 'stop-rival', '-1,0': 'flag' },
-    'nation 2 holds 2 (need 3): its flags are stop-rival; nation 3\'s is a plain flag; (0,-1) and (1,-1) never seen');
+  assert.deepEqual(Object.fromEntries([...w].map(([k, v]) => [k, v.goal])), { '1,0': 'defend-flag', '0,1': 'stop-rival', '-1,1': 'flag', '-1,0': 'flag' },
+    'nation 2 has captured 2 (need 3): the flag keep it CAPTURED (0,1) is stop-rival; its own starting flag keep (-1,1) does not count for it, so it is a plain flag (flag-keeps-v2); nation 3\'s is a plain flag; (0,-1) and (1,-1) never seen');
   assert.equal(w.get('0,1').bonus, STOP_RIVAL_BONUS);
   assert.equal(w.get('-1,0').bonus, FLAG_BONUS);
   const one = flagWeights(flagSight({ answer, faction: 0, seenKeeps: sk }), 0, { busy: FLAG_MARCH_CAP });
-  assert.deepEqual(Object.fromEntries([...one].map(([k, v]) => [k, v.goal])), { '1,0': 'defend-flag', '0,1': 'stop-rival', '-1,1': 'stop-rival' },
+  assert.deepEqual(Object.fromEntries([...one].map(([k, v]) => [k, v.goal])), { '1,0': 'defend-flag', '0,1': 'stop-rival' },
     'anti all-in: one flag march already — no plain flag bonus, but a close rival still draws a second host (live ×60: a shared cap of 1 silenced it)');
   const two = flagWeights(flagSight({ answer, faction: 0, seenKeeps: sk }), 0, { busy: STOP_RIVAL_CAP });
   assert.deepEqual([...two.keys()], ['1,0'], 'two flag marches already: defence only');

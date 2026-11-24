@@ -25,11 +25,12 @@ const sv = anchors => { const s = S.buildSurvey({ ringsOpen: 3, anchors }); s.re
 const KEEP = 30;
 const KNOWN = () => { const h = tileHex(-2, 0, KEEP); return [{ q: h.q, r: h.r, radius: 2, level: S.L2, kind: 'explored' }]; };
 const liveKeep = (holder, asOfBell = 100) => ({ p: -2, q: 0, tile: KEEP, holder, troops: 288, heartland: false, contender: OTHER, progress: 12, requiredBells: 72, asOfBell });
-const flag = holder => ({ p: -2, q: 0, nation: VIEWER, holder, since: 92, from: 92, longAt: 236, contender: OTHER, progress: 12, required: 72 });
+// (flag-keeps-v2: the viewer's nation's own starting flag keep — no timer in its hands; captured, and timed, once another nation holds it)
+const flag = holder => ({ p: -2, q: 0, nation: VIEWER, holder, since: 92, captured: holder !== VIEWER, from: holder === VIEWER ? null : 92, longAt: holder === VIEWER ? null : 236, contender: OTHER, progress: 12, required: 72 });
 const answer = holder => ({
-  ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v1', testOnly: true, season: { programId: 'P', seasonId: '11' }, effects: { money: 'none', chain: 'none' }, bell: 100, error: null,
+  ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v2', testOnly: true, season: { programId: 'P', seasonId: '11' }, effects: { money: 'none', chain: 'none' }, bell: 100, error: null,
   goals: [{ id: 'flag-keeps', kind: 'hegemony', live: true }],
-  flagKeeps: { round: 1, postedBell: 0, seed: '07'.repeat(32), hash: 'ab'.repeat(32), need: 1, holdBells: 144, flags: [flag(holder)], progress: [{ nation: holder, held: 1, heldLong: 0, need: 1, reachAt: 236 }] },
+  flagKeeps: { round: 1, postedBell: 0, seed: '07'.repeat(32), hash: 'ab'.repeat(32), need: 1, holdBells: 144, flags: [flag(holder)], progress: [{ nation: holder, held: 1, own: holder === VIEWER ? 1 : 0, captured: holder === VIEWER ? 0 : 1, capturedLong: 0, need: 1, reachAt: holder === VIEWER ? null : 236 }] },
   achievements: [],
 });
 /** A fogged page with a village. `keeps`: the page's keep map (empty = a `--wide` rim keep the page does not hold). */

@@ -1,4 +1,4 @@
-// flag-keeps-slice-1: the launcher's `--world-goals flag-keeps-v1` option and its read-only route
+// flag-keeps-slice-1: the launcher's `--world-goals flag-keeps-v2` option and its read-only route
 // (src/frontier/local-play-launcher.mjs, src/frontier/local-play-world-goals.mjs). Loopback 41648 only; no world is
 // started (a stand-in manager answers for the world), no chain, no key. Also the map's flag-keep marks (map/keeps.mjs).
 import test from 'node:test';
@@ -34,6 +34,10 @@ test('launcher: --world-goals in its one word, its TEST overrides only with it; 
   await assert.rejects(parseConfig(argv({ ...base, 'world-goals': 'yes' })), e => e.code === 'InvalidWorldGoals');
   await assert.rejects(parseConfig(argv({ ...base, 'flag-keeps-hold': '30' })), e => e.code === 'InvalidWorldGoals');
   await assert.rejects(parseConfig(argv({ ...base, 'world-goals': W.WORLD_GOALS_MODE, 'flag-keeps-need': '0' })), e => e.code === 'InvalidFlagKeepsNeed');
+  // (flag-keeps-v2) the option word is the new ruleset; the older word still turns the same judge on; anything else is refused
+  assert.equal(W.WORLD_GOALS_MODE, 'flag-keeps-v2');
+  assert.equal((await parseConfig(argv({ ...base, 'world-goals': 'flag-keeps-v1', 'flag-keeps-need': '2' }))).worldGoals.need, 2);
+  await assert.rejects(parseConfig(argv({ ...base, 'world-goals': 'flag-keeps-v3' })), e => e.code === 'InvalidWorldGoals');
   // the route
   const entry = { answer: () => ({ ok: true, kind: 'world-goals' }), ports: [41649] };
   const manager = { goalsFor: port => (entry.ports.includes(port) ? entry : null), coopFor: () => null, close: () => {} };
