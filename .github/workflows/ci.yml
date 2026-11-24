@@ -428,6 +428,7 @@ jobs:
       - name: Lints with the preview features
         run: |
           cargo clippy --locked -p permutation-rules --features capacity-preview --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-rules --features std,territory-preview --all-targets -- -D warnings
           cargo clippy --locked -p frontier-abi --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features custody-preview --all-targets -- -D warnings
@@ -437,6 +438,8 @@ jobs:
       - name: Host tests with the preview features
         run: |
           cargo test --locked -p permutation-rules --features capacity-preview
+          # territory preview (owner Q-2): the kernel and its committed vectors (the page/AI copy checks the same file)
+          cargo test --locked -p permutation-rules --features territory-preview territory
           cargo test --locked -p frontier-abi --features capacity-preview
           cargo test --locked -p permutation-frontier --features capacity-preview
           cargo test --locked -p permutation-frontier --features custody-preview

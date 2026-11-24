@@ -58,6 +58,9 @@ pub mod siege;
 pub mod stance;
 pub mod structure;
 pub mod terrain;
+/// Player territory (preview, owner Q-2): parameter seams only; off by default.
+#[cfg(feature = "territory-preview")]
+pub mod territory;
 
 pub mod travel;
 
