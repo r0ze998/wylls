@@ -172,6 +172,11 @@ test('fix-loop13 LP13-9: an achievement is a feed line in both languages — qui
   assert.match(other.words.en, /^World goals: .+ achieved round 1 of the flag keeps \(turn 162\)$/);
   assert.doesNotMatch(other.words.en, /your nation|USDC/);
   assert.doesNotMatch(other.words.en, /[぀-ヿ一-鿿]/);
+  // (verify-pr208) two nations achieving at one turn: "your nation (…)" names the viewer's nation alone
+  const joint = UI.achievementNews(FS, read([{ ...ach, nations: [ENEMY, VIEWER] }]))[0];
+  const own = /your nation \((.+?)\)/.exec(joint.words.en)[1], solo = /your nation \((.+?)\)/.exec(later.words.en)[1];
+  assert.equal(own, solo, 'the viewer\'s nation, not the list of all achieving nations');
+  assert.doesNotMatch(own, /,|、/);
 }));
 
 test('fix-loop13: the turn summary names an achievement line (it said "Turn 179 in brief:" and nothing)', async () => {

@@ -175,7 +175,9 @@ export function achievementNews(FS, b, { first = false } = {}) {
   return b.goals.achievements.map(a => {
     const mine = nation(me) && a.nations.includes(me), row = mine ? viewerPrize(FS, a) : null;
     return { id: `goal:${sid}:${a.round}`, kind: 'goal', bell: a.bell, ...(first ? { quiet: true } : {}), ...said(() => {
-      const names = a.nations.map(n => factionName(n)).join(L`、`);
+      // (verify-pr208: "your nation (…)" names the viewer's nation alone — with several nations achieving at one turn it
+      //  said 「あなたの国（アステル、ボレアリス、…）」; the card's round line lists them all)
+      const names = mine ? factionName(me) : a.nations.map(n => factionName(n)).join(L`、`);
       if (row?.eligible) return L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を、あなたの国（${names}）が達成しました（ターン ${fmtNum(a.bell)}）。賞金が有効なら、あなたは ${usdc(row.amount)} テスト USDC を受け取っていました`;
       return mine ? L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を、あなたの国（${names}）が達成しました（ターン ${fmtNum(a.bell)}）` : L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を ${names}が達成しました（ターン ${fmtNum(a.bell)}）`;
     }) };

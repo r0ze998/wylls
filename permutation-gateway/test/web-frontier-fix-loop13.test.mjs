@@ -67,3 +67,22 @@ test('LP13-3 (live case): when the place under the strip is taken by another lab
   for (const r of nogo) assert.ok(!(box.x < r.x + r.w && r.x < box.x + box.w && box.y < r.y + r.h && r.y < box.y + box.h), `clear of ${JSON.stringify(r)}`);
   assert.ok(box.y >= 0);
 });
+
+// (verify-pr208) LP13-2, the chip itself: with land in other provinces too the 180 px cap cut both parts ("Land 12 ti… |
+// Other provi…": every number gone, live at 1280 px); from 1440 px up the long form was cut by the cap (and without the
+// cap crushed the strip: 1 of 6 tokens left at 1440 px). The bar's form is the short one at every width, in two lines.
+test('LP13-2: the land chip shows its short form at every width, its two parts in two lines, each whole', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('../../permutation-server/web/frontier/frontier.css', import.meta.url), 'utf8');
+  const { renderLandChip } = await import('../../permutation-server/web/frontier/land.mjs');
+  const chip = String(renderLandChip({ claimed: 12, tiles: 44, bonusPct: 5, perHour: 18 }, { tiles: 44, provinces: 2 }));
+  assert.match(chip, /<span class="land-chip"[^>]*><span class="land-chip-long">[^<]+<\/span><span class="land-chip-short" aria-hidden="true">[^<]+<\/span><\/span><span class="land-chip land-chip-far"/, 'the home part (long for readers, short for the bar), then the far part');
+  const rule = sel => { const at = css.indexOf(`\n${sel} {`); assert.ok(at > 0, sel); return css.slice(at, css.indexOf('}', at)); };
+  assert.doesNotMatch(css, /@media[^{]*\{\s*[^}]*\.land-chip-short/, 'no width rule: the long form crushed the strip at 1440 px and wider too');
+  assert.doesNotMatch(css, /\.land-chip-short \{ display: none/);
+  assert.match(rule('.land-chip-long'), /position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect\(0 0 0 0\)/, 'read, not shown');
+  assert.match(rule('#land-chip-box'), /flex: 0 0 auto; max-width: 210px;/, 'the chip does not shrink');
+  assert.match(rule('.land-chip'), /flex: 0 0 auto; max-width: 100%;/, 'neither part gives way to the other');
+  assert.match(rule('#land-chip-box:has(> .land-chip + .land-chip-far)'), /flex-direction: column; align-items: flex-start; justify-content: center;/, 'two lines when both parts are shown');
+  assert.match(rule('#land-chip-box > .land-chip + .land-chip-far'), /margin-left: 0; padding-left: 0; border-left: 0;/);
+});

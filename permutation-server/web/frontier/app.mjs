@@ -2761,7 +2761,9 @@ function renderHudTick(now) {
     // (tried again now and then: the first measure may have been taken before the fonts were in)
     if (stripFit.w !== w || (stripFit.n = (stripFit.n ?? 0) + 1) % 5 === 0) stripFit = { w, max: room, n: stripFit.w === w ? stripFit.n : 0 };
     setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.min(room, stripFit.max)));
-    if (tokens.length && stripFit.max > 1 && strip.scrollWidth > strip.clientWidth + 1) {
+    // (verify-pr208: until it fits, within this pass — one step a pass left a token cut on screen for a pass at each
+    //  retry: beside the land chip a third number came and went every few seconds, 「254 3 more」 measured live at 1280 px)
+    while (tokens.length && stripFit.max > 1 && strip.scrollWidth > strip.clientWidth + 1) {
       stripFit.max = Math.min(room, stripFit.max, tokens.length) - 1;
       setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
     }

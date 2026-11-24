@@ -2662,16 +2662,18 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 
 /* the land preview (TEST-ONLY worlds with that option): the territory line beside the resource strip */
 /* fix-loop13 LP13-2: the long chip took the plaque's room and the resource numbers were cut ("736" → "73", wood/stone gone).
-   Under 1440 px it shows its short form (.land-chip-short) and keeps it whole; the strip, which never cuts a token, shows
-   fewer tokens and its "N more" (app.mjs strip fit). Capped so a far-provinces part cannot take the plaque either. */
-#land-chip-box { flex: 0 0 auto; max-width: 180px; overflow: hidden; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
+   The bar shows the chip's short form (.land-chip-short) and keeps it whole; the long form stays for screen readers and in
+   the title. The strip, which never cuts a token, shows fewer tokens and its "N more" (app.mjs strip fit).
+   (verify-pr208, measured live at 1280 / 1440 / 1600 / 1920 px: the 180 px cap alone cut BOTH parts once the nation had
+   land in other provinces too — "Land 12 ti… | Other provi…", every number gone — so the two parts stand in two lines,
+   each whole; and from 1440 px up the long form was cut by the cap, or without it crushed the strip as before, so the
+   short form is the bar's form at every width.) */
+#land-chip-box { flex: 0 0 auto; max-width: 210px; overflow: hidden; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
 #land-chip-box[hidden] { display: none; }
-.land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.land-chip-short { display: none; }
-@media (max-width: 1439px) {
-  .land-chip-short { display: inline; }
-  .land-chip-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-}
+.land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; flex: 0 0 auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.land-chip-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#land-chip-box:has(> .land-chip + .land-chip-far) { flex-direction: column; align-items: flex-start; justify-content: center; line-height: 1.25; }
+#land-chip-box > .land-chip + .land-chip-far { margin-left: 0; padding-left: 0; border-left: 0; }
 .land-chip + .land-chip-far { margin-left: 10px; padding-left: 10px; border-left: 1px solid rgba(201,162,74,.28); }
 .land-chip-far { font-weight: 500; color: #e3c77a; }
 
