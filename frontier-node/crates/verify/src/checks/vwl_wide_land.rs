@@ -66,7 +66,11 @@
 //! WideCloses of a ticket record, a holding and a province
 //! (`vwl_wide_close.rs`), the wide economy and garrison
 //! (`vwl_wide_economy.rs`), and WideMuster and WideResolve, the bell with
-//! the wide keep capture (`vwl_wide_march.rs`). WideDissolve, WideReturn,
+//! the wide keep capture (`vwl_wide_march.rs`), and player territory
+//! (#209: WideClaimTile, WideTerritorySettle, WideTerritoryDecay,
+//! WideTerritoryConquer, `vwl_wide_territory.rs`; the keeper's
+//! multi-instruction territory transactions are re-run whole, the one
+//! exception to the rule above). WideDissolve, WideReturn,
 //! WideCloseRoster and WideDisbandStranded are VX's (re-executed by the
 //! pinned program, verifier-coverage), a successful WideResidentAct is a V0
 //! FAIL in this lane; since verifier-coverage-2 every other decodable wide
@@ -140,7 +144,7 @@ pub fn judged(data: &[u8]) -> Option<&'static str> {
         WideCommand::RequestRingSeed(_) => Some("WideRequestRingSeed"),
         WideCommand::ConsumeRingSeed(_) => Some("WideConsumeRingSeed"),
         WideCommand::OpenProvince(_) => Some("WideOpenProvince"),
-        c => claims::judged(&c),
+        c => territory::judged(&c).or_else(|| claims::judged(&c)),
     }
 }
 
@@ -152,6 +156,8 @@ mod close;
 mod economy;
 #[path = "vwl_wide_march.rs"]
 mod march;
+#[path = "vwl_wide_territory.rs"]
+mod territory;
 
 /// The states one instruction is judged from.
 struct Env<'a> {
@@ -1183,7 +1189,7 @@ fn judge_all(
     season_id: u64,
     quicknet_pk: [u8; 96],
     sigs: &mut SigCache,
-) -> Vec<(usize, &'static str, Wrong)> {
+) -> Vec<(usize, String, Wrong)> {
     let ctx = findex::addr_ctx(
         &solana_address::Address::new_from_array(*program),
         season_id,
@@ -1191,6 +1197,44 @@ fn judge_all(
     let mut out = vec![];
     for (i, t) in w.txs.iter().enumerate() {
         if !t.ok {
+            continue;
+        }
+        let env = || Env {
+            w,
+            recs,
+            snapshot,
+            declared,
+            read_declared: std::cell::Cell::new(false),
+            ctx,
+            sid: season_id,
+            tx: i,
+            now: t.time,
+            quicknet_pk,
+        };
+        // Player territory (#209, verifier-territory): a transaction of
+        // territory instructions is judged as a whole (the keeper's settle
+        // + decay and settle + conquer share one, `vwl_wide_territory`).
+        let terr: Vec<&'static str> = t.ixs.iter().filter_map(territory::of).collect();
+        if !terr.is_empty() {
+            let name = terr.join("+");
+            if terr.len() != t.ixs.len() {
+                out.push((
+                    i,
+                    name,
+                    Missing("territory instructions beside another program instruction: the archive has no state between them".into()),
+                ));
+                continue;
+            }
+            let e = env();
+            match territory::judge_tx(&e, &t.ixs) {
+                Err(er) => out.push((i, name, er)),
+                Ok(()) if e.read_declared.get() => out.push((
+                    i,
+                    name,
+                    Missing("re-judged exactly, but from a state the archive only declares (a recorder's patch, not an archived transaction's write)".into()),
+                )),
+                Ok(()) => {}
+            }
             continue;
         }
         for ix in &t.ixs {
@@ -1201,6 +1245,7 @@ fn judge_all(
             else {
                 continue;
             };
+            let name = name.to_string();
             if t.ixs.len() != 1 {
                 out.push((
                     i,
@@ -1209,18 +1254,7 @@ fn judge_all(
                 ));
                 continue;
             }
-            let e = Env {
-                w,
-                recs,
-                snapshot,
-                declared,
-                read_declared: std::cell::Cell::new(false),
-                ctx,
-                sid: season_id,
-                tx: i,
-                now: t.time,
-                quicknet_pk,
-            };
+            let e = env();
             match judge(&e, ix, sigs) {
                 Err(er) => out.push((i, name, er)),
                 Ok(()) if e.read_declared.get() => out.push((
