@@ -173,3 +173,10 @@ test('fix-loop13 LP13-9: an achievement is a feed line in both languages — qui
   assert.doesNotMatch(other.words.en, /your nation|USDC/);
   assert.doesNotMatch(other.words.en, /[぀-ヿ一-鿿]/);
 }));
+
+test('fix-loop13: the turn summary names an achievement line (it said "Turn 179 in brief:" and nothing)', async () => {
+  const FEED = await import('../../permutation-server/web/frontier/hud/feed.mjs');
+  const s = FEED.bellSummary([{ id: 'goal:11:1', kind: 'goal', bell: 179, text: 'x' }], 179);
+  assert.equal(s.words.ja, 'ターン 179 のまとめ：世界の目標 1');
+  assert.equal(s.words.en, 'Turn 179 in brief: 1 world goal');
+});

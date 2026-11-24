@@ -495,6 +495,7 @@ export default {
 
   // ---- the title card and the bell toll (intro/title.mjs)
   '世界の番号 {0}': 'World no. {0}',
+  '世界の目標 {0}': n => plural(n, '{0} world goal', '{0} world goals'),
   '領土 {0} マス · +{1}%': n => plural(n, 'Land {0} tile · +{1}%', 'Land {0} tiles · +{1}%'),
   '{0} つの国': '{0} nations',
   '{0} の村': n => plural(n, '{0} village', '{0} villages'),
