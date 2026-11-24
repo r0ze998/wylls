@@ -285,6 +285,11 @@ fn land_magic(m: &[u8; 8]) -> bool {
         // re-executed ExpeditionGather creates and VWL's WideResolve
         // resolves (every written byte compared by one or the other).
         || *m == frontier_abi::world_index::arrival::wide_clash_inputs::MAGIC
+        // Player territory (#209, verifier-territory): the territory
+        // province record and the player summary, which VWL's territory
+        // replays write byte for byte (`vwl_wide_territory.rs`).
+        || *m == frontier_abi::world_index::territory::territory_province::MAGIC
+        || *m == frontier_abi::world_index::territory::territory_player::MAGIC
 }
 #[cfg(not(feature = "playable-lane"))]
 fn land_magic(_: &[u8; 8]) -> bool {

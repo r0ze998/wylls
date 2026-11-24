@@ -555,11 +555,7 @@ pub fn run(cx: &mut Ctx) {
     let pv = cx.f.params.as_ref().map(|p| p.program_version);
     let playable = super::v0_coverage::playable(pv);
     let vwl_owns = |i: usize| {
-        cx.w.txs.get(i).is_some_and(|t| {
-            t.ixs.len() == 1
-                && t.ixs[0].tag().is_some_and(super::v0_coverage::is_wide_tag)
-                && super::v0_coverage::vwl_judged(&t.ixs[0].data)
-        })
+        cx.w.txs.get(i).is_some_and(super::v0_coverage::vwl_tx)
     };
     // A wide holding a VWL-judged WideClose closed has no final bytes: its
     // chain ends at its last archived state, the one the close ran from. A

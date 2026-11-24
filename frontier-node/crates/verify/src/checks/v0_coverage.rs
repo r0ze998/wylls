@@ -238,6 +238,19 @@ pub fn vx_tx(t: &crate::world::Tx, pv: Option<u16>) -> bool {
             .any(|ix| ix.tag().is_some_and(is_wide_tag) && vx_judged(&ix.data))
 }
 
+/// Whether VWL re-judges transaction `t` as a whole: every program
+/// instruction a wide one VWL names (one instruction, or — player
+/// territory, verifier-territory — the keeper's settle + decay / settle +
+/// conquer, which VWL re-runs in order; any other mix is VWL's
+/// `MissingData`, never a PASS). Its writes are VWL's to judge.
+pub fn vwl_tx(t: &crate::world::Tx) -> bool {
+    !t.ixs.is_empty()
+        && t
+            .ixs
+            .iter()
+            .all(|ix| ix.tag().is_some_and(is_wide_tag) && vwl_judged(&ix.data))
+}
+
 /// Whether VWL re-judges this wide instruction (playable-lane build only).
 pub fn vwl_judged(data: &[u8]) -> bool {
     #[cfg(feature = "playable-lane")]
