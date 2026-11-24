@@ -31,6 +31,7 @@ import { icon, RESOURCE_ICON } from './icons.mjs';
 import { plateLines as protoPlateLines } from './proto.mjs';
 import { tileWhat, provinceName } from './place.mjs';
 import { viewerState } from './drawer.mjs';
+import { notOpenText } from '../world-not-open.mjs';
 import { conquestEnabled, renderStandings as renderConquestStandings } from '../screens/conquest.mjs';
 import { raidOffers } from '../screens/s1.mjs';
 import { renderWidePips, renderWideInventoryStatus } from '../screens/wideholding.mjs';
@@ -379,6 +380,12 @@ export function renderPlate(FS) {
   const joined = Number.isInteger(faction);
   // until the viewer's record has answered, the plate says only that it is being read (UX design 12.3): no state
   // of the game, no button that depends on the answer
+  // (page-not-open-yet) the world is not created yet: nothing is being read and nothing failed — the plate says so, with
+  // when it opens; no reload key (the page opens it by itself)
+  if (FS.notOpen && !FS.season) {
+    const t = notOpenText(FS.notOpen);
+    return html`<div class="plate plate-open plate-miss plate-notopen" role="status"><span class="plate-text"><strong class="plate-name">${t.title}</strong><span class="plate-sub">${t.sub}</span></span></div>`;
+  }
   const known = viewerState(FS);
   if (known === 'pending') return html`<div class="plate plate-load" role="status"><span class="plate-spin" aria-hidden="true"></span><span class="plate-sub">${L`記録を読み込んでいます…`}</span></div>`;
   if (known === 'unreachable') {
@@ -437,7 +444,9 @@ export function renderRail(FS, { todoOpen = false } = {}) {
     // stood at 「村 0 · 0 州」 as if the world were empty — and for good when the season could not be read. The plate
     // says that the record is being read, or that it could not be; the standings come with the first answer.)
     const unread = !FS.season && !(FS.overviews?.size > 0);
-    const body = unread
+    // (page-not-open-yet) a world not created yet is neither being read nor unreadable
+    const notOpen = unread && FS.notOpen ? notOpenText(FS.notOpen) : null;
+    const body = notOpen ? html`<p class="read-state" role="status" data-read="notopen">${icon('hourglass')}<span>${notOpen.title}<span class="read-more">${notOpen.sub}</span></span></p>` : unread
       ? html`<p class="read-state" role="status" data-read="${FS.error ? 'unread' : 'waiting'}">${icon(FS.error ? 'alert' : 'hourglass')}<span>${FS.error ? html`${L`世界の記録を読めません`}<span class="read-more">${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</span>` : L`記録を読み込んでいます…`}</span></p>`
       : html`${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p>`;
     return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${body}</div>`;

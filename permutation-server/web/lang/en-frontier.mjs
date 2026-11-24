@@ -39,6 +39,12 @@ export default {
   '記録をまだ読み込めていません': 'Your record has not loaded yet',
   '通信の状態を確かめてください。読み込み直すと、もう一度試します。': 'Check your connection. Reloading tries again.',
   '読み込み直す': 'Reload',
+  // (page-not-open-yet) before the world is created (world-not-open.mjs): calm words, with when it opens
+  '世界はまだ開いていません': 'The world is not open yet',
+  'まだ開いていません': 'Not open yet',
+  '{0} 以降に開きます。開いたら、このページに自動で表示されます。': 'It opens on or after {0}. This page shows it automatically once it opens.',
+  'まもなく開きます。開いたら、このページに自動で表示されます。': 'It opens soon. This page shows it automatically once it opens.',
+  '世界はまだ開いていません。{0}': 'The world is not open yet. {0}',
   // a due time says what it is (screens/shell.mjs dueHtml): how long from now, then the clock
   '約 {0}時間{1}分': 'about {0} h {1} min',
   'あと{0}（{1} ごろ）': 'in {0} (around {1})',
