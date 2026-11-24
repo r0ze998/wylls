@@ -120,6 +120,83 @@ pub struct Profile {
     /// the deployed program must (not) carry.
     pub required_markers: Vec<String>,
     pub refused_markers: Vec<String>,
+    /// `wide.keepHolder`: the WideSetRules keep-holder byte of a playable-lane
+    /// season ([`KEEP_HOLDER_NAMES`]); `None` (absent): MixedInterleaved,
+    /// the rule every playable-lane season used so far.
+    pub keep_holder: Option<u8>,
+}
+
+/// The keep-holder rule names a profile's `wide.keepHolder` may give, with
+/// their WideSetRules byte (`frontier_abi::world_index::rules::KeepHolderRule`).
+/// Bytes 3 and 4 are named here ahead of the rule table that defines them:
+/// `Neutral` (3, every wide keep opens unowned) comes with #206
+/// (expansion-gameplay-1, owner Q-1 2026-11-24 09:22) and
+/// `NeutralTerritoryV1` (4, unowned and weaker keeps + player territory)
+/// with #209 (territory-q2, owner 12:09 / 13:15). A build whose frontier-abi
+/// does not know a byte refuses it ([`check_wide_rules`]); nothing is
+/// reinterpreted.
+pub const KEEP_HOLDER_NAMES: [(&str, u8); 4] = [
+    ("MixedInterleaved", 1),
+    ("OrbitBalanced", 2),
+    ("Neutral", 3),
+    ("NeutralTerritoryV1", 4),
+];
+
+/// The name of a keep-holder byte (`"?"` outside [`KEEP_HOLDER_NAMES`]). Pure.
+pub fn keep_holder_name(b: u8) -> &'static str {
+    KEEP_HOLDER_NAMES
+        .iter()
+        .find(|(_, x)| *x == b)
+        .map(|(n, _)| *n)
+        .unwrap_or("?")
+}
+
+/// The new devnet world's preset (devnet-new-world-plan, owner 12:07 U2/U3):
+/// defined by #209 in `frontier_abi::v2::presets` as
+/// `no_dormant_release(S1_DEVNET_WIDE_CONTINUOUS)` (no ReleaseDormant), found
+/// there by name so this operator needs no change when it lands.
+pub const NEW_WORLD_PRESET: &str = "S1_DEVNET_TERRITORY";
+
+/// The keep-holder bytes whose wide keeps all open unowned (owner 12:07:
+/// the new world starts with ALL wide land unowned).
+pub const NEUTRAL_KEEP_HOLDERS: [u8; 2] = [3, 4];
+
+/// A playable-lane profile's wide rules, checked against this build's rule
+/// table (Ok: the keep-holder byte WideSetRules will carry). The new world's
+/// preset needs an explicit neutral `wide.keepHolder`. Pure.
+pub fn check_wide_rules(p: &Profile) -> Result<u8, String> {
+    use frontier_abi::world_index::rules as wr;
+    let b = p
+        .keep_holder
+        .unwrap_or(wr::KeepHolderRule::MixedInterleaved as u8);
+    let rule = wr::KeepHolderRule::from_byte(b).map_err(|_| {
+        format!(
+            "wide.keepHolder {} (byte {b}) is not in this build's rule table: it needs {} merged and the operator rebuilt",
+            keep_holder_name(b),
+            match b {
+                3 => "#206 (neutral wide land)",
+                4 => "#209 (player territory)",
+                _ => "a newer frontier-abi",
+            }
+        )
+    })?;
+    if !wr::keep_holder_allowed(permutation_rules::frontier::geometry::PLACEMENT_MIXED, rule) {
+        return Err(format!(
+            "wide.keepHolder {}: placement 2 (the playable lane's map) does not allow it",
+            keep_holder_name(b)
+        ));
+    }
+    if p.preset == NEW_WORLD_PRESET
+        && !p
+            .keep_holder
+            .is_some_and(|k| NEUTRAL_KEEP_HOLDERS.contains(&k))
+    {
+        return Err(format!(
+            "season.preset {NEW_WORLD_PRESET} needs wide.keepHolder Neutral or NeutralTerritoryV1 (owner 2026-11-24 12:07: all wide land unowned), not {}",
+            p.keep_holder.map_or("the default MixedInterleaved", keep_holder_name)
+        ));
+    }
+    Ok(b)
 }
 
 pub fn is_placeholder(s: &str) -> bool {
@@ -220,23 +297,40 @@ pub fn parse_profile(text: &str) -> Result<Profile, String> {
         },
         required_markers: raw_strings(&v["program"], "requiredMarkers"),
         refused_markers: raw_strings(&v["program"], "refusedMarkers"),
+        keep_holder: match v["wide"]["keepHolder"].as_str() {
+            None if v["wide"]["keepHolder"].is_null() => None,
+            None => return Err("profile: wide.keepHolder must be a rule name".into()),
+            Some(n) => Some(
+                KEEP_HOLDER_NAMES
+                    .iter()
+                    .find(|(x, _)| *x == n)
+                    .map(|(_, b)| *b)
+                    .ok_or_else(|| {
+                        format!(
+                            "profile: wide.keepHolder {n:?}: one of {}",
+                            KEEP_HOLDER_NAMES.map(|(x, _)| x).join(", ")
+                        )
+                    })?,
+            ),
+        },
     })
 }
 
 /// The presets the operator may create, by the profile's `season.preset`
 /// (or `--preset`).
-pub const PRESETS: [&str; 4] = [
+pub const PRESETS: [&str; 5] = [
     "S1_LOCAL_7D",
     "S1_LOCAL_14D",
     "S1_DEVNET_WIDE_7D",
     "S1_DEVNET_WIDE_CONTINUOUS",
+    NEW_WORLD_PRESET,
 ];
 
 /// The presets of the playable lane: program version [`PLAYABLE_VERSION`]
 /// and the wide land's WideSetRules after the season is Seeded. The
 /// continuous world (owner 2026-11-23: seasons abolished) is the same lane.
 pub fn is_wide_preset(name: &str) -> bool {
-    name == "S1_DEVNET_WIDE_7D" || name == "S1_DEVNET_WIDE_CONTINUOUS"
+    name == "S1_DEVNET_WIDE_7D" || name == "S1_DEVNET_WIDE_CONTINUOUS" || name == NEW_WORLD_PRESET
 }
 
 /// The preset's parameters as the season is created: the beacon key and
@@ -248,6 +342,15 @@ pub fn season_params(p: &Profile) -> Result<frontier_abi::v2::presets::SeasonPar
         "S1_LOCAL_14D" => v2::S1_LOCAL_14D,
         "S1_DEVNET_WIDE_7D" => v2::S1_DEVNET_WIDE_7D,
         "S1_DEVNET_WIDE_CONTINUOUS" => v2::S1_DEVNET_WIDE_CONTINUOUS,
+        NEW_WORLD_PRESET => v2::PRESETS_S1
+            .iter()
+            .find(|(n, _)| *n == NEW_WORLD_PRESET)
+            .map(|(_, p)| *p)
+            .ok_or_else(|| {
+                format!(
+                    "season.preset {NEW_WORLD_PRESET}: not in this build's frontier-abi (it lands with #209, player territory); rebuild the operator after it merges"
+                )
+            })?,
         x => return Err(format!("season.preset {x}: one of {}", PRESETS.join(", "))),
     };
     let version = p.program_version.unwrap_or(if is_wide_preset(&p.preset) {
@@ -351,6 +454,29 @@ pub mod wide {
 
     pub const RULES_TEXT: &str = "keep_holder MixedInterleaved(1), free_city DeployedLe32V1(3), camp NoCamp(1), region SortKeyHashV1(1)";
 
+    /// [`RULES`] with the profile's keep-holder byte (`None`: [`RULES`]).
+    pub const fn rules_for(keep_holder: Option<u8>) -> wr::RuleBytes {
+        match keep_holder {
+            Some(k) => wr::RuleBytes {
+                keep_holder: k,
+                ..RULES
+            },
+            None => RULES,
+        }
+    }
+
+    /// The plan's text for [`rules_for`] (exactly [`RULES_TEXT`] for the default).
+    pub fn rules_text(keep_holder: Option<u8>) -> String {
+        match keep_holder {
+            None => RULES_TEXT.to_string(),
+            Some(k) => RULES_TEXT.replacen(
+                "MixedInterleaved(1)",
+                &format!("{}({k})", super::keep_holder_name(k)),
+                1,
+            ),
+        }
+    }
+
     fn ctx(a: &Addresses) -> frontier_abi::addr::AddrCtx {
         frontier_abi::addr::AddrCtx {
             program: a.program.to_bytes(),
@@ -365,12 +491,17 @@ pub mod wide {
 
     /// `[authority s,w] [season r] [rules_config w] [system]`.
     pub fn set_rules_step(a: &Addresses, authority: Address) -> Step {
+        set_rules_step_for(a, authority, RULES)
+    }
+
+    /// [`set_rules_step`] with chosen rule bytes ([`rules_for`]).
+    pub fn set_rules_step_for(a: &Addresses, authority: Address, rules: wr::RuleBytes) -> Step {
         let data = wix::SetRules {
             config_version: wr::WIDE_RULES_CONFIG_VERSION,
-            keep_holder: RULES.keep_holder,
-            free_city: RULES.free_city,
-            camp: RULES.camp,
-            region: RULES.region,
+            keep_holder: rules.keep_holder,
+            free_city: rules.free_city,
+            camp: rules.camp,
+            region: rules.region,
         }
         .to_bytes()
         .to_vec();
@@ -410,7 +541,13 @@ pub mod wide {
     }
 
     pub fn ours() -> [u8; 4] {
-        [RULES.keep_holder, RULES.free_city, RULES.camp, RULES.region]
+        ours_for(None)
+    }
+
+    /// [`ours`] for the profile's keep-holder byte.
+    pub fn ours_for(keep_holder: Option<u8>) -> [u8; 4] {
+        let r = rules_for(keep_holder);
+        [r.keep_holder, r.free_city, r.camp, r.region]
     }
 }
 
@@ -746,19 +883,19 @@ fn rules_of(_: &[u8]) -> Option<[u8; 4]> {
     None
 }
 #[cfg(feature = "playable-lane")]
-fn set_rules_step(a: &Addresses, authority: Address) -> Result<Step, String> {
-    Ok(wide::set_rules_step(a, authority))
+fn set_rules_step(a: &Addresses, authority: Address, k: Option<u8>) -> Result<Step, String> {
+    Ok(wide::set_rules_step_for(a, authority, wide::rules_for(k)))
 }
 #[cfg(not(feature = "playable-lane"))]
-fn set_rules_step(_: &Addresses, _: Address) -> Result<Step, String> {
+fn set_rules_step(_: &Addresses, _: Address, _: Option<u8>) -> Result<Step, String> {
     Err("the playable lane needs the playable-lane build".into())
 }
 #[cfg(feature = "playable-lane")]
-fn our_rules() -> [u8; 4] {
-    wide::ours()
+fn our_rules(k: Option<u8>) -> [u8; 4] {
+    wide::ours_for(k)
 }
 #[cfg(not(feature = "playable-lane"))]
-fn our_rules() -> [u8; 4] {
+fn our_rules(_: Option<u8>) -> [u8; 4] {
     [0; 4]
 }
 
@@ -782,6 +919,8 @@ pub struct PlanOpts {
     /// `--t-create-min`: the announced `t_create_min` (else the chain
     /// clock + lead + [`ANNOUNCE_MARGIN_SECS`]).
     pub t_create_min: Option<i64>,
+    /// The profile's `wide.keepHolder` byte (`None`: MixedInterleaved).
+    pub keep_holder: Option<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -848,14 +987,14 @@ pub fn plan_with(
     }
     let seeded = matches!(p.status, Some(x) if x == st::SEEDED || x == st::RUNNING);
     match obs.rules {
-        Some(r) if r == our_rules() => p.done.push("WideSetRules".into()),
+        Some(r) if r == our_rules(o.keep_holder) => p.done.push("WideSetRules".into()),
         Some(r) => p.done.push(format!(
             "WideSetRules (other rule bytes on chain: {r:?}; write-once)"
         )),
         None => {
             let not_before = p.todo.last().and_then(|t| t.not_before);
             p.todo.push(Planned {
-                step: set_rules_step(a, authority)?,
+                step: set_rules_step(a, authority, o.keep_holder)?,
                 not_before: if seeded { None } else { not_before },
                 after_seeded: !seeded,
             })
@@ -1199,7 +1338,7 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
                     ix.data.len(),
                     ix.data[0],
                     u16::from_le_bytes([ix.data[1], ix.data[2]]),
-                    wide_rules_text()
+                    wide_rules_text(h.profile.keep_holder)
                 );
             } else {
                 let _ = writeln!(
@@ -1259,12 +1398,12 @@ pub fn render(h: &Header, a: &Addresses, sb: &SeasonBytes, p: &Plan, rent: &Rent
 }
 
 #[cfg(feature = "playable-lane")]
-fn wide_rules_text() -> &'static str {
-    wide::RULES_TEXT
+fn wide_rules_text(k: Option<u8>) -> String {
+    wide::rules_text(k)
 }
 #[cfg(not(feature = "playable-lane"))]
-fn wide_rules_text() -> &'static str {
-    ""
+fn wide_rules_text(_: Option<u8>) -> String {
+    String::new()
 }
 
 // ------------------------------------------------------------------ checks and sending
@@ -1649,9 +1788,12 @@ pub const USAGE: &str = "usage: frontier-operator --profile FILE [--preset NAME]
   a send also needs --i-have-r0ze-approval and --approved-sha256 (the
   deployed program's sha256). --preset S1_DEVNET_WIDE_7D or
   S1_DEVNET_WIDE_CONTINUOUS (the same world with no end): the playable lane
-  (program version 0x4804; WideSetRules after keeper A seeds the season).
-  --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D,
-  S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS.
+  (program version 0x4804; WideSetRules after keeper A seeds the season;
+  its keep-holder rule is the profile's wide.keepHolder, default
+  MixedInterleaved). S1_DEVNET_TERRITORY (the new world: no ReleaseDormant,
+  needs wide.keepHolder Neutral or NeutralTerritoryV1) exists once #209 is in
+  this build. --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D,
+  S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS, S1_DEVNET_TERRITORY.
   Exit: 0 done/plan printed, 1 failed, 2 refused, 3 waiting (t_create_min,
   or the season to be Seeded); run the same command again to resume.
   frontier-operator end-season --help: the season's end and clean-up
@@ -1823,6 +1965,9 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
     let sb = season_bytes(&profile).map_err(refused)?;
     let a = Addresses::new(program, profile.season_id);
     let wide = is_wide_preset(&profile.preset);
+    if wide {
+        check_wide_rules(&profile).map_err(|e| refused(format!("profile: {e}")))?;
+    }
     let version = sp.base.program_version;
     let loaded_limit = if version == S1_VERSION {
         crate::chain::OP_LOADED_LIMIT
@@ -1832,6 +1977,7 @@ async fn run(o: &Opts, out: &mut dyn FnMut(&str), err: &mut dyn FnMut(&str)) -> 
     let popts = PlanOpts {
         wide,
         t_create_min: o.t_create_min,
+        keep_holder: profile.keep_holder,
     };
 
     if o.offline {
@@ -2227,6 +2373,112 @@ mod tests {
         p
     }
 
+    /// devnet-new-world-plan: `wide.keepHolder` names the WideSetRules
+    /// keep-holder rule; absent keeps the old default byte for byte.
+    #[test]
+    fn wide_keep_holder_from_the_profile() {
+        let with = |k: serde_json::Value| {
+            parse_profile(
+                &json!({
+                    "schema": PROFILE_SCHEMA, "cluster": "devnet",
+                    "rpcUrl": "https://api.devnet.solana.com",
+                    "programId": "<SET-BY-R0ZE: program>",
+                    "upgradeAuthority": "<SET-BY-R0ZE: authority>",
+                    "rent": {"assume": 5080},
+                    "season": {"preset": "S1_DEVNET_WIDE_CONTINUOUS"},
+                    "operator": {"seasonId": 3},
+                    "wide": {"keepHolder": k}
+                })
+                .to_string(),
+            )
+        };
+        assert_eq!(wide_profile().keep_holder, None);
+        assert_eq!(with(json!(null)).unwrap().keep_holder, None);
+        for (n, b) in KEEP_HOLDER_NAMES {
+            assert_eq!(with(json!(n)).unwrap().keep_holder, Some(b));
+            assert_eq!(keep_holder_name(b), n);
+        }
+        assert!(with(json!("neutral"))
+            .unwrap_err()
+            .contains("one of MixedInterleaved"));
+        assert!(with(json!(3)).unwrap_err().contains("must be a rule name"));
+        assert_eq!(keep_holder_name(9), "?");
+        // The table's known bytes agree with this build's frontier-abi.
+        use frontier_abi::world_index::rules::KeepHolderRule as K;
+        assert_eq!(K::MixedInterleaved as u8, 1);
+        assert_eq!(K::OrbitBalanced as u8, 2);
+        for (n, b) in KEEP_HOLDER_NAMES {
+            if let Ok(k) = K::from_byte(b) {
+                assert_eq!(format!("{k:?}"), n, "byte {b}");
+            }
+        }
+        // Default: MixedInterleaved, allowed on placement 2.
+        assert_eq!(check_wide_rules(&wide_profile()), Ok(1));
+        // OrbitBalanced is known but placement 2 refuses it.
+        let mut p = wide_profile();
+        p.keep_holder = Some(2);
+        assert!(check_wide_rules(&p).unwrap_err().contains("placement 2"));
+        // Neutral / NeutralTerritoryV1: refused until #206 / #209 are in the build.
+        for (b, pr) in [(3u8, "#206"), (4, "#209")] {
+            p.keep_holder = Some(b);
+            match K::from_byte(b) {
+                Ok(_) => assert_eq!(check_wide_rules(&p), Ok(b)),
+                Err(_) => assert!(check_wide_rules(&p).unwrap_err().contains(pr)),
+            }
+        }
+    }
+
+    /// devnet-new-world-plan (owner 12:07 U2/U3): the new world's preset is
+    /// found by name in frontier-abi (#209), needs a neutral keep holder and
+    /// commits to another params hash than the announced Season 2's.
+    #[test]
+    fn the_new_world_preset() {
+        use frontier_abi::world_index::rules::KeepHolderRule as K;
+        assert!(PRESETS.contains(&NEW_WORLD_PRESET));
+        assert!(is_wide_preset(NEW_WORLD_PRESET));
+        let mut p = wide_profile();
+        p.preset = NEW_WORLD_PRESET.into();
+        // A missing or non-neutral keep holder is refused, whatever the build.
+        assert!(check_wide_rules(&p)
+            .unwrap_err()
+            .contains("all wide land unowned"));
+        p.keep_holder = Some(1);
+        let e = check_wide_rules(&p).unwrap_err();
+        assert!(
+            e.contains("Neutral or NeutralTerritoryV1") && e.contains("MixedInterleaved"),
+            "{e}"
+        );
+        p.keep_holder = Some(4);
+        if K::from_byte(4).is_err() {
+            assert!(check_wide_rules(&p).unwrap_err().contains("#209"));
+        } else {
+            assert_eq!(check_wide_rules(&p), Ok(4));
+        }
+        let in_abi = frontier_abi::v2::presets::PRESETS_S1
+            .iter()
+            .any(|(n, _)| *n == NEW_WORLD_PRESET);
+        let r = season_params(&p);
+        if !cfg!(feature = "playable-lane") {
+            assert!(r.is_err());
+            return;
+        }
+        if !in_abi {
+            assert!(r.unwrap_err().contains("lands with #209"));
+            return;
+        }
+        let sp = r.unwrap();
+        assert_eq!(sp.base.program_version, PLAYABLE_VERSION);
+        assert_eq!(sp.cq.continuous, 1);
+        assert_eq!(sp.base.release_after_secs, u32::MAX);
+        let mut c = wide_profile();
+        c.preset = "S1_DEVNET_WIDE_CONTINUOUS".into();
+        assert_ne!(
+            season_bytes(&p).unwrap().params_hash,
+            season_bytes(&c).unwrap().params_hash,
+            "the announced Season 2 (S1_DEVNET_WIDE_CONTINUOUS) can never be created with the new preset"
+        );
+    }
+
     #[test]
     fn presets_and_versions() {
         assert_eq!(parse_version("0x4804"), Ok(0x4804));
@@ -2334,6 +2586,7 @@ mod tests {
         let opts = |t| PlanOpts {
             wide: false,
             t_create_min: Some(t),
+            keep_holder: None,
         };
         let lead = frontier_abi::presets::MIN_ANNOUNCE_LEAD_SECS;
         assert!(plan_with(&o, &a, auth, &sb, opts(1_000 + lead))
@@ -2361,6 +2614,7 @@ mod tests {
         let wide = PlanOpts {
             wide: true,
             t_create_min: None,
+            keep_holder: None,
         };
         let mut o = Observed::fresh();
         o.now = Some(500);
@@ -2395,6 +2649,40 @@ mod tests {
         let pl = plan_with(&o, &a, auth, &sb, wide).unwrap();
         assert!(pl.todo.is_empty());
         assert!(pl.done.last().unwrap().contains("other rule bytes"));
+        // A profile's keep holder: its byte in the instruction, the default's
+        // record counts as other rule bytes (write-once), and the text names it.
+        let k3 = PlanOpts {
+            keep_holder: Some(3),
+            ..wide
+        };
+        o.rules = None;
+        let pl = plan_with(&o, &a, auth, &sb, k3).unwrap();
+        let d = &pl.todo.last().unwrap().step.ixs[0].data;
+        assert_eq!(d[0], 0xDB);
+        assert_eq!(&d[3..7], &[3, 3, 1, 1]);
+        assert_eq!(
+            &wide::set_rules_step(&a, auth).ixs[0].data[3..7],
+            &wide::ours()
+        );
+        o.rules = Some(wide::ours());
+        assert!(plan_with(&o, &a, auth, &sb, k3)
+            .unwrap()
+            .done
+            .last()
+            .unwrap()
+            .contains("other rule bytes"));
+        o.rules = Some(wide::ours_for(Some(3)));
+        assert_eq!(
+            plan_with(&o, &a, auth, &sb, k3)
+                .unwrap()
+                .done
+                .last()
+                .unwrap(),
+            "WideSetRules"
+        );
+        assert_eq!(wide::rules_text(None), wide::RULES_TEXT);
+        assert!(wide::rules_text(Some(4))
+            .starts_with("keep_holder NeutralTerritoryV1(4), free_city DeployedLe32V1(3)"));
         // The S1 plan never has the wide step.
         let s1 = season_bytes(&profile("devnet")).unwrap();
         o.rules = None;
