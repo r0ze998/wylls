@@ -729,6 +729,11 @@ test('mergeState / timelineText postponed: "world creation POSTPONED" while on, 
   assert.equal(mergeState(s4, { at: T2 + 99999, ...base, postponed: pp }).postponed.since, jst(T2 + 99999));
   // --timeline with only the flag / marker (state not written in the mode yet)
   assert.match(timelineText({}, { src: '--no-world-yet', reason: '' }), /world creation POSTPONED, no world yet \(--no-world-yet\)/);
+  // verify-pr214: a stale marker (the logs in the state show CreateSeason was run) does not make --timeline say "POSTPONED … not sent"
+  const s5 = mergeState(s2, { at: T2 + 600, ms: { driverCreateRun: { at: '2026-11-25 02:21:34 JST', line: 'operator run (create)' } }, season: { status: 1, statusName: 'Created', genesisTs: T2 + 1300 } });
+  assert.doesNotMatch(timelineText(s5, pp), /POSTPONED/);
+  assert.match(timelineText(s5, pp), /scheduled CreateSeason opens/);
+  assert.match(timelineText(s5, pp), /creation was postponed .* → 2026-11-25 02:30:04 JST/);
 });
 
 test('runChecks default: the stopped driver FAILs, and CreateSeason not landing FAILs (what the mode is for)', async () => {

@@ -683,7 +683,8 @@ export function mergeState(state, { at, ms, season, procs, postponed }) {
 }
 
 export function timelineText(state, postponedNow = null) {
-  const pp = state.postponed && !state.postponed.until ? state.postponed : postponedNow;
+  // a flag / marker seen only now (postponedNow) does not count once the logs in the state show the world being made (stale marker)
+  const pp = state.postponed && !state.postponed.until ? state.postponed : (postponedStale(state.fromLogs ?? {}) ? null : postponedNow);
   const L = [`last run ${state.lastRun ?? '-'}`];
   if (pp) L.push(`world creation POSTPONED, no world yet (${pp.since ? `first seen ${pp.since} by this monitor; ` : ''}${pp.src}${pp.reason ? `: ${pp.reason}` : ''}); CreateSeason was scheduled to open ${jst(DEPLOY.createAt)} — not sent`);
   else L.push(`scheduled CreateSeason opens ${jst(DEPLOY.createAt)} (driver sends at +90 s)`);
