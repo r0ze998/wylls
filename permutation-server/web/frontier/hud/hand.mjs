@@ -617,7 +617,7 @@ export function localRevealStrip(FS) {
   const turn = r.arriveBell ?? seal?.arriveBell ?? '?';
   const why = {
     RevealWindowClosed: L`封を開ける期間が終わっています。`, RevealArchived: L`この到着ターンの記録はすでに片付けられています。`, RevealLatchClosed: L`到着先はこのターンの受付をすでに締め切っています。`,
-    RevealSeasonNotRunning: L`シーズンが進行中ではありません。`, RevealSeasonEnded: L`シーズンが終わっており、この到着は受け付けられません。`,
+    RevealSeasonNotRunning: L`この世界は進行中ではありません。`, RevealSeasonEnded: L`この世界の受付が終わっており、この到着は受け付けられません。`,
     RevealAdmissionContested: L`到着先の枠がほかの軍勢と競合しています。このページでは順位を判定しないため、送りません。`,
     RevealAdmissionMismatch: L`到着先にこの軍勢の名前の記録がありますが、この封のものとは一致しません。`,
     RevealDestinationNotOpen: L`到着先の州がまだ開かれていません。`, RevealDestinationNotReady: L`到着先の州の準備がまだ終わっていません。`,
@@ -930,7 +930,7 @@ export function siegeOrderView(order) {
   if (order.ok !== true) return html`<p class="pop-line pop-why local-conquest-order" data-siege-order="unreadable" role="status">${L`包囲の予約の状態を読み取れませんでした。成立したとも、しなかったとも表示しません。`} (${order.code ?? '?'})</p>`;
   const o = order;
   const reason = { HostGone: L`軍勢がもういません`, HostNotOnTile: L`軍勢が自由都市のマスにいません`, HostNotLeading: L`軍勢がそのマスの先頭ではありません`, CityNotFree: L`都市はもう自由都市ではありません`,
-    AnotherOrderApplied: L`先に条件を満たした別の予約が包囲になりました`, NoHoldingSlot: L`拠点の使用枠が空いていません`, TooLate: L`シーズンの終わりまでに包囲が終わりません` }[o.reason] ?? o.reason;
+    AnotherOrderApplied: L`先に条件を満たした別の予約が包囲になりました`, NoHoldingSlot: L`拠点の使用枠が空いていません`, TooLate: L`この世界の受付の終わりまでに包囲が終わりません` }[o.reason] ?? o.reason;
   const failed = o.phase === 'not_applied';
   // (a reservation that did not start: the slot with its rent, and the deposited resources, come back separately. A
   //  deposit still held is OWED back, kept as a debt; with the slot already released that is said in so many words,
@@ -946,7 +946,7 @@ export function siegeOrderView(order) {
     // (no cause is stored for this: a general sentence, never a specific cause stated as fact. How it ended is said only
     //  on a basis: `lapsed` false = its own turn was processed; true = the season ended or was interrupted; null = not known)
     : failed && o.lapsed === false ? L`包囲は始まりませんでした（ターン ${o.decidedBell}・場所 ${o.site}）。予約したターンの処理のときに条件を満たさなかったか、先の予約が包囲になりました。今日の宣言回数は1回使われたままです。`
-    : failed && o.lapsed === true ? L`包囲は始まりませんでした（場所 ${o.site}）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
+    : failed && o.lapsed === true ? L`包囲は始まりませんでした（場所 ${o.site}）。世界の受付の終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
     : failed ? L`包囲は始まりませんでした（場所 ${o.site}）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
     : o.phase === 'captured' ? L`自由都市を占領しました（場所 ${o.site}・ターン ${o.decidedBell}）。占領の記録、新しい拠点、使用枠を確認しました。`
     : o.phase === 'lost' ? L`包囲は失敗しました（場所 ${o.site}・ターン ${o.decidedBell}）。都市は占領していません。`

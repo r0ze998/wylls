@@ -128,7 +128,7 @@ export const COUNTABLE = Object.freeze(['Recorded', 'RuleDerived']);
 export function recipientOf(arrival, now, requesterCitizen, rules = { status: 'verified', rulesetHash: RECIPIENT_RULE.rulesetHash }) {
   if (arrival.state !== 'delivered') return null;
   if (rules?.status !== 'verified') return { status: 'unverified', why: `規則の版を確かめられない：${rules?.why ?? ''}` };
-  if (!recipientRuleChecked(rules.rulesetHash)) return { status: 'unverified', why: `このシーズンの規則（${String(rules.rulesetHash).slice(0, 8)}…）は、受取人の決め方を確かめた版（${RECIPIENT_RULE.rulesetHash.slice(0, 8)}…）と違う` };
+  if (!recipientRuleChecked(rules.rulesetHash)) return { status: 'unverified', why: `この世界の規則（${String(rules.rulesetHash).slice(0, 8)}…）は、受取人の決め方を確かめた版（${RECIPIENT_RULE.rulesetHash.slice(0, 8)}…）と違う` };
   if (!now || now.status !== 'found') return { status: 'unverified', why: now?.why ?? '届け先の村の口座をまだ読んでいない' };
   if (now.gen !== arrival.dstGen) return { status: 'unverified', gen: arrival.dstGen, currentGen: now.gen, why: `村の世代が変わった（到着時 ${arrival.dstGen}、今 ${now.gen}：占領か再入植）。到着時の持ち主は今の口座からは確定できない` };
   return { status: 'verified', gen: arrival.dstGen, ownerCitizen: now.ownerCitizen, isRequester: now.ownerCitizen === requesterCitizen,

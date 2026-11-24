@@ -113,7 +113,7 @@ export function renderBanner(m, faction) {
 export function renderTimeline(record) {
   const list = Object.entries(record?.seen ?? {}).map(([id, x]) => ({ id, ...x })).sort((a, b) => a.bell - b.bell);
   if (!list.length) return '';
-  return html`<section aria-labelledby="timeline-title"><h3 id="timeline-title">${L`シーズンの年表`}</h3>
+  return html`<section aria-labelledby="timeline-title"><h3 id="timeline-title">${L`世界の年表`}</h3>
     <ol class="timeline">${list.map(x => html`<li class="tl-${x.kind}"><span class="tl-bell">${L`ターン ${fmtNum(x.bell)}`}</span> <span>${TEXT[x.kind]?.title(x) ?? x.id}</span>
       ${Number.isInteger(x.p) ? html` <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}">${L`地図で見る`}</button>` : ''}</li>`)}</ol></section>`;
 }

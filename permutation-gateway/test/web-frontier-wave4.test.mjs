@@ -103,7 +103,7 @@ test('milestones: reached from state, the first load records quietly, later ones
   assert.doesNotMatch(String(M.renderTimeline(next.record)) + String(M.renderBanner(next.fresh[1], 2)), /第\d+鐘|州 -?\d/);
   setLang('en');
   const tl = String(M.renderTimeline(next.record)).replace(/<[^>]+>/g, ' ');
-  assert.match(tl, /Season timeline/);
+  assert.match(tl, /World timeline/);
   assert.doesNotMatch(tl.replace(/data-name/g, ''), /[぀-ヿ一-鿿]/);
   assert.match(String(M.renderBanner(next.fresh[1], 2)), /First victory: \w+ side, ring 4/);
   assert.match(tl, /Turn 44/);

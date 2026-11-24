@@ -349,7 +349,7 @@ test('規則の版：シーズンの規則の hash が、受取人の決め方�
   const { RULESET_HASH_V4_HEX } = await import('../../../permutation-server/web/sdk/frontier/profile.mjs');
   assert.equal(recipientOf(arrival, now, 'X', { status: 'verified', rulesetHash: RULESET_HASH_V4_HEX }).status, 'verified');
   assert.equal(recipientOf({ ...arrival, dstGen: 2 }, now, 'X', { status: 'verified', rulesetHash: RULESET_HASH_V4_HEX }).status, 'unverified', '世代が違えば未検証のまま');
-  assert.match(recipientOf(arrival, now, 'X', { status: 'unverified', why: 'シーズンの口座がない' }).why, /規則の版を確かめられない/);
+  assert.match(recipientOf(arrival, now, 'X', { status: 'unverified', why: '世界の口座がない' }).why, /規則の版を確かめられない/);
   // 板で：シーズンの口座が別の規則
   const { seasonRules } = await import('../coop/chain.mjs');
   const { ch } = await world();

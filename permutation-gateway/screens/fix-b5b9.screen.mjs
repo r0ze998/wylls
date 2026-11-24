@@ -84,11 +84,11 @@ for (const lang of ['en', 'ja']) test(`B5 (${lang}): a world confirmed ended —
     const banner = page.locator('#stale-banner');
     assert.equal(await banner.isVisible(), true);
     assert.equal((await banner.textContent()).trim(), lang === 'en'
-      ? 'This world has ended. Its turns no longer advance and no order can be sent. To play on, open the start page again and start a new world.'
-      : 'この世界は終了しました。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。');
+      ? 'This test world has ended (a test world that is not saved, with a time limit and other limits). Its turns no longer advance and no order can be sent. To play again, open the start page again and start a new world.'
+      : 'このテスト用の世界は終了しました（保存しないテスト用の世界で、時間などに限りがあります）。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。');
     assert.equal(await banner.getAttribute('data-ended'), '1');
     assert.equal(await banner.locator('[data-act="state-reread"]').count(), 0, 'no re-read key: nothing is left to read');
-    assert.equal(await page.getByRole('status').filter({ hasText: lang === 'en' ? 'This world has ended.' : 'この世界は終了しました。' }).count(), 1, 'said to a screen reader too');
+    assert.equal(await page.getByRole('status').filter({ hasText: lang === 'en' ? 'This test world has ended' : 'このテスト用の世界は終了しました' }).count(), 1, 'said to a screen reader too');
     // this machine's clock goes on for another 100 minutes: the world's does not
     await page.clock.setFixedTime(new Date(T0 + 12_600_000));
     await page.evaluate(async () => { const { invalidate } = await import('/frontier/fstate.mjs'); invalidate('chip', 'panel', 'rail'); });
