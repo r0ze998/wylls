@@ -132,6 +132,13 @@ fn prize_error_numbers_are_unique_and_every_copy_agrees() {
         P::ClaimWindowOpen,
         P::WindowOpen,
         P::OperatorMember,
+        P::NotAchieved,
+        P::PassNotValid,
+        P::MemberTooRecent,
+        P::BelowMinimum,
+        P::DisputeOpen,
+        P::ClaimClosed,
+        P::RealMoneyMint,
     ]
     .iter()
     .map(|e| (*e as u32, format!("{e:?}")))
