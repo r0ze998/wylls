@@ -223,7 +223,13 @@ export function fogProvince(rec, { survey, mem = null, sites = null, viewer = nu
   }
   const keepLive = (own !== null && rec.control === own) || (rec.keepTile !== null && rec.keepTile !== undefined ? tileSeen(rec.keepTile) : inSight);
   if (keepLive && (rec.keepTile !== null && rec.keepTile !== undefined || rec.control !== undefined)) {
-    const k = { t: rec.keepTile ?? null, n: rec.keepTroops ?? 0, c: rec.control ?? null, h: rec.heartland ?? null };
+    // (fix-loop14, found live with LP14-3: an overview record can reach this pass without `control` / `heartland` — it
+    //  carries the keep's tile and troops, the holder is laid over it from the control record — and this wrote the
+    //  holder as null over the one remembered (here or by fogKeeps, from the keep itself). Whichever write came last
+    //  before the keep left sight won: the device then remembered {c: null}, and the World goals card and the keep
+    //  board said 「持ち主なし · 前に見たときの持ち主です」 of a keep last seen under Borealis. What a record does not
+    //  say is kept as it was remembered)
+    const k = { t: rec.keepTile ?? null, n: rec.keepTroops ?? 0, c: rec.control ?? snap.k?.c ?? null, h: rec.heartland ?? snap.k?.h ?? null };
     if (JSON.stringify(k) !== JSON.stringify(snap.k && { t: snap.k.t, n: snap.k.n, c: snap.k.c, h: snap.k.h })) { snap.k = { ...k, b: int(bell) ? bell : null }; changed = true; }
   }
   if (mem && (inSight || keepLive || snap.o.some((f, j) => ours(j))) && changed) mem.put(pk, snap);

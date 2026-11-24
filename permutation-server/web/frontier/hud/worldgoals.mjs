@@ -115,6 +115,23 @@ const whyText = why => ({
  * holder (no timer, no siege — they are live facts); one never seen by its place alone (the posting is public). The
  * judge's answer carries every flag keep's live holder: without this the card told what the map hides.
  */
+/**
+ * (fix-loop14, LP14-3) The capture in which the viewer's nation LOST the keep of (p, q), when that is the last capture
+ * there its nation took part in: `{bell, to}` or null. A capture from or by the viewer's nation is told to it by the
+ * page's notices whatever the fog (hud/feed.mjs keepItem, fconquest.mjs keepEventSide), so who took the keep, and when,
+ * is something the viewer saw — the last thing it saw of that keep unless the keep came in sight again later.
+ */
+export function lostFlag(FS, f) {
+  const me = FS?.citizen?.faction;
+  if (!nation(me) || !Array.isArray(FS?.conquest?.events)) return null;
+  let last = null;
+  for (const e of FS.conquest.events) {
+    if (e?.kind !== 'keep_taken' || e.p !== f.p || e.q !== f.q || !int(e.bell) || (e.from !== me && e.to !== me)) continue;
+    if (!last || e.bell >= last.bell) last = e;
+  }
+  return last && last.from === me && nation(last.to) ? { bell: last.bell, to: last.to } : null;
+}
+
 export function seenFlag(FS, f) {
   const hidden = { since: null, from: null, longAt: null, contender: null, progress: 0, required: 0 };
   if (!fogNow().on) {
@@ -129,8 +146,14 @@ export function seenFlag(FS, f) {
   if (nation(FS?.citizen?.faction) && f.holder === FS.citizen.faction) return { ...f, seen: 'live' };
   const keeps = viewKeeps(FS?.conquest?.keeps);
   const k = keeps instanceof Map ? keeps.get(`${f.p},${f.q}`) ?? null : null;
-  if (!k) return { ...f, ...hidden, holder: null, seen: 'never' };
-  if (k.fog === 'memory') return { ...f, ...hidden, holder: nation(k.holder) ? k.holder : null, seen: 'memory' };
+  // (fix-loop14, LP14-3: a flag keep the viewer's nation held and lost. In `--wide` the page's keep map lacks most rim
+  //  keeps, so once the judge's holder was no longer the viewer's nation the row fell to "not seen yet", as if never
+  //  known; and where the keep map remembers it, its memory is of the viewer's nation holding it. What the viewer last
+  //  saw is the capture itself: its taker and its turn — no timer and no siege, they are live facts)
+  const lost = lostFlag(FS, f);
+  const lostRow = lost ? { ...f, ...hidden, holder: lost.to, seen: 'memory', lostAt: lost.bell } : null;
+  if (!k) return lostRow ?? { ...f, ...hidden, holder: null, seen: 'never' };
+  if (k.fog === 'memory') return lostRow && !(int(k.asOfBell) && k.asOfBell > lost.bell) ? lostRow : { ...f, ...hidden, holder: nation(k.holder) ? k.holder : null, seen: 'memory' };
   return { ...f, seen: 'live' };
 }
 
@@ -143,7 +166,7 @@ function flagRow(raw, g, FS) {
   const left = f.longAt !== null && g.bell !== null && !long ? f.longAt - g.bell : null;
   const state = long ? L`保持の時間を満たした` : left !== null ? L`満たすまで あと ${turnsText(left)}` : '';
   const contest = nation(f.contender) ? html` <span class="warn">${L`${factionName(f.contender)}が包囲中 ${fmtNum(f.progress)} / ${fmtNum(f.required)}`}</span>` : '';
-  return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}" data-seen="${f.seen}"><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${f.seen === 'memory' ? L`前に見たときの持ち主です` : state}</small>${contest}</li>`;
+  return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}" data-seen="${f.seen}"${int(f.lostAt) ? html` data-lost-at="${f.lostAt}"` : ''}><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${int(f.lostAt) ? L`あなたの国が失ったとき（第${fmtNum(f.lostAt)}ターン）の持ち主です` : f.seen === 'memory' ? L`前に見たときの持ち主です` : state}</small>${contest}</li>`;
 }
 
 function achievementMarkup(a, FS) {

@@ -281,6 +281,8 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
   if (centre) list = list.map(u => ({ u, d: (u.hero ? -1e12 : 0) + (u.x - centre.x) ** 2 + (u.y - centre.y) ** 2 })).sort((a, b) => a.d - b.d).map(x => x.u);
   else list.sort((a, b) => (b.hero ? 1 : 0) - (a.hero ? 1 : 0));
   let n = 0;
+  /** Where each village's plate was painted this frame (map units, as placed): "p,q,site" → {x, y, w, h}. */
+  const plateAt = new Map();
   g.save();
   // (a plate that must step aside for the HUD never steps onto the viewer's own village: its sprite is taken first)
   for (const u of list) if (u.hero && !pass.hiddenAt(key(u))) {
@@ -305,6 +307,7 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     // goes without its name rather than wear it. Sideways it may step, and the viewer's own plate always stands)
     if (!u.hero && at.dy > PLATE_DROP * k) continue;
     upright(g, u.x, u.y, () => paintPlate(g, ax, ay, m, S, { k, faction: u.owner, own: !!u.hero, muted: !sight, leader, dx: lean + at.dx, dy: at.dy }));
+    plateAt.set(key(u), { x: ax + lean - S.w / 2 + at.dx, y: ay - leader * k - S.h + at.dy, w: S.w, h: S.h });
     n++;
   }
   // a nation's Seat (the camp at the middle of its first province): the nation's sigil and name over it. Its markers
@@ -324,6 +327,11 @@ export function paintPlates(g, { tiles = [], pills = [], constructions = [], hos
     if (!u || pass.hiddenAt(key(u)) || (u.lv !== undefined && u.lv < 3)) continue;
     const sc = scaffoldAt(u, c), at = { x: sc.x, y: sc.y - sc.rise * rowScale(g, u.x, u.y) }, rr = 13 * k;
     const move = pass.place(u.x, u.y, { x: at.x - rr, y: at.y - rr, w: rr * 2, h: rr * 2 }, { free: true });
+    // (fix-loop14, LP14-15: the ring keeps clear of the HUD only (`free`: it stands on its village's own sprite), so a
+    //  village whose plate AND ring were both pushed out from under a notice had the ring on the plate's first letters —
+    //  「…stead Hamlet」. A ring that would land on its own village's plate is left out for that frame: the name stands)
+    const pb = plateAt.get(key(u));
+    if (move && pb && at.x + move.dx + rr > pb.x && at.x + move.dx - rr < pb.x + pb.w && at.y + move.dy + rr > pb.y && at.y + move.dy - rr < pb.y + pb.h) continue;
     if (move) upright(g, u.x, u.y, () => paintBuildRing(g, at.x + move.dx, at.y + move.dy, k, c.share, { queued: !!c.queued }));
   }
   // the hosts' pills: those away from a village of their own nation (a village's plate carries its hosts)

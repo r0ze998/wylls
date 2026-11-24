@@ -197,7 +197,12 @@ export function buildOffers(h, { now = 0, have = [], faction = 0, walls = null, 
   const items = s1 && workshop ? [...BUILD_ITEMS, WORKSHOP] : BUILD_ITEMS;
   const out = items.filter(b => b.cost).map(b => {
     const n = copyNumber(h, b.item);
-    return offer({ item: b.item, kind: 'building', resource: b.resource, perHour: b.perHour, n, cost: b.cost.map(c => duplicateCost(c, n)), intro: !!(Number(h.flags ?? 0) & 2), secs: Number(h.flags ?? 0) & 2 ? 60 : buildSecs(n) }, n > MAX_COPIES ? ['AboveCap'] : []);
+    // (fix-loop14, LP14-6: the program gives the 60-second first build only to the six production buildings — items
+    //  below the walls, proc/holding.rs `intro = x.item < catalog::ITEM_WALLS && FLAG_INTRO_BUILD_AVAILABLE` —, and a
+    //  workshop (item 8) neither gets it nor uses it up. The page stamped the workshop row "1:00 First building" too:
+    //  built first it took its full time, about 90 minutes of the chain's clock)
+    const intro = b.item < ITEM_WALLS && !!(Number(h.flags ?? 0) & 2);
+    return offer({ item: b.item, kind: 'building', resource: b.resource, perHour: b.perHour, n, cost: b.cost.map(c => duplicateCost(c, n)), intro, secs: intro ? 60 : buildSecs(n) }, n > MAX_COPIES ? ['AboveCap'] : []);
   });
   const stone = [0, 0, wallStone(faction), 0, 0, 0, 0, 0];
   const wallsNow = Number(walls ?? h.walls ?? 0) + under.filter(q => q.kind === QUEUE_KIND.WALLS).reduce((n, q) => n + Number(q.delta ?? WALLS.step), 0);

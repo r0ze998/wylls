@@ -142,9 +142,12 @@ move only once its turn is settled: about 17 minutes later).
      left: once the 2 minutes are over, no button asks again (§8.1).
 7. **Check the clash**: on the arrival turn "Clash … A clash was resolved" appears. "Report" → "Verify in this browser";
    "Match: the outcome recomputed in this browser is the chain's record" means it was recomputed and agrees.
+   The same in a `--coexist` world (it answered "Could not check (a record is missing)" there until fix-loop14, LP14-4).
+   A report whose record does not say what was left of a side — an older turn of a host standing on a keep's tile:
+   "316 → —" — runs this check by itself when it opens and shows the numbers with "Match".
    After the notice is gone, the "Report" button stays in the list under "More" in the bottom bar.
 8. **Capture**: hold the keep's tile for 72 turns (about 12 minutes or more at ×60; about 12 hours at 1×). "Holding the keep"
-   and the round number on the keep, or "N/72 turns toward its capture" in the clash report, show the progress. A held turn counts
+   and the round number on the keep, or "(nation) has besieged it for N of the 72 turns a capture takes" in the clash report, show the progress. A held turn counts
    whether the province's turn is resolved or skipped (the #120 check: 11 AI captures at ×60 in `--wide --ai 4`, each
    after exactly 72 held turns).
    The keep list and the guide at the top right also say how long 72 turns are ("about 12 hours" at 1×,
@@ -635,8 +638,9 @@ Steps (the quoted texts are the English page's buttons and texts):
 2. **A: build a workshop**: in the village's build list open "Other buildings (6)", then "Workshop" → "Build" (60 food, 120 wood, 80 stone, 40 ore).
    Only a `--coexist` world offers "Workshop"; a plain world's list says "Workshops cannot be built in this test world (only in the --coexist test world, where workshops are lent and rights issued)." instead (fix-loop9 LP9-3: it was offered and refused).
    The notice says "Workshop: building begun". The
-   build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60). Built as the village's first building, the list shows
-   "1:00 First building" and it takes one game minute (the first building of a village, whichever it is; loop-play11). Either
+   build takes about 1.5 hours (9 turns; about 1.5 minutes at ×60), also when it is the village's first building: the
+   one-minute "First building" is for the six production buildings only, and the workshop's row says "1 h 30 min" (the
+   program's rule; the row was stamped "1:00 First building" until fix-loop14, LP14-6). Either
    way step 6's "Issue a right" went through only from about turn 18–20 (verify-pr133, loop-play11). Once it stands, the village is a workshop village
    and makes 4 arms an hour (a workshop can be built only in a `--coexist` world).
 3. **B: build a storehouse**: select a free tile of A's province on the map, "Build here" → "Build: Storehouse"
@@ -934,7 +938,9 @@ at 1× in turns and hours (#208).
 Under the fog of war the card tells a flag keep as the map does: a keep in sight with its holder, hold timer and siege;
 one you saw before with its last-known holder only; one you have never seen by its place alone ("You have not seen this
 province's keep yet."). Your own nation's flag keeps are always shown (also in `--wide`, where the page's keep list does
-not hold far rim keeps: the judge's holder is enough; #208). Every nation's count stays public, like the "Provinces held" strip.
+not hold far rim keeps: the judge's holder is enough; #208). A flag keep your nation held and lost stays on the card
+with the nation that took it — "held by Ember · holder when your nation lost it (turn 92)" —, without a timer or a
+siege: the capture was told to you, what happened there afterwards is not (fix-loop14, LP14-3). Every nation's count stays public, like the "Provinces held" strip.
 
 After an achievement the card names it ("Round 1: Aster achieved it (turn 162)") and
 says what the prize **would** have paid you: "If prizes were on, you would have received X test USDC". This is an estimate from a simulated vault: one 25 test USDC pass per person, 80 % to the prize, 30 % of
