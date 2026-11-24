@@ -13,7 +13,8 @@ New since the last refresh (#210): in a `--wide` world the wide land starts **ne
 provinces from your nation's land, and new land opens where the nations go (#206 → §4, §4.1); **your own land**: single
 tiles claimed for ore, upkeep in food, villages only on your own tiles (#209 → §4.1, to follow press by press); a kept
 world whose time is up says "paused", not "ended", and continues (#218 → §6); the page's remaining old wording was
-replaced by "world" (#218); the fixes for what loop-play14 found (#216, #217 → §3 step 7, §10, §14); only flag keeps **captured** from other nations
+replaced by "world" (#218; #219 did the same for the old lobby pages and the text a wallet signs for an in-game key, which a
+`play-local.sh` world never asks for); the fixes for what loop-play14 found (#216, #217 → §3 step 7, §10, §14); only flag keeps **captured** from other nations
 count toward the flag keeps goal (#220 → §14). What is left: §8.
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (it has no player land yet: §7).
 
