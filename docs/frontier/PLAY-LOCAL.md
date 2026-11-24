@@ -389,7 +389,8 @@ this section describes what the program does today, and none of it is a promise 
   an AI resident's), or whose keep your nation has **taken**. A village claim or a tile claim may go up to 3 provinces
   from your first village, or up to 3 provinces from your nation's land. The card lists the second kind below the first,
   marked "from your nation's land (P', Q')", with the line "You can also found a village within 3 provinces of any province where your nation has a village or has taken the keep. The more land your nation holds, the farther you can go.".
-  Only nation-mates' villages on the wide land count (ring 129 or more), not their rim or heartland villages.
+  Only nation-mates' villages on the wide land count (ring 129 or more), not their rim or heartland villages (open
+  question VQ-6).
 - The world opens new wide land around the nations' villages and won keeps: at most 3 provinces a turn, out to ring 136
   (verify-pr206-209, ×60, `--ai 4`: 108 provinces at the start, 114 after about 150 turns, 137 after about 280).
   Design: docs/design/expansion/01-reach-from-land.md
@@ -408,7 +409,7 @@ this section describes what the program does today, and none of it is a promise 
      the keep's tile and not already yours (a province has 61 tiles, numbered 0–60).
    - **One tile a turn**, for all provinces together. Wait for the next turn (10 s at ×60) and press again.
 3. Press it again each turn to grow. **What a tile costs**: 10 ore, plus 2 % of that for every tile you already own,
-   rounded down to whole ore:
+   rounded down to whole ore (the rounding is the owner's open question VQ-2):
 
    | Tiles you own | 0–4 | 5–9 | 10–14 | 15–19 | 20–24 | 50 | 100 |
    |---|---|---|---|---|---|---|---|
@@ -434,7 +435,7 @@ this section describes what the program does today, and none of it is a promise 
      goes back to unowned, **one tile each turn** (one every 10 s at ×60; one every 10 minutes at 1×), for as long as it
      stays unpaid. A tile under one of your villages can be let go too (open question VQ-4);
    - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit. The
-     food missed meanwhile is not charged later.
+     food missed meanwhile is not charged later (open question VQ-5).
    - **The page shows no warning for this**: no count of your tiles, no upkeep line, no "unpaid" sign. The only sign is a
      refused "Claim a tile". Keep the first village's food above zero (large hosts eat it: about 4,800 troops use up a
      starting village's food). In verify-pr206-209's hour of play at ×60 nobody went unpaid; this part is checked by the
@@ -627,7 +628,7 @@ Small ones (nothing blocks play):
   owner's wallet. The page shows neither of your own addresses anywhere, so tell the options apart by village name and tile
   (loop-play11 LP11-5; §12).
 - The W2 card's memory (march count and result) is one per page. With two wide villages the second would show the first's
-  card (verify-pr173; today's page cannot found a third village, so it does not normally happen: §8.2).
+  card (verify-pr173; a third village can be founded since #206, so this can happen; not re-checked since).
 - Under heavy load (load average 12–31) a wide village's province can stay 200+ turns behind for tens of minutes
   (loop-play8 LP8-4; a load matter, only measured in #149).
 
