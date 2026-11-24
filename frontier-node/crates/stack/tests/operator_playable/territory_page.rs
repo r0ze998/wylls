@@ -28,8 +28,8 @@
 //!
 //! Asserted on chain: every page transaction one signature, the wallet fee payer; the wallet's lamports per claim equal
 //! the preview; the ore burned equals the preview; the records' owners; the keeper's writes by kind (feed), and its
-//! `/v1/status` territory counters. No verifier pass in this run; the verifier's replay of the territory ops (VWL,
-//! verifier-territory) is judged over a recorded territory world in `verify/tests/playable_territory.rs`.
+//! `/v1/status` territory counters, and (verify-pr228) the verifier over the whole world with the deployed `.so`: no
+//! FAIL (VWL re-runs every territory op, verifier-territory; tampers in `verify/tests/playable_territory.rs`).
 use super::*;
 use frontier_abi::layout::player::accrual as AC;
 use frontier_abi::world_index::territory::{self as wtr, TerritoryPlayer, TerritoryProvince};
@@ -591,6 +591,12 @@ pub(super) async fn phase(
     run(r);
     tokio::time::sleep(Duration::from_secs(4)).await;
     let status = territory_of(&keeper_status(ti.keeper_api, &ti.token));
+    // (verify-pr228) the verifier over the whole world as the chain recorded it, re-executing with the `.so` this run
+    // deployed: every claim / settle / decay / conquest re-run by VWL; no FAIL (the capture and the starvation are
+    // declared patches: UNVERIFIABLE at the transactions that read them, as documented).
+    let (so, so_sha256, _, _) = crate::territory_so().expect("OPERATOR_TERRITORY_SO");
+    let verifier = r.judge_season_so("p18", so, so_sha256);
+    assert_eq!(verifier["fails"], 0, "the verifier: {verifier:#}");
     std::fs::write(sync.join("go-end"), "end").unwrap();
     let all = territory_rows(r, since0, &w);
     json!({
@@ -602,6 +608,6 @@ pub(super) async fn phase(
         "conquest": conquest, "after_conquest": {"page_tiles": p3.tiles, "captor_tiles": cap.tiles},
         "unpaid_since_bell": unpaid_since, "page_refusal": refusal,
         "decay": decay, "dist": {"second_tile": d_x2, "village_tile": d_v},
-        "territory_ops_by_kind": all, "keeper_status_territory": status,
+        "territory_ops_by_kind": all, "keeper_status_territory": status, "verifier": verifier,
     })
 }

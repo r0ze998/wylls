@@ -1832,3 +1832,182 @@ fn vg_replays_the_territory_world_from_genesis_without_a_fail() {
         .collect();
     assert!(other.is_empty(), "{other:#?}");
 }
+
+// ------------------------------------------------------------ verify-pr228 (independent tampers)
+
+/// The refused transactions of the recording whose program instructions are
+/// exactly `f`'s shape.
+fn refused_where(inp: &Input, f: impl Fn(&[wix::WideCommand]) -> bool) -> Vec<usize> {
+    (0..inp.txs.len())
+        .filter(|&t| inp.txs[t].err.is_some())
+        .filter(|&t| {
+            let ixs = ixs_of(inp, t);
+            let cs: Option<Vec<_>> = ixs.iter().map(|(d, _)| cmd(d)).collect();
+            cs.is_some_and(|cs| !cs.is_empty() && f(&cs))
+        })
+        .collect()
+}
+
+/// verify-pr228: every claim the program refused in the recording (turn
+/// limit, an owned tile, a claim while unpaid), forged as landed: each one
+/// FAILs at its own transaction with the territory rule's reason.
+#[test]
+fn verify_pr228_every_refused_claim_forged_as_landed_fails_with_its_reason() {
+    let base = whole();
+    let refused = refused_where(&base, |cs| matches!(cs, [wix::WideCommand::ClaimTile(_)]));
+    assert!(refused.len() >= 3, "the refused claims: {refused:?}");
+    let mut reasons = vec![];
+    for &t in &refused {
+        let mut inp = base.clone();
+        inp.txs[t].err = None;
+        inp.txs[t].code = None;
+        let f = vwl(&inp);
+        let here: Vec<_> = f
+            .iter()
+            .filter(|x| {
+                x.severity == Severity::Fail
+                    && (x.signature == sig(&inp, t) || x.entity == format!("tx#{t}"))
+            })
+            .map(|x| x.detail.clone())
+            .collect();
+        assert!(!here.is_empty(), "tx {t}: {:#?}", show(&f));
+        reasons.extend(here);
+    }
+    for want in ["TurnLimit", "Owned", "UpkeepUnpaid"] {
+        assert!(
+            reasons.iter().any(|r| r.contains(want)),
+            "{want} in {reasons:#?}"
+        );
+    }
+}
+
+/// verify-pr228: the second decay of one bell (refused by the program),
+/// forged as landed: FAIL.
+#[test]
+fn verify_pr228_a_second_decay_in_one_bell_forged_as_landed_fails() {
+    let mut inp = whole();
+    let t = refused_where(&inp, |cs| {
+        cs.iter()
+            .any(|c| matches!(c, wix::WideCommand::TerritoryDecay(_)))
+    })[0];
+    inp.txs[t].err = None;
+    inp.txs[t].code = None;
+    let f = vwl(&inp);
+    assert!(
+        f.iter().any(|x| x.severity == Severity::Fail
+            && (x.signature == sig(&inp, t) || x.entity == format!("tx#{t}"))),
+        "{:#?}",
+        show(&f)
+    );
+}
+
+/// verify-pr228: a conquest of a TEAMMATE's tiles (T-8): the loser's summary
+/// as the transaction before the conquest left it, its nation set to the
+/// captor's. The conquest FAILs with the teammate rule (NotEligible).
+#[test]
+fn verify_pr228_a_conquest_of_a_teammates_tiles_fails() {
+    for n in 0..2 {
+        let mut inp = whole();
+        let t = conquers(&inp)[n];
+        let conquer = ixs_of(&inp, t).last().unwrap().1.clone();
+        let (loser, captor) = (conquer[4], conquer[7]);
+        let cap = TerritoryPlayer::read(
+            &inp.txs[t]
+                .post
+                .iter()
+                .find(|(k, _)| k.to_bytes() == captor)
+                .unwrap()
+                .1
+                .as_ref()
+                .unwrap()
+                .data,
+        )
+        .unwrap();
+        let w = (0..t)
+            .rev()
+            .find(|&u| {
+                inp.txs[u].err.is_none()
+                    && inp.txs[u].post.iter().any(|(k, _)| k.to_bytes() == loser)
+            })
+            .unwrap();
+        edit_post(&mut inp, w, &loser, |a| {
+            let mut pl = TerritoryPlayer::read(&a.data).unwrap();
+            assert_ne!(pl.faction, cap.faction);
+            pl.faction = cap.faction;
+            pl.write(&mut a.data).unwrap();
+        });
+        let f = vwl(&inp);
+        assert!(
+            fails_at(&f, &inp, t, "WideRule", "teammate"),
+            "conquest {n}: {:#?}",
+            show(&f)
+        );
+    }
+}
+
+/// verify-pr228: a conquest whose post-state hands the loser's tiles to a
+/// different owner tag than the captor's: FAIL (the re-run's bytes).
+#[test]
+fn verify_pr228_a_conquest_to_the_wrong_owner_fails() {
+    let mut inp = whole();
+    let t = conquers(&inp)[0];
+    let tprov = ixs_of(&inp, t).last().unwrap().1[3];
+    edit_post(&mut inp, t, &tprov, |a| {
+        let mut r = TerritoryProvince::read(&a.data).unwrap();
+        let i = (0..permutation_rules::frontier::geometry::PROVINCE_TILES)
+            .find(|&i| r.owner[i] != 0)
+            .unwrap();
+        r.owner[i] ^= 1;
+        r.write(&mut a.data).unwrap();
+    });
+    let f = vwl(&inp);
+    assert!(
+        fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+        "{:#?}",
+        show(&f)
+    );
+}
+
+/// verify-pr228: a settle that charged too LITTLE food (the home kept part
+/// of the upkeep) and one that charged too MUCH: both FAIL.
+#[test]
+fn verify_pr228_upkeep_off_by_one_either_way_fails() {
+    let base = whole();
+    let t = settles_alone(&base)
+        .into_iter()
+        .find(|&t| {
+            !reads_declared(&base, t)
+                && base.txs[t]
+                    .post
+                    .iter()
+                    .any(|(k, _)| k.to_bytes() == ixs_of(&base, t)[0].1[4])
+        })
+        .expect("a settle that charged the home");
+    let home = ixs_of(&base, t)[0].1[4];
+    for d in [-1000i64, 1000] {
+        let mut inp = base.clone();
+        edit_post(&mut inp, t, &home, |a| {
+            let o = H::store(0) + AC::VALUE;
+            let v = i64::from_le_bytes(a.data[o..o + 8].try_into().unwrap()) + d;
+            a.data[o..o + 8].copy_from_slice(&v.to_le_bytes());
+        });
+        let f = vwl(&inp);
+        assert!(
+            fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+            "{d}: {:#?}",
+            show(&f)
+        );
+    }
+}
+
+/// verify-pr228: the verdict is deterministic: the same archive judged twice
+/// (with and without the .so) gives the same findings in the same order.
+#[test]
+fn verify_pr228_the_verdict_is_deterministic() {
+    for inp in [whole(), with_so(whole())] {
+        let a = verify_core::verify(&inp);
+        let b = verify_core::verify(&inp);
+        assert_eq!(format!("{:?}", a.verdict), format!("{:?}", b.verdict));
+        assert_eq!(show(&a.findings), show(&b.findings));
+    }
+}
