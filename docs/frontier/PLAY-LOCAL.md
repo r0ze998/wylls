@@ -228,6 +228,13 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    - While the first village's name still carries "Provisional" the program refuses this claim (NotFinal). Press "Harvest" once
      first to make it final (step 1; the card does not check this).
 
+   - **Reaching out from your nation's land (expansion-gameplay-1)**: a wide province where your nation has a
+     village, or whose keep your nation has **taken** (a keep it held from the start does not count), is your nation's land,
+     and a claim may also go up to 3 provinces from it. The card lists those below the home ones as "from your nation's land (P', Q')".
+     Nation-mates' villages count too, AI residents' included. The world opens new wide land around your nation's villages and
+     won keeps (at most 3 provinces a turn, out to ring 136). Owner Q-1: in a `--wide` world every wide keep starts **unowned**
+     (drawn neutral, "Land of no nation"); a nation's colour there is only what it took. Design: docs/design/expansion/01-reach-from-land.md
+
    Once the village exists (the "W2" button normally comes within a few turns of the claim; once, under load, about
    80 turns later: loop-play12), the easiest way to
    open it is the "W2" button under the village plate at the bottom left (it opens "Far village, ring 129 (slot 2)");
@@ -237,8 +244,8 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
 3. **An expedition (rim → wide land)**: train and muster in the rim village (§3 steps 4–5), select the host in the
    bottom bar (e.g. "500 Spearmen") and press "Prepare a boundary route".
    1. Draw the road one step at a time with the direction buttons ("East", "North-east", "North-west", "West", "South-west", "South-east") or the dashed tiles
-      on the map, until "Endpoint derived from the route" is a wide-land province (ring 129 or more). Only the provinces of rings
-      129–131 that the map draws are open. When the road ends on an unopened one, the card says at once "The end province P,Q is not open in this world … The nearest open province is … (N provinces away).".
+      on the map, until "Endpoint derived from the route" is a wide-land province (ring 129 or more). Only the provinces the map draws
+      are open (at first the strip of rings 129–131; more opens later around villages and won keeps). When the road ends on an unopened one, the card says at once "The end province P,Q is not open in this world … The nearest open province is … (N provinces away).".
    2. "Check terrain and time". "A host cannot march onto mountains or water (N)" means step N is impassable: "Undo step" or "Clear route"
       and draw another road (the card draws roads without looking at terrain). A passable road shows
       "Proposed arrival range: turns A–B" and the button that fills in the arrival turn (step 3). The card scrolls its newest result
@@ -355,7 +362,9 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
 - **The AI residents** also take rim villages, save up, claim wide land and wage war (loop-play6: 4 wide villages, 70
   departures on keeps). Their battles are on other nations' rims, so the fog hides almost all of it; only an attack on
   your own nation's keep is announced. The AI's rim → wide expeditions land too (#130: 10 of 10 in verify-pr130), and so
-  do their marches inside the wide land.
+  do their marches inside the wide land. They claim by the same reach rule as your
+  card: the best target first, farther from their home, each resident along its own heading (outward, clockwise,
+  counter-clockwise), through the nation's land when that reaches farther.
 - **To watch an AI capture**, `--wide --speed 15` (a turn is 40 s) is the steady choice (the #102 check: standings kept
   up, and a capture reached them about 90 turns after the start). Since runner-throughput the standings keep up at ×60
   too (a few turns behind), but a war goes by fast there. A wide village's cost then takes about 2 hours to save.

@@ -70,6 +70,7 @@ use frontier_abi::v2::layout::world::join_shard as JS2;
 use frontier_abi::v2::layout::AccountKind as K2;
 use frontier_abi::world_index::holding::{self as wh, SlotBinding, WideHolding};
 use frontier_abi::world_index::land::Decision;
+use frontier_abi::world_index::reach as wreach;
 use frontier_abi::world_index::ticket::{
     self as wt, wide_ticket as WTL, CitizenTicket, TicketStatus, WideTicket,
 };
@@ -343,7 +344,21 @@ fn h_err(er: String) -> Wrong {
 // ------------------------------------------------------------ 0xD9
 
 pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Key, Lam)>, Wrong> {
-    n_accounts(ix, 12, "WideClaimSite")?;
+    // Twelve positions, or thirteen with the reach witness (expansion-
+    // gameplay-1, `world_index::reach`).
+    let witness = match ix.accounts.len() {
+        12 => None,
+        13 => {
+            writable(ix, 12, "the reach witness", false)?;
+            Some(ix.accounts[12].0)
+        }
+        n => {
+            return Err(fail(
+                UNDECODABLE,
+                format!("WideClaimSite with {n} accounts (the program takes 12 or 13)"),
+            ))
+        }
+    };
     let k = |i: usize| ix.accounts[i].0;
     let (citizen, frontier, province, record) = (k(3), k(4), k(5), k(6));
     let (anchor_k, anchor_prov, prev_k, prev_prov) = (k(7), k(8), k(9), k(10));
@@ -568,6 +583,48 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Ke
         .map_err(|_| fail(WIDE_RULE, "the anchor's coordinate"))?;
     let (mine, total) = crate::checks::v22_outposts::province_weights(&pd, faction, now_bell)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the province's weights: {er}")))?;
+    // The reach witness (`proc/wide.rs` reach_witness_distance): a wide
+    // province of this season and world at its address, the claimer's
+    // nation's land, else the program refuses (BadAccount / OutpostRule).
+    let witness_distance = match witness {
+        None => None,
+        Some(wk) => {
+            let a = wide_before(e, &wk, "the reach witness")?.ok_or_else(|| {
+                fail(
+                    WIDE_ACCOUNTS,
+                    "the reach witness is absent (the program refuses BadAccount)",
+                )
+            })?;
+            let wp = WideProvince::read(&a.data).map_err(|er| {
+                fail(
+                    WIDE_ACCOUNTS,
+                    format!("the reach witness: {er:?} (the program refuses BadAccount)"),
+                )
+            })?;
+            if wp.season_id != e.sid
+                || wp.world != world
+                || wk != wl::province_address(&e.ctx, wp.coord)
+            {
+                return Err(fail(
+                    WIDE_ACCOUNTS,
+                    "the reach witness is not this world's wide province at its address",
+                ));
+            }
+            let (w_mine, _) = crate::checks::v22_outposts::province_weights(
+                &a.data, faction, now_bell,
+            )
+            .map_err(|er| fail(WIDE_ACCOUNTS, format!("the reach witness's weights: {er}")))?;
+            let keep = frontier_abi::conquest_model::read_keep(&a.data)
+                .map_err(|_| fail(WIDE_ACCOUNTS, "the reach witness's keep"))?;
+            if !wreach::is_nation_land(faction, w_mine, keep.as_ref()) {
+                return Err(fail(
+                    WIDE_RULE,
+                    "the reach witness is not the nation's land (the program refuses OutpostRule)",
+                ));
+            }
+            Some(wp.coord.distance(coord))
+        }
+    };
     may_found_outpost(&OutpostCheck {
         slot: Some(x.slot),
         first_final: flags & C::FLAG_FIRST_HOLDING_FINAL != 0,
@@ -576,7 +633,11 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Ke
         slot2_final,
         target_ring: u32::try_from(coord.ring()).unwrap_or(u32::MAX),
         heartland_max_ring: cq.heartland_max_ring,
-        range: u32::try_from(anchor_coord.distance(coord)).unwrap_or(u32::MAX),
+        range: u32::try_from(wreach::claim_range(
+            anchor_coord.distance(coord),
+            witness_distance,
+        ))
+        .unwrap_or(u32::MAX),
         outpost_range: cq.outpost_range,
         faction_weight: mine,
         province_weight: total,

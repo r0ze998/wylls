@@ -149,7 +149,19 @@ pub enum KeepHolderRule {
     /// `placement::orbit_balanced_outer_nation`: each terrain orbit gives
     /// one copy to each nation.
     OrbitBalanced = 2,
+    /// expansion-gameplay-1, owner decision Q-1 (r0ze 2026-11-24 09:22):
+    /// every wide keep opens **unowned** — held by the neutral side
+    /// ([`KEEP_NEUTRAL`], the clash's `NEUTRAL`, as camps and Free Cities)
+    /// with the season's home guard. Nations take wide land only by
+    /// taking keeps; the interleaved genesis colours of ⑧ (i) are gone.
+    Neutral = 3,
 }
+
+/// The keep holder of a [`KeepHolderRule::Neutral`] opening: the clash's
+/// neutral side (`permutation_rules::frontier::clash::NEUTRAL`), never a
+/// nation (0–5). The keep kernel treats it as any holder: every nation is
+/// hostile to it, and a capture hands the keep to that nation.
+pub const KEEP_NEUTRAL: u8 = permutation_rules::frontier::clash::NEUTRAL;
 
 /// Whether and where a wide province gets a genesis Free City.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,7 +230,7 @@ macro_rules! rule_bytes {
 rule_bytes!(
     KeepHolderRule,
     "keep_holder",
-    [MixedInterleaved, OrbitBalanced]
+    [MixedInterleaved, OrbitBalanced, Neutral]
 );
 rule_bytes!(
     FreeCityRule,
@@ -494,6 +506,7 @@ impl WideRulesConfig {
         let keep_holder = match self.keep_holder {
             KeepHolderRule::MixedInterleaved => mixed_home_nation(coord, input.genesis_seed),
             KeepHolderRule::OrbitBalanced => orbit_balanced_outer_nation(coord, input.genesis_seed),
+            KeepHolderRule::Neutral => Some(KEEP_NEUTRAL),
         }
         .ok_or(RulesError::NotWide { ring })?;
         let site_count = input.terrain.site_count;
@@ -619,8 +632,14 @@ impl WideRulesConfig {
 /// switches at ring 128/129. Other placements keep every candidate (the
 /// configuration stays the experiment it was).
 pub const fn keep_holder_allowed(placement: u8, rule: KeepHolderRule) -> bool {
+    // (Q-1, owner 2026-11-24: neutral wide land replaces ⑧ (i)'s interleaved
+    // genesis ownership; both stay allowed so a season already configured
+    // MixedInterleaved keeps its rule)
     placement != permutation_rules::frontier::geometry::PLACEMENT_MIXED
-        || matches!(rule, KeepHolderRule::MixedInterleaved)
+        || matches!(
+            rule,
+            KeepHolderRule::MixedInterleaved | KeepHolderRule::Neutral
+        )
 }
 
 /// Whether a Free City candidate may be configured for a Season of the
@@ -638,6 +657,15 @@ pub const fn free_city_allowed(placement: u8, rule: FreeCityRule) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_neutral_rule_opens_every_wide_keep_unowned_q1() {
+        assert_eq!(KEEP_NEUTRAL, 6);
+        let mixed = permutation_rules::frontier::geometry::PLACEMENT_MIXED;
+        assert!(keep_holder_allowed(mixed, KeepHolderRule::Neutral));
+        assert!(keep_holder_allowed(mixed, KeepHolderRule::MixedInterleaved));
+        assert!(!keep_holder_allowed(mixed, KeepHolderRule::OrbitBalanced));
+    }
+
     use super::*;
     use crate::layout::Field;
     use crate::world_index::coord::RingPosition;
@@ -785,11 +813,12 @@ mod tests {
             KeepHolderRule::from_byte(2),
             Ok(KeepHolderRule::OrbitBalanced)
         );
+        assert_eq!(KeepHolderRule::from_byte(3), Ok(KeepHolderRule::Neutral));
         assert_eq!(
-            KeepHolderRule::from_byte(3),
+            KeepHolderRule::from_byte(4),
             Err(RulesError::Unknown {
                 rule: "keep_holder",
-                byte: 3
+                byte: 4
             })
         );
         assert_eq!(FreeCityRule::from_byte(1), Ok(FreeCityRule::NoFreeCity));

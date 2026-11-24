@@ -272,7 +272,9 @@ export function createWideHostPlanner({ herald, read, chainNow, chainRate = () =
       const nb = [];
       for (const t of near) nb.push((await read([wideProvinceAddress(seasonAddr, program, t.p, t.q)]))[0]);
       const rows = near.map((t, i) => ({ t, pv: nb[i] ? readWideProvince(nb[i]) : null })).filter(x => x.pv?.keep);
-      rows.sort((a, b) => Number(a.pv.keep.holder === holding.faction) - Number(b.pv.keep.holder === holding.faction) || (a.t.p + a.t.q < b.t.p + b.t.q ? -1 : 1));
+      // (expansion-gameplay-1: the tiebreak compares numbers — it joined two strings before; an unowned (neutral) keep is
+      //  not the nation's own, so it comes first with the foreign ones)
+      rows.sort((a, b) => Number(a.pv.keep.holder === holding.faction) - Number(b.pv.keep.holder === holding.faction) || (Number(a.t.p) + Number(a.t.q)) - (Number(b.t.p) + Number(b.t.q)) || (a.t.p + ',' + a.t.q < b.t.p + ',' + b.t.q ? -1 : 1));
       const origin = { p: village.p, q: village.q, tile: host.entry.tile };
       const source = { program, season: seasonAddr, seasonId, world, unit: host.entry.unit, faction: holding.faction, holdingFlags: 0, origin };
       const departTs = Math.floor(nowTs) + departMargin(rate);

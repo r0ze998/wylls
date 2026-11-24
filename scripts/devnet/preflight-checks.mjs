@@ -154,8 +154,13 @@ export function checkToolchain(io, opts) {
 // ------------------------------------------------------------------ MUST 4: profile and key files
 
 /** The playable lane's presets (frontier-operator `is_wide_preset`): the continuous devnet world
- * (devnet-continuous-1, seasons abolished 2026-11-23) and the 7-day preset it was made from. */
-export const PLAYABLE_PRESETS = ['S1_DEVNET_WIDE_CONTINUOUS', 'S1_DEVNET_WIDE_7D'];
+ * (devnet-continuous-1, seasons abolished 2026-11-23), the 7-day preset it was made from, and the new world
+ * (devnet-new-world-plan: S1_DEVNET_TERRITORY, defined in frontier-abi by #209; scripts/devnet/devnet-new-world-profile.json). */
+export const PLAYABLE_PRESETS = ['S1_DEVNET_WIDE_CONTINUOUS', 'S1_DEVNET_WIDE_7D', 'S1_DEVNET_TERRITORY'];
+/** frontier-operator KEEP_HOLDER_NAMES (wide.keepHolder; absent = MixedInterleaved) and the ones whose wide keeps all open
+ * unowned (owner 2026-11-24 12:07: the new world starts with ALL wide land unowned). */
+export const KEEP_HOLDERS = ['MixedInterleaved', 'OrbitBalanced', 'Neutral', 'NeutralTerritoryV1'];
+export const NEUTRAL_KEEP_HOLDERS = ['Neutral', 'NeutralTerritoryV1'];
 
 export function checkProfile(profile, { profilePath } = {}) {
   const out = [];
@@ -167,6 +172,10 @@ export function checkProfile(profile, { profilePath } = {}) {
   if (!(profile.program?.requiredMarkers ?? []).includes('PSF_DEVNET_PLAYABLE_BUILD')) shape.push('program.requiredMarkers lacks PSF_DEVNET_PLAYABLE_BUILD');
   if (!PLAYABLE_PRESETS.includes(profile.season?.preset)) shape.push(`season.preset ${profile.season?.preset} (${PLAYABLE_PRESETS.join(' or ')})`);
   if (profile.operator?.beacon !== 'quicknet') shape.push(`operator.beacon ${profile.operator?.beacon} (quicknet)`);
+  const kh = profile.wide?.keepHolder;
+  if (kh !== undefined && !KEEP_HOLDERS.includes(kh)) shape.push(`wide.keepHolder ${kh} (${KEEP_HOLDERS.join(', ')})`);
+  if (kh === 'OrbitBalanced') shape.push('wide.keepHolder OrbitBalanced (placement 2 refuses it)');
+  if (profile.season?.preset === 'S1_DEVNET_TERRITORY' && !NEUTRAL_KEEP_HOLDERS.includes(kh)) shape.push(`wide.keepHolder ${kh ?? '(absent: MixedInterleaved)'} (S1_DEVNET_TERRITORY needs ${NEUTRAL_KEEP_HOLDERS.join(' or ')}: all wide land unowned)`);
   try {
     const host = new URL(profile.rpcUrl).hostname;
     if (!(profile.allowedRpcHosts ?? []).includes(host)) shape.push(`rpcUrl host ${host} not in allowedRpcHosts`);
@@ -179,7 +188,7 @@ export function checkProfile(profile, { profilePath } = {}) {
   if (missingRoles.length || extraRoles.length) shape.push(`services.keeperA.roles differ from runbook §8 (missing ${missingRoles.join(',') || '-'}; extra ${extraRoles.join(',') || '-'})`);
   for (const [k, v] of Object.entries(RUNBOOK_RINGS_DUTY)) if (ka.ringsDuty?.[k] !== v) shape.push(`services.keeperA.ringsDuty.${k} = ${ka.ringsDuty?.[k]} (runbook: ${v})`);
   if (shape.length) out.push(fail('profile.shape', '4', shape.join('; '), `restore ${profilePath ?? 'the profile'} from origin/main; only programId and upgradeAuthority are r0ze's to change`));
-  else out.push(pass('profile.shape', '4', `cluster devnet, lane playable 0x4804, marker PSF_DEVNET_PLAYABLE_BUILD, preset ${profile.season.preset}, keeper A roles + rings duty = runbook`));
+  else out.push(pass('profile.shape', '4', `cluster devnet, lane playable 0x4804, marker PSF_DEVNET_PLAYABLE_BUILD, preset ${profile.season.preset}${kh ? `, keep holder ${kh}` : ''}, keeper A roles + rings duty = runbook`));
   const addr = [];
   for (const k of ['programId', 'upgradeAuthority']) {
     if (isPlaceholder(profile[k])) addr.push(`${k} is still a placeholder`);

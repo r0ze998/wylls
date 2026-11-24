@@ -49,6 +49,9 @@ pub const WIDE_LAND_MODE: &str = "local-wide-land-v1";
 pub const WIDE_SCHEMA: &str = "frontier-localnet-wide-land-v1";
 /// The wide rings opened: 129, 130, 131.
 pub const WIDE_RINGS: u64 = 3;
+/// The wide rings whose seed the setup consumes (expansion-gameplay-1): 129..=136. Rings past [`WIDE_RINGS`] open no
+/// province in the setup; `wide_frontier` opens their provinces later, next to land a nation went to.
+pub const WIDE_SEED_RINGS: u64 = 8;
 /// Wide provinces opened per wedge on each wide ring (paid from that wedge's fund).
 pub const PER_WEDGE: usize = 6;
 /// Rounds fetched at once from the public drand API.
@@ -324,7 +327,7 @@ pub async fn grow(
     let mut wide = vec![];
     let mut rim = vec![];
     let mut opened_bell = frontier_u32(state, a, FR::LAST_RING_OPEN_BELL)?;
-    for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_RINGS {
+    for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_SEED_RINGS {
         advance_to(state, bell_start(opened_bell + 1) + 1)?;
         send(
             state,
@@ -353,10 +356,11 @@ pub async fn grow(
             &format!("WideConsumeRingSeed({ring})"),
         )?;
         if ring == FIRST_WIDE_RING {
-            // (the playable conquest world's rule bytes, as the devnet preset's test: interleaved keeps, the deployed
-            //  Free City site, no camp, the sort-key-hash region)
+            // (the playable conquest world's rule bytes, as the devnet preset's test: the deployed Free City site, no
+            //  camp, the sort-key-hash region — and, owner decision Q-1 2026-11-24 (expansion-gameplay-1), every wide
+            //  keep opens UNOWNED (the neutral side), not interleaved by nation: nations take wide land themselves)
             let rules = wr::RuleBytes {
-                keep_holder: wr::KeepHolderRule::MixedInterleaved as u8,
+                keep_holder: wr::KeepHolderRule::Neutral as u8,
                 free_city: wr::FreeCityRule::DeployedLe32V1 as u8,
                 camp: wr::CampRule::NoCamp as u8,
                 region: wr::RegionRule::SortKeyHashV1 as u8,
@@ -372,7 +376,12 @@ pub async fn grow(
                 "WideSetRules",
             )?;
         }
-        let plan = wide_plan(ring, PER_WEDGE);
+        // (rings past WIDE_RINGS: the seed only; `wide_frontier` opens their provinces where a nation goes)
+        let plan = if ring < FIRST_WIDE_RING + WIDE_RINGS {
+            wide_plan(ring, PER_WEDGE)
+        } else {
+            vec![]
+        };
         for coord in &plan {
             send(
                 state,
@@ -1005,7 +1014,7 @@ mod tests {
 
     #[test]
     fn the_plan_is_per_wedge_contiguous_and_on_the_ring() {
-        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_RINGS {
+        for ring in FIRST_WIDE_RING..FIRST_WIDE_RING + WIDE_SEED_RINGS {
             let plan = wide_plan(ring, PER_WEDGE);
             assert_eq!(plan.len(), 6 * PER_WEDGE, "ring {ring}");
             for w in 0..6u8 {

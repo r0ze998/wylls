@@ -11912,3 +11912,243 @@ fn wide_land_marked_slot_is_taken_for_the_deployed_writers_until_unbound() {
     }
     assert_eq!(w.place_home(&a, c, 1), Err(E::AlreadyDone as u32));
 }
+
+/// **Reach from the nation's land** (expansion-gameplay-1,
+/// `world_index::reach`): a wide claim farther than `outpost_range` from
+/// the first home is refused as before; naming a reach witness (the
+/// optional thirteenth account) lets it through when the witness is the
+/// claimer's nation's land within range — a won keep or a village of the
+/// nation — and refuses a writable witness, a non-province, a genesis keep
+/// of the nation (the opening mosaic gives no reach), another nation's
+/// land and a witness itself out of range, each before any write.
+#[test]
+fn wide_claim_reaches_from_the_nations_land_not_only_from_home() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = Wide::rim();
+    let (_near, _site, a, template) = w.land();
+    let payer = w.w.payer.clone();
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    // The target: eight provinces from the rim home; a witness two from
+    // the target (six from home), another five from it.
+    let target = c(129, -8);
+    let near_w = c(129, -6);
+    let far_w = c(129, -3);
+    for t in [target, near_w, far_w] {
+        assert_eq!(w.open_province(t.p(), t.q()), Ok(()), "{t:?}");
+    }
+    let home = WideCoord::checked(RIM.p as i64, RIM.q as i64).unwrap();
+    assert!(home.distance(target) > w.w.cq.outpost_range as u128);
+    assert!(near_w.distance(target) <= w.w.cq.outpost_range as u128);
+    assert!(far_w.distance(target) > w.w.cq.outpost_range as u128);
+    let site = {
+        let pd = w.province_data(target);
+        (0..pd[PV::SITE_COUNT])
+            .find(|s| pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("a free site")
+    };
+    let set_keep = |w: &mut Wide, at: WideCoord, holder: u8, changes: u16| {
+        let ai = w.province(at);
+        let mut pd = ai.try_borrow_mut_data().unwrap();
+        let mut k = read_keep(&pd).unwrap().expect("a wide keep");
+        k.holder = holder;
+        k.changes = changes;
+        frontier_abi::conquest_model::write_keep(&mut pd, &k).unwrap();
+    };
+    let file_with = |w: &mut Wide, witness: Option<AccountInfo<'static>>| {
+        let mut accts = w.file_accounts(&a, WALLET_A, target, 0, payer.clone(), None);
+        accts.extend(witness);
+        code(run_tx(
+            &accts,
+            &wix::ClaimSite {
+                p: target.p(),
+                q: target.q(),
+                site,
+                slot: 2,
+            }
+            .to_bytes(),
+        ))
+    };
+    let ro = |w: &mut Wide, at: WideCoord| with_writable(&w.province(at), false);
+    let pre = (
+        w.province_data(target),
+        w.w.citizen_data(&a),
+        w.w.payer.lamports(),
+    );
+
+    // From home alone: out of range, as before.
+    assert_eq!(
+        file_with(&mut w, None),
+        Err(CE::OutpostRule.code()),
+        "home is 8 away"
+    );
+    // The opening mosaic: the witness's keep starts with the claimer's
+    // nation but was never taken.
+    set_keep(&mut w, near_w, a.faction, 0);
+    let wit = ro(&mut w, near_w);
+    assert_eq!(
+        file_with(&mut w, Some(wit)),
+        Err(CE::OutpostRule.code()),
+        "a genesis keep"
+    );
+    // Another nation won it.
+    set_keep(&mut w, near_w, (a.faction + 1) % 6, 1);
+    let wit = ro(&mut w, near_w);
+    assert_eq!(
+        file_with(&mut w, Some(wit)),
+        Err(CE::OutpostRule.code()),
+        "another nation's"
+    );
+    // Won by the nation, but a writable witness / a legacy province / a
+    // witness five provinces from the target.
+    set_keep(&mut w, near_w, a.faction, 1);
+    let wit = with_writable(&w.province(near_w), true);
+    assert_eq!(
+        file_with(&mut w, Some(wit)),
+        Err(E::BadAccount as u32),
+        "writable"
+    );
+    let legacy = with_writable(&w.w.province(RIM), false);
+    assert_eq!(
+        file_with(&mut w, Some(legacy)),
+        Err(E::BadAccount as u32),
+        "not wide"
+    );
+    set_keep(&mut w, far_w, a.faction, 2);
+    let wit = ro(&mut w, far_w);
+    assert_eq!(
+        file_with(&mut w, Some(wit)),
+        Err(CE::OutpostRule.code()),
+        "witness out of range"
+    );
+    assert_eq!(w.province_data(target), pre.0);
+    assert_eq!(w.w.citizen_data(&a), pre.1);
+    assert_eq!(w.w.payer.lamports(), pre.2, "every refusal before a write");
+
+    // A village of the nation (any citizen of it) makes land too: a second
+    // member's claim through a settled witness.
+    let b = w.w.member(WALLET_B, a.faction);
+    w.fixture_rim_home(&b, &template, 1, 1_500 * MILLI);
+    let settled = c(129, -10);
+    assert_eq!(w.open_province(settled.p(), settled.q()), Ok(()));
+    assert!(settled.distance(target) <= w.w.cq.outpost_range as u128);
+    {
+        let ai = w.province(settled);
+        let mut pd = ai.try_borrow_mut_data().unwrap();
+        let s = (0..pd[PV::SITE_COUNT])
+            .find(|s| pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("a free site");
+        let o = PV::site(s as usize);
+        pd[o + SM::STATE] = SM::STATE_HOLDING;
+        pd[o + SM::FACTION] = (a.faction + 2) % 6;
+        pd[o + SM::ORDER] = 2;
+        pd[o + SM::GEN] = 1;
+    }
+    let file_b = |w: &mut Wide, site_b: u8| {
+        let mut accts = w.file_accounts(&b, WALLET_B, target, 1, payer.clone(), None);
+        accts.push(with_writable(&w.province(settled), false));
+        code(run_tx(
+            &accts,
+            &wix::ClaimSite {
+                p: target.p(),
+                q: target.q(),
+                site: site_b,
+                slot: 2,
+            }
+            .to_bytes(),
+        ))
+    };
+    assert_eq!(
+        file_b(&mut w, site),
+        Err(CE::OutpostRule.code()),
+        "another nation's village"
+    );
+    {
+        let ai = w.province(settled);
+        let mut pd = ai.try_borrow_mut_data().unwrap();
+        for s in 0..pd[PV::SITE_COUNT] as usize {
+            if pd[PV::site(s) + SM::STATE] == SM::STATE_HOLDING {
+                pd[PV::site(s) + SM::FACTION] = a.faction;
+            }
+        }
+    }
+    // The won keep lets A through; the settled witness lets B through.
+    let wit = ro(&mut w, near_w);
+    assert_eq!(
+        file_with(&mut w, Some(wit)),
+        Ok(()),
+        "a keep the nation won, two away"
+    );
+    assert!(matches!(
+        wt::pending(&w.w.citizen_data(&a)),
+        Ok(CitizenTicket::Wide { .. })
+    ));
+    let site_b = {
+        let pd = w.province_data(target);
+        (0..pd[PV::SITE_COUNT])
+            .find(|s| *s != site && pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("another free site")
+    };
+    assert_eq!(
+        file_b(&mut w, site_b),
+        Ok(()),
+        "a village of the nation, two away"
+    );
+}
+
+/// **Neutral wide land** (expansion-gameplay-1, owner Q-1 2026-11-24): under
+/// the `Neutral` keep-holder rule every wide province opens with its keep held
+/// by the neutral side (`KEEP_NEUTRAL`, 6) and the season's home guard, never a
+/// nation; such a keep is nobody's land, so it gives no claim reach.
+#[test]
+fn wide_land_opens_unowned_under_the_neutral_rule() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = Wide::rim();
+    w.w.fold();
+    assert_eq!(w.request(FIRST_WIDE_RING), Ok(()));
+    w.seed_as_consume_would(FIRST_WIDE_RING, &RING129_SEED);
+    let neutral = (
+        RULES.0,
+        KeepHolderRule::Neutral as u8,
+        RULES.2,
+        RULES.3,
+        RULES.4,
+    );
+    assert_eq!(w.set_rules(AUTHORITY, neutral), Ok(()));
+    for q in [0i64, -6, -8] {
+        assert_eq!(w.open_province(129, q), Ok(()), "q {q}");
+        let k = read_keep(&w.province_data(c(129, q)))
+            .unwrap()
+            .expect("a wide keep");
+        assert_eq!(k.holder, wr::KEEP_NEUTRAL, "unowned");
+        assert_eq!(
+            (k.changes, k.troops),
+            (0, w.w.cq.keep_home_guard),
+            "the home guard"
+        );
+    }
+    // A neutral keep is no nation's land: no reach through it.
+    let (home, nation) = off_wedge_province();
+    let a = w.w.member(WALLET_A, nation);
+    assert_eq!(w.w.place_home(&a, home, 0), Ok(()));
+    let template = w.w.holding_data(home, 0);
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    let target = c(129, -8);
+    let mut accts = w.file_accounts(&a, WALLET_A, target, 0, w.w.payer.clone(), None);
+    accts.push(with_writable(&w.province(c(129, -6)), false));
+    assert_eq!(
+        code(run_tx(
+            &accts,
+            &wix::ClaimSite {
+                p: 129,
+                q: -8,
+                site: 0,
+                slot: 2
+            }
+            .to_bytes()
+        )),
+        Err(CE::OutpostRule.code()),
+        "a neutral keep gives no reach"
+    );
+}
