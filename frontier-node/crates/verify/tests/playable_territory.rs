@@ -207,6 +207,15 @@ impl Rec {
             for (k, _) in &t.post {
                 keys.insert(*k);
             }
+            // (and every account a transaction names that the program owns
+            //  at the end: VG's final-state check reads them all)
+            if let Ok(m) = fclient::tx::from_wire(&t.tx) {
+                for k in &m.message.account_keys {
+                    if self.c.account(k).is_some_and(|a| a.owner == *program) {
+                        keys.insert(*k);
+                    }
+                }
+            }
         }
         let finals = keys
             .into_iter()
@@ -1778,10 +1787,7 @@ fn the_keepers_refused_conquest_shape_forged_as_landed_fails() {
             inp.txs[t].err.is_some() && {
                 let ixs = ixs_of(&inp, t);
                 ixs.len() == 3
-                    && matches!(
-                        cmd(&ixs[2].0),
-                        Some(wix::WideCommand::TerritoryConquer(_))
-                    )
+                    && matches!(cmd(&ixs[2].0), Some(wix::WideCommand::TerritoryConquer(_)))
             }
         })
         .expect("the refused keeper-shape conquest");
@@ -1793,4 +1799,36 @@ fn the_keepers_refused_conquest_shape_forged_as_landed_fails() {
         "{:#?}",
         show(&f)
     );
+}
+
+/// The world as a public RPC would serve world 3's archive (no post-states,
+/// the chain's balances): VG re-executes it from genesis with world 3's
+/// `.so`, then VWL judges the derived states — no FAIL, the same declared
+/// patches only, every territory transaction re-run.
+#[test]
+fn vg_replays_the_territory_world_from_genesis_without_a_fail() {
+    let mut inp = with_so(whole());
+    assert_eq!(
+        inp.chain.balances.len(),
+        inp.txs.len(),
+        "the chain's balances"
+    );
+    for t in inp.txs.iter_mut() {
+        t.post.clear();
+    }
+    let rep = verify_core::verify(&inp);
+    let fails: Vec<_> = rep.findings.iter().filter(|f| f.fail()).collect();
+    assert!(fails.is_empty(), "{:#?}", show(&rep.findings));
+    assert!(
+        !rep.findings.iter().any(|f| f.check == "VG"),
+        "{:#?}",
+        show(&rep.findings)
+    );
+    let other: Vec<_> = rep
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Unverifiable && !f.detail.contains("declare"))
+        .map(|f| (f.check, f.code.clone(), f.detail.clone()))
+        .collect();
+    assert!(other.is_empty(), "{other:#?}");
 }
