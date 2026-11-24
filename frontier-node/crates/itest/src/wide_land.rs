@@ -49,9 +49,9 @@ pub const WIDE_LAND_MODE: &str = "local-wide-land-v1";
 pub const WIDE_SCHEMA: &str = "frontier-localnet-wide-land-v1";
 /// The wide rings opened: 129, 130, 131.
 pub const WIDE_RINGS: u64 = 3;
-/// The wide rings whose seed the setup consumes (expansion-gameplay-1): 129..=134. Rings past [`WIDE_RINGS`] open no
+/// The wide rings whose seed the setup consumes (expansion-gameplay-1): 129..=136. Rings past [`WIDE_RINGS`] open no
 /// province in the setup; `wide_frontier` opens their provinces later, next to land a nation went to.
-pub const WIDE_SEED_RINGS: u64 = 6;
+pub const WIDE_SEED_RINGS: u64 = 8;
 /// Wide provinces opened per wedge on each wide ring (paid from that wedge's fund).
 pub const PER_WEDGE: usize = 6;
 /// Rounds fetched at once from the public drand API.
@@ -356,10 +356,11 @@ pub async fn grow(
             &format!("WideConsumeRingSeed({ring})"),
         )?;
         if ring == FIRST_WIDE_RING {
-            // (the playable conquest world's rule bytes, as the devnet preset's test: interleaved keeps, the deployed
-            //  Free City site, no camp, the sort-key-hash region)
+            // (the playable conquest world's rule bytes, as the devnet preset's test: the deployed Free City site, no
+            //  camp, the sort-key-hash region — and, owner decision Q-1 2026-11-24 (expansion-gameplay-1), every wide
+            //  keep opens UNOWNED (the neutral side), not interleaved by nation: nations take wide land themselves)
             let rules = wr::RuleBytes {
-                keep_holder: wr::KeepHolderRule::MixedInterleaved as u8,
+                keep_holder: wr::KeepHolderRule::Neutral as u8,
                 free_city: wr::FreeCityRule::DeployedLe32V1 as u8,
                 camp: wr::CampRule::NoCamp as u8,
                 region: wr::RegionRule::SortKeyHashV1 as u8,

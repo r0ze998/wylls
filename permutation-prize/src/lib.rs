@@ -52,6 +52,8 @@
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
 //! | 7 | RecordNation (candidate, workstream 04) | `[pool] [entry w] [citizen]` |
 //! | 8–11 | InitEpochPool, EpochTally, EpochFinalize, Sweep (feature `epochs` only: ⑰ settlement windows of a continuous world, test USDC; see [`epoch`]) | |
+//! | 12 | ExcludeWallet (features `epochs` or `goals`; see `member`) | |
+//! | 13–23 | InitGoalPool, BuyPass, PostGoal, Achieve, AttestAchieve, VoidGoal, SetGoalShares, GoalClaim, GoalSweep, RetireGoal, GoalWithdrawOps (feature `goals` only: world goals without a deadline, test USDC; see `goals`) | |
 //!
 //! **RecordNation** (candidate, 2026-11-06; changes no rule and no amount).
 //! A shares claim needs the wallet's nation, which the game keeps in its
@@ -121,6 +123,18 @@ pub mod tag {
     pub const SWEEP: u8 = 11;
     /// ⑰ (owner 2026-11-18 21:44): mark a wallet as an operator member, never in a paid window.
     pub const EXCLUDE_WALLET: u8 = 12;
+    /// World goals' prize pool (feature `goals`, [`crate::goals`]; test USDC).
+    pub const INIT_GOAL_POOL: u8 = 13;
+    pub const BUY_PASS: u8 = 14;
+    pub const POST_GOAL: u8 = 15;
+    pub const ACHIEVE: u8 = 16;
+    pub const ATTEST_ACHIEVE: u8 = 17;
+    pub const VOID_GOAL: u8 = 18;
+    pub const SET_GOAL_SHARES: u8 = 19;
+    pub const GOAL_CLAIM: u8 = 20;
+    pub const GOAL_SWEEP: u8 = 21;
+    pub const RETIRE_GOAL: u8 = 22;
+    pub const GOAL_WITHDRAW_OPS: u8 = 23;
 }
 
 /// Pool account (640 B, PDA `["pool", game program, le64(season id)]`).
@@ -255,6 +269,20 @@ pub enum PrizeError {
     /// operator member (operator AI residents and script bots join by invite; owner
     /// decision 2026-11-18 21:44: no AI residents in paid periods).
     OperatorMember = 0x117,
+    /// Achieve: no nation holds enough flag keeps long enough (feature `goals`).
+    NotAchieved = 0x118,
+    /// GoalClaim: the wallet had no valid pass at the achievement.
+    PassNotValid = 0x119,
+    /// GoalClaim: the wallet's Citizen joined less than `member_bells` before the achievement.
+    MemberTooRecent = 0x11A,
+    /// GoalClaim: the share is under the pool's `min_payout`.
+    BelowMinimum = 0x11B,
+    /// SetGoalShares during an attested achievement's dispute window.
+    DisputeOpen = 0x11C,
+    /// GoalClaim after the goal's claim window.
+    ClaimClosed = 0x11D,
+    /// InitGoalPool with Circle's mainnet USDC mint (legal gate: test assets only).
+    RealMoneyMint = 0x11E,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -1211,6 +1239,8 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
     let (t, d) = data.split_first().ok_or(E::BadData)?;
     #[cfg(feature = "epochs")]
     core::hint::black_box(epoch::MARKER.as_ptr());
+    #[cfg(feature = "goals")]
+    core::hint::black_box(goals::MARKER.as_ptr());
     match *t {
         tag::INIT_POOL => init_pool(program, a, d),
         tag::PAY if d.is_empty() => pay(program, a),
@@ -1228,8 +1258,30 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::EPOCH_FINALIZE if d.is_empty() => epoch::epoch_finalize(program, a),
         #[cfg(feature = "epochs")]
         tag::SWEEP if d.is_empty() => epoch::sweep(program, a),
-        #[cfg(feature = "epochs")]
-        tag::EXCLUDE_WALLET if d.is_empty() => epoch::exclude_wallet(program, a),
+        #[cfg(any(feature = "epochs", feature = "goals"))]
+        tag::EXCLUDE_WALLET if d.is_empty() => member::exclude_wallet(program, a),
+        #[cfg(feature = "goals")]
+        tag::INIT_GOAL_POOL => goals::init_goal_pool(program, a, d),
+        #[cfg(feature = "goals")]
+        tag::BUY_PASS if d.is_empty() => goals::buy_pass(program, a),
+        #[cfg(feature = "goals")]
+        tag::POST_GOAL => goals::post_goal(program, a, d),
+        #[cfg(feature = "goals")]
+        tag::ACHIEVE if d.is_empty() => goals::achieve(program, a),
+        #[cfg(feature = "goals")]
+        tag::ATTEST_ACHIEVE => goals::attest_achieve(program, a, d),
+        #[cfg(feature = "goals")]
+        tag::VOID_GOAL if d.is_empty() => goals::void_goal(program, a),
+        #[cfg(feature = "goals")]
+        tag::SET_GOAL_SHARES => goals::set_goal_shares(program, a, d),
+        #[cfg(feature = "goals")]
+        tag::GOAL_CLAIM => goals::goal_claim(program, a, d),
+        #[cfg(feature = "goals")]
+        tag::GOAL_SWEEP if d.is_empty() => goals::goal_sweep(program, a),
+        #[cfg(feature = "goals")]
+        tag::RETIRE_GOAL if d.is_empty() => goals::retire_goal(program, a),
+        #[cfg(feature = "goals")]
+        tag::GOAL_WITHDRAW_OPS if d.is_empty() => goals::goal_withdraw_ops(program, a),
         _ => Err(E::BadData.into()),
     }
 }
@@ -1287,6 +1339,12 @@ fn season_rings_fit(sd: &[u8]) -> R<()> {
 
 #[cfg(feature = "epochs")]
 pub mod epoch;
+
+#[cfg(any(feature = "epochs", feature = "goals"))]
+pub mod member;
+
+#[cfg(feature = "goals")]
+pub mod goals;
 
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);

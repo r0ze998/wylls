@@ -207,7 +207,8 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      village, or whose keep your nation has **taken** (a keep it held from the start does not count), is your nation's land,
      and a claim may also go up to 3 provinces from it. The card lists those below the home ones as 「州（P, Q） … 国の土地
      （P', Q'）から」 ("from your nation's land (P', Q')"). Nation-mates' villages count too, AI residents' included. The world
-     opens new wide land around your nation's villages and won keeps (at most 3 provinces a turn, out to ring 134). Design:
+     opens new wide land around your nation's villages and won keeps (at most 3 provinces a turn, out to ring 136). Owner Q-1: in a `--wide` world every wide keep
+     starts **unowned** (drawn neutral, 「どの国のものでもない土地」); a nation's colour there is only what it took. Design:
      docs/design/expansion/01-reach-from-land.md
 
    Once the village exists, the easiest way to

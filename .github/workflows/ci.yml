@@ -362,9 +362,9 @@ jobs:
       # expansion-gameplay-1: the wide claim's reach from the nation's land (0xD9 with the optional reach witness). The
       # wide land harness (`wide-world-experimental`) is built by no other step; only this test of it runs here (the
       # harness's muster/return test fails on main too: reports/expansion-gameplay-1.md).
-      - name: Program host test (wide claim reach)
+      - name: Program host tests (wide claim reach, neutral wide land)
         if: hashFiles('permutation-frontier/Cargo.toml') != ''
-        run: cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::wide_claim_reaches_from_the_nations_land_not_only_from_home --exact
+        run: cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::wide_claim_reaches_from_the_nations_land_not_only_from_home map_growth_runtime_tests::wide_land::wide_land_opens_unowned_under_the_neutral_rule --exact
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
       # The LiteSVM harness itself (67k lines of tests) was formatted and linted
@@ -689,6 +689,9 @@ jobs:
           # ⑰ settlement windows (feature `epochs`; test USDC, local/devnet only)
           cargo clippy --locked --all-targets --features epochs -- -D warnings
           cargo test --locked --features epochs
+          # World goals' prize pool (feature `goals`; test USDC, local/devnet only; win-conditions §10.1)
+          cargo clippy --locked --all-targets --features goals -- -D warnings
+          cargo test --locked --features goals
       # Moved to key-tests: the Prize SBF v2 build and the LiteSVM tests.
       # Their format and lints run here too (2026-11-21; key-tests is manual,
       # so they were checked on no pull request). Compile only, no test run.
@@ -803,6 +806,8 @@ jobs:
         run: scripts/build-prize.sh
       - name: Prize SBF v2 build with settlement windows (⑰, --features epochs)
         run: scripts/build-prize.sh --features epochs
+      - name: Prize SBF v2 build with world goals (win-conditions §10.1, --features goals)
+        run: scripts/build-prize.sh --features goals
       - name: Frontier LiteSVM suite (G1-G13 against the SBF build)
         if: hashFiles('permutation-frontier/svm-tests/run.sh') != ''
         working-directory: permutation-frontier/svm-tests
@@ -821,6 +826,8 @@ jobs:
           cargo test --locked --release
           # The legacy suite against the epochs build too: the feature changes no legacy behaviour.
           PRIZE_SO="$GITHUB_WORKSPACE/permutation-prize/target/deploy-epochs/permutation_prize.so" cargo test --locked --release --test pool
+          # ... and against the goals build (the feature changes no legacy behaviour either).
+          PRIZE_SO="$GITHUB_WORKSPACE/permutation-prize/target/deploy-goals/permutation_prize.so" cargo test --locked --release --test pool
       - name: frontier-node workspace tests
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node

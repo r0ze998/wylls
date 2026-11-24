@@ -24,7 +24,10 @@ export { ata, TOKEN_PROGRAM };
 
 export const PRIZE_TAG = Object.freeze({ INIT_POOL: 0, PAY: 1, TALLY: 2, FINALIZE: 3, SET_SHARES: 4, CLAIM: 5, WITHDRAW_OPS: 6, RECORD_NATION: 7,
   // ⑰ settlement windows (feature `epochs` builds only)
-  INIT_EPOCH_POOL: 8, EPOCH_TALLY: 9, EPOCH_FINALIZE: 10, SWEEP: 11, EXCLUDE_WALLET: 12 });
+  INIT_EPOCH_POOL: 8, EPOCH_TALLY: 9, EPOCH_FINALIZE: 10, SWEEP: 11, EXCLUDE_WALLET: 12,
+  // world goals' prize pool (feature `goals` builds only; goal-prize.mjs)
+  INIT_GOAL_POOL: 13, BUY_PASS: 14, POST_GOAL: 15, ACHIEVE: 16, ATTEST_ACHIEVE: 17, VOID_GOAL: 18, SET_GOAL_SHARES: 19, GOAL_CLAIM: 20, GOAL_SWEEP: 21,
+  RETIRE_GOAL: 22, GOAL_WITHDRAW_OPS: 23 });
 export const POOL_SIZE = 640;
 export const ENTRY_SIZE = 128;
 export const POOL_STATE = Object.freeze({ OPEN: 0, FINAL: 1, SHARES: 2, SWEPT: 3 });
@@ -34,7 +37,9 @@ export const FACTIONS = 6;
 export const PRIZE_ERRORS = Object.freeze({ 0x100: 'BadData', 0x101: 'BadAccount', 0x102: 'BadParams', 0x103: 'NotOperator', 0x104: 'WrongState', 0x105: 'AlreadyPaid',
   0x106: 'SeasonNotEnded', 0x107: 'ProvinceNotFinal', 0x108: 'NoKeep', 0x109: 'TallyIncomplete', 0x10A: 'BadShares', 0x10B: 'BadProof', 0x10C: 'NotWinner',
   0x10D: 'AlreadyClaimed', 0x10E: 'NothingToPay', 0x10F: 'Overflow', 0x110: 'WrongExpectedCount', 0x111: 'CeilingPastTally', 0x112: 'ContinuousSeason',
-  0x113: 'FiniteSeason', 0x114: 'EpochClosed', 0x115: 'ClaimWindowOpen', 0x116: 'WindowOpen', 0x117: 'OperatorMember' });
+  0x113: 'FiniteSeason', 0x114: 'EpochClosed', 0x115: 'ClaimWindowOpen', 0x116: 'WindowOpen', 0x117: 'OperatorMember',
+  // world goals' prize pool (feature `goals` builds only; goal-prize.mjs)
+  0x118: 'NotAchieved', 0x119: 'PassNotValid', 0x11A: 'MemberTooRecent', 0x11B: 'BelowMinimum', 0x11C: 'DisputeOpen', 0x11D: 'ClaimClosed', 0x11E: 'RealMoneyMint' });
 /** What Pay adds to a Join's compute-unit and loaded-data limits (the prize and token programs, five more accounts). */
 export const PAID_JOIN_EXTRA_CU = 80_000;
 export const PAID_JOIN_EXTRA_LOADED = 524_288;

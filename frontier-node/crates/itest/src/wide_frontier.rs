@@ -36,7 +36,7 @@ pub const FRONTIER_RADIUS: u128 = 2;
 /// Openings sent per bell at most.
 pub const OPENS_PER_BELL: usize = 3;
 /// Openings per world at most (the wedge funds pay each province's rent).
-pub const OPENS_MAX: usize = 150;
+pub const OPENS_MAX: usize = 300;
 
 fn ctx_of(a: &Addresses) -> AddrCtx {
     AddrCtx {
