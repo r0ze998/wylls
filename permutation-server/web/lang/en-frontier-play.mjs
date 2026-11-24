@@ -456,6 +456,8 @@ export default {
   '完成 {0}': '{0} built',
   '村 {0}': n => plural(n, '{0} village update', '{0} village updates'),
   'ターン {0} のまとめ：{1}': 'Turn {0} in brief: {1}',
+  '知らせ {0}': n => plural(n, '{0} update', '{0} updates'),
+  'ほかの知らせ {0}': n => plural(n, '{0} other update', '{0} other updates'),
   'ターン {0}': 'Turn {0}',
   '最初のターンの前': 'Before the first turn',
   '新しいターン': 'A new turn',
@@ -1403,6 +1405,8 @@ export default {
   'ゲーム内で約 {0}': 'about {0} of game time',
   'この世界の実時間で約 {0}': 'about {0} of real time in this world',
   '約 {0}': 'about {0}',
+  // (fix-loop15, LP15-9b: the keep rows say the arrival as the order card does)
+  '到着はターン {0}（{1}）': 'arrives turn {0} ({1})',
   'この試しの世界は決まったターンで新しい命令の受付を終えます。試しの世界の上限で、勝ち負けの決まりではありません。': 'This test world stops taking new orders at a set turn. That is a limit of test worlds, not a rule for winning.',
   'ガイド：州を奪いました': 'Guide: a province taken',
   '見本 · 終わった実行の記録から': 'Sample · from the records of a finished run',
@@ -2242,6 +2246,10 @@ export default {
   '作る兵器の数': 'Arms to make',
   '予約して材料を入れる': 'Book and put in materials',
   '兵器 1 につき 鉱石 {0}・木材 {1}（あなたの貯蔵庫から）': 'per unit of arms: {0} ore and {1} wood (from your storehouse)',
+  // (fix-loop15, LP15-8: the booking's materials come from the user's own storehouse; an empty one is said before signing)
+  'あなたの貯蔵庫（マス {0}）の材料が足りません。兵器 {1} には 鉱石 {2}・木材 {3} がいります（いま 鉱石 {4}・木材 {5}）。村から隊商で貯蔵庫へ運んでから、もう一度押してください。': 'Your storehouse (tile {0}) does not hold enough materials. {1} arms need {2} ore and {3} wood (it holds {4} ore and {5} wood). Send them from your village by caravan, then press again.',
+  'あなたの貯蔵庫（マス {0}）に材料がありません（いま 鉱石 {1}・木材 {2}）。村から隊商で鉱石と木材を貯蔵庫へ運ぶと予約できます。': 'Your storehouse (tile {0}) holds no materials for this (now {1} ore and {2} wood). Send ore and wood from your village by caravan to book.',
+  'あなたの貯蔵庫（マス {0}）：鉱石 {1}・木材 {2}': 'Your storehouse (tile {0}): {1} ore · {2} wood',
   'この州にあなたの貯蔵庫がいります。': 'You need a storehouse in this province.',
   'あなたの作業': 'Your jobs',
   '兵器 {0} / {1}': 'arms {0} / {1}',
