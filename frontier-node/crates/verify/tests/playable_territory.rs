@@ -59,7 +59,9 @@ use frontier_abi::layout::player::{accrual as AC, citizen as C, holding as H, ho
 use frontier_abi::layout::province::{province as PV, site as SM};
 use frontier_abi::layout::world::{frontier as FR, ring_seed as RS};
 use frontier_abi::v2::layout::player::citizen as C2;
-use frontier_abi::v2::presets::{params_hash_v2, ConquestParams, SeasonParamsV2, S1_DEVNET_TERRITORY};
+use frontier_abi::v2::presets::{
+    params_hash_v2, ConquestParams, SeasonParamsV2, S1_DEVNET_TERRITORY,
+};
 use frontier_abi::world_index::{
     land as wl,
     rules::{self as wr, CampRule, FreeCityRule, KeepHolderRule, RegionRule},
@@ -124,7 +126,8 @@ impl Rec {
         let sig = match self.c.submit(&tx::wire(&t)) {
             Ok(s) => s,
             Err(e) => {
-                self.log.push(format!("{what}: refused before landing: {e}"));
+                self.log
+                    .push(format!("{what}: refused before landing: {e}"));
                 return false;
             }
         };
@@ -169,7 +172,8 @@ impl Rec {
             account: Some(a),
             what: what.to_string(),
         });
-        self.log.push(format!("PATCH (set_account, declared): {what}"));
+        self.log
+            .push(format!("PATCH (set_account, declared): {what}"));
     }
     fn patch(&mut self, k: [u8; 32], data: Vec<u8>, what: &str) {
         let a = Account {
@@ -272,13 +276,27 @@ fn request_ix(a: &Addresses, payer: &Address, ring: u64) -> Instruction {
     for w in 0..6u8 {
         accounts.push(AccountMeta::new_readonly(adr(c.province_fund(w)), false));
     }
-    accounts.push(AccountMeta::new_readonly(fclient::addr::system_program(), false));
-    wide_ix(a, accounts, wix::RequestRingSeed { ring }.to_bytes().to_vec())
+    accounts.push(AccountMeta::new_readonly(
+        fclient::addr::system_program(),
+        false,
+    ));
+    wide_ix(
+        a,
+        accounts,
+        wix::RequestRingSeed { ring }.to_bytes().to_vec(),
+    )
 }
 
-fn consume_ix(a: &Addresses, payer: &Address, ring: u64, round: u64, sig48: [u8; 48]) -> Instruction {
+fn consume_ix(
+    a: &Addresses,
+    payer: &Address,
+    ring: u64,
+    round: u64,
+    sig48: [u8; 48],
+) -> Instruction {
     let c = ctx_of(a);
-    let hints: [u8; frontier_abi::ix::HINTS_LEN] = fb::hints_bytes(round).try_into().expect("hints");
+    let hints: [u8; frontier_abi::ix::HINTS_LEN] =
+        fb::hints_bytes(round).try_into().expect("hints");
     wide_ix(
         a,
         vec![
@@ -417,7 +435,13 @@ fn t_settle(a: &Addresses, payer: Address, citizen: &[u8; 32], home: Address) ->
     )
 }
 
-fn t_decay(a: &Addresses, payer: Address, citizen: &[u8; 32], province: WideCoord, tile: u8) -> Instruction {
+fn t_decay(
+    a: &Addresses,
+    payer: Address,
+    citizen: &[u8; 32],
+    province: WideCoord,
+    tile: u8,
+) -> Instruction {
     let c = ctx_of(a);
     wide_ix(
         a,
@@ -585,9 +609,17 @@ fn record_playable_territory() {
         &[ix::create_season(&a, upgrade.pubkey(), &sp, &payout)],
         "CreateSeason",
     );
-    r.send(&[&upgrade], &[ix::init_beacon_logs(&a, upgrade.pubkey())], "InitBeaconLogs");
+    r.send(
+        &[&upgrade],
+        &[ix::init_beacon_logs(&a, upgrade.pubkey())],
+        "InitBeaconLogs",
+    );
     for f in 0..fclient::abi::FACTIONS {
-        r.send(&[&upgrade], &[ix::init_shards(&a, upgrade.pubkey(), f)], "InitShards");
+        r.send(
+            &[&upgrade],
+            &[ix::init_shards(&a, upgrade.pubkey(), f)],
+            "InitShards",
+        );
     }
     r.advance_to(round_time(clock.genesis, p.base.drand_period, round) + 1);
     let arg = ix::BeaconArg {
@@ -613,7 +645,11 @@ fn record_playable_territory() {
     };
     while rings_opened(&r) <= cq.heartland_max_ring as u16 {
         let d = rings_opened(&r);
-        r.send(&[&payer], &[ix::open_ring(&a, payer.pubkey(), d)], "OpenRing");
+        r.send(
+            &[&payer],
+            &[ix::open_ring(&a, payer.pubkey(), d)],
+            "OpenRing",
+        );
     }
     let mut homes: Vec<(i16, i16, u8)> = vec![];
     for ring in 2..=cq.heartland_max_ring as i32 {
@@ -685,7 +721,11 @@ fn record_playable_territory() {
             rim_site: i as u8,
         });
     }
-    r.send(&[&upgrade], &[set_rules_ix(&a, &upgrade.pubkey())], "WideSetRules NeutralTerritoryV1");
+    r.send(
+        &[&upgrade],
+        &[set_rules_ix(&a, &upgrade.pubkey())],
+        "WideSetRules NeutralTerritoryV1",
+    );
 
     // ---- 2. The wide land (declared patch, then real).
     let model_ring = adr(ctx.ring_seed(cq.heartland_max_ring as u16));
@@ -693,19 +733,27 @@ fn record_playable_territory() {
     assert_eq!(rs.data[RS::STATUS], RS::STATUS_SEEDED);
     rs.data[RS::D..RS::D + 2].copy_from_slice(&128u16.to_le_bytes());
     rs.data[RS::OPENED_BELL..RS::OPENED_BELL + 4].copy_from_slice(&0u32.to_le_bytes());
-    r.put(ctx.ring_seed(128), rs, "RingSeed(128) seeded, opened_bell 0");
-    r.edit(a.frontier().to_bytes(), "Frontier wedge_occupied = wedge_open", |d| {
-        for w in 0..6 {
-            let o = FR::WEDGE_OPEN + 4 * w;
-            let mut open = u32::from_le_bytes(d[o..o + 4].try_into().unwrap());
-            if open == 0 {
-                open = 1;
-                d[o..o + 4].copy_from_slice(&open.to_le_bytes());
+    r.put(
+        ctx.ring_seed(128),
+        rs,
+        "RingSeed(128) seeded, opened_bell 0",
+    );
+    r.edit(
+        a.frontier().to_bytes(),
+        "Frontier wedge_occupied = wedge_open",
+        |d| {
+            for w in 0..6 {
+                let o = FR::WEDGE_OPEN + 4 * w;
+                let mut open = u32::from_le_bytes(d[o..o + 4].try_into().unwrap());
+                if open == 0 {
+                    open = 1;
+                    d[o..o + 4].copy_from_slice(&open.to_le_bytes());
+                }
+                let oc = FR::WEDGE_OCCUPIED + 4 * w;
+                d[oc..oc + 4].copy_from_slice(&open.to_le_bytes());
             }
-            let oc = FR::WEDGE_OCCUPIED + 4 * w;
-            d[oc..oc + 4].copy_from_slice(&open.to_le_bytes());
-        }
-    });
+        },
+    );
     // (no fund top-up: `S1_DEVNET_TERRITORY`'s initial wedge funds pay the
     //  ring-129 openings; a system transfer would leave the funds' balances
     //  outside the archive, VWL `MissingData`)
@@ -725,7 +773,11 @@ fn record_playable_territory() {
         - 1;
     r.advance_to(t_req - 1);
     assert_eq!(ring_seed_round(&clock, r.c.unix_timestamp(), margin), bound);
-    r.send(&[&payer], &[request_ix(&a, &payer.pubkey(), 129)], "WideRequestRingSeed(129)");
+    r.send(
+        &[&payer],
+        &[request_ix(&a, &payer.pubkey(), 129)],
+        "WideRequestRingSeed(129)",
+    );
     r.advance_to(round_time(clock.genesis, p.base.drand_period, bound) + 1);
     let sig = rounds.get(&bound).expect("bound round").sig48;
     r.send(
@@ -744,9 +796,21 @@ fn record_playable_territory() {
         }
     }
     let rim_c = WideCoord::checked(RIM.0 as i64, RIM.1 as i64).unwrap();
-    let near: Vec<WideCoord> = opened.iter().copied().filter(|c| c.distance(rim_c) == 1).collect();
-    let far: Vec<WideCoord> = opened.iter().copied().filter(|c| c.distance(rim_c) == 2).collect();
-    assert!(near.len() >= 2 && !far.is_empty(), "{opened:?} {:#?}", r.log);
+    let near: Vec<WideCoord> = opened
+        .iter()
+        .copied()
+        .filter(|c| c.distance(rim_c) == 1)
+        .collect();
+    let far: Vec<WideCoord> = opened
+        .iter()
+        .copied()
+        .filter(|c| c.distance(rim_c) == 2)
+        .collect();
+    assert!(
+        near.len() >= 2 && !far.is_empty(),
+        "{opened:?} {:#?}",
+        r.log
+    );
     let (p0, p1, p2) = (near[0], near[1], far[0]);
     for c in &opened {
         let pd = r.data(&adr(wl::province_address(&ctx, *c))).unwrap();
@@ -760,7 +824,9 @@ fn record_playable_territory() {
     // ---- 3. Declared: the players' final Town homes at the rim.
     let rim_prov = ctx.province(RIM.0, RIM.1);
     let (hp, hq, _) = homes[0];
-    let mut pd = r.data(&a.province(hp.into(), hq.into())).expect("a real v2 Province");
+    let mut pd = r
+        .data(&a.province(hp.into(), hq.into()))
+        .expect("a real v2 Province");
     {
         use frontier_abi::v2::layout::province::province as P2;
         pd[P2::P..P2::P + 2].copy_from_slice(&(RIM.0 as i16).to_le_bytes());
@@ -802,7 +868,10 @@ fn record_playable_territory() {
         r.patch(
             ctx.holding(RIM.0, RIM.1, m.rim_site),
             hd,
-            &format!("player {i}'s final Town home at the rim (128,0) site {}", m.rim_site),
+            &format!(
+                "player {i}'s final Town home at the rim (128,0) site {}",
+                m.rim_site
+            ),
         );
         let so = PV::site(m.rim_site as usize);
         pd[so + SM::STATE] = SM::STATE_HOLDING;
@@ -824,10 +893,15 @@ fn record_playable_territory() {
             },
         );
     }
-    r.patch(rim_prov, pd, "a v2 Province at the rim (128,0) mirroring the three homes");
+    r.patch(
+        rim_prov,
+        pd,
+        "a v2 Province at the rim (128,0) mirroring the three homes",
+    );
 
     // ---- 4. REAL territory.
-    let bell_now = |r: &Rec| frontier_abi::prologue::bell_at(genesis_ts, r.c.unix_timestamp()).unwrap();
+    let bell_now =
+        |r: &Rec| frontier_abi::prologue::bell_at(genesis_ts, r.c.unix_timestamp()).unwrap();
     let next_bell = |r: &mut Rec| {
         let b = bell_now(r);
         r.advance_to(genesis_ts + 600 * (b as i64 + 1) + 5);
@@ -841,26 +915,68 @@ fn record_playable_territory() {
     assert!(!free0.is_empty() && plain0.len() > 2 && plain1.len() > 2 && !plain2.is_empty());
     let (site_a, tile_a) = free0[0];
     next_bell(&mut r);
-    r.send(&[&ma.wallet], &[t_claim_tile(&a, ma, p0, tile_a, None)], "WideClaimTile A p0 (the tile of a free site): both records created");
-    r.send(&[&mb.wallet], &[t_claim_tile(&a, mb, p1, plain1[0], None)], "WideClaimTile B p1");
-    assert!(!r.try_send(&[&ma.wallet], &[t_claim_tile(&a, ma, p0, plain0[0], None)], "WideClaimTile A again this bell (refused: one a turn)"));
+    r.send(
+        &[&ma.wallet],
+        &[t_claim_tile(&a, ma, p0, tile_a, None)],
+        "WideClaimTile A p0 (the tile of a free site): both records created",
+    );
+    r.send(
+        &[&mb.wallet],
+        &[t_claim_tile(&a, mb, p1, plain1[0], None)],
+        "WideClaimTile B p1",
+    );
+    assert!(!r.try_send(
+        &[&ma.wallet],
+        &[t_claim_tile(&a, ma, p0, plain0[0], None)],
+        "WideClaimTile A again this bell (refused: one a turn)"
+    ));
     next_bell(&mut r);
-    r.send(&[&ma.wallet], &[t_claim_tile(&a, ma, p2, plain2[0], None)], "WideClaimTile A p2 (distance 2)");
-    r.send(&[&mb.wallet], &[t_claim_tile(&a, mb, p1, plain1[1], None)], "WideClaimTile B p1 again");
+    r.send(
+        &[&ma.wallet],
+        &[t_claim_tile(&a, ma, p2, plain2[0], None)],
+        "WideClaimTile A p2 (distance 2)",
+    );
+    r.send(
+        &[&mb.wallet],
+        &[t_claim_tile(&a, mb, p1, plain1[1], None)],
+        "WideClaimTile B p1 again",
+    );
     next_bell(&mut r);
     let own0 = adr(wtr::province_address(&ctx, p0));
     r.send(
         &[&ma.wallet],
-        &[t_claim_tile(&a, ma, p1, plain1[2], Some((wix::CLAIM_TILE_WITNESS_OWN, own0)))],
+        &[t_claim_tile(
+            &a,
+            ma,
+            p1,
+            plain1[2],
+            Some((wix::CLAIM_TILE_WITNESS_OWN, own0)),
+        )],
         "WideClaimTile A p1 with an own-land witness (p0's record)",
     );
-    assert!(!r.try_send(&[&mb.wallet], &[t_claim_tile(&a, mb, p1, plain1[2], None)], "WideClaimTile B on A's tile (refused: owned)"));
-    r.send(&[&ma.wallet], &[claim_site_ix(&a, ma, p0, site_a)], "WideClaimSite A on its own tile (T-6: the territory record as the 13th account)");
+    assert!(!r.try_send(
+        &[&mb.wallet],
+        &[t_claim_tile(&a, mb, p1, plain1[2], None)],
+        "WideClaimTile B on A's tile (refused: owned)"
+    ));
+    r.send(
+        &[&ma.wallet],
+        &[claim_site_ix(&a, ma, p0, site_a)],
+        "WideClaimSite A on its own tile (T-6: the territory record as the 13th account)",
+    );
     next_bell(&mut r);
     for m in [ma, mb] {
-        r.send(&[&keeper], &[t_settle(&a, keeper.pubkey(), &m.citizen, home_of(m))], "keeper: WideTerritorySettle (paid)");
+        r.send(
+            &[&keeper],
+            &[t_settle(&a, keeper.pubkey(), &m.citizen, home_of(m))],
+            "keeper: WideTerritorySettle (paid)",
+        );
     }
-    r.send(&[&keeper], &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))], "keeper: WideTerritorySettle A again in the same second");
+    r.send(
+        &[&keeper],
+        &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))],
+        "keeper: WideTerritorySettle A again in the same second",
+    );
 
     // ---- 5. Declared starvation of A's home; REAL unpaid, then decay.
     next_bell(&mut r);
@@ -878,14 +994,29 @@ fn record_playable_territory() {
         acc.data[u..u + 8].copy_from_slice(&max.to_le_bytes());
         r.put(hk.to_bytes(), acc, "A's first home starved: food 0, food upkeep the kernel's maximum (P18's declaration, VQ-1)");
     }
-    r.send(&[&keeper], &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))], "keeper: WideTerritorySettle A (unpaid)");
-    let tp = |r: &Rec, m: &Member| TerritoryPlayer::read(&r.data(&adr(wtr::player_address(&ctx, &m.citizen))).unwrap()).unwrap();
+    r.send(
+        &[&keeper],
+        &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))],
+        "keeper: WideTerritorySettle A (unpaid)",
+    );
+    let tp = |r: &Rec, m: &Member| {
+        TerritoryPlayer::read(&r.data(&adr(wtr::player_address(&ctx, &m.citizen))).unwrap())
+            .unwrap()
+    };
     assert!(tp(&r, ma).unpaid_since.is_some(), "A unpaid");
     next_bell(&mut r);
-    assert!(!r.try_send(&[&ma.wallet], &[t_claim_tile(&a, ma, p0, plain0[1], None)], "WideClaimTile A while unpaid (refused)"));
+    assert!(!r.try_send(
+        &[&ma.wallet],
+        &[t_claim_tile(&a, ma, p0, plain0[1], None)],
+        "WideClaimTile A while unpaid (refused)"
+    ));
     let unpaid = tp(&r, ma).unpaid_since.unwrap();
     r.advance_to(genesis_ts + 600 * (unpaid as i64 + 24) + 5);
-    r.send(&[&keeper], &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))], "keeper: WideTerritorySettle A (the settle-alone step)");
+    r.send(
+        &[&keeper],
+        &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))],
+        "keeper: WideTerritorySettle A (the settle-alone step)",
+    );
     // the farthest first: A's p2 tile (distance 2)
     r.send(
         &[&keeper],
@@ -919,7 +1050,9 @@ fn record_playable_territory() {
     {
         let k = wl::province_address(&ctx, p1);
         let mut acc = r.c.account(&adr(k)).expect("p1");
-        let mut keep = frontier_abi::conquest_model::read_keep(&acc.data).unwrap().unwrap();
+        let mut keep = frontier_abi::conquest_model::read_keep(&acc.data)
+            .unwrap()
+            .unwrap();
         keep.holder = mc.faction;
         keep.gen = keep.gen.wrapping_add(1);
         keep.contender = keep.holder;
@@ -980,12 +1113,21 @@ fn record_playable_territory() {
         }
     }
     assert!(landed, "{:#?}", r.log);
-    let tprov1 = TerritoryProvince::read(&r.data(&adr(wtr::province_address(&ctx, p1))).unwrap()).unwrap();
+    let tprov1 =
+        TerritoryProvince::read(&r.data(&adr(wtr::province_address(&ctx, p1))).unwrap()).unwrap();
     let ctag = tp(&r, mc).citizen_tag;
-    assert_eq!(tprov1.owned_by(ctag), 3, "B's two tiles and A's one moved to C");
+    assert_eq!(
+        tprov1.owned_by(ctag),
+        3,
+        "B's two tiles and A's one moved to C"
+    );
     next_bell(&mut r);
     for m in [ma, mb, mc] {
-        r.send(&[&keeper], &[t_settle(&a, keeper.pubkey(), &m.citizen, home_of(m))], "keeper: WideTerritorySettle");
+        r.send(
+            &[&keeper],
+            &[t_settle(&a, keeper.pubkey(), &m.citizen, home_of(m))],
+            "keeper: WideTerritorySettle",
+        );
     }
 
     // ---- the archive
@@ -994,7 +1136,45 @@ fn record_playable_territory() {
         "verify/tests/playable_territory.rs record_playable_territory: the devnet-playable .so of world 3 (sha256 {TERRITORY_SHA256}) in localnet::Chain (LiteSVM, in process); a real S1_DEVNET_TERRITORY world (0x4804, NeutralTerritoryV1), every set_account patch declared; steps: {}",
         r.log.join("; ")
     );
-    let whole = input_of(program, so_hash, txs, finals, r.c.slot(), prov, r.declared.clone());
+    let mut whole = input_of(
+        program,
+        so_hash,
+        txs,
+        finals,
+        r.c.slot(),
+        prov,
+        r.declared.clone(),
+    );
+    // What getTransaction serves beside each transaction (`meta.preBalances`
+    // / `postBalances`), the ProgramData's upgrade authority and the chain's
+    // Rent sysvar: VG's input (an archive without post-states replayed from
+    // genesis, as a public RPC's archive of world 3 would be).
+    let rent_acc =
+        r.c.account(&fclient::rent::rent_sysvar())
+            .expect("the chain's Rent sysvar");
+    let landed = r.c.feed(0, usize::MAX, Some(&program));
+    whole.chain = verify_core::input::ChainWitness {
+        lookup_snapshots: vec![],
+        balances: landed
+            .iter()
+            .map(|l| {
+                (
+                    l.signature.to_string(),
+                    verify_core::input::Balances {
+                        pre: l.pre_balances.clone(),
+                        post: l.post_balances.clone(),
+                    },
+                )
+            })
+            .collect(),
+        upgrade_authority: Some(upgrade.pubkey()),
+        cross: None,
+        rent: Some(
+            verify_core::input::RentRead::from_chain(&rent_acc.data, r.c.slot())
+                .expect("a Rent sysvar"),
+        ),
+        lookup_tables: None,
+    };
     for l in &r.log {
         println!("{l}");
     }
@@ -1003,7 +1183,22 @@ fn record_playable_territory() {
     let rep = verify_core::verify(&judged);
     println!("verdict {:?}", rep.verdict);
     for f in &rep.findings {
-        println!("{:?} {} {} {} {}", f.severity, f.check, f.code, f.entity, f.detail);
+        println!(
+            "{:?} {} {} {} {}",
+            f.severity, f.check, f.code, f.entity, f.detail
+        );
+    }
+    let mut rpc = judged.clone();
+    for t in rpc.txs.iter_mut() {
+        t.post.clear();
+    }
+    let rep = verify_core::verify(&rpc);
+    println!("VG verdict {:?}", rep.verdict);
+    for f in &rep.findings {
+        println!(
+            "VG {:?} {} {} {} {}",
+            f.severity, f.check, f.code, f.entity, f.detail
+        );
     }
     if let Ok(dir) = std::env::var("PLAYABLE_WIDE_DUMP") {
         let d = std::path::Path::new(&dir);
@@ -1021,7 +1216,11 @@ fn whole() -> Input {
 fn so() -> std::sync::Arc<Vec<u8>> {
     let p = verify_core::reexec::Program::load(&common::fixtures_dir().join(SO_GZ))
         .expect("the committed .so");
-    assert_eq!(hex::encode(p.sha256()), TERRITORY_SHA256, "the committed .so is world 3's");
+    assert_eq!(
+        hex::encode(p.sha256()),
+        TERRITORY_SHA256,
+        "the committed .so is world 3's"
+    );
     std::sync::Arc::new(p.so.as_ref().clone())
 }
 
@@ -1043,7 +1242,10 @@ fn ixs_of(inp: &Input, t: usize) -> Vec<(Vec<u8>, Vec<[u8; 32]>)> {
         .map(|c| {
             (
                 c.data.clone(),
-                c.accounts.iter().map(|&i| keys[i as usize].to_bytes()).collect(),
+                c.accounts
+                    .iter()
+                    .map(|&i| keys[i as usize].to_bytes())
+                    .collect(),
             )
         })
         .collect()
@@ -1082,15 +1284,23 @@ fn claims(inp: &Input) -> Vec<usize> {
 }
 
 fn decays(inp: &Input) -> Vec<usize> {
-    txs_where(inp, |cs| cs.iter().any(|c| matches!(c, wix::WideCommand::TerritoryDecay(_))))
+    txs_where(inp, |cs| {
+        cs.iter()
+            .any(|c| matches!(c, wix::WideCommand::TerritoryDecay(_)))
+    })
 }
 
 fn conquers(inp: &Input) -> Vec<usize> {
-    txs_where(inp, |cs| cs.iter().any(|c| matches!(c, wix::WideCommand::TerritoryConquer(_))))
+    txs_where(inp, |cs| {
+        cs.iter()
+            .any(|c| matches!(c, wix::WideCommand::TerritoryConquer(_)))
+    })
 }
 
 fn settles_alone(inp: &Input) -> Vec<usize> {
-    txs_where(inp, |cs| matches!(cs, [wix::WideCommand::TerritorySettle(_)]))
+    txs_where(inp, |cs| {
+        matches!(cs, [wix::WideCommand::TerritorySettle(_)])
+    })
 }
 
 fn sig(inp: &Input, t: usize) -> String {
@@ -1116,7 +1326,14 @@ fn fails_at(rep: &[Finding], inp: &Input, t: usize, code: &str, text: &str) -> b
 
 fn show(rep: &[Finding]) -> Vec<(String, String, String, String)> {
     rep.iter()
-        .map(|f| (f.check.to_string(), f.code.clone(), f.entity.clone(), f.detail.clone()))
+        .map(|f| {
+            (
+                f.check.to_string(),
+                f.code.clone(),
+                f.entity.clone(),
+                f.detail.clone(),
+            )
+        })
         .collect()
 }
 
@@ -1181,7 +1398,11 @@ fn the_recording_exercises_every_territory_path() {
     assert!(ts.len() >= 15, "{}", ts.len());
     // the keeper's multi-instruction transactions
     let multi: Vec<_> = ts.iter().filter(|&&t| ixs_of(&inp, t).len() > 1).collect();
-    assert_eq!(multi.len(), 4, "two settle+decay, settle+conquer, settle×2+conquer");
+    assert_eq!(
+        multi.len(),
+        4,
+        "two settle+decay, settle+conquer, settle×2+conquer"
+    );
     // a captor summary created by a conquest; a claim with a witness
     let witnessed = claims(&inp)
         .into_iter()
@@ -1191,7 +1412,11 @@ fn the_recording_exercises_every_territory_path() {
     // refused territory transactions are archived (not judged)
     let refused = (0..inp.txs.len())
         .filter(|&t| inp.txs[t].err.is_some())
-        .filter(|&t| ixs_of(&inp, t).iter().any(|(d, _)| cmd(d).as_ref().is_some_and(is_terr)))
+        .filter(|&t| {
+            ixs_of(&inp, t)
+                .iter()
+                .any(|(d, _)| cmd(d).as_ref().is_some_and(is_terr))
+        })
         .count();
     assert!(refused >= 4, "{refused}");
     // the WideClaimSite on an own tile (13 accounts, the territory record)
@@ -1209,10 +1434,19 @@ fn the_honest_territory_world_has_no_fail_and_every_territory_tx_is_judged() {
     let inp = with_so(whole());
     let rep = verify_core::verify(&inp);
     let fails: Vec<_> = rep.findings.iter().filter(|f| f.fail()).collect();
-    assert!(fails.is_empty(), "{:#?}", fails.iter().map(|f| (f.check, &f.code, &f.entity, &f.detail)).collect::<Vec<_>>());
+    assert!(
+        fails.is_empty(),
+        "{:#?}",
+        fails
+            .iter()
+            .map(|f| (f.check, &f.code, &f.entity, &f.detail))
+            .collect::<Vec<_>>()
+    );
     assert_eq!(rep.verdict, Verdict::Unverifiable, "the declared patches");
     assert!(
-        !rep.findings.iter().any(|f| f.code == "WideUnmodelled" || f.code == "UnverifiedInstruction"),
+        !rep.findings
+            .iter()
+            .any(|f| f.code == "WideUnmodelled" || f.code == "UnverifiedInstruction"),
         "{:#?}",
         show(&rep.findings)
     );
@@ -1221,7 +1455,8 @@ fn the_honest_territory_world_has_no_fail_and_every_territory_tx_is_judged() {
         let here = at(&rep.findings, &inp, t);
         if reads_declared(&inp, t) {
             assert!(
-                here.iter().all(|(_, c, d)| c == "MissingData" && d.contains("declare")),
+                here.iter()
+                    .all(|(_, c, d)| c == "MissingData" && d.contains("declare")),
                 "tx#{t}: {here:#?}"
             );
         } else {
@@ -1229,13 +1464,18 @@ fn the_honest_territory_world_has_no_fail_and_every_territory_tx_is_judged() {
             passed += 1;
         }
     }
-    assert!(passed >= 10, "{passed} territory transactions PASS outright");
+    assert!(
+        passed >= 10,
+        "{passed} territory transactions PASS outright"
+    );
     // every Unverifiable finding of the world is a declared patch showing
     let other: Vec<_> = rep
         .findings
         .iter()
         .filter(|f| f.severity == Severity::Unverifiable)
-        .filter(|f| !(f.detail.contains("declare") || f.code == "MissingData" && f.detail.contains("patch")))
+        .filter(|f| {
+            !(f.detail.contains("declare") || f.code == "MissingData" && f.detail.contains("patch"))
+        })
         .map(|f| (f.check, f.code.clone(), f.entity.clone(), f.detail.clone()))
         .collect();
     assert!(other.is_empty(), "{other:#?}");
@@ -1269,7 +1509,11 @@ fn a_claim_of_an_owned_tile_fails() {
     };
     edit_ix(&mut inp, t2, 0, |d| d[20] = first_tile);
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t2, "WideRule", "AlreadyYours"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t2, "WideRule", "AlreadyYours"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A claim while upkeep is unpaid (the refused claim, forged as landed with
@@ -1287,7 +1531,11 @@ fn a_claim_while_unpaid_fails() {
         .unwrap();
     inp.txs[t].err = None;
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideRule", "UpkeepUnpaid"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideRule", "UpkeepUnpaid"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A claim that did not pay its ore: FAIL.
@@ -1302,7 +1550,11 @@ fn a_claim_that_kept_its_ore_fails() {
         a.data[o..o + 8].copy_from_slice(&v.to_le_bytes());
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// Wrong upkeep: a settle whose home kept the food it was charged, or whose
@@ -1315,7 +1567,10 @@ fn a_wrong_upkeep_settle_fails() {
         .into_iter()
         .find(|&t| {
             !reads_declared(&base, t)
-                && base.txs[t].post.iter().any(|(k, _)| k.to_bytes() == ixs_of(&base, t)[0].1[4])
+                && base.txs[t]
+                    .post
+                    .iter()
+                    .any(|(k, _)| k.to_bytes() == ixs_of(&base, t)[0].1[4])
         })
         .expect("a settle that charged the home");
     let ks = ixs_of(&base, t)[0].1.clone();
@@ -1326,7 +1581,11 @@ fn a_wrong_upkeep_settle_fails() {
         a.data[o..o + 8].copy_from_slice(&v.to_le_bytes());
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+        "{:#?}",
+        show(&f)
+    );
     // the summary: paid_to off by one second
     let mut inp = base.clone();
     edit_post(&mut inp, t, &ks[2], |a| {
@@ -1335,7 +1594,11 @@ fn a_wrong_upkeep_settle_fails() {
         pl.write(&mut a.data).unwrap();
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+        "{:#?}",
+        show(&f)
+    );
     // an unpaid mark that never happened
     let mut inp = base;
     edit_post(&mut inp, t, &ks[2], |a| {
@@ -1344,7 +1607,11 @@ fn a_wrong_upkeep_settle_fails() {
         pl.write(&mut a.data).unwrap();
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// Decay out of order: the first decay naming a nearer tile while a
@@ -1373,7 +1640,11 @@ fn a_decay_out_of_order_fails() {
     tx.message.account_keys[slot] = Address::new_from_array(k2[3]);
     inp.txs[first].tx = fclient::tx::wire(&tx);
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, first, "WideRule", "farthest"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, first, "WideRule", "farthest"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A decay without the settle in the same second (alone in its
@@ -1388,12 +1659,17 @@ fn a_decay_without_its_settle_fails() {
     let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
     let keys = tx.message.account_keys.clone();
     let program = inp.cfg.program;
-    tx.message
-        .instructions
-        .retain(|c| keys[c.program_id_index as usize] != program || cmd(&c.data).is_some_and(|c| matches!(c, wix::WideCommand::TerritoryDecay(_))));
+    tx.message.instructions.retain(|c| {
+        keys[c.program_id_index as usize] != program
+            || cmd(&c.data).is_some_and(|c| matches!(c, wix::WideCommand::TerritoryDecay(_)))
+    });
     inp.txs[t].tx = fclient::tx::wire(&tx);
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideRule", "this second"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideRule", "this second"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A decay before the grace ran out: the summary's unpaid mark (as the
@@ -1406,7 +1682,9 @@ fn a_decay_before_the_grace_fails() {
     let summary = ixs_of(&inp, t)[0].1[2];
     let w = (0..t)
         .rev()
-        .find(|&u| inp.txs[u].err.is_none() && inp.txs[u].post.iter().any(|(k, _)| k.to_bytes() == summary))
+        .find(|&u| {
+            inp.txs[u].err.is_none() && inp.txs[u].post.iter().any(|(k, _)| k.to_bytes() == summary)
+        })
         .unwrap();
     edit_post(&mut inp, w, &summary, |a| {
         let mut pl = TerritoryPlayer::read(&a.data).unwrap();
@@ -1414,7 +1692,11 @@ fn a_decay_before_the_grace_fails() {
         pl.write(&mut a.data).unwrap();
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideRule", "not due"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideRule", "not due"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A conquest that moved a tile the program keeps with its owner (the
@@ -1426,13 +1708,19 @@ fn a_forged_conquest_fails() {
     let tprov = ixs_of(&inp, t).last().unwrap().1[3];
     edit_post(&mut inp, t, &tprov, |a| {
         let mut r = TerritoryProvince::read(&a.data).unwrap();
-        let i = (0..permutation_rules::frontier::geometry::PROVINCE_TILES).find(|&i| r.owner[i] == 0 && i as u8 != r.keep_tile).unwrap();
+        let i = (0..permutation_rules::frontier::geometry::PROVINCE_TILES)
+            .find(|&i| r.owner[i] == 0 && i as u8 != r.keep_tile)
+            .unwrap();
         r.owner[i] = r.owner.iter().copied().find(|o| *o != 0).unwrap();
         r.dist[i] = 1;
         r.write(&mut a.data).unwrap();
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideReplayMismatch", "re-run"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A conquest whose summaries were not settled in its second (the settle
@@ -1444,12 +1732,17 @@ fn a_conquest_without_its_settles_fails() {
     let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).unwrap();
     let keys = tx.message.account_keys.clone();
     let program = inp.cfg.program;
-    tx.message
-        .instructions
-        .retain(|c| keys[c.program_id_index as usize] != program || cmd(&c.data).is_some_and(|c| matches!(c, wix::WideCommand::TerritoryConquer(_))));
+    tx.message.instructions.retain(|c| {
+        keys[c.program_id_index as usize] != program
+            || cmd(&c.data).is_some_and(|c| matches!(c, wix::WideCommand::TerritoryConquer(_)))
+    });
     inp.txs[t].tx = fclient::tx::wire(&tx);
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideRule", "this second"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideRule", "this second"),
+        "{:#?}",
+        show(&f)
+    );
 }
 
 /// A WideClaimSite in a territory world on a site whose tile the claimer
@@ -1466,5 +1759,38 @@ fn a_village_off_the_claimers_land_fails() {
         d.copy_from_slice(&y.to_bytes());
     });
     let f = vwl(&inp);
-    assert!(fails_at(&f, &inp, t, "WideRule", "not the claimer's"), "{:#?}", show(&f));
+    assert!(
+        fails_at(&f, &inp, t, "WideRule", "not the claimer's"),
+        "{:#?}",
+        show(&f)
+    );
+}
+
+/// The keeper's refused shape (settle loser + settle captor + conquer in one
+/// transaction, D-verifier-territory-1) forged as landed: the conquest's
+/// captor Citizen is writable in that message, which the program's account
+/// table refuses: FAIL.
+#[test]
+fn the_keepers_refused_conquest_shape_forged_as_landed_fails() {
+    let mut inp = whole();
+    let t = (0..inp.txs.len())
+        .find(|&t| {
+            inp.txs[t].err.is_some() && {
+                let ixs = ixs_of(&inp, t);
+                ixs.len() == 3
+                    && matches!(
+                        cmd(&ixs[2].0),
+                        Some(wix::WideCommand::TerritoryConquer(_))
+                    )
+            }
+        })
+        .expect("the refused keeper-shape conquest");
+    inp.txs[t].err = None;
+    inp.txs[t].code = None;
+    let f = vwl(&inp);
+    assert!(
+        fails_at(&f, &inp, t, "WideAccounts", "account flags"),
+        "{:#?}",
+        show(&f)
+    );
 }

@@ -140,7 +140,9 @@ fn terr(what: &str, er: TerritoryError) -> Wrong {
         ),
         TerritoryError::NotFarthest => fail(
             WIDE_RULE,
-            format!("{what}: the tile is not of the farthest distance (the program refuses OutOfOrder)"),
+            format!(
+                "{what}: the tile is not of the farthest distance (the program refuses OutOfOrder)"
+            ),
         ),
         TerritoryError::NotOwner => fail(
             WIDE_RULE,
@@ -192,9 +194,7 @@ impl<'a, 'e> St<'a, 'e> {
         let a = self.e.acct_before(k);
         let a = match a {
             Some(a) if a.lamports > 0 || !a.data.is_empty() => Some(a),
-            _ if self.e.known_before(k) || (self.e.snapshot.is_none() && self.e.w.has_post) => {
-                None
-            }
+            _ if self.e.known_before(k) || (self.e.snapshot.is_none() && self.e.w.has_post) => None,
             _ => return Err(Missing(format!("{what}: the archive has no state before"))),
         };
         self.m.insert(*k, a.clone());
@@ -371,7 +371,8 @@ fn write_prov(st: &mut St, k: &Key, r: &TerritoryProvince, new: bool) -> Result<
     } else {
         st.prog(k, "the territory record")?
     };
-    r.write(&mut d).map_err(|er| terr("the territory record", er))?;
+    r.write(&mut d)
+        .map_err(|er| terr("the territory record", er))?;
     if new {
         st.create(k, d);
     } else {
@@ -386,7 +387,8 @@ fn write_player(st: &mut St, k: &Key, r: &TerritoryPlayer, new: bool) -> Result<
     } else {
         st.prog(k, "a territory summary")?
     };
-    r.write(&mut d).map_err(|er| terr("a territory summary", er))?;
+    r.write(&mut d)
+        .map_err(|er| terr("a territory summary", er))?;
     if new {
         st.create(k, d);
     } else {
@@ -557,8 +559,19 @@ fn claim_tile(st: &mut St, ix: &Ix, x: &wix::ClaimTile) -> Result<(), Wrong> {
             claims::signed(e, &sk, &sd, ix.accounts[2].1),
             claims::signed(e, &citizen, &cd, ix.accounts[3].1),
         ];
-        frontier_abi::prologue::player_prologue(&views, &e.ctx.program, &RULESET_HASH_V3, e.now, true)
-            .map_err(|er| fail(WIDE_ACCOUNTS, format!("the player prologue refuses ({er:?})")))?
+        frontier_abi::prologue::player_prologue(
+            &views,
+            &e.ctx.program,
+            &RULESET_HASH_V3,
+            e.now,
+            true,
+        )
+        .map_err(|er| {
+            fail(
+                WIDE_ACCOUNTS,
+                format!("the player prologue refuses ({er:?})"),
+            )
+        })?
     };
     e.season_at(ix, 2, &[S::STATUS_RUNNING])?;
     let hdr = start.season;
@@ -570,8 +583,12 @@ fn claim_tile(st: &mut St, ix: &Ix, x: &wix::ClaimTile) -> Result<(), Wrong> {
         ));
     }
     // the land
-    let coord = WideCoord::checked(x.p, x.q)
-        .map_err(|_| fail(WIDE_RULE, "not a canonical coordinate (the program refuses BadData)"))?;
+    let coord = WideCoord::checked(x.p, x.q).map_err(|_| {
+        fail(
+            WIDE_RULE,
+            "not a canonical coordinate (the program refuses BadData)",
+        )
+    })?;
     if coord.ring() < wl::FIRST_WIDE_RING {
         return Err(fail(
             WIDE_RULE,
@@ -653,7 +670,8 @@ fn claim_tile(st: &mut St, ix: &Ix, x: &wix::ClaimTile) -> Result<(), Wrong> {
                 tprov.clone()
             } else {
                 let d = st.prog(&w, "the own-land witness")?;
-                let r = TerritoryProvince::read(&d).map_err(|er| terr("the own-land witness", er))?;
+                let r =
+                    TerritoryProvince::read(&d).map_err(|er| terr("the own-land witness", er))?;
                 if r.season_id != e.sid || r.world != world {
                     return Err(fail(
                         WIDE_ACCOUNTS,
@@ -728,7 +746,9 @@ fn claim_tile(st: &mut St, ix: &Ix, x: &wix::ClaimTile) -> Result<(), Wrong> {
     h.pay(e.now, &cost).map_err(|er| {
         fail(
             WIDE_RULE,
-            format!("the first home cannot pay the tile ({er:?}; the program refuses Insufficient)"),
+            format!(
+                "the first home cannot pay the tile ({er:?}; the program refuses Insufficient)"
+            ),
         )
     })?;
     wtr::apply_claim(&mut tprov, &mut pl, x.tile, ok, now_bell)
@@ -894,7 +914,12 @@ fn conquer(st: &mut St, ix: &Ix) -> Result<(), Wrong> {
     }
     let keep = frontier_abi::conquest_model::read_keep(&pd)
         .map_err(|_| fail(WIDE_ACCOUNTS, "the wide province's keep"))?
-        .ok_or_else(|| fail(WIDE_RULE, "the province has no keep (the program refuses TooEarly)"))?;
+        .ok_or_else(|| {
+            fail(
+                WIDE_RULE,
+                "the province has no keep (the program refuses TooEarly)",
+            )
+        })?;
     let captor = wl::captor_of(&pd)
         .map_err(|_| {
             fail(
@@ -902,7 +927,12 @@ fn conquer(st: &mut St, ix: &Ix) -> Result<(), Wrong> {
                 "the captor record does not read (the program refuses BadAccount)",
             )
         })?
-        .ok_or_else(|| fail(WIDE_RULE, "no captor recorded (the program refuses TooEarly)"))?;
+        .ok_or_else(|| {
+            fail(
+                WIDE_RULE,
+                "no captor recorded (the program refuses TooEarly)",
+            )
+        })?;
     let rule = rule_of(&pd)?;
     if captor.keep_gen != keep.gen {
         return Err(fail(
@@ -963,14 +993,12 @@ fn conquer(st: &mut St, ix: &Ix) -> Result<(), Wrong> {
             )
         })?;
     let mut tprov = tprov_read(e, &d, world, Some(prov.coord))?;
-    let d = st
-        .record(&loser_k, "the loser's summary")?
-        .ok_or_else(|| {
-            fail(
-                WIDE_ACCOUNTS,
-                "the loser's summary is absent (the program refuses BadAccount)",
-            )
-        })?;
+    let d = st.record(&loser_k, "the loser's summary")?.ok_or_else(|| {
+        fail(
+            WIDE_ACCOUNTS,
+            "the loser's summary is absent (the program refuses BadAccount)",
+        )
+    })?;
     let mut loser = tplayer_read(e, &d, world, None)?;
     if loser_k != wtr::player_address(&e.ctx, &loser.citizen) {
         return Err(fail(
@@ -993,9 +1021,7 @@ fn conquer(st: &mut St, ix: &Ix) -> Result<(), Wrong> {
     let (mut cap, captor_new) = match st.record(&captor_k, "the captor's summary")? {
         Some(d) => (tplayer_read(e, &d, world, Some(&captor_c))?, false),
         None => (
-            TerritoryPlayer::new(
-                e.sid, rule, world, captor_c, ctag, cfaction, e.now, k(0),
-            ),
+            TerritoryPlayer::new(e.sid, rule, world, captor_c, ctag, cfaction, e.now, k(0)),
             true,
         ),
     };
@@ -1051,7 +1077,12 @@ pub(super) fn require_own_site(
     let n = (pd[PV::SITE_COUNT] as usize)
         .min(permutation_rules::frontier::geometry::SITES_PER_PROVINCE);
     let sites: Vec<(u8, bool)> = (0..n)
-        .map(|j| (pd[PV::SITES + j], pd[PV::site(j) + SM::STATE] == SM::STATE_HOLDING))
+        .map(|j| {
+            (
+                pd[PV::SITES + j],
+                pd[PV::site(j) + SM::STATE] == SM::STATE_HOLDING,
+            )
+        })
         .collect();
     let tag = le(cd, C::CITIZEN_TAG, 8);
     if (tile as usize) >= rec.owner.len() || rec.owner[tile as usize] != tag {
@@ -1137,7 +1168,10 @@ pub(super) fn judge_tx(e: &Env, ixs: &[Ix]) -> Result<(), Wrong> {
             let (Some(want), Some(got)) = (want, a) else {
                 return Err(fail(
                     WIDE_REPLAY_MISMATCH,
-                    format!("account {} is absent after, but the re-run wrote it", b58(k)),
+                    format!(
+                        "account {} is absent after, but the re-run wrote it",
+                        b58(k)
+                    ),
                 ));
             };
             if got.owner.to_bytes() != e.ctx.program {

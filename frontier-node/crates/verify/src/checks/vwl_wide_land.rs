@@ -66,7 +66,11 @@
 //! WideCloses of a ticket record, a holding and a province
 //! (`vwl_wide_close.rs`), the wide economy and garrison
 //! (`vwl_wide_economy.rs`), and WideMuster and WideResolve, the bell with
-//! the wide keep capture (`vwl_wide_march.rs`). WideDissolve, WideReturn,
+//! the wide keep capture (`vwl_wide_march.rs`), and player territory
+//! (#209: WideClaimTile, WideTerritorySettle, WideTerritoryDecay,
+//! WideTerritoryConquer, `vwl_wide_territory.rs`; the keeper's
+//! multi-instruction territory transactions are re-run whole, the one
+//! exception to the rule above). WideDissolve, WideReturn,
 //! WideCloseRoster and WideDisbandStranded are VX's (re-executed by the
 //! pinned program, verifier-coverage), a successful WideResidentAct is a V0
 //! FAIL in this lane; since verifier-coverage-2 every other decodable wide

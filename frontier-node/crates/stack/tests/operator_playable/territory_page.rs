@@ -28,7 +28,8 @@
 //!
 //! Asserted on chain: every page transaction one signature, the wallet fee payer; the wallet's lamports per claim equal
 //! the preview; the ore burned equals the preview; the records' owners; the keeper's writes by kind (feed), and its
-//! `/v1/status` territory counters. No verifier pass: the verifier does not know the territory ops yet (gap G4).
+//! `/v1/status` territory counters. No verifier pass in this run; the verifier's replay of the territory ops (VWL,
+//! verifier-territory) is judged over a recorded territory world in `verify/tests/playable_territory.rs`.
 use super::*;
 use frontier_abi::layout::player::accrual as AC;
 use frontier_abi::world_index::territory::{self as wtr, TerritoryPlayer, TerritoryProvince};

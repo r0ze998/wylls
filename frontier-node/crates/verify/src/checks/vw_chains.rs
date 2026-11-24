@@ -554,9 +554,7 @@ pub fn run(cx: &mut Ctx) {
     // (every post-state byte, the chained headers included).
     let pv = cx.f.params.as_ref().map(|p| p.program_version);
     let playable = super::v0_coverage::playable(pv);
-    let vwl_owns = |i: usize| {
-        cx.w.txs.get(i).is_some_and(super::v0_coverage::vwl_tx)
-    };
+    let vwl_owns = |i: usize| cx.w.txs.get(i).is_some_and(super::v0_coverage::vwl_tx);
     // A wide holding a VWL-judged WideClose closed has no final bytes: its
     // chain ends at its last archived state, the one the close ran from. A
     // closed wide province's ends one record later: the terminal

@@ -26,7 +26,12 @@
 //!   capture-locked); for slot 3 the slot-2 holding final or due
 //!   (`previous_final`); `may_found_outpost` with the program's inputs; the
 //!   site below the count with a zero conquest record and readable
-//!   terrain; the settler cost paid from the touched anchor. Written: the
+//!   terrain; the settler cost paid from the touched anchor. In a
+//!   territory world (#209 T-6, the wide province's territory byte) the
+//!   13th account is the target's territory record instead of a reach
+//!   witness: the site's tile must be the claimer's, with no village on a
+//!   neighbouring site, and neither the range nor #206's share rule applies
+//!   (`vwl_wide_territory::require_own_site`). Written: the
 //!   Citizen (bucket debit, `LAST_ACTION_TS`, the marker, the `HARVEST`
 //!   link), the record (`WideTicket::file` / `refile`, its lamports the
 //!   payer's top-up), the anchor (the touch, the cost, the `HARVEST`
@@ -606,7 +611,9 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Ke
         // nation's land, else the program refuses (BadAccount / OutpostRule).
         let witness_distance = match witness {
             None => None,
-            Some(wk) => Some(nation_land_witness(e, &wk, world, faction, now_bell)?.distance(coord)),
+            Some(wk) => {
+                Some(nation_land_witness(e, &wk, world, faction, now_bell)?.distance(coord))
+            }
         };
         (
             u32::try_from(wreach::claim_range(
@@ -775,8 +782,7 @@ pub(super) fn nation_land_witness(
             format!("the reach witness: {er:?} (the program refuses BadAccount)"),
         )
     })?;
-    if wp.season_id != e.sid || wp.world != world || *wk != wl::province_address(&e.ctx, wp.coord)
-    {
+    if wp.season_id != e.sid || wp.world != world || *wk != wl::province_address(&e.ctx, wp.coord) {
         return Err(fail(
             WIDE_ACCOUNTS,
             "the reach witness is not this world's wide province at its address",
