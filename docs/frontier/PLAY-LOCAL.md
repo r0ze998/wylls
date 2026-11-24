@@ -238,10 +238,19 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      owned **tile by tile**. Each province row of the card has "Claim a tile": one free tile of that province (not a village site,
      not the keep's) becomes yours at once for 10 ore (+2 % per tile you own, rounded down to whole ore), one tile a turn, first
      come first served. A village stands only on your own tile: "Found a village here" claims that site's tile on the **first**
-     press (instant) and files the village on the **second**. Upkeep comes from your first village's food: 0.033 food an hour per
+     press (instant) and files the village on the **second** (the button stays off until the village's whole price is in the
+     stores, both presses may land in one turn). The card shows neither how many tiles you own nor the next price (loop-play15:
+     the price was 13–14 ore at 17–28 tiles; troops cost ore too, 20 per 100 Spearmen). A second "Claim a tile" in one turn is
+     refused: "You already claimed a tile this turn. It is one tile a turn: press again next turn."; short of ore: "Not enough
+     ore. A tile costs 10 ore, plus 2 % for each tile you own …". A province where your own wide village stands stays on the
+     card as a row "your village stands here" with "Claim a tile" only, also when you already have three villages
+     (loop-play15; before, that row and its button were gone). Upkeep comes from your first village's food: 0.033 food an hour per
      tile, +0.016 an hour per province beyond 3 from your nearest own village (fixed when you claim). If the food cannot pay,
      claims stop, and after 24 unpaid turns your farthest tile is let go each turn (at the start a village makes about 40 food an
-     hour, so land upkeep does not bind until you hold very many tiles). Taking a province's keep moves its tiles of other
+     hour, so land upkeep does not bind until you hold very many tiles; loop-play15: the program charges no food for troops,
+     so a village's food never falls and "unpaid" cannot be reached in play — the page has no display of your land's upkeep or
+     of an unpaid state either; the refusal would read "Your land upkeep (food from your first village) is unpaid, so you cannot
+     claim a new tile. …"). Taking a province's keep moves its tiles of other
      nations' players (not your nation-mates', not tiles with a village on them) to the owner of the army that took it. Wide
      keeps open neutral with 50 troops (held 72 turns to take). The map does not draw tiles or borders yet (owner question T-9).
      Design: docs/design/expansion/02-player-territory.md

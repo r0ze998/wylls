@@ -65,7 +65,6 @@ export function wideClaimModel(FS, m) {
   const lands = local ? nationLandsOfCells(cells, FS.citizen?.faction) : [];
   const all = claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => !held.has(`${String(t.p)},${String(t.q)}`));
   const targets = [...all.filter(t => !t.reach).slice(0, 4), ...all.filter(t => t.reach).slice(0, 6)];
-  if (!targets.length) return null;
   const owned = (Array.isArray(FS.holdings) ? FS.holdings.length : 1) + mine.length;
   // (loop-play11 / D-verify-pr177-1: the program charges `settler_cost(holdings_n)` with holdings_n = the villages
   //  held BEFORE the claim — frontier proc wide.rs reads C::HOLDINGS_N — so a second village costs 800/800/400/200,
@@ -80,9 +79,14 @@ export function wideClaimModel(FS, m) {
   //  turn — whatever the next village's cost: the land grows by tiles, not only by village sites)
   const byKey = local && typeof FS.wideLandNow === 'function' ? FS.wideLandNow()?.byKey ?? null : null;
   const terrOf = t => byKey?.get?.(`${t.p},${t.q}`)?.territory ?? null;
-  const territory = targets.some(t => terrOf(t));
+  const territory = all.some(t => terrOf(t)) || [...held].some(k => byKey?.get?.(k)?.territory);
   const ore = m.have[RESOURCE_ORDER.indexOf('Ore')] ?? 0;
-  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t) })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous,
+  // (loop-play15 LP15-4: a province where a village of this player stands left the list — no second village there —
+  //  and with it the only "Claim a tile" button of that province; with three villages the whole list went. In a
+  //  territory world those provinces stay as tile-only rows: the land around one's own village is the first to claim)
+  const own = territory ? claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => held.has(`${String(t.p)},${String(t.q)}`) && terrOf(t)).map(t => ({ ...t, site: 0, territory: true, own: true })) : [];
+  if (!targets.length && !own.length) return null;
+  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t) })), own, need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous,
     territory, tileShort: ore < TERRITORY_V1.cost.base };
 }
 function wideClaimCard(FS, m, busy) {
@@ -93,7 +97,10 @@ function wideClaimCard(FS, m, busy) {
     ${cardHead({ id: 'hp-wide-h', ic: 'flag', title: L`広い土地に村を出す（テスト）` })}
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
     <p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>
-    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
+    ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span></span>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
+    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
       ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
