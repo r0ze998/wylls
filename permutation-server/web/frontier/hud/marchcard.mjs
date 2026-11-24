@@ -24,7 +24,7 @@ import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, arrivalWindow, checkMarch, troopsOf, SEND_STEPS, DEPART_STAMINA, staminaAt } from '../fmarch.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { bellStart, bellAt } from '../clock.mjs';
-import { composerMarch, composerArrival, composerChoices, routeLine, marchTiming, NO_ROUTE } from '../screens/march.mjs';
+import { composerMarch, composerArrival, composerChoices, routeLine, marchTiming, waitWords, NO_ROUTE } from '../screens/march.mjs';
 import { swatch } from '../screens/shell.mjs';
 import { keepFor, reachLink } from '../screens/conquest.mjs';
 import { territoryEnabled } from '../territory.mjs';
@@ -235,17 +235,8 @@ function coordsForm(c) {
     <label>${L`マス`}<input name="tile" type="number" min="0" max="60" inputmode="numeric" value="${c.dest?.tile ?? ''}"></label><button type="submit" class="btn">${L`決める`}</button></form>`;
 }
 
-/**
- * A wait the card says, from game seconds. TEST-ONLY capture demo (`FS.localPlay.clockScale`, the launcher's checked word, 10..60):
- * the world's clock runs that many times faster, so 「約 37 分後」 in game minutes came about a minute later on the wall (trial 2,
- * 2026-11-14); there the wait is said in the wall's own time and named the test clock. Every other world: as it was.
- */
-export function waitWords(FS, gameSecs) {
-  const k = FS?.localPlay?.clockScale;
-  if (!(Number.isInteger(k) && k > 1)) return L`約 ${fmtNum(Math.max(1, Math.round(gameSecs / 60)))} 分後`;
-  const s = Math.max(1, gameSecs / k);
-  return s < 90 ? L`試験の時計で約 ${fmtNum(Math.round(s))} 秒後` : L`試験の時計で約 ${fmtNum(Math.round(s / 60))} 分後`;
-}
+// (waitWords — a wait in the card's words, the TEST clock named — lives in screens/march.mjs: the keep rows say it too)
+export { waitWords };
 
 /** The order (the drawer while a march is composed). */
 export function render(FS) {

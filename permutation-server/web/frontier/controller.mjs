@@ -80,7 +80,7 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { expeditionHoldText } from './screens/tracker.mjs';
-import { custodyLosses } from './screens/custody.mjs';
+import { custodyLosses, reserveShort, reserveShortText } from './screens/custody.mjs';
 import { heldMarchAnswer } from './screens/villageorders.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
@@ -4253,10 +4253,19 @@ function capacityGrant(f) {
   return custodyAct('GrantCapacity', { facility: cfac(d), user: o.user }, { grant: dnum(d, 'grant'), max_units: units, max_output: String(arms * cust.MILLI), from: String(from), until: String(until) },
     () => L`工房を使う権利を出しました`);
 }
-function capacityReserve(f) {
+async function capacityReserve(f) {
   const off = custodyOff(); if (off) return off;
   const d = f.dataset, units = Math.trunc(formNum(f, 'units')), arms = Math.trunc(formNum(f, 'arms'));
   if (!(units > 0 && arms > 0)) return s1Refused(L`工房の数と兵器の数を入れてください`);
+  // (fix-loop15, LP15-8: the booking takes its ore and wood from the user's own storehouse in the same message, and a
+  //  storehouse without them made the node refuse the whole message — 「チェーンのノードがこの命令を実行前に受け付けません
+  //  でした」, nothing about materials. Said here, before anything is signed, from the herald's read of that storehouse:
+  //  read once more first when it looks short (a caravan may just have been delivered). Not known → sent as before;
+  //  the program checks it again either way)
+  const vt = dnum(d, 'vtile'), storesNow = () => (FS.s1?.caravans?.vaults ?? []).find(v => v.p === dnum(d, 'p') && v.q === dnum(d, 'q') && v.tile === vt && Number(v.gen) === dnum(d, 'vgen'))?.stores ?? null;
+  let lack = reserveShort(storesNow(), arms);
+  if (lack) { try { await rereadS1(); } catch { /* the read before stands */ } lack = reserveShort(storesNow(), arms); }
+  if (lack) return s1Refused(reserveShortText(lack, vt));
   const plan = cust.jobPlan({ units, arms, now: now() });
   return custodyAct('ReserveCapacity', { facility: cfac(d), vault: { p: dnum(d, 'p'), q: dnum(d, 'q'), tile: dnum(d, 'vtile'), gen: dnum(d, 'vgen') } },
     { grant: dnum(d, 'grant'), job: dnum(d, 'job'), units, start: String(plan.start), end: String(plan.end), max_output: String(plan.maxOutput), ore: plan.ore, wood: plan.wood, deposit: 0 },

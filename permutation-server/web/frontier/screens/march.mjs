@@ -7,7 +7,7 @@
 // only says how an order is started, or leads back to the one in progress.
 import { activeHolding } from '../fstate.mjs';
 import { html } from '../../util.mjs';
-import { L } from '../../lang.mjs';
+import { L, fmtNum } from '../../lang.mjs';
 import { STANCES as STANCE_TEXT, unitCount } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, tipOptions, arrivalWindow, earliestBell, DEPART_MARGIN_SECS } from '../fmarch.mjs';
@@ -94,6 +94,38 @@ export function composerMarch(FS, arrival = composerArrival(FS)) {
     dest: c.dest ?? null, destOpen: destOpenOf(FS, c.dest), route: c.route ?? null, earliest: arrival?.earliest ?? c.earliest ?? null, arriveBell: arrival?.value ?? c.arriveBell ?? null,
     stance: c.stance ?? 0, retreat: { choice: c.retreat ?? 'never', ratio: c.ratio ?? null }, tip: c.tip ?? null,
   };
+}
+
+/**
+ * A wait the card says, from game seconds. TEST-ONLY capture demo (`FS.localPlay.clockScale`, the launcher's checked word, 10..60):
+ * the world's clock runs that many times faster, so 「約 37 分後」 in game minutes came about a minute later on the wall (trial 2,
+ * 2026-11-14); there the wait is said in the wall's own time and named the test clock. Every other world: as it was.
+ */
+export function waitWords(FS, gameSecs) {
+  const k = FS?.localPlay?.clockScale;
+  if (!(Number.isInteger(k) && k > 1)) return L`約 ${fmtNum(Math.max(1, Math.round(gameSecs / 60)))} 分後`;
+  const s = Math.max(1, gameSecs / k);
+  return s < 90 ? L`試験の時計で約 ${fmtNum(Math.round(s))} 秒後` : L`試験の時計で約 ${fmtNum(Math.round(s / 60))} 分後`;
+}
+
+/**
+ * (fix-loop15, LP15-9b) When a march over `route` sent now would arrive, as the order card will say it: `{bell,
+ * inSecs}` — the first turn the walk can reach (the kernel's earliest_arrival_bell, with the composer's own departure
+ * margin, inside the arrival window) and the game seconds until that turn begins — or null while the page cannot tell
+ * (no clock, kernel or world record). A march arrives at the START of its arrival turn, never mid-turn: the walk's own
+ * minutes (route.secs) are shorter than the wait, and a row that said them (「約 40 分」) stood beside an order card
+ * that said 「約 48 分後」 for the same march.
+ */
+export function routeArrival(FS, route) {
+  if (!FS?.clock || !FS.kernel || !FS.season || !route || !Number.isFinite(route.secs)) return null;
+  const now = FS.chain?.now?.();
+  if (!Number.isFinite(now)) return null;
+  try {
+    const earliest = earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs: route.secs });
+    if (!Number.isInteger(earliest)) return null;
+    const bell = arrivalWindow(FS.season, bellAt(FS.clock.genesisTs, now) ?? 0, earliest).min;
+    return Number.isInteger(bell) ? { bell, inSecs: Math.max(0, bellStart(FS.clock.genesisTs, bell) - now) } : null;
+  } catch { return null; }
 }
 
 /** Arrival starts a shared turn; resolution follows its end and reveal window. */

@@ -116,6 +116,9 @@ move only once its turn is settled: about 17 minutes later).
    says "Check your host's readiness" or "See the keeps in reach", the host is mustered.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
+   Each row says when a march sent now would arrive, in the order card's words: "13 tiles · 3 provinces · arrives turn 36 (in about 28 s on the test clock)"
+   (at the natural clock "… arrives turn 6 (in about 48 min)"). A march arrives when its arrival turn begins, so this is longer than the walk itself
+   (before fix-loop15 the row said the walk's time, "about 40 min", beside an order card saying "in about 48 min": loop-play15 LP15-9).
    While the province is settling, the same order is sent once, as soon as it can be. "The first march" means it left.
    - In a kept world that has just started (a turn is 10 min), a press at the start of turn 2 shows "Finding the keeps you can reach…"
      and "In a world that has just started, the list of keeps in reach appears once the first turn's results are all in (a few minutes)." until the world's first
@@ -954,6 +957,10 @@ steps 1–5 (same nation, same province; A builds a "Workshop", B builds a "Stor
    "Let them use the workshops" (the wallet signs). "Workshop use granted".
 3. B: under "Workshops you may use", set "Workshops to use" and "Arms to make", then "Book and put in materials": one transaction books the job
    and takes 2 ore + 1 wood per arm from B's storehouse. The job starts two minutes of chain time later.
+   The materials must already be in B's storehouse (send them from the village by caravan first). Since fix-loop15 the card shows
+   "Your storehouse (tile N): X ore · Y wood"; with nothing there the button is off ("Your storehouse (tile N) holds no materials for this …"),
+   and a press for more arms than the storehouse can feed says "Your storehouse (tile N) does not hold enough materials. 10 arms need 20 ore and 10 wood (it holds 6 ore and 3 wood). …"
+   before anything is signed (before: "The chain's node rejected this order before running it. It was not sent." — loop-play15 LP15-8).
 4. B: "Your jobs" counts "arms N / M" (4 arms an hour a workshop; at ×60 ten arms take about 2.5 minutes). Then
    "Take into the storehouse": "The arms and the unused materials are in your storehouse". Haul them home by caravan as in §10 step 8.
 5. A: "Remove" ends the grant (a booked job keeps running), "Take back idle workshops" gives the copies back to the village.
