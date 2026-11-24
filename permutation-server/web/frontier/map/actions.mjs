@@ -123,8 +123,10 @@ export function actorsAt(state, p, q, idx) {
       }
       // (lane B D1, 2026-11-16: the tag says the same sentence as the tap's refusal — hud/subject.mjs marchCheck —, so the
       //  map's round-37 equality check draws one block once; it said the generic Cooldown/TransitState words beside it)
-      const why = mb.length ? marchCheck({ nowBell, chain: { now: () => now } }, { ...row, id: String(row.id), holding, province: prov }).text : '';
-      out.push({ id: String(row.id), unit: row.unit, troops: row.troops, stamina: row.stamina, p, q, tile: idx, holding, holdingIndex, row, march: { ok: !mb.length, blocks: mb, why }, explore });
+      // (fix-loop13, LP13-4: read when shown — the tag kept the language of the moment it was made, 「This province is still
+      //  resolving the last turn.」 on the Japanese page after a switch; marchCheck's `text` is itself read when asked)
+      const mc = mb.length ? marchCheck({ nowBell, chain: { now: () => now } }, { ...row, id: String(row.id), holding, province: prov }) : null;
+      out.push({ id: String(row.id), unit: row.unit, troops: row.troops, stamina: row.stamina, p, q, tile: idx, holding, holdingIndex, row, march: { ok: !mb.length, blocks: mb, get why() { return mc ? mc.text : ''; } }, explore });
     }
   });
   const rank = a => (a.march.ok && a.unit !== SCOUT ? 0 : a.explore?.ok ? 1 : a.march.ok ? 2 : 3);
