@@ -4581,6 +4581,37 @@ export const ACTIONS = {
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),
   // (TEST-ONLY wide play, local wide-land worlds only: the wide claim from the first home — screens/holding.mjs wideClaimCard)
+  // (verify-pr206-209) a TERRITORY world's single tile, from the village card's province row: one free tile of that
+  // province (not a village site, not the keep's, not already this page's), instant, paid in ore by the first home,
+  // one a turn — whatever the next village's cost. The same reach witness as the row's village; the nearest own
+  // village names the upkeep distance (TQ-2). A tile another player owns moves the next press on; "already yours"
+  // is remembered.
+  'territory-tile': async d => {
+    const h = activeHolding(FS);
+    if (!h || !localPlay?.wideLand) return;
+    const target = { p: String(d.p), q: String(d.q) };
+    const reach = d.rp !== undefined && d.rq !== undefined ? { p: String(d.rp), q: String(d.rq) } : null;
+    let terr = null;
+    try { const r = await herald.wideRoute({ places: [target] }); terr = r?.ok !== false ? territoryOfRoute(r?.json ?? r).get(`${target.p},${target.q}`) ?? null : null; } catch { terr = null; }
+    if (!terr) return failed({ code: 'NoTerritory', text: L`この州ではマスを取れません（自分の土地のない世界か、州が読めませんでした）。` });
+    const mine = FS.ui?.ownTiles ?? {}, triedKey = `t:${target.p},${target.q}`, from = num(FS.ui?.wideTried?.[triedKey] ?? 0);
+    const blocked = new Set([...terr.siteTiles, terr.keepTile]);
+    let tile = null;
+    for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !mine[`${target.p},${target.q},${i}`]) { tile = i; break; }
+    if (tile === null) return failed({ code: 'NoFreeTile', text: L`この州に取れるマスは残っていません。` });
+    const home = { p: h.p, q: h.q, site: h.site }, key = `${target.p},${target.q},${tile}`;
+    const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
+    const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile },
+      say: () => L`広い土地（${target.p}, ${target.q}）のマス ${tile} を自分の土地にしました。` });
+    const ans = t ?? (FS.notice?.ok === false ? FS.notice : null);
+    const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
+    const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
+    const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+    if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
+    if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
+    invalidate('panel');
+    return t;
+  },
   'wide-claim': async d => {
     const h = activeHolding(FS);
     if (!h || !(localPlay?.wideLand || devnetWideNow())) return;

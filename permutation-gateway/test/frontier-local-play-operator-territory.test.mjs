@@ -56,3 +56,26 @@ test('outside a territory world nothing changes: the village claim as before', (
   assert.equal(d.name, 'WideClaim');
   assert.equal(d.v.territory, undefined);
 });
+
+// verify-pr206-209: a tile claim refused for a reason that passes with time (ore short 21, the turn's claim 29, upkeep
+// unpaid 43) only cools the claim; a refusal for good (SiteTaken 11) marks the tile and its site tried; "already
+// yours" (52) counts as owned.
+test('the AI keeps a site after a temporary tile refusal, drops it after a final one', async () => {
+  const { noteOutcome } = await import('../src/frontier/local-play-operator-policy.mjs');
+  const d = { name: 'TerritoryClaim', v: { target: { p: '130', q: '0' } }, fields: { tile: 7 }, site: 2 };
+  for (const programCode of [21, 29, 43]) {
+    const m = { decisions: 0, cooldown: {}, triedHomes: [] };
+    noteOutcome(m, d, 'failed', { programCode, code: 'LocalActRejected' });
+    assert.equal((m.triedClaims ?? []).length, 0, `code ${programCode}`);
+    assert.equal((m.triedTiles ?? []).length, 0);
+    assert.ok(m.cooldown.TerritoryClaim > 0);
+  }
+  const m = { decisions: 0, cooldown: {}, triedHomes: [] };
+  noteOutcome(m, d, 'failed', { programCode: 11 });
+  assert.deepEqual(m.triedClaims, ['130,0,2']);
+  assert.deepEqual(m.triedTiles, ['130,0,7']);
+  const m2 = { decisions: 0, cooldown: {}, triedHomes: [] };
+  noteOutcome(m2, d, 'failed', { programCode: 52 });
+  assert.deepEqual(m2.ownTiles.map(o => o.tile), [7]);
+  assert.equal((m2.triedClaims ?? []).length, 0);
+});

@@ -99,3 +99,36 @@ test('the wide province trailer: the territory byte and the keep captor record a
   b[t + 110] = 0; b[t + 53] = 2; assert.equal(wideTrailerReservedOk(b, t), false, 'unknown territory rule');
   b[t + 53] = 0; b[t + 55] = 1; assert.equal(wideTrailerReservedOk(b, t), false, 'still reserved');
 });
+
+// verify-pr206-209 (owner TQ-2): the upkeep distance from the NEAREST own village — an own wide village nearer than the
+// first home is named: village byte 1 and its wide holding address after the witness, read-only.
+test('the nearest own village is named: byte 22 = 1, the wide holding after the witness', async () => {
+  const { wideHoldingAddress } = await import('../../permutation-server/web/frontier/fwide.mjs');
+  const { seasonAddresses } = await import('../../permutation-server/web/frontier/faddr.mjs');
+  const target = { p: '131', q: '-3' };
+  assert.equal(T.nearerOwnVillage(HOME, target, []), null);
+  assert.equal(T.nearerOwnVillage(HOME, target, [{ p: '120', q: '0', site: 1 }]), null, 'farther than home: not named');
+  const v = T.nearerOwnVillage(HOME, target, [{ p: 131n, q: -2n, site: 4 }, { p: '129', q: '0', site: 1 }]);
+  assert.deepEqual(v, { p: '131', q: '-2', site: 4 });
+  const intent = T.territoryClaimIntent({ holding: HOME, target, witness: { kind: 'own', p: '130', q: '0' }, village: v }, { tile: 9 });
+  const ix = T.territoryClaimInstruction(intent, { programId: PROGRAM, seasonId: 1, wallet: WALLET });
+  assert.equal(ix.data[22], 1);
+  assert.equal(ix.keys.length, 12);
+  const A = seasonAddresses(PROGRAM, '1');
+  assert.deepEqual(ix.keys[11], { pubkey: wideHoldingAddress(A.season, PROGRAM, 131n, -2n, 4), isSigner: false, isWritable: false });
+  // a heartland "village" is not a wide one: refused
+  assert.throws(() => T.territoryClaimIntent({ holding: HOME, target, village: { p: '10', q: '0', site: 1 } }, { tile: 9 }));
+  // without a village the byte stays 0 (unchanged wire)
+  const plain = T.territoryClaimInstruction(T.territoryClaimIntent({ holding: HOME, target: { p: '129', q: '0' } }, { tile: 9 }), { programId: PROGRAM, seasonId: 1, wallet: WALLET });
+  assert.equal(plain.data[22], 0);
+});
+
+test('the page card reads a territory province from its capture (trailer byte 1), nothing otherwise', async () => {
+  const { territoryOfCapture } = await import('../../permutation-server/web/frontier/map/wideland.mjs');
+  const b = new Uint8Array(4864);
+  b[262] = 3; b.set([5, 20, 40], 250); b[4480] = 30;
+  assert.equal(territoryOfCapture(Buffer.from(b).toString('base64')), null);
+  b[4789] = 1;
+  assert.deepEqual(territoryOfCapture(Buffer.from(b).toString('base64')), { siteTiles: [5, 20, 40], keepTile: 30 });
+  assert.equal(territoryOfCapture(undefined), null);
+});
