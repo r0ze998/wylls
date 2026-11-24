@@ -58,7 +58,7 @@ test('the card: titles newest first with their reasons, the viewer\'s nation mar
   assert.match(ja, /ターン 30 .+が称号「砦を守り通した国」を得た 理由：砦を持ち続けた/);
   assert.match(ja, /ターン 12 所属の分からない領主が称号/);
   assert.match(ja, /まだ判定できない達成 2（記録が欠けているか、量が確かめられない）/);
-  assert.match(ja, /称号と記録だけです。勝敗・得点・賞金・シーズンの終わりには何も加えません/);
+  assert.match(ja, /称号と記録だけです。世界の目標の達成・得点・賞金には何も加えません/);
   assert.ok(ja.indexOf('ターン 44') < ja.indexOf('ターン 30') && ja.indexOf('ターン 30') < ja.indexOf('ターン 12'));
   setLang('en');
   const en = text(T.render(FS(), b));

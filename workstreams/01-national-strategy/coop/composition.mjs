@@ -31,11 +31,11 @@ export function compositionOf(j, cfg) {
   return { state: 'same', herald };
 }
 
-const DIFF_JA = { program: 'プログラム', season: 'シーズン', cluster: 'ネットワーク' };
+const DIFF_JA = { program: 'プログラム', season: '世界の番号', cluster: 'ネットワーク' };
 
 /** 画面の一行（文字だけ。リンクは画面が同じ入口の GAME_PAGE だけを付ける）。 */
 export function compositionText(c, cfg) {
-  if (c?.state === 'same') return `この入口のゲームとこの板は同じ世界（シーズン ${cfg.season.seasonId}・${cfg.cluster}）。村のカード・この画面・記録は同じ入口`;
-  if (c?.state === 'different') return `この入口のゲーム（ヘラルド）は別の世界（${c.differs.map(d => DIFF_JA[d] ?? d).join('・')}が違う：ヘラルドはシーズン ${String(c.herald.season).slice(0, 20)}）。この板から隊商は送らない。板と同じ世界のヘラルドの前で板を起動してください`;
+  if (c?.state === 'same') return `この入口のゲームとこの板は同じ世界（世界の番号 ${cfg.season.seasonId}・${cfg.cluster}）。村のカード・この画面・記録は同じ入口`;
+  if (c?.state === 'different') return `この入口のゲーム（ヘラルド）は別の世界（${c.differs.map(d => DIFF_JA[d] ?? d).join('・')}が違う：ヘラルドは世界の番号 ${String(c.herald.season).slice(0, 20)}）。この板から隊商は送らない。板と同じ世界のヘラルドの前で板を起動してください`;
   return `この入口のゲームの世界を確かめられない（${c?.why ?? '?'}）。同じ世界とは言えない`;
 }

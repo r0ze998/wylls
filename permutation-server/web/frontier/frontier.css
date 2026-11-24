@@ -211,6 +211,10 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .next-kicker { flex: none; padding-right: 8px; border-right: 1px solid rgba(240,212,138,.4); font: 650 var(--t1)/1 var(--ui); letter-spacing: .06em; color: var(--brass-hi); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .attn-long { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attn-long strong { font-weight: 700; }
+/* fix-loop13 LP13-12: the step's name gives way, not the count after it — 「Train troops for the next host 1 m…」 */
+.attn-long:has(> .next-more) { display: flex; align-items: baseline; }
+.attn-long:has(> .next-more) > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.attn-long > .next-more { flex: none; }
 /* narrower screens: the step's name alone (a press still does its one action; the words are the button's name and title) */
 @media (max-width: 1279px) { .next-do { display: none; } .next-btn { max-width: 300px; } }
 .attn-short { display: none; font-variant-numeric: tabular-nums; }
@@ -750,6 +754,8 @@ p .btn, li > .btn { margin-top: 2px; margin-bottom: 2px; }
 .blocked, .problems { padding: 6px 10px; border-radius: 2px; }
 .problems { margin: 8px 0; padding-left: 28px; }
 .warn, .locked-note, .callout { padding: 7px 10px; border: 1px dashed rgba(122,82,6,.55); border-radius: 2px; background: rgba(246,226,170,.38); font-size: var(--t2); }
+/* fix-loop13 LP13-8: the world goals card's siege badge ("Aster besieging 10 / 72") broke across two lines in English */
+.goal-flag .warn { display: inline-block; white-space: nowrap; padding: 1px 8px; margin-top: 2px; }
 .callout { margin: 8px 0; }
 .callout h3 { margin-top: 0; }
 .callout > summary { min-height: var(--target); display: flex; align-items: center; cursor: pointer; font-weight: 600; }
@@ -2655,9 +2661,19 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 }
 
 /* the land preview (TEST-ONLY worlds with that option): the territory line beside the resource strip */
-#land-chip-box { flex: 0 0 auto; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
+/* fix-loop13 LP13-2: the long chip took the plaque's room and the resource numbers were cut ("736" → "73", wood/stone gone).
+   The bar shows the chip's short form (.land-chip-short) and keeps it whole; the long form stays for screen readers and in
+   the title. The strip, which never cuts a token, shows fewer tokens and its "N more" (app.mjs strip fit).
+   (verify-pr208, measured live at 1280 / 1440 / 1600 / 1920 px: the 180 px cap alone cut BOTH parts once the nation had
+   land in other provinces too — "Land 12 ti… | Other provi…", every number gone — so the two parts stand in two lines,
+   each whole; and from 1440 px up the long form was cut by the cap, or without it crushed the strip as before, so the
+   short form is the bar's form at every width.) */
+#land-chip-box { flex: 0 0 auto; max-width: 210px; overflow: hidden; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
 #land-chip-box[hidden] { display: none; }
-.land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; }
+.land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; flex: 0 0 auto; max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.land-chip-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#land-chip-box:has(> .land-chip + .land-chip-far) { flex-direction: column; align-items: flex-start; justify-content: center; line-height: 1.25; }
+#land-chip-box > .land-chip + .land-chip-far { margin-left: 0; padding-left: 0; border-left: 0; }
 .land-chip + .land-chip-far { margin-left: 10px; padding-left: 10px; border-left: 1px solid rgba(201,162,74,.28); }
 .land-chip-far { font-weight: 500; color: #e3c77a; }
 
