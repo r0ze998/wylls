@@ -86,7 +86,7 @@ Good to know:
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
 - Before the world is created the page says “The season's record cannot be read.” Open it again after the join time.
-- The 7-day “season 1” announced on 2026-11-23 is not created. Seasons were abolished (decision of 2026-11-23), so the
+- The 7-day “season 1” announced on 2026-11-23 was cancelled (aborted 2026-11-24) and is never created. Seasons were abolished (decision of 2026-11-23), so the
   devnet world is one endless “season 2”. Where the page says “season”, it means this world.
 - **There is no winning or losing yet.** After a keep is taken the guide says 「この世界は続きます。戦期の勝敗と集計は未決定です。」
   (this world goes on; its result and tally are undecided). The direction decided after that text was written (2026-11-24)
