@@ -45,7 +45,9 @@ test('the hold step and the keep list say the 72 turns in time', () => {
 
 test('after a capture, a world that goes on is not told a season winner', () => {
   const g = src('screens/conquestguide.mjs');
-  assert.ok(g.includes("const seasonLine = worldContinues(FS.season) ? L`この世界は続きます。戦期の勝敗と集計は未決定です。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。`;"));
+  assert.ok(g.includes("const seasonLine = worldContinues(FS.season) ? L`この世界は続きます。戦期の勝敗と集計は未決定です。` : L`この試しの世界は決まったターンで新しい命令の受付を終えます。試しの世界の上限で、勝ち負けの決まりではありません。`;"));
+  // (fix-loop13, LP13-1: seasons are abolished — no world is told "the most provinces at the season's end wins")
+  assert.ok(!g.includes('支配する州が最も多い国が勝ちます'));
   assert.ok(g.includes('を奪いました。${seasonLine}` : seasonLine}'));
   assert.equal(typeof EN['第{0}ターンに、あなたの国（{1}）が州 {2},{3} を奪いました。{4}'], 'string');
   assert.equal(typeof EN['この世界は続きます。戦期の勝敗と集計は未決定です。'], 'string');

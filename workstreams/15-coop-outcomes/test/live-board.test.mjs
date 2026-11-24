@@ -83,7 +83,7 @@ test('HTTP: GET /coop/outcomes (200), the page\'s reader accepts it and draws th
   assert.match(ja, /所属の分からない領主が称号「他国の隊商を襲った者」を得た/, 'tag 21: its JOIN wallet is not this test\'s Citizen, so its nation is not known');
   assert.match(ja, /理由：ほかの国の隊商から、一つの資源で最小量以上を奪った/);
   assert.match(ja, /ターン 44/);
-  assert.match(ja, /勝敗・得点・賞金・シーズンの終わりには何も加えません/);
+  assert.match(ja, /世界の目標の達成・得点・賞金には何も加えません/);  // (fix-loop13 LP13-1: no season end in the wording)
   assert.deepEqual(outcomeRows(b.outcomes, FS).map(x => x.mine), [true, false], 'the viewer\'s nation (5) is marked');
   setLang('en');
   const en = text(render(FS, b));

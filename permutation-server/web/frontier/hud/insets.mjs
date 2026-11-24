@@ -103,6 +103,8 @@ export const NO_GO = Object.freeze([
   // (verify-pr197: the provinces-held strip under the plaque — wider than #hud-tl — had no piece: the wide land's plates
   //  stood half under 「支配する州」 at the top of the map)
   ['provinces', '#prov-strip'],
+  // (territory-video-3: the wide land's key, beside the map tools — map/widelegend.mjs)
+  ['wide-legend', '#wide-legend'],
   // (the prototype rule "banners": its fixed chip and its score, present only in a sample world that serves it)
   ['proto-chip', '#proto-chip'], ['proto-chip-map', '.proto-chip-map'], ['proto-score', '#proto-score'], ['drawer', '#panel'],
 ]);

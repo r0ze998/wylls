@@ -93,6 +93,28 @@ test('world goals card: the viewer\'s own nation\'s flag keep is always told liv
   assert.match(s, /満たすまで あと 104 ターン/);
 }));
 
+test('fix-loop13 LP13-11: an own-nation flag keep missing from the page\'s keep map (a far --wide rim keep) is told live; another nation\'s is not', () => run(() => {
+  // the page's keep map has no entry for the flag keep at all (in --wide it holds ~45 keeps, not the far rim ones)
+  const bare = FS => { F.viewKeeps(new Map()); return { ...FS, conquest: { keeps: new Map() } }; };
+  const mine = bare(world(NONE(), { holder: VIEWER }));
+  assert.equal(UI.seenFlag(mine, answer(VIEWER).flagKeeps.flags[0]).seen, 'live');
+  const s = card(mine, VIEWER);
+  assert.match(s, /（あなたの国）/);
+  assert.match(s, /満たすまで あと 104 ターン/);
+  assert.doesNotMatch(s, /まだ見ていません/);
+  setLang('en');
+  assert.doesNotMatch(card(mine, VIEWER), /not seen/i);
+  setLang('ja');
+  // the same keep held by another nation stays unseen: no holder, no timer, no siege
+  const theirs = bare(world(NONE(), { holder: ENEMY }));
+  const t = card(theirs, ENEMY);
+  assert.match(t, /この州の砦は、まだ見ていません/);
+  assert.doesNotMatch(t, /持ち主 |包囲中|満たすまで/);
+  // and a viewer with no nation read yet gets no shortcut
+  const none = { ...theirs, citizen: null };
+  assert.equal(UI.seenFlag(none, answer(VIEWER).flagKeeps.flags[0]).seen, 'never');
+}));
+
 test('world goals card: without the fog every flag keep is told live (as before)', () => run(() => {
   F.resetFogNow();
   const FS = { season: { seasonId: '11' }, pin: { programId: 'P' }, citizen: { faction: VIEWER }, wallet: { address: 'W' }, conquest: { keeps: new Map() } };
@@ -113,3 +135,53 @@ test('world goals card: before the viewer\'s first village (a fogged local page,
   // a page without the fog (not a local test world, e.g. the sample): told live, as before
   assert.match(card({ ...FS, localPlay: undefined }), /包囲中 12 \/ 72/);
 }));
+
+test('fix-loop13 LP13-8: on a faster TEST clock the card says the real time, at the natural clock the chain hours', async () => {
+  const T = await import('../../permutation-server/web/frontier/seasonterms.mjs');
+  try {
+    setLang('ja');
+    T.setTermsPace(() => 1);
+    assert.equal(UI.turnsText(42), '42 ターン（7 時間）');
+    T.setTermsPace(() => 60);
+    assert.equal(UI.turnsText(42), '42 ターン（この世界の実時間で約 7 分）');
+    assert.equal(UI.turnsText(144), '144 ターン（この世界の実時間で約 24 分）', 'guide §14: 24 minutes at the ×60 TEST clock');
+    setLang('en');
+    assert.equal(UI.turnsText(42), '42 turns (about 7 minutes of real time in this world)');
+    T.setTermsPace(() => null);
+    assert.equal(UI.turnsText(42), '42 turns (7 h)', 'a fast clock whose pace is not known yet: the chain hours, never a guessed real time');
+  } finally { T.setTermsPace(() => 1); setLang('ja'); }
+});
+
+test('fix-loop13 LP13-9: an achievement is a feed line in both languages — quiet on the first read, a notice later, never twice', () => run(() => {
+  const FS = { season: { seasonId: '11' }, pin: { programId: 'P' }, citizen: { faction: VIEWER }, wallet: { address: 'W' }, conquest: { keeps: new Map() } };
+  const ach = { round: 1, bell: 162, nations: [VIEWER], prize: { simulated: true, vaultBefore: '940000000', payout: '282000000', paid: '282000000', returned: '658000000', rows: [{ wallet: 'W', nation: VIEWER, points: 10, eligible: true, amount: '282000000' }] } };
+  const read = achievements => ({ read: 'ok', goals: { ...answer(), achievements } });
+  assert.equal(UI.achievementNews(FS, { read: 'absent' }), null);
+  assert.equal(UI.achievementNews({ ...FS, season: { seasonId: '12' } }, read([ach])), null, 'another world: nothing learned');
+  assert.deepEqual(UI.achievementNews(FS, read([])), []);
+  const [first] = UI.achievementNews(FS, read([ach]), { first: true });
+  assert.equal(first.quiet, true, 'on record before the page read it: in the list, no toast');
+  const [later] = UI.achievementNews(FS, read([ach]));
+  assert.equal(later.id, 'goal:11:1');
+  assert.equal(later.kind, 'goal');
+  assert.equal(later.bell, 162);
+  assert.equal(later.quiet, undefined);
+  assert.equal(later.words.ja, '世界の目標：第 1 回の旗の砦を、あなたの国（' + later.words.ja.match(/（(.+?)）/)[1] + '）が達成しました（ターン 162）。賞金が有効なら、あなたは 282 テスト USDC を受け取っていました');
+  assert.match(later.words.en, /^World goals: your nation \(.+\) achieved round 1 of the flag keeps \(turn 162\)\. If prizes were on, you would have received 282 test USDC$/);
+  const other = UI.achievementNews(FS, read([{ ...ach, nations: [ENEMY], prize: { ...ach.prize, rows: [] } }]))[0];
+  assert.match(other.words.en, /^World goals: .+ achieved round 1 of the flag keeps \(turn 162\)$/);
+  assert.doesNotMatch(other.words.en, /your nation|USDC/);
+  assert.doesNotMatch(other.words.en, /[぀-ヿ一-鿿]/);
+  // (verify-pr208) two nations achieving at one turn: "your nation (…)" names the viewer's nation alone
+  const joint = UI.achievementNews(FS, read([{ ...ach, nations: [ENEMY, VIEWER] }]))[0];
+  const own = /your nation \((.+?)\)/.exec(joint.words.en)[1], solo = /your nation \((.+?)\)/.exec(later.words.en)[1];
+  assert.equal(own, solo, 'the viewer\'s nation, not the list of all achieving nations');
+  assert.doesNotMatch(own, /,|、/);
+}));
+
+test('fix-loop13: the turn summary names an achievement line (it said "Turn 179 in brief:" and nothing)', async () => {
+  const FEED = await import('../../permutation-server/web/frontier/hud/feed.mjs');
+  const s = FEED.bellSummary([{ id: 'goal:11:1', kind: 'goal', bell: 179, text: 'x' }], 179);
+  assert.equal(s.words.ja, 'ターン 179 のまとめ：世界の目標 1');
+  assert.equal(s.words.en, 'Turn 179 in brief: 1 world goal');
+});

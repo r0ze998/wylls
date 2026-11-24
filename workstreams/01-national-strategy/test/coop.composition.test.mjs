@@ -29,8 +29,8 @@ test('what cannot be compared is unknown, never the same', () => {
 });
 
 test('the words: same names the world; different says nothing is sent; unknown never says the same', () => {
-  assert.match(compositionText(compositionOf(season(), cfg), cfg), /同じ世界（シーズン 90・localnet）/);
-  assert.match(compositionText(compositionOf(season({ season: '91' }), cfg), cfg), /別の世界（シーズンが違う：ヘラルドはシーズン 91）。この板から隊商は送らない/);
+  assert.match(compositionText(compositionOf(season(), cfg), cfg), /同じ世界（世界の番号 90・localnet）/);
+  assert.match(compositionText(compositionOf(season({ season: '91' }), cfg), cfg), /別の世界（世界の番号が違う：ヘラルドは世界の番号 91）。この板から隊商は送らない/);
   const u = compositionText(compositionOf(null, cfg), cfg);
   assert.match(u, /確かめられない/);
   assert.doesNotMatch(u, /同じ世界（/);

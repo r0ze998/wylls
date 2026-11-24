@@ -97,7 +97,7 @@ test('the host\'s bar: offered for a defender whose only keep in play is its own
 test('the keep rows on a narrow card: the name has its own line; wider cards keep their six columns', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('../../permutation-server/web/frontier/conquest-hand.css', import.meta.url), 'utf8');
-  assert.match(css, /\n\.kh-row \{ position: relative; display: grid; grid-template-columns: minmax\(0, 1fr\) 62px 104px 108px 116px 16px;/, 'the wide grid as it was');
+  assert.match(css, /\n\.kh-row \{ position: relative; display: grid; grid-template-columns: minmax\(0, 1fr\) 80px 104px 108px 116px 16px;/, 'the wide grid as it was (fix-loop13 LP13-12: the defenders column 62 → 80 px, "defen…" in English)');
   assert.match(css, /\n\.kh-rows \{[^}\n]*container-type: inline-size;/, 'the rows are the size container');
   const at = css.indexOf('@container (max-width: 679px) { .kh-row {'), block = css.slice(at, css.indexOf('\n', at));
   assert.ok(at > 0, 'the narrow-card rule');
