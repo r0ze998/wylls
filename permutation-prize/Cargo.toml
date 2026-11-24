@@ -20,6 +20,10 @@ no-entrypoint = []
 # EpochFinalize, Sweep; src/epoch.rs). Test assets, local and devnet only;
 # OFF by default, so the default build has none of these instructions.
 epochs = []
+# World goals without a deadline (InitGoalPool … GoalWithdrawOps, tags
+# 13–23; src/goals.rs; design record win-conditions §10.1). Test USDC,
+# local and devnet only; OFF by default (marker PRZ_GOALS_TEST_USDC_BUILD).
+goals = []
 
 [dependencies]
 solana-program = "=4.0.0"

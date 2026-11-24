@@ -191,6 +191,7 @@ permutation-gateway/test/constants.test.mjs
 permutation-gateway/test/frontier-conquest-real-evidence-states.test.mjs
 permutation-gateway/test/frontier-conquest-v2-cli-report.test.mjs
 permutation-gateway/test/frontier-expedition-prepare.test.mjs
+permutation-gateway/test/frontier-goal-prize.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
 permutation-gateway/test/frontier-local-play-coexist-lane.test.mjs
