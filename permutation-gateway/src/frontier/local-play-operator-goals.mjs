@@ -6,7 +6,8 @@
 // posting means FOR ITS NATION, using only what that nation's player view shows (the 「世界の目標」 card, hud/worldgoals.mjs,
 // under the fog of war of map/fog.mjs):
 //   - the posting itself (round, need, hold time, the flag keeps and the nation each was drawn for) — public;
-//   - every nation's count of flag keeps held and held long — public on the card (its nations line);
+//   - every nation's count of CAPTURED flag keeps (the only ones that count — flag-keeps-v2: a nation's own starting
+//     flag keeps do not) and of those held long — public on the card (its nations line);
 //   - each flag keep's holder, contender and siege progress ONLY as the resident's fogged keeps show it (map/fog.mjs
 //     fogKeeps over the resident's own survey: its villages and hosts, its nation's held provinces): live in sight,
 //     the last-known holder (never a contest) when seen before, nothing when never seen. The nation's own keeps are
@@ -16,7 +17,9 @@
 // The weighting (fixed, no randomness; a run is reproducible per world seed):
 //   defend-flag  an own flag keep under contest by another nation: defended before any other keep (the existing defence
 //                rule otherwise: nearest first).
-//   stop-rival   a flag keep held by a nation that is close to completing the round (holds ≥ need − 1 flag keeps): its
+//   stop-rival   a flag keep CAPTURED by a nation that is close to completing the round (it holds ≥ need − 1 captured
+//                flag keeps; that nation's own starting flag keeps are not what brings it close — taking one stops
+//                nothing — so they weigh as plain `flag` keeps): its
 //                attack score + STOP_RIVAL_BONUS (above the best ordinary score, so it is chosen over ordinary attacks
 //                when in reach and strong enough). The attack's safety (≥ MIN_HOST, ≥ ATTACK_RATIO × the garrison) is
 //                unchanged: a weak host is never sent at a flag.
@@ -47,7 +50,7 @@ const key = (p, q) => `${p},${q}`;
 
 /**
  * What the resident of nation `faction` may know of the posting: `{round, need, holdBells, flags: [{p, q, nation,
- * holder, contender, progress, seen}], nations: [{nation, held, heldLong}]}` or null (no posting / a bad answer).
+ * holder, contender, progress, seen}], nations: [{nation, held, captured, capturedLong}]}` or null (no posting / a bad answer).
  * `answer`: the judge's `GET …/goals/state` body; `seenKeeps`: Map "p,q" → keep as map/fog.mjs fogKeeps gives it for
  * this resident (a keep with `fog: 'memory'` is last-known; absent = never seen).
  */
@@ -63,16 +66,16 @@ export function flagSight({ answer, faction, seenKeeps }) {
     flags.push(Object.freeze({ p: f.p, q: f.q, nation: f.nation, holder: nation(k.holder) ? k.holder : null,
       contender: !memory && nation(k.contender) && k.contender !== k.holder ? k.contender : null, progress: memory ? 0 : Number(k.progress ?? 0), seen: memory ? 'memory' : 'live' }));
   }
-  const nations = (Array.isArray(fk.progress) ? fk.progress : []).filter(x => x && nation(x.nation) && int(x.held) && int(x.heldLong))
-    .map(x => Object.freeze({ nation: x.nation, held: x.held, heldLong: x.heldLong }));
+  const nations = (Array.isArray(fk.progress) ? fk.progress : []).filter(x => x && nation(x.nation) && int(x.held) && int(x.captured) && int(x.capturedLong))
+    .map(x => Object.freeze({ nation: x.nation, held: x.held, captured: x.captured, capturedLong: x.capturedLong }));
   return Object.freeze({ round: fk.round, need: fk.need, holdBells: fk.holdBells, flags: Object.freeze(flags), nations: Object.freeze(nations), faction });
 }
 
-/** The nations (not `faction`) close to completing: held ≥ need − 1 (and ≥ 1). → Set. */
+/** The nations (not `faction`) close to completing: captured flag keeps ≥ need − 1 (and ≥ 1). → Set. */
 export function closeRivals(sight, faction) {
   const out = new Set();
   if (!sight) return out;
-  for (const x of sight.nations) if (x.nation !== faction && x.held >= Math.max(1, sight.need - 1)) out.add(x.nation);
+  for (const x of sight.nations) if (x.nation !== faction && x.captured >= Math.max(1, sight.need - 1)) out.add(x.nation);
   return out;
 }
 
@@ -91,7 +94,8 @@ export function flagWeights(sight, faction, { busy = 0 } = {}) {
       continue;
     }
     if (!nation(f.holder)) continue;
-    if (rivals.has(f.holder)) { if (busy < STOP_RIVAL_CAP) out.set(key(f.p, f.q), Object.freeze({ goal: 'stop-rival', bonus: STOP_RIVAL_BONUS, rival: f.holder })); }
+    // (flag-keeps-v2: only a flag keep the close rival CAPTURED counts for it — its own starting flag keep (f.nation) does not)
+    if (rivals.has(f.holder) && f.holder !== f.nation) { if (busy < STOP_RIVAL_CAP) out.set(key(f.p, f.q), Object.freeze({ goal: 'stop-rival', bonus: STOP_RIVAL_BONUS, rival: f.holder })); }
     else if (busy < FLAG_MARCH_CAP) out.set(key(f.p, f.q), Object.freeze({ goal: 'flag', bonus: FLAG_BONUS }));
   }
   return out;
