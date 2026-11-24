@@ -9,10 +9,16 @@
 //   designate   flag keeps = 2 per nation (nations × 2), drawn from each nation's own non-heartland keeps, border keeps
 //               first, ordered by sha256(seed ‖ round ‖ p ‖ q) — the seed is the Season's drand-derived GENESIS_SEED
 //               (round 1) and a hash of it with the round and the bell of the last achievement afterwards.
-//   progress    per nation: flag keeps held now, and held long enough — a keep counts from max(its since_bell, the bell
+//   progress    per nation: the flag keeps it has CAPTURED — a flag keep of the posting drawn for ANOTHER nation that
+//               it holds now — and, of those, the ones held long enough: a keep counts from max(its since_bell, the bell
 //               the round was posted) and is "held long" once `holdBells` bells have passed since then.
-//   achieve     a nation holding `need` (half of the flag keeps, rounded up) flag keeps, each held long, achieves the
-//               round at the bell the need-th of them reached its hold time. Two nations at the same bell: a tie.
+//               (flag-keeps-v2, owner r0ze 2026-11-24 22:00 / 23:58 item 9: a nation's own starting flag keeps — the
+//               ones the posting drew for it — do NOT count for it. With them counted, a need of 2 was met by every
+//               nation at the posting, without anyone doing anything. A starting flag keep a nation lost and took back
+//               is still its own starting flag keep: it does not count for it either.)
+//   achieve     a nation holding `need` (half of the flag keeps, rounded up) CAPTURED flag keeps, each held long,
+//               achieves the round at the bell the need-th of them reached its hold time. Two nations at the same
+//               bell: a tie.
 //   points      the contribution ledger of achievements.mjs (capture 10, reinforcement 1 per 100 troops up to 10 per
 //               keep, prize-params.json) over the achieving nation's flag keeps held long, at the achievement read.
 //   prize       (SIMULATED) the hegemony vault's payout share goes to the nation(s); inside a nation, in proportion to
@@ -24,7 +30,9 @@ import { createHash } from 'node:crypto';
 
 export const WORLD_GOALS_KIND = 'world-goals';
 export const WORLD_GOALS_VERSION = 1;
-export const FLAG_KEEPS_RULESET = 'flag-keeps-v1';
+export const FLAG_KEEPS_RULESET = 'flag-keeps-v2';
+/** The ruleset before 2026-11-25 (a nation's own starting flag keeps counted). Still accepted as the launcher's option word; rounds posted under it are judged by the v2 count. */
+export const FLAG_KEEPS_RULESET_V1 = 'flag-keeps-v1';
 export const NATIONS = 6;
 /** A turn (bell) is 10 minutes of the chain's clock: 144 bells = 24 hours. */
 export const BELLS_PER_DAY = 144;
@@ -64,8 +72,18 @@ const sha256 = (...parts) => createHash('sha256').update(Buffer.concat(parts.map
 const keyOf = (p, q) => `${p},${q}`;
 const isNation = f => Number.isInteger(f) && f >= 0 && f < NATIONS;
 
-/** The need of a round with `k` flag keeps: half, rounded up (6 of 12), unless overridden. */
-export const needOf = (k, rules = FLAG_KEEPS_DEFAULTS) => (Number.isInteger(rules.need) && rules.need > 0 ? Math.min(rules.need, k) : Math.ceil(k / 2));
+/**
+ * The need of a round with `k` flag keeps: half, rounded up (6 of 12), unless overridden. `own`: the most flag keeps the
+ * posting drew for one nation — a nation can only capture the other `k − own`, so the need is never more than that
+ * (a need no nation could reach would make a round that never ends).
+ */
+export const needOf = (k, rules = FLAG_KEEPS_DEFAULTS, own = 0) => Math.max(0, Math.min(Number.isInteger(rules.need) && rules.need > 0 ? rules.need : Math.ceil(k / 2), k - own));
+
+/** The most flag keeps a posting drew for one nation. */
+export const mostOwn = flags => { const c = new Map(); for (const f of flags) c.set(f.nation, (c.get(f.nation) ?? 0) + 1); return Math.max(0, ...c.values()); };
+
+/** Whether nation `n` holding the flag keep `flag` counts toward the goal: only a flag keep drawn for another nation (a captured one). */
+export const countsFor = (flag, n) => isNation(n) && flag.nation !== n;
 
 /** The seed of round `round` (1-based): round 1 the Season's seed; later rounds a hash of it, the round and the bell of the last achievement. */
 export function roundSeed(genesisSeed, round, lastAchievedBell = 0) {
@@ -112,20 +130,23 @@ export function designate({ keeps, seed, round, perNation = FLAG_KEEPS_DEFAULTS.
 export const countFrom = (keep, postedBell) => Math.max(keep.since, postedBell);
 
 /**
- * The progress of every nation on the round's flags at `bell`: `[{nation, held, heldLong, need, reachAt, keeps:
- * [{p, q, since, from, longAt}]}]` — `reachAt`: the bell at which the nation reaches the need if it keeps what it holds
- * (null when it holds fewer than the need).
+ * The progress of every nation on the round's flags at `bell`: `[{nation, held, own, captured, capturedLong, need,
+ * reachAt, keeps: [{p, q, since, from, longAt}]}]` — `held`: every flag keep it holds now; `own`: of those, its own
+ * starting flag keeps (never counted); `captured`: the rest — the ones that count; `capturedLong`: of the captured, held
+ * long; `keeps`: the captured ones; `reachAt`: the bell at which the nation reaches the need if it keeps what it holds
+ * (null when it holds fewer captured flag keeps than the need).
  */
 export function progressOf({ flags, keeps, bell, postedBell, rules = FLAG_KEEPS_DEFAULTS }) {
   const byKey = new Map(keeps.map(k => [keyOf(k.p, k.q), k]));
-  const need = needOf(flags.length, rules);
+  const need = needOf(flags.length, rules, mostOwn(flags));
   const out = [];
   for (let n = 0; n < NATIONS; n++) {
-    const held = flags.map(f => byKey.get(keyOf(f.p, f.q))).filter(k => k && k.holder === n)
-      .map(k => { const from = countFrom(k, postedBell); return { p: k.p, q: k.q, since: k.since, from, longAt: from + rules.holdBells }; })
+    const mine = flags.map(f => ({ f, k: byKey.get(keyOf(f.p, f.q)) })).filter(x => x.k && x.k.holder === n);
+    const captured = mine.filter(x => countsFor(x.f, n))
+      .map(({ k }) => { const from = countFrom(k, postedBell); return { p: k.p, q: k.q, since: k.since, from, longAt: from + rules.holdBells }; })
       .sort((a, b) => a.longAt - b.longAt || a.p - b.p || a.q - b.q);
-    const heldLong = held.filter(k => k.longAt <= bell).length;
-    out.push({ nation: n, held: held.length, heldLong, need, reachAt: need > 0 && held.length >= need ? held[need - 1].longAt : null, keeps: held });
+    const capturedLong = captured.filter(k => k.longAt <= bell).length;
+    out.push({ nation: n, held: mine.length, own: mine.length - captured.length, captured: captured.length, capturedLong, need, reachAt: need > 0 && captured.length >= need ? captured[need - 1].longAt : null, keeps: captured });
   }
   return out;
 }
@@ -255,6 +276,6 @@ export const postedRules = (round, rules = FLAG_KEEPS_DEFAULTS) => ({ ...rules, 
 function postRound(state, r, round, postedBell, lastAchievedBell, rules) {
   const seed = roundSeed(r.genesisSeed, round, lastAchievedBell);
   const flags = designate({ keeps: r.keeps, seed, round, perNation: rules.perNation });
-  const posting = { kind: 'flag-keeps', ruleset: FLAG_KEEPS_RULESET, round, postedBell, seed, need: needOf(flags.length, rules), holdBells: rules.holdBells, flags: flags.map(f => ({ p: f.p, q: f.q, nation: f.nation })) };
+  const posting = { kind: 'flag-keeps', ruleset: FLAG_KEEPS_RULESET, round, postedBell, seed, need: needOf(flags.length, rules, mostOwn(flags)), holdBells: rules.holdBells, flags: flags.map(f => ({ p: f.p, q: f.q, nation: f.nation })) };
   return { ...state, round, rounds: [...state.rounds, { round, postedBell, seed, flags, need: posting.need, holdBells: rules.holdBells, hash: postingHash(posting), posting }] };
 }

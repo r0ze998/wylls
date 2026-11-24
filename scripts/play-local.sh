@@ -125,12 +125,14 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   the game in --coexist worlds (the lane that carries caravans); delivering to another nation's
                   request that reaches its amount earns the ⑮ title "Answered a request" (「依頼に応えた」; no win, score or prize effect);
                   see PLAY-LOCAL §13
-  --no-world-goals do not judge the world's goals (launcher option --world-goals flag-keeps-v1, on by default): the
-                  flag keeps — a nation that holds half of the designated flag keeps (gold pennants on the map), each
-                  for 144 turns, achieves the round; Nation & territory (国と領土) → "World goals" (「世界の目標」) shows the progress and,
+  --no-world-goals do not judge the world's goals (launcher option --world-goals flag-keeps-v2, on by default): the
+                  flag keeps — a nation that holds as many flag keeps CAPTURED from other nations as half of the
+                  designated ones (gold pennants on the map), each for 144 turns, achieves the round (its own starting
+                  flag keeps do not count); Nation & territory (国と領土) → "World goals" (「世界の目標」) shows the progress and,
                   after an achievement, the prize it WOULD have paid (simulated: no money moves)
   --flag-keeps-hold N   TEST only: the hold time of the flag keeps in turns (default 144 = 24 hours of the chain clock)
-  --flag-keeps-need N   TEST only: how many flag keeps a nation must hold (default: half of them, rounded up)
+  --flag-keeps-need N   TEST only: how many CAPTURED flag keeps a nation must hold (default: half of them, rounded up;
+                        never more than the flag keeps of the other nations)
   --rebuild       build even when the sources are unchanged
   --no-build      never build; use what is there (refused if a binary is missing)
   --no-open       print the address only, do not open a browser
@@ -428,7 +430,7 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   # (flag-keeps-slice-1: the world's goals judge — flag keeps, no money — with every world unless --no-world-goals;
   #  only when this checkout's launcher knows the option)
   if [ "$GOALS" = 1 ] && grep -q "WORLD_GOALS_MODE" "$LAUNCHER" 2>/dev/null; then
-    printf '%s\n' --world-goals flag-keeps-v1
+    printf '%s\n' --world-goals flag-keeps-v2
     if [ -n "$FK_HOLD" ]; then printf '%s\n' --flag-keeps-hold "$FK_HOLD"; fi
     if [ -n "$FK_NEED" ]; then printf '%s\n' --flag-keeps-need "$FK_NEED"; fi
   fi

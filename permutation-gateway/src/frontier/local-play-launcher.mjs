@@ -40,7 +40,7 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { onLocalLane, selectLocalLane, localLane, COEXIST_LANE, COEXIST_MODE, COEXIST_LANE_WORD } from '../../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { COOP_BOARD_MODE, openWorldBoard, answerWorldBoard, coopRouteOf, coopTarget } from './local-play-coop-board.mjs';
-import { WORLD_GOALS_MODE, openWorldGoals, answerWorldGoals, goalsRouteOf, goalRulesOf, goalsMount } from './local-play-world-goals.mjs';
+import { WORLD_GOALS_MODE, WORLD_GOALS_MODES, openWorldGoals, answerWorldGoals, goalsRouteOf, goalRulesOf, goalsMount } from './local-play-world-goals.mjs';
 import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, parseOperatorResidents, parseOperatorNations, operatorRelayPorts, operatorSlotPorts, homesOf } from './local-play-operator-policy.mjs';
 import { OPERATOR_WAR_MODE, OPERATOR_WAR_MAX } from './local-play-operator-war.mjs';
 import { EXTERNAL_RESIDENTS_MODE, EXTERNAL_RESIDENTS_SCHEMA, EXTERNAL_RESIDENTS_MAX, parseExternalResidents, externalPorts, externalSpan } from './local-play-external-residents.mjs';
@@ -1308,7 +1308,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     //  directory; served on the launcher's origin under the mount of each of this world's proxies — local-play-coop-board.mjs)
     const coop = c.coopBoard === true ? await (limit.openWorldBoard ?? openWorldBoard)({ dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null }) : null;
     coopStop = typeof coop?.stop === 'function' ? coop.stop : null;
-    // (TEST-ONLY `--world-goals flag-keeps-v1`: the world's goals judged off chain in this process — flag keeps only, no
+    // (TEST-ONLY `--world-goals flag-keeps-v2`: the world's goals judged off chain in this process — flag keeps only, no
     //  money; its state in the world's directory — a kept world's home, so a resume keeps its rounds (verify-pr198) —
     //  served under /goals-world/<proxy port>/ — local-play-world-goals.mjs)
     const goals = c.worldGoals ? await (limit.openWorldGoals ?? openWorldGoals)({ dir, stateDir: persist ? home : dir, meta, heraldPort: herald, pairPort: pairPorts?.herald ?? null, rules: c.worldGoals }) : null;
@@ -1549,9 +1549,10 @@ export const USAGE = `local-play launcher (this machine only)
        and their answers, signed records; no resource moves), kept in this process with its records in the world's
        directory and served on this launcher's origin under /coop-world/<the world's proxy port>/; the page signs its
        records with its own memory-only key. No caravan is sent from the board's page here (no relay route)]
-    [--world-goals flag-keeps-v1 [--flag-keeps-hold <bells>] [--flag-keeps-need <n>] [--flag-keeps-member <bells>]:
+    [--world-goals flag-keeps-v2 [--flag-keeps-hold <bells>] [--flag-keeps-need <n>] [--flag-keeps-member <bells>]:
        TEST-ONLY: each world's goals are judged off chain in this process (first slice: the flag keeps — a nation that
-       holds half of the designated flag keeps, each for 144 bells, achieves the round) and served read only under
+       holds as many CAPTURED flag keeps as half of the designated ones, each for 144 bells, achieves the round; a
+       nation's own starting flag keeps do not count; the older word flag-keeps-v1 is accepted) and served read only under
        /goals-world/<the world's proxy port>/goals/state, with the prize it WOULD have won from a simulated vault (no
        money, no transfer, no chain change). The three numbers override the hold time, the need and the membership time
        for a TEST world only]
@@ -1651,7 +1652,7 @@ export async function parseConfig(args) {
   // (B13: the TEST-ONLY co-op board, asked for in exactly its one word)
   if (out['coop-board'] !== undefined && out['coop-board'] !== COOP_BOARD_MODE) throw fault('InvalidCoopBoard');
   // (the TEST-ONLY world goals judge, asked for in exactly its one word; its three TEST overrides only with it)
-  if (out['world-goals'] !== undefined && out['world-goals'] !== WORLD_GOALS_MODE) throw fault('InvalidWorldGoals');
+  if (out['world-goals'] !== undefined && !WORLD_GOALS_MODES.includes(out['world-goals'])) throw fault('InvalidWorldGoals');
   if (out['world-goals'] === undefined && ['flag-keeps-hold', 'flag-keeps-need', 'flag-keeps-member'].some(k => out[k] !== undefined)) throw fault('InvalidWorldGoals');
   const worldGoals = out['world-goals'] === undefined ? undefined : goalRulesOf({ hold: out['flag-keeps-hold'], need: out['flag-keeps-need'], member: out['flag-keeps-member'] });
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
