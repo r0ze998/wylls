@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-24 (through #207, and #203). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-24 (through #208). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -12,7 +12,7 @@ The world is continuous: there are no seasons and no season end. Only the test w
 New since the last refresh (#187): a march whose answer never came is now answered, and the guide no longer counts it
 (#193, #200 → §3 step 6); the keep list of a fresh 1× world, the guide after `--resume`, the boundary card's road (#195
 → §3 step 6, §4 step 3, §6); the wide land shows whose it is and expedition columns walk their road (#197 → §4); the
-"World goals" card and the flag keeps (#198 → §14); the AI residents weigh the flag keeps (#203 → §14); English text fixes (#207). #201 and #202 changed documents and the
+"World goals" card and the flag keeps (#198 → §14); the AI residents weigh the flag keeps (#203 → §14); English text fixes (#207); the page no longer speaks of a season's end, and the fixes for what an English play-through found (#208 → §3 step 8, §8.1, §14). #201 and #202 changed documents and the
 prize program only: a `play-local.sh` world pays nothing (§7, §14). What is left: §8. The devnet playable version:
 [PLAY-DEVNET.md](PLAY-DEVNET.md).
 
@@ -151,9 +151,10 @@ move only once its turn is settled: about 17 minutes later).
    "about 12 minutes of real time in this world" at ×60). After a capture the guide of a kept world says
    "This world goes on; war-period winners and counts are not decided yet.". **There are no seasons and the world does not
    end**; what a nation can achieve is the permanent world goals, and the first of them, the flag keeps, has its card under
-   "Nation & territory" (§14). In `--demo` and `--wide` worlds the page still shows older season text
-   ("The nation holding the most provinces at the end of the season wins.", "Season ends in N days (game time)"): that
-   text is wrong for the game and is being removed (§8.1); the only thing that ends there is the test world itself (§6).
+   "Nation & territory" (§14). In `--demo` and `--wide` worlds, whose TEST program still has an end turn, the guide says
+   "This test world stops taking new orders at a set turn. That is a limit of test worlds, not a rule for winning." and
+   "Nation & territory" names the turn: "This test world takes new orders until turn N (… left). That is a limit of test worlds, not a rule for winning."
+   (#208; no text names a season-end winner any more). The only thing that ends there is the test world itself (§6).
 
 Good to know:
 
@@ -199,7 +200,7 @@ The default 90 minutes may not even reach step 2 below, so add `--minutes 240` (
 cost took 36–75 minutes and a keep is held for 72 turns, 12 minutes or more (measured in fix-loop10, verify-pr173 and
 verify-pr175 at load 60–160).
 A `--wide` world is a TEST world with a limit of its own: its program takes new orders up to a fixed turn. The join card
-says so ("This program (an old-style season) takes new orders until turn 1,008 (about 2 hours left)." in loop-play13; the
+says so ("This test world takes new orders until turn 1,008 (about 2 hours left; a limit of test worlds)."; the
 game starts around turn 140, so that is about 145 minutes of play at ×60). This is the test world's limit, not a rule of
 the game: the real world is continuous.
 In the wide version every page that presses "Start a new world" gets **a world of its own** (a second page cannot enter
@@ -410,7 +411,7 @@ view (fog-devnet; runbook §7 P5).
 - **What ends, and what does not.** The game has no seasons and its world does not end. A kept world follows that: it has
   no last turn, and only its processes stop (`--minutes`), to be continued with `--resume`. `--demo` and `--wide` worlds are
   throw-away TEST worlds: besides `--minutes`, their program takes new orders only up to a fixed turn, which the join card
-  names ("This program (an old-style season) takes new orders until turn N (about … left)."; 1,008 in a `--wide` world).
+  names ("This test world takes new orders until turn N (about … left; a limit of test worlds)."; 1,008 in a `--wide` world).
   After that, start a new world.
 - To delete the test key, press "Delete the test key kept in this browser" in the page's panel. A world's folder stays until
   you delete it.
@@ -443,23 +444,21 @@ not in this guide. #179 (the verifier reads declared patches), #180 (the operato
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local test world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-24, main through #207 and #203)
+## 8. Known problems (2026-11-24, main through #208)
 
-### 8.1 Still on main (after #207 and #203)
+### 8.1 Still on main (after #208)
 
 Everything loop-play6 … 12 found (LP6 … LP12) is fixed on main, with these exceptions, all in the table and notes below:
 the cause of one Ctrl-C that did not stop a world (LP6-3), the lag under load (LP8-4), the late "W2" button seen once
 (LP12-6, not reproduced) and the road cleared when the drawer closes (LP12-5, half fixed). loop-play13 played the English
 page end to end (kept world, ②⑨⑩, ① → ⑮, `--wide` with both captures, an external resident) and found LP13-1 … 12:
-LP13-5 and LP13-6 (English wording) are fixed by #207; the others are below and are fixed in the open PR #208 (not on
-main yet). None is a rules question.
+LP13-5 and LP13-6 (English wording) are fixed by #207 and the others by #208 (verify-pr208 played them in English and
+Japanese), except what is listed below: the test-world box behind the hand bar (LP13-7), the march card's cut line
+(part of LP13-12) and siege lines other than your own nation's (part of LP13-3). None is a rules question.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| "Nation & territory", join card (`--demo`, `--wide`) | season text that the game no longer has: "National territory and score — The nation holding the most provinces at the end of the season wins. … Season ends in N days (game time)" right under the "World goals" card; the join card's "This program (an old-style season) takes new orders until turn N"; the ⑮ card's "… or how a season ends" (LP13-1). A kept world correctly says "This world goes on" | ignore it: there are no seasons; only the test world has a limit (§6) |
-| Top bar (`--demo`, `--wide`, `--coexist`) | once "Claimed in this province: 0 tiles · production +0%" appears, the resource numbers are squeezed: one number is cut and wood, stone and ore disappear (LP13-2; worst in English) | open "Village" for the stores |
-| "World goals" card (`--wide`) | every flag keep, your own nation's too, says "You have not seen this province's keep yet." while the header counts them (LP13-11) | read the header line and the nations' counts |
-| "World goals" card (×60) | times are in chain hours: "42 turns (7 h) left" is 7 real minutes at ×60 (LP13-8). An achievement is told only inside the card, with no notice (LP13-9) | count turns; look at the card |
+| "More" (every local world) | three labels still say "season": "Season timeline", the fact row "Season" and "Forget this season's key on this device" (names only; nothing says who wins; verify-pr208) | ignore the word: there are no seasons |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
@@ -478,11 +477,9 @@ Small ones (nothing blocks play):
 - The "About this test world" box covers the "Provinces held" bar and the top of "World"; "Hide details" folds it.
 - For the first seconds of the ×60 nation picker the clock rate is not known yet: the intro says "10 minutes of game time" and
   the remaining time is not shown.
-- The siege banner "(nation) is holding your nation's keep · n / 72 turns" is drawn half above the top bar (LP13-3).
-- After a language switch the map's hover label and a hidden status line for screen readers keep the old language (LP13-4).
-- English labels cut short: the keep row's "100 defen…", the march card's "Price · Stamina −74 · Estimate …" line and the guide
-  pill "Train troops for the next host 1 m…" (LP13-12).
-- ⑩: the ② card says a taken caravan "Arrives on turn N" one turn earlier than the map tag "Raided caravan arrives turn N+1" (LP13-10).
+- A siege line near the top edge of the map can still be cut or sit under the turn dial when it is not about your own nation's keep (your own "Holding the keep · n / 72 turns", or one between two other nations). The line "(nation) is holding your nation's keep · n / 72 turns" is whole since #208 (LP13-3).
+- English label cut short: the march card's "Price · Stamina −74 · Estimate …" line (LP13-12; the keep row and the guide pill are whole since #208).
+- The folded "About this test world" box sits behind the hand bar (LP13-7; open PR #205 moves it).
 - Selecting a never-seen province says "Unsurveyed … Only the terrain is charted." but the map draws it blank.
 - After a wide village (W2) takes a keep, until that march's record is closed the card waits with "The host that took the keep stays there to defend it. … (it does not send it automatically)";
   then it says "The host that took the keep stays there as its garrison. …" with the new host's step and "The next step can be sent (raising a new host). It is not sent automatically. Press to send the step above." (w2-wipeout). The "Result: you took the keep of province …" line stays after the next training is sent (#149, LP8-5).
@@ -545,7 +542,7 @@ Small ones (nothing blocks play):
   If in doubt, press "Open the seal (local play)" yourself on the arrival turn (§4 step 3).
 - **A sieged province keeps up with the chain** at ×60 (the runner-throughput check: every province 5.9–6 turns a
   minute against the chain's 6). The keeper loop resolves the other provinces' and the sieges' turns in
-  same-block batches. The standings' "Confirmed score through turn N" is the slowest province's turn: a few turns behind
+  same-block batches. The standings' "Province-hour reference record through turn N." is the slowest province's turn: a few turns behind
   the turn bar (before: up to hundreds, e.g. turn 251 at turn 495).
 - **A rim village that stays "Provisional village"** is confirmed by one action of your own (e.g. "Harvest"), not at the
   "… at the latest" time the screen states.
@@ -901,7 +898,7 @@ When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcom
   requested amount** (the board's proof by the lower bound of what it counted).
 - Not earned by: answering "Accept" alone, a partial delivery to a request that did not reach its amount, a request of someone of
   your own nation, your own request (the board refuses that in the first place).
-- Titles and records only: nothing is added to winning, score or prize (owner decision ⑮ B; the
+- Titles and records only: nothing is added to the world goals, score or prize (owner decision ⑮ B; the
   decisions of 2026-11-24 also keep cooperation out of the “world goals”).
 - The other title earnable now is P-raider ("Raider of foreign caravans": took goods from another nation's caravans; raids at home do not count), which has nothing to do with requests.
 - The card's "Achievements not decided yet: N" is the total of every resident's undecided goals (not necessarily yours).
@@ -923,24 +920,29 @@ It reads the world's Province and Citizen accounts and serves the result read-on
 ("Round N: a nation that holds 3 of the 6 flag keeps, each for 144 turns (24 h) without a break, achieves it"), each flag keep with
 its holder and its hold timer, your nation's progress ("Your nation holds 1 / 6 flag keeps; 0 have met the hold time
 (needed: 3)") and every nation's count. On the map each flag keep you can see has a gold pennant beside its standard.
+On a ×60 TEST clock the card says its times in real minutes ("72 turns (about 12 minutes of real time in this world)");
+at 1× in turns and hours (#208).
 Under the fog of war the card tells a flag keep as the map does: a keep in sight with its holder, hold timer and siege;
 one you saw before with its last-known holder only; one you have never seen by its place alone ("You have not seen this
-province's keep yet."). Your own nation's flag keeps are always shown in a kept world and in `--demo`; in a `--wide`
-world the card on main shows them as not seen too (§8.1). Every nation's count stays public, like the "Provinces held" strip.
+province's keep yet."). Your own nation's flag keeps are always shown (also in `--wide`, where the page's keep list does
+not hold far rim keeps: the judge's holder is enough; #208). Every nation's count stays public, like the "Provinces held" strip.
 
-An achievement is told inside the card only ("Round 1: Aster achieved it (turn 162)"; there is no notice, §8.1). The card
-then says what the prize **would** have paid you: "If prizes were on, you would have received X test USDC". This is an estimate from a simulated vault: one 25 test USDC pass per person, 80 % to the prize, 30 % of
+After an achievement the card names it ("Round 1: Aster achieved it (turn 162)") and
+says what the prize **would** have paid you: "If prizes were on, you would have received X test USDC". This is an estimate from a simulated vault: one 25 test USDC pass per person, 80 % to the prize, 30 % of
 the hegemony vault per achievement. Inside the nation the payout is split by contribution points (a capture is 10 points;
 reinforcement is 1 point per 100 troops on the keep). Operator AI residents earn points but no money, an external AI resident is not paid either (the card:
 "Prizes for external AI residents wait for a legal review"), and someone who joined the nation less than 24 hours (144
 turns) before the achievement gets nothing for that round. Nothing is paid, nothing is sent, and the chain is not
 changed: the prize program's goals pool (#202, test USDC only) is not connected to `play-local.sh`.
+An achievement is also told as a notice and a feed line while the page is open (#208): "World goals: Ember achieved round 1 of
+the flag keeps (turn N)", or for your own nation "World goals: your nation (Aster) achieved round 1 of the flag keeps (turn N). If prizes were on,
+you would have received X test USDC". Achievements that were already on record when the page opened go into the list
+quietly.
 
 In a local world rings 2–3 are heartland and round 1 is posted at the start, before ring 4 opens, so the only
 contestable keeps then are ring 1's: each nation has **one** flag keep, 6 flags, need 3 (when ring 4 opens — in one
 ×60 run by turn 13, in another not by turn 60 — its 24 keeps are contestable, without a flag; a later round is chosen
-from the keeps open at its posting; loop-play13's `--wide` world had 12 flags, need 6). The card writes times in chain
-hours, so at ×60 "42 turns (7 h) left" is 7 real minutes. For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
+from the keeps open at its posting; loop-play13's `--wide` world had 12 flags, need 6). For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
 example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 2 --flag-keeps-hold 72`: capture one neighbouring flag keep
 (72 turns), then hold it 72 more turns.
 

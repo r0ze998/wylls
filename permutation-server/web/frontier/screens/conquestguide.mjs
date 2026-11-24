@@ -341,7 +341,9 @@ export function renderConquestGuide(FS, { open = true } = {}) {
   // (w2-wipeout, D-verify-pr137-3: after the capture the card offers the next army too — it ended on the result alone)
   const next = !o && cap ? afterCapture(FS) : null;
   // (newcomer-ux: a world that goes on has no season end and no winner yet — the 領土 tab says so; the guide said the opposite)
-  const seasonLine = worldContinues(FS.season) ? L`この世界は続きます。戦期の勝敗と集計は未決定です。` : L`シーズンの終わりに、支配する州が最も多い国が勝ちます。`;
+  // (fix-loop13, LP13-1: seasons are abolished — a --demo / --wide TEST world that still has an end turn says it as a
+  // test world's limit, never as "the nation with the most provinces wins at the season's end")
+  const seasonLine = worldContinues(FS.season) ? L`この世界は続きます。戦期の勝敗と集計は未決定です。` : L`この試しの世界は決まったターンで新しい命令の受付を終えます。試しの世界の上限で、勝ち負けの決まりではありません。`;
   const body = html`${o ? html`<p>${o.text}</p>${o.go ? html`<div class="actions"><button type="button" class="btn primary" data-act="${o.go.act}" ${attrs(o.go.data)}>${o.go.label}</button></div>` : ''}`
       : html`<p>${cap ? L`第${fmtNum(cap.turn)}ターンに、あなたの国（${factionName(FS.citizen?.faction)}）が州 ${cap.p},${cap.q} を奪いました。${seasonLine}` : seasonLine}</p>${next ? html`<p class="cg-next" data-next="after-capture">${next.text}</p><div class="actions"><button type="button" class="btn primary" data-act="${next.go.act}" ${attrs(next.go.data)}>${next.go.label}</button></div>` : ''}`}
     <ol class="checklist">${g.steps.map(item)}</ol>

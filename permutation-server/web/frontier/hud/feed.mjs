@@ -247,6 +247,8 @@ function bellSummaryNow(feed, bell) {
   const parts = [
     n('battle') && L`戦い ${fmtNum(n('battle'))}`, n('march') && L`進軍の知らせ ${fmtNum(n('march'))}`, n('explore') && L`探索の結果 ${fmtNum(n('explore'))}`, n('incoming') && L`来襲の恐れ ${fmtNum(n('incoming'))}`,
     n('build') && L`完成 ${fmtNum(n('build'))}`, n('holding') && L`村 ${fmtNum(n('holding'))}`, n('territory') && L`領地 ${fmtNum(n('territory'))}`, n('keep') && L`砦 ${fmtNum(n('keep'))}`, n('proto') && L`旗（試作） ${fmtNum(n('proto'))}`,
+    // (fix-loop13: a world-goals achievement — hud/worldgoals.mjs achievementNews — is counted by name; the summary said 「ターン 179 のまとめ：」 and nothing)
+    n('goal') && L`世界の目標 ${fmtNum(n('goal'))}`,
   ].filter(Boolean);
   // (a turn of which only quiet lines are known is summed up quietly too: in the list, not over the map)
   return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`ターン ${fmtNum(bell)} のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id), ...(of.every(x => x.quiet) ? { quiet: true } : {}) };
@@ -260,13 +262,13 @@ export function pushFeed(feed, items, at = Date.now()) {
 }
 
 /** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
-export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag', away: 'bell', s1: 'flag' });
+export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag', away: 'bell', s1: 'flag', goal: 'flag' });
 /** A notification's words in a list: a line of the prototype rule "banners" says 試作 first (its toast says so in its heading). */
 export const lineText = x => (x.proto ? L`試作：${noticeText(x)}` : noticeText(x));
 /** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
 const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 // (`proto`: a line of the prototype rule "banners", which only a sample world that serves it writes: it says 試作 on itself)
-const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, explore: () => L`探索`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, territory: () => L`領地`, keep: () => L`砦`, summary: () => L`まとめ`, proto: () => L`旗（試作）`, away: () => L`留守のあいだ`, s1: () => L`隊商と国` };
+const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, explore: () => L`探索`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, territory: () => L`領地`, keep: () => L`砦`, summary: () => L`まとめ`, proto: () => L`旗（試作）`, away: () => L`留守のあいだ`, s1: () => L`隊商と国`, goal: () => L`世界の目標` };
 /** The viewer's nation's part in a keep notification, as a tag after the text. */
 const sideTag = x => (SIDE_TEXT[x.side] ? html` <span class="tag feed-side-${x.side}">${SIDE_TEXT[x.side]()}</span>` : '');
 

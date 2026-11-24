@@ -679,7 +679,11 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
   };
   label();
   // (a language switch while the panel stands: the fixed texts again, then the state's; no longer once the page has booted)
-  const unlabel = onLangChange(() => { label(); again(); });
+  // (fix-loop13, LP13-4: once connected the panel stops following the language, but its hidden role=status line stayed
+  //  in the old one — 「接続しました：…」 on an English page. `unlabel` now leaves that one line following a switch)
+  let statusSaid = null, statusOnly = false;
+  onLangChange(() => { if (statusOnly) { if (statusSaid) status.textContent = statusSaid(); return; } label(); again(); });
+  const unlabel = () => { statusOnly = true; };
   card.append(head, note, addressLabel, address, heraldLabel, herald, button, status, elapsed, list, worldsLabel, worlds, forget);
   root.append(card);
   root.dataset.persist = persisted ? 'local' : '';
@@ -723,7 +727,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
       //  start key, not on the page behind it)
       if (!greeted && idle) { greeted = true; button.focus?.(); }
       before = s.phase;
-      status.textContent = s.phase === 'creating' ? L`試験用ウォレットを作っています…`
+      const said = () => s.phase === 'creating' ? L`試験用ウォレットを作っています…`
         : s.phase === 'stopping' ? L`選んだ世界を終了しています…`
         : s.phase === 'listing' ? L`動いている世界を確認しています…`
         : s.phase === 'waiting' && launcher && s.listed === 0 ? L`動いている世界はありません。`
@@ -736,7 +740,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
         //  the second person needs another browser, or the other address of this launcher)
         : s.phase === 'starting' && s.pairWaiting && persisted ? L`もう一人のプレイヤーを待っています。もう一人が別のブラウザ（同じブラウザなら localhost と 127.0.0.1 の別のアドレス）で「世界を開始」を押すと、二人で一つの世界が始まります。同じブラウザの別のタブは同じプレイヤーです。待っている間、このタブは何も送信しません。`
         : s.phase === 'starting' && s.pairWaiting ? L`もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。`
-        : s.phase === 'starting' && natural ? L`新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）`
+        : s.phase === 'starting' && natural ? L`新しい世界を最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）`
         : s.phase === 'starting' && accelerated ? L`世界を準備しています…（試験世界の準備として、世界の時間を早送りします。最大150秒）`
         : s.phase === 'starting' ? L`世界を準備しています…（最大70秒）`
         : s.phase === 'waiting' ? L`準備中：このアドレスでランナーと herald を起動してから「接続」を押してください。`
@@ -746,6 +750,7 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
         : s.phase === 'destroyed' ? L`ウォレットは破棄されました。ページを開き直してください。`
         : s.phase === 'forgotten' ? L`保存した試験用の鍵を消しました。ページを開き直すと、新しい鍵で新しい世界を始めます（前の世界のフォルダは開始サービス側に残ります）。`
         : s.code ? `${localPlayWhy(s.code)} (${s.detail ? `${s.code}: ${s.detail}` : s.code})` : '';
+      status.textContent = said(); statusSaid = said;
       if (s.phase === 'connected') { root.hidden = true; unlabel(); }
     },
   };

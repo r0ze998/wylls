@@ -54,7 +54,7 @@ for (const size of SIZES) {
     for (const lang of ['en', 'ja']) {
       const { ctx, page, errors } = await open(size, lang, false);
       try {
-        const re = lang === 'en' ? /Joining is open until turn [\d,]+ \(about .+ left\)\. This program \(an old-style season\) takes new orders until turn [\d,]+/ : /参加の受付は第[\d,]+ターンまで.*このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第[\d,]+ターンまでです/s;
+        const re = lang === 'en' ? /Joining is open until turn [\d,]+ \(about .+ left\)\. This test world takes new orders until turn [\d,]+ \(about .+ left; a limit of test worlds\)/ : /参加の受付は第[\d,]+ターンまで.*この試しの世界が新しい命令を受け付けるのは第[\d,]+ターンまでです/s;
         assert.match(await until(page, re), re);
         if (lang === 'en') assert.doesNotMatch(await bodyText(page), /The world ends|season is over|resets/i);
         if (SHOTS) await page.screenshot({ path: join(SHOTS, `ws07-game-join-${lang}-${size.name}.png`) });

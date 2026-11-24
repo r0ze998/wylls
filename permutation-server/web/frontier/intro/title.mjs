@@ -64,7 +64,8 @@ export function emblemSvg({ size = 96, title = null } = {}) {
  */
 export function liveLine({ seasonId = null, bell = null, holdings = 0, factions = 6, over = null } = {}) {
   const parts = [];
-  if (seasonId !== null && seasonId !== undefined) parts.push(L`第${fmtNum(Number(seasonId))}季`);
+  // (fix-loop13, LP13-1: seasons are abolished — the record's number is said as the world's, not 「第11季」 / "Season 11")
+  if (seasonId !== null && seasonId !== undefined) parts.push(L`世界の番号 ${fmtNum(Number(seasonId))}`);
   if (over) parts.push(String(over));
   else if (Number.isInteger(bell)) parts.push(L`ターン ${fmtNum(bell)}`);
   if (holdings > 0) parts.push(L`${fmtNum(holdings)} の村`);
