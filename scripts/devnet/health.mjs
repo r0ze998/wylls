@@ -19,7 +19,7 @@
 // usage: node scripts/devnet/health.mjs [--no-rpc] [--no-public] [--json]
 //          [--state FILE] [--report FILE] [--log-lines N] [--run-dir DIR] [--logs DIR]
 //          [--restart-warn-min N]
-//          [--rpc-gap-ms N (>= 1000, default 1100)] [--timeline]
+//          [--rpc-gap-ms N (>= 1000, default 1100)] [--timeline] [--no-world-yet]
 //   --state FILE   remember the first time each milestone was seen (CreateSeason,
 //                  Seeded, Running, keeper start, WideSetRules, join check) across runs
 //                  and each process's PID, so a restart is seen as "the PID of the
@@ -27,6 +27,31 @@
 //   --restart-warn-min N  how long a restart stays a WARN, in minutes [30]
 //   --report FILE  keep an `ALERT …` line at the top of FILE while/after a check fails
 //   --timeline     print the milestone timeline from --state and exit
+//   --no-world-yet world creation is postponed on purpose (see below)
+//
+// "World creation postponed / no world yet" (owner decision 2026-11-24 12:07: the
+// scheduled CreateSeason is not sent; the driver was stopped by hand). The mode is on
+// with --no-world-yet, or while one of these marker files exists (read-only; the first
+// line is shown as the reason; delete the file to return to the default checks):
+//   <run-dir>/world-postponed     or     <logs>/devnet-create-postponed
+// In this mode, and only in it:
+//   - one extra line `world.creation` says so (OK);
+//   - season driver not running = OK. Driver RUNNING = FAIL (it would send
+//     CreateSeason); gateway starter / join check may be running or not (both only wait);
+//   - gateway, keeper A: not expected (as before a world exists);
+//   - season.phase: an Announced world past its CreateSeason time is OK and says
+//     "creation postponed", with the two on-chain deadlines: AbortSeason returns the
+//     creation bond only before the genesis round time (t_create_min + ≈11 min), and
+//     CreateSeason can land until t_create_min + 7 days (after that: WARN, a new
+//     AnnounceSeason is needed). Aborted is OK ("no world yet");
+//   - the authority's balance is judged by its plain thresholds (CreateSeason's need
+//     is only quoted);
+//   - --state keeps `postponed: {since, src, reason}` and --timeline prints
+//     "world creation POSTPONED" instead of the scheduled time.
+// If the chain or the driver log shows the world was created after all, the marker is
+// stale: `world.creation` is a WARN and every check runs as by default.
+// Herald, tunnel, caffeinate, the public page, balances, disk and logs are checked as
+// always. Without the flag and the marker nothing changes.
 //
 // Processes are matched by command pattern only; no PID is written in this file.
 // A wanted process that is not running is a FAIL. "restarted" is a WARN only:
@@ -160,6 +185,44 @@ export function milestonesFrom(texts) {
   return out;
 }
 
+/** Marker files that turn the "world creation postponed" mode on: [dir option, file name]. */
+export const POSTPONED_MARKERS = Object.freeze([['runDir', 'world-postponed'], ['logs', 'devnet-create-postponed']]);
+
+/**
+ * "World creation postponed / no world yet": on with o.noWorldYet (--no-world-yet) or while a marker file exists.
+ * `readFile(path)` returns the text or null. → null (default checks) or {src, reason} (reason: the marker's first line).
+ */
+export function postponedFrom(o, readFile) {
+  for (const [opt, name] of POSTPONED_MARKERS) {
+    if (!o[opt]) continue;
+    const t = readFile(path.join(o[opt], name));
+    if (t == null) continue;
+    const reason = t.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+    return { src: `marker ${opt === 'runDir' ? '<run-dir>' : '<logs>'}/${name}`, reason: reason.slice(0, 160) };
+  }
+  if (o.noWorldYet) return { src: '--no-world-yet', reason: '' };
+  return null;
+}
+
+/** The marker is stale once the driver log shows a CreateSeason run: the world exists (or is being made). */
+export function postponedStale(ms) {
+  return Boolean(ms.driverCreateRun || ms.createLanded || ms.keeperStarted || ms.setupComplete);
+}
+
+/** CreateSeason must land within 7 days of t_create_min (frontier-abi presets::CREATE_WINDOW_SECS). */
+export const CREATE_WINDOW_SECS = 7 * 86400;
+const QUICKNET = Object.freeze({ genesis: 1692803367, period: 3 }); // permutation-rules frontier::clash::QUICKNET
+/**
+ * Until when the authority's AbortSeason returns the creation bond of a season still Announced (after it the bond is
+ * burned): the genesis round time, round_time(first_round_from(t_create_min + 600 + 60)) (proc/season.rs abort_season,
+ * genesis_round_time; SEED_LEAD_SECS 600, SEED_MARGIN_SECS 60).
+ */
+export function bondRefundDeadline(tCreateMin) {
+  const t = tCreateMin + 600 + 60;
+  if (t <= QUICKNET.genesis) return QUICKNET.genesis;
+  return QUICKNET.genesis + Math.ceil((t - QUICKNET.genesis) / QUICKNET.period) * QUICKNET.period;
+}
+
 /** The last *.trycloudflare.com name in the tunnel log. */
 export function tunnelHost(text) {
   const all = [...text.matchAll(/https:\/\/([a-z0-9-]+\.trycloudflare\.com)/g)];
@@ -177,19 +240,24 @@ const shRe = (name) => new RegExp(`^(?:\\S*\\/)?(?:ba|z|da|k)?sh(?:\\s+-\\S+)*\\
  * Processes the stack should have now, given what the logs say happened. Matched by command pattern only:
  * no PID is written here (a planned restart changes the PID; see procCheck for what counts as "restarted").
  */
-export function expectedProcs(ms, joinDone) {
+export function expectedProcs(ms, joinDone, postponed = null) {
   const setup = Boolean(ms.setupComplete);
   const stop = Boolean(ms.driverStop);
+  // creation postponed: nothing that makes or waits for the world is wanted; the driver must not run at all
+  const pp = Boolean(postponed);
+  const off = 'world creation postponed';
   return [
-    { key: 'proc.season-driver', re: shRe('season-driver'), want: !setup && !stop, gone: setup ? 'finished (setup complete)' : 'STOPPED (see driver log)' },
-    { key: 'proc.gateway-starter', re: shRe('gateway-starter'), want: !ms.gatewayStarted, gone: 'finished (gateway started)' },
-    { key: 'proc.gateway-supervisor', re: shRe('run-gateway'), want: Boolean(ms.gatewayStarted), notYet: 'not yet (starts once the herald has a rulesetHash, after CreateSeason)' },
-    { key: 'proc.gateway', re: /^(?:\S*\/)?node(?:\s+-\S+)*\s+(?:\S*\/)?permutation-gateway\/src\/frontier\/server\.mjs\s.*--port 41130(?!\d)/, want: Boolean(ms.gatewayStarted), notYet: 'not yet' },
+    { key: 'proc.season-driver', re: shRe('season-driver'), want: !setup && !stop && !pp,
+      gone: setup ? 'finished (setup complete)' : pp ? `not running — expected: ${off}` : 'STOPPED (see driver log)',
+      ...(pp && !setup ? { forbid: `RUNNING although ${off}: it would send CreateSeason — stop it, or remove the marker / flag if creation is on again` } : {}) },
+    { key: 'proc.gateway-starter', re: shRe('gateway-starter'), want: !ms.gatewayStarted && !pp, gone: ms.gatewayStarted ? 'finished (gateway started)' : `not running — not needed: ${off}` },
+    { key: 'proc.gateway-supervisor', re: shRe('run-gateway'), want: Boolean(ms.gatewayStarted), notYet: pp ? `not expected: ${off}` : 'not yet (starts once the herald has a rulesetHash, after CreateSeason)' },
+    { key: 'proc.gateway', re: /^(?:\S*\/)?node(?:\s+-\S+)*\s+(?:\S*\/)?permutation-gateway\/src\/frontier\/server\.mjs\s.*--port 41130(?!\d)/, want: Boolean(ms.gatewayStarted), notYet: pp ? `not expected: ${off}` : 'not yet' },
     { key: 'proc.herald-supervisor', re: shRe('run-herald'), want: true },
     { key: 'proc.herald', re: /^(?:\S*\/)?frontier-herald\s.*--listen 127\.0\.0\.1:41140(?!\d)/, want: true },
-    { key: 'proc.keeper-supervisor', re: shRe('run-keeper'), want: Boolean(ms.keeperStarted), notYet: 'not yet (the driver starts it after CreateSeason)' },
-    { key: 'proc.keeper', re: /^(?:\S*\/)?frontier-keeper\s+--config keeper-a\/keeper\.toml(?:\s|$)/, want: Boolean(ms.keeperStarted), notYet: 'not yet' },
-    { key: 'proc.join-check', re: shRe('join-check'), want: !joinDone && !stop, gone: 'finished' },
+    { key: 'proc.keeper-supervisor', re: shRe('run-keeper'), want: Boolean(ms.keeperStarted), notYet: pp ? `not expected: ${off}` : 'not yet (the driver starts it after CreateSeason)' },
+    { key: 'proc.keeper', re: /^(?:\S*\/)?frontier-keeper\s+--config keeper-a\/keeper\.toml(?:\s|$)/, want: Boolean(ms.keeperStarted), notYet: pp ? `not expected: ${off}` : 'not yet' },
+    { key: 'proc.join-check', re: shRe('join-check'), want: !joinDone && !stop && !pp, gone: joinDone || !pp ? 'finished' : `not running — not needed: ${off}` },
     { key: 'proc.tunnel', re: /^(?:\S*\/)?cloudflared\s+tunnel\s.*127\.0\.0\.1:41140(?!\d)/, want: true },
     { key: 'proc.caffeinate', re: /^(?:\S*\/)?caffeinate\s+-is(?:\s|$)/, want: true },
   ];
@@ -268,6 +336,7 @@ export function procCheck(spec, procs, ctx = {}) {
   const here = `pid ${p.pid} up ${p.etime}`;
   const sameAsPrev = prev?.pid === p.pid;
   const rec = { pid: p.pid, restarted: sameAsPrev ? Boolean(prev.restarted) : Boolean(tracked && prev?.pid), ...(sameAsPrev ? (prev.was ? { was: prev.was } : {}) : (prev?.pid ? { was: prev.pid } : {})) };
+  if (spec.forbid) return { level: 'FAIL', detail: `${here} — ${spec.forbid}${more}`, rec };
   if (!spec.want) return { level: 'OK', detail: `${here} (still running)${more}`, rec };
   if (expect) {
     if (p.pid === expect.pid) return { level: 'OK', detail: `${here} (expected pid, ${expect.src})${more}`, rec };
@@ -283,12 +352,29 @@ export function procCheck(spec, procs, ctx = {}) {
 }
 
 /** Season phase vs the clock → {level, detail}. */
-export function phaseCheck(season, now, ms) {
+export function phaseCheck(season, now, ms, postponed = null) {
   if (!season) return { level: 'FAIL', detail: 'Season account not read' };
   const t = season.tCreateMin || DEPLOY.createAt;
   const mins = (now - t) / 60;
   const at = `CreateSeason opens ${jst(t)} (${mins < 0 ? `in ${fmtDur(-mins)}` : `${fmtDur(mins)} ago`})`;
   const s = season.statusName;
+  if (postponed) {
+    const rel = (u) => (u > now ? `in ${fmtDur((u - now) / 60)}` : `${fmtDur((now - u) / 60)} ago`);
+    if (s === 'Announced') {
+      const bond = bondRefundDeadline(t);
+      const end = t + CREATE_WINDOW_SECS;
+      const bondTxt = now < bond
+        ? `AbortSeason returns the creation bond only before ${jst(bond)} (${rel(bond)})`
+        : `the creation bond is no longer returned by AbortSeason (deadline was ${jst(bond)})`;
+      if (now >= end) return { level: 'WARN', detail: `Announced, creation postponed, and the create window closed ${jst(end)} (${rel(end)}): this announcement can no longer be created, a new AnnounceSeason is needed; ${bondTxt}` };
+      return { level: 'OK', detail: `Announced, creation postponed (CreateSeason not sent on purpose; it opened / opens ${jst(t)}, ${rel(t)}); it can still land until ${jst(end)} (${rel(end)}); ${bondTxt}` };
+    }
+    if (s === 'Aborted') return { level: 'OK', detail: 'Aborted (announcement cancelled); no world yet, creation postponed — a new AnnounceSeason comes first' };
+    if (s === 'Created' || s === 'Seeded' || s === 'Running') {
+      const d = phaseCheck(season, now, ms);
+      return { level: d.level === 'FAIL' ? 'FAIL' : 'WARN', detail: `${d.detail} — but creation is marked postponed (${postponed.src}): the world exists, remove the marker / flag` };
+    }
+  }
   if (s === 'Announced') {
     if (mins > 15) return { level: 'FAIL', detail: `Announced, ${at}: CreateSeason has not landed` };
     return { level: 'OK', detail: `Announced (waiting), ${at}` };
@@ -347,6 +433,7 @@ function parseArgs(argv) {
     else if (k === '--no-public') o.public = false;
     else if (k === '--json') o.json = true;
     else if (k === '--timeline') o.timeline = true;
+    else if (k === '--no-world-yet') o.noWorldYet = true;
     else if (k === '--state') o.state = v();
     else if (k === '--report') o.report = v();
     else if (k === '--log-lines') o.logLines = Number(v());
@@ -426,6 +513,12 @@ export async function runChecks(o) {
   const joinResult = readText(o.joinResult ?? path.join(os.homedir(), 'Projects/wylls-grok-state/evidence/devnet-deploy-2/join-check/result.json'));
   const joinDone = Boolean(ms.joinCheckDone) || Boolean(joinResult);
 
+  // "world creation postponed / no world yet": flag or marker; stale once the driver log shows the world being made
+  const marked = postponedFrom(o, readText);
+  const postponed = marked && !postponedStale(ms) ? marked : null;
+  if (postponed) add('OK', 'world.creation', `postponed, no world yet (${postponed.src}${postponed.reason ? `: ${postponed.reason}` : ''}): driver / gateway / keeper A are not expected`);
+  else if (marked) add('WARN', 'world.creation', `marked postponed (${marked.src}) but the driver log shows CreateSeason was run: default checks apply — remove the marker / flag`);
+
   // processes
   let procs = [];
   try { procs = parsePs(o.psText ?? execFileSync('ps', ['-axo', 'pid=,etime=,command='], { encoding: 'utf8', maxBuffer: 16 << 20 })); }
@@ -436,7 +529,7 @@ export async function runChecks(o) {
   if (ov.problems.length) add('WARN', 'proc.overrides', ov.problems.join('; '));
   const warnMin = o.restartWarnMin ?? ov.restartWarnMin ?? RESTART_WARN_MIN;
   const procState = {};
-  for (const spec of expectedProcs(ms, joinDone)) {
+  for (const spec of expectedProcs(ms, joinDone, postponed)) {
     const r = procCheck(spec, procs, { expect: ov.expect[spec.key], tracked: prevState != null, prev: prevState?.procs?.[spec.key], warnMin });
     add(r.level, spec.key, r.detail);
     if (r.rec) procState[spec.key] = r.rec;
@@ -464,7 +557,8 @@ export async function runChecks(o) {
         const sol = lam / LAMPORTS;
         let lv = lowerBound(sol, w);
         let note = `< ${w.warn} WARN, < ${w.fail} FAIL`;
-        if (w.preCreateNeed && pre) { lv = sol < w.preCreateNeed ? 'WARN' : 'OK'; note = `CreateSeason needs ≈${w.preCreateNeed}`; }
+        if (w.preCreateNeed && pre && !postponed) { lv = sol < w.preCreateNeed ? 'WARN' : 'OK'; note = `CreateSeason needs ≈${w.preCreateNeed}`; }
+        else if (w.preCreateNeed && postponed) note += `; creation postponed, CreateSeason will need ≈${w.preCreateNeed}`;
         if (w.name === 'deployer' && sol < 21.9) note += '; a program upgrade needs ≈21.9 free (faucet top-up first)';
         add(lv, `balance.${w.name}`, `${sol.toFixed(6)} SOL ${w.address.slice(0, 8)}… (${note})`);
       }
@@ -472,7 +566,7 @@ export async function runChecks(o) {
       if (e.message !== 'stop') add('WARN', 'rpc', `devnet RPC read failed: ${e.message}`);
     }
     add('OK', 'rpc.calls', `${rpc.count()} read-only calls`);
-    const ph = phaseCheck(season, now, ms);
+    const ph = phaseCheck(season, now, ms, postponed);
     add(ph.level, 'season.phase', ph.detail);
   }
 
@@ -506,7 +600,7 @@ export async function runChecks(o) {
       const g = await getJson(`http://127.0.0.1:${P.gatewayPublic}/f/season`);
       add(g.status === 200 ? 'OK' : 'FAIL', 'gateway.health', `GET :${P.gatewayPublic}/f/season HTTP ${g.status} (${g.ms} ms)${g.status === 200 ? '' : ' ' + g.text.slice(0, 120)}`);
     } catch (e) { add('FAIL', 'gateway.health', `no answer on :${P.gatewayPublic}: ${e.message}`); }
-  } else add('OK', 'gateway.health', 'not started yet (starts after CreateSeason)');
+  } else add('OK', 'gateway.health', postponed ? 'not started: world creation postponed' : 'not started yet (starts after CreateSeason)');
 
   // keeper A: the token is not ours to read → 401 without it means the API is up
   if (ms.keeperStarted) {
@@ -514,7 +608,7 @@ export async function runChecks(o) {
       const k = await getJson(`http://127.0.0.1:${P.keeper}/v1/status`, 5000);
       add(k.status === 401 ? 'OK' : 'WARN', 'keeper.api', `/v1/status without token → HTTP ${k.status}${k.status === 401 ? ' (API up; duties/rent/lag need the token, read from the log below)' : ''}`);
     } catch (e) { add('FAIL', 'keeper.api', `no answer on :${P.keeper}: ${e.message}`); }
-  } else add('OK', 'keeper.api', 'not started yet (the driver starts it after CreateSeason)');
+  } else add('OK', 'keeper.api', postponed ? 'not started: world creation postponed' : 'not started yet (the driver starts it after CreateSeason)');
 
   // tunnel name vs the herald's public host, and the public URL from outside (Cloudflare edge)
   const host = (readText(path.join(o.runDir, 'public-host')) ?? '').trim();
@@ -543,7 +637,7 @@ export async function runChecks(o) {
     const ok = j && (j.ok === true || j.pass === true || j.result === 'PASS' || j.joined === true);
     add(ok ? 'OK' : 'WARN', 'join.check', `result.json ${ok ? 'PASS' : 'not PASS'}: ${joinResult.replace(/\s+/g, ' ').slice(0, 160)}`);
   } else if (ms.joinCheckDone) add('WARN', 'join.check', `driver finished without result.json: ${ms.joinCheckDone.line}`);
-  else add('OK', 'join.check', ms.joinCheckStart ? `running since ${ms.joinCheckStart.at}` : 'waiting for "setup complete"');
+  else add('OK', 'join.check', ms.joinCheckStart ? `running since ${ms.joinCheckStart.at}` : postponed ? 'not run: world creation postponed' : 'waiting for "setup complete"');
 
   // disk
   try {
@@ -562,7 +656,7 @@ export async function runChecks(o) {
     add(lv, `log.${f.replace(/^devnet-|\.log$/g, '')}`, `last ${c.lines} lines: ${c.error} error, ${c.restart} restart, ${c.fatal} fatal${last ? ` | ${last.slice(0, 140)}` : ''}`);
   }
 
-  return { at: now, out, ms, season, procs: procState };
+  return { at: now, out, ms, season, procs: procState, postponed };
 }
 
 export function overallOf(out) {
@@ -572,7 +666,7 @@ export function overallOf(out) {
 }
 
 /** Merge first-seen milestone times into the state file. */
-export function mergeState(state, { at, ms, season, procs }) {
+export function mergeState(state, { at, ms, season, procs, postponed }) {
   const s = { ...state, firstSeen: { ...(state.firstSeen ?? {}) }, fromLogs: { ...(state.fromLogs ?? {}) } };
   if (procs) s.procs = { ...(state.procs ?? {}), ...procs };
   const seen = (k) => { if (!s.firstSeen[k]) s.firstSeen[k] = jst(at); };
@@ -581,12 +675,19 @@ export function mergeState(state, { at, ms, season, procs }) {
     if (season.status >= 2 && season.genesisTs != null) s.genesisTs = jst(season.genesisTs);
   }
   for (const [k, v] of Object.entries(ms)) if (!s.fromLogs[k]) s.fromLogs[k] = v.at;
+  // creation postponed: first run that saw it, and the first run that no longer did
+  if (postponed) s.postponed = { since: state.postponed && !state.postponed.until ? state.postponed.since : jst(at), src: postponed.src, reason: postponed.reason };
+  else if (state.postponed && !state.postponed.until) s.postponed = { ...state.postponed, until: jst(at) };
   s.lastRun = jst(at);
   return s;
 }
 
-export function timelineText(state) {
-  const L = [`last run ${state.lastRun ?? '-'}`, `scheduled CreateSeason opens ${jst(DEPLOY.createAt)} (driver sends at +90 s)`];
+export function timelineText(state, postponedNow = null) {
+  const pp = state.postponed && !state.postponed.until ? state.postponed : postponedNow;
+  const L = [`last run ${state.lastRun ?? '-'}`];
+  if (pp) L.push(`world creation POSTPONED, no world yet (${pp.since ? `first seen ${pp.since} by this monitor; ` : ''}${pp.src}${pp.reason ? `: ${pp.reason}` : ''}); CreateSeason was scheduled to open ${jst(DEPLOY.createAt)} — not sent`);
+  else L.push(`scheduled CreateSeason opens ${jst(DEPLOY.createAt)} (driver sends at +90 s)`);
+  if (state.postponed?.until) L.push(`creation was postponed ${state.postponed.since} → ${state.postponed.until} (as seen by this monitor)`);
   for (const [k, v] of Object.entries(state.fromLogs ?? {})) L.push(`log   ${k.padEnd(18)} ${v}`);
   for (const [k, v] of Object.entries(state.firstSeen ?? {})) L.push(`chain ${k.padEnd(18)} first seen ${v} (by this monitor; ±1 poll)`);
   if (state.genesisTs) L.push(`chain genesisTs          ${state.genesisTs}`);
@@ -597,7 +698,7 @@ async function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.timeline) {
     const st = o.state ? JSON.parse(readText(o.state) ?? '{}') : {};
-    console.log(timelineText(st));
+    console.log(timelineText(st, postponedFrom(o, readText)));
     return 0;
   }
   const r = await runChecks(o);

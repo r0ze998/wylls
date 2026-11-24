@@ -564,6 +564,12 @@ was announced with the 7-day preset; AnnounceSeason pins the params hash, so the
 (`operator.seasonId` 2) with its own announce and 24 h lead. Season 1 was **aborted** on 2026-11-24 06:34 JST (devnet-s1-cancel-1, owner t486u): AbortSeason by the authority while Announced, bond outcome RETURNED (1,000,000,000 lamports back to the authority `7sVNs9v5…`; tx `54y4Whm3GPy7tQkvmkc9CJUYd74tD1tmUqMCgJFahvAQhdtXLASKwMrupdmfj2GndzEnhHzWJLf7BRLBKka4WujV`, slot 525,567,060). The rule (`permutation-frontier/src/proc/season.rs` `abort_season`): the authority may abort while Announced, or Created/Seeded before `genesis_ts`; the bond returns only while `now <` the genesis round time (for an Announced season the earliest round CreateSeason could fix, `genesis_seed_round(t_create_min, 60)`, about t_create_min + 660 s) and is burned to the incinerator after; anyone may abort an Announced/Created season once `now ≥ t_create_min + 7 d` (bond burns). No `frontier-operator` command sends AbortSeason; the one-off sender is `scripts/devnet/abort-season-1.mjs` (pinned to season 1 and to devnet; dry run (read + simulate) by default; a send needs `--key`, `--yes-send`, `--i-have-r0ze-approval` and `--approved-sha256` of the deployed program, as `end-season`; it refuses unless season 1 is Announced with its stored authority and t_create_min, so it refuses now that season 1 is Aborted). The aborted Season 1 account still holds its 11,054,080-lamport rent; CloseSeason's final part may shrink it to the tombstone later (optional). When the world changes season id, also
 re-point the services (herald/gateway `--season`, keeper.toml `season`, a fresh herald `--data` dir) and the health
 monitor (`scripts/devnet/health.mjs` pins the Season address and its CreateSeason time). Every "per 7-day season" fee below repeats each week.
+If the world creation is postponed on purpose (the driver stopped by hand, CreateSeason not sent — owner decision
+2026-11-24 12:07), tell the monitor: `health.mjs --no-world-yet`, or a marker file `<run-dir>/world-postponed` /
+`<logs>/devnet-create-postponed` (scripts/devnet/README.md "World creation postponed"). It then expects no driver /
+gateway / keeper A, FAILs if the driver runs, and prints the two deadlines of the announced season: the bond comes back
+by AbortSeason only before the genesis round time, and CreateSeason can land for 7 days. Remove the marker before the
+driver is started again.
 
 ### 6b. The playable lane's season: `frontier-operator --preset S1_DEVNET_WIDE_CONTINUOUS` **[r0ze, only after §5a]**
 

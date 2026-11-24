@@ -168,11 +168,46 @@ line that only names it (`pgrep -f …`, `tail -f …`, an editor) is not taken 
   PID, at any age, and a WARN with any other. A broken file or entry is one `proc.overrides` WARN line and is
   otherwise ignored. Nothing in the stack writes a pidfile today, so this file is for the operator to write by hand.
 
+World creation postponed / no world yet (owner decision 2026-11-24 12:07: the scheduled CreateSeason is not sent and
+the season driver was stopped by hand). By default a stopped driver is `FAIL proc.season-driver not running`, and
+15 min after the scheduled time `FAIL season.phase … CreateSeason has not landed`. Tell the monitor it is on purpose
+with one of (all read-only for `health.mjs`; nothing changes without them):
+
+    node scripts/devnet/health.mjs --no-world-yet
+    echo "owner 11-24 12:07: creation postponed" > ~/wylls-devnet-run/world-postponed                          # marker in --run-dir
+    echo "owner 11-24 12:07: creation postponed" > ~/Projects/wylls-grok-state/logs/devnet-create-postponed    # marker in --logs
+
+A marker's first line is printed as the reason; delete the file to go back to the default checks (do that before the
+driver is started again). In this mode:
+
+| check | default | postponed |
+|---|---|---|
+| `world.creation` | (no line) | `OK postponed, no world yet (marker …: reason)` |
+| `proc.season-driver` | not running = FAIL | not running = OK; **running = FAIL** (it would send CreateSeason) |
+| `proc.gateway-starter`, `proc.join-check` | not running = FAIL until their work is done | running or not = OK (they only wait) |
+| gateway / keeper A processes, `gateway.health`, `keeper.api`, `join.check` | OK "not yet" until the driver log shows them started | the same, worded "not expected: world creation postponed" |
+| `season.phase` Announced | FAIL 15 min after the scheduled time | OK `Announced, creation postponed`, with both deadlines (below); WARN once the 7-day create window has closed |
+| `season.phase` Aborted | FAIL | OK (announcement cancelled, no world yet) |
+| `balance.authority` | WARN below CreateSeason's need (≈56.13) | plain thresholds; the need is only quoted |
+| `--timeline` line 2 | `scheduled CreateSeason opens …` | `world creation POSTPONED, no world yet (…); CreateSeason was scheduled to open … — not sent` |
+
+Herald, tunnel, caffeinate, `tunnel.host`, the public page, the other balances, disk and the logs are checked exactly
+as by default (a dead herald is still a FAIL). The two deadlines `season.phase` prints come from the program
+(`proc/season.rs`): the authority's AbortSeason returns the creation bond only before the genesis round time
+(`t_create_min` + 660 s rounded up to a drand round: 2026-11-25 02:31:06 JST for the world announced on 11-24), after
+that an abort burns it; and CreateSeason can land until `t_create_min` + 7 days (2026-12-02 02:20:04 JST). If the
+driver log shows a CreateSeason run although the flag / marker is there, the marker is stale: `world.creation` is a
+WARN and every check runs as by default; if only the chain shows the world (Created / Seeded / Running),
+`season.phase` is at least a WARN and says to remove the marker. With `--state`, the file keeps
+`postponed: {since, src, reason}` (and `until` once the mode is off again).
+
 It never stops, signals or starts a process, never reads a key, `keeper.seed` or `keeper.token`, and never sends
 a transaction. Devnet RPC: only getGenesisHash / getSlot / getBalance / getAccountInfo to
 `https://api.devnet.solana.com` (the genesis hash is checked first), one call per 1.1 s, 9 calls a run.
 
-`health-loop.sh` runs it every 10 min (every 2 min inside 19:30–20:40 JST 11-24) until 21:00 JST 11-24, appending
+`health-loop.sh` runs it every 10 min (every 2 min inside 02:12–03:30 JST 11-25, the scheduled CreateSeason window)
+until 05:00 JST 11-25 (env `UNTIL`, `INTERVAL`, `FAST_FROM`, `FAST_TO`, `FAST_INTERVAL`; `HEALTH_ARGS` = extra
+`health.mjs` options such as `--no-world-yet` — a marker file needs no option and no restart of the loop), appending
 to `~/Projects/wylls-grok-state/logs/devnet-health.log`, keeping first-seen milestone times in
 `evidence/devnet-health/state.json` and an `ALERT` line at the top of `reports/devnet-health.md` after a FAIL.
 Stop it with `touch ~/Projects/wylls-grok-state/logs/devnet-health.stop` (or `kill $(cat …/logs/devnet-health-loop.pid)`).
