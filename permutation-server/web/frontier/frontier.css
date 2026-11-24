@@ -1093,8 +1093,10 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .choice-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px var(--s2); margin: var(--s2) 0; }
 .choice-k { font-size: var(--t2); }
 .link-row { font-size: var(--t2); }
-.cost-list { display: grid; gap: var(--s1); font-size: var(--t1); line-height: 1.5; }
-.cost-list li { display: grid; grid-template-columns: 3.4em 1fr; gap: var(--s2); }
+/* the name column is as wide as the longest name (English names are longer than 3.4em and must not break mid-word);
+   the rows share it (subgrid) so the figures start on one line. Without subgrid each row sizes its own name column */
+.cost-list { display: grid; grid-template-columns: minmax(3.4em, max-content) 1fr; gap: var(--s1) var(--s2); font-size: var(--t1); line-height: 1.5; }
+.cost-list li { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(3.4em, max-content) 1fr; grid-template-columns: subgrid; gap: var(--s2); }
 .cost-list span { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 /* a fold that holds a whole document of another module: its own heading is the fold's line */
 .fold-doc > .fold-body > section > h3:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
