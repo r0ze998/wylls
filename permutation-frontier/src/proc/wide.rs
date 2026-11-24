@@ -681,8 +681,9 @@ pub fn set_rules(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::BadData.into());
     }
     // ⑧ wide land (i): a Season whose disk keeps are mixed on every ring
-    // (`placement` 2) takes the same function past ring 128 (`BadData`
-    // otherwise), so the rule does not switch at the disk's rim.
+    // (`placement` 2) takes the same function past ring 128, or (Q-1, owner
+    // 2026-11-24, expansion-gameplay-1) the Neutral rule — every wide keep
+    // opens unowned (`BadData` otherwise).
     let placement = season_cq(&season_ai.try_borrow_data()?)?.placement;
     let holder = wr::KeepHolderRule::from_byte(x.keep_holder).map_err(rules_err)?;
     if !wr::keep_holder_allowed(placement, holder) {
