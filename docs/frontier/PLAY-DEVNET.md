@@ -1,14 +1,15 @@
 # Play on devnet (for players, a test)
 
 The playable version of Wylls (villages, marches, keep capture, the wide land) went out on Solana **devnet** on
-2026-11-23. Devnet is a test network: the SOL used here has no value and no real money is involved.
+2026-11-23. **The world is not created yet, so nobody can join today**; the date will be announced.
+Devnet is a test network: the SOL used here has no value and no real money is involved.
 Japanese: [PLAY-DEVNET.ja.md](PLAY-DEVNET.ja.md). To play on your own Mac only, see [PLAY-LOCAL.md](PLAY-LOCAL.md).
 
 | | |
 |---|---|
 | Network | Solana devnet (not mainnet) |
 | Program id | `GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr` |
-| Can be joined from | **about 2026-11-25 02:47 JST** (expected between 02:45 and 02:55; the world is created automatically) |
+| Can be joined from | **not yet: the world is not created.** The date will be announced (the creation planned for 2026-11-25 was postponed on 2026-11-24; the world is created after a rules update) |
 | World length | **it does not end** (a continuous world); you can join at any time. One turn is 10 minutes; there is no fast clock |
 | Devnet SOL to hold | **about 0.05 SOL**, or **0.1 SOL** if you go to the wide land |
 
@@ -79,15 +80,17 @@ Good to know:
 - Every march spends 74 stamina and stamina returns 1 per turn (the cap is 120), so the same host waits about
   28 turns (about 4 hours 40 minutes) before its next march.
 - For the first while, first villages are placed in the heartland. A rim village can be requested once the map has
-  grown out to the rim (about 21 hours after the start, expected **about 2026-11-26 00:00 JST**). Wide-land requests
-  come after that.
+  grown out to the rim (about 21 hours after the world starts, under today's settings). Wide-land requests come
+  after that.
 - A second village or a wide-land village takes a day or more of harvests (a second village, on the wide land:
   food 800, wood 800, stone 400, gold 200).
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
-- Before the world is created the page says “The season's record cannot be read.” Open it again after the join time.
-- The 7-day “season 1” announced on 2026-11-23 was cancelled (aborted 2026-11-24) and is never created. Seasons were abolished (decision of 2026-11-23), so the
-  devnet world is one endless “season 2”. Where the page says “season”, it means this world.
+- Until the world is created the page cannot show it: it says that the record cannot be read. That is expected
+  today. Open the page again after the announced start.
+- The 7-day world announced on 2026-11-23 was cancelled (2026-11-24) and is never created. The world does not end
+  (decision of 2026-11-23): the devnet world will be one continuous world. Its creation, planned for 2026-11-25,
+  was postponed (decision of 2026-11-24) until the rules update is ready; the new date will be announced.
 - **There is no winning or losing yet.** After a keep is taken the guide says 「この世界は続きます。戦期の勝敗と集計は未決定です。」
   (this world goes on; its result and tally are undecided). The direction decided after that text was written (2026-11-24)
   is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
