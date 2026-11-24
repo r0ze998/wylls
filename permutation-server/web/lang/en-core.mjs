@@ -51,7 +51,7 @@ export default {
   '手番を終える': 'End turn',
   '解決中': 'Resolving',
   '停止中': 'Paused',
-  'シーズン終了': 'Season over',
+  '世界の終了': 'World ended',
   // common words and buttons
   'あなた': 'You',
   '閉じる': 'Close',

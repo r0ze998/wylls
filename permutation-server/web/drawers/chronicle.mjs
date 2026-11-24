@@ -13,14 +13,14 @@ export async function loadHistory() {
 
 function lineage() {
   const seasons = [...(S.history?.lineage || [])].reverse();
-  if (!seasons.length) return html`<p class="desc">${L`このシーズンは、どのシーズンの続きでもありません。`}</p>`;
+  if (!seasons.length) return html`<p class="desc">${L`この世界は、どの世界の続きでもありません。`}</p>`;
   return seasons.map(x => {
     const r = x.record || { nations: [], cities: [] };
     const rows = r.nations.map((n, c) => ({ c, ...n })).sort((a, b) => Number(b.points) - Number(a.points));
     const taken = r.cities.filter(c => c.capturedFrom != null).length;
-    return html`<details class="diplo-civ"><summary><span class="l1"><b>${L`シーズン ${x.seasonId}`}</b><span class="grow"></span><span class="meta">${L`都市 ${r.cities.length} · 奪われた ${taken}`}</span></span></summary>
+    return html`<details class="diplo-civ"><summary><span class="l1"><b>${L`世界 ${x.seasonId}`}</b><span class="grow"></span><span class="meta">${L`都市 ${r.cities.length} · 奪われた ${taken}`}</span></span></summary>
       <div class="civ-body">${rows.map((n, i) => html`<div class="list-row" style="cursor:default"><div class="main"><div class="title" style="font-weight:400">${i + 1}. ${T.civName((x.nations || [])[n.c] || L`勢力${n.c}`)}</div><div class="meta">${L`第${n.era}時代 · ${n.points}点 · 都市${n.cities} · メンバー${n.members}`}</div></div><span class="meta">${usdcFixed(n.share)} USDC</span></div>`)}
-      <p class="when">${L`歴史のルート ${String(x.historyRoot).slice(0, 16)}… · チェーンのシーズン口座と照らし合わせられます`}</p></div></details>`;
+      <p class="when">${L`歴史のルート ${String(x.historyRoot).slice(0, 16)}… · チェーンの世界の口座と照らし合わせられます`}</p></div></details>`;
   });
 }
 
@@ -34,5 +34,5 @@ export function drawerChronicle() {
   return html`<div class="eyebrow">${L`CHRONICLE · 年代記`}</div><h2>${L`年代記`}</h2>
     <div class="row">${FILTERS().map(([k, n]) => html`<button class="btn ${f === k ? 'primary' : ''}" type="button" data-chron="${k}">${n}</button>`)}</div>
     <div style="margin-top:8px">${rows.length ? rows.map(e => html`<div class="list-row" style="cursor:default"><div class="main"><div class="title" style="font-weight:400">${T.KIND_GLYPH[e.kt[0]] || '·'} ${e.kt[1]}</div></div><span class="meta">t${e.tick}</span></div>`) : html`<p class="desc">${L`まだ記録はありません。`}</p>`}</div>
-    <div class="section-title">${L`これまでのシーズン（歴史の層）`}</div>${lineage()}`;
+    <div class="section-title">${L`これまでの世界（歴史の層）`}</div>${lineage()}`;
 }

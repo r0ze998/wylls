@@ -46,7 +46,7 @@ export function setPin({ programId, cluster, seasonId, entryFee, accounts }) {
   p.season = pda.season(p.programId, p.seasonId);
   p.vault = pda.vault(p.programId, p.seasonId);
   if ((accounts?.season && accounts.season !== p.season) || (accounts?.vault && accounts.vault !== p.vault)) {
-    throw Object.assign(new Error(L`シーズンの口座がプログラムから導いたものと一致しません`), { code: 'PinMismatch' });
+    throw Object.assign(new Error(L`世界の口座がプログラムから導いたものと一致しません`), { code: 'PinMismatch' });
   }
   pin = Object.freeze(p);
   return pin;
@@ -225,12 +225,12 @@ const RETRYABLE = /settlement failed|blockhash|expired/i;
  */
 export async function join({ wallet, session, civ, name, stand, onStep = () => {} }) {
   const p = pin;
-  if (!p) return fail('NoPin', L`シーズンがまだわかりません`);
+  if (!p) return fail('NoPin', L`世界がまだわかりません`);
   const s = await season();
   if (!s.ok) return s;
-  if (s.programId !== p.programId || String(s.season?.seasonId) !== p.seasonId) return fail('X402Mismatch', L`ゲートウェイのシーズンがゲームサーバーのものと一致しません`);
+  if (s.programId !== p.programId || String(s.season?.seasonId) !== p.seasonId) return fail('X402Mismatch', L`ゲートウェイの世界がゲームサーバーのものと一致しません`);
   const members = s.members || [];
-  if (members.some(m => m.wallet === wallet.address)) return fail('AlreadyMember', L`このウォレットはすでにこのシーズンのメンバーです`);
+  if (members.some(m => m.wallet === wallet.address)) return fail('AlreadyMember', L`このウォレットはすでにこの世界のメンバーです`);
   if (members.some(m => m.session === session.publicKey)) return fail('SessionInUse');
   const { deposit } = registrationOf(s);
   const need = p.entryFee + deposit;
@@ -245,7 +245,7 @@ export async function join({ wallet, session, civ, name, stand, onStep = () => {
   if (first.httpStatus !== 402) return first.ok ? fail('X402Mismatch', L`ゲートウェイが支払い条件を返しませんでした`) : first;
   const req = first.accepts?.[0];
   const problems = paymentProblems(req, { pin: p, mint, crank, need, wallet: wallet.address });
-  if (problems.length) return fail('X402Mismatch', L`支払いの条件がこのシーズンと合いません（${problems.join(L`、`)}）`);
+  if (problems.length) return fail('X402Mismatch', L`支払いの条件がこの世界と合いません（${problems.join(L`、`)}）`);
   const ix = registerIx({ programId: p.programId, seasonId: p.seasonId, wallet: wallet.address, feePayer: crank, civ, walletToken: from, mint, name,
     kind: 2, session: session.publicKey, stand, deposit });
   const message = compileMessage({ feePayer: crank, recentBlockhash: req.extra.recentBlockhash, instructions: [ix] });
@@ -284,7 +284,7 @@ export async function relay(ixs, session) {
   const info = await get('/relay');
   if (!info.ok) return info;
   const crank = await crankKey();
-  if (!crank || info.feePayer !== crank || info.feePayer === session.publicKey) return fail('RelayMismatch', L`ゲートウェイの手数料支払い者がシーズンのものと違います`);
+  if (!crank || info.feePayer !== crank || info.feePayer === session.publicKey) return fail('RelayMismatch', L`ゲートウェイの手数料支払い者が世界のものと違います`);
   let message;
   try { message = compileMessage({ feePayer: info.feePayer, recentBlockhash: info.blockhash, instructions: ixs }); } catch (e) { return fail('InvalidTransaction', e.message); }
   const signature = await session.sign(message);
@@ -318,9 +318,9 @@ export async function claim({ wallet, seasonId = pin?.seasonId, onStep = () => {
   const info = await claimStatus(seasonId);
   if (!info.ok) return info;
   if (info.status !== 'Finalized') return fail('NotFinalized', null, { seasonStatus: info.status });
-  if (info.programId && info.programId !== p.programId) return fail('RelayMismatch', L`ゲートウェイのプログラムがシーズンのものと違います`);
+  if (info.programId && info.programId !== p.programId) return fail('RelayMismatch', L`ゲートウェイのプログラムが世界のものと違います`);
   const crank = await crankKey();
-  if (!crank || info.feePayer !== crank || info.feePayer === wallet.address) return fail('RelayMismatch', L`ゲートウェイの手数料支払い者がシーズンのものと違います`);
+  if (!crank || info.feePayer !== crank || info.feePayer === wallet.address) return fail('RelayMismatch', L`ゲートウェイの手数料支払い者が世界のものと違います`);
   const u = await usdc(wallet.address);
   const { dest, create } = claimDestination(u.ok ? u : null, { owner: wallet.address, mint: info.mint });
   const ixs = [

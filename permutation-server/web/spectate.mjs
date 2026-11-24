@@ -31,10 +31,10 @@ function renderLoading() {
   if (loadingSays === 'down') {
     $('#loading-text').textContent = L`ゲームサーバーに接続できません。play サーバーを起動してから再読み込みしてください。`;
   } else if (loadingSays) {
-    $('#loading h2').textContent = L`シーズンの開始を待っています`;
+    $('#loading h2').textContent = L`世界の開始を待っています`;
     setHtml($('#loading-text'), loadingSays.wait === 'registering'
-      ? html`${L`登録を受け付けています。締切で、人数に関わらずシーズンが始まります。`}<br><a href="./">${L`ウォレットでメンバーとして参加する →`}</a>`
-      : html`${L`シーズンを準備しています（世界の生成と着任）…`}`);
+      ? html`${L`登録を受け付けています。締切で、人数に関わらず世界が始まります。`}<br><a href="./">${L`ウォレットでメンバーとして参加する →`}</a>`
+      : html`${L`世界を準備しています（地図の生成と着任）…`}`);
   }
 }
 
@@ -105,7 +105,7 @@ function renderTop() {
   const [, ph, phEn] = T.phaseOf(v.tick, v.season?.phases);
   // In English the phase's name and its capitals are the same word: shown once.
   const phase = lang() === 'en' ? ph : html`${ph} <small>${phEn}</small>`;
-  setHtml($('#clock'), html`<b>${L`ティック ${v.tick}`}</b>/ ${v.ticks} · ${phase} · ${v.over ? L`シーズン終了` : v.paused ? L`停止中` : L`次の解決まで ${Math.ceil(v.secondsLeft)}秒`}`);
+  setHtml($('#clock'), html`<b>${L`ティック ${v.tick}`}</b>/ ${v.ticks} · ${phase} · ${v.over ? L`世界の終了` : v.paused ? L`停止中` : L`次の解決まで ${Math.ceil(v.secondsLeft)}秒`}`);
   setHtml($('#watch-chip'), S.watch === null
     ? html`<span class="badge">${L`観戦`}</span><b>${L`全体表示`}</b><span>${L`全ての勢力`}</span>`
     : Lh`<span class="badge fog">勢力</span><b>${civName(S.watch)}</b><span>の立場から見ています（情報は全員に同じです）</span>`);
@@ -133,7 +133,7 @@ function renderBoard() {
 function renderChain() {
   const c = S.view.chain;
   if (!c) {
-    setHtml($('#chain'), html`<p class="none">${Lh`ローカルモード（エンジンをこのプロセスで実行中）。<code>--chain</code> 付きで起動すると、MagicBlock ER 上のシーズンを表示します。`}</p>`);
+    setHtml($('#chain'), html`<p class="none">${Lh`ローカルモード（エンジンをこのプロセスで実行中）。<code>--chain</code> 付きで起動すると、MagicBlock ER 上の世界を表示します。`}</p>`);
     return;
   }
   const t = c.lastTick;
@@ -143,13 +143,13 @@ function renderChain() {
   const tx = t && explorer(t.signature);
   // 取引 here is a chain transaction (a market's 取引 is a trade): a key of its own, <dt> included.
   setHtml($('#chain'), html`<dl>
-    <dt>${L`シーズン`}</dt><dd>${c.seasonId}</dd>
+    <dt>${L`世界`}</dt><dd>${c.seasonId}</dd>
     <dt>${L`いまの層`}</dt><dd><span class="layer">${c.layer === 'er' ? 'MagicBlock ER' : 'Solana base'}</span> slot ${fmtOr(c.slot)}</dd>
     <dt>${L`プログラム`}</dt><dd>${hash(c.programId)}</dd>
     <dt>${L`直近の解決`}</dt><dd>${t ? L`ティック ${t.tick} · ${fmtOr(t.cu)} CU` : html`<span class="none">${L`まだありません`}</span>`}</dd>
     ${t ? html`${Lh`<dt>取引</dt>`}<dd>${tx ? html`<a href="${tx}" target="_blank" rel="noopener">${hash(t.signature)}</a>` : hash(t.signature)}</dd>
     <dt>${L`前の根`}</dt><dd>${hash(t.preRoot)}</dd><dt>${L`新しい根`}</dt><dd>${hash(t.root)}</dd>` : ''}
-  </dl>${verify ? html`<pre title="${L`このシーズンを手元で再計算して、すべての根を照合します`}">${verify.text}</pre><p class="verify-note">${verifyNote(verify)}</p>` : ''}`);
+  </dl>${verify ? html`<pre title="${L`この世界を手元で再計算して、すべての根を照合します`}">${verify.text}</pre><p class="verify-note">${verifyNote(verify)}</p>` : ''}`);
 }
 
 function renderFeed() {
