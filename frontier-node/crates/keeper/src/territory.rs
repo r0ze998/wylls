@@ -101,6 +101,20 @@ pub fn key_conquer(province: WideCoord, loser: &[u8; 32], keep_gen: u32) -> Stri
     )
 }
 
+/// The write key of a step planned at `bell`.
+pub fn key_of(s: &Step, bell: u32) -> String {
+    match s {
+        Step::Settle { citizen } => key_settle(citizen, bell),
+        Step::Decay { citizen, .. } => key_decay(citizen, bell),
+        Step::Conquer {
+            province,
+            loser,
+            captor_holding,
+            ..
+        } => key_conquer(*province, loser, captor_holding.keep_gen),
+    }
+}
+
 /// Whether a write key is this role's.
 pub fn is_key(k: &str) -> bool {
     k.starts_with("terr-")
@@ -200,6 +214,10 @@ async fn read_all<P: ChainPort>(port: &P, keys: &[Address]) -> PortResult<Vec<Op
 pub struct TerritoryDuty {
     last_bell: Option<u32>,
     last_scan: Option<u64>,
+    /// verify-pr221: the keys that LANDED in the current bell. The engine forgets a key once it lands, and a plain
+    /// settle is due again as soon as the clock moves past `paid_to` (seconds), so without this every rescan of a
+    /// bell ([`SCAN_SLOTS`], about 20 a 600-s bell on devnet) sent the same settle again. Cleared on a new bell.
+    landed_now: BTreeSet<String>,
     /// What the last scan saw (status).
     pub players: usize,
     pub with_tiles: usize,
@@ -235,6 +253,7 @@ impl TerritoryDuty {
         let kind = kind_of_key(key);
         match o {
             Outcome::Landed { slot, .. } => {
+                self.landed_now.insert(key.to_string());
                 *self.landed.entry(kind).or_default() += 1;
                 self.recent.push((key.to_string(), *slot));
                 if self.recent.len() > KEEP {
@@ -252,6 +271,14 @@ impl TerritoryDuty {
             }
             Outcome::Unresolved { .. } => {}
         }
+    }
+
+    /// The steps whose write did not land yet in this bell (verify-pr221: one settle a bell, not one a rescan).
+    pub fn not_landed(&self, steps: Vec<Step>, bell: u32) -> Vec<Step> {
+        steps
+            .into_iter()
+            .filter(|s| !self.landed_now.contains(&key_of(s, bell)))
+            .collect()
     }
 
     pub fn status(&self, index: &LandIndex) -> Value {
@@ -405,6 +432,9 @@ impl TerritoryDuty {
         {
             return Ok(());
         }
+        if fresh_bell {
+            self.landed_now.clear();
+        }
         self.last_bell = Some(bell);
         self.last_scan = Some(t.slot);
         let (v, homes) = self.view(t, port, index).await?;
@@ -423,7 +453,11 @@ impl TerritoryDuty {
             bell,
             t.cfg.territory_settle_bells,
         );
-        let steps = cap_steps(steps, bell, t.cfg.territory_per_bell as usize);
+        let steps = cap_steps(
+            self.not_landed(steps, bell),
+            bell,
+            t.cfg.territory_per_bell as usize,
+        );
         self.last_plan = steps.iter().map(|s| format!("{s:?}")).collect();
         let home = |z: &[u8; 32]| -> Address {
             homes
@@ -432,18 +466,11 @@ impl TerritoryDuty {
                 .unwrap_or_else(|| no_home(t.addrs))
         };
         for s in steps {
-            let (k, cu) = match &s {
-                Step::Settle { citizen } => (key_settle(citizen, bell), CU_SETTLE),
-                Step::Decay { citizen, .. } => (key_decay(citizen, bell), CU_DECAY),
-                Step::Conquer {
-                    province,
-                    loser,
-                    captor_holding,
-                    ..
-                } => (
-                    key_conquer(*province, loser, captor_holding.keep_gen),
-                    CU_CONQUER,
-                ),
+            let k = key_of(&s, bell);
+            let cu = match &s {
+                Step::Settle { .. } => CU_SETTLE,
+                Step::Decay { .. } => CU_DECAY,
+                Step::Conquer { .. } => CU_CONQUER,
             };
             if let Step::Settle { citizen } | Step::Decay { citizen, .. } = &s {
                 if homes.get(citizen).is_some_and(|h| !h.1) {
@@ -560,6 +587,39 @@ mod tests {
         assert_eq!(b.len(), 4);
         assert_ne!(a, b);
         assert_eq!(cap_steps(steps.clone(), 9, 24), steps);
+    }
+
+    /// verify-pr221: a settle that landed is not sent again by a later rescan of the same bell (the engine forgets
+    /// landed keys and `paid_to < now` holds again seconds later); a refused one is planned again; a new bell
+    /// settles again.
+    #[test]
+    fn a_landed_settle_is_not_sent_again_in_the_same_bell() {
+        let mut d = TerritoryDuty::default();
+        let steps = vec![
+            Step::Settle { citizen: z(1) },
+            Step::Settle { citizen: z(2) },
+        ];
+        assert_eq!(d.not_landed(steps.clone(), 7), steps);
+        d.on_outcome(
+            &key_settle(&z(1), 7),
+            &Outcome::Landed {
+                sig: Signature::default(),
+                payer: Address::new_from_array([3; 32]),
+                slot: 9,
+                first_slot: 8,
+                versions: 1,
+                already_done: false,
+            },
+        );
+        d.on_outcome(
+            &key_settle(&z(2), 7),
+            &Outcome::Dead {
+                reason: "x".into(),
+                code: None,
+            },
+        );
+        assert_eq!(d.not_landed(steps.clone(), 7), steps[1..].to_vec());
+        assert_eq!(d.not_landed(steps.clone(), 8), steps);
     }
 
     fn rec(tx: Vec<u8>, err: Option<String>) -> TxRecord {
