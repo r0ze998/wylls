@@ -69,9 +69,6 @@
 /* (territory-video-2) folded to its one line, the notice stands just over the dock, clear of the provinces strip, the turn
    dial and the page's notices at the top of the map (open, it stays where it was: read while joining) */
 #local-play-session[data-fold="folded"] { top: auto; bottom: calc(var(--dock-h, 76px) + 18px); opacity: .9; }
-/* fix-loop13 LP13-7: with a village or a host in hand the bar is taller than the dock, and the folded box sat behind it
-   (only "…world" was readable): it stands above the bar and its tab strip, as the hand's cards do (frontier.css .hand-pop) */
-@media (min-width: 721px) { body:is([data-hand="village"], [data-hand="host"]) #local-play-session[data-fold="folded"] { bottom: calc(var(--hand-h, 118px) + var(--edge, 12px) + 42px); } }
 #local-play-session .local-play-session-title { margin: 0 0 2px; font-weight: 600; color: #c9a24a; }
 #local-play-session .local-play-session-points { display: grid; gap: 2px; margin: 0; padding: 0 0 0 1.2em; }
 #local-play-session .local-play-session-gone { margin: 0; color: #e8b0a0; }
