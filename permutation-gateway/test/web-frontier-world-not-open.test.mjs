@@ -111,7 +111,11 @@ test('S1 the source: where the page says it', () => {
   order(ls, 'const r = await herald.season();', 'if (seasonStale(seq)) return true;',
     "if (isNotOpen(r) && !FS.season && !FS.worldEnded) { seasonRecovered(); noteNotOpen(); invalidate('status', 'chip', 'rail', 'panel'); return false; }",
     "if (FS.notOpen) { FS.notOpen = null; invalidate('status', 'chip', 'rail', 'panel'); }",
-    'if (!r.ok && FS.worldEnded) {', 'if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) });');
+    // (verify-pr226) "no world yet" under a world this page shows (a restarted herald) is a failure by its status on
+    // the red line — never the words "not open yet" beside a running world
+    "if (isNotOpen(r) && !FS.worldEnded) { const code = `HTTP${r.httpStatus || 503}`; clearInspection(FS); clearOutbound(FS); seasonError({ code, text: clientText(code) }); invalidate('status'); return false; }",
+    'if (!r.ok && FS.worldEnded) {',
+    'if (!r.ok) { clearInspection(FS); clearOutbound(FS); seasonError({ code: r.code, text: clientText(r.code) });');
   // the poll: an answer, not a failure — no back-off
   order(app, 'errors = ok ? 0 : errors + 1;', 'if (FS.notOpen) errors = 0;', 'if (ok) startWithSeason();');
   // the calm line, never the red one; not beside an ended world's or a lost launcher's banner

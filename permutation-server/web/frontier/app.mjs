@@ -4764,6 +4764,10 @@ async function loadSeason(herald) {
   // before this answer) is over.
   if (isNotOpen(r) && !FS.season && !FS.worldEnded) { seasonRecovered(); noteNotOpen(); invalidate('status', 'chip', 'rail', 'panel'); return false; }
   if (FS.notOpen) { FS.notOpen = null; invalidate('status', 'chip', 'rail', 'panel'); }
+  // (verify-pr226) "no world yet" from a herald whose world this page already shows (a herald that has just restarted
+  // answers so until it has read the chain again): the world IS open, so the red line does not say "not open yet" —
+  // it says what it said before this answer had a name (the status). An ended world keeps its own banner (below)
+  if (isNotOpen(r) && !FS.worldEnded) { const code = `HTTP${r.httpStatus || 503}`; clearInspection(FS); clearOutbound(FS); seasonError({ code, text: clientText(code) }); invalidate('status'); return false; }
   // (the loop-play report B5, launcher worlds only: a read that failed by the network is the one reason to ask the
   //  launcher whether it still runs this world — flocalplay-ended.mjs; a herald that answers is never doubted. Once the
   //  world is confirmed ended, a read that fails says nothing new: the banner says the world ended, and the season

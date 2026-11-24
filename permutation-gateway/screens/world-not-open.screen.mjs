@@ -8,6 +8,8 @@
 //   3 a real failure after that (the connection refused) is still the red line "could not connect", and the calm
 //     banner is gone; "not open" again takes the red line away
 //   4 the world is there: the page opens it by itself (no reload) — the banner goes, the turn dial runs
+//   5 "no world yet" under a world the page already shows (a herald restart): the red line names the failure by its
+//     status, as before — never "not open yet"
 // Nothing here is evidence of a chain or of a real herald: the real herald's answer was checked by hand on localnet
 // (the run's report). Run from this folder: WORLD_NOT_OPEN_PORT=<free port> node --test world-not-open.screen.mjs
 import { test, before, after } from 'node:test';
@@ -94,6 +96,16 @@ for (const lang of ['en', 'ja']) {
     assert.equal(s.error, null); assert.ok(asked > before);
     assert.ok(!s.body.includes(w.title), 'nothing says "not open" any more');
     await page.screenshot({ path: path.join(OUT, `4-open-${lang}.png`) });
+
+    // 5 (verify-pr226) the herald says "no world yet" under a world the page shows (a herald restart): the world is
+    //   open — the red line names the failure, never "not open yet"; no calm banner; the world's own plate stays
+    mode = 'notopen'; await pollNow(page);
+    s = await until(page, x => !!x.error, '5 the red line under a shown world');
+    assert.ok(!s.error.includes(w.title), s.error); assert.match(s.error, /HTTP503/);
+    assert.equal(s.banner, null); assert.ok(!s.body.includes(w.title), 'a shown world is never "not open"');
+    await page.screenshot({ path: path.join(OUT, `5-shown-world-${lang}.png`) });
+    mode = 'world'; await pollNow(page);
+    await until(page, x => !x.error, '5 the red line goes with the next good read');
     await ctx.close();
   });
 }
