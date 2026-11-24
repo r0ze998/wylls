@@ -1,0 +1,89 @@
+// TEST-ONLY local wide play (expansion-gameplay-1, owner t491u 2026-11-24: nations should visibly spread across the
+// map; design note docs/design/expansion/01-reach-from-land.md). WHERE an operator AI resident files its wide claim.
+//
+// Operator residents play like players (t481u Q6): the same rule, the same reads. A claim reaches OUTPOST_RANGE (3)
+// provinces from the first home — and, since expansion-gameplay-1, from any wide province that is the resident's
+// NATION'S LAND (a village of the nation there, or a keep the nation won: frontier-abi world_index/reach.rs, the
+// program's own check), named as the claim's reach witness. Which of the reachable provinces to take is the choice:
+//
+//   - push the frontier: farther from the resident's own home first (a village beside the ones the nation already has
+//     moves nothing on the map);
+//   - a heading per resident (outward, clockwise along the ring, counter-clockwise), so a nation's residents spread in
+//     different directions rather than all piling onto one province;
+//   - a province where the nation already has a village counts for less (the program refuses at 50 % of its weight).
+//
+// The wide land is read from the herald's recorded wide world (the page's own walk, map/wide.mjs loadWide), cached a
+// few seconds per process: the opened provinces (the local runner opens more where nations go, itest wide_frontier)
+// and their captured bytes (who has a village, who won the keep).
+import { createHerald } from '../../../permutation-server/web/frontier/herald.mjs';
+import { loadWide, WideWalk, ringPosition } from '../../../permutation-server/web/frontier/map/wide.mjs';
+import { claimTargets, distance, nationLandsOf, OUTPOST_RANGE } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+
+/** The three headings a resident may push toward. */
+export const HEADINGS = Object.freeze(['outward', 'clockwise', 'counter-clockwise']);
+/** A resident's heading by its index (deterministic: residents of one world spread three ways). */
+export const headingOf = index => HEADINGS[((Number(index) % 3) + 3) % 3];
+
+/** Milliseconds a read of the wide land is reused. */
+export const WIDE_LAND_TTL_MS = 15_000;
+
+/**
+ * The wide land reader of one process: `{read()}` → `{opened: [{p, q}], entries: [{p, q, bytes_b64}]}` (decimal strings)
+ * or null when the herald serves none yet. One walk at a time; reused for WIDE_LAND_TTL_MS.
+ */
+export function createWideLandReader({ herald: base, fetch: f = (...a) => globalThis.fetch(...a), now = () => Date.now(), ttlMs = WIDE_LAND_TTL_MS }) {
+  const herald = createHerald({ base, fetch: f });
+  let cached = null, at = -Infinity, pending = null;
+  async function walk() {
+    const r = await loadWide(herald, { walk: new WideWalk() });
+    if (!r.ok) return null;
+    const entries = [];
+    for (const e of r.walk.entries.values()) {
+      if (e.state !== 'open' || !e.wide || e.ring <= 128n) continue;
+      const b64 = e.wide.capture?.bytes_b64;
+      entries.push({ p: String(e.p), q: String(e.q), bytes_b64: typeof b64 === 'string' ? b64 : null });
+    }
+    return { opened: entries.map(e => ({ p: e.p, q: e.q })), entries };
+  }
+  return {
+    async read() {
+      if (cached && now() - at < ttlMs) return cached;
+      pending ??= walk().then(v => { if (v) { cached = v; at = now(); } return v ?? cached; }).finally(() => { pending = null; });
+      return pending;
+    },
+  };
+}
+
+// the angle of (p, q) round the map, as a fraction of a turn (ringPosition: wedge 0–5, then `pos` 0..ring−1 in it)
+const turnOf = (p, q) => {
+  const rp = ringPosition(BigInt(p), BigInt(q));
+  return rp.ring === 0n ? 0 : (rp.wedge * Number(rp.ring) + Number(rp.pos)) / (6 * Number(rp.ring));
+};
+const ringOf = (p, q) => Number(ringPosition(BigInt(p), BigInt(q)).ring);
+
+/** How well `t` follows `heading` from `home`: provinces outward, or along the ring (signed), ≥ 0. */
+export function headingBonus(home, t, heading) {
+  if (heading === 'outward') return Math.max(0, ringOf(t.p, t.q) - ringOf(home.p, home.q));
+  let d = turnOf(t.p, t.q) - turnOf(home.p, home.q);
+  d -= Math.round(d);
+  const steps = d * 6 * ringOf(t.p, t.q);
+  return Math.max(0, heading === 'clockwise' ? steps : -steps);
+}
+
+/**
+ * The claim targets of a resident, best first: claimTargets from `home` over the live opened land and the nation's
+ * land (each far target with its `reach` witness), scored by distance from home (the frontier push), the heading's
+ * bonus (half weight), minus 3 where the nation already has a village. `wideNow`: createWideLandReader's read.
+ */
+export function expansionTargets(home, wideNow, faction, { heading = 'outward' } = {}) {
+  if (!wideNow) return [];
+  const lands = nationLandsOf(wideNow.entries, faction);
+  const mine = new Set(lands.map(l => `${l.p},${l.q}`));
+  const score = t => distance(home, t) + headingBonus(home, t, heading) / 2 - (mine.has(`${t.p},${t.q}`) ? 3 : 0);
+  return claimTargets(home, wideNow.opened, lands)
+    .map(t => ({ t, s: score(t) }))
+    .sort((a, b) => b.s - a.s || (a.t.p + ',' + a.t.q < b.t.p + ',' + b.t.q ? -1 : 1))
+    .map(x => x.t);
+}
+
+export { OUTPOST_RANGE };
