@@ -23,6 +23,7 @@ import { localPersistPage } from './flocalplay.mjs';
 import { sessionSettled } from './flocalplay-session.mjs';
 import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
+import { isNotOpen, notOpenBannerView, readWorldOpen } from './world-not-open.mjs';
 import { createWorldWatch, worldStateOf, worldEndedWord } from './flocalplay-ended.mjs';
 // B21: the launcher that stopped answering (a plain line, not only the dial's red mark) and the test-world box that is told
 import { createLauncherWatch } from './flocalplay-ended.mjs';
@@ -297,6 +298,9 @@ function renderChip() {
     const v = FS.worldEnded ? endedBannerView({ kept: FS.worldEnded.paused === true }) : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
     // B21: the launcher cannot be reached (stopped): said in a plain line; an ended world's own banner stays first
     if (!FS.worldEnded && FS.launcherLost) Object.assign(v, launcherLostBannerView());
+    // (page-not-open-yet) the world is not created yet: said here, calmly, with when it opens — never on the red line
+    if (FS.notOpen && !FS.season && !FS.worldEnded && !FS.launcherLost) Object.assign(v, notOpenBannerView(FS.notOpen));
+    if (banner.dataset && (banner.dataset.notOpen === '1') !== !!v.notOpen) { if (v.notOpen) banner.dataset.notOpen = '1'; else delete banner.dataset.notOpen; }
     if (banner.dataset && (banner.dataset.lost === '1') !== !!v.lost) { if (v.lost) banner.dataset.lost = '1'; else delete banner.dataset.lost; }
     banner.hidden = v.hidden;
     if (banner.dataset && (banner.dataset.ended === '1') !== !!v.ended) { if (v.ended) banner.dataset.ended = '1'; else delete banner.dataset.ended; }
@@ -363,7 +367,8 @@ function renderStatus() {
   // (the season could not be read: the word is not 「読み込み中…」 for good — the banner below says what happened)
   const status = s ? seasonStatusText(s, FS.chain?.now() ?? 0) : FS.error ? '' : L`読み込み中…`;
   // the beacon's kind is a detail: "More → details" names it (detailsMarkup)
-  setText('season-status', status);
+  // (page-not-open-yet: a world not open yet is not 「読み込み中…」 either — the banner and the plate say it)
+  setText('season-status', !s && FS.notOpen ? L`まだ開いていません` : status);
   const err = $('error-line');
   if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }
   // B21: while the launcher cannot be reached the banner's plain line says so; the season poll's own "could not
@@ -4727,6 +4732,19 @@ function startSpectate(herald) {
 function seasonError(e) { if (!FS.error || FS.error.source === 'season') FS.error = { ...e, source: 'season' }; }
 function seasonRecovered() { if (FS.error?.source === 'season') FS.error = null; }
 
+/**
+ * (page-not-open-yet) The world is not open yet (`FS.notOpen = {opensAt}`; world-not-open.mjs). When it opens is the
+ * operator's file beside the page, read at the first such answer and again every tenth (the poll asks every 30 s, so
+ * about every five minutes): a file put there later reaches a page that is already open. No file: "soon". The time
+ * last read is kept (`worldOpensAt`): "not open" that comes back after a failed connection names it at once.
+ */
+let notOpenAsked = 0, worldOpensAt = null;
+function noteNotOpen() {
+  if (!FS.notOpen) FS.notOpen = { opensAt: worldOpensAt };
+  if (notOpenAsked++ % 10 !== 0) return;
+  readWorldOpen().then(w => { worldOpensAt = w.opensAt; if (FS.notOpen && FS.notOpen.opensAt !== w.opensAt) { FS.notOpen = { opensAt: w.opensAt }; invalidate('status', 'chip', 'rail', 'panel'); } }, () => {});
+}
+
 async function loadSeason(herald) {
   // (2026-11-17, ⑦: refreshOverviews asks the same record on its own, and the answers can cross — controller.askSeason.
   //  An answer, or a failure, asked before one already applied changes nothing: the pin, the record, the season, the
@@ -4740,6 +4758,16 @@ async function loadSeason(herald) {
   if (seasonStale(seq)) return true;
   // B21: a read that worked takes the "launcher cannot be reached" line away
   if (r.ok) launcherWatch?.readOk();
+  // (page-not-open-yet) the herald answers, and says the world is not created yet (503 NoSeasonYet): not an error and
+  // not the connection — the page says "not open yet" and keeps asking. Only while no world was ever read here (and none
+  // ended here): a page that already shows a world keeps the failure's own words below. A season error that stood (a failed connection
+  // before this answer) is over.
+  if (isNotOpen(r) && !FS.season && !FS.worldEnded) { seasonRecovered(); noteNotOpen(); invalidate('status', 'chip', 'rail', 'panel'); return false; }
+  if (FS.notOpen) { FS.notOpen = null; invalidate('status', 'chip', 'rail', 'panel'); }
+  // (verify-pr226) "no world yet" from a herald whose world this page already shows (a herald that has just restarted
+  // answers so until it has read the chain again): the world IS open, so the red line does not say "not open yet" —
+  // it says what it said before this answer had a name (the status). An ended world keeps its own banner (below)
+  if (isNotOpen(r) && !FS.worldEnded) { const code = `HTTP${r.httpStatus || 503}`; clearInspection(FS); clearOutbound(FS); seasonError({ code, text: clientText(code) }); invalidate('status'); return false; }
   // (the loop-play report B5, launcher worlds only: a read that failed by the network is the one reason to ask the
   //  launcher whether it still runs this world — flocalplay-ended.mjs; a herald that answers is never doubted. Once the
   //  world is confirmed ended, a read that fails says nothing new: the banner says the world ended, and the season
@@ -5297,6 +5325,8 @@ export async function boot() {
       if (seasonHidden()) return;
       const ok = await loadSeason(herald);
       errors = ok ? 0 : errors + 1;
+      // (page-not-open-yet: "not open yet" is an answer, not a failure — asked again at the usual pace, never backed off)
+      if (FS.notOpen) errors = 0;
       // (the first good read after a boot that could not read the season starts what needs one — startWithSeason)
       if (ok) startWithSeason();
     },
