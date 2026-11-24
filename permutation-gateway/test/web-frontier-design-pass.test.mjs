@@ -379,7 +379,7 @@ test('the spectator\'s standings: while the season is unread the plate says so �
 test('the spectator\'s standings: a season that could not be read is said as that, with what to do; the first answer brings the list', () => {
   const failed = railOf({ mode: 'spectate', season: null, overviews: new Map(), error: { code: 'HTTP503', text: 'x' } });
   assert.match(failed, /<p class="read-state" role="status" data-read="unread">/);
-  assert.match(words(failed), /^国の順位 シーズンの記録を読めません 通信の状態を確かめてください。読み込み直すと、もう一度試します。$/);
+  assert.match(words(failed), /^国の順位 世界の記録を読めません 通信の状態を確かめてください。読み込み直すと、もう一度試します。$/);
   assert.doesNotMatch(failed, /rail-standings|村 0/);
   // an overview has answered (a season without conquest): the six nations, as before
   const rec = { p: 2, q: 0, owners: [0, 1], sites: [1, 1] };
@@ -394,7 +394,7 @@ test('the spectator\'s standings: a season that could not be read is said as tha
   // the play page's rail is not the spectator's
   assert.equal(railOf({ mode: 'practice' }), '');
   setLang('en');
-  assert.match(words(railOf({ mode: 'spectate', season: null, overviews: new Map(), error: { code: 'HTTP503', text: 'x' } })), /^Nation standings The season(&#39;|')s record cannot be read\. Check your connection\. Reloading tries again\.$/);
+  assert.match(words(railOf({ mode: 'spectate', season: null, overviews: new Map(), error: { code: 'HTTP503', text: 'x' } })), /^Nation standings The world(&#39;|')s record cannot be read\. Check your connection\. Reloading tries again\.$/);
 });
 
 test('the chronicle\'s line: with the season unread for good it is "could not be read", not "being read"; every other state as before', () => {
@@ -412,15 +412,15 @@ test('the chronicle\'s line: with the season unread for good it is "could not be
 });
 
 test('the page banner: a read that failed by its HTTP status says what could not be read, with the code; every other error keeps its words', () => {
-  assert.equal(bannerText({ code: 'HTTP503', text: '不明なエラー（HTTP503）' }), 'シーズンの記録を読めません（HTTP503）');
-  assert.equal(bannerText({ code: 'HTTP404', text: 'x' }, false), 'シーズンの記録を読めません（HTTP404）');
+  assert.equal(bannerText({ code: 'HTTP503', text: '不明なエラー（HTTP503）' }), '世界の記録を読めません（HTTP503）');
+  assert.equal(bannerText({ code: 'HTTP404', text: 'x' }, false), '世界の記録を読めません（HTTP404）');
   assert.equal(bannerText({ code: 'HTTP503', text: '不明なエラー（HTTP503）' }, true), '不明なエラー（HTTP503）', 'with the season read, the error is of something else: its own text');
   assert.equal(bannerText({ code: 'BeaconMismatch', text: 'ビーコンが違います' }), 'ビーコンが違います');
   assert.equal(bannerText({ code: 'network', text: '通信できませんでした' }), '通信できませんでした');
   assert.equal(bannerText({ text: 'only words' }), 'only words');
   assert.equal(bannerText(null), '');
   setLang('en');
-  assert.equal(bannerText({ code: 'HTTP503', text: 'Unknown error (HTTP503)' }), "The season's record cannot be read. (HTTP503)");
+  assert.equal(bannerText({ code: 'HTTP503', text: 'Unknown error (HTTP503)' }), "The world's record cannot be read. (HTTP503)");
 });
 
 test('the page gives the keyboard back: the term\'s popover to its key, the search to the map, the dock to the key pressed', () => {

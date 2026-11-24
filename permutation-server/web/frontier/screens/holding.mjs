@@ -31,6 +31,7 @@ import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
+import { TERRITORY_V1 } from '../flocalplay-territory.mjs';
 import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
@@ -75,7 +76,14 @@ export function wideClaimModel(FS, m) {
   // (a slot-3 claim names the slot-2 wide village as its previous pair: flocalplay-wide.mjs wideClaimIntent)
   const prevH = mine.find(e => e.inventorySlot === 2 && e.holding)?.holding ?? null;
   const previous = prevH ? { p: String(prevH.p), q: String(prevH.q), site: Number(prevH.site) } : null;
-  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0 })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous };
+  // (verify-pr206-209: in a territory world each province row also claims a single tile — instant, paid in ore, one a
+  //  turn — whatever the next village's cost: the land grows by tiles, not only by village sites)
+  const byKey = local && typeof FS.wideLandNow === 'function' ? FS.wideLandNow()?.byKey ?? null : null;
+  const terrOf = t => byKey?.get?.(`${t.p},${t.q}`)?.territory ?? null;
+  const territory = targets.some(t => terrOf(t));
+  const ore = m.have[RESOURCE_ORDER.indexOf('Ore')] ?? 0;
+  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t) })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous,
+    territory, tileShort: ore < TERRITORY_V1.cost.base };
 }
 function wideClaimCard(FS, m, busy) {
   const w = wideClaimModel(FS, m);
@@ -86,8 +94,10 @@ function wideClaimCard(FS, m, busy) {
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
     <p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>
     ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
+      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
+    ${w.territory ? html`<p class="muted">${L`自分の土地：「1マス取る」はその州のマスを1つ、すぐ自分の土地にします（鉱石 10、持っているマス1つごとに +2%、1ターンに1マス）。村は自分のマスの上にだけ建ち、「ここに村を出す」は1回目でその場所のマスを取り、2回目で村を出します。土地の維持費は本拠地の食料から払います（1マス 0.033/時、自分の村から3州より遠いと1州ごとに +0.016/時）。払えないと新しく取れず、24ターン後から遠いマスが1ターンに1つずつ手放されます。`}</p>` : ''}
     <p class="muted">${L`申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。`}</p></section>`;
 }
 

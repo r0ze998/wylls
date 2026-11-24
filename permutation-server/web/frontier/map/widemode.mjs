@@ -66,8 +66,8 @@ const CODE_TEXT = {
   SampleWorld: TEXT.sample,
   WorldChanged: () => L`読み込み中に世界が変わりました。読み直します。`,
   StaleSnapshot: () => L`読み込み中に記録が更新されました。読み直します。`,
-  WrongSeason: () => L`別のシーズンの記録でした。表示しません。`,
-  WorldMismatch: () => L`世界の名前がシーズンと合いません。表示しません。`,
+  WrongSeason: () => L`別の世界の記録でした。表示しません。`,
+  WorldMismatch: () => L`世界の名前がこの世界の記録と合いません。表示しません。`,
   Aborted: () => L`読み込みを中止しました。`,
   network: () => L`記録の配信元に届きません。`,
 };
@@ -165,7 +165,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     const d = describeWalk(S.walk);
     if (!S.walk?.manifest) return '';
     const m = S.walk.manifest;
-    const parts = [L`接続先 ${S.source?.cluster ?? 'unknown'}（配信元の申告）`, L`世界 ${m.world.slice(0, 8)}… シーズン ${m.season}`, L`スナップショット ${String(d.snapshot?.epoch ?? '')}／${d.snapshot?.stamp?.slice(0, 8) ?? ''}…`,
+    const parts = [L`接続先 ${S.source?.cluster ?? 'unknown'}（配信元の申告）`, L`世界 ${m.world.slice(0, 8)}… 番号 ${m.season}`, L`スナップショット ${String(d.snapshot?.epoch ?? '')}／${d.snapshot?.stamp?.slice(0, 8) ?? ''}…`,
       L`記録 ${fmtNum(d.recorded)} 州（表示 ${fmtNum(d.shown)}：開 ${fmtNum(d.open)}・閉 ${fmtNum(d.closed)}）`];
     if (m.refused > 0) parts.push(L`索引が拒んだ報告 ${fmtNum(m.refused)}`);
     if (d.truncated) parts.push(TEXT.truncated());

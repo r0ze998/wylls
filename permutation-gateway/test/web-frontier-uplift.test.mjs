@@ -171,11 +171,11 @@ test('joining before the first turn: the button waits and says why; at the first
   const { renderNations } = await import('../../permutation-server/web/frontier/screens/join.mjs');
   const FS = t => ({ season: { programVersion: 3 }, clock: { genesisTs: 1000 }, chain: { now: () => t }, wallet: { address: 'w' }, joinDraft: { faction: 5 }, overviews: new Map() });
   const before = text(renderNations(FS(1000 - 290)));
-  assert.match(before, /季節の始まりを待っています/);
+  assert.match(before, /最初のターンの始まりを待っています/);
   assert.match(before, /あと約 5 分/);
   assert.match(String(renderNations(FS(1000 - 290))), /data-act="home-confirm"\s+disabled/);
   const after = String(renderNations(FS(1000 + 5)));
-  assert.doesNotMatch(after, /季節の始まりを待っています/);
+  assert.doesNotMatch(after, /最初のターンの始まりを待っています/);
   assert.doesNotMatch(after, /data-act="home-confirm"\s+disabled/);
 });
 

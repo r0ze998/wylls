@@ -358,9 +358,11 @@ pub async fn grow(
         if ring == FIRST_WIDE_RING {
             // (the playable conquest world's rule bytes, as the devnet preset's test: the deployed Free City site, no
             //  camp, the sort-key-hash region — and, owner decision Q-1 2026-11-24 (expansion-gameplay-1), every wide
-            //  keep opens UNOWNED (the neutral side), not interleaved by nation: nations take wide land themselves)
+            //  keep opens UNOWNED (the neutral side), not interleaved by nation: nations take wide land themselves;
+            //  territory-impl, owner 2026-11-24 12:09: the new-world bundle — those keeps weaker (E-Q1) and player
+            //  territory V1 (single-tile claims, food upkeep, villages on one's own tiles))
             let rules = wr::RuleBytes {
-                keep_holder: wr::KeepHolderRule::Neutral as u8,
+                keep_holder: wr::KeepHolderRule::NeutralTerritoryV1 as u8,
                 free_city: wr::FreeCityRule::DeployedLe32V1 as u8,
                 camp: wr::CampRule::NoCamp as u8,
                 region: wr::RegionRule::SortKeyHashV1 as u8,

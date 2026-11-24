@@ -27,6 +27,7 @@ import { profileForHash } from '../../../permutation-server/web/sdk/frontier/pro
 import { budgetPrefix } from '../../../permutation-server/web/sdk/frontier/budgets.mjs';
 import { compileMessage } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+import { TERRITORY_CLAIM, territoryClaimIntent, territoryClaimMessage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { WIDE_HOST_ACTS, WIDE_BUILT_ACTS, WIDE_ECONOMY_ACTS, wideHostIntent, wideHostMessage } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
 import { worldIdOf } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { COEXIST_ACTS, RIGHTS_ACTS, RIGHTS_WALLET_ONLY, rightsIntent, rightsMessage, grantOfIntent, decodeGrant } from '../../../permutation-server/web/frontier/flocalplay-rights.mjs';
@@ -38,7 +39,8 @@ import { RENT_CONTEXT_SCHEMA, clusterRentAnswer } from '../../../permutation-ser
 // (and FileTicket, one site: a first village on the rim of a local wide world, where PlaceHome cannot reach)
 // (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: a wide village's own Train, Muster and Depart, the page's
 //  flocalplay-wide-host.mjs; the program authenticates the wide accounts, this relay the Citizen and the bytes)
-export const LOCAL_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, ...WIDE_HOST_ACTS]);
+// (territory-impl, owner 2026-11-24 12:09: the single-tile claim 0xDA op 7, flocalplay-territory.mjs)
+export const LOCAL_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, TERRITORY_CLAIM, ...WIDE_HOST_ACTS]);
 export const LOCAL_ACT_SUBMIT_SCHEMA = 'frontier-local-play-act-submit-v1';
 const ERRORS = Object.freeze({
   LocalActInvalid: [400, 'invalid local-play command request'],
@@ -164,12 +166,16 @@ export function localActIntent(value, { wallet, coexist = false, outpost = false
   if (coexist && COEXIST_ACTS.includes(value.name)) {
     try { return rightsIntent(value.name, value.subject, value.fields, 'LocalActInvalid'); } catch (e) { fail(e?.code === 'LocalActWideHolding' ? 'LocalActWideHolding' : 'LocalActInvalid'); }
   }
-  check(LOCAL_ACT_COMMANDS.includes(value.name) && (value.name === WIDE_CLAIM || WIDE_HOST_ACTS.includes(value.name) || Object.hasOwn(SIGNED_BY, value.name)), 'LocalActNotAllowed');
+  check(LOCAL_ACT_COMMANDS.includes(value.name) && (value.name === WIDE_CLAIM || value.name === TERRITORY_CLAIM || WIDE_HOST_ACTS.includes(value.name) || Object.hasOwn(SIGNED_BY, value.name)), 'LocalActNotAllowed');
   const { name, subject: s, fields: f } = value;
   check(s !== null && typeof s === 'object' && !Array.isArray(s) && f !== null && typeof f === 'object' && !Array.isArray(f));
   // (the wide claim: its anchor village is a legacy one, its target a wide province within range; flocalplay-wide.mjs)
   if (name === WIDE_CLAIM) {
     try { return wideClaimIntent(s, f, 'LocalActInvalid'); } catch (e) { fail(e?.code === 'LocalActWideHolding' ? 'LocalActWideHolding' : 'LocalActInvalid'); }
+  }
+  // (the tile claim: its paying first home a legacy village, its target a wide province's tile; flocalplay-territory.mjs)
+  if (name === TERRITORY_CLAIM) {
+    try { return territoryClaimIntent(s, f, 'LocalActInvalid'); } catch (e) { fail(e?.code === 'LocalActWideHolding' ? 'LocalActWideHolding' : 'LocalActInvalid'); }
   }
   if (WIDE_HOST_ACTS.includes(name)) {
     try { return wideHostIntent(name, s, f, 'LocalActInvalid'); } catch { fail('LocalActInvalid'); }
@@ -215,6 +221,9 @@ export function localActMessage(intent, pins, blockhash) {
   check(A.season === pins.season && address(pins.wallet) && address(blockhash));
   if (intent.name === WIDE_CLAIM) {
     try { return { message: wideClaimMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
+  }
+  if (intent.name === TERRITORY_CLAIM) {
+    try { return { message: territoryClaimMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
   }
   if (WIDE_BUILT_ACTS.includes(intent.name)) {
     try { return { message: wideHostMessage(intent, { programId: pins.program, seasonId: pins.seasonId, wallet: pins.wallet, world: worldIdOf(A.season, pins.program), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT }), name: intent.name }; } catch { fail('LocalActInvalid'); }
@@ -506,7 +515,7 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
       //  before anything is read, the history retirement below included)
       if (turns !== null && RIGHTS_WALLET_ONLY.includes(ok.intent.name)) fail('LocalActWalletOnly');
       // (verify-pr163: the wide land's orders are not an external resident's — refused before anything is read)
-      if (noWideOrders && (ok.intent.name === WIDE_CLAIM || WIDE_HOST_ACTS.includes(ok.intent.name))) fail('LocalActWideOrderRefused');
+      if (noWideOrders && (ok.intent.name === WIDE_CLAIM || ok.intent.name === TERRITORY_CLAIM || WIDE_HOST_ACTS.includes(ok.intent.name))) fail('LocalActWideOrderRefused');
       check(!seen.has(digest), 'LocalActMessageUsed');
       if (!seen.room()) { await seen.retire(ask); open(); }
       check(seen.room(), 'LocalActBusy');

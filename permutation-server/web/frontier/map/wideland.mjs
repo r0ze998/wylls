@@ -107,6 +107,20 @@ const ENTRIES_AT = 1064, ENTRY_BYTES = 48, ENTRIES_N = 56, KEEP_AT = 4480, NO_TI
  * A host is an entry in state ROSTER (1: standing on the land; 2 mustering and 3 departed are not on a tile). A
  * `contender` of 0xFF is none (null here).
  */
+/**
+ * A territory world's facts of one wide province capture (verify-pr206-209: the page's tile card): `{siteTiles,
+ * keepTile}` when the trailer's territory byte (4,736 + 53) is 1 (frontier-abi world_index/land.rs territory_rule_of;
+ * site tiles Province v2 SITES @250, SITE_COUNT @262; the keep's tile @4480), else null.
+ */
+export function territoryOfCapture(b64) {
+  try {
+    if (typeof b64 !== 'string') return null;
+    const b = fromBase64(b64);
+    if (b.length !== 4864 || b[4789] !== 1) return null;
+    return Object.freeze({ siteTiles: Object.freeze(Array.from(b.subarray(250, 250 + Math.min(b[262], 12)))), keepTile: b[4480] });
+  } catch { return null; }
+}
+
 export function keepAndHostsOfCapture(b64) {
   let b;
   try { b = fromBase64(b64); } catch { return null; }
@@ -160,7 +174,7 @@ export function wideLandOf(walk) {
     const t = terrainOfCapture(e.wide.capture?.bytes_b64), kh = keepAndHostsOfCapture(e.wide.capture?.bytes_b64);
     const c = provincePixel(p, q), r = PROVINCE_CIRCUMRADIUS;
     const cell = { p, q, key: `${p},${q}`, ring, wedge: e.wedge, holder: e.wide.keepHolder, holdings: e.wide.holdings?.length ?? 0, villages: villagesOf(e.wide.holdings), terrain: t,
-      keep: kh?.keep ?? null, hosts: kh?.hosts ?? [],
+      keep: kh?.keep ?? null, hosts: kh?.hosts ?? [], territory: territoryOfCapture(e.wide.capture?.bytes_b64),
       colour: t ? meanColour(t.terrain) : NEUTRAL_LAND, x: c.x, y: c.y, box: { x0: c.x - r, y0: c.y - r, x1: c.x + r, y1: c.y + r } };
     cells.push(cell); byKey.set(cell.key, cell);
     min = min === null ? ring : Math.min(min, ring); max = max === null ? ring : Math.max(max, ring);

@@ -15,7 +15,7 @@
 import { L, onLangChange } from '../lang.mjs';
 import { expiryStable } from './flocalplay-expiry.mjs';
 import { CIV_NAMES } from '../i18n.mjs';
-import { worldEndedText, launcherLostText } from './flocalplay-ended.mjs';
+import { worldEndedText, worldEndedLine, launcherLostText } from './flocalplay-ended.mjs';
 
 export const SESSION_NOTICE_ID = 'local-play-session';
 /** An end time on this machine's clock, `YYYY-MM-DD HH:MM` (the same in either language). */
@@ -28,11 +28,12 @@ export function endTimeText(ms) {
  * The keeper's answer in one sentence (`onCheck`'s view): null for no view (nothing changes). Turns "processed
  * through" are the keeper's resolved_next − 1.
  */
-export function keeperText(view) {
+export function keeperText(view, { kept = false } = {}) {
   if (!view || typeof view !== 'object') return null;
   if (view.state === 'unavailable') return L`世界の進行を確認できませんでした。開始サービスを確認して、もう一度押してください。`;
   // (the launcher no longer runs this world: said as the world's end, not as a check that failed — B5)
-  if (view.state === 'ended') return worldEndedText();
+  // (a kept world is paused, not ended: owner decision 2026-11-24, LP14-1)
+  if (view.state === 'ended') return worldEndedText({ kept });
   if (view.state !== 'reported') return null;
   const k = view.keeper;
   if (!k || typeof k !== 'object') return L`世界の進行役の報告はまだありません。少し待ってから、もう一度確認してください。`;
@@ -136,7 +137,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
     items[1].textContent = persisted && end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろにいったん止まります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります。`;
-    if (world === 'ended') items[1].textContent = L`この世界は終了しました。ターンはもう進みません。`;
+    if (world === 'ended') items[1].textContent = worldEndedLine({ kept: persisted });
     else if (world === 'lost') items[1].textContent = L`この世界はいま止まっているようです（開始サービスに届きません）。`;
     items[2].textContent = persisted ? L`止まっても進行は保存されています。同じブラウザで開始を押すと、続きから再開します。`
       : L`世界が終わると、その世界の進行は保存されません。`;
@@ -146,7 +147,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       : L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
     fold.textContent = folded ? L`詳しく見る` : L`たたむ`;
     fold.setAttribute?.('aria-expanded', folded ? 'false' : 'true');
-    if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = world === 'ended' ? worldEndedText() : world === 'lost' ? launcherLostText() : keeperText(answer); said.textContent = t ?? ''; said.hidden = t === null; }
+    if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = world === 'ended' ? worldEndedText({ kept: persisted }) : world === 'lost' ? launcherLostText() : keeperText(answer, { kept: persisted }); said.textContent = t ?? ''; said.hidden = t === null; }
     if (pairs) { pairCheck.textContent = pairAsking ? L`確認しています…` : L`二人の対戦の国と砦を確認`; const t = pairGuideText(pairAnswer); pairSaid.textContent = t ?? ''; pairSaid.hidden = t === null; }
   };
   const paint = () => {

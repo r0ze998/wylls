@@ -703,7 +703,7 @@ $('judge').addEventListener('change', refresh);
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to) && sameWorld) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
   else if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) {
     $('entryWarn').textContent = qs.get('program') === null || qs.get('season') === null
-      ? '入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない。この板の世界の届け先の村を入れてください'
+      ? '入口の村が、どの世界（世界の番号・プログラム）の村か分からないため、届け先に入れていない。この板の世界の届け先の村を入れてください'
       : `入口の村は別の世界（世界の番号 ${qs.get('season').slice(0, 20)}）の村のため、届け先に入れていない。この板の世界（世界の番号 ${cfg.season.seasonId}）の届け先の村を入れてください`;
     $('entryWarn').hidden = false;
   } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄

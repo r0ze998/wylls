@@ -96,7 +96,19 @@ export function createLauncherWatch({ onLost = () => {}, onBack = () => {}, afte
 /** B21: the plain line of a launcher that cannot be reached (the banner and the "About this test world" box). */
 export const launcherLostText = () => L`開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界はいま止まっています。ターンは進まず、命令も送れません。続けるには、開始サービスをもう一度起動し（保存した世界は続きから）、開始ページを開き直してください。`;
 
-/** The banner's sentence once the world has ended (it replaces the "view is behind" banner: there is nothing later to read). */
-export const worldEndedText = () => L`この世界は終了しました。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。`;
+/**
+ * The banner's sentence once the launcher no longer runs the world (it replaces the "view is behind" banner: there is
+ * nothing later to read). Owner decision 2026-11-24 21:51 (LP14-1): a KEPT world (`kept`: the launcher keeps its worlds,
+ * flocalplay.mjs `localPersistPage`) has not ended — its launcher stopped its processes (its `--minutes`, its output
+ * limit, the owner's own stop) and its progress is on disk — so it is said to be PAUSED, with how to go on. Only a
+ * memory-only TEST world really ends, and that is said as a test world's limit, not as a rule of the game.
+ */
+export const worldEndedText = ({ kept = false } = {}) => (kept ? worldPausedText()
+  : L`このテスト用の世界は終了しました（保存しないテスト用の世界で、時間などに限りがあります）。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。`);
+/** A kept world that its launcher stopped: paused, its progress saved, and how play goes on from where it stopped. */
+export const worldPausedText = () => L`この世界は止まっています。進行は保存されています。止まっているあいだはターンが進まず、命令も送れませんが、止まったところから続けられます。続けるには、開始ページを開き直して「世界を開始」を押してください（開始サービスを止めたときは、先にターミナルで scripts/play-local.sh --resume を実行します）。`;
 /** The dial's word under the last turn the world reached (short: the dial's line holds "9:26 left"; the banner says the rest). */
-export const worldEndedWord = () => L`終了済み`;
+export const worldEndedWord = ({ kept = false } = {}) => (kept ? L`一時停止` : L`終了済み`);
+/** The "About this test world" box's second line once the launcher no longer runs the world. */
+export const worldEndedLine = ({ kept = false } = {}) => (kept ? L`この世界は止まっています。進行は保存されています。`
+  : L`このテスト用の世界は終了しました。ターンはもう進みません。`);

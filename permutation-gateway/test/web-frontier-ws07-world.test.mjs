@@ -132,6 +132,6 @@ test('a different season record (another ID) is said as that, not as the world s
   const s = RS.summarize({ records: [], read: { after: '0' }, marks: null, last: { seasonId: '7', wallet: 'W' }, season: '8', wallet: 'W', nowBell: 5, me });
   assert.equal(s.mode, 'newSeason');
   const t = RW.headText(s);
-  assert.match(t, /前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。/);
+  assert.match(t, /前に見ていたものとは別の記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。/);
   assert.doesNotMatch(t, /新しいシーズンです|リセット|消え/);
 });

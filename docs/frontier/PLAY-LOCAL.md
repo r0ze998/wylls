@@ -187,7 +187,7 @@ scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
 3. With both there, one world starts; each picks a nation and places a village.
 - `--resume` brings the same two back (`--two` is not needed). Open it in the same browser at the same address as before.
 - A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
-- When either presses "End this world…" it stops for both. A third person cannot join. `--wide` is for one person.
+- When either presses "End this world…" (a kept world: "Stop this world…") it stops for both. A third person cannot join. `--wide` is for one person.
 
 ## 4. Check the wide land (`--wide`, about 60–90 minutes)
 
@@ -217,7 +217,7 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    build): the farm takes 1 h 30 min (about 1.5 minutes at ×60).
    - "Join (nation)" takes on one press (#130; each of the 8 joins in verify-pr130 took one). While the page is
      reading the village sites the button reads "Preparing your village…" and cannot be pressed.
-   - If a card "While you were away: This device holds no "seen" mark for this season and wallet…" comes first, close it with
+   - If a card "While you were away: This device holds no "seen" mark for this world and wallet…" comes first, close it with
      "Mark as seen" (the world starts around turn 140; it is not a defect).
 2. **A wide village (30–60 minutes at ×60; 75 under heavy load)**: the village screen's "Found a village on the wide land (test)" shows
    the cost — the program's price, for a second village "Cost (from the village's stores): Food 800 · Wood 800 · Stone 400 · Gold 200" — and the
@@ -234,6 +234,17 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      Nation-mates' villages count too, AI residents' included. The world opens new wide land around your nation's villages and
      won keeps (at most 3 provinces a turn, out to ring 136). Owner Q-1: in a `--wide` world every wide keep starts **unowned**
      (drawn neutral, "Land of no nation"); a nation's colour there is only what it took. Design: docs/design/expansion/01-reach-from-land.md
+   - **Your own land (player territory, #209; owner 11-24 12:09 / 13:15)**: every `--wide` world is a territory world. Land is
+     owned **tile by tile**. Each province row of the card has "Claim a tile": one free tile of that province (not a village site,
+     not the keep's) becomes yours at once for 10 ore (+2 % per tile you own, rounded down to whole ore), one tile a turn, first
+     come first served. A village stands only on your own tile: "Found a village here" claims that site's tile on the **first**
+     press (instant) and files the village on the **second**. Upkeep comes from your first village's food: 0.033 food an hour per
+     tile, +0.016 an hour per province beyond 3 from your nearest own village (fixed when you claim). If the food cannot pay,
+     claims stop, and after 24 unpaid turns your farthest tile is let go each turn (at the start a village makes about 40 food an
+     hour, so land upkeep does not bind until you hold very many tiles). Taking a province's keep moves its tiles of other
+     nations' players (not your nation-mates', not tiles with a village on them) to the owner of the army that took it. Wide
+     keeps open neutral with 50 troops (held 72 turns to take). The map does not draw tiles or borders yet (owner question T-9).
+     Design: docs/design/expansion/02-player-territory.md
 
    Once the village exists (the "W2" button normally comes within a few turns of the claim; once, under load, about
    80 turns later: loop-play12), the easiest way to
@@ -419,6 +430,10 @@ view (fog-devnet; runbook §7 P5).
 - `--resume` opens only the kept world started last. To go back to an older one, write its folder
   (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
 - A world's processes stop after 90 minutes by default (`--minutes`). A kept world still continues with `--resume`.
+  Its page then says so: the dial reads "Turn N · paused" and the banner "This world is paused. Your progress is saved. …
+  play continues from where it stopped", with the two ways on: open the start page again and press "Start the world"
+  while the start service still runs, or run `scripts/play-local.sh --resume` first when it was stopped. (A `--demo` or
+  `--wide` world that stops says "This test world has ended (a test world that is not saved, …)": it cannot be resumed.)
   `--resume` does not remember `--minutes`: for a long session pass it again, e.g. `--resume --minutes 240`.
 - **What ends, and what does not.** The game has no seasons and its world does not end. A kept world follows that: it has
   no last turn, and only its processes stop (`--minutes`), to be continued with `--resume`. `--demo` and `--wide` worlds are
@@ -470,7 +485,6 @@ Japanese), except what is listed below: the test-world box behind the hand bar (
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| "More" (every local world) | three labels still say "season": "Season timeline", the fact row "Season" and "Forget this season's key on this device" (names only; nothing says who wins; verify-pr208) | ignore the word: there are no seasons |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |

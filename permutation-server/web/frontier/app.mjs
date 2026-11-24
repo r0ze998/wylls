@@ -19,6 +19,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
 import { localPlayRequested, localLauncherRequested, openLocalPlayGate, localPlayWorldCheck } from './flocalplay.mjs';
+import { localPersistPage } from './flocalplay.mjs';
 import { sessionSettled } from './flocalplay-session.mjs';
 import { currentEphemeralWallet } from './fephemeral-wallet.mjs';
 import { staleBannerView, endedBannerView, rereadLabel } from './stale-banner.mjs';
@@ -237,6 +238,8 @@ export function chipText(chip) {
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
   // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
   // (a local-play world its launcher has ended: the last turn it reached, and that it is over — B5)
+  // (a KEPT world its launcher stopped is paused, its progress saved — owner decision 2026-11-24, LP14-1)
+  if (chip.stopped && chip.paused) return L`ターン ${fmtNum(chip.bell)} · 一時停止`;
   if (chip.stopped) return L`ターン ${fmtNum(chip.bell)} · 終了済み`;
   if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
@@ -246,7 +249,7 @@ export function chipText(chip) {
 export function dialParts(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.stopped ? worldEndedWord() : chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.stopped ? worldEndedWord({ kept: !!chip.paused }) : chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
 }
 
 /**
@@ -280,7 +283,7 @@ export function dialMarkup(chip) {
 }
 
 /** The dial's chip of a world confirmed ended (`FS.worldEnded`): its last turn, marked `stopped`; any other chip as it is. */
-export const stoppedChip = (chip, ended) => (ended && chip && chip.bell !== null && !chip.beforeGenesis ? { ...chip, stopped: true } : chip);
+export const stoppedChip = (chip, ended) => (ended && chip && chip.bell !== null && !chip.beforeGenesis ? { ...chip, stopped: true, ...(ended.paused === true ? { paused: true } : {}) } : chip);
 
 function renderChip() {
   const now = FS.chain?.now() ?? null;
@@ -291,12 +294,13 @@ function renderChip() {
   const banner = $('stale-banner');
   if (banner) {
     // (B5: a world confirmed ended is not "behind" — the banner says that it ended)
-    const v = FS.worldEnded ? endedBannerView() : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
+    const v = FS.worldEnded ? endedBannerView({ kept: FS.worldEnded.paused === true }) : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
     // B21: the launcher cannot be reached (stopped): said in a plain line; an ended world's own banner stays first
     if (!FS.worldEnded && FS.launcherLost) Object.assign(v, launcherLostBannerView());
     if (banner.dataset && (banner.dataset.lost === '1') !== !!v.lost) { if (v.lost) banner.dataset.lost = '1'; else delete banner.dataset.lost; }
     banner.hidden = v.hidden;
     if (banner.dataset && (banner.dataset.ended === '1') !== !!v.ended) { if (v.ended) banner.dataset.ended = '1'; else delete banner.dataset.ended; }
+    if (banner.dataset && (banner.dataset.paused === '1') !== !!v.paused) { if (v.paused) banner.dataset.paused = '1'; else delete banner.dataset.paused; }
     if (!v.hidden) {
       // (local play: the words and one re-read button, made once and kept, so a press is never lost to the redraw)
       let text = banner.querySelector('.stale-text'), btn = banner.querySelector('[data-act="state-reread"]');
@@ -425,7 +429,7 @@ export function detailsMarkup(FS) {
   const costs = tips.map(t => { try { return { text: t.text, ...marchCosts(s, t.lamports) }; } catch { return null; } }).filter(Boolean);
   return html`<section class="vcard vcard-folds" aria-label="${L`詳細`}">${fold('more-details', html`${icon('scroll')}${L`詳細`}<span class="fold-val">${status}</span>`, html`
     <dl class="facts">
-      ${row(L`シーズン`, status)}
+      ${row(L`世界`, status)}
       ${FS.beacon?.kind ? row(L`乱数のビーコン`, FS.beacon.kind === 'test' ? L`テスト用ビーコン` : L`公開ビーコン（drand）`) : ''}
       ${row(L`ルールのモジュール`, FS.kernelError ? L`frontier.wasm を読み込めません（${FS.kernelError}）` : L`frontier.wasm（見込みの計算と報告の確かめに使います）`)}
       ${FS.land ? row(L`村の申し込みの預け金（いま要る額）`, html`${lamports(escrowNeededAt(FS.land, holdingRentNow(FS.rent), FS.citizen?.slots))} <span class="muted" data-rent-source="${rentSource(FS.rent)}">${rentNote(FS.rent)}</span>`) : ''}
@@ -434,13 +438,13 @@ export function detailsMarkup(FS) {
     <p class="muted">${L`封を開ける、衝突を決着させる、結果を届ける。こうした手続きは、ターンごとに自動の係（キーパー）が代わりに行います。チップはその報酬です。`}</p>
     <p class="muted">${L`いまの段階に賞金はありません。費用はテスト用の SOL で、ゲーム側（中継サーバー）が立て替えます（価値はありません）。`}</p>
     ${costs.length ? html`${label(L`進軍の費用（単位：ランポート）`)}<ul class="cost-list">${costs.map(c => html`<li><strong>${c.text}</strong><span>${L`チップ`} ${fmtNum(Number(c.tip))} · ${L`進軍の手数料（決着させた人へ）`} ${fmtNum(Number(c.marchFee))} · ${L`封の保証金（結果を受け取ると戻る）`} ${fmtNum(Number(c.sealBond))} · ${L`合計`} ${fmtNum(Number(c.total))}</span></li>`)}</ul>` : ''}
-    <div class="actions"><button type="button" class="btn" data-act="forget">${L`この端末からこのシーズンの鍵を消す`}</button></div>`)}</section>`;
+    <div class="actions"><button type="button" class="btn" data-act="forget">${L`この端末からこの世界の鍵を消す`}</button></div>`)}</section>`;
 }
 
 /** The rest of "More" as one card of folds: pins, the viewer's name, the season's timeline, the glossary. */
 function moreFolds(FS) {
   const parts = [['more-pins', 'pin', L`ピン`, pins.renderPins(FS.pins ?? [], FS)], ['more-name', 'person', L`あなたの名前`, renderNameForm(FS)],
-    ['more-timeline', 'hourglass', L`シーズンの年表`, milestones.renderTimeline(FS.mileRecord)], ['more-glossary', 'tome', L`用語集`, glossary.renderGlossary()]].filter(x => String(x[3] ?? '') !== '');
+    ['more-timeline', 'hourglass', L`世界の年表`, milestones.renderTimeline(FS.mileRecord)], ['more-glossary', 'tome', L`用語集`, glossary.renderGlossary()]].filter(x => String(x[3] ?? '') !== '');
   return html`<section class="vcard vcard-folds" aria-label="${L`そのほか`}">${parts.map(([key, ic, title, body]) => fold(key, html`${icon(ic)}${title}`, body, { cls: 'fold-doc' }))}</section>`;
 }
 
@@ -4317,13 +4321,16 @@ function renderChips() {
 let heraldRef = null;
 /** Local play, launcher worlds: the watch that asks the launcher about this world after a failed herald read (flocalplay-ended.mjs). */
 let worldWatch = null;
+/** Whether this page's launcher keeps its worlds (flocalplay.mjs `localPersistPage`): its stopped world is paused, not ended. */
+let worldKept = false;
 /**
  * This page's world was confirmed ended (B5): the clock stands at the herald's last sample from now on (ChainClock.halt:
  * what the local clock added after it never happened), the turn the panels use is that sample's, the season poll's own
  * "could not connect" gives way to the banner that says the world ended, and everything is drawn again. Never undone.
  */
 export function worldEnded() {
-  FS.worldEnded = { at: Date.now() };
+  // (a KEPT world — the launcher keeps its worlds — is paused, not ended: its progress is on disk and a start resumes it)
+  FS.worldEnded = { at: Date.now(), ...(worldKept ? { paused: true } : {}) };
   FS.chain?.halt?.();
   if (FS.error?.source === 'season') FS.error = null;
   // B21: the "About this test world" box says so too (an earlier "services running" answer is dropped)
@@ -4490,7 +4497,7 @@ export function w4Bind(name, value) {
 }
 
 /** The play actions that send something to the chain: a refusal of one offers "try again" (hud/status.mjs). */
-export const SENDS = Object.freeze(new Set(['wide-claim', 'harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
+export const SENDS = Object.freeze(new Set(['wide-claim', 'territory-tile', 'harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
   // S1 (screens/s1.mjs)
   's1-vault', 's1-structure', 's1-raid', 's1-raid-open', 's1-vote', 's1-seize', 's1-siege', 's1-expel', 's1-readmit',
   // (orders of the prototype rule "banners": to the sample world only)
@@ -4893,6 +4900,8 @@ export async function boot() {
   //  at the herald's last sample — worldEnded; the launcher is asked only after a herald read failed by the network)
   // (B21: the same one answer is also counted by launcherWatch — a launcher that gives no answer at all, twice in a row,
   //  is said in a plain line; no second question is asked)
+  // (owner decision 2026-11-24, LP14-1: a kept world that its launcher stopped is said to be paused, not ended)
+  worldKept = localPersistPage(cfg);
   { const check = localPlayWorldCheck(cfg); if (check) { launcherWatch = createLauncherWatch({ onLost: () => launcherLost(true), onBack: () => launcherLost(false) }); worldWatch = createWorldWatch({ ask: () => check().then(r => { launcherWatch?.heard(r); return worldStateOf(r); }), onEnded: worldEnded }); } }
   setRelay(cfg.relay);
   FS.chain = new ChainClock();

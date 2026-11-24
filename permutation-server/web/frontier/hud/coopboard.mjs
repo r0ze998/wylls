@@ -52,7 +52,7 @@ export function boardState(FS, b) {
   const season = FS?.season?.seasonId, program = pinnedProgram(FS);
   const other = season === undefined || season === null || b.config.season.seasonId !== String(season)
     || (program && typeof b.config.season.programId === 'string' && b.config.season.programId !== program);
-  if (other) return { available: false, why: L`この依頼の板は、別の世界（シーズン）のものです` };
+  if (other) return { available: false, why: L`この依頼の板は、別の世界のものです` };
   if (!villageTo(FS)) return { available: false, why: L`村を選ぶと、その村を届け先にして開けます` };
   return { available: true };
 }

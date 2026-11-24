@@ -68,8 +68,12 @@ export function distance(a, b) {
  */
 export function wideClaimIntent(subject, fields, code = 'LocalActShape') {
   const has = k => subject !== null && typeof subject === 'object' && Object.hasOwn(subject, k);
-  const withReach = has('reach'), withPrev = has('previous');
-  const keys = ['holding', 'target', ...(withReach ? ['reach'] : []), ...(withPrev ? ['previous'] : [])];
+  const withReach = has('reach'), withPrev = has('previous'), withTerr = has('territory');
+  const keys = ['holding', 'target', ...(withReach ? ['reach'] : []), ...(withPrev ? ['previous'] : []), ...(withTerr ? ['territory'] : [])];
+  // (territory-impl, owner 2026-11-24 12:09 T-6: in a territory world a village stands on the claimer's own tile; the
+  //  claim then names the target's territory record as its 13th account — never a reach witness — and owning the tile
+  //  is the reach, so the home range does not apply; the program checks the tile and the free site between villages)
+  if (withTerr) check(subject.territory === true && !withReach, code);
   check(exactKeys(subject, keys) && exactKeys(fields, ['site', 'slot']), code);
   const h = subject.holding, t = subject.target, w = withReach ? subject.reach : null, pv = withPrev ? subject.previous : null;
   // (expansion-gameplay-1, a bug on main too: a slot-3 claim names the citizen's slot-2 WIDE holding as the previous
@@ -85,11 +89,12 @@ export function wideClaimIntent(subject, fields, code = 'LocalActShape') {
   check(ha <= 128n, 'LocalActWideHolding');
   check(ta >= FIRST_WIDE_RING, code);
   if (w) check(wa >= FIRST_WIDE_RING && distance(w, t) <= OUTPOST_RANGE, code);
-  else check(distance(h, t) <= OUTPOST_RANGE, code);
+  else if (!withTerr) check(distance(h, t) <= OUTPOST_RANGE, code);
   check(int(fields.site, 0, 11) && int(fields.slot, 2, 3), code);
   const subj = { holding: Object.freeze({ p: h.p, q: h.q, site: h.site }), target: Object.freeze({ p: t.p, q: t.q }) };
   if (w) subj.reach = Object.freeze({ p: w.p, q: w.q });
   if (pv) subj.previous = Object.freeze({ p: pv.p, q: pv.q, site: pv.site });
+  if (withTerr) subj.territory = true;
   return Object.freeze({ name: WIDE_CLAIM, subject: Object.freeze(subj), fields: Object.freeze({ site: fields.site, slot: fields.slot }) });
 }
 
@@ -116,6 +121,8 @@ export function wideClaimInstruction(intent, { programId, seasonId, wallet }) {
   ];
   // (the reach witness, read-only, last: expansion-gameplay-1)
   if (intent.subject.reach) keys.push({ pubkey: wideProvinceAddress(A.season, programId, intent.subject.reach.p, intent.subject.reach.q), isSigner: false, isWritable: false });
+  // (territory-impl: the target's territory record, read-only, last — same with-seed rule as flocalplay-territory.mjs)
+  if (intent.subject.territory) keys.push({ pubkey: withSeed(A.season, 'wn' + toHex(sha256(utf8('PSF-WIDE-TERRITORY-PROVINCE-v1'), sortKeyOf(BigInt(t.p), BigInt(t.q))).slice(0, 15)), programId), isSigner: false, isWritable: false });
   const data = new Uint8Array(19), dv = new DataView(data.buffer);
   data[0] = WIDE_CLAIM_TAG;
   dv.setBigInt64(1, BigInt(t.p), true); dv.setBigInt64(9, BigInt(t.q), true);

@@ -852,6 +852,35 @@ pub const S1_DEVNET_WIDE_7D: SeasonParamsV2 = devnet_wide(S1_LOCAL_7D);
 /// change.
 pub const S1_DEVNET_WIDE_CONTINUOUS: SeasonParamsV2 = continuous(S1_DEVNET_WIDE_7D);
 
+/// `release_after_secs` meaning **never** (owner decision 2026-11-24 12:07
+/// JST U3: the 7-day idle first-village release, ReleaseDormant, is removed
+/// from the new world's rules). The program refuses ReleaseDormant
+/// (`NotDormant`) for a Season storing it, before reading anything else;
+/// CreateSeason accepts it only in a world with no end bell (a finite
+/// season's `release_after_secs ≤ season length` check refuses it). The
+/// separate dormancy rule (5 days idle → half production, Shield lapses) is
+/// unchanged.
+pub const RELEASE_DORMANT_NEVER: u32 = u32::MAX;
+
+/// `p` with the first-village release removed ([`RELEASE_DORMANT_NEVER`]
+/// in both blocks, which must agree).
+pub const fn no_dormant_release(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.base.release_after_secs = RELEASE_DORMANT_NEVER;
+    q.cq.release_after_secs = RELEASE_DORMANT_NEVER;
+    q
+}
+
+/// **The new devnet world** (territory-impl, owner decisions 2026-11-24
+/// 12:03–12:09 JST): [`S1_DEVNET_WIDE_CONTINUOUS`] without the idle
+/// first-village release (U3, [`no_dormant_release`]). The wide land's
+/// rules ride the experimental rules configuration, not the Season: the
+/// operator sends WideSetRules with keep holder
+/// `rules::KeepHolderRule::NeutralTerritoryV1` (every wide keep unowned and
+/// weaker, player territory V1). Not announced, not created (12:07 U2:
+/// after the upgrade).
+pub const S1_DEVNET_TERRITORY: SeasonParamsV2 = no_dormant_release(S1_DEVNET_WIDE_CONTINUOUS);
+
 /// `outpost_tier_min` of [`S1_DEVNET_WIDE_7D`]: Hamlet (`holding::Tier::Hamlet
 /// as u8`), so a fresh rim first village anchors a wide claim (owner Q-W1, the
 /// local wide world's rule). Every other preset keeps Town (1).
@@ -869,13 +898,14 @@ pub const fn devnet_wide(p: SeasonParamsV2) -> SeasonParamsV2 {
 }
 
 /// Every S1 preset with its name (vectors).
-pub const PRESETS_S1: [(&str, SeasonParamsV2); 6] = [
+pub const PRESETS_S1: [(&str, SeasonParamsV2); 7] = [
     ("S1_LOCAL_7D", S1_LOCAL_7D),
     ("S1_LOCAL_14D", S1_LOCAL_14D),
     ("S1_TEST", S1_TEST),
     ("S1_LOCAL_CONTINUOUS", S1_LOCAL_CONTINUOUS),
     ("S1_DEVNET_WIDE_7D", S1_DEVNET_WIDE_7D),
     ("S1_DEVNET_WIDE_CONTINUOUS", S1_DEVNET_WIDE_CONTINUOUS),
+    ("S1_DEVNET_TERRITORY", S1_DEVNET_TERRITORY),
 ];
 
 #[cfg(test)]
@@ -932,6 +962,10 @@ mod tests {
             }
             if name == "S1_DEVNET_WIDE_CONTINUOUS" {
                 assert_eq!(continuous(devnet_wide(S1_LOCAL_7D)), p);
+                continue;
+            }
+            if name == "S1_DEVNET_TERRITORY" {
+                assert_eq!(no_dormant_release(continuous(devnet_wide(S1_LOCAL_7D))), p);
                 continue;
             }
             let mc = PRESETS
@@ -1412,5 +1446,23 @@ mod tests {
             a,
             crate::presets::params_hash(&MC_LOCAL_7D.base.to_bytes(), &[1])
         );
+    }
+
+    /// U3 (owner 2026-11-24 12:07): the new devnet world has no idle
+    /// first-village release; it validates only as a continuous world.
+    #[test]
+    fn the_territory_world_never_releases_a_dormant_home() {
+        let p = S1_DEVNET_TERRITORY;
+        assert_eq!(p.base.release_after_secs, RELEASE_DORMANT_NEVER);
+        assert_eq!(p.cq.release_after_secs, RELEASE_DORMANT_NEVER);
+        assert_eq!(
+            p.cq.dormant_after_secs,
+            S1_DEVNET_WIDE_CONTINUOUS.cq.dormant_after_secs
+        );
+        assert_eq!(p.validate(), Ok(()));
+        let mut finite = no_dormant_release(S1_DEVNET_WIDE_7D);
+        assert_eq!(finite.validate(), Err("release_after_secs"));
+        finite.cq.release_after_secs = S1_DEVNET_WIDE_7D.cq.release_after_secs;
+        assert!(finite.validate().is_err());
     }
 }

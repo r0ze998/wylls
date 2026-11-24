@@ -46,7 +46,7 @@ test('a caravan\'s arrival in its states: overdue is not arrived, settled-unveri
   assert.doesNotMatch([v.text, ...v.details].join(), /失われ|入りませんでした|0 以上/, 'never said lost or nothing');
   assert.equal(SV.arrivalView({ state: 'settledUnverified', why: 'vault' }).text, '到着しましたが、入った量は確認できません', 'no record: no bound is made up');
   assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'dstUnknown', recorded: C(400) }).text, /決着しました。入った量はまだ確かめられていません/);
-  assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'rulesUnknown', recorded: C(352) }).details.join(), /このシーズンのプログラムの版では、入った量の確かめ方を確認していません/);
+  assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'rulesUnknown', recorded: C(352) }).details.join(), /この世界のプログラムの版では、入った量の確かめ方を確認していません/);
   const k = SV.arrivalView({ state: 'verifiedIntake', intake: C(352), compare: 'sentUnknown' });
   assert.deepEqual([k.key, k.symbol], ['arrival:verifiedIntake:sentUnknown', '○']);
   assert.match([k.text, ...k.details].join(), /村に入った量：食料 352 以上.*送付記録を読めていないため、送った量の全部か一部かは比べられません.*記録の数は、入った量の下限です/);

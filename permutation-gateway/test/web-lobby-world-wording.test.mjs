@@ -29,11 +29,8 @@ test('Q-WW-2: no シーズン / 季節 in the old lobby pages\' Japanese text (s
 
 test('Q-WW-2: no "season" in the English of the lobby tables or the error sentences', () => {
   const hits = [];
-  // (the bare label key 'シーズン' may stay, with the English 'World', only while a Frontier source still asks for L`シーズン`)
-  const frontierAsks = ['frontier/app.mjs', 'frontier/screens/wideholding.mjs'].some(f => read(f).includes('L`シーズン`'));
   for (const f of TABLES) {
     for (const [n, t] of codeLines(read(f))) {
-      if (frontierAsks && t.trim() === "'シーズン': 'World',") continue;
       const english = t.includes(FROZEN_JA) ? t.replace(FROZEN_JA, '') : t;
       if (/season/i.test(english) || (/シーズン|季節/.test(english))) hits.push(`${f}:${n}: ${t.trim().slice(0, 120)}`);
     }

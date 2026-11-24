@@ -170,7 +170,7 @@ export default {
   '探索の結果が出ました：功績 +{0}': 'Your exploration\'s result: +{0} Works',
   '探索の結果が出ました：今回は功績がありませんでした': 'Your exploration\'s result: no Works this time',
   '探索の結果 {0}': n => plural(n, '{0} exploration result', '{0} exploration results'),
-  'このシーズンに測量したマスの数です。村や軍勢から見えた土地、探索したマス、進軍で通ったマスが入ります。': 'The tiles you have surveyed this season: land seen from your village and hosts, tiles explored, tiles a march passed over.',
+  'この世界で測量したマスの数です。村や軍勢から見えた土地、探索したマス、進軍で通ったマスが入ります。': 'The tiles you have surveyed in this world: land seen from your village and hosts, tiles explored, tiles a march passed over.',
   'ここに集める': 'Form here',
   '線の内側のマスを押すと場所を変えられます（村のある州の、通れるマス）。軍勢は、このターンの決着のあとに整列します。': 'Press a tile inside the line to change the place (a passable tile of the village\'s province). The host stands once this turn is resolved.',
 
@@ -348,7 +348,7 @@ export default {
   '都市はもう自由都市ではありません': 'the city is no longer a Free City',
   '先に条件を満たした別の予約が包囲になりました': 'another reservation met the conditions first and became the siege',
   '拠点の使用枠が空いていません': 'no holding slot is free',
-  'シーズンの終わりまでに包囲が終わりません': 'the siege could not finish before the season ends',
+  'この世界の受付の終わりまでに包囲が終わりません': 'the siege could not finish before this world stops taking orders',
   '預けた資源：返却の処理待ちです。': 'Deposit: waiting to be returned.',
   '預けた資源：戻りました。': 'Deposit: returned.',
   '預けた資源：戻りません。': 'Deposit: not returned.',
@@ -360,7 +360,7 @@ export default {
   // (the program stores no cause for a reservation that did not start: a general sentence; a derived reason is marked as derived)
   '包囲は始まりませんでした（ターン {0}・場所 {1}）。予約したターンの処理のときに条件を満たさなかったか、先の予約が包囲になりました。今日の宣言回数は1回使われたままです。': 'The siege did not start (turn {0}; site {1}). Its conditions were not met when the reserved turn was processed, or an earlier reservation became the siege. It still counts as one of today\'s declarations.',
   // (how a reservation ended is said only on a basis: the season's end or interruption from its receipt; otherwise nothing of how)
-  '包囲は始まりませんでした（場所 {0}）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。': 'The siege did not start (site {0}). The reservation did not take effect because the season ended or was interrupted. It still counts as one of today\'s declarations.',
+  '包囲は始まりませんでした（場所 {0}）。世界の受付の終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。': 'The siege did not start (site {0}). The reservation did not take effect because the world stopped taking orders or was interrupted. It still counts as one of today\'s declarations.',
   '包囲は始まりませんでした（場所 {0}）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。': 'The siege did not start (site {0}). The reservation did not take effect. It still counts as one of today\'s declarations.',
   '預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、まだ結果を受け取っていません。いつ、どこへ戻るかはまだ決まっていません。': 'Deposit: waiting to be returned. The holding it came from no longer exists. It is still owed to you and its result has not been collected yet. When and where it will be returned is not decided yet.',
   '返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。': 'Returns and releases take effect when the siege\'s result is collected. That may not happen automatically.',
@@ -418,8 +418,8 @@ export default {
   '封を開ける期間が終わっています。': 'The period for opening this seal is over.',
   'この到着ターンの記録はすでに片付けられています。': 'The records of this arrival turn have already been put away.',
   '到着先はこのターンの受付をすでに締め切っています。': 'The destination has already closed this turn\'s arrivals.',
-  'シーズンが進行中ではありません。': 'The season is not running.',
-  'シーズンが終わっており、この到着は受け付けられません。': 'The season has ended, and this arrival is not accepted.',
+  'この世界は進行中ではありません。': 'This world is not running.',
+  'この世界の受付が終わっており、この到着は受け付けられません。': 'This world no longer takes orders, and this arrival is not accepted.',
   '到着先の枠がほかの軍勢と競合しています。このページでは順位を判定しないため、送りません。': 'The destination\'s arrival slots are contested by other hosts. This page does not judge the ranking, so nothing is sent.',
   '到着先にこの軍勢の名前の記録がありますが、この封のものとは一致しません。': 'The destination has a record under this host\'s name, but it does not match this seal.',
   '到着先の州がまだ開かれていません。': 'The destination province is not opened yet.',
@@ -497,7 +497,7 @@ export default {
   '送る内容を確認': 'Review what will be sent',
   '先に「地形・時間を確認」で道と到着ターンを確かめてください。': 'First check the route and the arrival turn with “Check terrain and time”.',
   'devnet：この軍勢を、接続中のウォレットの署名で境界の外へ出発させます。手数料・チップ・保証金はこのウォレットが払います。': "Devnet: this host departs past the boundary with your connected wallet's signature. This wallet pays the fee, the tip and the bond.",
-  '境界の外への出発は、広い土地が開いた devnet のシーズンでだけ送れます。送っていません。': 'A departure past the boundary can be sent only on a devnet season whose wide land is open. Nothing was sent.',
+  '境界の外への出発は、広い土地が開いた devnet の世界でだけ送れます。送っていません。': 'A departure past the boundary can be sent only on a devnet world whose wide land is open. Nothing was sent.',
   'ウォレットが返した署名済みの取引を読めませんでした。送っていません。': 'The signed transaction the wallet returned could not be read. Nothing was sent.',
   '出発の取引を正しく組み立てられませんでした。送っていません。': 'The departure\'s transaction could not be built. Nothing was sent.',
   // fix-loop7, LP7-3: a refused road is said with its step and stays until the road changes

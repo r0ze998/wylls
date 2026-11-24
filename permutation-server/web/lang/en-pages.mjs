@@ -115,7 +115,6 @@ export default {
   // the chain box
   'ローカルモード（エンジンをこのプロセスで実行中）。<code>--chain</code> 付きで起動すると、MagicBlock ER 上の世界を表示します。':
     'Local mode (the engine runs in this process). Start with <code>--chain</code> to show a world on MagicBlock ER.',
-  'シーズン': 'World',
   'いまの層': 'Layer',
   'プログラム': 'Program',
   '直近の解決': 'Last resolution',
