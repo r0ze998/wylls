@@ -64,8 +64,9 @@ use crate::Tick;
 
 /// Slots between two scans inside one bell (writes the engine dropped are planned again).
 pub const SCAN_SLOTS: u64 = 75;
-/// CU limits (measured in operator_playable P18 on the devnet `.so` 31acbb59, devnet-territory-dev: settle ≈ 9–15 k,
-/// settle + decay ≈ 15–25 k, settle × 2 + conquer ≈ 45–60 k; these leave room for the HARVEST record's chain).
+/// CU limits. Measured in operator_playable P18 on the devnet `.so` 31acbb59 (devnet-territory-dev): a settle
+/// ≤ 16,242 CU, settle + decay 24,324, settle × 2 + conquer (the captor's summary created) 38,333. The limits leave
+/// room for larger HARVEST chains; the class-D bid is per CU of the limit.
 pub const CU_SETTLE: u32 = 60_000;
 pub const CU_DECAY: u32 = 90_000;
 pub const CU_CONQUER: u32 = 200_000;

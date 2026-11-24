@@ -161,9 +161,21 @@ fn province_of(r: &Run<'_>, c: WideCoord) -> Option<TerritoryProvince> {
         .and_then(|d| TerritoryProvince::read(&d).ok())
 }
 
-fn store_of(r: &Run<'_>, home: &Address, res: usize) -> i64 {
+/// A store's accrual record as the account holds it (value, rate, cap, t0, frac).
+fn accrual_of(
+    r: &Run<'_>,
+    home: &Address,
+    res: usize,
+) -> permutation_rules::frontier::holding::Accrual {
     let d = r.data(home).unwrap();
-    le_i64(&d, H::store(res) + AC::VALUE)
+    let o = H::store(res);
+    permutation_rules::frontier::holding::Accrual {
+        value: le_i64(&d, o + AC::VALUE),
+        rate: le_i64(&d, o + AC::RATE),
+        cap: le_i64(&d, o + AC::CAP),
+        t0: le_i64(&d, o + AC::T0),
+        frac: le_i64(&d, o + AC::FRAC),
+    }
 }
 
 /// Tells the driver to go (`go-<step>`, with a JSON body) and waits for its `done-<step>.json`.
@@ -380,7 +392,7 @@ pub(super) async fn phase(
     for n in 1..=2u32 {
         run(r);
         let before = player_of(r, &citizen).unwrap();
-        let ore_before = store_of(r, &home, ORE);
+        let ore_before = accrual_of(r, &home, ORE);
         let d = driver_step(
             sync,
             alive,
@@ -411,12 +423,17 @@ pub(super) async fn phase(
             "tile {n}: the wallet paid exactly the preview: {d:#}"
         );
         let ore_cost: i64 = d["preview"]["ore"].as_i64().unwrap();
-        let ore_after = store_of(r, &home, ORE);
-        // (the first home's ore: the preview's whole units, × 1,000 milli; nothing else touched the store between)
+        let ore_after = accrual_of(r, &home, ORE);
+        // (the first home's ore: the preview's whole units × 1,000 milli; the store's own production since its last
+        //  settle is added at the claim, so the drop is judged against the accrual at the claim's time; its rate is
+        //  unchanged by a claim)
+        assert_eq!(ore_after.rate, ore_before.rate, "tile {n}: the ore rate");
+        let accrued = ore_before.value_at(ore_after.t0);
         assert_eq!(
-            ore_before - ore_after,
+            accrued - ore_after.value,
             ore_cost * 1_000,
-            "tile {n}: the ore burned is the preview's"
+            "tile {n}: the ore burned is the preview's (accrued {accrued}, after {})",
+            ore_after.value
         );
         let tp = province_of(r, target).expect("the province's territory record");
         assert_eq!(tp.owner[tile], before.citizen_tag, "tile {n}: the page's");
