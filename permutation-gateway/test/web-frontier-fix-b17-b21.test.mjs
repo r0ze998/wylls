@@ -340,6 +340,14 @@ test('LP14-1: the "About this test world" box of a kept world the launcher stopp
     assert.match(said.textContent, /^この世界は止まっています。進行は保存されています。/); assert.doesNotMatch(said.textContent, /終了/);
     setLang('en');
   } finally { notice.unmount(); }
+  // the dial: "Turn N · paused" for a kept world, "Turn N · ended" for a memory-only test world (app.mjs)
+  const { stoppedChip, chipText, dialParts } = await import('../../permutation-server/web/frontier/app.mjs');
+  const chip = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1, paused: true });
+  assert.equal(chip.stopped, true); assert.equal(chip.paused, true);
+  assert.equal(chipText(chip), 'Turn 26 · paused'); assert.equal(dialParts(chip).left, 'paused');
+  const over = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1 });
+  assert.equal(over.paused, undefined); assert.equal(chipText(over), 'Turn 26 · ended', 'a memory-only test world still says ended');
+  setLang('ja'); assert.equal(chipText(chip), 'ターン 26 · 一時停止'); assert.equal(chipText(over), 'ターン 26 · 終了済み'); setLang('en');
 });
 
 // ------------------------------------------------------------------ loop-play7: the workshop's name in build labels

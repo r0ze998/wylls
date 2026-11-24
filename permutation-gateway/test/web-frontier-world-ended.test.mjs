@@ -9,7 +9,7 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { setLang } from '../../permutation-server/web/lang.mjs';
+import { setLang, EN } from '../../permutation-server/web/lang.mjs';
 import { ChainClock, bellAt, bellChip, pollCap } from '../../permutation-server/web/frontier/clock.mjs';
 import { createWorldWatch, worldStateOf, worldEndedText, worldEndedWord, WORLD_ENDED_ASK_GAP_MS, WORLD_NOT_FOUND } from '../../permutation-server/web/frontier/flocalplay-ended.mjs';
 import { staleBannerView, endedBannerView } from '../../permutation-server/web/frontier/stale-banner.mjs';
@@ -167,7 +167,6 @@ test('the page: the dial, the season poll, the gate and the map are wired to the
 
 // Owner decision 2026-11-24 21:51 (LP14-1): a KEPT world that its launcher stopped (its --minutes ran out) has not ended.
 test('a kept world the launcher no longer runs is PAUSED: progress saved, play continues (--resume), in either language', async () => {
-  const { stoppedChip, chipText, dialParts } = await import('../../permutation-server/web/frontier/app.mjs');
   setLang('en');
   const en = endedBannerView({ kept: true });
   assert.deepEqual(en, { hidden: false, text: 'This world is paused. Your progress is saved. While it is paused its turns do not advance and no order can be sent, but play continues from where it stopped. To continue, open the start page again and press "Start the world" (if the start service was stopped, first run scripts/play-local.sh --resume in a terminal).', reread: false, ended: true, paused: true });
@@ -175,16 +174,11 @@ test('a kept world the launcher no longer runs is PAUSED: progress saved, play c
   assert.match(en.text, /^This world is paused\. Your progress is saved\./); assert.match(en.text, /continues from where it stopped/); assert.match(en.text, /--resume/);
   assert.equal(worldEndedText({ kept: true }), en.text); assert.equal(keeperText({ state: 'ended' }, { kept: true }), en.text);
   assert.equal(worldEndedWord({ kept: true }), 'paused');
-  const chip = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1, paused: true });
-  assert.equal(chip.stopped, true); assert.equal(chip.paused, true);
-  assert.equal(chipText(chip), 'Turn 26 · paused'); assert.equal(dialParts(chip).left, 'paused');
-  const over = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1 });
-  assert.equal(over.paused, undefined); assert.equal(chipText(over), 'Turn 26 · ended', 'a memory-only test world still says ended');
   setLang('ja');
   const ja = endedBannerView({ kept: true });
   assert.equal(ja.text, 'この世界は止まっています。進行は保存されています。止まっているあいだはターンが進まず、命令も送れませんが、止まったところから続けられます。続けるには、開始ページを開き直して「世界を開始」を押してください（開始サービスを止めたときは、先にターミナルで scripts/play-local.sh --resume を実行します）。');
   assert.match(ja.text, /^この世界は止まっています。進行は保存されています。/); assert.doesNotMatch(ja.text, /終了|新しい世界/);
-  assert.equal(worldEndedWord({ kept: true }), '一時停止'); assert.equal(chipText(chip), 'ターン 26 · 一時停止');
+  assert.equal(worldEndedWord({ kept: true }), '一時停止');
   setLang('en');
 });
 
@@ -196,7 +190,6 @@ test('a kept launcher\'s start page says "stop" (progress saved, a start resumes
   assert.match(gate, /s\.phase === 'stopping' && persisted \? L`選んだ世界を止めています…`/);
   assert.match(gate, /s\.ended && persisted \? L`世界を止めました。進行は保存されています。その世界は、同じブラウザで「世界を開始」を押すと続きから再開します。`/);
   assert.match(gate, /s\.listed > 0 && persisted \? L`動いている世界は\$\{s\.listed\}個です。止める世界があれば、下の一覧のその行で選べます。`/);
-  const { EN } = await import('../../permutation-server/web/lang.mjs');
   assert.equal(EN['この世界を止める…'], 'Stop this world…'); assert.equal(EN['止める'], 'Stop it');
   assert.equal(EN['この世界を止めますか？ 進行は保存され、「世界を開始」を押すと続きから再開できます。止まっているあいだ、この世界で遊んでいるページは続けられません。'], 'Stop this world? Its progress is saved, and pressing "Start the world" resumes it from where it stopped. While it is stopped, a page playing in this world cannot continue.');
   assert.equal(EN['世界を止めました。進行は保存されています。その世界は、同じブラウザで「世界を開始」を押すと続きから再開します。'], 'The world was stopped. Its progress is saved: pressing "Start the world" in the same browser resumes it from where it stopped.');
