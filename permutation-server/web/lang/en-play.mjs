@@ -103,7 +103,7 @@ export default {
   // ---------------------------------------------------------------- chainplay.mjs
   'この端末にはゲーム内の鍵がないため、見るだけです（鍵のバックアップを読み込むと操作できます）。':
     'This device has no in-game key, so you can only watch (load your key backup to play).',
-  'シーズンがまだわかりません': 'The season is not known yet',
+  '世界がまだわかりません': 'The world is not known yet',
   '観測ルートがまだ届いていません。少し待ってからもう一度確定してください': "The observation root hasn't arrived yet. Wait a moment and commit again",
   '署名できませんでした（{0}）': 'Could not sign ({0})',
   'メッセージは1〜{0}字です': 'A message is 1–{0} characters',
@@ -237,7 +237,7 @@ export default {
   '開拓者に命令': 'Order the Settler',
   '部隊に命令': 'Order a unit',
   '結果を見る': 'See the results',
-  '開幕する': 'Start the season',
+  '開幕する': 'Start the world',
   '第1回選挙を行い、ティックを始める': 'Hold the first election and start the ticks',
   '封印した命令を公開しています': 'Revealing the sealed orders',
   '全ての勢力の命令を解決しています': "Resolving every faction's orders",
@@ -279,10 +279,10 @@ export default {
   '見送られた命令：{0}の{1}件目（{2}）': 'Skipped order: {0} order #{1} ({2})',
   '{0}から{1}の申し入れ（ティック{2}まで有効）': 'Offer from {0}: {1} (valid until tick {2})',
   '外交を開く': 'Open diplomacy',
-  'シーズンの開始を待っています': 'Waiting for the season to start',
-  '登録を受け付けています。締切でシーズンが始まり、そのあと表示されます。':
-    'Registration is open. The season starts at the deadline and shows here after that.',
-  'シーズンを準備しています…': 'Preparing the season…',
+  '世界の開始を待っています': 'Waiting for the world to start',
+  '登録を受け付けています。締切で世界が始まり、そのあと表示されます。':
+    'Registration is open. The world starts at the deadline and shows here after that.',
+  '世界を準備しています…': 'Preparing the world…',
   'ゲームサーバーに接続できません。`cargo run --release --bin play` を起動してから再読み込みしてください。':
     "Can't reach the game server. Start `cargo run --release --bin play`, then reload.",
 
@@ -297,8 +297,8 @@ export default {
   // ---------------------------------------------------------------- util.mjs, rules.mjs
   'verify はゲートウェイの記録を、ベース層と ER の RPC から自分で読み直して照合します。':
     "verify re-reads the gateway's records from the base layer and ER RPCs itself and checks them.",
-  'verify はゲートウェイのほかに、シーズンのベース層と ER の RPC を読みます。このサイトは運営の RPC を公開していないので、<base RPC> と <ER RPC> には同じクラスター（と ER）の RPC の URL を入れてください（運営が公開 RPC を指定しているときは、ここに表示されます）。':
-    "verify reads the season's base layer and ER RPCs as well as the gateway. This site does not publish the operator's RPCs, so put RPC URLs of the same cluster (and ER) in place of <base RPC> and <ER RPC> (when the operator names public RPCs, they show here).",
+  'verify はゲートウェイのほかに、世界のベース層と ER の RPC を読みます。このサイトは運営の RPC を公開していないので、<base RPC> と <ER RPC> には同じクラスター（と ER）の RPC の URL を入れてください（運営が公開 RPC を指定しているときは、ここに表示されます）。':
+    "verify reads the world's base layer and ER RPCs as well as the gateway. This site does not publish the operator's RPCs, so put RPC URLs of the same cluster (and ER) in place of <base RPC> and <ER RPC> (when the operator names public RPCs, they show here).",
   '{0}：交易拠点の保有者に{1}、{2}は消滅': '{0}: {1} to the trade hub holder, {2} burned',
   '{0}＋都市数（最大{1}）': '{0} + cities (max {1})',
 };

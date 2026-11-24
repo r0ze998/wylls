@@ -82,7 +82,7 @@ export function renderNextTurn() {
   const ring = html`<svg viewBox="0 0 132 132" aria-hidden="true"><circle cx="66" cy="66" r="62" fill="none" stroke="#ffffff22" stroke-width="5"/><circle cx="66" cy="66" r="62" fill="none" stroke="${frac < .15 ? '#e0674f' : '#f0cf7a'}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - frac)}"/></svg>`;
   let cls = '', title, sub;
   const closed = v.chain && chainPhase(v) !== 'commit';
-  if (v.over) { title = L`シーズン終了`; sub = L`結果を見る`; }
+  if (v.over) { title = L`世界の終了`; sub = L`結果を見る`; }
   else if (v.phase === 'lobby') { title = L`開幕する`; sub = L`第1回選挙を行い、ティックを始める`; }
   // Chain mode after the deadline: the gateway reveals the sealed batches, then the tick resolves.
   else if (closed) { cls = 'done'; title = L`解決中`; sub = chainPhase(v) === 'reveal' ? L`封印した命令を公開しています` : L`全ての勢力の命令を解決しています`; }

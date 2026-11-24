@@ -68,7 +68,7 @@ export function translateError(error) {
   if (e.includes('more than one manual order')) return L`同じ部隊に2つの命令があります`;
   if (e.includes('TickFrozen') || e.includes('WrongTick')) return L`このティックは締め切られました。次のティックで出し直してください`;
   if (e === 'network') return L`サーバーに届きませんでした`;
-  if (e === 'chain mode: sign in the browser') return L`オンチェーンのシーズンでは、この操作はこのブラウザのゲーム内の鍵で署名して送ります`;
+  if (e === 'chain mode: sign in the browser') return L`オンチェーンの世界では、この操作はこのブラウザのゲーム内の鍵で署名して送ります`;
   return errorText(e);
 }
 

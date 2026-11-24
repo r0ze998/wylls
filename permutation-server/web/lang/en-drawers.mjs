@@ -68,8 +68,8 @@ export default {
   // ---- eras and merit (drawers/era.mjs)
   'ERAS · 4つの道と時代': 'ERAS',
   '{0} · 第{1}時代 · {2}点': (civ, era, p) => plural(p, '{0} · Era {1} · {2} point', '{0} · Era {1} · {2} points'),
-  '節目を1つ達成するごとに点が入り、同じ段階の節目を{0}つの道（第5段階は{1}つ）で達成すると新しい時代に入ります。領土・人口・宗主・条約・占領都市は<b>シーズン終了時の状態</b>で判定するので、失えば取り消されます（下は「今終わったら」）。賞金プールはメンバーのいる勢力の点の比で分けます。':
-    'Every milestone reached scores points; reach the milestones of one tier on {0} paths ({1} for tier 5) to enter a new era. Territory, population, suzerainty, treaties and captured cities are judged by <b>the state at the end of the season</b>, so losing them takes the milestone back (below: “if it ended now”). The prize pool is split by the points of the factions that have members.',
+  '節目を1つ達成するごとに点が入り、同じ段階の節目を{0}つの道（第5段階は{1}つ）で達成すると新しい時代に入ります。領土・人口・宗主・条約・占領都市は<b>世界の終了時の状態</b>で判定するので、失えば取り消されます（下は「今終わったら」）。賞金プールはメンバーのいる勢力の点の比で分けます。':
+    'Every milestone reached scores points; reach the milestones of one tier on {0} paths ({1} for tier 5) to enter a new era. Territory, population, suzerainty, treaties and captured cities are judged by <b>the state when the world ends</b>, so losing them takes the milestone back (below: “if it ended now”). The prize pool is split by the points of the factions that have members.',
   '段階': 'Tier',
   '{0}点': n => plural(n, '{0} pt', '{0} pts'),
   '領土 {0}{1}': 'Territory {0}{1}',
@@ -100,7 +100,7 @@ export default {
   '対象外': 'Excluded',
   '観戦中は表示されません。': 'Not shown while spectating.',
   'MERIT · 功績と見込み': 'MERIT',
-  'シーズン終了時の配分 {0} USDC': 'Payout at season end: {0} USDC',
+  '世界の終了時の配分 {0} USDC': 'Payout when the world ended: {0} USDC',
   '今終わったら {0} USDC': 'If it ended now: {0} USDC',
   '勢力の取り分は {0} USDC。その{1}%は活動したメンバーで均等（1人 {2}・上限は参加費の半分）、残りは功績の比で、勢力が点を取った道の功績ほど重く分けます。活動したメンバー＝{3}区間のうち{4}区間以上で命令・献策・支持・投票をした人（あなた：{5}区間{6}）。':
     (share, pct, each, total, need, mine) => `Your faction's share is {0} USDC. {1}% of it is split equally among the active members ({2} each, at most half the entry fee); the rest goes by merit, weighted toward the paths where your faction scored. Active members are those who gave orders, proposed, supported or voted in at least {4} of {3} windows (you: ${plural(mine, '{5} window', '{5} windows')}{6}).`,
@@ -201,7 +201,7 @@ export default {
   'いまの関税': 'Tariff now',
   '輸送中': 'In transit',
   'ティック{0}に到着': 'Arrives tick {0}',
-  'このシーズンは市場がオフです。': 'The market is off this season.',
+  'この世界は市場がオフです。': 'The market is off in this world.',
   '終盤（ティック{0}以降）のため凍結中です。': 'Frozen for the endgame (from tick {0}).',
   '{0}（首都へ）': '{0} (to capital)',
   '単価 USDC': 'Unit price USDC',
@@ -220,13 +220,13 @@ export default {
   'CHRONICLE · 年代記': 'CHRONICLE',
   '戦い': 'War',
   '発展': 'Growth',
-  'これまでのシーズン（歴史の層）': 'Earlier seasons (history)',
-  'このシーズンは、どのシーズンの続きでもありません。': 'This season does not follow any earlier season.',
-  'シーズン {0}': 'Season {0}',
+  'これまでの世界（歴史の層）': 'Earlier worlds (history)',
+  'この世界は、どの世界の続きでもありません。': 'This world does not follow any earlier world.',
+  '世界 {0}': 'World {0}',
   '都市 {0} · 奪われた {1}': n => plural(n, '{0} city · {1} captured', '{0} cities · {1} captured'),
   '勢力{0}': 'Faction {0}',
   '第{0}時代 · {1}点 · 都市{2} · メンバー{3}': (era, p, c, m) => `Era {0} · ${plural(p, '{1} point', '{1} points')} · ${plural(c, '{2} city', '{2} cities')} · ${plural(m, '{3} member', '{3} members')}`,
-  '歴史のルート {0}… · チェーンのシーズン口座と照らし合わせられます': 'History root {0}… · can be checked against the season account on chain',
+  '歴史のルート {0}… · チェーンの世界の口座と照らし合わせられます': "History root {0}… · can be checked against the world's account on chain",
 
   // ---- decision log (drawers/decisions.mjs)
   'DECISION LOG · 判断ログ': 'DECISION LOG',
@@ -283,13 +283,13 @@ export default {
   ' · チェーンに記録済み': ' · recorded on chain',
   'まだありません。': 'None yet.',
   '運営のAIメンバーと懸賞金': "The operator's AI members and bounties",
-  'このシーズンには運営のAIメンバーが <b>{0}人</b> 混ざっています。誰かは遊んでいる間は分かりません。それぞれ自分の勢力のどこかの都市に住んでいて（ティック{1}に決まる）、その都市を最初に落とした勢力に懸賞金 <b>{2} USDC</b> が入ります（直前10ティック以内に条約があった相手からは出ません）。AIメンバーの取り分は、同じ勢力の人に配り直されます。':
-    n => `The operator has mixed ${plural(n, '<b>{0} AI member</b>', '<b>{0} AI members</b>')} into this season. You can't tell who they are while playing. Each lives in a city of its own faction (chosen at tick {1}), and the first faction to take that city earns a bounty of <b>{2} USDC</b> (none if the two factions had a treaty in the previous 10 ticks). An AI member's share is redistributed to the people of its faction.`,
+  'この世界には運営のAIメンバーが <b>{0}人</b> 混ざっています。誰かは遊んでいる間は分かりません。それぞれ自分の勢力のどこかの都市に住んでいて（ティック{1}に決まる）、その都市を最初に落とした勢力に懸賞金 <b>{2} USDC</b> が入ります（直前10ティック以内に条約があった相手からは出ません）。AIメンバーの取り分は、同じ勢力の人に配り直されます。':
+    n => `The operator has mixed ${plural(n, '<b>{0} AI member</b>', '<b>{0} AI members</b>')} into this world. You can't tell who they are while playing. Each lives in a city of its own faction (chosen at tick {1}), and the first faction to take that city earns a bounty of <b>{2} USDC</b> (none if the two factions had a treaty in the previous 10 ticks). An AI member's share is redistributed to the people of its faction.`,
   '<b>{0}</b>（{1}）{2}': '<b>{0}</b> ({1}){2}',
   '：{0}を{1}がティック{2}に落とした{3}': ': {1} took {0} at tick {2}{3}',
   '（懸賞金あり）': ' (bounty paid)',
   '（条約のため懸賞金なし）': ' (no bounty: treaty)',
-  '：シーズン終了で公開': ': revealed at season end',
+  '：世界の終了で公開': ': revealed when the world ends',
   'salt {0}… · 登録時の tag と照らし合わせて誰でも確かめられます': 'salt {0}… · anyone can check it against the tag from registration',
   'まだ落ちた住まいはありません。': "No AI member's home city has fallen yet.",
 };
