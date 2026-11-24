@@ -160,7 +160,7 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide', 'lane'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide', 'lane', 'goals'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
@@ -176,6 +176,8 @@ export function parseArgs(argv) {
   const ports = String(o['relay-ports'] ?? '').split(',').map(Number);
   if (ports.length !== count || ports.some(p => !Number.isInteger(p) || p < 41000 || p > 41999)) throw new Error('--relay-ports');
   if (!/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}$/.test(o.herald ?? '')) throw new Error('--herald (loopback only)');
+  // (flag-keeps-ai, TEST-ONLY: the launcher's world-goals judge of THIS world — the page's 「世界の目標」 read; war worlds only)
+  if (o.goals !== undefined && (!war || !/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}\/goals-world\/\d{5}\/goals\/state$/.test(o.goals))) throw new Error('--goals (loopback goals state of a war world only)');
   const homes = JSON.parse(o.homes ?? 'null');
   if (!Array.isArray(homes) || !homes.length) throw new Error('--homes');
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
@@ -188,7 +190,7 @@ export function parseArgs(argv) {
     if (!Array.isArray(wide) || !wide.length || wide.length > 4096 || !wide.every(t => t && /^-?[0-9]{1,19}$/.test(String(t.p)) && /^-?[0-9]{1,19}$/.test(String(t.q)))) throw new Error('--wide');
     wide = Object.freeze(wide.map(t => Object.freeze({ p: String(t.p), q: String(t.q) })));
   }
-  return { count, ports, herald: o.herald, homes, war, ...(o.lane !== undefined ? { lane: o.lane } : {}), ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
+  return { count, ports, herald: o.herald, homes, war, ...(o.goals !== undefined ? { goals: o.goals } : {}), ...(o.lane !== undefined ? { lane: o.lane } : {}), ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
@@ -313,7 +315,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
-    ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready } : {}) };
+    ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready, ...(snap.goals ? { goals: snap.goals } : {}) } : {}) };
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
   if (war) {
     // (one action per resident per turn, owner Q16-2: a war resident that acted this turn waits for the next)
@@ -338,7 +340,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     if (outcome === 'landed' || outcome === 'unknown') (r.memory.targets ??= {})[`${d.row.p},${d.row.q}`] = (m.arriveBell ?? nowBell) + TARGET_HOLD_BELLS;
     noteOutcome(r.memory, d, outcome);
     r.budget.spent(outcome, deps.now(), turnBell);
-    return { resident: r.index, wallet: r.key.address, step: 'act', act: 'Depart', kind: d.kind, why: d.why, outcome,
+    return { resident: r.index, wallet: r.key.address, step: 'act', act: 'Depart', kind: d.kind, ...(d.goal ? { goal: d.goal } : {}), ...(snap.goals?.plain !== undefined ? { plain: snap.goals.plain } : {}), why: d.why, outcome,
       to: { p: d.row.p, q: d.row.q, tile: d.row.tile, holder: d.row.holder, guard: d.row.troops }, host: { id: String(snap.march.host.id), troops: snap.march.host.troops, from: [d.row.origin.p, d.row.origin.q] },
       ...(m.arriveBell ? { arrive_bell: m.arriveBell } : {}), ...(m.route ? { route: m.route } : {}), ...(m.code ? { code: m.code } : {}), ...(m.programCode !== undefined ? { program_code: m.programCode } : {}), ...(m.problems ? { problems: m.problems } : {}),
       ...(m.signature ? { signature: m.signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 500) } : {}), seen, budget: r.budget.state() };
@@ -455,7 +457,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   // (expansion-gameplay-1: the live wide land for the reach rule's claim targets)
   if (o.wide) deps.wideLand = createWideLandReader({ herald: o.herald });
   // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
-  const eyes = o.war ? createWarEyes({ herald: o.herald }) : null;
+  const eyes = o.war ? createWarEyes({ herald: o.herald, goals: o.goals ?? null }) : null;
   if (eyes) {
     deps.warView = r => eyes.view(r.key.address, r.memory);
     deps.nowBell = () => eyes.world.nowBell;

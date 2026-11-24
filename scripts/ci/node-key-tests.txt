@@ -203,6 +203,7 @@ permutation-gateway/test/frontier-local-play-fresh-map.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-losses.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
+permutation-gateway/test/frontier-local-play-operator-goals-fog.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-operator-war-everywhere.test.mjs
 permutation-gateway/test/frontier-local-play-operator-war.test.mjs
