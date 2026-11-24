@@ -35,7 +35,10 @@ test('the wide-claim card asks the program\'s price: 800 … for the second vill
 
 test('the operator AI gates its wide claim on the same price (villages held before = 1 + its wide villages)', () => {
   const src = readFileSync(new URL('../src/frontier/local-play-operator-residents.mjs', import.meta.url), 'utf8');
-  assert.match(src, /coversSettlerCost\(v\.decoded, secs, 1 \+ \(view\.wide \?\? 0\)\)/);
+  // (expansion-gameplay-1: the wide villages held are view.wide or the resident's own record of them, whichever is more —
+  //  /h/me lists legacy villages only, so view.wide alone stayed 0 and a third village was priced as a second)
+  assert.match(src, /const wideHeld = Math\.max\(Number\.isInteger\(view\?\.wide\) \? view\.wide : 0, \(r\.memory\.wideVillages \?\? \[\]\)\.length\);/);
+  assert.match(src, /coversSettlerCost\(v\.decoded, secs, 1 \+ wideHeld\)/);
   assert.doesNotMatch(src, /coversSettlerCost\(v\.decoded, secs, 2 \+/);
 });
 
