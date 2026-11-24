@@ -334,6 +334,7 @@ permutation-gateway/test/web-frontier-local-play-march-send.test.mjs
 permutation-gateway/test/web-frontier-local-play-nudge-more.test.mjs
 permutation-gateway/test/web-frontier-local-play-nudge.test.mjs
 permutation-gateway/test/web-frontier-local-wait-notice.test.mjs
+permutation-gateway/test/web-frontier-loop-play15.test.mjs
 permutation-gateway/test/web-frontier-map.test.mjs
 permutation-gateway/test/web-frontier-march-held.test.mjs
 permutation-gateway/test/web-frontier-march.test.mjs

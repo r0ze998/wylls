@@ -447,6 +447,17 @@ function orderUnconfirmed(o, signature, code = 'LocalActUnconfirmed') {
 const localActUnconfirmedText = signature => () => L`この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 ${signature}`;
 const localMarchUnconfirmedText = signature => () => L`進軍は送信済みですが、まだ確認できていません。同じ進軍は送り直しません。しばらく自動で確かめます（「もう一度」でも確認できます）。署名 ${signature}`;
 /** (2026-11-19) The reason a march the runner rejected was not taken: the program's own words for its code (NotResident: the turn changed under the send), else the relay's. */
+// (loop-play15 LP15-1: the program answers a refused tile claim with shared error numbers — Cooldown 29 for "one tile a
+//  turn", NotEligible 43 for "land upkeep unpaid", Insufficient 21 for the ore — whose common texts speak of a host's
+//  stamina and of refunds. The claim's own sentences instead; proc/wide_territory.rs territory_err)
+const territoryRefusalText = pc => (pc === 29 ? L`このターンはもう1マス取りました。マスは1ターンに1つです。次のターンにもう一度押してください。`
+  : pc === 43 ? L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。`
+  : pc === 21 ? L`鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。`
+  : null);
+const territoryRefused = ans => {
+  const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
+  if (territoryRefusalText(pc)) failed({ ...ans, text: () => territoryRefusalText(pc) });
+};
 const localMarchRejectedText = r => (r.programCode === 26 ? L`送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。`
   : r.programCode === 31 ? L`送るあいだにターンが変わり、この到着ターンには着けなくなりました。`
   : failureText(r.programCode !== undefined ? r : { code: 'LocalMarchRejected' }));
@@ -4636,6 +4647,7 @@ export const ACTIONS = {
     const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
     const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
     const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+    territoryRefused(ans);
     if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
     if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
     invalidate('panel');
@@ -4683,6 +4695,7 @@ export const ACTIONS = {
         const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
         const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
         const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+        territoryRefused(ans);
         if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
         if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
         if (!already) return t;
