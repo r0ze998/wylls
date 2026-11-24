@@ -147,7 +147,7 @@ move only once its turn is settled: about 17 minutes later).
    and the round number on the keep, or "N/72 turns toward its capture" in the clash report, show the progress. A held turn counts
    whether the province's turn is resolved or skipped (the #120 check: 11 AI captures at ×60 in `--wide --ai 4`, each
    after exactly 72 held turns).
-   The keep list and the guide at the top right also say how long 72 turns are ("about 12 h real time" at 1×,
+   The keep list and the guide at the top right also say how long 72 turns are ("about 12 hours" at 1×,
    "about 12 minutes of real time in this world" at ×60). After a capture the guide of a kept world says
    "This world goes on; war-period winners and counts are not decided yet.". **There are no seasons and the world does not
    end**; what a nation can achieve is the permanent world goals, and the first of them, the flag keeps, has its card under
