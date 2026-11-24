@@ -1,5 +1,5 @@
 // LOCAL PLAY, TEST-ONLY — the world's goals (first slice: the flag keeps) judged for each world of the local-play
-// launcher, with `--world-goals flag-keeps-v1`. The judge (world-goals.mjs) runs in the launcher's process over the
+// launcher, with `--world-goals flag-keeps-v2` (the older word `flag-keeps-v1` still turns it on). The judge (world-goals.mjs) runs in the launcher's process over the
 // world's own chain (its runner's loopback RPC) and its herald (the world's proxy, for the keep files the contribution
 // ledger cites), and keeps its state in the world's directory (`world-goals.json`). It is served on the launcher's
 // origin, read only:
@@ -16,9 +16,11 @@ import { FrontierAddresses, ringOf } from '../../client/src/frontier/addresses.m
 import { decodeAccount, layoutOf } from '../../client/src/frontier/codec.mjs';
 import { profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { Deriver } from './achievements.mjs';
-import { FLAG_KEEPS_DEFAULTS, FLAG_KEEPS_RULESET, GOAL_KINDS, NATIONS, WORLD_GOALS_KIND, WORLD_GOALS_VERSION, keepFromProvince, pointsOf, simulatedVault, splitPrize, step, units } from './world-goals.mjs';
+import { FLAG_KEEPS_DEFAULTS, FLAG_KEEPS_RULESET, FLAG_KEEPS_RULESET_V1, GOAL_KINDS, NATIONS, WORLD_GOALS_KIND, WORLD_GOALS_VERSION, keepFromProvince, pointsOf, simulatedVault, splitPrize, step, units } from './world-goals.mjs';
 
 export const WORLD_GOALS_MODE = FLAG_KEEPS_RULESET;
+/** The words `--world-goals` takes: the ruleset, and its older name (scripts written before the v2 count; the judge is the same one). */
+export const WORLD_GOALS_MODES = Object.freeze([FLAG_KEEPS_RULESET, FLAG_KEEPS_RULESET_V1]);
 export const GOALS_MOUNT_PREFIX = '/goals-world/';
 export const goalsMount = port => `${GOALS_MOUNT_PREFIX}${port}`;
 export const WORLD_GOALS_FILE = 'world-goals.json';
@@ -196,8 +198,11 @@ export function answerOf({ meta, rules, state, last, error }) {
   const byKey = new Map((last?.keeps ?? []).map(k => [`${k.p},${k.q}`, k]));
   const flags = (cur?.flags ?? []).map(f => {
     const k = byKey.get(`${f.p},${f.q}`) ?? null;
-    const from = k ? Math.max(k.since, cur.postedBell) : null;
-    return { p: f.p, q: f.q, nation: f.nation, border: f.border, holder: k?.holder ?? null, since: k?.since ?? null, from, longAt: from === null ? null : from + cur.holdBells,
+    // (flag-keeps-v2: only a CAPTURED flag keep counts — one held by a nation it was not drawn for; a flag keep in its
+    //  starting nation's hands, or without a nation, has no hold timer)
+    const captured = !!k && k.holder >= 0 && k.holder < NATIONS && k.holder !== f.nation;
+    const from = captured ? Math.max(k.since, cur.postedBell) : null;
+    return { p: f.p, q: f.q, nation: f.nation, border: f.border, holder: k?.holder ?? null, since: k?.since ?? null, captured, from, longAt: from === null ? null : from + cur.holdBells,
       contender: k && k.contender < NATIONS ? k.contender : null, progress: k?.progress ?? 0, required: k?.required ?? 0 };
   });
   return JSON.parse(jsonOut({
@@ -207,7 +212,7 @@ export function answerOf({ meta, rules, state, last, error }) {
     bell: last?.bell ?? null, error,
     rules: { perNation: rules.perNation, need: rules.need, holdBells: rules.holdBells, memberBells: rules.memberBells, contribution: rules.contribution, prize: rules.prize },
     goals: GOAL_KINDS.map(g => ({ id: g.id, kind: g.kind, live: g.live })),
-    flagKeeps: cur ? { round: cur.round, postedBell: cur.postedBell, seed: cur.seed, hash: cur.hash, need: cur.need, holdBells: cur.holdBells, flags, progress: (last?.progress ?? []).map(x => ({ nation: x.nation, held: x.held, heldLong: x.heldLong, need: x.need, reachAt: x.reachAt })) } : null,
+    flagKeeps: cur ? { round: cur.round, postedBell: cur.postedBell, seed: cur.seed, hash: cur.hash, need: cur.need, holdBells: cur.holdBells, flags, progress: (last?.progress ?? []).map(x => ({ nation: x.nation, held: x.held, own: x.own, captured: x.captured, capturedLong: x.capturedLong, need: x.need, reachAt: x.reachAt })) } : null,
     achievements: state?.history ?? [],
   }));
 }

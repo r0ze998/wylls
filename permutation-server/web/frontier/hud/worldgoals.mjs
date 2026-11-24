@@ -32,14 +32,15 @@ export function localGoalsBase(herald) {
 }
 
 const goodFlag = f => f && int(f.p) && int(f.q) && nation(f.nation) && (f.holder === null || nation(f.holder) || int(f.holder)) && intOrNull(f.since) && intOrNull(f.longAt);
-const goodProgress = x => x && nation(x.nation) && int(x.held) && int(x.heldLong) && int(x.need) && intOrNull(x.reachAt);
+// (flag-keeps-v2: `captured` — the flag keeps a nation took from others, the only ones that count — and `capturedLong`)
+const goodProgress = x => x && nation(x.nation) && int(x.held) && int(x.captured) && int(x.capturedLong) && int(x.need) && intOrNull(x.reachAt);
 const goodRow = r => r && typeof r.wallet === 'string' && nation(r.nation) && int(r.points) && typeof r.eligible === 'boolean' && /^\d+$/.test(String(r.amount));
 const goodAchievement = a => a && int(a.round) && int(a.bell) && Array.isArray(a.nations) && a.nations.every(nation) && a.prize && a.prize.simulated === true && Array.isArray(a.prize.rows) && a.prize.rows.every(goodRow)
   && ['vaultBefore', 'payout', 'paid', 'returned'].every(k => /^\d+$/.test(String(a.prize[k])));
 
 /** Whether an answer is the judge's: its kind, no effect on money or the chain, and well-formed parts. */
 export function goodAnswer(j) {
-  return !!j && j.ok === true && j.v === 1 && j.kind === 'world-goals' && j.ruleset === 'flag-keeps-v1' && j.effects?.money === 'none' && j.effects?.chain === 'none'
+  return !!j && j.ok === true && j.v === 1 && j.kind === 'world-goals' && j.ruleset === 'flag-keeps-v2' && j.effects?.money === 'none' && j.effects?.chain === 'none'
     && j.season && typeof j.season.seasonId === 'string' && Array.isArray(j.goals) && intOrNull(j.bell)
     && (j.flagKeeps === null || (int(j.flagKeeps.round) && int(j.flagKeeps.need) && int(j.flagKeeps.holdBells) && Array.isArray(j.flagKeeps.flags) && j.flagKeeps.flags.every(goodFlag) && Array.isArray(j.flagKeeps.progress) && j.flagKeeps.progress.every(goodProgress)))
     && Array.isArray(j.achievements) && j.achievements.every(goodAchievement);
@@ -85,8 +86,9 @@ export function usdc(v) {
 const GOAL_NAMES = () => ({ 'flag-keeps': L`旗の砦（覇権）`, 'world-first-tech': L`世界初の技術（学術）`, wonder: L`大建造物（大事業）`, 'unexplored-mark': L`未踏の印（探検）` });
 
 /**
- * The viewer's nation's line: `{nation, held, heldLong, need, left}` (`left`: turns until the need is reached if it
- * keeps what it holds; null when it holds fewer than the need) or null without a nation.
+ * The viewer's nation's line: `{nation, held, own, captured, capturedLong, need, left}` (`captured`: the flag keeps it
+ * took from other nations — the only ones that count; `left`: turns until the need is reached if it keeps what it
+ * holds; null when it holds fewer captured flag keeps than the need) or null without a nation.
  */
 export function viewerProgress(FS, g) {
   const f = FS?.citizen?.faction;
@@ -164,7 +166,10 @@ function flagRow(raw, g, FS) {
   const held = nation(f.holder) ? factionName(f.holder) : L`持ち主なし`;
   const long = f.longAt !== null && g.bell !== null && f.longAt <= g.bell;
   const left = f.longAt !== null && g.bell !== null && !long ? f.longAt - g.bell : null;
-  const state = long ? L`保持の時間を満たした` : left !== null ? L`満たすまで あと ${turnsText(left)}` : '';
+  // (flag-keeps-v2: a flag keep in the hands of the nation it was drawn for is that nation's starting flag keep — it
+  //  does not count, so it has no hold timer; the row says so instead)
+  const start = nation(f.holder) && f.holder === f.nation;
+  const state = start ? (f.holder === me ? L`初めからあなたの国の旗の砦です（達成には数えません）` : L`初めからこの国の旗の砦です（達成には数えません）`) : long ? L`保持の時間を満たした` : left !== null ? L`満たすまで あと ${turnsText(left)}` : '';
   const contest = nation(f.contender) ? html` <span class="warn">${L`${factionName(f.contender)}が包囲中 ${fmtNum(f.progress)} / ${fmtNum(f.required)}`}</span>` : '';
   return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}" data-seen="${f.seen}"${int(f.lostAt) ? html` data-lost-at="${f.lostAt}"` : ''}><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${int(f.lostAt) ? L`あなたの国が失ったとき（第${fmtNum(f.lostAt)}ターン）の持ち主です` : f.seen === 'memory' ? L`前に見たときの持ち主です` : state}</small>${contest}</li>`;
 }
@@ -220,13 +225,16 @@ export function render(FS, b) {
   let body = html`<p class="muted">${L`旗の砦を選んでいます…`}</p>`;
   if (fk) {
     const vp = viewerProgress(FS, g);
-    const mineLine = vp ? html`<p class="goal-mine" data-held="${vp.held}" data-held-long="${vp.heldLong}"><b>${L`あなたの国：旗の砦 ${fmtNum(vp.held)} / ${fmtNum(fk.flags.length)} を保持、うち ${fmtNum(vp.heldLong)} が保持の時間を満たした（必要 ${fmtNum(vp.need)}）`}</b>
-      ${vp.left !== null ? html`<br><span class="goal-timer" data-left="${vp.left}">${vp.left === 0 ? L`いま達成の条件を満たしています` : L`このまま持てば あと ${turnsText(vp.left)} で達成`}</span>` : html`<br><small class="muted">${L`あと ${fmtNum(vp.need - vp.held)} 個の旗の砦を取って、${turnsText(fk.holdBells)} 持ち続けると達成`}</small>`}</p>` : '';
-    const nations = fk.progress.filter(x => x.held > 0).sort((a, c) => c.held - a.held || c.heldLong - a.heldLong || a.nation - c.nation);
-    body = html`<p>${L`第 ${fmtNum(fk.round)} 回：旗の砦 ${fmtNum(fk.flags.length)} 個のうち ${fmtNum(fk.need)} 個を、同じ国がそれぞれ ${turnsText(fk.holdBells)} 続けて持つと達成`}</p>
+    // (flag-keeps-v2, owner 2026-11-24 22:00: only CAPTURED flag keeps count — the ones taken from another nation; a
+    //  nation's own starting flag keeps do not. The line says "captured N / need M", so a nation that has done nothing
+    //  reads 0, not the flag keeps it began with)
+    const mineLine = vp ? html`<p class="goal-mine" data-held="${vp.held}" data-captured="${vp.captured}" data-captured-long="${vp.capturedLong}" data-need="${vp.need}"><b>${L`あなたの国：奪った旗の砦 ${fmtNum(vp.captured)} / 必要 ${fmtNum(vp.need)}、うち ${fmtNum(vp.capturedLong)} が保持の時間を満たした`}</b>
+      ${vp.left !== null ? html`<br><span class="goal-timer" data-left="${vp.left}">${vp.left === 0 ? L`いま達成の条件を満たしています` : L`このまま持てば あと ${turnsText(vp.left)} で達成`}</span>` : html`<br><small class="muted">${L`ほかの国の旗の砦を あと ${fmtNum(vp.need - vp.captured)} 個奪って、${turnsText(fk.holdBells)} 持ち続けると達成`}</small>`}</p>` : '';
+    const nations = fk.progress.filter(x => x.captured > 0).sort((a, c) => c.captured - a.captured || c.capturedLong - a.capturedLong || a.nation - c.nation);
+    body = html`<p>${L`第 ${fmtNum(fk.round)} 回：ほかの国から奪った旗の砦 ${fmtNum(fk.need)} 個を、同じ国がそれぞれ ${turnsText(fk.holdBells)} 続けて持つと達成（旗の砦は全部で ${fmtNum(fk.flags.length)} 個。初めから自分の国にある旗の砦は数えません）`}</p>
       ${mineLine}
       <ol class="goal-flags">${fk.flags.map(f => flagRow(f, g, FS))}</ol>
-      <p class="muted small">${nations.map(x => L`${factionName(x.nation)} ${fmtNum(x.held)}（満たした ${fmtNum(x.heldLong)}）`).join(' · ')}</p>
+      <p class="muted small goal-nations" data-capturing="${nations.length}">${nations.length ? nations.map(x => L`${factionName(x.nation)} 奪った ${fmtNum(x.captured)}（満たした ${fmtNum(x.capturedLong)}）`).join(' · ') : L`まだどの国も、ほかの国の旗の砦を奪っていません`}</p>
       <p class="muted small">${L`旗の砦は地図に金の旗で出ています。国ごとに国境の砦から選ばれ、達成のたびに選び直されます`}</p>`;
   }
   const done = [...g.achievements].reverse();
