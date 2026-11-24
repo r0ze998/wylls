@@ -233,7 +233,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     const s = warStep({ ...war, refused: { Train: cool('Train'), Muster: cool('Muster') }, march: cool('Depart') ? null : war.march });
     const bell = war.nowBell ?? null;
     if (s?.wait) return { wait: true, why: s.why };
-    if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, why: `${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
+    if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, ...(s.goal ? { goal: s.goal } : {}), why: `${s.goal ? `${s.goal} — ` : ''}${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
     if (s?.name === 'Train') return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
   }
