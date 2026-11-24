@@ -13,7 +13,7 @@ import { localActIntent, localActMessage, coexistPins } from '../src/frontier/lo
 import { LOCAL_PLAY_PROGRAM } from '../src/frontier/local-play-relay.mjs';
 import * as C from '../../permutation-server/web/frontier/flocalplay-custody.mjs';
 import * as R from '../../permutation-server/web/frontier/flocalplay-rights.mjs';
-import { custodyModel, renderCustody } from '../../permutation-server/web/frontier/screens/custody.mjs';
+import { custodyModel, renderCustody, reserveShort, reserveShortText } from '../../permutation-server/web/frontier/screens/custody.mjs';
 import { rightsModel } from '../../permutation-server/web/frontier/screens/rights.mjs';
 import { COEXIST_LANE, PLAIN_LANE } from '../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { seasonAddresses, seasonPda, citizenTag } from '../../permutation-server/web/frontier/faddr.mjs';
@@ -260,6 +260,25 @@ test('capacity: the owner lends and grants to players with a storehouse there; t
   const theirs = C.decodePool(poolBytes({ facility: { p: 3, q: -2, site: 7, gen: 0 }, owner: YOU, grants: [{ seq: 0, user: ME }, { seq: 1, user: THEM }] }));
   const user = custodyModel(world({ pools: [{ holding: H(YOU, 7), pool: theirs }] }));
   assert.equal(user.grants.length, 1); assert.ok(user.grants[0].canReserve); assert.equal(user.grants[0].vault.tile, 30);
+  // (fix-loop15, LP15-8) the booking's materials: 2 ore + 1 wood an arm from the user's OWN storehouse there. Not known
+  // (no herald read of the storehouse) → nothing is said and the button stays on: the program's check answers
+  assert.equal(user.grants[0].stock, null); assert.equal(user.grants[0].empty, null);
+  assert.doesNotMatch(String(renderCustody({ ...world({ pools: [{ holding: H(YOU, 7), pool: theirs }] }), mode: 'play' })), /custody-stock/);
+  const stocked = (ore, wood) => world({ pools: [{ holding: H(YOU, 7), pool: theirs }], vaults: [VAULT_YOU, { ...VAULT_ME, stores: [0, wood, 0, ore, 0, 0, 0, 0], cap: 500 }] });
+  const bare = custodyModel(stocked(0, 0)).grants[0];
+  assert.deepEqual(bare.stock, { ore: 0, wood: 0 }); assert.deepEqual(bare.empty, { arms: 1, need: { ore: 2, wood: 1 }, have: { ore: 0, wood: 0 } }); assert.ok(bare.canReserve, 'the grant itself is live');
+  const bareCard = String(renderCustody({ ...stocked(0, 0), mode: 'play' }));
+  assert.match(bareCard, /<button type="submit" class="btn small" disabled>予約して材料を入れる<\/button>/, 'the button is off');
+  assert.match(bareCard, /class="blocked custody-stock" data-stock="0,0">あなたの貯蔵庫（マス 30）に材料がありません（いま 鉱石 0・木材 0）。村から隊商で鉱石と木材を貯蔵庫へ運ぶと予約できます。/);
+  const full = custodyModel(stocked(40, 20)).grants[0];
+  assert.deepEqual(full.stock, { ore: 40, wood: 20 }); assert.equal(full.empty, null);
+  const fullCard = String(renderCustody({ ...stocked(40, 20), mode: 'play' }));
+  assert.match(fullCard, /<button type="submit" class="btn small" >予約して材料を入れる/); assert.match(fullCard, /class="muted custody-stock" data-stock="40,20">あなたの貯蔵庫（マス 30）：鉱石 40・木材 20</);
+  // the press: 10 arms need 20 ore + 10 wood; one short of either is refused with the numbers, enough or unknown passes
+  assert.equal(reserveShort([0, 10, 0, 20, 0, 0, 0, 0], 10), null); assert.equal(reserveShort(null, 10), null); assert.equal(reserveShort(undefined, 10), null);
+  assert.deepEqual(reserveShort([0, 10, 0, 19, 0, 0, 0, 0], 10), { arms: 10, need: { ore: 20, wood: 10 }, have: { ore: 19, wood: 10 } });
+  assert.ok(reserveShort([0, 9, 0, 20, 0, 0, 0, 0], 10));
+  assert.equal(reserveShortText(reserveShort([0, 0, 0, 0, 0, 0, 0, 0], 10), 30), 'あなたの貯蔵庫（マス 30）の材料が足りません。兵器 10 には 鉱石 20・木材 10 がいります（いま 鉱石 0・木材 0）。村から隊商で貯蔵庫へ運んでから、もう一度押してください。');
   // the job lost with the village: the user is told what the captor took
   const job = C.decodeJob(jobBytes({ user: ME, start: NOW - 100, end: NOW + 4400, fin: 3, finAt: NOW - 50, settled: 0, forfeitedIn: [18000, 9000], forfeitedOut: 1000 }));
   const lost = custodyModel(world({ pools: [{ holding: H(YOU, 7), pool: { ...theirs, lostAt: NOW - 50 } }], jobs: [{ facility: { p: 3, q: -2, site: 7, gen: 0 }, job, owner: YOU }] }));

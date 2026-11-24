@@ -17,6 +17,7 @@ import { actionBlocks, UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { hostRows } from './host.mjs';
 import { marchListNow } from './tracker.mjs';
+import { routeArrival, waitWords } from './march.mjs';
 import { countdown, worldContinues } from '../clock.mjs';
 import { turnsLine, termsRate, spanWords } from '../seasonterms.mjs';
 
@@ -26,11 +27,16 @@ import { turnsLine, termsRate, spanWords } from '../seasonterms.mjs';
  * ×60 the row said "about 24 min" for 24 real seconds, beside a World goals card that says real time (hud/worldgoals.mjs
  * turnsText) —, so the row says the real time in the card's words; while the pace is not known yet, "in game time".
  */
-export function keepRouteLine(route) {
+export function keepRouteLine(route, FS = null) {
   const r = termsRate();
-  if (r === 1) return routeLine(route);
+  // (fix-loop15, LP15-9b: with the page's clock at hand the row says what the order card will say for this march —
+  //  the arrival turn and the wait until it begins, in the card's own words (screens/march.mjs routeArrival,
+  //  waitWords). It said the walk's minutes, 「約 40 分」, beside an order card saying 「ターン 7 · 約 48 分後」: a march
+  //  arrives when its arrival turn begins, so the card's time is the one the player waits)
+  const a = FS && !FS.proto ? routeArrival(FS, route) : null;
+  if (!a && r === 1) return routeLine(route);
   const n = route.hexes, p = route.provinces.length;
-  const t = r === null ? L`ゲーム内で約 ${spanWords(route.secs)}` : L`この世界の実時間で約 ${spanWords(route.secs / r)}`;
+  const t = a ? L`到着はターン ${fmtNum(a.bell)}（${waitWords(FS, a.inSecs)}）` : r === null ? L`ゲーム内で約 ${spanWords(route.secs)}` : L`この世界の実時間で約 ${spanWords(route.secs / r)}`;
   if (n === 1 && p === 1) return L`1 マス · 1 州 · ${t}`;
   if (p === 1) return L`${n} マス · 1 州 · ${t}`;
   return L`${n} マス · ${p} 州 · ${t}`;
@@ -330,13 +336,13 @@ export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
   if ((!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity))) return '';
   const r = FS.conquest?.reach;
-  const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${keepRouteLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
+  const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${keepRouteLine(x.route, FS)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   // (the loop-play report B7: a keep of the viewer's OWN nation that another nation is counting on is in this list so
   //  that a host can go and defend it (fkeepreach.mjs defendableKeeps, `defend: true`; the host's forts card says
   //  「守りに向かう」). Here it stood under "keeps of other nations", named by its own nation, with nothing saying
   //  it is to be defended. It has its own list and its own words now; the list of other nations' keeps is theirs alone)
-  const defendRow = x => html`<li class="kr-row kr-row-defend kh-n${x.holder}" data-keep-defend="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`あなたの国が保持`}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${keepRouteLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}
+  const defendRow = x => html`<li class="kr-row kr-row-defend kh-n${x.holder}" data-keep-defend="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`あなたの国が保持`}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${keepRouteLine(x.route, FS)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}
       <span class="kr-defend">${icon('shield')}<strong>${L`守りに向かう`}</strong> · ${L`マスに残れば占拠を止めます`}</span></span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   const defends = r?.ok ? r.rows.filter(x => x.defend === true) : [], rest = r?.ok ? r.rows.filter(x => x.defend !== true) : [];
