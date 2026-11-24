@@ -69,3 +69,14 @@ test('LP15-1: a refused tile claim is answered in the claim\'s own words (turn l
     assert.equal(L`あなたの村がある州`, 'your village stands here');
   } finally { setLang('ja'); }
 });
+
+// (verify-pr223) "Claim a tile" is off while the first village has less than the base price in ore: the card says why
+test('verify-pr223: a tile button that is off for lack of ore says so on the card, in both languages', () => {
+  const ore = 3;   // resources.mjs RESOURCE_ORDER: Food, Wood, Stone, Ore
+  assert.equal(wideClaimModel(world(), { holding: home, have: have.map((v, i) => (i === ore ? 9 : v)) }).tileShort, true);
+  assert.equal(wideClaimModel(world(), { holding: home, have: have.map((v, i) => (i === ore ? 10 : v)) }).tileShort, false);
+  const src = web('frontier/screens/holding.mjs');
+  assert.match(src, /\$\{w\.territory && w\.tileShort \? html`<p class="muted"><span class="blocked">\$\{L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`\}<\/span><\/p>` : ''\}/);
+  setLang('en');
+  try { assert.equal(L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`, 'You have less than 10 ore, so "Claim a tile" cannot be pressed for now.'); } finally { setLang('ja'); }
+});

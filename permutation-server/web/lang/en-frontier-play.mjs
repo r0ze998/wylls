@@ -1979,6 +1979,7 @@ export default {
   "この州ではマスを取れません（自分の土地のない世界か、州が読めませんでした）。": "No tile can be claimed in this province (a world without player land, or the province could not be read).",
   "この州に取れるマスは残っていません。": "No tile is left to claim in this province.",
   "あなたの村がある州": "your village stands here",
+  "鉱石が 10 に足りないので、いまは「1マス取る」を押せません。": "You have less than 10 ore, so \"Claim a tile\" cannot be pressed for now.",
   "このターンはもう1マス取りました。マスは1ターンに1つです。次のターンにもう一度押してください。": "You already claimed a tile this turn. It is one tile a turn: press again next turn.",
   "土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。": "Your land upkeep (food from your first village) is unpaid, so you cannot claim a new tile. Once your first village has food again you can. After 24 unpaid turns your farthest tiles are let go, one a turn.",
   "鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。": "Not enough ore. A tile costs 10 ore, plus 2 % for each tile you own (paid from your first village's stores).",

@@ -242,7 +242,8 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      stores, both presses may land in one turn). The card shows neither how many tiles you own nor the next price (loop-play15:
      the price was 13–14 ore at 17–28 tiles; troops cost ore too, 20 per 100 Spearmen). A second "Claim a tile" in one turn is
      refused: "You already claimed a tile this turn. It is one tile a turn: press again next turn."; short of ore: "Not enough
-     ore. A tile costs 10 ore, plus 2 % for each tile you own …". A province where your own wide village stands stays on the
+     ore. A tile costs 10 ore, plus 2 % for each tile you own …" (with less than 10 ore the button is off and the card
+     says "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."). A province where your own wide village stands stays on the
      card as a row "your village stands here" with "Claim a tile" only, also when you already have three villages
      (loop-play15; before, that row and its button were gone). Upkeep comes from your first village's food: 0.033 food an hour per
      tile, +0.016 an hour per province beyond 3 from your nearest own village (fixed when you claim). If the food cannot pay,
