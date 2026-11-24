@@ -1034,6 +1034,7 @@ reveal_pool = 150
 delay_pool = 32
 funders = 4
 r99_reveals = 150
+delay_floor = 50000000     # 0.05 SOL per delay payer (PLAYTEST-RUNBOOK §4); without it the default is 0.5 SOL and 32 payers want 24 SOL (§4b)
 beneficiary = "<the operator's beneficiary address>"
 api = "127.0.0.1:41050"
 token_file = "keeper-a/keeper.token"
@@ -1053,6 +1054,13 @@ rpc_min_gap_ms = 250
 `wide-tickets`, `expeditions`, `wide-resolve` and `wide_rings` need the keeper built with `--features playable-lane`
 (`config.rs` `check_wide`); `expeditions` needs `beacon`, `gather` and `resolve`; `wide-resolve` needs `beacon`;
 `provinces_reach` (at most 8, `PROVINCES_REACH_MAX`; 3 is the preset's `outpost_range`) and `wide_rings` (at most 8) need `rings`. Unknown keys are refused.
+
+`delay_floor` sets the delay pool's band: a delay payer is drawn only at or above the floor, payer care tops a payer
+below it up to 1.5 × the floor and sweeps one above 2 × the floor (`fclient/src/payers.rs` `plan_care`, `keeper/src/pools.rs`).
+At 0.05 SOL the first care pass moves about 2.4 SOL (32 × 0.075) into the delay pool and about 1.8 SOL (150 × 1.5 × F_r,
+F_r ≈ 0.008 SOL at `r99_reveals = 150` and 5,080 lamports/byte) into the reveal pool; §4b's "delay 32 × up to 0.1" assumes
+this line. Left out, the default 0.5 SOL floor asks 24 SOL of the funders (32 × 0.75) and a 12-SOL funding leaves 19
+delay payers empty (devnet-s2-readiness RISK-1).
 
 Notes on what is **not** tested as written:
 
