@@ -77,7 +77,7 @@ test('the wide Province is read as the WIDE family: the legacy family, another S
   // trailer: family version, status, readiness (missing a bit, or an extra one), reserved bytes
   bad((b, v) => v.setUint16(4736, 2, true), 'WideProvinceTrailer'); bad(b => { b[4738] = 0; }, 'WideProvinceTrailer'); bad(b => { b[4738] = 2; }, 'WideProvinceTrailer');
   for (const r of [0, 7, 14, 31]) bad(b => { b[4739] = r; }, 'WideProvinceTrailer');
-  bad(b => { b[4736 + 53] = 1; }, 'WideProvinceTrailer'); bad(b => { b[4736 + 104] = 1; }, 'WideProvinceTrailer'); bad(b => { b[4863] = 1; }, 'WideProvinceTrailer');
+  bad(b => { b[4736 + 53] = 2; }, 'WideProvinceTrailer'); bad(b => { b[4736 + 54] = 1; }, 'WideProvinceTrailer'); bad(b => { b[4736 + 104] = 2; }, 'WideProvinceTrailer'); bad(b => { b[4863] = 1; }, 'WideProvinceTrailer');
   // a legacy identity written into the prefix (P, Q or RING)
   bad((b, v) => v.setInt16(64, 129, true), 'WideProvinceLegacyIdentity'); bad((b, v) => v.setInt16(66, -1, true), 'WideProvinceLegacyIdentity'); bad((b, v) => v.setUint16(68, 129, true), 'WideProvinceLegacyIdentity');
   // the coordinate: a wedge that is not the sort key's, a non-canonical sort key, a ring within the legacy disk

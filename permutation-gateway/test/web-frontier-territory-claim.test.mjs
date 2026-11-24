@@ -87,3 +87,15 @@ test('a village claim in a territory world names the territory record (13th acco
   assert.throws(() => W.wideClaimIntent({ holding: HOME, target: { p: '129', q: '-8' }, territory: true, reach: { p: '129', q: '-6' } }, { site: 3, slot: 2 }));
   assert.throws(() => W.wideClaimIntent({ holding: HOME, target: { p: '129', q: '-8' }, territory: 'yes' }, { site: 3, slot: 2 }));
 });
+
+test('the wide province trailer: the territory byte and the keep captor record are read as the Rust reader does', async () => {
+  const { wideTrailerReservedOk } = await import('../../permutation-server/web/frontier/map/widecapture.mjs');
+  const t = 4736, b = new Uint8Array(4864);
+  assert.equal(wideTrailerReservedOk(b, t), true, 'all zero: no territory, no capture');
+  b[t + 53] = 1; assert.equal(wideTrailerReservedOk(b, t), true, 'territory V1');
+  b[t + 104] = 1; b[t + 110] = 7; assert.equal(wideTrailerReservedOk(b, t), true, 'a captor record');
+  b[t + 104] = 2; assert.equal(wideTrailerReservedOk(b, t), false, 'unknown captor tag');
+  b[t + 104] = 0; assert.equal(wideTrailerReservedOk(b, t), false, 'untagged bytes');
+  b[t + 110] = 0; b[t + 53] = 2; assert.equal(wideTrailerReservedOk(b, t), false, 'unknown territory rule');
+  b[t + 53] = 0; b[t + 55] = 1; assert.equal(wideTrailerReservedOk(b, t), false, 'still reserved');
+});
