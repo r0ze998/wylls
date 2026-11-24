@@ -49,6 +49,8 @@ a new kind of pool, not a new kind of epoch.
 
 **The flag-keeps judge** is `judge_flags` in `goals.rs`, PR #198's `progressOf` + `achievementOf`:
 
+> **Not yet the owner's count (2026-11-24 22:00, DECISIONS AA4).** The owner decided that only CAPTURED flag keeps count: a nation's own starting flag keeps do not. The off-chain local judge counts that way since `flag-keeps-v2` (`world-goals.mjs`). `judge_flags` below still counts EVERY posted flag a nation holds, its own starting ones included (PR #198's first count), and `PostGoal` does not record which nation each flag was drawn for, so the program cannot tell a captured flag from a starting one. With `need` ≤ a nation's own flags, `Achieve` would succeed for every nation one hold time after the posting. The pool is test-USDC only and is not connected to `play-local.sh` or the devnet page. Changing it is a program change (the posting's data and `judge_flags`) and is not done here.
+
 1. A flag held by nation n counts from `max(since_bell, posted_bell)`. It is held long at that bell plus `hold_bells`.
 2. It is taken as known only when its province has resolved that far (`long_at ≤ resolved_next`).
 3. A nation reaches the goal at its need-th earliest held-long bell. The earliest such bell wins, and nations at the same bell tie.

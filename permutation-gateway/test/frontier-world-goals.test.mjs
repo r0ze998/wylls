@@ -56,34 +56,138 @@ test('need: half of the flag keeps rounded up (6 of 12), or the TEST override (n
   assert.equal(G.needOf(5), 3);
   assert.equal(G.needOf(12, { ...G.FLAG_KEEPS_DEFAULTS, need: 2 }), 2);
   assert.equal(G.needOf(1, { ...G.FLAG_KEEPS_DEFAULTS, need: 4 }), 1);
+  // flag-keeps-v2: a nation can capture only the other nations' flag keeps (k − its own), so the need never exceeds that
+  assert.equal(G.needOf(12, G.FLAG_KEEPS_DEFAULTS, 2), 6);
+  assert.equal(G.needOf(12, { ...G.FLAG_KEEPS_DEFAULTS, need: 12 }, 2), 10);
+  assert.equal(G.needOf(6, { ...G.FLAG_KEEPS_DEFAULTS, need: 6 }, 1), 5);
+  assert.equal(G.needOf(2, G.FLAG_KEEPS_DEFAULTS, 2), 0, 'one nation alone: nothing to capture, no need that can be met');
+  assert.equal(G.mostOwn([{ nation: 0 }, { nation: 0 }, { nation: 1 }]), 2);
+  assert.equal(G.mostOwn([]), 0);
 });
 
-test('progress and achievement: each keep counts from max(since, posted); the need-th hold time is the achievement bell', () => {
-  const flags = [{ p: 1, q: 0, nation: 0 }, { p: 2, q: 0, nation: 0 }, { p: 0, q: 1, nation: 1 }, { p: 0, q: 2, nation: 1 }];
-  const rules = { ...G.FLAG_KEEPS_DEFAULTS, holdBells: 144 };
-  // nation 0 holds its two (since 0) and took (0,1) at bell 50: posted at 10
-  const keeps = [k(1, 0, 0, 0), k(2, 0, 0, 0), k(0, 1, 0, 50), k(0, 2, 1, 0)];
+test('progress and achievement: only CAPTURED flag keeps count, each from max(since, posted); the need-th hold time is the achievement bell', () => {
+  const flags = [{ p: 1, q: 0, nation: 0 }, { p: 2, q: 0, nation: 0 }, { p: 0, q: 1, nation: 1 }, { p: 0, q: 2, nation: 1 }, { p: -1, q: 0, nation: 2 }, { p: -2, q: 0, nation: 2 }];
+  const rules = { ...G.FLAG_KEEPS_DEFAULTS, holdBells: 144, need: 2 };
+  // nation 0 holds its own two (since 0), took (0,1) at bell 50 and (-1,0) at bell 70: posted at 10
+  const keeps = [k(1, 0, 0, 0), k(2, 0, 0, 0), k(0, 1, 0, 50), k(0, 2, 1, 0), k(-1, 0, 0, 70), k(-2, 0, 2, 0)];
   let pr = G.progressOf({ flags, keeps, bell: 100, postedBell: 10, rules });
   const n0 = pr.find(x => x.nation === 0);
   assert.equal(n0.need, 2);
-  assert.equal(n0.held, 3);
-  assert.equal(n0.heldLong, 0, 'nothing is held long before posted + hold');
-  assert.equal(n0.reachAt, 154, 'two keeps counted from the posting (10 + 144)');
-  assert.equal(G.achievementOf(pr, 153), null);
-  pr = G.progressOf({ flags, keeps, bell: 160, postedBell: 10, rules });
-  assert.deepEqual(G.achievementOf(pr, 160), { bell: 154, nations: [0] });
-  // nation 1 holds one flag: no reach
-  assert.equal(pr.find(x => x.nation === 1).reachAt, null);
-  // a lost keep resets: since moves to the new holder's first bell
-  const lost = [k(1, 0, 2, 150), k(2, 0, 0, 0), k(0, 1, 0, 50), k(0, 2, 1, 0)];
-  pr = G.progressOf({ flags, keeps: lost, bell: 160, postedBell: 10, rules });
-  assert.equal(pr.find(x => x.nation === 0).reachAt, 194, '(2,0) from 10 and (0,1) from 50: the second reaches at 194');
-  // two nations at the same bell: a tie
+  assert.equal(n0.held, 4, 'every flag keep it holds now');
+  assert.equal(n0.own, 2, 'its own starting flag keeps: never counted');
+  assert.equal(n0.captured, 2);
+  assert.equal(n0.capturedLong, 0, 'nothing is held long before its capture + hold');
+  assert.deepEqual(n0.keeps.map(x => `${x.p},${x.q}`), ['0,1', '-1,0'], 'the counted keeps are the captured ones only');
+  assert.equal(n0.reachAt, 214, 'the second captured keep (taken at 70) reaches its hold time at 214 — not 154 by its own two');
+  assert.equal(G.achievementOf(pr, 213), null);
+  pr = G.progressOf({ flags, keeps, bell: 220, postedBell: 10, rules });
+  assert.equal(pr.find(x => x.nation === 0).capturedLong, 2);
+  assert.deepEqual(G.achievementOf(pr, 220), { bell: 214, nations: [0] });
+  // nations 1 and 2 hold one own flag each: nothing captured, no reach
+  for (const n of [1, 2]) { const x = pr.find(y => y.nation === n); assert.equal(x.captured, 0); assert.equal(x.held, 1); assert.equal(x.reachAt, null); }
+  // a lost captured keep no longer counts for the loser; the taker's count starts at its own since
+  const lost = [k(1, 0, 0, 0), k(2, 0, 0, 0), k(0, 1, 2, 150), k(0, 2, 1, 0), k(-1, 0, 0, 70), k(-2, 0, 2, 0)];
+  pr = G.progressOf({ flags, keeps: lost, bell: 220, postedBell: 10, rules });
+  assert.equal(pr.find(x => x.nation === 0).reachAt, null, 'one captured keep left: under the need');
+  assert.equal(pr.find(x => x.nation === 2).captured, 1, 'nation 2 captured nation 1\'s (0,1)');
+  // two nations at the same bell: a tie (each captured the other's flag at the same bell)
   const tieFlags = [{ p: 1, q: 0, nation: 0 }, { p: 0, q: 1, nation: 1 }];
-  const tie = G.progressOf({ flags: tieFlags, keeps: [k(1, 0, 0, 0), k(0, 1, 1, 0)], bell: 200, postedBell: 0, rules: { ...rules, need: 1 } });
-  assert.deepEqual(G.achievementOf(tie, 200), { bell: 144, nations: [0, 1] });
+  const tie = G.progressOf({ flags: tieFlags, keeps: [k(1, 0, 1, 20), k(0, 1, 0, 20)], bell: 200, postedBell: 0, rules: { ...rules, need: 1 } });
+  assert.deepEqual(G.achievementOf(tie, 200), { bell: 164, nations: [0, 1] });
   // no flags: never an achievement
   assert.equal(G.achievementOf(G.progressOf({ flags: [], keeps, bell: 1000, postedBell: 0, rules }), 1000), null);
+});
+
+// ------------------------------------------------------------------ flag-keeps-v2 (owner r0ze 2026-11-24 22:00, 23:58 item 9)
+// A six-nation world like a local one with ring 4 open: every nation holds three contestable keeps.
+const SIX = [k(1, 0, 0), k(2, 0, 0), k(3, 0, 0), k(0, 1, 1), k(0, 2, 1), k(0, 3, 1), k(-1, 1, 2), k(-2, 2, 2), k(-3, 3, 2), k(-1, 0, 3), k(-2, 0, 3), k(-3, 0, 3), k(0, -1, 4), k(0, -2, 4), k(0, -3, 4), k(1, -1, 5), k(2, -2, 5), k(3, -3, 5)];
+
+test('flag-keeps-v2: idle nations never auto-achieve — every nation holding its own starting flag keeps achieves nothing, at any need, for ever', () => {
+  // (the bug: with need 2 every nation held its own two flag keeps at the posting and all achieved after one hold time)
+  for (const need of [1, 2, 3, 6, 12, undefined]) {
+    const rules = { ...G.FLAG_KEEPS_DEFAULTS, holdBells: 10, ...(need ? { need } : {}) };
+    let st = null;
+    for (const bell of [5, 6, 15, 16, 100, 1_000, 100_000]) {
+      const r = G.step(st, { bell, keeps: SIX, genesisSeed: SEED }, rules);
+      assert.equal(r.achieved, null, `need ${need}, bell ${bell}: nobody did anything, nobody achieves`);
+      assert.equal(r.state.round, 1, 'still the first round');
+      for (const x of r.progress) { assert.equal(x.captured, 0); assert.equal(x.capturedLong, 0); assert.equal(x.reachAt, null); assert.equal(x.held, 2); assert.equal(x.own, 2); }
+      st = r.state;
+    }
+    assert.equal(st.rounds[0].flags.length, 12);
+    assert.equal(st.rounds[0].need, need ? Math.min(need, 10) : 6);
+  }
+  // five idle nations (the brief's case: 5 nations, need 2) — the same
+  const five = SIX.filter(x => x.holder < 5);
+  let st = null;
+  for (const bell of [0, 144, 145, 10_000]) {
+    const r = G.step(st, { bell, keeps: five, genesisSeed: SEED }, { ...G.FLAG_KEEPS_DEFAULTS, need: 2 });
+    assert.equal(r.achieved, null); assert.equal(r.state.round, 1);
+    assert.deepEqual(r.progress.filter(x => x.nation < 5).map(x => [x.held, x.captured, x.reachAt]), Array(5).fill([2, 0, null]));
+    st = r.state;
+  }
+  assert.equal((st.history ?? []).length, 0);
+});
+
+test('flag-keeps-v2: a nation that captures `need` flag keeps and holds them for the hold time achieves — and not a bell earlier', () => {
+  const rules = { ...G.FLAG_KEEPS_DEFAULTS, holdBells: 144, need: 2 };
+  const r0 = G.step(null, { bell: 5, keeps: SIX, genesisSeed: SEED }, rules);
+  const flags = r0.state.rounds[0].flags;
+  const of = n => flags.filter(f => f.nation === n);
+  const take = (keeps, f, holder, since) => keeps.map(x => (x.p === f.p && x.q === f.q ? { ...x, holder, since } : x));
+  // nation 0 captures one flag keep of nation 1 at bell 20: one captured, under the need — never achieved by it alone
+  let world = take(SIX, of(1)[0], 0, 20);
+  let r = G.step(r0.state, { bell: 2_000, keeps: world, genesisSeed: SEED }, rules);
+  assert.equal(r.achieved, null, 'its own two + one captured = three held, but only ONE counts');
+  assert.deepEqual((({ held, own, captured, capturedLong, reachAt }) => ({ held, own, captured, capturedLong, reachAt }))(r.progress.find(x => x.nation === 0)), { held: 3, own: 2, captured: 1, capturedLong: 1, reachAt: null });
+  // it captures a flag keep of nation 2 at bell 60: the need is met once BOTH are held 144 bells → bell 204
+  world = take(world, of(2)[0], 0, 60);
+  r = G.step(r0.state, { bell: 203, keeps: world, genesisSeed: SEED }, rules);
+  assert.equal(r.achieved, null, 'one bell before the second captured keep meets its hold time');
+  assert.equal(r.progress.find(x => x.nation === 0).reachAt, 204);
+  r = G.step(r0.state, { bell: 204, keeps: world, genesisSeed: SEED }, rules);
+  assert.deepEqual(r.achieved.nations, [0]);
+  assert.equal(r.achieved.bell, 204);
+  assert.deepEqual(r.achieved.counted.map(x => `${x.p},${x.q}`).sort(), [of(1)[0], of(2)[0]].map(f => `${f.p},${f.q}`).sort(), 'the counted keeps are the two captured ones — not its own');
+  // the next round is posted at once; the winner's captured keeps are now its own keeps: nobody starts round 2 achieved
+  assert.equal(r.state.round, 2);
+  for (const x of r.progress) { assert.equal(x.captured, 0, `nation ${x.nation} starts round 2 with nothing captured`); assert.equal(x.reachAt, null); }
+  const later = G.step(r.state, { bell: 100_000, keeps: world, genesisSeed: SEED }, rules);
+  assert.equal(later.achieved, null, 'round 2 is not achieved by standing still either');
+  assert.equal(later.state.round, 2);
+  // losing a captured keep before the hold time: no achievement
+  const lostAgain = take(world, of(2)[0], 2, 150);
+  assert.equal(G.step(r0.state, { bell: 5_000, keeps: lostAgain, genesisSeed: SEED }, rules).achieved, null);
+});
+
+test('flag-keeps-v2: a starting flag keep taken back by its own nation is still its own — the recapture is not a capture for it', () => {
+  const rules = { ...G.FLAG_KEEPS_DEFAULTS, holdBells: 10, need: 1 };
+  const r0 = G.step(null, { bell: 5, keeps: SIX, genesisSeed: SEED }, rules);
+  const f = r0.state.rounds[0].flags.find(x => x.nation === 1);
+  const at = (holder, since) => SIX.map(x => (x.p === f.p && x.q === f.q ? { ...x, holder, since } : x));
+  // nation 0 takes nation 1's flag keep at bell 8, nation 1 takes it back at bell 12 (before nation 0's 10 bells)
+  let r = G.step(r0.state, { bell: 12, keeps: at(1, 12), genesisSeed: SEED }, rules);
+  assert.equal(r.achieved, null);
+  r = G.step(r0.state, { bell: 10_000, keeps: at(1, 12), genesisSeed: SEED }, rules);
+  assert.equal(r.achieved, null, 'nation 1 holds its own starting flag keep again (since 12): not a capture, never an achievement');
+  assert.deepEqual((({ held, own, captured }) => ({ held, own, captured }))(r.progress.find(x => x.nation === 1)), { held: 2, own: 2, captured: 0 });
+  assert.equal(G.countsFor(f, 1), false); assert.equal(G.countsFor(f, 0), true); assert.equal(G.countsFor(f, 255), false, 'no nation: nothing counts');
+  // a third nation taking it from the taker does capture it
+  r = G.step(r0.state, { bell: 40, keeps: at(2, 30), genesisSeed: SEED }, rules);
+  assert.deepEqual(r.achieved.nations, [2]); assert.equal(r.achieved.bell, 40);
+});
+
+test('flag-keeps-v2: a round posted by the old count (flag-keeps-v1 state of a kept world) is judged by the new count', () => {
+  const rules = { ...G.FLAG_KEEPS_DEFAULTS, holdBells: 10, need: 2 };
+  const r0 = G.step(null, { bell: 5, keeps: SIX, genesisSeed: SEED }, rules);
+  // (what an older judge wrote: the same posting, named v1)
+  const cur = r0.state.rounds[0];
+  const old = { ...r0.state, rounds: [{ ...cur, posting: { ...cur.posting, ruleset: G.FLAG_KEEPS_RULESET_V1 } }] };
+  const r = G.step(old, { bell: 1_000, keeps: SIX, genesisSeed: SEED }, rules);
+  assert.equal(r.achieved, null, 'the six-way auto-achievement of the old count does not happen after the fix');
+  assert.equal(r.state.round, 1);
+  assert.equal(G.FLAG_KEEPS_RULESET, 'flag-keeps-v2');
+  assert.equal(cur.posting.ruleset, 'flag-keeps-v2', 'a new posting names the new ruleset (its hash covers it)');
 });
 
 test('step: round 1 posted at the first read; an achievement posts round 2 with a new seed and posting hash', () => {
@@ -95,17 +199,22 @@ test('step: round 1 posted at the first read; an achievement posts round 2 with 
   assert.equal(posted.seed, SEED_HEX);
   assert.equal(posted.need, 2);
   assert.equal(posted.hash, G.postingHash(posted.posting));
-  // every nation holds its own two flags from bell 5: all reach at 15 → a three-way tie
-  const r1 = G.step(r0.state, { bell: 16, keeps: KEEPS, genesisSeed: SEED }, rules);
-  assert.deepEqual(r1.achieved.nations, [0, 1, 2]);
-  assert.equal(r1.achieved.bell, 15);
-  assert.equal(r1.achieved.counted.length, 6);
+  // every nation holds its own two flags from bell 5: they do not count — nobody achieves (flag-keeps-v2)
+  assert.equal(G.step(r0.state, { bell: 16, keeps: KEEPS, genesisSeed: SEED }, rules).achieved, null);
+  // nations 0 and 1 each take one flag keep of the other and one of nation 2, all at bell 6: both reach at 16 → a tie
+  const f = n => posted.flags.filter(x => x.nation === n);
+  const moves = new Map([[f(1)[0], 0], [f(2)[0], 0], [f(0)[0], 1], [f(2)[1], 1]].map(([x, to]) => [`${x.p},${x.q}`, to]));
+  const world = KEEPS.map(x => (moves.has(`${x.p},${x.q}`) ? { ...x, holder: moves.get(`${x.p},${x.q}`), since: 6 } : x));
+  const r1 = G.step(r0.state, { bell: 17, keeps: world, genesisSeed: SEED }, rules);
+  assert.deepEqual(r1.achieved.nations, [0, 1]);
+  assert.equal(r1.achieved.bell, 16);
+  assert.equal(r1.achieved.counted.length, 4);
   assert.equal(r1.state.round, 2);
   assert.notEqual(r1.state.rounds[1].seed, posted.seed);
-  assert.equal(r1.state.rounds[1].postedBell, 16);
-  // round 2 counts from its posting: no achievement until 26
-  assert.equal(G.step(r1.state, { bell: 25, keeps: KEEPS, genesisSeed: SEED }, rules).achieved, null);
-  assert.equal(G.step(r1.state, { bell: 26, keeps: KEEPS, genesisSeed: SEED }, rules).achieved.bell, 26);
+  assert.equal(r1.state.rounds[1].postedBell, 17);
+  // round 2 is drawn from what each nation holds now: nothing is captured at its posting, so nothing is achieved by waiting
+  assert.equal(G.step(r1.state, { bell: 27, keeps: world, genesisSeed: SEED }, rules).achieved, null);
+  assert.equal(G.step(r1.state, { bell: 10_000, keeps: world, genesisSeed: SEED }, rules).achieved, null);
 });
 
 const capture = (w, nation, p, q) => ({ kind: 'capture', wallet: w, nation, province: { p, q }, quantity: 1, bell: 40, signatures: ['s1'] });
@@ -210,13 +319,22 @@ test('openWorldGoals: judges over the fake chain, keeps its state in the world d
   await fsp.writeFile(path.join(dir, 'operators.json'), JSON.stringify({ wallets: [wallet(8)] }));
   let chain = fakeChain({ keeps: KEEPS, citizens: people, bell: 10 });
   const meta = { program: chain.programId, season_id: 11, rpc_url: 'http://127.0.0.1:41999' };
-  const rules = W.goalRulesOf({ hold: '20', need: '3', member: '0' });
+  const rules = W.goalRulesOf({ hold: '20', need: '2', member: '0' });
   const deps = { noTimer: true, call: (...a) => chain.call(...a), fetch: async () => ({ ok: false }) };
   const g = await W.openWorldGoals({ dir, meta, heraldPort: 41649, rules, deps });
   await g.tick();
   let a = g.answer();
   assert.equal(a.kind, 'world-goals'); assert.deepEqual(a.effects, { money: 'none', chain: 'none' });
-  assert.equal(a.flagKeeps.round, 1); assert.equal(a.flagKeeps.need, 3); assert.equal(a.flagKeeps.flags.length, 6);
+  assert.equal(a.flagKeeps.round, 1); assert.equal(a.flagKeeps.need, 2); assert.equal(a.flagKeeps.flags.length, 6);
+  assert.equal(a.ruleset, 'flag-keeps-v2');
+  // (flag-keeps-v2) at the posting every flag keep is in its starting nation's hands: none counts, none has a timer
+  assert.ok(a.flagKeeps.flags.every(f => f.holder === f.nation && f.captured === false && f.longAt === null && f.from === null));
+  assert.deepEqual(a.flagKeeps.progress.filter(x => x.nation < 3).map(x => [x.held, x.own, x.captured, x.capturedLong, x.reachAt]), Array(3).fill([2, 2, 0, 0, null]));
+  // idle for a long time: need 2, every nation holds its own two — and nothing is achieved (the bug this fixes)
+  chain = fakeChain({ keeps: KEEPS, citizens: people, bell: 35 });
+  await g.tick();
+  assert.equal(g.answer().achievements.length, 0, 'no auto-achievement by the starting flag keeps');
+  assert.equal(g.answer().flagKeeps.round, 1);
   assert.equal(a.bell, 10);
   assert.deepEqual(a.goals.map(x => [x.id, x.live]), [['flag-keeps', true], ['world-first-tech', false], ['wonder', false], ['unexplored-mark', false]]);
   assert.ok(UI.goodAnswer(a), 'the page accepts the answer');
@@ -229,7 +347,8 @@ test('openWorldGoals: judges over the fake chain, keeps its state in the world d
   assert.equal(a.achievements.length, 1);
   const ach = a.achievements[0];
   assert.deepEqual(ach.nations, [0]);
-  assert.equal(ach.bell, 32, 'the third flag (taken at 12) met its 20 bells at 32');
+  assert.equal(ach.bell, 32, 'the two captured flag keeps (taken at 12) met their 20 bells at 32');
+  assert.deepEqual(ach.counted.map(x => `${x.p},${x.q}`).sort(), flags1.map(f => `${f.p},${f.q}`).sort(), 'counted: the captured keeps only');
   assert.equal(ach.prize.simulated, true);
   assert.equal(ach.prize.people, 2, 'the operator AI is not a person');
   assert.equal(ach.prize.vaultBefore, '40000000');
@@ -278,17 +397,17 @@ test('verify-pr198: a kept world\'s state lives in its home (stateDir) across st
 });
 
 test('verify-pr198: a posted round is judged by its own need and hold time, whatever rules a restarted judge is given', () => {
-  const rules = W.goalRulesOf({ hold: '20', need: '3' });
+  const rules = W.goalRulesOf({ hold: '20', need: '2' });
   const r0 = G.step(null, { bell: 10, keeps: KEEPS, genesisSeed: SEED }, rules);
   const cur = r0.state.rounds.at(-1);
-  assert.equal(cur.need, 3); assert.equal(cur.holdBells, 20);
+  assert.equal(cur.need, 2); assert.equal(cur.holdBells, 20);
   const flags1 = cur.flags.filter(f => f.nation === 1);
   const taken = KEEPS.map(x => (flags1.some(f => f.p === x.p && f.q === x.q) ? { ...x, holder: 0, since: 12 } : x));
-  // restarted with other TEST overrides (need 1, hold 1): the posted round still needs 3 flags held 20 bells
+  // restarted with other TEST overrides (need 1, hold 1): the posted round still needs 2 captured flags held 20 bells
   const loose = W.goalRulesOf({ hold: '1', need: '1' });
   const early = G.step(r0.state, { bell: 20, keeps: taken, genesisSeed: SEED }, loose);
   assert.equal(early.achieved, null, 'not achieved at bell 20 by the looser rules');
-  assert.equal(early.progress.find(x => x.nation === 0).need, 3);
+  assert.equal(early.progress.find(x => x.nation === 0).need, 2);
   const late = G.step(r0.state, { bell: 40, keeps: taken, genesisSeed: SEED }, loose);
   assert.equal(late.achieved?.bell, 32);
   assert.equal(late.state.rounds.at(-1).holdBells, 1, 'the NEXT round is posted with the rules of now');
@@ -308,11 +427,12 @@ test('goalRulesOf and the mount', () => {
 // ------------------------------------------------------------------ the page's card
 const FS0 = { season: { seasonId: '11' }, pin: { programId: 'P' }, citizen: { faction: 0 }, wallet: { address: wallet(9) } };
 const answer = (over = {}) => ({
-  ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v1', testOnly: true, season: { programId: 'P', seasonId: '11' }, effects: { money: 'none', chain: 'none' }, bell: 100, error: null,
+  ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v2', testOnly: true, season: { programId: 'P', seasonId: '11' }, effects: { money: 'none', chain: 'none' }, bell: 100, error: null,
   goals: G.GOAL_KINDS.map(x => ({ ...x })),
   flagKeeps: { round: 1, postedBell: 0, seed: SEED_HEX, hash: 'ab'.repeat(32), need: 3, holdBells: 144,
-    flags: [{ p: -1, q: 1, nation: 0, holder: 0, since: 0, from: 0, longAt: 144, contender: null, progress: 0, required: 72 }, { p: 1, q: 0, nation: 4, holder: 0, since: 60, from: 60, longAt: 204, contender: 4, progress: 12, required: 72 }],
-    progress: [{ nation: 0, held: 2, heldLong: 0, need: 3, reachAt: null }, { nation: 4, held: 0, heldLong: 0, need: 3, reachAt: null }] },
+    flags: [{ p: -1, q: 1, nation: 0, holder: 0, since: 0, captured: false, from: null, longAt: null, contender: null, progress: 0, required: 72 }, { p: 1, q: 0, nation: 4, holder: 0, since: 60, captured: true, from: 60, longAt: 204, contender: 4, progress: 12, required: 72 },
+      { p: 2, q: -1, nation: 3, holder: 3, since: 0, captured: false, from: null, longAt: null, contender: null, progress: 0, required: 72 }],
+    progress: [{ nation: 0, held: 2, own: 1, captured: 1, capturedLong: 0, need: 3, reachAt: null }, { nation: 3, held: 1, own: 1, captured: 0, capturedLong: 0, need: 3, reachAt: null }, { nation: 4, held: 0, own: 0, captured: 0, capturedLong: 0, need: 3, reachAt: null }] },
   achievements: [], ...over,
 });
 const text = m => String(m).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
@@ -322,14 +442,40 @@ test('page: the card shows the four goals, the flag keeps, the viewer\'s progres
   const b = { read: 'ok', goals: answer() };
   let s = text(UI.render(FS0, b));
   assert.match(s, /世界の目標/); assert.match(s, /旗の砦（覇権）/); assert.match(s, /準備中/);
-  assert.match(s, /あなたの国：旗の砦 2 \/ 2 を保持/);
-  assert.match(s, /あと 1 個の旗の砦を取って/);
-  assert.match(s, /満たすまで あと 44 ターン/);
+  // (flag-keeps-v2) "captured N / need M": the own starting flag keep is held but not counted
+  assert.match(s, /あなたの国：奪った旗の砦 1 \/ 必要 3、うち 0 が保持の時間を満たした/);
+  assert.match(s, /ほかの国の旗の砦を あと 2 個奪って/);
+  assert.match(s, /第 1 回：ほかの国から奪った旗の砦 3 個を、.*旗の砦は全部で 3 個。初めから自分の国にある旗の砦は数えません/);
+  assert.match(s, /州 \(-1, 1\) · 持ち主 .*（あなたの国） · 初めからあなたの国の旗の砦です（達成には数えません）/);
+  assert.match(s, /州 \(2, -1\) · 持ち主 \S+ · 初めからこの国の旗の砦です（達成には数えません）/);
+  assert.match(s, /満たすまで あと 104 ターン/, 'the captured flag keep (taken at 60) has the timer');
+  assert.match(s, /\S+ 奪った 1（満たした 0）/);
+  assert.doesNotMatch(s, /シーズン/);
   assert.match(s, /試算/);
   setLang('en');
   s = text(UI.render(FS0, b));
   assert.match(s, /World goals/); assert.match(s, /Flag keeps \(hegemony\)/); assert.match(s, /coming/);
-  assert.match(s, /Your nation holds 2 \/ 2 flag keeps/);
+  assert.match(s, /Your nation: captured flag keeps 1 \/ need 3; 0 have met the hold time/);
+  assert.match(s, /Capture 2 more flag keeps from other nations and hold them for/);
+  assert.match(s, /Round 1: a nation that holds 3 flag keeps captured from other nations, each for .* without a break achieves it \(3 flag keeps in all; the flag keeps a nation starts with do not count for it\)/);
+  assert.match(text(UI.render(FS0, { read: 'ok', goals: answer({ flagKeeps: { ...answer().flagKeeps, need: 1 } }) })), /Round 1: a nation that holds 1 flag keep captured from another nation for .* without a break achieves it/);
+  assert.match(s, /a starting flag keep of your nation \(does not count toward the goal\)/);
+  assert.match(s, /a starting flag keep of this nation \(does not count toward the goal\)/);
+  assert.match(s, /\S+ captured 1 \(0 met\)/);
+  assert.doesNotMatch(s, /season/i);
+  // nobody has captured anything (a fresh world): 0 / need, and the nations line says so — in both languages
+  const idle = { read: 'ok', goals: answer({ flagKeeps: { ...answer().flagKeeps, flags: answer().flagKeeps.flags.map(f => ({ ...f, holder: f.nation, captured: false, from: null, longAt: null, contender: null })), progress: [0, 3, 4].map(n => ({ nation: n, held: 1, own: 1, captured: 0, capturedLong: 0, need: 3, reachAt: null })) } }) };
+  s = text(UI.render(FS0, idle));
+  assert.match(s, /Your nation: captured flag keeps 0 \/ need 3; 0 have met the hold time/);
+  assert.match(s, /No nation has captured a flag keep from another nation yet/);
+  assert.doesNotMatch(s, /hold time met|The goal's condition is met now/);
+  assert.doesNotMatch(s, /[぀-ヿ一-鿿]/);
+  setLang('ja');
+  s = text(UI.render(FS0, idle));
+  assert.match(s, /あなたの国：奪った旗の砦 0 \/ 必要 3、うち 0 が保持の時間を満たした/);
+  assert.match(s, /まだどの国も、ほかの国の旗の砦を奪っていません/);
+  setLang('en');
+  s = text(UI.render(FS0, b));
   assert.match(s, /No prize is paid yet/);
   assert.doesNotMatch(s, /[぀-ヿ一-鿿]/, 'no Japanese left in English');
   setLang('ja');
@@ -338,7 +484,9 @@ test('page: the card shows the four goals, the flag keeps, the viewer\'s progres
   assert.equal(UI.render(FS0, { read: 'absent' }), '');
   assert.equal(UI.goodAnswer(answer({ effects: { money: 'paid', chain: 'none' } })), false);
   assert.equal(UI.goodAnswer({ ...answer(), kind: 'ws15-coop-outcomes' }), false);
-  assert.deepEqual(UI.mapFlags(FS0, b), [{ p: -1, q: 1, round: 1 }, { p: 1, q: 0, round: 1 }]);
+  assert.deepEqual(UI.mapFlags(FS0, b), [{ p: -1, q: 1, round: 1 }, { p: 1, q: 0, round: 1 }, { p: 2, q: -1, round: 1 }]);
+  // an answer of the old ruleset (own flag keeps counted) is not shown
+  assert.equal(UI.goodAnswer({ ...answer(), ruleset: 'flag-keeps-v1' }), false);
   assert.deepEqual(UI.mapFlags({ ...FS0, season: { seasonId: '12' } }, b), []);
   assert.equal(UI.localGoalsBase('http://localhost:41618'), '/goals-world/41618');
   assert.equal(UI.localGoalsBase('https://example.test'), null);
