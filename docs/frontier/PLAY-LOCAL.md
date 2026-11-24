@@ -2,19 +2,21 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-24 (through #208). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-25 (through #220). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
-The world is continuous: there are no seasons and no season end. Only the test worlds here have limits of their own
+The world is continuous: there are no seasons, and the world has no end. Only the test worlds here have limits of their own
 (`--minutes`; and a `--demo` or `--wide` world's program takes orders up to a fixed turn, §4 and §6).
 
-New since the last refresh (#187): a march whose answer never came is now answered, and the guide no longer counts it
-(#193, #200 → §3 step 6); the keep list of a fresh 1× world, the guide after `--resume`, the boundary card's road (#195
-→ §3 step 6, §4 step 3, §6); the wide land shows whose it is and expedition columns walk their road (#197 → §4); the
-"World goals" card and the flag keeps (#198 → §14); the AI residents weigh the flag keeps (#203 → §14); English text fixes (#207); the page no longer speaks of a season's end, and the fixes for what an English play-through found (#208 → §3 step 8, §8.1, §14). #201 and #202 changed documents and the
-prize program only: a `play-local.sh` world pays nothing (§7, §14). What is left: §8. The devnet playable version:
-[PLAY-DEVNET.md](PLAY-DEVNET.md).
+New since the last refresh (#210): in a `--wide` world the wide land starts **neutral**, a village claim also reaches 3
+provinces from your nation's land, and new land opens where the nations go (#206 → §4, §4.1); **your own land**: single
+tiles claimed for ore, upkeep in food, villages only on your own tiles (#209 → §4.1, to follow press by press); a kept
+world whose time is up says "paused", not "ended", and continues (#218 → §6); the page's remaining old wording was
+replaced by "world" (#218; #219 did the same for the old lobby pages and the text a wallet signs for an in-game key, which a
+`play-local.sh` world never asks for); the fixes for what loop-play14 found (#216, #217 → §3 step 7, §10, §14); only flag keeps **captured** from other nations
+count toward the flag keeps goal (#220 → §14). What is left: §8.
+The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (it has no player land yet: §7).
 
 ## 1. Install once
 
@@ -157,7 +159,7 @@ move only once its turn is settled: about 17 minutes later).
    "Nation & territory" (§14). In `--demo` and `--wide` worlds, whose TEST program still has an end turn, the guide says
    "This test world stops taking new orders at a set turn. That is a limit of test worlds, not a rule for winning." and
    "Nation & territory" names the turn: "This test world takes new orders until turn N (… left). That is a limit of test worlds, not a rule for winning."
-   (#208; no text names a season-end winner any more). The only thing that ends there is the test world itself (§6).
+   (#208; no text names a winner at an end any more). The only thing that ends there is the test world itself (§6).
 
 Good to know:
 
@@ -199,6 +201,8 @@ The wide version is started with `--wide` alone (no `--fresh`, `--resume`, `--de
 
 During the world's setup (about 20 seconds) the program's own instructions grow the map to ring 128 (the rim) and open
 the wide land beyond it (rings 129–131, 108 provinces). The game starts around turn 140, at ×60 (a turn is 10 s).
+The wide land starts **neutral**: every wide keep is unowned, and a nation's colour there is only what it took. Land is
+also owned **tile by tile** by players. Both are in §4.1, after the four steps below.
 The default 90 minutes may not even reach step 2 below, so add `--minutes 240` (the maximum): saving a wide village's
 cost took 36–75 minutes and a keep is held for 72 turns, 12 minutes or more (measured in fix-loop10, verify-pr173 and
 verify-pr175 at load 60–160).
@@ -222,29 +226,18 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
 2. **A wide village (30–60 minutes at ×60; 75 under heavy load)**: the village screen's "Found a village on the wide land (test)" shows
    the cost — the program's price, for a second village "Cost (from the village's stores): Food 800 · Wood 800 · Stone 400 · Gold 200" — and the
    candidate provinces. Once the stores hold that amount, "Found a village here" can be pressed (until then the card says
-   "Short: …" and the button is off). The claim is decided at the end of the turn and the village is drawn on the map
+   "Short: …" and the button is off). **It takes two presses** (#209: a village stands only on your own tile). The first
+   press claims the site's tile, at once, for ore (10 at first; §4.1): "That tile of the wide land (P, Q) is now your land. Press again to put a village on it.".
+   The second press files the village: "A village was requested on the wide land (P, Q). It is decided at the end of the turn.".
+   A tile claim is one a turn: if you pressed "Claim a tile" in this turn already, the first press is refused (§4.1,
+   "When a press is refused"); press again next turn. The claim is decided at the end of the turn and the village is drawn on the map
    with your nation's sigil. Right after the claim the same card already quotes the next (third) village's cost,
    Food 1,200 · Wood 1,200 · Stone 600 · Gold 300: that is not what you just paid (loop-play13).
    - While the first village's name still carries "Provisional" the program refuses this claim (NotFinal). Press "Harvest" once
      first to make it final (step 1; the card does not check this).
-
-   - **Reaching out from your nation's land (expansion-gameplay-1)**: a wide province where your nation has a
-     village, or whose keep your nation has **taken** (a keep it held from the start does not count), is your nation's land,
-     and a claim may also go up to 3 provinces from it. The card lists those below the home ones as "from your nation's land (P', Q')".
-     Nation-mates' villages count too, AI residents' included. The world opens new wide land around your nation's villages and
-     won keeps (at most 3 provinces a turn, out to ring 136). Owner Q-1: in a `--wide` world every wide keep starts **unowned**
-     (drawn neutral, "Land of no nation"); a nation's colour there is only what it took. Design: docs/design/expansion/01-reach-from-land.md
-   - **Your own land (player territory, #209; owner 11-24 12:09 / 13:15)**: every `--wide` world is a territory world. Land is
-     owned **tile by tile**. Each province row of the card has "Claim a tile": one free tile of that province (not a village site,
-     not the keep's) becomes yours at once for 10 ore (+2 % per tile you own, rounded down to whole ore), one tile a turn, first
-     come first served. A village stands only on your own tile: "Found a village here" claims that site's tile on the **first**
-     press (instant) and files the village on the **second**. Upkeep comes from your first village's food: 0.033 food an hour per
-     tile, +0.016 an hour per province beyond 3 from your nearest own village (fixed when you claim). If the food cannot pay,
-     claims stop, and after 24 unpaid turns your farthest tile is let go each turn (at the start a village makes about 40 food an
-     hour, so land upkeep does not bind until you hold very many tiles). Taking a province's keep moves its tiles of other
-     nations' players (not your nation-mates', not tiles with a village on them) to the owner of the army that took it. Wide
-     keeps open neutral with 50 troops (held 72 turns to take). The map does not draw tiles or borders yet (owner question T-9).
-     Design: docs/design/expansion/02-player-territory.md
+   - **More provinces than the ones near home** (#206): the rows marked "from your nation's land (P', Q')" are reached
+     through your nation's land, not from your village (§4.1).
+   - Each province row also has "Claim a tile" (#209): your own land, tile by tile (§4.1).
 
    Once the village exists (the "W2" button normally comes within a few turns of the claim; once, under load, about
    80 turns later: loop-play12), the easiest way to
@@ -381,6 +374,109 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
   too (a few turns behind), but a war goes by fast there. A wide village's cost then takes about 2 hours to save.
 - The faster the clock, the further this machine's load makes the world trail (§8). Stop other heavy work while you test.
 
+### 4.1 Neutral wide land and your own land (player territory; `--wide` only, #206 and #209)
+
+Every `--wide` world plays these rules; a kept world and `--demo` have no wide land and no player land. The numbers are
+the owner's decisions of 2026-11-24 (12:09, 13:15). Some readings are still open questions to the owner (VQ-1 … VQ-6);
+this section describes what the program does today, and none of it is a promise that it stays so.
+
+**The wide land starts neutral (#206).**
+
+- At the start every wide keep (rings 129–131, 108 provinces) is unowned. The map draws such a province neutral, with the
+  plate "Land of no nation" (only where you have seen it: fog, §5). A nation's colour in the wide land is only what it took.
+- A neutral keep is guarded by 50 troops. Take it like any keep: put a host on the keep's tile and hold it for 72 turns
+  (about 12 minutes at ×60, 48 minutes at `--speed 15`; 12 hours at 1×), by an expedition from the rim village (§4 step 3)
+  or by the wide village's host (§4 step 4).
+- **Your nation's land** in the wide land is every wide province where your nation has a village (yours, a nation-mate's or
+  an AI resident's), or whose keep your nation has **taken**. A village claim or a tile claim may go up to 3 provinces
+  from your first village, or up to 3 provinces from your nation's land. The card lists the second kind below the first,
+  marked "from your nation's land (P', Q')", with the line "You can also found a village within 3 provinces of any province where your nation has a village or has taken the keep. The more land your nation holds, the farther you can go.".
+  Only nation-mates' villages on the wide land count (ring 129 or more), not their rim or heartland villages (open
+  question VQ-6).
+- The world opens new wide land around the nations' villages and won keeps: at most 3 provinces a turn, out to ring 136
+  (verify-pr206-209, ×60, `--ai 4`: 108 provinces at the start, 114 after about 150 turns, 137 after about 280).
+  Design: docs/design/expansion/01-reach-from-land.md
+
+**Your own land: follow these presses (#209).** You need a confirmed rim village (§4 step 1) with 10 ore in its stores.
+(In verify-pr206-209's world the rim village made 26 ore an hour; an hour is one minute at ×60. A village with
+"No ore from the land" makes much less.)
+
+1. Open your **rim village** ("Village" in the bottom bar) and scroll to the card "Found a village on the wide land (test)".
+   The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
+   buttons, "Claim a tile" and "Found a village here".
+2. Press **"Claim a tile"** on a row. It can be pressed when the village holds 10 ore or more, whatever the village cost
+   line above says. One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
+   says "Tile N of the wide land (P, Q) is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
+   - You do not choose the tile: the page takes the lowest-numbered tile of the province that is not a village site, not
+     the keep's tile and not already yours (a province has 61 tiles, numbered 0–60).
+   - **One tile a turn**, for all provinces together. Wait for the next turn (10 s at ×60) and press again.
+3. Press it again each turn to grow. **What a tile costs**: 10 ore, plus 2 % of that for every tile you already own,
+   rounded down to whole ore (the rounding is the owner's open question VQ-2):
+
+   | Tiles you own | 0–4 | 5–9 | 10–14 | 15–19 | 20–24 | 50 | 100 |
+   |---|---|---|---|---|---|---|---|
+   | Ore for the next tile | 10 | 11 | 12 | 13 | 14 | 20 | 30 |
+
+4. **A village on your land.** A village stands only on a tile you own, so "Found a village here" takes two presses
+   (§4 step 2): the first claims that site's tile (it counts as this turn's one claim and costs ore like any tile), the
+   second files the village for the usual cost (second village: Food 800 · Wood 800 · Stone 400 · Gold 200).
+   - Two villages of one province need at least one free village site between them (the program counts a village on a
+     site within 3 tiles as too near), and you hold 3 villages at most (the rim village and two more; then the card says
+     "You already have 3 villages." and lists no rows any more, so it offers no "Claim a tile" either).
+5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
+   - 0.033 food an hour for each tile;
+   - plus 0.016 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
+     a wide village of yours). It is measured once, when you claim the tile, and does not change later.
+   - Examples: 10 tiles near home cost 0.33 food an hour; 100 tiles 3.3; one tile 5 provinces from your nearest village
+     costs 0.033 + 2 × 0.016 = 0.065. A starting village makes about 40 food an hour, so land upkeep is small until you
+     hold very many tiles (the owner's open question VQ-1).
+   - The village screen's "Per hour" column does not include land upkeep.
+6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
+   - at once: you cannot claim tiles (the refusal is in the table below);
+   - after 24 unpaid turns (**4 minutes at ×60**, 16 minutes at `--speed 15`; **4 hours at 1×**): your **farthest** tile
+     goes back to unowned, **one tile each turn** (one every 10 s at ×60; one every 10 minutes at 1×), for as long as it
+     stays unpaid. A tile under one of your villages can be let go too (open question VQ-4);
+   - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit. The
+     food missed meanwhile is not charged later (open question VQ-5).
+   - **The page shows no warning for this**: no count of your tiles, no upkeep line, no "unpaid" sign. The only sign is a
+     refused "Claim a tile". Keep the first village's food above zero (large hosts eat it: about 4,800 troops use up a
+     starting village's food). In verify-pr206-209's hour of play at ×60 nobody went unpaid; this part is checked by the
+     program's tests, not seen in a live world.
+7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
+   nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
+   and so does a tile with a village on it. The keeper moves them within about a turn; the page says nothing about it.
+   While the nation still holds the keep, tiles claimed there later by other nations' players move the same way (open
+   question VQ-3).
+
+**When a press is refused.** The page answers a refused claim with the program's general sentence for that error, which
+does not always fit (from the code; none of these was read on a live page in this run):
+
+| What happened | The notice says | What to do |
+|---|---|---|
+| A second tile claim in the same turn | "The host is resting or short of stamina." | wait for the next turn |
+| Land upkeep unpaid | "Not eligible for a refund, or already claimed." | get food into the first village, wait a turn |
+| Not enough ore (the button opens at 10 ore, the price can be higher: the table above) | "Not enough resources or balance." | wait for ore |
+| Another player owns that tile | "That site is taken." | press again: the page tries the next tile |
+| The tile is yours already (the page had lost track of it) | "Already done." | press again: the page remembers it and goes on |
+| The province is out of reach | "Outpost requirements are not met. Check your town and province control." | pick a nearer row |
+| No free tile left in the province | "No tile is left to claim in this province." | another province |
+| The province could not be read | "No tile can be claimed in this province (a world without player land, or the province could not be read)." | press again |
+| A village too near another village of the province (second press of "Found a village here") | "That site is reserved (rings 0 and 1)." | press again: the page names the next site; its tile has to be claimed first |
+
+**What you do not see yet.** The map draws no tiles and no player borders (owner question T-9), and no card lists the
+tiles you own or the next price: count your claims yourself, or read the ore that left the stores. The card's own
+paragraph ("Your land: "Claim a tile" makes one tile of that province yours at once (10 ore, +2 % per tile you own, one tile a turn). …")
+states the rules in short. The card's last line, "A request is decided at the end of the turn (by lot if someone else chose the same place).",
+is about villages; a tile claim is instant.
+
+**The AI residents** claim tiles too (the same rules and prices): the tile under each village they found, and one more
+from time to time while they save for the next village (verify-pr206-209, ×60, `--ai 4`: 52 tiles after about 180
+turns, none refused). Under the fog you see none of it.
+
+**An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
+days without an order, longer than the test world takes orders (§4).
+Design: docs/design/expansion/02-player-territory.md
+
 ## 5. Fog of war (every local test world, #93)
 
 A player's view, as in Civ. It is display only: the local chain's records stay public. The devnet page shows the same
@@ -406,7 +502,7 @@ view (fog-devnet; runbook §7 P5).
 - In a fog world the map's "Records" view (every recorded province) and the links to the spectator page (the legend's and
   the settings' "Spectator page") are **not shown**, from the first picture on (fog-devnet).
 - One switch per mode in `permutation-server/web/frontier/map/fog.mjs`: `LOCAL_FOG` (local test worlds) and
-  `DEVNET_FOG` (fog-devnet: the play page of a season whose pinned cluster is `devnet`); `false` = no fog in that mode.
+  `DEVNET_FOG` (fog-devnet: the play page of a world whose pinned cluster is `devnet`); `false` = no fog in that mode.
   The radii and the like are `FOG_RULES` in the same file. The spectator page and the practice page have no fog.
 
 ## 6. Stop it, continue tomorrow
@@ -429,11 +525,19 @@ view (fog-devnet; runbook §7 P5).
 - After a `git pull` that changes the program, the old world cannot continue. The script says so; start again with `--fresh`.
 - `--resume` opens only the kept world started last. To go back to an older one, write its folder
   (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
-- A world's processes stop after 90 minutes by default (`--minutes`). A kept world still continues with `--resume`.
-  Its page then says so: the dial reads "Turn N · paused" and the banner "This world is paused. Your progress is saved. …
-  play continues from where it stopped", with the two ways on: open the start page again and press "Start the world"
-  while the start service still runs, or run `scripts/play-local.sh --resume` first when it was stopped. (A `--demo` or
-  `--wide` world that stops says "This test world has ended (a test world that is not saved, …)": it cannot be resumed.)
+- **A paused kept world (#218).** A world's processes stop after 90 minutes by default (`--minutes`). A kept world is
+  then **paused, not ended**: the dial reads "Turn N · paused" and the banner says
+  "This world is paused. Your progress is saved. While it is paused its turns do not advance and no order can be sent, but play continues from where it stopped. To continue, open the start page again and press "Start the world" (if the start service was stopped, first run scripts/play-local.sh --resume in a terminal).".
+  So there are two ways on:
+  1. the script is still running in its terminal: open `http://localhost:41920/` again and press "Start the world (a kept world resumes)";
+  2. the script was stopped (Ctrl-C, or the terminal closed): run `scripts/play-local.sh --resume`, then press the same button.
+
+  Either way you are back in your village at the turn where it stopped (verify-pr218 did both, in English and Japanese).
+  The same holds when you stop a kept world yourself in the start page's list: "Stop this world…" → "Stop it" →
+  "The world was stopped. Its progress is saved: pressing "Start the world" in the same browser resumes it from where it stopped.".
+  (A `--demo` or `--wide` world that stops says "This test world has ended (a test world that is not saved, with a time limit and other limits). …":
+  it cannot be resumed.) A world with many AI residents can stop before `--minutes`, when its logs reach the launcher's
+  size limit (loop-play14: a `--demo --ai 4` world at about 71 minutes); a kept world is paused then in the same way.
   `--resume` does not remember `--minutes`: for a long session pass it again, e.g. `--resume --minutes 240`.
 - **What ends, and what does not.** The game has no seasons and its world does not end. A kept world follows that: it has
   no last turn, and only its processes stop (`--minutes`), to be continued with `--resume`. `--demo` and `--wide` worlds are
@@ -448,10 +552,12 @@ view (fog-devnet; runbook §7 P5).
 | | Local (this script) | The devnet playable version (on devnet since 2026-11-23; how to play: [PLAY-DEVNET.md](PLAY-DEVNET.md)) |
 |---|---|---|
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
-| Centre | **none** (the world's own Season byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
+| Centre | **none** (the world's own rule byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
 | Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, "Check again"; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet ("Review what will be sent" → "Sign with the wallet and send"; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
+| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | not on devnet yet (the program on devnet is older; a new devnet world is the owner's decision) |
+| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | not playable (the devnet page and keeper have no tile claim yet; open PR #221) |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
@@ -467,24 +573,29 @@ Heartland protection of keeps, the 72-turn capture, the clash computation and th
 training are the same rules as devnet.
 A local world costs no SOL and no rent (the test keys are funded with test balances). Devnet costs and rent (since #147 and
 #150 they follow the cluster's own rent rate) are in the devnet runbook (`docs/frontier/devnet/`, refreshed by #177 and #182; what a player pays: [PLAY-DEVNET.md](PLAY-DEVNET.md) §4),
-not in this guide. #179 (the verifier reads declared patches), #180 (the operator's season-end tool `frontier-operator end-season`)
+not in this guide. #179 (the verifier reads declared patches), #180 (the operator's tool `frontier-operator end-season`)
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local test world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-24, main through #208)
+## 8. Known problems (2026-11-25, main through #220)
 
-### 8.1 Still on main (after #208)
+### 8.1 Still on main (after #220)
 
 Everything loop-play6 … 12 found (LP6 … LP12) is fixed on main, with these exceptions, all in the table and notes below:
 the cause of one Ctrl-C that did not stop a world (LP6-3), the lag under load (LP8-4), the late "W2" button seen once
 (LP12-6, not reproduced) and the road cleared when the drawer closes (LP12-5, half fixed). loop-play13 played the English
 page end to end (kept world, ②⑨⑩, ① → ⑮, `--wide` with both captures, an external resident) and found LP13-1 … 12:
 LP13-5 and LP13-6 (English wording) are fixed by #207 and the others by #208 (verify-pr208 played them in English and
-Japanese), except what is listed below: the test-world box behind the hand bar (LP13-7), the march card's cut line
-(part of LP13-12) and siege lines other than your own nation's (part of LP13-3). None is a rules question.
+Japanese), except what is listed below: the march card's cut line (part of LP13-12) and siege lines other than your own
+nation's (part of LP13-3). None is a rules question. loop-play14's LP14-1 … 15 are fixed by #216, #217 and #218
+(verify-pr217 and verify-pr218 played them). New with player land (#209): the first four rows of the table.
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
+| Your own land (`--wide`) | the page shows no tile count, no next price, no upkeep and no "unpaid" warning; the map draws no tiles or player borders (owner question T-9) | count your claims; keep the first village's food above zero (§4.1) |
+| Your own land (`--wide`) | a refused tile claim is answered with a sentence about something else: a second claim in one turn says "The host is resting or short of stamina.", unpaid upkeep says "Not eligible for a refund, or already claimed." | read the table in §4.1 |
+| Your own land (`--wide`) | "Claim a tile" opens at 10 ore although the next tile costs more once you own 5 tiles (11, 12, …): pressed with too little ore it is refused "Not enough resources or balance." | wait for the ore of the table in §4.1 |
+| Your own land (`--wide`) | with 3 villages the card lists no rows, so no tile can be claimed from the page any more | claim the tiles you want before the third village |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
@@ -500,12 +611,12 @@ Japanese), except what is listed below: the test-world box behind the hand bar (
 | ② rights | opening "Issue a right" before the workshop is finished (about 9 turns) says "To issue a right you need a village with a workshop." | wait for the workshop (§10 step 2) |
 
 Small ones (nothing blocks play):
-- The "About this test world" box covers the "Provinces held" bar and the top of "World"; "Hide details" folds it.
+- The open "About this test world" box lies over the top of the map; "Hide details" folds it, and with a village standing
+  it folds by itself to one line at the left under the "Provinces held" strip (#205; it no longer sits behind the hand bar, LP13-7).
 - For the first seconds of the ×60 nation picker the clock rate is not known yet: the intro says "10 minutes of game time" and
   the remaining time is not shown.
 - A siege line near the top edge of the map can still be cut or sit under the turn dial when it is not about your own nation's keep (your own "Holding the keep · n / 72 turns", or one between two other nations). The line "(nation) is holding your nation's keep · n / 72 turns" is whole since #208 (LP13-3).
 - English label cut short: the march card's "Price · Stamina −74 · Estimate …" line (LP13-12; the keep row and the guide pill are whole since #208).
-- The folded "About this test world" box sits behind the hand bar (LP13-7; open PR #205 moves it).
 - Selecting a never-seen province says "Unsurveyed … Only the terrain is charted." but the map draws it blank.
 - After a wide village (W2) takes a keep, until that march's record is closed the card waits with "The host that took the keep stays there to defend it. … (it does not send it automatically)";
   then it says "The host that took the keep stays there as its garrison. …" with the new host's step and "The next step can be sent (raising a new host). It is not sent automatically. Press to send the step above." (w2-wipeout). The "Result: you took the keep of province …" line stays after the next training is sent (#149, LP8-5).
@@ -519,7 +630,7 @@ Small ones (nothing blocks play):
   owner's wallet. The page shows neither of your own addresses anywhere, so tell the options apart by village name and tile
   (loop-play11 LP11-5; §12).
 - The W2 card's memory (march count and result) is one per page. With two wide villages the second would show the first's
-  card (verify-pr173; today's page cannot found a third village, so it does not normally happen: §8.2).
+  card (verify-pr173; a third village can be founded since #206, so this can happen; not re-checked since).
 - Under heavy load (load average 12–31) a wide village's province can stay 200+ turns behind for tens of minutes
   (loop-play8 LP8-4; a load matter, only measured in #149).
 
@@ -585,7 +696,7 @@ Small ones (nothing blocks play):
 - **A keep is taken after exactly 72 held turns** (the #120 check: all 11 AI captures at ×60 in
   `--wide --random-map --ai 4` came after 72 held turns; provinces ran 5.99 turns a minute).
 - **An expedition's result**: once its seal is open, the map tag changes to "Arrived · the seal is open · waiting for the result". The result ("Stays: …" and so on) shows once the target province has caught up.
-- A wide claim offers free sites only. A third village costs food 1,200, wood 1,200, stone 600, gold 300 (the program's
+- A wide claim offers free sites only; in a `--wide` world the site's tile must be yours first (two presses, §4.1). A third village costs food 1,200, wood 1,200, stone 600, gold 300 (the program's
   price, which the card shows since #183).
 - The expedition card draws roads without looking at terrain ("Check terrain and time" then says "A host cannot march onto mountains or water (N)").
 - The "Records" view is not shown in a fog world (it is with `LOCAL_FOG` set to `false`).
@@ -932,11 +1043,11 @@ When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcom
 
 ## 14. World goals: the flag keeps (TEST-only, first slice, no money)
 
-The world is continuous: there are no seasons and no season end. Instead it has four permanent goals without a deadline
+The world is continuous: there are no seasons, and the world has no end. Instead it has four permanent goals without a deadline
 ([design](../design/win-conditions/01-proposal.ja.md), Japanese; accepted by r0ze on 2026-11-24). Only the first is judged so far:
 
 - **Flag keeps (hegemony).** Each nation's contestable keeps (not heartland) carry flags: two per nation, border keeps
-  first, ordered by the Season's drand seed. A nation achieves the round when it holds flag keeps **captured from other
+  first, ordered by the world's drand seed. A nation achieves the round when it holds flag keeps **captured from other
   nations**, as many as **half of the flag keeps**, each for **144 turns** (24 hours of the chain clock; 24 minutes at
   the ×60 TEST clock). **The flag keeps a nation starts the round with do not count for it** (owner decision,
   2026-11-24 22:00: with them counted, a need of 2 was met by every nation without doing anything). A starting flag

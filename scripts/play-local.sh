@@ -79,8 +79,12 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   marches into the wide land by "Prepare a boundary route" (「境界への道を準備」; after "Check terrain and time" press the card's
                   "Use a turn that leaves time to send (N)" for the arrival turn: docs/frontier/PLAY-LOCAL.md §4); a wide village's "Next step (wide land)" (「次の一手（広い土地）」) marches
                   wide to wide (local-only feature; press once per step, the card waits and sends by itself, also while another village is open). The ordinary map and the "World" chart (「全体図」) draw the wide land as far as you have
-                  seen it (fog of war: no "Records" view). Memory-only: a stop ends it (not with --demo, --resume, --fresh,
-                  --two or --coexist; --external works)
+                  seen it (fog of war: no "Records" view). The wide land starts NEUTRAL (every wide keep unowned, 50
+                  troops; a claim also reaches 3 provinces from your nation's land, and land opens where nations go),
+                  and it has PLAYER LAND: "Claim a tile" (「1マス取る」) on the same card takes one tile a turn for ore
+                  (10, +2% per tile owned), kept up with the first village's food; a village stands only on your own
+                  tile, so "Found a village here" (「ここに村を出す」) takes two presses (PLAY-LOCAL §4.1).
+                  Memory-only: a stop ends it (not with --demo, --resume, --fresh, --two or --coexist; --external works)
   --random-map    give the NEW world its own map (TEST-ONLY launcher option --fresh-map). Without it every local
                   world has the same map: the local chain always starts at one fixed clock origin, so every world
                   draws the same genesis seed. With it the world starts at a randomly picked earlier origin and the
