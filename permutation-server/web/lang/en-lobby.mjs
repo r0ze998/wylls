@@ -11,8 +11,8 @@ import { plural } from './helpers.mjs';
 export default {
   // ================================================================ lobby.mjs
   // local mode: the member dialog
-  'ローカルのシーズン（テスト用USDC）': 'A local season (test USDC)',
-  'シーズンは始まっていて、新しく参加することはできません。': 'The season has started; no one new can join.',
+  'ローカルの世界（テスト用USDC）': 'A local world (test USDC)',
+  '世界は始まっていて、新しく参加することはできません。': 'The world has started; no one new can join.',
   'メンバー {0}人': n => plural(n, '{0} member', '{0} members'),
   '今の1人あたりの見込み {0} USDC': 'projected per member now: {0} USDC',
   '選択中 ✓': 'Selected ✓',
@@ -24,12 +24,12 @@ export default {
     'The entry fee is {0} USDC for everyone ({1}% to the prize pool, {2}% to the operator). Offices with no member are run by the rules\' caretaker.',
   '{0}に加わる': 'Join {0}',
   '勢力を選んでください': 'Choose your faction',
-  '開幕できませんでした': 'Could not start the season',
+  '開幕できませんでした': 'Could not start the world',
 
   // chain mode: the registration lobby (titles, progress)
   'ウォレットで勢力に加わる': 'Join a faction with your wallet',
-  'シーズンを準備しています': 'Preparing the season',
-  'このシーズンに入る': 'Enter this season',
+  '世界を準備しています': 'Preparing the world',
+  'この世界に入る': 'Enter this world',
   '登録しました': 'Registered',
   '登録は締め切られました': 'Registration is closed',
   '残高を確認しています…': 'Checking your balance…',
@@ -39,22 +39,22 @@ export default {
   'ウォレットの接続を待っています…': 'Waiting for the wallet to connect…',
   'テスト USDC を受け取っています…': 'Getting test USDC…',
   'ウォレットでメッセージに署名してください（無料・取引ではありません）': 'Sign the message in your wallet (free, not a transaction)',
-  'ゲートウェイからシーズンを読み込んでいます…': 'Loading the season from the gateway…',
+  'ゲートウェイから世界を読み込んでいます…': 'Loading the world from the gateway…',
   // notices
   'テスト USDC {0} を受け取りました（価値のないテスト用トークンです）。': 'Received {0} test USDC (a test token with no value).',
-  'このウォレットは、このシーズンのテスト USDC を受け取り済みです。': 'This wallet has already received test USDC for this season.',
+  'このウォレットは、この世界のテスト USDC を受け取り済みです。': 'This wallet has already received test USDC for this world.',
   '鍵を読み込みました。': 'Key loaded.',
   '鍵をコピーしました。パスワードマネージャーなど安全な場所に保存してください。': 'Key copied. Keep it somewhere safe, such as a password manager.',
   'コピーできませんでした。下の内容を選んで、安全な場所に保存してください。': 'Could not copy. Select the text below and keep it somewhere safe.',
   '鍵をファイルに保存しました。安全な場所に保管してください。': 'Key saved to a file. Keep it somewhere safe.',
-  'シーズン {0} の賞金を受け取りました。': 'Claimed the prize for season {0}.',
-  'このウォレットは、シーズン {0} のメンバーではありませんでした。': 'This wallet was not a member of season {0}.',
+  '世界 {0} の賞金を受け取りました。': 'Claimed the prize for world {0}.',
+  'このウォレットは、世界 {0} のメンバーではありませんでした。': 'This wallet was not a member of world {0}.',
   // the deadline
   '締切を過ぎました': 'Deadline passed',
   '勢力{0}': 'Faction {0}',
-  '締切 <b>{0}</b>（あと <b class="num" data-countdown></b>）に、人数に関わらずシーズンが始まります':
-    'The season starts at the deadline, <b>{0}</b> (in <b class="num" data-countdown></b>), however many have joined',
-  '必要な人数がそろうとシーズンが始まります（テスト用の設定）': 'The season starts once enough members have joined (a test setting)',
+  '締切 <b>{0}</b>（あと <b class="num" data-countdown></b>）に、人数に関わらず世界が始まります':
+    'The world starts at the deadline, <b>{0}</b> (in <b class="num" data-countdown></b>), however many have joined',
+  '必要な人数がそろうと世界が始まります（テスト用の設定）': 'The world starts once enough members have joined (a test setting)',
   '勢力は{0}つ。自分の Solana ウォレットで参加費（USDC）を払って、どれかの勢力に加わります。手数料（SOL）は運営が払うので、ウォレットに SOL は要りません。': n => plural(n,
     '{0} faction. Pay the entry fee (USDC) with your own Solana wallet to become a member. The operator pays the fees (SOL), so your wallet needs no SOL.',
     '{0} factions. Pay the entry fee (USDC) with your own Solana wallet to become a member. The operator pays the fees (SOL), so your wallet needs no SOL.'),
@@ -83,7 +83,7 @@ export default {
     "This browser doesn't have this member's in-game key. Connect the registered wallet ({0}) and sign, or load a key backup.",
   '別のウォレットに切り替える': 'Switch to another wallet',
   '{0}。このページは閉じても大丈夫です（同じブラウザか、同じウォレットで戻れます）。': '{0}. You can close this page (come back with the same browser or the same wallet).',
-  'シーズンを準備しています…（世界の生成と着任。数分かかることがあります）': 'Preparing the season… (building the world and seating members; this can take a few minutes)',
+  '世界を準備しています…（地図の生成と着任。数分かかることがあります）': 'Preparing the world… (building the map and seating members; this can take a few minutes)',
   '入場しています…': 'Entering…',
   '鍵がなくても、自分の勢力を見ることはできます（命令・投票・会話はできません）。': "Without the key you can still view your faction (but you can't give orders, vote or talk).",
   '鍵なしで見る': 'View without key',
@@ -115,33 +115,33 @@ export default {
     '{0}. {1} member has registered so far.',
     '{0}. {1} members have registered so far.'),
   '✓ ゲーム内の鍵': '✓ In-game key',
-  'ウォレットでメッセージに署名します（<b>無料</b>・取引ではありません）。この署名から、このシーズン専用の「ゲーム内の鍵」をこのブラウザで作ります。鍵は命令・投票・会話の署名に使います。賞金の受け取りやウォレットのトークンの移動はできませんが、役職者になると勢力の資金（市場・契約）は動かせます。':
-    "Sign a message in your wallet (<b>free</b>, not a transaction). From this signature, this browser makes an “in-game key” for this season only. The key signs your orders, votes and talk. It cannot claim prizes or move tokens from your wallet, but once you hold an office it can spend your faction's treasury (markets, contracts).",
+  'ウォレットでメッセージに署名します（<b>無料</b>・取引ではありません）。この署名から、この世界専用の「ゲーム内の鍵」をこのブラウザで作ります。鍵は命令・投票・会話の署名に使います。賞金の受け取りやウォレットのトークンの移動はできませんが、役職者になると勢力の資金（市場・契約）は動かせます。':
+    "Sign a message in your wallet (<b>free</b>, not a transaction). From this signature, this browser makes an “in-game key” for this world only. The key signs your orders, votes and talk. It cannot claim prizes or move tokens from your wallet, but once you hold an office it can spend your faction's treasury (markets, contracts).",
   '参加費を払って参加（{0} USDC）': 'Pay and join ({0} USDC)',
   'ウォレットに {0} USDC を支払う取引の承認を求めます。手数料（SOL）は運営が払います。{1}':
     'Your wallet will ask you to approve a transaction paying {0} USDC. The operator pays the fees (SOL). {1}',
   '勢力を選んでください。': 'Choose your faction.',
   // registration closed
-  '登録は締め切られました。まもなくシーズンが始まります。': 'Registration is closed. The season starts soon.',
-  '登録は締め切られました。シーズンを準備しています…': 'Registration is closed. Preparing the season…',
-  'このシーズンの登録は締め切られました。': 'Registration for this season is closed.',
-  'このウォレット（{0}）は、このシーズンのメンバーではありません。': 'This wallet ({0}) is not a member of this season.',
-  'このシーズンのメンバーの方は、登録したウォレットを接続するか、鍵のバックアップを読み込んでください。':
-    'If you are a member of this season, connect your registered wallet or load a key backup.',
+  '登録は締め切られました。まもなく世界が始まります。': 'Registration is closed. The world starts soon.',
+  '登録は締め切られました。世界を準備しています…': 'Registration is closed. Preparing the world…',
+  'この世界の登録は締め切られました。': 'Registration for this world is closed.',
+  'このウォレット（{0}）は、この世界のメンバーではありません。': 'This wallet ({0}) is not a member of this world.',
+  'この世界のメンバーの方は、登録したウォレットを接続するか、鍵のバックアップを読み込んでください。':
+    'If you are a member of this world, connect your registered wallet or load a key backup.',
   // who is in this season (othersText; also in the inspector), the help dialog (describeSeason)
-  'この季節のメンバーは{0}人。{1}メンバーのいない役職はルールの代行が務めます。': n => plural(n,
-    'This season has {0} member. {1}Offices with no member are run by the caretaker.',
-    'This season has {0} members. {1}Offices with no member are run by the caretaker.'),
-  'うち{0}人は運営のAIメンバーです（誰かは、住む都市が落ちたときとシーズンの終わりに公開）。': n => plural(n,
-    "{0} of them is the operator's AI member (identity revealed when its home city falls and at the season's end). ",
-    "{0} of them are the operator's AI members (identities revealed when their home city falls and at the season's end). "),
+  'この世界のメンバーは{0}人。{1}メンバーのいない役職はルールの代行が務めます。': n => plural(n,
+    'This world has {0} member. {1}Offices with no member are run by the caretaker.',
+    'This world has {0} members. {1}Offices with no member are run by the caretaker.'),
+  'うち{0}人は運営のAIメンバーです（誰かは、住む都市が落ちたときと世界の終わりに公開）。': n => plural(n,
+    "{0} of them is the operator's AI member (identity revealed when its home city falls and when the world ends). ",
+    "{0} of them are the operator's AI members (identities revealed when their home city falls and when the world ends). "),
   'Wylls — ひとつの文明、{0}つの勢力': n => (Number(n) === 6
     ? 'Wylls — One civilization, six factions'
     : 'Wylls — One civilization, {0} factions'),
   'ひとつの文明、{0}つの勢力。そのひとつのメンバーとして、勢力を動かす。': 'One civilization, {0} factions. As a member of one, run your faction.',
   '{0}つの勢力が同じ地図を共有しています。{1}{2}秒ごとの「ティック」で、全ての勢力の命令が同時に解決されます。':
     "{0} factions share one map. {1} Every faction's orders resolve at the same time at each “tick”, every {2} seconds.",
-  'このシーズンはオンチェーンです（MagicBlock ER）。時計は止まりません。': 'This season is on chain (MagicBlock ER). The clock never stops.',
+  'この世界はオンチェーンです（MagicBlock ER）。時計は止まりません。': 'This world is on chain (MagicBlock ER). The clock never stops.',
   '「確定する」で各役職の命令を封印し、中身を運営のゲートウェイに預けてから、封印（ハッシュ）をこのブラウザのゲーム内の鍵で署名してチェーンに送ります。締切のあと数秒でゲートウェイが公開し、全ての勢力を同時に解決します。':
     "“Commit” seals each office's orders, leaves their contents with the operator's gateway, then signs the seal (a hash) with this browser's in-game key and sends it to the chain. A few seconds after the deadline the gateway reveals them, and every faction resolves at once.",
   '締切の約{0}秒前には下書きを自動で確定します（このタブを表示している間だけ）。「手番を終える」は、まだ何も送っていない役職に空の封印を送ります。':
@@ -158,8 +158,8 @@ export default {
   '結果を読み込んでいます…': 'Loading the results…',
   '見込み {0} USDC': 'Projected: {0} USDC',
   '精算待ち（最長約1時間）': 'Awaiting settlement (up to about 1 hour)',
-  'シーズンの精算（運営のAIメンバーの公開と配分の確定）が終わると、ここから受け取れます。':
-    "Once the season is settled (the operator's AI members revealed and the payouts fixed), you can claim here.",
+  '世界の精算（運営のAIメンバーの公開と配分の確定）が終わると、ここから受け取れます。':
+    "Once the world is settled (the operator's AI members revealed and the payouts fixed), you can claim here.",
   'あなたの賞金 {0} USDC': 'Your prize: {0} USDC',
   '賞金 {0} USDC{1}。登録したウォレット（{2}）のトークン口座に届きます。': 'Prize {0} USDC{1}. It goes to a token account of your registered wallet ({2}).',
   ' ＋ 勢力の資金の残りの返還 {0} USDC': ' + {0} USDC returned from the treasury',
@@ -171,14 +171,14 @@ export default {
   '受け取る（{0} USDC）': 'Claim ({0} USDC)',
   '賞金を受け取りました（{0}）': 'Prize claimed ({0})',
   // earlier seasons (in the lobby)
-  'シーズン {0}': 'Season {0}',
+  '世界 {0}': 'World {0}',
   '金額をゲートウェイから読めませんでした': "Couldn't read the amount from the gateway",
-  '前のシーズンの賞金を受け取る': 'Claim prizes from earlier seasons',
-  '前のシーズンの賞金を確かめる（{0}シーズン）': n => plural(n,
-    'Check earlier seasons for prizes ({0} season)',
-    'Check earlier seasons for prizes ({0} seasons)'),
-  'このウォレットがそのシーズンのメンバーだったかを、ゲートウェイから読めませんでした。受け取りを試すとわかります（ウォレットの署名が必要です。メンバーでなかったシーズンでは受け取れません）。':
-    "The gateway couldn't tell whether this wallet was a member in these seasons. Trying to claim will tell (it needs your wallet's signature; nothing can be claimed for a season you weren't a member of).",
+  '前の世界の賞金を受け取る': 'Claim prizes from earlier worlds',
+  '前の世界の賞金を確かめる（{0}つの世界）': n => plural(n,
+    'Check earlier worlds for prizes ({0} world)',
+    'Check earlier worlds for prizes ({0} worlds)'),
+  'このウォレットがその世界のメンバーだったかを、ゲートウェイから読めませんでした。受け取りを試すとわかります（ウォレットの署名が必要です。メンバーでなかった世界では受け取れません）。':
+    "The gateway couldn't tell whether this wallet was a member in these worlds. Trying to claim will tell (it needs your wallet's signature; nothing can be claimed for a world you weren't a member of).",
 
   // ================================================================ connect.mjs (the wallet picker)
   '・': ', ', // list separator (the install links)
@@ -186,8 +186,8 @@ export default {
     'You need another Solana wallet: {0}. After installing, reload the page (extensions load when the page opens).',
   'Solana のウォレットが必要です：{0}。インストール後にページを再読み込みしてください（拡張機能はページを開いたときに読み込まれます）。':
     'You need a Solana wallet: {0}. After installing, reload the page (extensions load when the page opens).',
-  'このシーズンは devnet（テストネット）です。接続する前に、ウォレットをテストネット/devnet に切り替えてください。':
-    'This season runs on devnet (a test network). Before connecting, switch your wallet to testnet/devnet.',
+  'この世界は devnet（テストネット）です。接続する前に、ウォレットをテストネット/devnet に切り替えてください。':
+    'This world runs on devnet (a test network). Before connecting, switch your wallet to testnet/devnet.',
   'ローカルネットです。ふつうのウォレットはこのチェーンに接続できません（ゲートウェイを <code>--dev-wallet</code> 付きで起動すると Dev Wallet が使えます）。':
     "This is a localnet. Ordinary wallets can't connect to this chain (start the gateway with <code>--dev-wallet</code> to use the Dev Wallet).",
   'そのウォレットは見つかりません': 'That wallet was not found',
@@ -219,22 +219,22 @@ export default {
     "This browser doesn't support Ed25519 signatures. Open the page in a recent Chrome, Edge, Firefox or Safari.",
   'ウォレットの署名を確認できませんでした': "The wallet's signature could not be verified",
   '鍵のバックアップを読めませんでした（16進64文字の鍵が必要です）': 'Could not read the key backup (a key of 64 hex characters is needed)',
-  'この鍵は、このシーズンのどのメンバーの鍵とも一致しません': "This key doesn't match any member's key in this season",
+  'この鍵は、このシーズンのどのメンバーの鍵とも一致しません': "This key doesn't match any member's key in this world",
 
   // ================================================================ chainio.mjs
-  'シーズンの口座がプログラムから導いたものと一致しません': "The season's accounts don't match the ones derived from the program",
+  '世界の口座がプログラムから導いたものと一致しません': "The world's accounts don't match the ones derived from the program",
   'ゲートウェイの場所がわかりません': "The gateway's address is unknown",
   'ウォレットの応答を取引として読めませんでした': "Could not read the wallet's reply as a transaction",
   'ウォレットが取引を書き換えました。署名は送っていません。': 'The wallet altered the transaction. The signature was not sent.',
-  'シーズンがまだわかりません': 'The season is not known yet',
-  'ゲートウェイのシーズンがゲームサーバーのものと一致しません': "The gateway's season doesn't match the game server's",
-  'このウォレットはすでにこのシーズンのメンバーです': 'This wallet is already a member of this season',
+  '世界がまだわかりません': 'The world is not known yet',
+  'ゲートウェイの世界がゲームサーバーのものと一致しません': "The gateway's world doesn't match the game server's",
+  'このウォレットはすでにこの世界のメンバーです': 'This wallet is already a member of this world',
   'ゲートウェイが支払い条件を返しませんでした': 'The gateway returned no payment terms',
-  '支払いの条件がこのシーズンと合いません（{0}）': "The payment terms don't match this season ({0})",
+  '支払いの条件がこの世界と合いません（{0}）': "The payment terms don't match this world ({0})",
   '、': ', ', // list separator (the mismatched payment fields)
   '取引の形が想定と違います（{0}）': "The transaction's shape is not as expected ({0})",
-  'ゲートウェイの手数料支払い者がシーズンのものと違います': "The gateway's fee payer is not the season's",
-  'ゲートウェイのプログラムがシーズンのものと違います': "The gateway's program is not the season's",
+  'ゲートウェイの手数料支払い者が世界のものと違います': "The gateway's fee payer is not the world's",
+  'ゲートウェイのプログラムが世界のものと違います': "The gateway's program is not the world's",
 
   // ================================================================ api.mjs (server errors)
   '命令の枠が足りません（必要{0}・使える枠{1}）': 'Not enough order slots (need {0}, {1} available)',
@@ -242,6 +242,6 @@ export default {
   '同じ部隊に2つの命令があります': 'One unit has two orders',
   'このティックは締め切られました。次のティックで出し直してください': 'This tick is closed. Send it again next tick.',
   'サーバーに届きませんでした': 'Could not reach the server',
-  'オンチェーンのシーズンでは、この操作はこのブラウザのゲーム内の鍵で署名して送ります':
-    "In an on-chain season, this is signed with this browser's in-game key and sent from here",
+  'オンチェーンの世界では、この操作はこのブラウザのゲーム内の鍵で署名して送ります':
+    "In an on-chain world, this is signed with this browser's in-game key and sent from here",
 };

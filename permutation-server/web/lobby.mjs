@@ -72,12 +72,12 @@ export function pickMember(info) {
 function renderLobby(error = '') {
   if (C) { renderChain(); return; }
   const info = pending.info;
-  $('#seat-mode').textContent = L`ローカルのシーズン（テスト用USDC）`;
+  $('#seat-mode').textContent = L`ローカルの世界（テスト用USDC）`;
   $('#seat-nations').textContent = String(info.nations.length);
   const err = error ? html`<li class="seat-error">${error}</li>` : '';
   // Once the season has started nobody new can join: watch instead.
   if (info.phase !== 'lobby') {
-    setHtml($('#seat-list'), html`<li class="seat-none">${L`シーズンは始まっていて、新しく参加することはできません。`}<a class="btn primary" href="spectate.html">${L`観戦する →`}</a></li>${err}`);
+    setHtml($('#seat-list'), html`<li class="seat-none">${L`世界は始まっていて、新しく参加することはできません。`}<a class="btn primary" href="spectate.html">${L`観戦する →`}</a></li>${err}`);
     return;
   }
   const pick = S.lobbyPick;
@@ -130,8 +130,8 @@ const STAGE = lazyTable({
 });
 const PHASE_TITLE = lazyTable({
   registering: () => L`ウォレットで勢力に加わる`,
-  starting: () => L`シーズンを準備しています`,
-  playing: () => L`このシーズンに入る`,
+  starting: () => L`世界を準備しています`,
+  playing: () => L`この世界に入る`,
 });
 
 const newName = () => memberName(randomBytes(32));
@@ -382,7 +382,7 @@ async function faucet() {
   const r = await chainio.faucet(w.address);
   if (!C) return;
   C.busy = '';
-  if (r.ok) C.notice = Number(r.amount) > 0 ? L`テスト USDC ${usdc(r.amount)} を受け取りました（価値のないテスト用トークンです）。` : L`このウォレットは、このシーズンのテスト USDC を受け取り済みです。`;
+  if (r.ok) C.notice = Number(r.amount) > 0 ? L`テスト USDC ${usdc(r.amount)} を受け取りました（価値のないテスト用トークンです）。` : L`このウォレットは、この世界のテスト USDC を受け取り済みです。`;
   else C.error = T.errorText(r);
   await refreshUsdc();
 }
@@ -495,10 +495,10 @@ export async function claimPastSeason(seasonId) {
   if (!C) return;
   C.pastBusy = '';
   if (r.ok) {
-    C.notice = L`シーズン ${seasonId} の賞金を受け取りました。`;
+    C.notice = L`世界 ${seasonId} の賞金を受け取りました。`;
     C.past = (C.past || []).map(x => (x.seasonId === String(seasonId) ? { ...x, done: true } : x));
   } else if (r.code === 'NoSuchMember' || r.code === 'NotInitialized' || r.code === 'WrongPda') {
-    C.error = L`このウォレットは、シーズン ${seasonId} のメンバーではありませんでした。`;
+    C.error = L`このウォレットは、世界 ${seasonId} のメンバーではありませんでした。`;
     C.past = (C.past || []).filter(x => x.seasonId !== String(seasonId));
   } else C.error = T.errorText(r);
   renderChain();
@@ -525,8 +525,8 @@ const registrationOpen = () => C.info.phase === 'registering' && (!C.reg?.closes
 const nationNames = () => C.season?.nations || [];
 const nationName = civ => T.civName(nationNames()[civ] ?? L`勢力${civ}`);
 const deadlineText = () => (C.reg?.closesAt
-  ? Lh`締切 <b>${hhmm(C.reg.closesAt)}</b>（あと <b class="num" data-countdown></b>）に、人数に関わらずシーズンが始まります`
-  : L`必要な人数がそろうとシーズンが始まります（テスト用の設定）`);
+  ? Lh`締切 <b>${hhmm(C.reg.closesAt)}</b>（あと <b class="num" data-countdown></b>）に、人数に関わらず世界が始まります`
+  : L`必要な人数がそろうと世界が始まります（テスト用の設定）`);
 
 function renderChain() {
   if (!C) return;
@@ -540,7 +540,7 @@ function renderChain() {
   const s = C.season;
   let body;
   if (C.fatal) body = html`<p class="seat-error">${C.fatal}</p>`;
-  else if (!s) body = html`<p class="desc"><span class="spinner"></span>${L`ゲートウェイからシーズンを読み込んでいます…`}${C.seasonError ? html`<br><span class="seat-error">${C.seasonError}</span>` : ''}</p>`;
+  else if (!s) body = html`<p class="desc"><span class="spinner"></span>${L`ゲートウェイから世界を読み込んでいます…`}${C.seasonError ? html`<br><span class="seat-error">${C.seasonError}</span>` : ''}</p>`;
   else if (S.chainMember) body = memberBox(phase);
   else if (registrationOpen()) body = steps();
   else body = closedBox(phase);
@@ -589,7 +589,7 @@ function memberBox(phase) {
   }
   let now;
   if (phase === 'registering') now = html`<p class="desc">${Lh`${deadlineText()}。このページは閉じても大丈夫です（同じブラウザか、同じウォレットで戻れます）。`}</p>`;
-  else if (phase === 'starting') now = html`<p class="desc"><span class="spinner"></span>${L`シーズンを準備しています…（世界の生成と着任。数分かかることがあります）`}</p>`;
+  else if (phase === 'starting') now = html`<p class="desc"><span class="spinner"></span>${L`世界を準備しています…（地図の生成と着任。数分かかることがあります）`}</p>`;
   else now = S.session ? html`<p class="desc"><span class="spinner"></span>${L`入場しています…`}</p>`
     : html`<p class="desc">${L`鍵がなくても、自分の勢力を見ることはできます（命令・投票・会話はできません）。`}</p><button class="btn" type="button" data-reg="view">${L`鍵なしで見る`}</button>`;
   return html`<div class="reg-done">${head}${key}${now}${S.session ? backupBox() : ''}</div>`;
@@ -628,7 +628,7 @@ function steps() {
     <p class="desc"><span class="tag bad">${L`参加費は返金されません`}</span></p>
     <p class="desc">${Lh`${deadlineText()}。いま ${C.reg?.members ?? (C.season.members || []).length} 人が登録しています。`}</p>`;
   const s5 = keyed ? html`<p class="desc">${L`✓ ゲーム内の鍵`} <code>${short(C.session.publicKey, 6, 6)}</code></p>`
-    : html`<p class="desc">${Lh`ウォレットでメッセージに署名します（<b>無料</b>・取引ではありません）。この署名から、このシーズン専用の「ゲーム内の鍵」をこのブラウザで作ります。鍵は命令・投票・会話の署名に使います。賞金の受け取りやウォレットのトークンの移動はできませんが、役職者になると勢力の資金（市場・契約）は動かせます。`}</p>
+    : html`<p class="desc">${Lh`ウォレットでメッセージに署名します（<b>無料</b>・取引ではありません）。この署名から、この世界専用の「ゲーム内の鍵」をこのブラウザで作ります。鍵は命令・投票・会話の署名に使います。賞金の受け取りやウォレットのトークンの移動はできませんが、役職者になると勢力の資金（市場・契約）は動かせます。`}</p>
       <button class="btn primary" type="button" data-reg="derive" ${w && !C.busy ? '' : 'disabled'}>${L`署名して鍵を作る`}</button>`;
   const ready = w && funded && chosen && keyed && !C.busy;
   const s6 = html`<button class="btn primary wide" type="button" data-reg="join" ${ready ? '' : 'disabled'}>${L`参加費を払って参加（${usdc(need)} USDC）`}</button>
@@ -643,11 +643,11 @@ function steps() {
 }
 
 function closedBox(phase) {
-  const why = phase === 'registering' ? L`登録は締め切られました。まもなくシーズンが始まります。`
-    : phase === 'starting' ? L`登録は締め切られました。シーズンを準備しています…` : L`このシーズンの登録は締め切られました。`;
+  const why = phase === 'registering' ? L`登録は締め切られました。まもなく世界が始まります。`
+    : phase === 'starting' ? L`登録は締め切られました。世界を準備しています…` : L`この世界の登録は締め切られました。`;
   const who = S.wallet
-    ? html`<p class="desc">${L`このウォレット（${short(S.wallet.address, 4, 4)}）は、このシーズンのメンバーではありません。`}</p><button class="btn" type="button" data-wallet-disconnect>${L`別のウォレットに切り替える`}</button>`
-    : html`<p class="desc">${L`このシーズンのメンバーの方は、登録したウォレットを接続するか、鍵のバックアップを読み込んでください。`}</p>${walletPicker(chainio.pinned()?.cluster)}${importBox(false)}`;
+    ? html`<p class="desc">${L`このウォレット（${short(S.wallet.address, 4, 4)}）は、この世界のメンバーではありません。`}</p><button class="btn" type="button" data-wallet-disconnect>${L`別のウォレットに切り替える`}</button>`
+    : html`<p class="desc">${L`この世界のメンバーの方は、登録したウォレットを接続するか、鍵のバックアップを読み込んでください。`}</p>${walletPicker(chainio.pinned()?.cluster)}${importBox(false)}`;
   return html`<div class="seat-none">${why}<a class="btn primary" href="spectate.html">${L`観戦する →`}</a></div>${who}`;
 }
 
@@ -656,7 +656,7 @@ function closedBox(phase) {
 export function othersText(v) {
   const ms = v?.members || [];
   const ai = Number(aiRoster(v).aiCount) || 0;
-  return L`この季節のメンバーは${ms.length}人。${ai ? L`うち${ai}人は運営のAIメンバーです（誰かは、住む都市が落ちたときとシーズンの終わりに公開）。` : ''}メンバーのいない役職はルールの代行が務めます。`;
+  return L`この世界のメンバーは${ms.length}人。${ai ? L`うち${ai}人は運営のAIメンバーです（誰かは、住む都市が落ちたときと世界の終わりに公開）。` : ''}メンバーのいない役職はルールの代行が務めます。`;
 }
 
 /** Help texts and titles that match this season (nations, members, clock, terms). */
@@ -674,7 +674,7 @@ export function describeSeason(v) {
     const auto = Math.round(autoCommitSeconds(v.tickSeconds));
     // Sentences side by side: no space between them in Japanese, one in English.
     $('#help-mode').textContent = [
-      L`このシーズンはオンチェーンです（MagicBlock ER）。時計は止まりません。`,
+      L`この世界はオンチェーンです（MagicBlock ER）。時計は止まりません。`,
       L`「確定する」で各役職の命令を封印し、中身を運営のゲートウェイに預けてから、封印（ハッシュ）をこのブラウザのゲーム内の鍵で署名してチェーンに送ります。締切のあと数秒でゲートウェイが公開し、全ての勢力を同時に解決します。`,
       L`締切の約${auto}秒前には下書きを自動で確定します（このタブを表示している間だけ）。「手番を終える」は、まだ何も送っていない役職に空の封印を送ります。`,
       L`投票・立候補・献策・支持・リコール・会話も同じ鍵で署名して送ります（締切後の数秒間に出したものは次のティックに送ります）。手数料は運営が払います。`,

@@ -214,7 +214,7 @@ Every transaction carries `SetComputeUnitLimit` from a budgets table generated f
 
 ### 5.3 The Frontier session key
 
-- `fsession.mjs` builds its own printable-ASCII text, e.g. `Wylls wants you to create an in-game key.\nSite: …\nCluster: …\nProgram: …\nSeason: …\nAnyone holding this key can act as you in this season (build, train, march, explore). It cannot move tokens from your wallet.\nSign only on <host>.`, and seed domain `PS/frontier-session/v1`, stored under `ps-fsession:<cluster>:<program>:<season>:<wallet>`.
+- `fsession.mjs` builds its own printable-ASCII text, e.g. `Wylls wants you to create an in-game key.\nSite: …\nCluster: …\nProgram: …\nWorld: …\nAnyone holding this key can act as you in this world (build, train, march, explore). It cannot move tokens from your wallet.\nSign only on <host>.`, and seed domain `PS/frontier-session/v1`, stored under `ps-fsession:<cluster>:<program>:<season>:<wallet>`.
 - The text is part of what a wallet signs, so it is **never translated** (glossary "Never translate" list gets a line for it) and is pinned by a test like `web-session.test.mjs` pins v9's.
 - Backup and import reuse `parseBackup`; the key is checked against the Citizen's registered session key from the herald.
 

@@ -151,8 +151,8 @@ onLangChange(() => loadingSays?.());
 
 /** Chain mode, watching: wait (with a message) while the season registers or starts. */
 const waitForSeason = lobby => api.untilPlaying(lobby, phase => showLoading(() => {
-  $('#loading h2').textContent = L`シーズンの開始を待っています`;
-  $('#loading-text').textContent = phase === 'registering' ? L`登録を受け付けています。締切でシーズンが始まり、そのあと表示されます。` : L`シーズンを準備しています…`;
+  $('#loading h2').textContent = L`世界の開始を待っています`;
+  $('#loading-text').textContent = phase === 'registering' ? L`登録を受け付けています。締切で世界が始まり、そのあと表示されます。` : L`世界を準備しています…`;
 }));
 
 async function boot() {
