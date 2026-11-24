@@ -399,6 +399,7 @@ permutation-gateway/test/web-frontier-wide-herald-lag.test.mjs
 permutation-gateway/test/web-frontier-wide-holding-ui.test.mjs
 permutation-gateway/test/web-frontier-wide-land-map.test.mjs
 permutation-gateway/test/web-frontier-world-growth.test.mjs
+permutation-gateway/test/web-frontier-world-not-open-hud.test.mjs
 permutation-gateway/test/web-frontier-world-sparse.test.mjs
 permutation-gateway/test/web-frontier-world.test.mjs
 permutation-gateway/test/web-frontier-ws07-agent.test.mjs

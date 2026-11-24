@@ -48,6 +48,7 @@ export const FS = {
   selected: null,        // {kind: 'province'|'tile', p, q, idx?}
   // ---- status
   error: null,           // {code, text}
+  notOpen: null,         // (page-not-open-yet) {opensAt} while the herald says the world is not created yet; else null
   stale: { behind: null, stale: false },
 };
 
