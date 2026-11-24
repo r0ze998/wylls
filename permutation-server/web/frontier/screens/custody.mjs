@@ -27,6 +27,25 @@ const siteName = f => placeName(f.p, f.q, f.site)[lang() === 'en' ? 'en' : 'ja']
 const same = (a, b) => a.p === b.p && a.q === b.q;
 
 /**
+ * (fix-loop15, LP15-8) What 「予約して材料を入れる」 would lack for `arms` arms in a storehouse holding `stores` (the
+ * herald's whole units, RESOURCE_ORDER: wood 1, ore 3): `{arms, need: {ore, wood}, have: {ore, wood}}`, or null when it
+ * is enough — and null while the stores are not known (no herald read of the storehouse yet): the program's own check
+ * (capacity.rs deposit → UserVault::take, `Custody`) then answers, as before. The program takes the materials of a
+ * booking from the user's OWN storehouse in the workshop's province in the same message (ReserveCapacity + DepositToJob
+ * ×2); with too little there the node refused the whole message before running it and the page said only 「チェーンの
+ * ノードがこの命令を実行前に受け付けませんでした」.
+ */
+const STORE_WOOD = 1, STORE_ORE = 3;
+export function reserveShort(stores, arms) {
+  if (!Array.isArray(stores) || !(arms > 0)) return null;
+  const have = { ore: Math.floor(Number(stores[STORE_ORE] ?? 0)), wood: Math.floor(Number(stores[STORE_WOOD] ?? 0)) };
+  const need = { ore: arms * ORE_PER_ARM, wood: arms * WOOD_PER_ARM };
+  return have.ore >= need.ore && have.wood >= need.wood ? null : { arms, need, have };
+}
+/** That lack in words (the press's refusal and the card's line): what is needed, what is there, and what to do. */
+export const reserveShortText = (x, tile) => L`あなたの貯蔵庫（マス ${tile}）の材料が足りません。兵器 ${fmtNum(x.arms)} には 鉱石 ${fmtNum(x.need.ore)}・木材 ${fmtNum(x.need.wood)} がいります（いま 鉱石 ${fmtNum(x.have.ore)}・木材 ${fmtNum(x.have.wood)}）。村から隊商で貯蔵庫へ運んでから、もう一度押してください。`;
+
+/**
  * (fix-loop8, LP8-6) The workshops a pool's jobs hold from `now` on: capacity.rs `Pool::peak(now, now, MAX)` over
  * `Occ::occupies(now)` — the program's own gate on ReclaimCapacity, so `lent − busy` is what it lets back. A job holds its
  * workshops from its start until its conversion ends (`end_eff`; the whole window `end` while it has not started, as its
@@ -165,7 +184,10 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
     // (the grant's output budget: what its retired jobs made (`spent`) and what its jobs in the pool hold (`budget`))
     const held = pl.occ.filter(o => o.grant === g.seq).reduce((a, o) => a + o.budget, 0);
     return { facility: f, owner: nationOf(pl.owner), seq: g.seq, maxUnits: g.maxUnits, maxArms: Math.max(0, whole(g.maxOutput - g.spent - held)), until: g.until, revoked: g.revokedAt !== null,
-      vault, nextJob: nextJobSeq(g), canReserve: live && vault !== null, gone, lost: pl.lostAt !== null, lossJobs: pl.occ.map(o => `${o.grant}_${o.job}`).join('.') };
+      vault, stock: vault && Array.isArray(vault.stores) ? { ore: Math.floor(Number(vault.stores[STORE_ORE] ?? 0)), wood: Math.floor(Number(vault.stores[STORE_WOOD] ?? 0)) } : null,
+      // (fix-loop15, LP15-8: not even one arm's materials in the storehouse, by the herald's read: the button is off and says why)
+      empty: vault ? reserveShort(vault.stores, 1) : null,
+      nextJob: nextJobSeq(g), canReserve: live && vault !== null, gone, lost: pl.lostAt !== null, lossJobs: pl.occ.map(o => `${o.grant}_${o.job}`).join('.') };
   }));
   const myJobs = jobs.filter(e => e.job.user === viewer).map(e => {
     const j = e.job, f = e.facility, made = jobOutAt(j, nowTs);
@@ -243,7 +265,10 @@ export function renderCustody(FS) {
     ${g.canReserve ? html`<form class="vform" data-form="cap-reserve" ${data({ ...fd(g.facility), grant: g.seq, job: g.nextJob, vtile: g.vault.tile, vgen: g.vault.gen })}>
       <div class="count-row"><label class="count-label" for="cr-u-${g.seq}">${L`使う工房の数`}</label><input id="cr-u-${g.seq}" name="units" type="number" min="1" max="${g.maxUnits}" step="1" value="${g.maxUnits}" inputmode="numeric"></div>
       <div class="count-row"><label class="count-label" for="cr-a-${g.seq}">${L`作る兵器の数`}</label><input id="cr-a-${g.seq}" name="arms" type="number" min="1" max="${Math.max(1, g.maxArms)}" step="1" value="${Math.min(10, Math.max(1, g.maxArms))}" inputmode="numeric"></div>
-      <div class="actions"><button type="submit" class="btn small">${L`予約して材料を入れる`}</button></div></form><span class="muted">${L`兵器 1 につき 鉱石 ${fmtNum(ORE_PER_ARM)}・木材 ${fmtNum(WOOD_PER_ARM)}（あなたの貯蔵庫から）`}</span>`
+      <div class="actions"><button type="submit" class="btn small" ${raw(g.empty ? 'disabled' : '')}>${L`予約して材料を入れる`}</button></div></form><span class="muted">${L`兵器 1 につき 鉱石 ${fmtNum(ORE_PER_ARM)}・木材 ${fmtNum(WOOD_PER_ARM)}（あなたの貯蔵庫から）`}</span>
+      ${g.stock ? html`<span class="${g.empty ? 'blocked' : 'muted'} custody-stock" data-stock="${g.stock.ore},${g.stock.wood}">${g.empty
+        ? L`あなたの貯蔵庫（マス ${g.vault.tile}）に材料がありません（いま 鉱石 ${fmtNum(g.stock.ore)}・木材 ${fmtNum(g.stock.wood)}）。村から隊商で鉱石と木材を貯蔵庫へ運ぶと予約できます。`
+        : L`あなたの貯蔵庫（マス ${g.vault.tile}）：鉱石 ${fmtNum(g.stock.ore)}・木材 ${fmtNum(g.stock.wood)}`}</span>` : ''}`
       : !g.vault && !g.gone && !g.lost ? html`<span class="muted">${L`この州にあなたの貯蔵庫がいります。`}</span>` : ''}</li>`)}</ul>` : '';
   const myJobs = m.myJobs.length ? html`${label(L`あなたの作業`)}<ul class="list custody-jobs">${m.myJobs.map(j => {
     const d = { ...fd(j.facility), grant: j.grant, job: j.seq, ...(j.vault ? { vtile: j.vault.tile, vgen: j.vault.gen } : {}) };
