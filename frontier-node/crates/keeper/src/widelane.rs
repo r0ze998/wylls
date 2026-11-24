@@ -384,7 +384,7 @@ pub mod territory {
     use super::*;
     use frontier_abi::world_index::territory as wtr;
 
-    /// 0xDC op 12 WideTerritorySettle: `[payer s,w] [season r] [territory_player w] [citizen r] [home_holding w]`.
+    /// 0xDC op 12 WideTerritorySettle: `[payer s,w] [season r] [territory_player w] [citizen w] [home_holding w]`.
     pub fn settle(a: &Addresses, payer: Address, citizen: &[u8; 32], home: Address) -> Instruction {
         let c = ctx(a);
         ix(
@@ -393,7 +393,7 @@ pub mod territory {
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(a.season, false),
                 AccountMeta::new(adr(wtr::player_address(&c, citizen)), false),
-                AccountMeta::new_readonly(adr(*citizen), false),
+                AccountMeta::new(adr(*citizen), false),
                 AccountMeta::new(home, false),
             ],
             wix::TerritorySettle.to_bytes().to_vec(),

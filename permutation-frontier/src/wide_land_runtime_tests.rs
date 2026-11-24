@@ -12286,7 +12286,7 @@ mod territory_tests {
                 self.w.w.payer.clone(),
                 self.w.w.season.clone(),
                 self.tplayer(m),
-                with_writable(&m.citizen, false),
+                with_writable(&m.citizen, true),
                 with_writable(&home, true),
             ];
             code(run_tx(&accts, &wix::TerritorySettle.to_bytes()))

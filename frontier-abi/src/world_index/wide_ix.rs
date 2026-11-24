@@ -2398,12 +2398,13 @@ pub const CLAIM_TILE: &[Group] = &[
 ];
 
 /// WideTerritorySettle: `[payer s,w] [season r] [territory_player w]
-/// [citizen r] [home_holding w]`.
+/// [citizen w] [home_holding w]` (the Citizen writable: the first home's
+/// `HARVEST` record chains into it, as WideClaimSite's settler cost does).
 pub const TERRITORY_SETTLE: &[Group] = &[one(&[
     s("payer", Acc::Wallet, true, Wr::W),
     s("season", Acc::Kind(K::Season), false, Wr::R),
     s("territory_player", WIDE, false, Wr::W),
-    s("citizen", Acc::Kind(K::Citizen), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
     s("home_holding", Acc::Kind(K::Holding), false, Wr::W),
 ])];
 
