@@ -147,6 +147,7 @@ use frontier_abi::world_index::land::{
 use frontier_abi::world_index::march::{
     self as wm, wide_host_alias, MarchError, MarchEvent, MarchState, WideTransit,
 };
+use frontier_abi::world_index::reach as wreach;
 use frontier_abi::world_index::resolve::{self as wres, ResolveError};
 use frontier_abi::world_index::roster::{self as wro, WideRoster};
 use frontier_abi::world_index::rules::{self as wr, OpeningInput, RulesError, WideRulesConfig};
@@ -680,8 +681,9 @@ pub fn set_rules(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::BadData.into());
     }
     // ⑧ wide land (i): a Season whose disk keeps are mixed on every ring
-    // (`placement` 2) takes the same function past ring 128 (`BadData`
-    // otherwise), so the rule does not switch at the disk's rim.
+    // (`placement` 2) takes the same function past ring 128, or (Q-1, owner
+    // 2026-11-24, expansion-gameplay-1) the Neutral rule — every wide keep
+    // opens unowned (`BadData` otherwise).
     let placement = season_cq(&season_ai.try_borrow_data()?)?.placement;
     let holder = wr::KeepHolderRule::from_byte(x.keep_holder).map_err(rules_err)?;
     if !wr::keep_holder_allowed(placement, holder) {
@@ -1241,6 +1243,40 @@ fn previous_final(
 /// `TICKET_ESCROW` and funder are untouched); the Citizen's marker
 /// (`ticket::mark`: `TICKET_BELL = now_bell`, zero sites, the ticket
 /// bits). No record of the wide ticket itself (module doc).
+/// The reach witness of a wide claim (expansion-gameplay-1,
+/// `world_index::reach`): `w` read-only, owned by the program, a wide
+/// province of this Season and world at its canonical address
+/// (`BadAccount`), and `faction`'s land at `now_bell` — a village of the
+/// nation there or a keep the nation won (`OutpostRule` otherwise). → its
+/// province distance to the target.
+#[allow(clippy::too_many_arguments)]
+fn reach_witness_distance(
+    p: &Pubkey,
+    ctx: &AddrCtx,
+    season_id: u64,
+    world: WorldId,
+    w: &AccountInfo,
+    faction: u8,
+    now_bell: u32,
+    target: WideCoord,
+) -> R<u128> {
+    if w.is_writable {
+        return Err(BAD_ACCOUNT);
+    }
+    let rec = province_at(w, p, season_id)?.ok_or(BAD_ACCOUNT)?;
+    if rec.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(w, &wl::province_address(ctx, rec.coord))?;
+    let wd = w.try_borrow_data()?;
+    let (mine, _) = cz::province_weights(&wd, faction, now_bell)?;
+    let keep = frontier_abi::conquest_model::read_keep(&wd)?;
+    if !wreach::is_nation_land(faction, mine, keep.as_ref()) {
+        return Err(crate::CqError::OutpostRule.into());
+    }
+    Ok(rec.coord.distance(target))
+}
+
 pub fn claim_site(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     claim_site_as(p, a, d, &Auth::Wallet)
 }
@@ -1250,8 +1286,15 @@ pub fn claim_site(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) -> R<()> {
     check_accounts(WideIx::ClaimSite, a, None)?;
     let x = wix::ClaimSite::decode(d)?;
+    // Twelve positions, or thirteen with the reach witness (expansion-
+    // gameplay-1; `world_index::reach`).
+    let (fixed, reach_ai) = match a.len() {
+        12 => (a, None),
+        13 => (&a[..12], a.get(12)),
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
     let [_actor, payer, season_ai, citizen, frontier, province, record, anchor_ai, anchor_province, prev_ai, prev_province, _system] =
-        a
+        fixed
     else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1393,7 +1436,20 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
     // A wide ring and a wide distance are compared against `u8` bounds;
     // saturating the narrowing can only turn a pass into a refusal.
     let target_ring = u32::try_from(coord.ring()).unwrap_or(u32::MAX);
-    let range = u32::try_from(anchor_coord.distance(coord)).unwrap_or(u32::MAX);
+    // The reach witness, when named: a wide province of this world, read
+    // only, that is the claimer's nation's land (`OutpostRule` otherwise);
+    // the range is then the nearer of the anchor and the witness.
+    let witness_distance = match reach_ai {
+        None => None,
+        Some(w) => Some(reach_witness_distance(
+            p, &ctx, hdr.id, world, w, faction, now_bell, coord,
+        )?),
+    };
+    let range = u32::try_from(wreach::claim_range(
+        anchor_coord.distance(coord),
+        witness_distance,
+    ))
+    .unwrap_or(u32::MAX);
     let (mine, total) = {
         let pd = province.try_borrow_data()?;
         cz::province_weights(&pd, faction, now_bell)?

@@ -104,4 +104,7 @@ pub mod wide_play;
 // TEST-ONLY wide -> wide marches and wide keep capture (Q-W2, owner t385u): the crank of the wide bells and marches
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_depart;
+// TEST-ONLY map growth where nations go (expansion-gameplay-1): wide land opened next to villages and won keeps
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_frontier;
 pub mod world;

@@ -1874,21 +1874,29 @@ pub const OPEN_PROVINCE: &[Group] = &[one(&[
 /// and bounds the range, with its canonical province), `[previous_holding
 /// w] [previous_province r]` (the slot-2 holding and its province for a
 /// slot-3 claim, legacy or wide, the lazy finality flip applied to a wide
-/// one; the anchor pair again for a slot-2 claim), `[system]`.
-pub const CLAIM_SITE: &[Group] = &[one(&[
-    s("actor", Acc::Wallet, true, Wr::R),
-    s("payer", Acc::Wallet, true, Wr::W),
-    s("season", Acc::Kind(K::Season), false, Wr::R),
-    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
-    s("frontier", Acc::Kind(K::Frontier), false, Wr::R),
-    s("province", WIDE, false, Wr::W),
-    s("wide_ticket", WIDE, false, Wr::W),
-    s("anchor_holding", Acc::Kind(K::Holding), false, Wr::W),
-    s("anchor_province", Acc::Kind(K::Province), false, Wr::R),
-    s("previous_holding", WIDE, false, Wr::W),
-    s("previous_province", WIDE, false, Wr::R),
-    s("system", Acc::System, false, Wr::R),
-])];
+/// one; the anchor pair again for a slot-2 claim), `[system]`, then
+/// optionally `[reach_province r]` (expansion-gameplay-1, reach from the
+/// nation's land: a wide province of the claimer's nation within
+/// `outpost_range` of the target, which then bounds the range in place of
+/// the anchor when nearer; [`crate::world_index::reach`]). Without it the
+/// instruction is exactly the twelve positions it always was.
+pub const CLAIM_SITE: &[Group] = &[
+    one(&[
+        s("actor", Acc::Wallet, true, Wr::R),
+        s("payer", Acc::Wallet, true, Wr::W),
+        s("season", Acc::Kind(K::Season), false, Wr::R),
+        s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+        s("frontier", Acc::Kind(K::Frontier), false, Wr::R),
+        s("province", WIDE, false, Wr::W),
+        s("wide_ticket", WIDE, false, Wr::W),
+        s("anchor_holding", Acc::Kind(K::Holding), false, Wr::W),
+        s("anchor_province", Acc::Kind(K::Province), false, Wr::R),
+        s("previous_holding", WIDE, false, Wr::W),
+        s("previous_province", WIDE, false, Wr::R),
+        s("system", Acc::System, false, Wr::R),
+    ]),
+    opt(&[s("reach_province", WIDE, false, Wr::R)]),
+];
 
 /// The deployed SettleTicket's shape over the wide ticket: `[payer s,w]
 /// [season r] [citizen w] [wide_ticket w] [holding w] [province w]
@@ -2874,6 +2882,8 @@ mod tests {
                 assert_eq!((lo, hi), (5, 6), "the escrow funder is optional");
             } else if ix == WideIx::Reveal {
                 assert_eq!((lo, hi), (16, 19), "0–3 path provinces, as deployed");
+            } else if ix == WideIx::ClaimSite {
+                assert_eq!((lo, hi), (12, 13), "the reach witness is optional");
             } else {
                 assert_eq!(lo, hi, "{}: every other draft list is fixed", ix.name());
             }
@@ -2892,7 +2902,11 @@ mod tests {
         assert_eq!(bounds_in(REQUEST_RING_SEED), (12, 12));
         assert_eq!(bounds_in(CONSUME_RING_SEED), (3, 3));
         assert_eq!(bounds_in(OPEN_PROVINCE), (7, 7));
-        assert_eq!(bounds_in(CLAIM_SITE), (12, 12));
+        assert_eq!(
+            bounds_in(CLAIM_SITE),
+            (12, 13),
+            "the reach witness is optional"
+        );
         assert_eq!(bounds_in(DEPART), (13, 13));
         assert_eq!(
             crate::v2::prologue::count_bounds(crate::v2::Ix::Depart),
