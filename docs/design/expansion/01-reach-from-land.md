@@ -1,7 +1,14 @@
 # Expansion: reach from the nation's land (expansion-gameplay-1)
 
-Status: implemented on a branch for **local play only** (draft PR, 2026-11-24). Not deployed anywhere. Devnet needs a
-program upgrade before it has the rule, and that is r0ze's decision.
+Status: implemented on a branch for **local play only** (draft PR #206, 2026-11-24). Not deployed anywhere.
+
+Owner answers, 2026-11-24 09:22/09:24 (STATE.md):
+- **Q-1 yes:** wide land opens unowned; implemented, §5.5.
+- **Q-3:** captured-keep reach counts for the whole nation; this was already the rule.
+- **Q-4:** a devnet upgrade is approved only after local verify, CI and an independent verify pass. It is not done here; §8 lists what it needs.
+- **Q-2** (player territory with upkeep instead of villages) is a separate follow-up PR built on this branch.
+
+Still open: `~/Projects/wylls-grok-state/inbox/2026-11-24-0940-expansion-gameplay-1-questions.md`.
 
 ## 1. The problem
 
@@ -57,7 +64,7 @@ Lessons:
 |---|---|---|
 | A. Raise `outpost_range` (e.g. 3 → 12) | Rejected alone | A larger fixed circle around home. Villages scatter inside it instead of spreading; the footprint still cannot move past the circle; the `未踏の印` goal (an ever-farther mark) stays out of reach on an infinite map. It also changes a rule every preset shares. |
 | B. Civ settlers: a settler unit walks to the site and founds there | Rejected for now | The faithful port. But Wylls founds by a ticket and a lottery at turn end, not by a unit, so this needs a whole new on-chain lifecycle (transit, interception, a civilian unit in the clash) that would largely duplicate expeditions. It is far from minimal and fights the existing ticket model. |
-| C. Wide land opens **neutral** (no nation holds its keep) | Not decided here: question for r0ze (Q-1) | The best fix for readability (L4): the map would start empty past the heartland, and every coloured province would be one a nation took. But it reverses owner decision ⑧ wide land (i), so it is not mine to change. |
+| C. Wide land opens **neutral** (no nation holds its keep) | **Implemented after owner Q-1 (§5.5)** | The best fix for readability (L4): the map would start empty past the heartland, and every coloured province would be one a nation took. But it reverses owner decision ⑧ wide land (i), so it is not mine to change. |
 | D. Let a player give up a village and found again (relocation) | Not decided here: question for r0ze (Q-2) | Over a long continuous world, three holdings per player caps how far a player's own villages can move. Relocation would fix that, but it is a new rule with balance effects (it might be abused to dodge sieges). |
 | E. Culture: border growth over time | Rejected | Wylls territory is keeps, taken by armies, and the program has no per-province culture. A timer that recolours land would bypass the war design and the flag-keeps goal. |
 | **F. Reach from the nation's land, plus land that opens where nations go, plus AI that pushes outward** | **Chosen** | Below. |
@@ -87,8 +94,8 @@ The pure rule is `frontier-abi/src/world_index/reach.rs` (`is_nation_land`, `cla
 
 `frontier-node/crates/itest/src/wide_frontier.rs` is the local stand-in for the devnet keeper's on-demand opening. Every
 turn it finds the wide land some nation has gone to (a village, or a keep taken at least once) and opens the absent wide
-provinces within 2 of it, nearest first. It opens at most 3 a turn and 150 a world, using the program's own
-permissionless WideOpenProvince. The setup now seeds wide rings up to 134, not 131, so land can open outward. The genesis
+provinces within 2 of it, nearest first. It opens at most 3 a turn and 300 a world, using the program's own
+permissionless WideOpenProvince. The setup now seeds wide rings up to 136, not 131, so land can open outward. The genesis
 strip does not count as gone-to, so land appears only after a village or a capture. A quiet wide province costs the
 world nothing per turn: the wide crank drives only provinces with hosts, arrivals or marches.
 
@@ -131,6 +138,16 @@ A far village is exposed. It sits next to other nations' keeps and hosts, and it
 The policy files the claim with its witness (`local-play-operator-policy.mjs`). The AI keeps its two wide claims and two
 wide→wide marches per village; with reach, those marches start from villages that are themselves farther out.
 
+### 5.5 Unowned wide land (Q-1)
+
+The new wide-rules candidate `KeepHolderRule::Neutral` (byte 3, `frontier-abi/src/world_index/rules.rs`) is allowed under placement 2 alongside `MixedInterleaved`.
+- Under it, every wide province opens with its keep held by the **neutral side**: `KEEP_NEUTRAL` = 6, the clash's `NEUTRAL`, the same side as camps and Free Cities.
+- The keep starts with the season's home guard (100). Whether that is right is open question E-Q1.
+- The keep kernel needs no change. Every nation is hostile to the neutral holder, and a 72-turn hold hands the keep to the taker (`changes` 1).
+- So on a neutral season every coloured wide province is one a nation took, and "won" (`changes > 0`) and "held" mean the same thing for reach.
+- The local wide world now configures `Neutral`, and the page draws unowned land in the neutral colour (「どの国のものでもない土地」).
+- WideSetRules is write-once, so a season already configured `MixedInterleaved` keeps its rule (E-Q4).
+
 ## 6. Disagreements and caveats (stated, not hidden)
 
 - **With a naive Civ port.** Civ's "found anywhere you can walk to" is not what makes Civ maps readable. Unit travel
@@ -141,9 +158,7 @@ wide→wide marches per village; with reach, those marches start from villages t
   player has three holdings with no way to give one up. Over one session a nation visibly reaches 6+ provinces out (two
   chained villages, plus won keeps around them), where before the limit was 3. Over a long continuous world, the
   footprint moves only as new players arrive and keeps change hands. True relocation is Q-2.
-- **Readability.** As long as wide keeps open in an interleaved mosaic (⑧ (i)), a nation's shape is partly hidden by
-  colours nobody earned. Villages are drawn with their nation's sigil and new land appears at the frontier, which helps.
-  Neutral wide land (Q-1) would help most.
+- **Readability.** This was the main caveat while wide keeps opened as an interleaved mosaic (⑧ (i)). Q-1 removes it: on a neutral season, a nation's colour on the wide land is exactly what it took.
 - **Balance not touched.** No change to capture time (72), route length (4), combat, settler cost, or the economy. Reach
   extends where a claim may go, never what it costs.
 
@@ -159,15 +174,22 @@ wide→wide marches per village; with reach, those marches start from villages t
   frontier duty opens land next to villages and won keeps, not around a mark).
 - **World-first tech, wonders.** Unaffected.
 
-## 8. Devnet
+## 8. Devnet (Q-4: approved after verify; not done here)
 
-This is an on-chain rule. The deployed devnet program does not have it, and the devnet page sends no witness (the card
-offers reach only in local wide worlds). Bringing it to devnet means a program upgrade, which needs r0ze's decision; it
-was not deployed. 12-account claims are byte-for-byte unchanged, so the upgrade would not break existing clients.
+What the upgrade needs:
+1. **A program upgrade** with this branch's `proc/wide.rs`. It brings the reach witness and accepts rule byte 3. 12-account claims are byte-for-byte unchanged, so existing clients keep working.
+2. **Neutral land on devnet needs a decision (E-Q4).** The live season's wide-rules config is write-once and already interleaved, and opened provinces keep their holders. The options:
+   - a new season after the upgrade, with `stack/src/operator.rs` RULES switched to `Neutral` (deliberately not switched here: the deployed program refuses byte 3);
+   - a new rule-switch instruction (not built);
+   - keep interleaved land on the current season.
+3. **The devnet page sends no witness yet.** The card offers reach only in local wide worlds (`localPlay.wideLand`). Turning it on for devnet is a one-line gate plus a devnet play-through.
+4. **The devnet keeper's land opening** (`provinces_reach`, fund-limited) differs from the local frontier duty (E-Q2).
+5. **The verifier mirror** (`vwl_wide_claims`) is already on this branch. Recorded devnet fixtures stay valid (no 13-account claim exists in them).
+6. **Not within 01:30–03:30 JST on 11-25** (owner).
 
 ## 9. Questions for r0ze (blocked on r0ze; not implemented)
 
-- **Q-1** Should wide land open **neutral** (no nation holds its keep until someone takes it), reversing ⑧ wide land (i)?
+- (answered: Q-1 yes, Q-3 whole nation, Q-4 upgrade after verify; Q-2 in the territory-q2 run.) Original questions: **Q-1** Should wide land open **neutral** (no nation holds its keep until someone takes it), reversing ⑧ wide land (i)?
   This would make every coloured province earned and a nation's shape readable at a glance.
 - **Q-2** Should a player be able to **give up a village** to found one farther out (relocation)? If so, with what
   cooldown or cost, so it cannot be used to dodge a siege?
