@@ -18,7 +18,23 @@ import { DEPART_STAMINA } from '../fmarch.mjs';
 import { hostRows } from './host.mjs';
 import { marchListNow } from './tracker.mjs';
 import { countdown, worldContinues } from '../clock.mjs';
-import { turnsLine } from '../seasonterms.mjs';
+import { turnsLine, termsRate, spanWords } from '../seasonterms.mjs';
+
+/**
+ * (fix-loop14, LP14-12) The way to a keep in one line. At the natural clock: fi18n.mjs routeLine (「12 マス · 3 州 · 約 24
+ * 分」, the chain's minutes ARE real ones). On a faster TEST clock those minutes are the chain's, not the player's — at
+ * ×60 the row said "about 24 min" for 24 real seconds, beside a World goals card that says real time (hud/worldgoals.mjs
+ * turnsText) —, so the row says the real time in the card's words; while the pace is not known yet, "in game time".
+ */
+export function keepRouteLine(route) {
+  const r = termsRate();
+  if (r === 1) return routeLine(route);
+  const n = route.hexes, p = route.provinces.length;
+  const t = r === null ? L`ゲーム内で約 ${spanWords(route.secs)}` : L`この世界の実時間で約 ${spanWords(route.secs / r)}`;
+  if (n === 1 && p === 1) return L`1 マス · 1 州 · ${t}`;
+  if (p === 1) return L`${n} マス · 1 州 · ${t}`;
+  return L`${n} マス · ${p} 州 · ${t}`;
+}
 import { icon } from '../hud/icons.mjs';
 import { crest, sigChip, hostWaits, renderWaits, hostsOnTile, holdingHereText } from '../hud/keephand.mjs';
 
@@ -314,13 +330,13 @@ export function renderReach(FS) {
   if (!conquestEnabled(FS) || FS.mode !== 'play' || !activeHolding(FS) || !Number.isInteger(FS.citizen?.faction)) return '';
   if ((!worldContinues(FS.season) && (FS.nowBell ?? 0) >= Number(FS.season?.endBell ?? Infinity))) return '';
   const r = FS.conquest?.reach;
-  const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
+  const row = x => html`<li class="kr-row kh-n${x.holder}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${factionName(x.holder)}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${keepRouteLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}</span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   // (the loop-play report B7: a keep of the viewer's OWN nation that another nation is counting on is in this list so
   //  that a host can go and defend it (fkeepreach.mjs defendableKeeps, `defend: true`; the host's forts card says
   //  「守りに向かう」). Here it stood under "keeps of other nations", named by its own nation, with nothing saying
   //  it is to be defended. It has its own list and its own words now; the list of other nations' keeps is theirs alone)
-  const defendRow = x => html`<li class="kr-row kr-row-defend kh-n${x.holder}" data-keep-defend="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`あなたの国が保持`}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${routeLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}
+  const defendRow = x => html`<li class="kr-row kr-row-defend kh-n${x.holder}" data-keep-defend="${x.p},${x.q}">${crest(x.holder, 24)}<span class="kr-main"><strong>${L`州 ${x.p},${x.q}`}</strong> · ${L`あなたの国が保持`}${Number.isFinite(x.troops) ? html` · ${L`守備兵 ${fmtNum(x.troops)}`}` : ''} · ${keepRouteLine(x.route)}${x.origin?.host ? html` <span class="muted">${UNITS[UNIT_ORDER[x.origin.unit]]} ${fmtNum(x.origin.troops)}</span>` : ''}
       <span class="kr-defend">${icon('shield')}<strong>${L`守りに向かう`}</strong> · ${L`マスに残れば占拠を止めます`}</span></span>
     <button type="button" class="btn small" data-act="goto" data-p="${x.p}" data-q="${x.q}" aria-label="${L`そこへ移動`}: ${L`州 ${x.p},${x.q}`}">${L`そこへ移動`}</button></li>`;
   const defends = r?.ok ? r.rows.filter(x => x.defend === true) : [], rest = r?.ok ? r.rows.filter(x => x.defend !== true) : [];

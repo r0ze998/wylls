@@ -217,6 +217,10 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .attn-long > .next-more { flex: none; }
 /* narrower screens: the step's name alone (a press still does its one action; the words are the button's name and title) */
 @media (max-width: 1279px) { .next-do { display: none; } .next-btn { max-width: 300px; } }
+/* fix-loop14 LP14-9: at 1280 the plaque ends at the dial, and the longest English step with its count ("Train troops
+   for the next host · 1 more") was 4 px too wide: "…next h… 1 more". The pill's parts stand a little closer there
+   (13 px of room to spare for that label, measured live). */
+@media (min-width: 1100px) and (max-width: 1399px) { .strip-r .next-btn { gap: 5px; padding: 0 5px 0 3px; } .strip-r .next-kicker { padding-right: 5px; letter-spacing: .02em; } }
 .attn-short { display: none; font-variant-numeric: tabular-nums; }
 /* the relay's count stands in the strip only when it runs low (its place is More → details) */
 .quota { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 12px; border: 1px solid var(--amber); background: rgba(243,197,103,.14); font: 650 var(--t1)/1 var(--ui); color: var(--amber); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1584,6 +1588,10 @@ button.rose-d3:active { transform: translate(-66px, 0) scale(.94); } button.rose
 .timeline li::before { content: ""; position: absolute; left: -6px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: #d9b44a; }
 .tl-bell { font-weight: 700; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: no-preference) { .mile-banner:not([hidden]) { animation: mile-in .5s ease-out; } @keyframes mile-in { from { opacity: 0; transform: translate(-50%, -12px); } } }
+/* fix-loop14 LP14-13: a milestone's banner stood on the head of a card of the bar that was open under it — the first
+   host's "Next goal: choose a keep in reach and march" lay on the very keep row it points to, until its ✕. While a card
+   of the bar is open the banner steps back (it returns when the card closes, for what is left of its time). */
+@media (min-width: 760px) { body:has(#hand-pop[data-mode="card"]:not([hidden])) .mile-banner { visibility: hidden; } }
 
 /* ---- the spectator (screens/spectate.mjs): the nation filter, the turn stepper, standings folded on small screens, highlights that go to their place */
 .choice-col { display: grid; gap: var(--s1); margin: 0 0 var(--s2); }
@@ -2709,6 +2717,10 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
   /* the drawer open and nothing in hand: the dock stands between the plate and the map's keys (its last tab lay on 「全体図」) */
   body[data-drawer="open"][data-doc=""]:not([data-hand="village"], [data-hand="host"]) .tabs { left: calc((100% - var(--drawer-w) - var(--edge) - 84px + var(--plate-w)) / 2); }
   body[data-drawer="open"][data-doc=""]:not([data-hand="village"], [data-hand="host"]) .tab { min-width: 56px; padding: 4px 6px; }
+  /* (fix-loop14, LP14-8: in English the dock is 440 px wide there and its last tab still lay on the world chart's key —
+     the key's icon was under 「More」. With the drawer open and nothing in hand the map's keys stand above the dock's
+     row, as they do on a tablet; nothing is hidden and the dock keeps its place) */
+  body[data-drawer="open"][data-doc=""]:not([data-hand="village"], [data-hand="host"]) .map-tools { bottom: calc(var(--dock-h) + 2 * var(--edge)); }
   /* a card of the bar is as wide as the room between the plate and the minimap's lens keys: while one is open the
      plate and the lens keys step back (the card lay on the plate's home key and cut 「国」 in half) */
   body:has(#hand-pop[data-mode="card"]:not([hidden])) :is(.rail, #lenses) { visibility: hidden; }

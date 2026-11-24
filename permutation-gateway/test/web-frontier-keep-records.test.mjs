@@ -125,7 +125,7 @@ test('a clash on the keep tile says what it was for; the verification section is
   assert.match(done, new RegExp(`この戦いは州 -3,4 の砦をめぐるものです：いまの保持者 ${N2} · 第228ターンに ${N2} が ${N1} から奪った`));
   assert.match(done, /data-act="goto" data-p="-3" data-q="4">砦を見る/);
   const running = String(renderReport(fs({ ...KEEP, holder: 1 }, new Map([['-3,4', live]]))));
-  assert.match(running, new RegExp(`いまの保持者 ${N1}、奪取まで 44/72 ターン`));
+  assert.match(running, new RegExp(`いまの保持者 ${N1}。${N2}が包囲中：44/72 ターン（すべて満たすと奪取）`));   // (fix-loop14, LP14-5: the besieger is named)
   const plain = String(renderReport(fs(undefined)));
   assert.doesNotMatch(plain, /砦/);
   const strip = s => s.replace(/<p class="report-keep">[\s\S]*?<\/p>\s*/, '');

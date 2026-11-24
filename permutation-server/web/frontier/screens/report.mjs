@@ -274,8 +274,13 @@ export const VERIFY_STEPS = Object.freeze(['kernel', 'seed', 'inputs', 'recomput
  * herald's `clash()` answer `{report, inputs}` for (p, q, bell). Answer:
  * `{result: 'match'|'mismatch'|'unchecked', steps: {id: {ok: true|false|null,
  * why?, detail?}}, args?, outcome?, digest?, builder?}`. Never rejects.
+ * `kernelRuleset` (hex, optional): the ruleset hash the page's kernel must answer for this Season when it is not the
+ * Season's own — a LOCAL coexist world's page runs the S1 kernel under the one alias of flocalplay-lane.mjs
+ * `kernelRulesetFor` (the caller passes that function's answer; fix-loop14, LP14-4: the page loaded that kernel by
+ * the alias and this check then compared it with the Season's hash itself, so every clash of a `--coexist` world
+ * answered 「確かめられませんでした」 at the first step, RulesetMismatch). Absent: the Season's hash, as before.
  */
-export async function verifyClash({ p, q, bell, clash, herald, kernel, clock, season }) {
+export async function verifyClash({ p, q, bell, clash, herald, kernel, clock, season, kernelRuleset = null }) {
   const steps = Object.fromEntries(VERIFY_STEPS.map(id => [id, { ok: null }]));
   const out = { result: 'unchecked', steps, args: null, outcome: null, digest: null, builder: null, seed: null };
   const done = () => {
@@ -291,7 +296,7 @@ export async function verifyClash({ p, q, bell, clash, herald, kernel, clock, se
     let k = null;
     try { k = typeof kernel === 'function' ? await kernel() : kernel; } catch (e) { steps.kernel = { ok: null, why: e?.code ?? 'NoWasm' }; }
     if (k) {
-      const want = season?.rulesetHash ? hexOf(season.rulesetHash) : null;
+      const want = typeof kernelRuleset === 'string' && /^[0-9a-f]{64}$/.test(kernelRuleset) ? kernelRuleset : season?.rulesetHash ? hexOf(season.rulesetHash) : null;
       steps.kernel = want && k.rulesetHash() !== want ? { ok: false, why: 'RulesetMismatch' } : { ok: true };
     }
     // seed: THE anchor's S round.
@@ -430,6 +435,18 @@ export function rowsWithOutcome(rows, outcome, before = null) {
     const left = Math.min(troopsOf(g.troops), r.before);
     return { ...r, after: left, fate: left === 0 && r.before > 0 ? 'Destroyed' : r.fate };
   });
+}
+
+/**
+ * (fix-loop14, LP14-4) Whether the records the page holds leave a side's "after" unknown before the check: a host that
+ * stood on the tile (or a keep's defenders) when a later turn has been resolved there since, so the Province now is no
+ * longer the Province after that turn (app.mjs openReport gives `after` null). The report then read 「316 → —」 and
+ * 「あなたの損害：— / 316」 until the player pressed the check; the page runs the same check by itself for such a
+ * report (app.mjs openReport), once, and a report whose record is whole waits for the player's press as before.
+ */
+export function outcomeUnknown(r, mine = () => false) {
+  if (!r?.clash || r.verify) return false;
+  return recordRows({ inputs: r.clash.inputs, before: r.before ?? null, after: r.after ?? null, destroyed: r.destroyed ?? null }, mine).some(x => x.after === null || x.after === undefined);
 }
 
 /** Rows before verification, from the ClashInputs bytes alone (the arrivals the program wrote). */
@@ -757,7 +774,9 @@ function renderStake(r, stake) {
   if (!stake) return '';
   const holder = factionName(stake.holder);
   return html`<p class="report-keep">${icon('flag')}${stake.contender !== null && stake.required !== null
-    ? L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}、奪取まで ${fmtNum(stake.progress)}/${fmtNum(stake.required)} ターン`
+    // (fix-loop14, LP14-5: the count is the BESIEGER's, and the line named only the holder — 「いまの保持者 アステル、奪取まで
+    //  41/72 ターン」 read as if the holder were capturing its own keep. The besieger is named with its count)
+    ? L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}。${factionName(stake.contender)}が包囲中：${fmtNum(stake.progress)}/${fmtNum(stake.required)} ターン（すべて満たすと奪取）`
     : L`この戦いは州 ${r.p},${r.q} の砦をめぐるものです：いまの保持者 ${holder}`}${stake.taken ? html` · ${L`第${fmtNum(stake.taken.bell)}ターンに ${factionName(stake.taken.to)} が ${factionName(stake.taken.from)} から奪った`}` : ''}
     <button type="button" class="btn small" data-act="goto" data-p="${r.p}" data-q="${r.q}">${L`砦を見る`}</button></p>`;
 }
