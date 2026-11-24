@@ -63,8 +63,8 @@ The commands are the existing runbook's (DEVNET-DEPLOY-RUNBOOK.md §5, §6b, §8
      gateway's territory context (rent, presence, tiles). No herald change was needed.
    - **G4 verifier — still open:** `verify` does not know WideClaimTile or the territory ops yet (UNVERIFIABLE at best;
      ⑪ is after the first playable devnet, so not a creation blocker).
-   - **#219** (wallet signing text "World: N") must be merged before world 3 is created — owner 23:58 item 7 (still
-     open on 11-25 02:00, verify-pr221).
+   - **#219** (wallet signing text "World: N") must be merged before world 3 is created — owner 23:58 item 7: merged
+     11-25 03:41 JST (6b5409ec).
 3. Read devnet's feature state (read-only, 4.x CLI; B5): **SIMD-0500** `B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g`
    must be **inactive** (the `.so` is SBPF v2; active = the upgrade is refused: blocker, r0ze). **SIMD-0433**
    `EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy` decides whether the upgrade shrinks ProgramData (§4).

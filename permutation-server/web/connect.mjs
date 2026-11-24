@@ -28,7 +28,7 @@ export function walletPicker(cluster) {
   if (cluster === 'devnet') {
     const names = usable.filter(e => !e.dev).map(e => e.name);
     const list = (names.length ? names : ['Phantom', 'Solflare', 'Backpack']).map(wallet.devnetHint);
-    hints = html`<div class="explanation">${L`このシーズンは devnet（テストネット）です。接続する前に、ウォレットをテストネット/devnet に切り替えてください。`}${list.map(h => html`<br>${h}`)}</div>`;
+    hints = html`<div class="explanation">${L`この世界は devnet（テストネット）です。接続する前に、ウォレットをテストネット/devnet に切り替えてください。`}${list.map(h => html`<br>${h}`)}</div>`;
   } else if (cluster === 'localnet' && !all.some(e => e.dev)) {
     hints = html`<div class="explanation">${Lh`ローカルネットです。ふつうのウォレットはこのチェーンに接続できません（ゲートウェイを <code>--dev-wallet</code> 付きで起動すると Dev Wallet が使えます）。`}</div>`;
   }

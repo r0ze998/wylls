@@ -73,7 +73,7 @@ function exchange(v, e) {
     <p class="desc" style="margin:4px 0">${Lh`原材料だけを他の勢力と取引できます（ティックごとに1つの価格でまとめて約定）。買い手は手数料${EXCHANGE_FEE * 100}%と<b>関税</b>を払い、どちらも${poolSharePct(v)}%が賞金プール・${100 - poolSharePct(v)}%が運営に入ります。関税は勢力の累計支出とともに上がります。買った物資は${se.deliveryTicks ?? 3}ティック後に届き、富・交易量・功績には数えません。スターゲートを建てている都市には届きません。自分の勢力・交戦中の勢力とは取引できません。${usdc(consentUsdc)} USDCを超える支出には、外交官とは別の役職者の同意が必要です。`}</p>
     <div class="stats"><div class="stat"><div class="k">${L`勢力の資金`}</div><div class="v">${usdc(e.treasury)}<small> USDC</small></div></div><div class="stat"><div class="k">${L`累計支出`}</div><div class="v">${usdc(e.marketSpent)}</div></div><div class="stat"><div class="k">${L`いまの関税`}</div><div class="v">${(e.tariffBps / 100).toFixed(1)}<small>%</small></div></div></div>
     ${deliveries.length ? html`<div class="section-title">${L`輸送中`}</div>${deliveries.map(d => html`<div class="list-row" style="cursor:default"><div class="main"><div class="title">${T.goodName(d.good)} ${d.qty}</div></div><span class="meta">${L`ティック${d.due}に到着`}</span></div>`)}` : ''}
-    ${!se.market ? html`<div class="explanation">${L`このシーズンは市場がオフです。`}</div>` : v.tick >= freeze ? html`<div class="explanation">${L`終盤（ティック${freeze}以降）のため凍結中です。`}</div>` : form}
+    ${!se.market ? html`<div class="explanation">${L`この世界は市場がオフです。`}</div>` : v.tick >= freeze ? html`<div class="explanation">${L`終盤（ティック${freeze}以降）のため凍結中です。`}</div>` : form}
     <p class="meta" style="margin:6px 0 0">${L`取引所の注文は命令の枠を使いません。賞金プール（テスト）：${usdc(v.projection?.pool)} USDC`}</p></div>`;
 }
 

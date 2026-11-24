@@ -45,7 +45,7 @@ retype their names in a dictionary.
   numbers (`City-state 3`), wallet names (Phantom, Solflare, Backpack),
   MagicBlock ER, Solana, USDC, SOL, x402, RPC, CU, slot.
 
-## The world and the season
+## The world (formerly "the season")
 
 | Japanese | English | Notes |
 |---|---|---|
@@ -54,7 +54,7 @@ retype their names in a dictionary.
 | 文明 | civilization | the one civilization every player lives in (all six factions together); never a single faction; the `ONE CIVILIZATION` label |
 | メンバー（旧: 国民） | member | a person or agent in a faction; メンバー N人 → `N members` |
 | 人（メンバーの数） | members / people | |
-| シーズン | season | the earlier (pre-Frontier) pages only. The Frontier client never says シーズン / season to a player: 世界 / world (owner decision 2026-11-24; on-chain and operator names may keep Season) |
+| 世界（旧: シーズン） | world | no page says シーズン / season to a player: 世界 / world (owner decisions 2026-11-24, Q-WW-2 for the earlier pre-Frontier pages too; on-chain and operator names, error code names and protocol fields may keep Season). One frozen exception: the v9 `session.mjs` SessionMismatch text (check-v9-frozen.sh) |
 | ティック | tick | never “turn”, except in “End turn” |
 | 締切 | deadline | the tick's commit deadline |
 | 時代 / 第N時代 | era / Era N | |
@@ -79,12 +79,12 @@ retype their names in a dictionary.
 | 功績 | merit | |
 | 活動したメンバー / 活動中 | active members / active | |
 | 区間 | window | activity windows (`9 of 18 windows`) |
-| 歴史 / 歴史の層 | history / earlier seasons | |
+| 歴史 / 歴史の層 | history / earlier worlds | |
 | 歴史のルート | history root | |
 | 草創 / 拡大 / 競合 / 危機 / 決着 | Founding / Expansion / Contention / Crisis / Resolution | season phases (i18n.mjs PHASES) |
-| 開幕 / 開幕する | start (of the season) / Start the season | |
+| 開幕 / 開幕する | start (of the world) / Start the world | |
 | 開幕前 | before the start | |
-| シーズン終了 | Season over | |
+| 世界の終了 | World ended | |
 | 結果 | results | |
 | 暗黒時代 | dark age | |
 | ユーリカ | eureka | |

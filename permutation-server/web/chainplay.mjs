@@ -52,7 +52,7 @@ export const chainPhase = (v = S.view) => v?.chainPhase ?? 'commit';
 
 /** Why nothing can be signed now, or null. */
 function notReady() {
-  if (!chainio.pinned()) return fail('NoPin', L`シーズンがまだわかりません`);
+  if (!chainio.pinned()) return fail('NoPin', L`世界がまだわかりません`);
   if (!S.session) return fail('NoKey', NO_KEY());
   if (S.memberId === null) return fail('NotAMember');
   return null;

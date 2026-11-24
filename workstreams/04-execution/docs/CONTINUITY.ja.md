@@ -34,7 +34,7 @@
   - keeper の各種の役割は Running か Ended の間だけ動き、`end_bell` で予定を打ち切る。
 - **シーズンごとの識別子**：
   - relay・herald・keeper は `--season` を 1 つだけ受け取る。
-  - in-game key を作る署名文と鍵の保存名に `Season: id` が入る（`fsession.mjs:25-30`、④が確認）。
+  - in-game key を作る署名文に `World: id`（2026-11-25 まで `Season: id`、owner Q-WW-1）、鍵の保存名 `ps-fsession:<cluster>:<program>:<id>:<wallet>` に id が入る（`fsession.mjs:25-33, 57`）。
   - invite は `HMAC(… ‖ le64(season_id) ‖ nonce)`、話と投票の署名は `season`、封印進軍の帳簿の key は `…:seasonId:wallet`。
 - **シーズン開始からの日数**：relay の quota は genesis から 7 日間だけ多い（`quota.mjs:20-34`、④が確認）。後から来た人は多い枠を受け取らない。
 - **増え続けるもの**：

@@ -58,7 +58,7 @@ const safeUrl = u => (/^https?:\/\//.test(String(u ?? '')) ? u : null);
 export function renderChainDrawer() {
   if (!S.chainOpen) return;
   const v = S.view, c = v.chain, el = $('#chain-drawer');
-  if (!c) { setHtml(el, html`<header><b>⛓ CHAIN</b><button class="x" type="button" data-close-chain>✕</button></header><div class="sec">${L`ローカルモードです。エンジンはこのプロセスで動いています。`}<br><span class="k">${L`--chain で起動すると MagicBlock ER 上のシーズンを表示します`}</span></div>`); return; }
+  if (!c) { setHtml(el, html`<header><b>⛓ CHAIN</b><button class="x" type="button" data-close-chain>✕</button></header><div class="sec">${L`ローカルモードです。エンジンはこのプロセスで動いています。`}<br><span class="k">${L`--chain で起動すると MagicBlock ER 上の世界を表示します`}</span></div>`); return; }
   const er = safeUrl(c.endpoints?.er);
   const explorer = sig => (er ? `https://explorer.solana.com/tx/${encodeURIComponent(sig)}?cluster=custom&customUrl=${encodeURIComponent(er)}` : '#');
   const reg = (S.season?.members || []).find(m => m.index === S.memberId);

@@ -65,9 +65,9 @@ test('past claims: this wallet\'s finalized, unclaimed, non-zero prizes of earli
   assert.deepEqual(calls.map(c => `${c.method} ${c.host}${c.path}`), ['GET site/gw/claims']);
   assert.ok(calls.every(c => c.host === 'site' && c.method === 'GET'), 'no JSON-RPC call anywhere');
   const markup = String(pastClaimsHtml(list, ''));
-  assert.match(markup, /シーズン 8/);
+  assert.match(markup, /世界 8/);
   assert.match(markup, /data-claim-season="4"/);
-  assert.doesNotMatch(markup, /シーズン 7|シーズン 6|シーズン 5/);
+  assert.doesNotMatch(markup, /世界 7|世界 6|世界 5/);
 });
 
 test('past claims: a gateway without /claims → its lineage with unknown amounts; one that cannot answer now → null (asked again later)', async () => {

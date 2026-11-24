@@ -27,8 +27,8 @@ export function sessionText({ origin, host, cluster, programId, seasonId }) {
     + `Site: ${origin}\n`
     + `Cluster: ${cluster}\n`
     + `Program: ${programId}\n`
-    + `Season: ${seasonId}\n`
-    + 'Anyone holding this key can act as you in this season (build, train, march, explore). It cannot move tokens from your wallet.\n'
+    + `World: ${seasonId}\n`
+    + 'Anyone holding this key can act as you in this world (build, train, march, explore). It cannot move tokens from your wallet.\n'
     + `Sign only on ${host}.`;
   if (!/^[\x20-\x7e\n]*$/.test(text)) throw codeError('BadSessionText', 'the key text must be printable ASCII');
   return text;
@@ -67,9 +67,9 @@ async function sessionOf(seed, scope, wallet) {
     scope: { cluster: scope.cluster, programId: scope.programId, seasonId: String(scope.seasonId) },
     stored: false,
     seedHex: () => hex,
-    backupText: () => `Wylls key\nSeason: ${scope.seasonId}\nCluster: ${scope.cluster}\nProgram: ${scope.programId}\n`
+    backupText: () => `Wylls key\nWorld: ${scope.seasonId}\nCluster: ${scope.cluster}\nProgram: ${scope.programId}\n`
       + `Wallet: ${wallet}\nSession: ${k.publicKey}\nKey: ${hex}\n`
-      + 'Anyone holding this key can act as you in this season. Keep it private.\n',
+      + 'Anyone holding this key can act as you in this world. Keep it private.\n',
   };
 }
 

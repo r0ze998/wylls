@@ -121,11 +121,11 @@ test('i18n tables follow the language (callers unchanged)', () => {
   assert.equal(T.blockedText({ code: 'NeedsTech', tech: 'Writing' }), 'Requires the tech “Writing”');
   assert.equal(T.blockedText({ code: 'SomethingNew' }), 'SomethingNew');
   assert.equal(T.standingText({ kind: 'Retreat', ratioBps: 15000 }), 'Retreat · when the enemy is over 1.5×');
-  assert.equal(T.errorText({ code: 'SeasonFull' }), 'This season is full.');
+  assert.equal(T.errorText({ code: 'SeasonFull' }), 'This world is full.');
   assert.equal(T.errorText('Error: custom program error: TickFrozen'), T.CHAIN_ERROR_JA.TickFrozen);
   assert.equal(T.errorText('unknown thing'), 'unknown thing');
   setLang('ja');
-  assert.equal(T.errorText({ code: 'SeasonFull' }), 'このシーズンは満員です。');
+  assert.equal(T.errorText({ code: 'SeasonFull' }), 'この世界は満員です。');
 });
 
 test('i18n: every enum table has an English twin for every key', () => {
