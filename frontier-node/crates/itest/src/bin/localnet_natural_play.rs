@@ -135,6 +135,16 @@ fn main() {
                     }
                 });
             }
+            // (TEST-ONLY map growth where nations go, expansion-gameplay-1: wide land opened next to villages and won
+            //  keeps; the claim's reach witness lets a nation found there)
+            if wide {
+                let (st, a, rx) = (world.state.clone(), world.a.clone(), stop_rx.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = itest::wide_frontier::run(st, a, rx, |v| println!("{v}")).await {
+                        println!("{}", serde_json::json!({"schema": itest::wide_frontier::FRONTIER_SCHEMA, "wide_frontier_step": "stopped", "test_only": true, "why": e}));
+                    }
+                });
+            }
             // (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: the wide bells and marches' class-D crank; the local
             //  land .so's `localnet-wide-depart` gate decides whether a WideDepart can land at all)
             if wide {

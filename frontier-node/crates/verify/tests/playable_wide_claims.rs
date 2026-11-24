@@ -1686,6 +1686,134 @@ fn a_wide_claim_writing_an_account_it_never_writes_fails() {
     assert!(at(&found, t, "WideReplayMismatch"), "{:#?}", show(&found));
 }
 
+// ---- the reach witness (expansion-gameplay-1, `world_index::reach`; verify-pr206)
+//
+// The recorded claims name no witness. These re-wire the first honest claim
+// with a read-only 13th account (appended to the message's read-only
+// unsigned keys) and judge it: the program accepts a witness that is the
+// claimer's nation's land (the range is the nearer source, so an in-range
+// claim is unchanged) and refuses any other before a write.
+
+/// The first honest claim re-wired with `wk` as its read-only reach witness.
+fn with_reach_witness(seg: &Input, t: usize, wk: [u8; 32]) -> Input {
+    let mut seg = seg.clone();
+    let mut wtx = tx::from_wire(&seg.txs[t].tx).unwrap();
+    let m = &mut wtx.message;
+    let at = match m.account_keys.iter().position(|k| k.to_bytes() == wk) {
+        Some(i) => i,
+        None => {
+            m.account_keys.push(Address::new_from_array(wk));
+            m.header.num_readonly_unsigned_accounts += 1;
+            m.account_keys.len() - 1
+        }
+    };
+    let program = seg.cfg.program;
+    let keys = m.account_keys.clone();
+    let ci = m
+        .instructions
+        .iter_mut()
+        .find(|c| keys[c.program_id_index as usize] == program)
+        .unwrap();
+    assert_eq!(ci.accounts.len(), 12, "a recorded claim names no witness");
+    ci.accounts.push(at as u8);
+    seg.txs[t].tx = tx::wire(&wtx);
+    seg
+}
+
+/// A wide province of the snapshot other than the claim's own, with its
+/// keep: the witness candidate.
+fn other_wide_province(
+    seg: &Input,
+    snap: &BTreeMap<[u8; 32], Option<Account>>,
+    t: usize,
+) -> [u8; 32] {
+    let target = ix_key(seg, t, 5);
+    *snap
+        .iter()
+        .find(|(k, a)| {
+            **k != target
+                && a.as_ref().is_some_and(|a| {
+                    a.owner == seg.cfg.program
+                        && wl::WideProvince::read(&a.data).is_ok()
+                        && frontier_abi::conquest_model::read_keep(&a.data)
+                            .is_ok_and(|k| k.is_some())
+                })
+        })
+        .expect("another wide province in the snapshot")
+        .0
+}
+
+#[test]
+fn a_reach_witness_that_is_not_the_nations_land_fails() {
+    // The witness's keep as it opened (never taken), no village of the
+    // claimer's nation: the program refuses OutpostRule.
+    let (seg, mut snap) = segment();
+    let t = txs_with(&seg, T_CLAIM)[0];
+    let wk = other_wide_province(&seg, &snap, t);
+    let faction = before_of(&seg, &snap, t, &ix_key(&seg, t, 3)).data[C::FACTION];
+    {
+        let a = witness(&mut snap, &wk);
+        let mut k = frontier_abi::conquest_model::read_keep(&a.data)
+            .unwrap()
+            .unwrap();
+        k.holder = faction;
+        k.changes = 0;
+        frontier_abi::conquest_model::write_keep(&mut a.data, &k).unwrap();
+    }
+    let seg = with_reach_witness(&seg, t, wk);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        found.iter().any(|f| f.entity == format!("tx#{t}")
+            && f.code == "WideRule"
+            && f.detail.contains("not the nation's land")),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_reach_witness_the_nation_won_re_runs() {
+    // The same witness, its keep held by the claimer's nation and taken
+    // once: the program accepts, the claim's outcome is the recorded one.
+    let (seg, mut snap) = segment();
+    let t = txs_with(&seg, T_CLAIM)[0];
+    let wk = other_wide_province(&seg, &snap, t);
+    let faction = before_of(&seg, &snap, t, &ix_key(&seg, t, 3)).data[C::FACTION];
+    {
+        let a = witness(&mut snap, &wk);
+        let mut k = frontier_abi::conquest_model::read_keep(&a.data)
+            .unwrap()
+            .unwrap();
+        k.holder = faction;
+        k.changes = 1;
+        frontier_abi::conquest_model::write_keep(&mut a.data, &k).unwrap();
+    }
+    let seg = with_reach_witness(&seg, t, wk);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        !found.iter().any(|f| f.entity == format!("tx#{t}")),
+        "{:#?}",
+        show(&found)
+    );
+}
+
+#[test]
+fn a_reach_witness_that_is_not_a_wide_province_fails() {
+    // The Season account as the witness: the program refuses BadAccount.
+    let (seg, snap) = segment();
+    let t = txs_with(&seg, T_CLAIM)[0];
+    let season = ix_key(&seg, t, 2);
+    let seg = with_reach_witness(&seg, t, season);
+    let found = vwl::judge_segment(&seg, &snap);
+    assert!(
+        found
+            .iter()
+            .any(|f| f.entity == format!("tx#{t}") && f.code == "WideAccounts"),
+        "{:#?}",
+        show(&found)
+    );
+}
+
 // ---- season mode: the whole archive
 
 fn whole() -> Input {

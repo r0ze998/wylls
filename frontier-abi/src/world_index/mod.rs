@@ -91,6 +91,7 @@ pub mod legacy_source_event;
 pub mod march;
 pub mod movement;
 pub mod placement;
+pub mod reach;
 pub mod resolve;
 pub mod roster;
 pub mod rules;

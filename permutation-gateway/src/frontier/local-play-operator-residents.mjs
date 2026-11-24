@@ -51,6 +51,7 @@ import { createWideMarch } from './local-play-operator-wide-march.mjs';
 import { createWideHost } from './local-play-operator-wide-host.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
+import { createWideLandReader, expansionTargets, headingOf } from './local-play-operator-expansion.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 
@@ -242,10 +243,21 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   if (war && view?.holding && deps.warView) { try { snap = await deps.warView(r); } catch (e) { snap = null; } }
   // (TEST-ONLY wide play: the opened wide provinces within reach of the village, and whether its stores cover the claim)
   let wide = null;
+  // (expansion-gameplay-1: the live wide land — the opened provinces now and their captures — read once per round)
+  let live = null;
   if (Array.isArray(wideTargets)) {
     const v = view?.holding;
     const secs = v ? await deps.nowSecs().catch(() => null) : null;
-    wide = { targets: v ? claimTargets(v, wideTargets) : [], canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + (view.wide ?? 0)) };
+    // (expansion-gameplay-1: with the live wide land, the targets of the reach rule — from home or the nation's land —
+    //  best first for this resident's heading; without it, the launcher's opened list within reach of home, as before)
+    if (v && deps.wideLand) { try { live = await deps.wideLand.read(); } catch { live = null; } }
+    const faction = Number.isInteger(view?.faction) ? view.faction : r.memory.faction;
+    const targets = !v ? [] : live ? expansionTargets(v, live, faction, { heading: r.memory.heading ?? headingOf(r.index) }) : claimTargets(v, wideTargets);
+    // (expansion-gameplay-1: the herald's /h/me holdings list carries the legacy villages only, so `view.wide` stays 0
+    //  after a wide village settles and the third village was priced as a second — 800 for a 1,200 cost, refused
+    //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)
+    const wideHeld = Math.max(Number.isInteger(view?.wide) ? view.wide : 0, (r.memory.wideVillages ?? []).length);
+    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld) };
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {
@@ -273,7 +285,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   //  residents), within its one action per turn (Q16-2)
   if (wide && deps.wideHost && (r.memory.wideVillages ?? []).length && (!war || mayActThisTurn(r.memory.lastBell, nowBell, 'WideHost'))) {
     let w;
-    try { w = await deps.wideHost.decide(r, { wideTargets, villages: r.memory.wideVillages }); } catch (e) { w = { why: String(e?.message ?? e).slice(0, 160) }; }
+    try { w = await deps.wideHost.decide(r, { wideTargets: live?.opened ?? wideTargets, villages: r.memory.wideVillages }); } catch (e) { w = { why: String(e?.message ?? e).slice(0, 160) }; }
     r.wideHostWhy = w?.why ?? null;
     if (w?.decision) {
       const wd = w.decision;
@@ -442,6 +454,8 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   // (TEST-ONLY wide march: the residents of a wide world march into the wide land through their own relays' depart routes)
   if (o.wide) deps.wideMarch = createWideMarch({ herald: o.herald });
   if (o.wide) deps.wideHost = createWideHost({ herald: o.herald });
+  // (expansion-gameplay-1: the live wide land for the reach rule's claim targets)
+  if (o.wide) deps.wideLand = createWideLandReader({ herald: o.herald });
   // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
   const eyes = o.war ? createWarEyes({ herald: o.herald, goals: o.goals ?? null }) : null;
   if (eyes) {
