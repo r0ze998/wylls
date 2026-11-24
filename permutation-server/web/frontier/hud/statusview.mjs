@@ -147,7 +147,7 @@ export function arrivalView(x) {
       vault: [L`倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷${rec ? L`（${rec}）` : ''}が載るため、入った量は記録からはわかりません`,
         L`記録の数は 1 未満を切り捨て、大きすぎる値は上限で止まるため、入った量の上限も記録からは決まりません`],
       dstUnknown: [L`行き先を記録から読めないため、入った量は確かめられません`],
-      rulesUnknown: [L`このシーズンのプログラムの版では、入った量の確かめ方を確認していません`],
+      rulesUnknown: [L`この世界のプログラムの版では、入った量の確かめ方を確認していません`],
       outcomeUnknown: [L`決着の結果を記録から読めないため、入った量は確かめられません`],
     }[x.why];
     // (a storehouse took the caravan in — it was delivered — and what it took is not known: the record's cargo is shown as

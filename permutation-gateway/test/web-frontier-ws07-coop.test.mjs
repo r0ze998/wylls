@@ -61,7 +61,7 @@ test('the slot: nothing without a board; a board not read or of another Season i
       assert.match(h, /data-act="coop-open"/);
       assert.match(text(h), /Open requests across nations/);
       if (expect === 'unread') { assert.match(h, /disabled/); assert.match(text(h), /could not be loaded \(HTTP503\)/); }
-      if (expect === 'other') { assert.match(h, /disabled/); assert.match(text(h), /another world \(season\)/); assert.equal(openCoop(FS(), 'ws01-coop'), false); }
+      if (expect === 'other') { assert.match(h, /disabled/); assert.match(text(h), /another world/); assert.equal(openCoop(FS(), 'ws01-coop'), false); }
       if (expect === 'open') {
         assert.doesNotMatch(h, /disabled/);
         assert.equal(openCoop(FS(), 'ws01-coop'), true);

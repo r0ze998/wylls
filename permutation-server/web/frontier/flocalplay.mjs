@@ -288,13 +288,13 @@ export function localPlayIdentityOk(identity, pin, season, citizen = undefined) 
 
 const WHY = {
   HeraldUnreachable: () => L`この herald にはまだつながりません。ランナーと herald を起動してから、もう一度接続してください。`,
-  HeraldNotReady: () => L`herald は応答しましたが、シーズンの記録がまだありません。少し待ってからもう一度接続してください。`,
+  HeraldNotReady: () => L`herald は応答しましたが、世界の記録がまだありません。少し待ってからもう一度接続してください。`,
   LocalPlayProgram: () => L`この herald はローカルプレイ専用プログラムのものではありません。`,
   LocalPlayCluster: () => L`記録の配信元が、ローカルネットの世界を出していません。`,
-  LocalPlayVersion: () => L`この herald のシーズンは、ローカルプレイの版ではありません。`,
+  LocalPlayVersion: () => L`この herald の世界は、ローカルプレイの版ではありません。`,
   WalletNotBound: () => L`この herald には、このウォレットの市民と村がありません。上のアドレスでランナーを起動してください。`,
   WalletBindingMismatch: () => L`この herald の市民は、別のウォレットのものです。`,
-  LocalPlaySeason: () => L`この herald のシーズンは、ローカルプレイ専用プログラムの正規のシーズンではありません。`,
+  LocalPlaySeason: () => L`この herald の世界は、ローカルプレイ専用プログラムの正規の世界ではありません。`,
   NoEd25519: () => L`このブラウザでは試験用ウォレットを作れません（Ed25519 に対応した新しいブラウザで開いてください）。`,
   EphemeralWalletHost: () => L`ローカルプレイは、この端末（localhost / 127.0.0.1）で開いたページでだけ使えます。`,
   LauncherFailed: () => L`世界を起動できませんでした。開始サービスを確認して、もう一度押してください。`,

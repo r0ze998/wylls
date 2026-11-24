@@ -108,15 +108,15 @@ test('the watch fails closed: a question that throws, no question, a clock that 
   assert.equal(await w.readFailed(), 'ended'); assert.equal(w.isEnded(), true);
 });
 
-test('the banner: "this world has ended" in either language, no re-read key, in place of "N s behind"', () => {
+test('the banner: a TEST world "has ended" (a test world\'s limit) in either language, no re-read key, in place of "N s behind"', () => {
   const stale = { stale: true, behind: 639 };
   setLang('en');
   const en = endedBannerView();
-  assert.deepEqual(en, { hidden: false, text: 'This world has ended. Its turns no longer advance and no order can be sent. To play on, open the start page again and start a new world.', reread: false, ended: true });
+  assert.deepEqual(en, { hidden: false, text: 'This test world has ended (a test world that is not saved, with a time limit and other limits). Its turns no longer advance and no order can be sent. To play again, open the start page again and start a new world.', reread: false, ended: true });
   assert.doesNotMatch(en.text, /639|behind|[぀-ヿ一-鿿]/);
   setLang('ja');
   const ja = endedBannerView();
-  assert.equal(ja.text, 'この世界は終了しました。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。');
+  assert.equal(ja.text, 'このテスト用の世界は終了しました（保存しないテスト用の世界で、時間などに限りがあります）。ターンはもう進まず、命令も送れません。新しい世界は、開始ページを開き直して始めてください。');
   assert.equal(ja.hidden, false, 'said even when nothing is "behind" (the halted clock is not)');
   assert.match(ja.text, /ターン/); assert.doesNotMatch(ja.text, /鐘/);
   // not ended: exactly as before
@@ -129,7 +129,7 @@ test('the banner: "this world has ended" in either language, no re-read key, in 
 test('the notice\'s "check the world" key says the end as the end, not as a failed check', () => {
   setLang('en');
   assert.equal(keeperText({ state: 'ended' }), worldEndedText());
-  assert.match(keeperText({ state: 'ended' }), /^This world has ended\./);
+  assert.match(keeperText({ state: 'ended' }), /^This test world has ended \(a test world that is not saved/);
   assert.notEqual(keeperText({ state: 'unavailable' }), keeperText({ state: 'ended' }));
   assert.equal(worldEndedWord(), 'ended');
   setLang('ja');
@@ -139,8 +139,8 @@ test('the notice\'s "check the world" key says the end as the end, not as a fail
 test('the page: the dial, the season poll, the gate and the map are wired to the confirmed end (source)', () => {
   const app = read('app.mjs'), gate = read('flocalplay.mjs');
   // the dial: the last turn and "world ended", through the one-line text a screen reader gets
-  assert.match(app, /if \(chip\.stopped\) return L`ターン \$\{fmtNum\(chip\.bell\)\} · 終了済み`;/);
-  assert.match(app, /left: chip\.stopped \? worldEndedWord\(\) : chip\.ended \?/);
+  assert.match(app, /if \(chip\.stopped && chip\.paused\) return L`ターン \$\{fmtNum\(chip\.bell\)\} · 一時停止`;\n  if \(chip\.stopped\) return L`ターン \$\{fmtNum\(chip\.bell\)\} · 終了済み`;/);
+  assert.match(app, /left: chip\.stopped \? worldEndedWord\(\{ kept: !!chip\.paused \}\) : chip\.ended \?/);
   assert.match(app, /dialMarkup\(FS\.clock \? stoppedChip\(bellChip\(FS\.clock, now\), FS\.worldEnded\) : null\)/);
   // the season poll asks only on a network failure, and says no "could not connect" once the end is known
   assert.match(app, /\n  if \(!r\.ok && r\.code === 'network'\) worldWatch\?\.readFailed\(\);\n  if \(!r\.ok && FS\.worldEnded\) \{ clearInspection\(FS\); clearOutbound\(FS\); return false; \}\n  if \(!r\.ok\) \{ clearInspection\(FS\); clearOutbound\(FS\); seasonError\(/);
@@ -149,8 +149,8 @@ test('the page: the dial, the season poll, the gate and the map are wired to the
   assert.match(app, /worldWatch = createWorldWatch\(\{ ask: \(\) => check\(\)\.then\(r => \{ launcherWatch\?\.heard\(r\); return worldStateOf\(r\); \}\), onEnded: worldEnded \}\);/);
   assert.equal(app.split('localPlayWorldCheck(cfg)').length - 1, 1, 'one question, one place');
   // the end: the clock halted, the season's own error cleared, the panels' turn the halted clock's
-  assert.match(app, /export function worldEnded\(\) \{\n  FS\.worldEnded = \{ at: Date\.now\(\) \};\n  FS\.chain\?\.halt\?\.\(\);\n  if \(FS\.error\?\.source === 'season'\) FS\.error = null;/);
-  assert.match(app, /const v = FS\.worldEnded \? endedBannerView\(\) : staleBannerView\(\{ stale: FS\.stale, localPlay: !!FS\.localPlay \}\);/);
+  assert.match(app, /export function worldEnded\(\) \{\n  \/\/ [^\n]*\n  FS\.worldEnded = \{ at: Date\.now\(\), \.\.\.\(worldKept \? \{ paused: true \} : \{\}\) \};\n  FS\.chain\?\.halt\?\.\(\);\n  if \(FS\.error\?\.source === 'season'\) FS\.error = null;/);
+  assert.match(app, /const v = FS\.worldEnded \? endedBannerView\(\{ kept: FS\.worldEnded\.paused === true \}\) : staleBannerView\(\{ stale: FS\.stale, localPlay: !!FS\.localPlay \}\);/);
   // the gate's question: the keeper route, this page's own address, only a connected launcher world
   assert.match(gate, /const checkWorld = async \(\) => \{\n    if \(!launcher \|\| !done \|\| !handle \|\| handle\.destroyed\) return null;\n    const wallet = handle\.address;\n    const result = await askLauncher\('\/local-play\/keeper', \{ wallet \}, 'LauncherKeeperFailed'\);/);
   assert.match(gate, /if \(launcher\) worldChecks\.set\(cfgOut, checkWorld\);/, 'only a launcher world\'s cfg carries the question');
@@ -159,4 +159,31 @@ test('the page: the dial, the season poll, the gate and the map are wired to the
   const en = readFileSync(new URL('../../permutation-server/web/lang/en-frontier-play.mjs', import.meta.url), 'utf8');
   assert.match(en, /'ターン \{0\} · 終了済み': 'Turn \{0\} · ended',/);
   assert.match(en, /'終了済み': 'ended',/);
+  assert.match(en, /'ターン \{0\} · 一時停止': 'Turn \{0\} · paused',/);
+  assert.match(en, /'一時停止': 'paused',/);
+  // the kept flag: the launcher's own `persist=local` page word, read once at boot (flocalplay.mjs localPersistPage)
+  assert.match(app, /\n  worldKept = localPersistPage\(cfg\);\n/);
+});
+
+// Owner decision 2026-11-24 21:51 (LP14-1): a KEPT world that its launcher stopped (its --minutes ran out) has not ended.
+test('a kept world the launcher no longer runs is PAUSED: progress saved, play continues (--resume), in either language', async () => {
+  const { stoppedChip, chipText, dialParts } = await import('../../permutation-server/web/frontier/app.mjs');
+  setLang('en');
+  const en = endedBannerView({ kept: true });
+  assert.deepEqual(en, { hidden: false, text: 'This world is paused. Your progress is saved. While it is paused its turns do not advance and no order can be sent, but play continues from where it stopped. To continue, open the start page again and press "Start the world" (if the start service was stopped, first run scripts/play-local.sh --resume in a terminal).', reread: false, ended: true, paused: true });
+  assert.doesNotMatch(en.text, /ended|new world|[぀-ヿ一-鿿]/, 'no world-end words and no "start a new world"');
+  assert.match(en.text, /^This world is paused\. Your progress is saved\./); assert.match(en.text, /continues from where it stopped/); assert.match(en.text, /--resume/);
+  assert.equal(worldEndedText({ kept: true }), en.text); assert.equal(keeperText({ state: 'ended' }, { kept: true }), en.text);
+  assert.equal(worldEndedWord({ kept: true }), 'paused');
+  const chip = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1, paused: true });
+  assert.equal(chip.stopped, true); assert.equal(chip.paused, true);
+  assert.equal(chipText(chip), 'Turn 26 · paused'); assert.equal(dialParts(chip).left, 'paused');
+  const over = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1 });
+  assert.equal(over.paused, undefined); assert.equal(chipText(over), 'Turn 26 · ended', 'a memory-only test world still says ended');
+  setLang('ja');
+  const ja = endedBannerView({ kept: true });
+  assert.equal(ja.text, 'この世界は止まっています。進行は保存されています。止まっているあいだはターンが進まず、命令も送れませんが、止まったところから続けられます。続けるには、開始ページを開き直して「世界を開始」を押してください（開始サービスを止めたときは、先にターミナルで scripts/play-local.sh --resume を実行します）。');
+  assert.match(ja.text, /^この世界は止まっています。進行は保存されています。/); assert.doesNotMatch(ja.text, /終了|新しい世界/);
+  assert.equal(worldEndedWord({ kept: true }), '一時停止'); assert.equal(chipText(chip), 'ターン 26 · 一時停止');
+  setLang('en');
 });

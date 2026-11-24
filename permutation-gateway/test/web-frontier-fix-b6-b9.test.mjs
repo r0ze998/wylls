@@ -129,7 +129,7 @@ test('B5 the gate\'s question: a page that is not a connected launcher world, or
 });
 
 test('B5 the notice\'s key: a world the launcher no longer runs is said to have ended (either language)', async () => {
-  for (const [lang, want] of [['en', /^This world has ended\./], ['ja', /^この世界は終了しました。/]]) {
+  for (const [lang, want] of [['en', /^This test world has ended \(/], ['ja', /^このテスト用の世界は終了しました（/]]) {
     setLang(lang);
     const o = await connected(open({ keeper: () => reply(404, { error: 'WorldNotFound' }) }));
     const key = o.doc.byClass('local-play-session-check')[0], said = o.doc.byClass('local-play-session-keeper')[0];

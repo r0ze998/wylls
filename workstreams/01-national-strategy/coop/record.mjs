@@ -121,7 +121,7 @@ export function shapeProblem(rec, goals) {
   if (rec.v !== 1) return '版が違う';
   if (!KINDS.includes(rec.kind)) return `知らない種類：${rec.kind}`;
   if (typeof rec.signer !== 'string' || typeof rec.sig !== 'string') return '署名がない';
-  if (!rec.season || typeof rec.season.programId !== 'string' || typeof rec.season.seasonId !== 'string') return 'シーズンがない';
+  if (!rec.season || typeof rec.season.programId !== 'string' || typeof rec.season.seasonId !== 'string') return '世界がない';
   if (!isInt(rec.at, 0, 2 ** 40)) return '時刻がない';
   switch (rec.kind) {
     case 'request':

@@ -83,7 +83,7 @@ test('entry: another world, a broken destination, or no/blank request', () => {
   r = runEntry('?program=Q&season=90&to=0,0,1,0&request=r', { programId: 'P', seasonId: 90 });
   assert.deepEqual(filled(r), EMPTY); assert.equal(r.focus, null);
   r = runEntry('?season=90&to=0,0,1,0&request=r', { programId: 'P', seasonId: 90 });
-  assert.match(r.els.entryWarn.textContent, /どの世界（シーズン・プログラム）の村か分からない/);
+  assert.match(r.els.entryWarn.textContent, /どの世界（世界の番号・プログラム）の村か分からない/);
   r = runEntry('?program=P&season=90&to=0,0,x,0&request=r', { programId: 'P', seasonId: 90 });
   assert.deepEqual(filled(r), EMPTY); assert.equal(r.focus, null);
   assert.match(r.els.entryWarn.textContent, /が読めない。届け先の村を入れてください/);

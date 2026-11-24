@@ -19,8 +19,8 @@ export const GAME_PAGE = '/frontier/frontier/';
  */
 export function compositionOf(j, cfg) {
   const board = cfg?.season;
-  if (!board || typeof board.programId !== 'string' || board.seasonId === undefined || board.seasonId === null) return { state: 'unknown', why: '板の世界（プログラム・シーズン）が読めない' };
-  if (!j || typeof j !== 'object' || typeof j.programId !== 'string' || (typeof j.season !== 'string' && typeof j.season !== 'number')) return { state: 'unknown', why: 'この入口のヘラルドが世界（プログラム・シーズン）を名指さない' };
+  if (!board || typeof board.programId !== 'string' || board.seasonId === undefined || board.seasonId === null) return { state: 'unknown', why: '板の世界（プログラム・世界の番号）が読めない' };
+  if (!j || typeof j !== 'object' || typeof j.programId !== 'string' || (typeof j.season !== 'string' && typeof j.season !== 'number')) return { state: 'unknown', why: 'この入口のヘラルドが世界（プログラム・世界の番号）を名指さない' };
   const herald = { programId: j.programId, season: String(j.season), cluster: typeof j.cluster === 'string' ? j.cluster : null };
   const differs = [];
   if (herald.programId !== board.programId) differs.push('program');

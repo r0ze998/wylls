@@ -615,7 +615,7 @@ export function fieldWhy(rows, sum) {
 const KIND_TEXT = { resident: () => L`駐留`, arrival: () => L`到着`, garrison: () => L`守備隊`, camp: () => L`蛮族の野営地` };
 // (the steps and their refusals stand under the report's "proof details": the words of the proof — 乱数, 要約 — may be said there)
 const STEP_TEXT = {
-  kernel: () => L`ルールがシーズンのものと同じ`,
+  kernel: () => L`ルールが世界のものと同じ`,
   seed: () => L`乱数がこのターンの公開乱数のもの`,
   inputs: () => L`衝突の入力がこの州とこのターンのもの`,
   recompute: () => L`このブラウザで衝突を計算し直した`,
@@ -624,7 +624,7 @@ const STEP_TEXT = {
 };
 const CODE_TEXT = {
   NoWasm: () => L`ルールを読み込めません`,
-  RulesetMismatch: () => L`読み込んだルールがシーズンのものと違います`,
+  RulesetMismatch: () => L`読み込んだルールが世界のものと違います`,
   NoBellRecord: () => L`このターンの記録をまだ読めません`,
   NoAnchor: () => L`このターンの公開乱数の記録がありません`,
   SeedNotReady: () => L`このターンの乱数がまだありません`,

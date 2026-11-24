@@ -142,7 +142,7 @@ export function renderNations(FS) {
     <div class="nc-what" data-stable="join-says">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
     <div class="nc-go">
       ${gated ? html`<label class="field nc-invite">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
-      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
+      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`最初のターンの始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeErrorActions(FS, busy)}` : ''}
@@ -171,7 +171,7 @@ function renderSessionFix(FS) {
   const held = delegationOf(FS);
   if (held) return renderDelegated(held, { kept: !!held.foreign && FS.keyKept === held.agentKey });
   return html`<section class="vcard" aria-labelledby="join-key">${cardHead({ id: 'join-key', ic: 'lock', title: L`ゲーム内の鍵` })}
-    <p>${L`この端末にはこのシーズンのゲーム内の鍵がありません。ウォレットで同じ文面に署名すると、同じ鍵を作り直せます。`}</p>
+    <p>${L`この端末にはこの世界のゲーム内の鍵がありません。ウォレットで同じ文面に署名すると、同じ鍵を作り直せます。`}</p>
     ${registeredKey(FS.citizen) ? keyHint() : ''}
     <div class="actions"><button type="button" class="btn primary" data-act="session">${L`鍵を作り直す`}</button></div></section>`;
 }

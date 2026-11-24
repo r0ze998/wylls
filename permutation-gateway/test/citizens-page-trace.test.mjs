@@ -515,7 +515,7 @@ test('from the event of step 1 AND cited: one mark says both, the verdict says s
   assert.doesNotMatch(textOf(en).replace('I must muster my reserve into a host.', ''), NO_CAUSE);
   // step 3: the bundle's candidates, said to be from the season-end publication; step 4: the muster transaction, no march
   assert.match(textOf(byClass(en, 'trace-step-3')[0]), /The candidates come from the season-end publication/);
-  assert.match(textOf(byClass(ja, 'trace-step-3')[0]), /候補はシーズン終了時の公開物（シーズン終了後に公開）によるものです。/);
+  assert.match(textOf(byClass(ja, 'trace-step-3')[0]), /候補は世界の終了時の公開物（終了後に公開）によるものです。/);
   assert.match(textOf(byClass(en, 'trace-step-3')[0]), /c5 Muster 200 spearman into a new armychosen.*Chose: c5 Muster 200 spearman into a new army · goal G1Parameters: c5: share 50/);
   assert.match(textOf(byClass(en, 'trace-step-4')[0]), /muster sent .*This decision sent no march\./);
   // without the bundle the same record says the list is not published, and claims no source

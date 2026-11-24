@@ -416,6 +416,10 @@ view (fog-devnet; runbook §7 P5).
 - `--resume` opens only the kept world started last. To go back to an older one, write its folder
   (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
 - A world's processes stop after 90 minutes by default (`--minutes`). A kept world still continues with `--resume`.
+  Its page then says so: the dial reads "Turn N · paused" and the banner "This world is paused. Your progress is saved. …
+  play continues from where it stopped", with the two ways on: open the start page again and press "Start the world"
+  while the start service still runs, or run `scripts/play-local.sh --resume` first when it was stopped. (A `--demo` or
+  `--wide` world that stops says "This test world has ended (a test world that is not saved, …)": it cannot be resumed.)
   `--resume` does not remember `--minutes`: for a long session pass it again, e.g. `--resume --minutes 240`.
 - **What ends, and what does not.** The game has no seasons and its world does not end. A kept world follows that: it has
   no last turn, and only its processes stop (`--minutes`), to be continued with `--resume`. `--demo` and `--wide` worlds are
@@ -467,7 +471,6 @@ Japanese), except what is listed below: the test-world box behind the hand bar (
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| "More" (every local world) | three labels still say "season": "Season timeline", the fact row "Season" and "Forget this season's key on this device" (names only; nothing says who wins; verify-pr208) | ignore the word: there are no seasons |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
