@@ -13,11 +13,10 @@
 //! **Numbers are config.** The rule a world plays is one byte, the
 //! [`TerritoryRule`] candidate stored in each wide province's trailer at
 //! opening (copied from the Season's experimental rules configuration,
-//! `rules::WideRulesConfig::territory`). [`TerritoryRule::V1`]'s numbers are
-//! **provisional** ([`TERRITORY_V1`]): the per-tile conversion of the
-//! owner's per-province upkeep is asked (inbox
-//! `2026-11-24-1225-territory-impl-questions.md`, TQ-1 … TQ-9) and a changed
-//! answer is a new candidate byte, never a reinterpretation of a stored one.
+//! `rules::KeepHolderRule::territory`). [`TerritoryRule::V1`]'s numbers
+//! ([`TERRITORY_V1`]) are **decided** (owner answers 2026-11-24 13:15 JST to
+//! inbox `2026-11-24-1225-territory-impl-questions.md`, TQ-1 … TQ-8); a later
+//! change is a new candidate byte, never a reinterpretation of a stored one.
 //!
 //! **Records.** Both are new with-seed accounts under provisional tags; no
 //! existing layout changes.
@@ -68,7 +67,7 @@ const HOUR: i128 = 3_600;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TerritoryRule {
-    /// The 12:09 decisions with the provisional numbers of [`TERRITORY_V1`].
+    /// The 12:09 decisions with the decided (13:15) numbers of [`TERRITORY_V1`].
     V1 = 1,
 }
 
@@ -104,18 +103,18 @@ pub struct TerritoryV1 {
     pub upkeep_resource: u8,
 }
 
-/// **Provisional** numbers of [`TerritoryRule::V1`] (TQ-1 … TQ-5 open):
+/// The numbers of [`TerritoryRule::V1`] (**decided** 2026-11-24 13:15, TQ-1 … TQ-5):
 ///
 /// - upkeep (T-4, TQ-1 (a)): the owner's 2 food/h per province ÷ 61 tiles =
 ///   33 milli-food/h per tile (rounded up: a whole province 2.013 food/h),
 ///   plus the owner's 1 food/h per province of distance beyond 3 ÷ 61 =
 ///   16 milli-food/h per tile per province beyond 3 (rounded down); the
 ///   distance is province steps from the tile's province to the owner's
-///   nearest village, fixed at the claim (TQ-2);
+///   nearest OWN village (home included), fixed at the claim (TQ-2);
 /// - cost (T-3, TQ-3): 10 ore + 2 % per tile owned;
 /// - reach (T-2, TQ-4): within 3 provinces of the home, of a province that
-///   is the nation's land (own or teammates' villages, won keeps), or of a
-///   province where the claimer owns a tile;
+///   is the nation's land (own or teammates' villages, keeps the nation
+///   won), or of a province where the claimer owns a tile;
 /// - pace: 1 claim per turn (bell); owned tiles never claimable (T-7);
 /// - unpaid (T-5, TQ-5): claims blocked at once; after 24 turns one tile per
 ///   turn returns, the farthest first.
@@ -778,6 +777,31 @@ pub fn apply_claim(
     Ok(())
 }
 
+// ------------------------------------------------------------ villages (T-6)
+
+/// Tiles: two sites of one province this close or closer are **neighbours**
+/// (the terrain places sites ≥ 2 apart, so a site 2–3 tiles away has no site
+/// between). TQ-6 (b), owner 2026-11-24 13:15: "at least one free site
+/// between villages" — a village may not stand on a site with a village on
+/// a neighbouring site. (The radius is this run's reading of "between";
+/// sites of another province are not counted: report territory-impl.)
+pub const SITE_NEIGHBOUR_TILES: u32 = 3;
+
+/// Whether founding a village on `site` breaks TQ-6 (b): `sites` lists the
+/// province's sites as `(tile, has a village)`.
+pub fn site_crowded(site: u8, sites: &[(u8, bool)]) -> bool {
+    use permutation_rules::frontier::geometry::tile_offset;
+    let Some(&(t, _)) = sites.get(site as usize) else {
+        return true;
+    };
+    let Some(a) = tile_offset(t) else { return true };
+    sites.iter().enumerate().any(|(j, (u, held))| {
+        j != site as usize
+            && *held
+            && tile_offset(*u).is_some_and(|b| a.distance(b) <= SITE_NEIGHBOUR_TILES)
+    })
+}
+
 // ------------------------------------------------------------ decay
 
 /// Whether one tile may return to unowned at `now_bell` (T-5): upkeep
@@ -1145,5 +1169,58 @@ mod tests {
             transfer_tiles(&mut p, &mut b, &mut b2, 0),
             Err(TerritoryError::Mismatch)
         );
+    }
+
+    /// Parity pins with the page's copy (`permutation-server/web/frontier/flocalplay-territory.mjs`, checked by
+    /// `permutation-gateway/test/web-frontier-territory-claim.test.mjs` against the same literals).
+    #[test]
+    fn seeds_and_wire_are_pinned_for_the_page_copy() {
+        assert_eq!(
+            province_seed(coord(130, 0)).as_bytes(),
+            b"wna7ca105a668a517c0fbe0bb3149f25"
+        );
+        assert_eq!(
+            player_seed(&[1u8; 32]).as_bytes(),
+            b"wuca297c5a8f581acf1f8ebc6fda812b"
+        );
+        let x = crate::world_index::wide_ix::ClaimTile {
+            p: 130,
+            q: -2,
+            tile: 17,
+            witness: 2,
+            village: 0,
+        };
+        let mut want = alloc::vec![0xDAu8, 0xFF, 0x01, 0x07];
+        want.extend_from_slice(&130i64.to_le_bytes());
+        want.extend_from_slice(&(-2i64).to_le_bytes());
+        want.extend_from_slice(&[17, 2, 0]);
+        assert_eq!(x.to_bytes().to_vec(), want);
+        assert_eq!(
+            crate::world_index::wide_ix::WideCommand::decode(&want).map(|c| c.name()),
+            Ok("WideClaimTile")
+        );
+        // the page's V1 helpers: cost at 100 tiles, one tile at distance 8
+        assert_eq!(kt::claim_cost(&TERRITORY_V1.kernel.cost, 100), Some(30));
+        assert_eq!(
+            kt::cell_upkeep(&TERRITORY_V1.kernel.upkeep, 0, 8),
+            Some(113)
+        );
+    }
+
+    /// TQ-6 (b): a held site within 3 tiles crowds a new village; a farther
+    /// one or a free one does not.
+    #[test]
+    fn a_village_needs_a_free_site_between() {
+        use permutation_rules::frontier::geometry::{tile_index, tile_offset};
+        let at = |q: i32, r: i32| tile_index(permutation_rules::hex::Hex::new(q, r)).unwrap();
+        let (a, near, far) = (at(0, 0), at(2, 0), at(4, -1));
+        assert_eq!(
+            tile_offset(a).unwrap().distance(tile_offset(near).unwrap()),
+            2
+        );
+        assert!(tile_offset(a).unwrap().distance(tile_offset(far).unwrap()) > 3);
+        assert!(site_crowded(0, &[(a, false), (near, true)]));
+        assert!(!site_crowded(0, &[(a, false), (near, false), (far, true)]));
+        assert!(site_crowded(5, &[(a, false)]), "no such site");
     }
 }

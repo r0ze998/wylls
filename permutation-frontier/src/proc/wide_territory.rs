@@ -547,7 +547,7 @@ pub(crate) fn conquer(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     let mut tprov = tprov_at(tprov_ai, p, hdr.id, world, prov.coord)?.ok_or(BAD_ACCOUNT)?;
     let mut loser = tplayer_at(loser_ai, p, hdr.id, world, None)?.ok_or(BAD_ACCOUNT)?;
     expect_key(loser_ai, &wtr::player_address(&ctx, &loser.citizen))?;
-    // T-8 (provisional TQ-7): a teammate of the captor keeps its tiles
+    // T-8 (TQ-7, owner told 13:15, no objection): a teammate of the captor keeps its tiles
     if loser.faction == cfaction {
         return Err(FrontierError::NotEligible.into());
     }
@@ -625,13 +625,29 @@ pub(super) fn require_own_site(
     }
     expect_key(rec_ai, &wtr::province_address(ctx, coord))?;
     let rec = tprov_at(rec_ai, p, season_id, world, coord)?.ok_or(FrontierError::NotOwner)?;
-    let tile = {
+    let (tile, crowded) = {
         let pd = province.try_borrow_data()?;
-        Ro(&pd).u8(crate::layout::province::SITES + site as usize)?
+        let r = Ro(&pd);
+        let tile = r.u8(crate::layout::province::SITES + site as usize)?;
+        let n = (r.u8(crate::layout::province::SITE_COUNT)? as usize)
+            .min(permutation_rules::frontier::geometry::SITES_PER_PROVINCE);
+        let mut sites = [(0u8, false); 12];
+        for (j, s) in sites.iter_mut().enumerate().take(n) {
+            *s = (
+                r.u8(crate::layout::province::SITES + j)?,
+                r.u8(crate::layout::province::site(j) + crate::layout::site::STATE)?
+                    == crate::layout::site::STATE_HOLDING,
+            );
+        }
+        (tile, wtr::site_crowded(site, &sites[..n]))
     };
     let tag = Ro(&citizen.try_borrow_data()?).u64(C::CITIZEN_TAG)?;
     if (tile as usize) >= rec.owner.len() || rec.owner[tile as usize] != tag {
         return Err(FrontierError::NotOwner.into());
+    }
+    // TQ-6 (b), owner 13:15: at least one free site between two villages
+    if crowded {
+        return Err(FrontierError::ReservedSite.into());
     }
     Ok(())
 }

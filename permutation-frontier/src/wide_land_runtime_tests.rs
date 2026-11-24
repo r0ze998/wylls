@@ -12532,7 +12532,27 @@ mod territory_tests {
         assert_eq!(file(&mut t, false), Err(E::TooManyAccounts as u32));
         assert_eq!(file(&mut t, true), Err(E::NotOwner as u32), "no record yet");
         assert_eq!(t.claim(&a, WALLET_A, target, site_tile, None), Ok(()));
+        // TQ-6 (b): a village on a neighbouring site (within 3 tiles) leaves no free site between
+        let neighbour = {
+            let pd = t.w.province_data(target);
+            let at = |s: u8| {
+                permutation_rules::frontier::geometry::tile_offset(pd[PV::SITES + s as usize])
+                    .unwrap()
+            };
+            (0..pd[PV::SITE_COUNT]).find(|s| *s != site && at(*s).distance(at(site)) <= 3)
+        };
         t.w.at(3, 5);
+        {
+            let n = neighbour.expect("12 sites in 61 tiles: some site within 3 tiles");
+            let ai = t.w.province(target);
+            ai.try_borrow_mut_data().unwrap()[PV::site(n as usize) + SM::STATE] = SM::STATE_HOLDING;
+            assert_eq!(
+                file(&mut t, true),
+                Err(E::ReservedSite as u32),
+                "a village next door"
+            );
+            ai.try_borrow_mut_data().unwrap()[PV::site(n as usize) + SM::STATE] = SM::STATE_FREE;
+        }
         assert_eq!(file(&mut t, true), Ok(()), "on its own tile");
     }
 

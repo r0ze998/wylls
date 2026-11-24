@@ -160,17 +160,16 @@ pub enum KeepHolderRule {
     /// territory-impl, owner decisions 2026-11-24 12:09 JST (t506s1577),
     /// **the new-world bundle** (table v3 only): every wide keep opens
     /// unowned as [`KeepHolderRule::Neutral`], but **weaker** (E-Q1: the
-    /// home guard × [`NEUTRAL_KEEP_GUARD_BPS_V1`]), and the world plays
+    /// [`NEUTRAL_KEEP_GUARD_V1`] troops), and the world plays
     /// player territory [`super::territory::TerritoryRule::V1`] (T-1 … T-8).
     /// One byte, so the deployed WideSetRules wire is unchanged.
     NeutralTerritoryV1 = 4,
 }
 
-/// E-Q1 (owner 2026-11-24 12:09: neutral keeps weaker, numbers to be
-/// proposed): a [`KeepHolderRule::NeutralTerritoryV1`] keep opens with
-/// this share of the season's home guard. **Provisional** 50 % (100 → 50
-/// troops; inbox `2026-11-24-1225-territory-impl-questions.md` TQ-8).
-pub const NEUTRAL_KEEP_GUARD_BPS_V1: u32 = 5_000;
+/// E-Q1 (owner 2026-11-24 12:09: neutral keeps weaker; numbers decided 13:15,
+/// TQ-8): a [`KeepHolderRule::NeutralTerritoryV1`] keep opens with **50
+/// troops** (the home guard is 100) and the season's 72-turn hold unchanged.
+pub const NEUTRAL_KEEP_GUARD_V1: u32 = 50;
 
 impl KeepHolderRule {
     /// Whether the rule is in table `config_version`.
@@ -194,9 +193,7 @@ impl KeepHolderRule {
     /// home guard (whole troops).
     pub const fn keep_guard(self, home_guard: u32) -> u32 {
         match self {
-            KeepHolderRule::NeutralTerritoryV1 => {
-                (home_guard as u64 * NEUTRAL_KEEP_GUARD_BPS_V1 as u64 / 10_000) as u32
-            }
+            KeepHolderRule::NeutralTerritoryV1 => NEUTRAL_KEEP_GUARD_V1,
             _ => home_guard,
         }
     }
@@ -1391,7 +1388,7 @@ mod tests {
     }
 
     /// territory-impl (owner 2026-11-24 12:09): byte 4 is the new-world
-    /// bundle — neutral keeps at half the home guard (E-Q1, provisional) and
+    /// bundle — neutral keeps at 50 troops (E-Q1, TQ-8 decided 13:15) and
     /// player territory V1 — only in table v3; a v2 record naming it is
     /// refused, never reinterpreted.
     #[test]
@@ -1401,6 +1398,7 @@ mod tests {
         assert_eq!(b.territory(), Some(TerritoryRule::V1));
         assert_eq!(KeepHolderRule::Neutral.territory(), None);
         assert_eq!(b.keep_guard(100), 50);
+        assert_eq!(b.keep_guard(300), 50, "50 troops, whatever the home guard");
         assert_eq!(KeepHolderRule::Neutral.keep_guard(100), 100);
         assert!(keep_holder_allowed(
             permutation_rules::frontier::geometry::PLACEMENT_MIXED,
