@@ -16,7 +16,7 @@ export function staleBannerView({ stale, localPlay = false }) {
  * The banner of a local-play world confirmed ended (the loop-play report B5; flocalplay-ended.mjs): it is not "behind" —
  * it says that the world ended, and offers no re-read, since nothing is left to read.
  */
-export const endedBannerView = () => ({ hidden: false, text: worldEndedText(), reread: false, ended: true });
+export const endedBannerView = ({ kept = false } = {}) => ({ hidden: false, text: worldEndedText({ kept }), reread: false, ended: true, ...(kept ? { paused: true } : {}) });
 
 /**
  * B21 (loop-play3): the banner while the launcher itself cannot be reached (stopped): a plain line instead of only the

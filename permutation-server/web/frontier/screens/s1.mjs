@@ -620,7 +620,7 @@ export function renderS1Tile(FS, sel) {
     <p>${so.freeCity ? L`包囲が続けば自由都市を取り、あなたの村になります。` : L`包囲が続けば、最初の村なら占領、ほかの村なら奪取になります。`} ${L`宣言には軍勢の村から金 ${fmtNum(SIEGE_STAKE_GOLD)}（包囲の結果で返るか失われます）と兵器 ${fmtNum(SIEGE_ARMS)} を使います。宣言は公開され、守り手に知らされます。`}</p>
     <div class="actions">${btn('s1-siege', { p: sel.p, q: sel.q, tile: sel.idx }, L`包囲を宣言する`, { primary: true, disabled: so.blocks.length > 0 })}</div>
     ${so.blocks.length ? html`<p class="blocked">${so.blocks.map(b => (b === 'Insufficient' ? shortText(so.cost, so.have) : blockText(b))).join(' / ')}</p>` : ''}
-    <p class="muted">${L`宣言したあとにプログラムが判定すること：占領後の免除、先頭の軍勢、遅れて置かれた村の保護、奪う枠の空き、シーズン終了までに終わるか。`}</p></div>` : '';
+    <p class="muted">${L`宣言したあとにプログラムが判定すること：占領後の免除、先頭の軍勢、遅れて置かれた村の保護、奪う枠の空き、この世界の受付の終わりまでに終わるか。`}</p></div>` : '';
   // a tile already taken offers nothing to build: what stands there (and what can be done to it) is said above
   const build = m.site === 'Unknown' || m.vault || m.structure ? '' : html`${fold('s1-build', html`${icon('hammer')}${L`ここに建てる`}`, html`<ul class="list s1-offers">
     ${offer('s1-vault', { p: m.p, q: m.q, tile: m.idx }, L`${S1_WORDS.vault()}を建てる`, m.build.vault)}

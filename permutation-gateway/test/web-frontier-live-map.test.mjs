@@ -106,12 +106,12 @@ test('without a ceiling every season keeps its four states and its old words', (
 
 test('the words of the new states, in both languages; the hard limit is named as ring 128', () => {
   assert.equal(W.ringText('extendable', 8), '第8輪（広げられるが、まだ地図の外）');
-  assert.equal(W.ringText('beyondCeiling', 10), '第10輪（このシーズンの上限の外）');
+  assert.equal(W.ringText('beyondCeiling', 10), '第10輪（この世界の上限の外）');
   assert.equal(W.ringText('beyondHard', 129), '第129輪（プログラムの上限・第128輪の外）');
   assert.match(W.PLACE_NOTE.extendable(), /広げられます/);
   setLang('en');
   assert.equal(W.ringText('extendable', 8), 'Ring 8 (may be added, not on the map yet)');
-  assert.equal(W.ringText('beyondCeiling', 10), 'Ring 10 (beyond this season’s limit)');
+  assert.equal(W.ringText('beyondCeiling', 10), 'Ring 10 (beyond this world’s limit)');
   assert.equal(W.ringText('beyondHard', 129), 'Ring 129 (beyond the program’s limit, ring 128)');
   assert.equal(W.PLACE_NOTE.beyondHard(), 'This is beyond the program’s limit (ring 128)');
   for (const k of ['extendable', 'beyondCeiling', 'beyondHard']) assert.doesNotMatch(W.PLACE_NOTE[k]() + W.ringText(k, 1), /[ぁ-んァ-ン一-龯]|infinite/i);

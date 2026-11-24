@@ -187,7 +187,7 @@ scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
 3. With both there, one world starts; each picks a nation and places a village.
 - `--resume` brings the same two back (`--two` is not needed). Open it in the same browser at the same address as before.
 - A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
-- When either presses "End this world…" it stops for both. A third person cannot join. `--wide` is for one person.
+- When either presses "End this world…" (a kept world: "Stop this world…") it stops for both. A third person cannot join. `--wide` is for one person.
 
 ## 4. Check the wide land (`--wide`, about 60–90 minutes)
 
@@ -217,7 +217,7 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    build): the farm takes 1 h 30 min (about 1.5 minutes at ×60).
    - "Join (nation)" takes on one press (#130; each of the 8 joins in verify-pr130 took one). While the page is
      reading the village sites the button reads "Preparing your village…" and cannot be pressed.
-   - If a card "While you were away: This device holds no "seen" mark for this season and wallet…" comes first, close it with
+   - If a card "While you were away: This device holds no "seen" mark for this world and wallet…" comes first, close it with
      "Mark as seen" (the world starts around turn 140; it is not a defect).
 2. **A wide village (30–60 minutes at ×60; 75 under heavy load)**: the village screen's "Found a village on the wide land (test)" shows
    the cost — the program's price, for a second village "Cost (from the village's stores): Food 800 · Wood 800 · Stone 400 · Gold 200" — and the
@@ -430,6 +430,10 @@ view (fog-devnet; runbook §7 P5).
 - `--resume` opens only the kept world started last. To go back to an older one, write its folder
   (`…/.local/play-local/kept/<date-time>`) into `.local/play-local/last-kept`.
 - A world's processes stop after 90 minutes by default (`--minutes`). A kept world still continues with `--resume`.
+  Its page then says so: the dial reads "Turn N · paused" and the banner "This world is paused. Your progress is saved. …
+  play continues from where it stopped", with the two ways on: open the start page again and press "Start the world"
+  while the start service still runs, or run `scripts/play-local.sh --resume` first when it was stopped. (A `--demo` or
+  `--wide` world that stops says "This test world has ended (a test world that is not saved, …)": it cannot be resumed.)
   `--resume` does not remember `--minutes`: for a long session pass it again, e.g. `--resume --minutes 240`.
 - **What ends, and what does not.** The game has no seasons and its world does not end. A kept world follows that: it has
   no last turn, and only its processes stop (`--minutes`), to be continued with `--resume`. `--demo` and `--wide` worlds are
@@ -481,7 +485,6 @@ Japanese), except what is listed below: the test-world box behind the hand bar (
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| "More" (every local world) | three labels still say "season": "Season timeline", the fact row "Season" and "Forget this season's key on this device" (names only; nothing says who wins; verify-pr208) | ignore the word: there are no seasons |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |

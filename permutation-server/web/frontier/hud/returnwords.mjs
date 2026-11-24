@@ -68,10 +68,10 @@ export function headText(s) {
     : unread ? L`新しい記録があるかどうかは、まだわかりません。` : s.bad > 0 ? L`中身を読めた新しい記録はありません。` : L`新しい記録はありません。`;
   const mode = {
     sinceConfirmed: () => L`あなたが確認したのは第${fmtNum(s.since?.bell ?? 0)}ターンまでです。`,
-    firstOnDevice: () => L`この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+    firstOnDevice: () => L`この端末では、この世界とウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
     otherWallet: () => L`この端末で前に使ったウォレット（または住民NFT）とは別です。その記録は使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
-    newSeason: () => L`前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。`,
-    markAhead: () => L`この端末に残っていた確認の位置は、いまのシーズンの記録より先を指していたため使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+    newSeason: () => L`前に見ていたものとは別の記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。`,
+    markAhead: () => L`この端末に残っていた確認の位置は、いまの世界の記録より先を指していたため使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
   }[s.mode]?.() ?? '';
   const horizon = s.mode === 'sinceConfirmed' && Number.isFinite(s.horizonBell) && s.horizonBell > 0 ? L`この端末では第${fmtNum(s.horizonBell)}ターンより前の出来事は見ていません。` : '';
   const short = s.windowFrom !== null && s.windowFrom !== undefined ? L`読めたのは第${fmtNum(s.windowFrom)}ターンからです。` : '';

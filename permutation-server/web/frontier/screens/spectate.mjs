@@ -80,7 +80,7 @@ function renderWatch(FS) {
       value: st.at ? html`<strong class="watch-turn-v">${icon('bell')}${L`ターン ${fmtNum(st.at.bell)}`}</strong><span class="muted">${L`出来事 ${fmtNum(st.at.events)}`}${st.at.clashes ? html` · ${icon('swords')}${L`衝突 ${fmtNum(st.at.clashes)}`}` : ''}</span>`
         : html`<strong class="watch-turn-v">${L`最新`}</strong><span class="muted">${L`すべてのターン`}</span>` })}</div>` : ''}
     <label class="choice"><input type="checkbox" data-act="watch-auto" ${w.auto === false ? '' : 'checked'}>${L`新しい戦いが起きたら、地図をそこへ動かして見せる`}</label>
-    <div class="actions"><a class="btn" href="replay.html${Number.isInteger(w.bell) ? `?from=${w.bell}` : ''}">${icon('play')}${L`シーズンを振り返る（リプレイ）`}</a></div></section>`;
+    <div class="actions"><a class="btn" href="replay.html${Number.isInteger(w.bell) ? `?from=${w.bell}` : ''}">${icon('play')}${L`世界を振り返る（リプレイ）`}</a></div></section>`;
 }
 
 /** The spectator's panel. */

@@ -292,7 +292,7 @@ export const PLACE_NOTE = Object.freeze({
   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
   centre: () => L`ここは中央です。この世界では州がないので、村も置けず、進軍の行き先にもできません`,
   extendable: () => L`ここはまだ地図の外です（地図はここまで広げられます）`,
-  beyondCeiling: () => L`ここはこのシーズンの上限の外です`,
+  beyondCeiling: () => L`ここはこの世界の上限の外です`,
   beyondHard: () => L`ここはプログラムの上限（第128輪）の外です`,
 });
 
@@ -305,7 +305,7 @@ export function ringText(state, ring) {
   if (state === PLACE.pending) return L`第${fmtNum(ring)}輪（生まれるところです）`;
   if (state === PLACE.centre) return L`第${fmtNum(ring)}輪（中央・州なし）`;
   if (state === PLACE.extendable) return L`第${fmtNum(ring)}輪（広げられるが、まだ地図の外）`;
-  if (state === PLACE.beyondCeiling) return L`第${fmtNum(ring)}輪（このシーズンの上限の外）`;
+  if (state === PLACE.beyondCeiling) return L`第${fmtNum(ring)}輪（この世界の上限の外）`;
   if (state === PLACE.beyondHard) return L`第${fmtNum(ring)}輪（プログラムの上限・第128輪の外）`;
   return L`第${fmtNum(ring)}輪`;
 }

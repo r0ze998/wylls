@@ -238,7 +238,7 @@ test('C6: a mark beyond the season\'s head (a reset world, an old device) is not
   RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: { ok: true, toSeq: '9000', toBell: 900, horizonBell: null, caravans: {} }, at: 1 });
   const s = sum({ records: R, read: { after: '100', complete: true }, marks: RS.loadMarks(st, '7', 'W'), headSeq: '108' });
   assert.equal(s.mode, 'markAhead');
-  assert.match(RW.headText(s), /いまのシーズンの記録より先を指していたため使いません/);
+  assert.match(RW.headText(s), /いまの世界の記録より先を指していたため使いません/);
   const saved = RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: s.confirm, at: 2 });
   assert.equal(saved.marks.confirmedSeq, '108');
 });
