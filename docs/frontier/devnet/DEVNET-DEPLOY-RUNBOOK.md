@@ -1055,8 +1055,9 @@ rpc_min_gap_ms = 250
 (`config.rs` `check_wide`); `expeditions` needs `beacon`, `gather` and `resolve`; `wide-resolve` needs `beacon`;
 `provinces_reach` (at most 8, `PROVINCES_REACH_MAX`; 3 is the preset's `outpost_range`) and `wide_rings` (at most 8) need `rings`. Unknown keys are refused.
 
-`delay_floor` sets the delay pool's band: a delay payer is drawn only at or above the floor, payer care tops a payer
-below it up to 1.5 × the floor and sweeps one above 2 × the floor (`fclient/src/payers.rs` `plan_care`, `keeper/src/pools.rs`).
+`delay_floor` (lamports) sets the delay pool's band: a delay payer is drawn only at or above the floor (when none is,
+the draw is over all of them), payer care tops a payer below it up to 1.5 × the floor and sweeps one above 2 × the floor
+back down to 1.5 × (`frontier-node/crates/fclient/src/payers.rs` `Pool::draw`, `plan_care`; `keeper/src/pools.rs`).
 At 0.05 SOL the first care pass moves about 2.4 SOL (32 × 0.075) into the delay pool and about 1.8 SOL (150 × 1.5 × F_r,
 F_r ≈ 0.008 SOL at `r99_reveals = 150` and 5,080 lamports/byte) into the reveal pool; §4b's "delay 32 × up to 0.1" assumes
 this line. Left out, the default 0.5 SOL floor asks 24 SOL of the funders (32 × 0.75) and a 12-SOL funding leaves 19
