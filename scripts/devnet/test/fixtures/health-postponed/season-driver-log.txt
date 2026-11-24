@@ -1,0 +1,6 @@
+2026-11-23 19:34:37 JST driver start pid 92587; CreateSeason opens at 1795516707 (2026-11-24 19:38:27 JST)
+2026-11-23 19:35:20 JST gateway-starter pid 95878 waiting for rulesetHash
+2026-11-24 02:15:20 JST [season 1] driver pid 92587 stopped by devnet-continuous-1 (owner t481u Q11: continuous world = season 2, announced; season 1 is never created)
+2026-11-24 02:16:07 JST [season 2] driver start pid 91633; CreateSeason opens at 1795540802 (2026-11-25 02:20:02 JST)
+2026-11-24 02:16:39 JST [season 2] driver start pid 94632; CreateSeason opens at 1795540802 (2026-11-25 02:20:02 JST)
+2026-11-24 12:08:22 JST [season 2] driver STOPPED by Grok on owner decision t506s1572 (postpone world create; create later all-unowned after upgrade). Nothing was sent.

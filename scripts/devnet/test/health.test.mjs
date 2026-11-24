@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEVNET_RPC, alertedReport, decodeSeason, etimeSeconds, expectedProcs, jst, lagLevel, logLevel, lowerBound, makeRpc, mergeState,
-  milestonesFrom, overallOf, parsePs, phaseCheck, procCheck, procOverrides, scanLog, timelineText, tunnelHost,
+  CREATE_WINDOW_SECS, DEVNET_RPC, alertedReport, bondRefundDeadline, decodeSeason, etimeSeconds, expectedProcs, jst, lagLevel, logLevel, lowerBound, makeRpc, mergeState,
+  milestonesFrom, overallOf, parsePs, phaseCheck, postponedFrom, postponedStale, procCheck, procOverrides, scanLog, timelineText, tunnelHost,
 } from '../health.mjs';
 
 const T = 1795516707; // CreateSeason opens, 2026-11-24 19:38:27 JST
@@ -356,7 +356,7 @@ function fakeRpc({ genesis = DEVNET_GENESIS, slot = 1000, stored = 2, owner = DE
   return { fn, calls };
 }
 
-async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keeperLog = '', tunnelLog, join = '{"ok":true}', ps = PS_ALL, df = 100, rpc = fakeRpc(), now = T + 3600, publicHost, publicOn = true, overrides, extra = {} } = {}) {
+async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keeperLog = '', tunnelLog, join = '{"ok":true}', ps = PS_ALL, df = 100, rpc = fakeRpc(), now = T + 3600, publicHost, publicOn = true, overrides, marker, extra = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-test-'));
   const logs = path.join(dir, 'logs');
   const run = path.join(dir, 'run');
@@ -374,6 +374,9 @@ async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keepe
   const host = publicHost ?? `127.0.0.1:${pp}`;
   fs.writeFileSync(path.join(run, 'public-host'), host + '\n');
   if (overrides != null) fs.writeFileSync(path.join(run, 'health-procs.json'), typeof overrides === 'string' ? overrides : JSON.stringify(overrides));
+  // marker: {run: text} → <run-dir>/world-postponed, {logs: text} → <logs>/devnet-create-postponed
+  if (marker?.run != null) fs.writeFileSync(path.join(run, 'world-postponed'), marker.run);
+  if (marker?.logs != null) fs.writeFileSync(path.join(logs, 'devnet-create-postponed'), marker.logs);
   fs.writeFileSync(path.join(logs, 'devnet-season-driver.log'), driver + '\n');
   fs.writeFileSync(path.join(logs, 'devnet-keeper-a.log'), keeperLog || '2026-11-24 19:41:10 JST supervisor start pid 502\n');
   fs.writeFileSync(path.join(logs, 'devnet-tunnel.log'), tunnelLog ?? '| https://quick-name.trycloudflare.com |\n');
@@ -593,4 +596,222 @@ test('runChecks: <run-dir>/health-procs.json — expected PID, pidfile, window, 
   const nofile = await world({ tunnelLog: 'x', overrides: { procs: { 'proc.keeper': { pidfile: 'keeper-a/keeper.pid' } } } });
   assert.match(nofile.by['proc.overrides'].detail, /proc\.keeper: pidfile keeper-a\/keeper\.pid not readable; ignored/);
   assert.equal(nofile.by['proc.keeper'].level, 'OK');
+});
+
+// ---------- "world creation postponed / no world yet" (owner 2026-11-24 12:07) ----------
+// Fixtures: test/fixtures/health-postponed/ (the driver log, marker and ps shapes of the Mac after the driver was stopped).
+const FX = (name) => fs.readFileSync(new URL(`./fixtures/health-postponed/${name}`, import.meta.url), 'utf8');
+const T2 = 1795540804; // season 2's t_create_min on chain, 2026-11-25 02:20:04 JST
+const NO_WORLD_HERALD = {
+  '/h/season': { status: 503, body: { code: 'NoSeasonYet', ok: false } },
+  '/h/status': { status: 200, body: { ingest: { state: 'ok' }, alarms: {}, events: 3, provinces: 0, ws: { open: 0 }, live: [995] } },
+};
+const NO_WORLD_PUB = { '/frontier/frontier/': { status: 200, body: '<!doctype html><html></html>' }, '/h/season': { status: 503, body: { code: 'NoSeasonYet' } } };
+/** The stack as it stands with no world: Announced on chain, driver log without CreateSeason, no keeper log, no join result. */
+const noWorld = (o = {}) => world({
+  herald: NO_WORLD_HERALD, pub: NO_WORLD_PUB, driver: FX('season-driver-log.txt').trimEnd(), join: null, tunnelLog: 'x',
+  rpc: fakeRpc({ seasonData: seasonBytes({ stored: 0, tCreate: T2 }), sol: 57.6 }), ps: FX('ps-driver-stopped.txt'), now: T2 - 8 * 3600, ...o,
+});
+
+test('bondRefundDeadline follows the program (genesis round time of an Announced season)', () => {
+  // quicknet: genesis 1692803367, period 3 s; first round at or after t_create_min + 660
+  assert.equal(bondRefundDeadline(T2), 1795541466); // 2026-11-25 02:31:06 JST
+  assert.equal(jst(bondRefundDeadline(T2)), '2026-11-25 02:31:06 JST');
+  assert.equal(bondRefundDeadline(T), T + 660); // season 1: 19:49:27 JST, already on a round
+  assert.equal((bondRefundDeadline(T2) - 1692803367) % 3, 0);
+  assert.equal(CREATE_WINDOW_SECS, 604800);
+});
+
+test('postponedFrom: flag, either marker (first line = reason), neither; stale once CreateSeason was run', () => {
+  const files = (m) => (p) => m[p] ?? null;
+  const o = { runDir: '/run', logs: '/logs' };
+  assert.equal(postponedFrom(o, files({})), null);
+  assert.deepEqual(postponedFrom({ ...o, noWorldYet: true }, files({})), { src: '--no-world-yet', reason: '' });
+  assert.deepEqual(postponedFrom(o, files({ '/logs/devnet-create-postponed': FX('devnet-create-postponed') })),
+    { src: 'marker <logs>/devnet-create-postponed', reason: 'owner t506s1572 11-24 12:07: world creation postponed; season-driver stopped by Grok 12:09' });
+  assert.deepEqual(postponedFrom(o, files({ '/run/world-postponed': '\n  until the rules upgrade  \nsecond line\n' })), { src: 'marker <run-dir>/world-postponed', reason: 'until the rules upgrade' });
+  assert.deepEqual(postponedFrom(o, files({ '/run/world-postponed': '' })), { src: 'marker <run-dir>/world-postponed', reason: '' }); // an empty marker counts
+  assert.equal(postponedFrom(o, files({ '/run/world-postponed': 'x'.repeat(500) })).reason.length, 160);
+  // a marker wins over the flag for the text (it carries the reason)
+  assert.match(postponedFrom({ ...o, noWorldYet: true }, files({ '/run/world-postponed': 'r' })).src, /marker/);
+  assert.equal(postponedStale(milestonesFrom({ 'devnet-season-driver.log': FX('season-driver-log.txt') })), false);
+  assert.equal(postponedStale(milestonesFrom({ 'devnet-season-driver.log': DRIVER_DONE })), true);
+  assert.equal(postponedStale({ driverCreateRun: {} }), true);
+});
+
+test('expectedProcs / procCheck postponed: driver absent OK, driver running FAIL, waiters optional, default unchanged', () => {
+  const pp = { src: '--no-world-yet', reason: '' };
+  const lv = (ps, postponed) => Object.fromEntries(expectedProcs({}, false, postponed).map((s) => [s.key, procCheck(s, parsePs(FX(ps)))]));
+  // default: the stopped driver is the FAIL the owner saw
+  const def = lv('ps-driver-stopped.txt', null);
+  assert.equal(def['proc.season-driver'].level, 'FAIL');
+  assert.equal(def['proc.season-driver'].detail, 'not running');
+  assert.equal(lv('ps-waiters-stopped.txt', null)['proc.gateway-starter'].level, 'FAIL');
+  assert.equal(lv('ps-waiters-stopped.txt', null)['proc.join-check'].level, 'FAIL');
+  // postponed: nothing that makes or waits for the world is wanted
+  for (const ps of ['ps-driver-stopped.txt', 'ps-waiters-stopped.txt']) {
+    const r = lv(ps, pp);
+    for (const k of ['proc.season-driver', 'proc.gateway-starter', 'proc.gateway-supervisor', 'proc.gateway', 'proc.keeper-supervisor', 'proc.keeper', 'proc.join-check']) {
+      assert.equal(r[k].level, 'OK', `${ps} ${k}: ${r[k].detail}`);
+    }
+    assert.match(r['proc.season-driver'].detail, /expected: world creation postponed/);
+    assert.match(r['proc.keeper'].detail, /not expected: world creation postponed/);
+    for (const k of ['proc.herald-supervisor', 'proc.herald', 'proc.tunnel', 'proc.caffeinate']) assert.equal(r[k].level, 'OK', k);
+  }
+  assert.match(lv('ps-driver-stopped.txt', pp)['proc.gateway-starter'].detail, /pid 95878 .*still running/);
+  assert.match(lv('ps-waiters-stopped.txt', pp)['proc.join-check'].detail, /not needed: world creation postponed/);
+  // the driver running while postponed would send CreateSeason: FAIL
+  const run = lv('ps-driver-running.txt', pp);
+  assert.equal(run['proc.season-driver'].level, 'FAIL');
+  assert.match(run['proc.season-driver'].detail, /pid 94632 .*RUNNING although world creation postponed/);
+  assert.equal(lv('ps-driver-running.txt', null)['proc.season-driver'].level, 'OK');
+  // still wanted in the mode: herald, tunnel, caffeinate
+  const none = Object.fromEntries(expectedProcs({}, false, pp).map((s) => [s.key, procCheck(s, [])]));
+  for (const k of ['proc.herald-supervisor', 'proc.herald', 'proc.tunnel', 'proc.caffeinate']) assert.equal(none[k].level, 'FAIL', k);
+  // the default spec list is what it was (no `forbid`, same wants)
+  assert.deepEqual(expectedProcs({}, false).map((s) => [s.key, s.want, s.forbid]), expectedProcs({}, false, null).map((s) => [s.key, s.want, undefined]));
+  assert.deepEqual(expectedProcs({}, false).filter((s) => s.want).map((s) => s.key),
+    ['proc.season-driver', 'proc.gateway-starter', 'proc.herald-supervisor', 'proc.herald', 'proc.join-check', 'proc.tunnel', 'proc.caffeinate']);
+});
+
+test('phaseCheck postponed: Announced past its time is OK with both deadlines; window closed WARN; Aborted OK; created = stale', () => {
+  const pp = { src: 'marker <logs>/devnet-create-postponed', reason: 'r' };
+  const ann = decodeSeason(seasonBytes({ stored: 0, tCreate: T2 }), T2);
+  // default: 16 min after the time with no CreateSeason is the FAIL
+  assert.equal(phaseCheck(ann, T2 + 16 * 60, {}).level, 'FAIL');
+  const before = phaseCheck(ann, T2 - 3600, {}, pp);
+  assert.equal(before.level, 'OK');
+  assert.match(before.detail, /creation postponed/);
+  assert.match(before.detail, /can still land until 2026-12-02 02:20:04 JST/);
+  assert.match(before.detail, /returns the creation bond only before 2026-11-25 02:31:06 JST \(in 71 min\)/);
+  const late = phaseCheck(ann, T2 + 16 * 60, {}, pp);
+  assert.equal(late.level, 'OK');
+  assert.match(late.detail, /bond is no longer returned by AbortSeason \(deadline was 2026-11-25 02:31:06 JST\)/);
+  assert.equal(phaseCheck(ann, bondRefundDeadline(T2) - 1, {}, pp).detail.includes('only before'), true);
+  assert.equal(phaseCheck(ann, bondRefundDeadline(T2), {}, pp).detail.includes('no longer returned'), true);
+  assert.equal(phaseCheck(ann, T2 + CREATE_WINDOW_SECS - 1, {}, pp).level, 'OK');
+  const closed = phaseCheck(ann, T2 + CREATE_WINDOW_SECS, {}, pp);
+  assert.equal(closed.level, 'WARN');
+  assert.match(closed.detail, /create window closed 2026-12-02 02:20:04 JST.*new AnnounceSeason is needed/);
+  const aborted = decodeSeason(seasonBytes({ stored: 6, tCreate: T2 }), T2);
+  assert.equal(phaseCheck(aborted, T2, {}).level, 'FAIL');
+  assert.equal(phaseCheck(aborted, T2, {}, pp).level, 'OK');
+  assert.match(phaseCheck(aborted, T2, {}, pp).detail, /no world yet/);
+  // the world exists although marked postponed: never quieter than the default, and it says so
+  const created = decodeSeason(seasonBytes({ stored: 1, tCreate: T2 }), T2 + 60);
+  assert.equal(phaseCheck(created, T2 + 60, {}, pp).level, 'WARN');
+  assert.match(phaseCheck(created, T2 + 60, {}, pp).detail, /remove the marker/);
+  assert.equal(phaseCheck(created, T2 + 50 * 60, {}, pp).level, 'FAIL');
+  const closedSeason = decodeSeason(seasonBytes({ stored: 4, tCreate: T2 }), T2);
+  assert.deepEqual(phaseCheck(closedSeason, T2, {}, pp), phaseCheck(closedSeason, T2, {}));
+  assert.equal(phaseCheck(null, T2, {}, pp).level, 'FAIL');
+});
+
+test('mergeState / timelineText postponed: "world creation POSTPONED" while on, the span after', () => {
+  const pp = { src: 'marker <logs>/devnet-create-postponed', reason: 'owner 12:07' };
+  const base = { ms: {}, season: { status: 0, statusName: 'Announced', genesisTs: 0 } };
+  assert.equal(mergeState({}, { at: T2, ...base }).postponed, undefined);
+  assert.match(timelineText(mergeState({}, { at: T2, ...base })), /^last run .*\nscheduled CreateSeason opens 2026-11-25 02:20:04 JST \(driver sends at \+90 s\)/);
+  const s1 = mergeState({}, { at: T2 - 7200, ...base, postponed: pp });
+  const s2 = mergeState(s1, { at: T2 - 3600, ...base, postponed: pp });
+  assert.deepEqual(s2.postponed, { since: jst(T2 - 7200), src: pp.src, reason: 'owner 12:07' });
+  const tl = timelineText(s2);
+  assert.match(tl, /world creation POSTPONED, no world yet \(first seen 2026-11-25 00:20:04 JST by this monitor; marker <logs>\/devnet-create-postponed: owner 12:07\); CreateSeason was scheduled to open 2026-11-25 02:20:04 JST — not sent/);
+  assert.doesNotMatch(tl, /driver sends at/);
+  assert.match(tl, /status:Announced/);
+  const s3 = mergeState(s2, { at: T2 + 86400, ...base });
+  assert.equal(s3.postponed.until, jst(T2 + 86400));
+  const s4 = mergeState(s3, { at: T2 + 90000, ...base });
+  assert.equal(s4.postponed.until, jst(T2 + 86400));
+  assert.match(timelineText(s4), /scheduled CreateSeason opens/);
+  assert.match(timelineText(s4), /creation was postponed 2026-11-25 00:20:04 JST → 2026-11-26 02:20:04 JST/);
+  // postponed again later: a new span
+  assert.equal(mergeState(s4, { at: T2 + 99999, ...base, postponed: pp }).postponed.since, jst(T2 + 99999));
+  // --timeline with only the flag / marker (state not written in the mode yet)
+  assert.match(timelineText({}, { src: '--no-world-yet', reason: '' }), /world creation POSTPONED, no world yet \(--no-world-yet\)/);
+  // verify-pr214: a stale marker (the logs in the state show CreateSeason was run) does not make --timeline say "POSTPONED … not sent"
+  const s5 = mergeState(s2, { at: T2 + 600, ms: { driverCreateRun: { at: '2026-11-25 02:21:34 JST', line: 'operator run (create)' } }, season: { status: 1, statusName: 'Created', genesisTs: T2 + 1300 } });
+  assert.doesNotMatch(timelineText(s5, pp), /POSTPONED/);
+  assert.match(timelineText(s5, pp), /scheduled CreateSeason opens/);
+  assert.match(timelineText(s5, pp), /creation was postponed .* → 2026-11-25 02:30:04 JST/);
+});
+
+test('runChecks default: the stopped driver FAILs, and CreateSeason not landing FAILs (what the mode is for)', async () => {
+  const r = await noWorld();
+  assert.equal(r.by['proc.season-driver'].level, 'FAIL');
+  assert.equal(r.by['world.creation'], undefined);
+  assert.equal(r.postponed, null);
+  assert.equal(overallOf(r.out).level, 'FAIL');
+  const late = await noWorld({ now: T2 + 3600 });
+  assert.equal(late.by['season.phase'].level, 'FAIL');
+});
+
+test('runChecks postponed by marker or flag: driver / gateway / keeper absence is OK, the rest is checked as always', async () => {
+  for (const [name, o] of [
+    ['<logs> marker', { marker: { logs: FX('devnet-create-postponed') } }],
+    ['<run-dir> marker', { marker: { run: 'postponed until the rules upgrade\n' } }],
+    ['flag', { extra: { noWorldYet: true } }],
+    ['flag, waiters stopped too', { extra: { noWorldYet: true }, ps: FX('ps-waiters-stopped.txt') }],
+    ['marker, after the scheduled time', { marker: { logs: 'x\n' }, now: T2 + 3 * 3600 }],
+  ]) {
+    const r = await noWorld(o);
+    assert.deepEqual(r.out.filter((c) => c.level !== 'OK'), [], name);
+    assert.equal(r.out[0].key, 'world.creation', name);
+    assert.match(r.by['world.creation'].detail, /^postponed, no world yet \(/, name);
+    assert.match(r.by['season.phase'].detail, /Announced, creation postponed/, name);
+    assert.match(r.by['gateway.health'].detail, /world creation postponed/, name);
+    assert.match(r.by['keeper.api'].detail, /world creation postponed/, name);
+    assert.match(r.by['join.check'].detail, /world creation postponed/, name);
+    assert.equal(r.by['herald.season'].detail.startsWith('NoSeasonYet'), true, name);
+    assert.ok(r.postponed, name);
+    assert.deepEqual(r.rpcCalls.slice(0, 3), ['getGenesisHash', 'getSlot', 'getAccountInfo'], name);
+    assert.equal(r.rpcCalls.length, 9, name); // same 9 read-only calls as by default
+  }
+  const m = await noWorld({ marker: { logs: FX('devnet-create-postponed') } });
+  assert.match(m.by['world.creation'].detail, /marker <logs>\/devnet-create-postponed: owner t506s1572 11-24 12:07/);
+  // every other line is the default one: the mode adds one line and changes text / level only where it says
+  const d = await noWorld();
+  const changed = ['proc.season-driver', 'proc.gateway-starter', 'proc.join-check', 'proc.gateway-supervisor', 'proc.gateway', 'proc.keeper-supervisor', 'proc.keeper', 'balance.authority', 'season.phase', 'gateway.health', 'keeper.api', 'join.check'];
+  const strip = (c) => ({ ...c, detail: c.detail.replace(/\(\d+ ms\)/g, '(ms)').replace(/127\.0\.0\.1:\d+/g, 'host') });
+  assert.deepEqual(m.out.filter((c) => c.key !== 'world.creation' && !changed.includes(c.key)).map(strip), d.out.filter((c) => !changed.includes(c.key)).map(strip));
+});
+
+test('runChecks postponed: still FAILs for a running driver, a dead herald / tunnel, low funds; authority short of the create need is not a WARN', async () => {
+  const mk = { marker: { logs: 'x\n' } };
+  const drv = await noWorld({ ...mk, ps: FX('ps-driver-running.txt') });
+  assert.equal(drv.by['proc.season-driver'].level, 'FAIL');
+  assert.equal(overallOf(drv.out).level, 'FAIL');
+  const dead = await noWorld({ ...mk, herald: false, ps: FX('ps-driver-stopped.txt').split('\n').filter((l) => !/herald|cloudflared/.test(l)).join('\n') });
+  for (const k of ['proc.herald', 'proc.herald-supervisor', 'proc.tunnel', 'herald.season', 'herald.status']) assert.equal(dead.by[k].level, 'FAIL', k);
+  const poor = await noWorld({ ...mk, rpc: fakeRpc({ seasonData: seasonBytes({ stored: 0, tCreate: T2 }), sol: (a) => (a === DEPLOY.wallets[1].address ? 30 : a === DEPLOY.wallets[2].address ? 0.1 : 50) }) });
+  assert.equal(poor.by['balance.authority'].level, 'OK');
+  assert.match(poor.by['balance.authority'].detail, /creation postponed, CreateSeason will need ≈56\.13/);
+  assert.equal(poor.by['balance.funder-1'].level, 'FAIL');
+  // default: the same 30 SOL is the pre-create WARN
+  const poorDef = await noWorld({ rpc: fakeRpc({ seasonData: seasonBytes({ stored: 0, tCreate: T2 }), sol: 30 }) });
+  assert.equal(poorDef.by['balance.authority'].level, 'WARN');
+  // an unread chain is not hidden by the mode
+  const noRpc = await noWorld({ ...mk, rpc: fakeRpc({ status: 429 }) });
+  assert.equal(noRpc.by.rpc.level, 'WARN');
+  assert.equal(noRpc.by['season.phase'].level, 'FAIL');
+  // Aborted announcement while postponed: no world yet, OK
+  const ab = await noWorld({ ...mk, rpc: fakeRpc({ seasonData: seasonBytes({ stored: 6, tCreate: T2 }), sol: 57 }) });
+  assert.equal(ab.by['season.phase'].level, 'OK');
+  assert.equal((await noWorld({ rpc: fakeRpc({ seasonData: seasonBytes({ stored: 6, tCreate: T2 }), sol: 57 }) })).by['season.phase'].level, 'FAIL');
+});
+
+test('runChecks postponed but the world was created: the marker is stale, default checks apply', async () => {
+  // driver log shows CreateSeason and setup: a healthy joinable stack with a forgotten marker → one WARN, nothing hidden
+  const r = await world({ tunnelLog: 'x', marker: { logs: FX('devnet-create-postponed') } });
+  assert.deepEqual(r.out.filter((c) => c.level !== 'OK').map((c) => c.key), ['world.creation']);
+  assert.match(r.by['world.creation'].detail, /marked postponed .* but the driver log shows CreateSeason was run/);
+  assert.equal(r.postponed, null);
+  // and a dead keeper is the FAIL it always was
+  const k = await world({ tunnelLog: 'x', extra: { noWorldYet: true }, keeper: false, ps: PS_ALL.split('\n').filter((l) => !/frontier-keeper/.test(l)).join('\n') });
+  assert.equal(k.by['proc.keeper'].level, 'FAIL');
+  assert.equal(k.by['keeper.api'].level, 'FAIL');
+  // chain says Created while the driver log is silent (created by hand): season.phase says so
+  const c = await noWorld({ marker: { logs: 'x\n' }, now: T2 + 120, rpc: fakeRpc({ seasonData: seasonBytes({ stored: 1, tCreate: T2 }), sol: 57 }) });
+  assert.equal(c.by['season.phase'].level, 'WARN');
+  assert.match(c.by['season.phase'].detail, /the world exists, remove the marker/);
 });

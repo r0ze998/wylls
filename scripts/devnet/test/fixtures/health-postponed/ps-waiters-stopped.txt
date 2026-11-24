@@ -1,0 +1,7 @@
+    1 12-03:10:11 /sbin/launchd
+94783 15:57:55 /bin/zsh ./run-herald.sh
+94790 15:57:55 /r/bin/frontier-herald --data herald-data --listen 127.0.0.1:41140 --web /r/src/web
+93889 22:39:42 /opt/homebrew/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:41140
+92887 22:39:52 caffeinate -is
+52883 14:02:11 zsh ./health-loop.sh
+61001 00:01 tail -f /s/logs/devnet-season-driver.log
