@@ -11,7 +11,7 @@ import { tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
 import * as UI from '../../permutation-server/web/frontier/hud/worldgoals.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
-const VIEWER = 3, ENEMY = 0, OTHER = 1;
+const VIEWER = 3, ENEMY = 0, OTHER = 1, DRAWN = 5;
 const HOME = { p: 2, q: 0, tile: 7 };
 const SITES = Array.from({ length: 12 }, (_, j) => 7 + 2 * j);
 const terrainOf = () => ({ sites: SITES, terrain: Array(61).fill(0), names: ['Grassland'] });
@@ -28,11 +28,12 @@ const KNOWN = () => [{ ...sightOn(-2, 0, KEEP, 2), level: S.L2, kind: 'explored'
 /** The enemy flag keep (-2, 0) on tile 30, held by ENEMY since 60, besieged by OTHER (12 / 72). */
 const liveKeep = (holder = ENEMY) => ({ p: -2, q: 0, tile: KEEP, holder, troops: 288, heartland: false, contender: OTHER, progress: 12, requiredBells: 72, asOfBell: 100 });
 const answer = (holder = ENEMY) => ({
-  ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v1', testOnly: true, season: { programId: 'P', seasonId: '11' }, effects: { money: 'none', chain: 'none' }, bell: 100, error: null,
+  ok: true, v: 1, kind: 'world-goals', ruleset: 'flag-keeps-v2', testOnly: true, season: { programId: 'P', seasonId: '11' }, effects: { money: 'none', chain: 'none' }, bell: 100, error: null,
   goals: [{ id: 'flag-keeps', kind: 'hegemony', live: true }],
   flagKeeps: { round: 1, postedBell: 0, seed: '07'.repeat(32), hash: 'ab'.repeat(32), need: 1, holdBells: 144,
-    flags: [{ p: -2, q: 0, nation: ENEMY, holder, since: 60, from: 60, longAt: 204, contender: OTHER, progress: 12, required: 72 }],
-    progress: [{ nation: ENEMY, held: 1, heldLong: 0, need: 1, reachAt: 204 }] },
+    // (flag-keeps-v2: the flag keep was drawn for DRAWN and CAPTURED by its holder — a captured flag keep has the hold timer)
+    flags: [{ p: -2, q: 0, nation: DRAWN, holder, since: 60, captured: true, from: 60, longAt: 204, contender: OTHER, progress: 12, required: 72 }],
+    progress: [{ nation: holder, held: 1, own: 0, captured: 1, capturedLong: 0, need: 1, reachAt: 204 }] },
   achievements: [],
 });
 

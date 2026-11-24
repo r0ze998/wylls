@@ -76,7 +76,7 @@ Options:
 | `--no-coop-board` | leave out the ① co-op board and ⑮'s "Titles and records" card (attached by default, §13) | |
 | `--no-world-goals` | do not judge the world goals: no "World goals" card and no gold pennants (the flag-keeps judge is on by default, §14) | `--flag-keeps-hold` `--flag-keeps-need` |
 | `--flag-keeps-hold N` | TEST only: how many turns a flag keep must be held, 1–100000 (default 144 = 24 hours of the chain clock; §14) | `--no-world-goals` |
-| `--flag-keeps-need N` | TEST only: how many flag keeps one nation must hold, 1–12 (default: half of them, rounded up; §14) | `--no-world-goals` |
+| `--flag-keeps-need N` | TEST only: how many **captured** flag keeps one nation must hold, 1–12 (default: half of the flag keeps, rounded up; never more than the other nations' flag keeps; §14) | `--no-world-goals` |
 | `--speed N` | the clock of `--demo` / `--wide`, 10–60 (default 60) | a kept world |
 | `--minutes N` | minutes until the world's processes stop, 15–240 (default 90). A `--wide` world stops then too. To play `--wide` to the end use `--minutes 240` (§4) | |
 | `--port BASE` | the page's port (default 41920). It uses 22 ports from BASE (14 with `--ai 0`); `--external` takes 8 more and the MCP server 1 (with the defaults the MCP server is on 41950, with `--ai 0` on 41942; none with `--no-mcp`). All within 41000–41999 and clear of 41904–41907 and 41970 | |
@@ -945,17 +945,22 @@ The world is continuous: there are no seasons and no season end. Instead it has 
 ([design](../design/win-conditions/01-proposal.ja.md), Japanese; accepted by r0ze on 2026-11-24). Only the first is judged so far:
 
 - **Flag keeps (hegemony).** Each nation's contestable keeps (not heartland) carry flags: two per nation, border keeps
-  first, ordered by the Season's drand seed. A nation that holds **half of the flag keeps**, each for **144 turns**
-  (24 hours of the chain clock; 24 minutes at the ×60 TEST clock), achieves the round. The next round is posted at once.
+  first, ordered by the Season's drand seed. A nation achieves the round when it holds flag keeps **captured from other
+  nations**, as many as **half of the flag keeps**, each for **144 turns** (24 hours of the chain clock; 24 minutes at
+  the ×60 TEST clock). **The flag keeps a nation starts the round with do not count for it** (owner decision,
+  2026-11-24 22:00: with them counted, a need of 2 was met by every nation without doing anything). A starting flag
+  keep that a nation lost and took back is still its own starting flag keep and does not count for it either; it does
+  count for any other nation that holds it. The next round is posted at once, drawn from what each nation holds then,
+  so nobody starts a round with a captured flag keep.
 - World-first technology, wonder and unexplored mark are on the card as "coming".
 
 Every play-local world has the judge (`--no-world-goals` turns it off). The launcher judges off chain in its own process.
 It reads the world's Province and Citizen accounts and serves the result read-only at
 `/goals-world/<world proxy port>/goals/state`. Open "Nation & territory" to see the "World goals" card
 ("Four goals without a deadline. Any nation can go for them at any time"): the four goals, the round
-("Round N: a nation that holds 3 of the 6 flag keeps, each for 144 turns (24 h) without a break, achieves it"), each flag keep with
-its holder and its hold timer, your nation's progress ("Your nation holds 1 / 6 flag keeps; 0 have met the hold time
-(needed: 3)") and every nation's count. On the map each flag keep you can see has a gold pennant beside its standard.
+("Round N: a nation that holds 3 flag keeps captured from other nations, each for 144 turns (24 h) without a break, achieves it (6 flag keeps in all; the flag keeps a nation starts with do not count for it)"), each flag keep with
+its holder and, once captured, its hold timer (a flag keep still in its first nation's hands says "a starting flag keep of this nation (does not count toward the goal)"), your nation's progress ("Your nation: captured flag keeps 0 / need 3; 0 have met the hold time")
+and every nation's count of captured flag keeps ("No nation has captured a flag keep from another nation yet" at the start). On the map each flag keep you can see has a gold pennant beside its standard.
 On a ×60 TEST clock the card says its times in real minutes ("72 turns (about 12 minutes of real time in this world)");
 at 1× in turns and hours (#208).
 Under the fog of war the card tells a flag keep as the map does: a keep in sight with its holder, hold timer and siege;
@@ -981,14 +986,14 @@ In a local world rings 2–3 are heartland and round 1 is posted at the start, b
 contestable keeps then are ring 1's: each nation has **one** flag keep, 6 flags, need 3 (when ring 4 opens — in one
 ×60 run by turn 13, in another not by turn 60 — its 24 keeps are contestable, without a flag; a later round is chosen
 from the keeps open at its posting; loop-play13's `--wide` world had 12 flags, need 6). For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
-example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 2 --flag-keeps-hold 72`: capture one neighbouring flag keep
-(72 turns), then hold it 72 more turns.
+example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 1 --flag-keeps-hold 72`: capture one neighbouring flag keep
+(72 turns), then hold it 72 more turns. (With `--flag-keeps-need 2` you must capture two; your own flag keep does not count.)
 
 **AI residents and the flag keeps.** With `--ai N` (at war) the AI residents read the same "World goals" card as a player
 of their nation, under the same fog: the posting and every nation's count, and each flag keep's holder and siege only
 where their own villages, hosts and their nation's held provinces see it (never the judge's live answer for a keep they
-cannot see). They defend their nation's flag keep under siege before any other keep, and march first on a flag keep held
-by a nation that holds the need minus one or more (still only with 1.5× the keep's garrison). Otherwise a flag keep they
+cannot see). They defend their nation's flag keep under siege before any other keep, and march first on a flag keep captured
+by a nation that holds the need minus one or more captured flag keeps (still only with 1.5× the keep's garrison; that nation's own starting flag keep is an ordinary flag target). Otherwise a flag keep they
 see only wins a near tie. A resident with one march already on a flag keep gets no more of that tie-break (two for a
 close rival's flags), so its other hosts fight the ordinary war. Once ring 4 is open its keeps are contestable too
 but carry no flag in round 1, and the AI residents keep fighting over them. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.
