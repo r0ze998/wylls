@@ -67,6 +67,7 @@ import * as devnetPlayMod from './fdevnetplay.mjs';
 import { waitForOwnRecord } from './fown-wait.mjs';
 import { outpostCost } from './fdevnet-outpost.mjs';
 import * as wideVillage from './fdevnet-wide-village.mjs';
+import * as devnetTerritory from './fdevnet-territory.mjs';
 import * as frent from './frent.mjs';
 import { outpostCandidates, OUTPOST_PREVIEW_MS } from './screens/outpostcard.mjs';
 import { nextOutpostSlot } from './fconquest.mjs';
@@ -556,6 +557,9 @@ export const devnetPlayOn = () => devnetPlay !== null;
 const devnetWideNow = () => devnetPlayMod.devnetWide({ devnetPlay, record: FS.record, world: FS.world ?? (FS.record ? worldOf(FS.record) : null) });
 /** Whether first villages past the heartland go by the one-site village request (local wide worlds; wide devnet seasons). */
 const wideHomes = () => !!localPlay?.wideLand || devnetWideNow();
+// (devnet-territory-dev: a wide devnet world whose gateway carries the tile claim — a territory world, the program of
+//  #206/#209: tiles, the village on its own tile, and the reach witness of the nation's land)
+const devnetTerritoryNow = () => devnetWideNow() && devnetPlayMod.devnetTerritoryOn(devnetPlay);
 /**
  * THE TRANSPORT of the page-signed commands: local play's, or — on a verified devnet season with a connected wallet —
  * the devnet lane's; null for every other page (all orders take the ordinary path). `otherwise`: what an order the
@@ -4612,7 +4616,7 @@ export const ACTIONS = {
   // is remembered.
   'territory-tile': async d => {
     const h = activeHolding(FS);
-    if (!h || !localPlay?.wideLand) return;
+    if (!h || !(localPlay?.wideLand || devnetTerritoryNow())) return;
     const target = { p: String(d.p), q: String(d.q) };
     const reach = d.rp !== undefined && d.rq !== undefined ? { p: String(d.rp), q: String(d.rq) } : null;
     let terr = null;
@@ -4625,6 +4629,9 @@ export const ACTIONS = {
     if (tile === null) return failed({ code: 'NoFreeTile', text: L`この州に取れるマスは残っていません。` });
     const home = { p: h.p, q: h.q, site: h.site }, key = `${target.p},${target.q},${tile}`;
     const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
+    // (devnet-territory-dev: on devnet the first press is the cost preview — ore + SOL —, the next one signs and sends)
+    if (devnetTerritoryNow() && !localPlay && !(await devnetTilePreviewGate(target, tile, { act: 'territory-tile', data: d }))) return { ok: false, quiet: true };
+    if (devnetTerritoryNow() && !localPlay) FS.tilePreview = null;
     const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile },
       say: () => L`広い土地（${target.p}, ${target.q}）のマス ${tile} を自分の土地にしました。` });
     const ans = t ?? (FS.notice?.ok === false ? FS.notice : null);
@@ -4644,6 +4651,8 @@ export const ACTIONS = {
     // (expansion-gameplay-1: a target reached through the nation's land names that province as the reach witness;
     //  local wide worlds only — the devnet program takes no witness)
     const reach = localPlay?.wideLand && d.rp !== undefined && d.rq !== undefined ? { p: String(d.rp), q: String(d.rq) } : null;
+    // (devnet-territory-dev: a devnet territory world runs the program of #206 — it takes the witness too)
+    const reachD = !reach && devnetTerritoryNow() && d.rp !== undefined && d.rq !== undefined ? { p: String(d.rp), q: String(d.rq) } : null;
     // (a slot-3 claim: the slot-2 wide village as the previous pair — wideClaimIntent requires it)
     const previous = slot === 3 && d.pp !== undefined ? { p: String(d.pp), q: String(d.pq), site: num(d.ps) } : null;
     // (a claim names a FREE site of the province as the herald last captured it — any other is "taken" at its settle,
@@ -4665,7 +4674,11 @@ export const ACTIONS = {
       if (!mineTiles[key]) {
         // (owner TQ-2: the upkeep distance is from the NEAREST own village — an own wide village nearer than home is named)
         const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
-        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile }, say: () => L`広い土地（${target.p}, ${target.q}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
+        const rw = reach ?? reachD;
+        // (devnet-territory-dev: on devnet the site's tile is previewed first — ore + SOL —, then signed and sent)
+        if (devnetTerritoryNow() && !localPlay && !(await devnetTilePreviewGate(target, tile, { act: 'wide-claim', data: d }))) return { ok: false, quiet: true };
+        if (devnetTerritoryNow() && !localPlay) FS.tilePreview = null;
+        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(rw ? { witness: { kind: 'nation', p: rw.p, q: rw.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile }, say: () => L`広い土地（${target.p}, ${target.q}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
         // (a refusal returns nothing — failed() only sets the notice — so the answer is read there; verify-pr206-209:
         //  "already yours" (52) after a reload or a refused village never reached the village, and a tile another
         //  player owns (SiteTaken 11) was asked again at every press)
@@ -4741,6 +4754,8 @@ export const ACTIONS = {
   //    signed; 2. send: the checks again, then ONE wallet-signed act through the devnet lane (act → flocalplay-act.mjs);
   //    3. the result read back from the village's next record (fdevnet-wide-village.mjs wideVillageResult).
   'wide-act-cancel': () => { if (FS.wideActPreview) { FS.wideActPreview = null; invalidate('panel'); } },
+  // (devnet-territory-dev: the tile claim's preview put away; nothing was signed)
+  'territory-tile-cancel': () => { if (FS.tilePreview) { FS.tilePreview = null; invalidate('panel'); } },
   'wide-act-send': () => homeAction(async () => {
     const pv = FS.wideActPreview, walletAddress = FS.wallet?.address;
     if (pv?.step !== 'preview' || pv.wallet !== walletAddress || Date.now() - pv.at > wideVillage.WIDE_VILLAGE_PREVIEW_MS) {
@@ -4994,6 +5009,29 @@ fwide.guardLegacy(FORMS, fwide.GUARDED_FORMS, { FS, refuse: failed });
 
 /** (devnet-p17) The preview of one wide village act from its card's form (screens/wideholding.mjs wideActsCard). */
 // (the Build item's field is `wide_item`: a form's `elements.item` is the collection's own item() method, not a field)
+/**
+ * DEVNET PLAY (devnet-territory-dev): the tile claim on a devnet territory world, wallet-paid, two presses
+ * (fdevnet-territory.mjs). True when a fresh preview of exactly this tile is there (the press may sign and send);
+ * otherwise reads the gateway's word for this cluster — the rent of the province's territory record and of the player's
+ * summary when the claim creates them, the tiles (the ore price), unpaid upkeep — and shows it (nothing signed): false.
+ */
+async function devnetTilePreviewGate(target, tile, press = null) {
+  const walletAddress = FS.wallet?.address;
+  if (!walletAddress || devnetGate().ok !== true) { failed({ code: devnetGate().code ?? 'DevnetPlayOff' }); return false; }
+  if (devnetTerritory.tilePreviewFresh(FS.tilePreview, { wallet: walletAddress, target, tile })) return true;
+  let ctx;
+  try { ctx = await localAct.postLocalAct(devnetPlay.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: devnetTerritory.TERRITORY_CONTEXT_SCHEMA, wallet: walletAddress, target: { p: String(target.p), q: String(target.q) } }); }
+  catch (e) { failed({ code: e?.code ?? 'LocalActNoAnswer' }); return false; }
+  if (!devnetTerritory.tileContextOk(ctx, walletAddress)) { failed({ code: 'Unavailable' }); return false; }
+  const why = devnetTerritory.tileContextRefusal(ctx);
+  if (why) { FS.tilePreview = null; invalidate('panel'); failed({ code: why === 'LocalActProvinceAbsent' ? 'TileProvinceAbsent' : why }); return false; }
+  FS.tilePreview = { step: 'preview', wallet: walletAddress, target: { p: String(target.p), q: String(target.q) }, tile, cost: devnetTerritory.tileClaimCost(ctx), tiles: ctx.tiles,
+    press: press ? { act: press.act, data: Object.fromEntries(Object.entries(press.data ?? {}).filter(([k, v]) => /^(p|q|rp|rq|site|slot|pp|pq|ps)$/.test(k) && v !== undefined).map(([k, v]) => [k, String(v)])) } : null, at: Date.now() };
+  setNotice(null);
+  invalidate('panel');
+  return false;
+}
+
 function wideActPreview(f) {
   const name = String(f?.elements?.act?.value ?? f?.dataset?.wideAct ?? '');
   const n = k => Math.trunc(formNum(f, k));
@@ -5088,6 +5126,8 @@ export async function startPlay({ herald: h, cfg }) {
   // (devnet play: whether this is a wide devnet season the page plays itself, and its opened wide provinces — read by
   //  home.mjs and screens/holding.mjs; false / null on every other page)
   Object.defineProperty(FS, 'devnetWide', { configurable: true, enumerable: false, get: () => devnetWideNow() });
+  // (devnet-territory-dev: a devnet territory world the page claims tiles in — screens/holding.mjs wideClaimModel)
+  Object.defineProperty(FS, 'devnetTerritory', { configurable: true, enumerable: false, get: () => devnetTerritoryNow() });
   Object.defineProperty(FS, 'devnetWideLand', { configurable: true, enumerable: false,
     get: () => (devnetWideNow() ? Object.freeze({ targets: devnetPlayMod.wideTargetsOf(typeof FS.wideLandNow === 'function' ? FS.wideLandNow() : null) }) : null) });
   Object.defineProperty(FS, 'localMarchFor', { configurable: true, enumerable: false, value: (holding, hostId) => localMarchFor(holding ? holdingByRef(FS.holdings, holding) : null, hostId) });

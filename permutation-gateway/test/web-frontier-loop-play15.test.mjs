@@ -80,3 +80,13 @@ test('verify-pr223: a tile button that is off for lack of ore says so on the car
   setLang('en');
   try { assert.equal(L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`, 'You have less than 10 ore, so "Claim a tile" cannot be pressed for now.'); } finally { setLang('ja'); }
 });
+
+// (verify-pr223, merge of #221) the own-village rows are a LOCAL wide world's: the devnet page's wallet-paid tile claim
+// has not been played with them, so a devnet territory world keeps #221's card
+test('verify-pr223: a devnet territory world gets no own-village rows', () => {
+  const l = world([slot(2, -66, -63)]);
+  const d = { ...l, localPlay: null, devnetWideLand: l.localPlay.wideLand, devnetTerritory: true };
+  assert.equal(wideClaimModel(l, { holding: home, have }).own.length, 1);
+  assert.deepEqual(wideClaimModel(d, { holding: home, have })?.own ?? [], []);
+  assert.match(web('frontier/screens/holding.mjs'), /const own = territory && local \? claimTargets\(/);
+});

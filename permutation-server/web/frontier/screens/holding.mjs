@@ -32,6 +32,7 @@ import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
 import { TERRITORY_V1 } from '../flocalplay-territory.mjs';
+import { solText } from '../fdevnet-outpost.mjs';
 import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
@@ -60,9 +61,12 @@ export function wideClaimModel(FS, m) {
   //  the opened wide land as the herald records it now (it grows where nations go), and the nation's land in it —
   //  a village of the nation, or a keep it won —, from which a claim may also reach OUTPOST_RANGE provinces)
   const local = !!FS?.localPlay?.wideLand;
-  const cells = local && typeof FS.wideLandNow === 'function' ? (FS.wideLandNow()?.cells ?? []) : [];
-  const opened = local ? mergeOpened(wide.targets, cells) : wide.targets;
-  const lands = local ? nationLandsOfCells(cells, FS.citizen?.faction) : [];
+  // (devnet-territory-dev: a devnet TERRITORY world — its gateway carries the tile claim, controller FS.devnetTerritory —
+  //  runs the program of #206/#209: the nation-land reach and the tiles as in a local wide world)
+  const rich = local || !!FS?.devnetTerritory;
+  const cells = rich && typeof FS.wideLandNow === 'function' ? (FS.wideLandNow()?.cells ?? []) : [];
+  const opened = rich ? mergeOpened(wide.targets, cells) : wide.targets;
+  const lands = rich ? nationLandsOfCells(cells, FS.citizen?.faction) : [];
   const all = claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => !held.has(`${String(t.p)},${String(t.q)}`));
   const targets = [...all.filter(t => !t.reach).slice(0, 4), ...all.filter(t => t.reach).slice(0, 6)];
   const owned = (Array.isArray(FS.holdings) ? FS.holdings.length : 1) + mine.length;
@@ -77,17 +81,33 @@ export function wideClaimModel(FS, m) {
   const previous = prevH ? { p: String(prevH.p), q: String(prevH.q), site: Number(prevH.site) } : null;
   // (verify-pr206-209: in a territory world each province row also claims a single tile — instant, paid in ore, one a
   //  turn — whatever the next village's cost: the land grows by tiles, not only by village sites)
-  const byKey = local && typeof FS.wideLandNow === 'function' ? FS.wideLandNow()?.byKey ?? null : null;
+  const byKey = rich && typeof FS.wideLandNow === 'function' ? FS.wideLandNow()?.byKey ?? null : null;
   const terrOf = t => byKey?.get?.(`${t.p},${t.q}`)?.territory ?? null;
   const territory = all.some(t => terrOf(t)) || [...held].some(k => byKey?.get?.(k)?.territory);
   const ore = m.have[RESOURCE_ORDER.indexOf('Ore')] ?? 0;
   // (loop-play15 LP15-4: a province where a village of this player stands left the list — no second village there —
   //  and with it the only "Claim a tile" button of that province; with three villages the whole list went. In a
-  //  territory world those provinces stay as tile-only rows: the land around one's own village is the first to claim)
-  const own = territory ? claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => held.has(`${String(t.p)},${String(t.q)}`) && terrOf(t)).map(t => ({ ...t, site: 0, territory: true, own: true })) : [];
+  //  territory world those provinces stay as tile-only rows: the land around one's own village is the first to claim.
+  //  LOCAL wide worlds only: the devnet page's wallet-paid tile claim (#221) has not been played with these rows)
+  const own = territory && local ? claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => held.has(`${String(t.p)},${String(t.q)}`) && terrOf(t)).map(t => ({ ...t, site: 0, territory: true, own: true })) : [];
   if (!targets.length && !own.length) return null;
   return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t) })), own, need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous,
-    territory, tileShort: ore < TERRITORY_V1.cost.base };
+    territory, tileShort: ore < TERRITORY_V1.cost.base, devnet: !local && !!FS?.devnetTerritory, preview: !local && FS?.devnetTerritory && FS.tilePreview?.step === 'preview' ? FS.tilePreview : null };
+}
+/** (devnet-territory-dev) The tile claim's cost preview on a devnet territory world (fdevnet-territory.mjs): ore from the
+ * first home's store, SOL from the wallet (the records the claim creates + the fee); the next press signs and sends. */
+function tilePreviewBlock(pv, busy) {
+  if (!pv) return '';
+  const c = pv.cost, parts = [c.provinceNew ? L`この州の土地の記録 ${solText(c.provinceDeposit)} SOL` : null, c.playerNew ? L`あなたの土地の記録 ${solText(c.playerDeposit)} SOL` : null, L`手数料 ${solText(c.fee)} SOL`].filter(Boolean);
+  const data = Object.entries(pv.press?.data ?? {}).map(([k, v]) => ` data-${k}="${String(v).replace(/[^0-9a-z-]/gi, '')}"`).join('');
+  const act = pv.press?.act === 'wide-claim' ? 'wide-claim' : 'territory-tile';
+  return html`<div class="preview" id="hp-tile-preview" role="group" aria-labelledby="hp-tile-preview-h">
+    <p id="hp-tile-preview-h"><strong>${L`州（${pv.target.p}, ${pv.target.q}）のマス ${pv.tile} を取る費用`}</strong></p>
+    <p>${L`鉱石 ${fmtNum(c.ore)}（本拠地の蔵から）`} · ${L`${solText(c.total)} SOL（ウォレットから）`}</p>
+    <p class="muted">${parts.join(' · ')}</p>
+    <p class="muted">${L`取ったあとの維持費は本拠地の食料から自動で払われます。払えないと新しいマスは取れず、24ターン後から遠いマスが1ターンに1つずつ手放されます。`}</p>
+    <button type="button" class="btn small" data-act="${act}"${raw(data)} ${raw(busy ? 'disabled' : '')}>${L`署名して取る`}</button>
+    <button type="button" class="btn small ghost" data-act="territory-tile-cancel">${L`やめる`}</button></div>`;
 }
 function wideClaimCard(FS, m, busy) {
   const w = wideClaimModel(FS, m);
@@ -105,6 +125,7 @@ function wideClaimCard(FS, m, busy) {
       ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
+    ${tilePreviewBlock(w.preview, busy)}
     ${w.territory ? html`<p class="muted">${L`自分の土地：「1マス取る」はその州のマスを1つ、すぐ自分の土地にします（鉱石 10、持っているマス1つごとに +2%、1ターンに1マス）。村は自分のマスの上にだけ建ち、「ここに村を出す」は1回目でその場所のマスを取り、2回目で村を出します。土地の維持費は本拠地の食料から払います（1マス 0.033/時、自分の村から3州より遠いと1州ごとに +0.016/時）。払えないと新しく取れず、24ターン後から遠いマスが1ターンに1つずつ手放されます。`}</p>` : ''}
     <p class="muted">${L`申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。`}</p></section>`;
 }

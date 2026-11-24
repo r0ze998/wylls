@@ -82,7 +82,12 @@ pub const ROLES: [&str; 16] = [
 /// `wide-resolve` (P9) keeps every known wide province resolved bell by bell
 /// (the quiet wide Resolve 0xDC op 1), so a wide village stays resident for
 /// WideMuster / WideGarrison ([`crate::wideresolve`]); it needs `beacon`.
-pub const WIDE_ROLES: [&str; 3] = ["wide-tickets", "expeditions", "wide-resolve"];
+/// `territory` (devnet-territory-dev) is player territory's class-D crank in
+/// a territory world (keep holder `NeutralTerritoryV1`): the upkeep settles,
+/// the decay of unpaid land and the conquest transfer after a keep capture
+/// ([`crate::territory`]); it reads the feed index (Citizens, claimed
+/// provinces) and needs nothing else.
+pub const WIDE_ROLES: [&str; 4] = ["wide-tickets", "expeditions", "wide-resolve", "territory"];
 
 /// The most wide rings the `rings` duty opens (`wide_rings`): rings
 /// 129..=136. The devnet profile asks for 3 (129–131, the local wide world).
@@ -384,6 +389,14 @@ pub struct KeeperConfig {
     /// `wide-tickets`: slots between two scans of the known Citizens' wide
     /// ticket records (default 25, about 10 s; at least 1).
     pub wide_scan_slots: u64,
+    /// `territory`: every this many bells a plain upkeep settle of every
+    /// territory with tiles (default 1: every bell, as the local runner; at
+    /// least 1). Decay and conquest are planned every bell regardless.
+    pub territory_settle_bells: u64,
+    /// `territory`: writes planned per bell at most (default 24, the local
+    /// runner's `SENDS_PER_BELL`; at least 1). More steps than that: the
+    /// start rotates each bell so nobody is starved.
+    pub territory_per_bell: u64,
     /// Where the transaction feed comes from (devnet-readiness B2):
     /// `"localnet"` (default: `frontier_feed` of `frontier-localnet`) or
     /// `"rpc"` (a public cluster: `findex::RpcPoll` over
@@ -480,6 +493,8 @@ impl KeeperConfig {
             wide_rings: 0,
             wide_per_wedge: 0,
             wide_scan_slots: 25,
+            territory_settle_bells: 1,
+            territory_per_bell: 24,
             feed: FeedSource::Localnet,
             feed_poll_ms: 2_000,
             feed_max_backoff_ms: 60_000,
@@ -560,7 +575,7 @@ impl KeeperConfig {
         let wants = self.wide_rings > 0 || WIDE_ROLES.iter().any(|r| self.has_role(r));
         if wants && !PLAYABLE_LANE {
             return Err(
-                "`wide_rings` / roles `wide-tickets`, `expeditions`, `wide-resolve` need a keeper built with `--features playable-lane`"
+                "`wide_rings` / roles `wide-tickets`, `expeditions`, `wide-resolve`, `territory` need a keeper built with `--features playable-lane`"
                     .into(),
             );
         }
@@ -759,6 +774,12 @@ impl KeeperConfig {
         }
         if let Some(v) = take("wide_scan_slots") {
             c.wide_scan_slots = int(v, "wide_scan_slots")?.max(1);
+        }
+        if let Some(v) = take("territory_settle_bells") {
+            c.territory_settle_bells = int(v, "territory_settle_bells")?.max(1);
+        }
+        if let Some(v) = take("territory_per_bell") {
+            c.territory_per_bell = int(v, "territory_per_bell")?.max(1);
         }
         if let Some(v) = take("extend_max_ring") {
             let r = int(v, "extend_max_ring")?;

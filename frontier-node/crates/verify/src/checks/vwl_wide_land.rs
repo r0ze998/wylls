@@ -891,7 +891,12 @@ fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<(Key, La
                 format!("the land model refuses the opening ({er:?})"),
             )
         })?;
-    let keep = wr::wide_keep_open(opening.keep_holder, keep_tile, &cq.keep_params(), now_bell)
+    // (devnet-territory-dev, as `proc/wide.rs open_province` since #209 E-Q1: the new-world bundle's neutral keeps
+    //  open weaker, `KeepHolderRule::keep_guard`; before, every opening of a NeutralTerritoryV1 world read
+    //  WideReplayMismatch at the keep's troops)
+    let mut keep_prm = cq.keep_params();
+    keep_prm.home_guard = cfg.keep_holder.keep_guard(keep_prm.home_guard);
+    let keep = wr::wide_keep_open(opening.keep_holder, keep_tile, &keep_prm, now_bell)
         .map_err(|er| fail(WIDE_RULE, format!("the keep kernel refuses ({er:?})")))?;
     let garrison_milli = cq
         .free_city_garrison
@@ -992,6 +997,10 @@ fn open_province(e: &Env, ix: &Ix, x: &wix::OpenProvince) -> Result<Vec<(Key, La
         .province
         .write_identity(&mut pd)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the identity: {er:?}")))?;
+    // (devnet-territory-dev, as the handler since #209 T-1..T-8: the configuration's territory rule in the trailer)
+    if !wl::set_territory_rule(&mut pd, cfg.keep_holder.territory()) {
+        return Err(fail(WIDE_ACCOUNTS, "the territory rule byte"));
+    }
     expect_after(e, &target, &pd, "the province")?;
     // The fund's counters.
     let mut fw = fund_before.data.clone();
