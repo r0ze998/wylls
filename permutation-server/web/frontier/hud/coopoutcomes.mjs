@@ -116,7 +116,7 @@ export function render(FS, b) {
   return html`<section class="vcard coop-titles" aria-labelledby="coop-titles-title" data-ruleset="${b.outcomes.ruleset.variant}">${head}
     ${rows.length ? html`<ol class="chron">${first.map(rowMarkup)}</ol>` : html`<p class="muted">${L`まだ称号はありません`}</p>`}
     ${rest.length ? fold('coop-titles-old', L`それより前の称号（${fmtNum(rest.length)}）`, html`<ol class="chron">${rest.map(rowMarkup)}</ol>`) : ''}
-    ${undecided}<p class="muted small">${L`称号と記録だけです。勝敗・得点・賞金・シーズンの終わりには何も加えません`}</p></section>`;
+    ${undecided}<p class="muted small">${L`称号と記録だけです。世界の目標の達成・得点・賞金には何も加えません`}</p></section>`;
 }
 
 /** The latest read, for the page's render (null before the first). */

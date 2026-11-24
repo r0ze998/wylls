@@ -48,7 +48,9 @@ export function ownHosts(FS) {
  * said), the rest after a fight, and the village's four marches.
  */
 export function marchCheck(FS, r) {
-  const say = (code, x) => ({ ok: false, code, text: whyText(code, x) });
+  // (fix-loop13, LP13-4: the words are read when shown — a map note made from `text` kept the language of the moment
+  //  of the check: 「This province is still resolving the last turn.」 stood on the Japanese page after a switch)
+  const say = (code, x) => ({ ok: false, code, get text() { return whyText(code, x); } });
   if (!r) return say('HostBusy');
   if (r.state === 2) return say('Forming');
   if (r.inTransit) return say('HostInTransit');
@@ -64,7 +66,7 @@ export function marchCheck(FS, r) {
 
 /** Whether a Scout host may explore now, its targets, and why not. */
 export function exploreCheck(FS, r) {
-  const say = (code, x) => ({ ok: false, code, text: whyText(code, x), targets: [] });
+  const say = (code, x) => ({ ok: false, code, get text() { return whyText(code, x); }, targets: [] });
   if (!r || r.unit !== SCOUT) return say('NotScout');
   if (r.state === 2) return say('Forming');
   if (r.inTransit) return say('HostInTransit');
@@ -78,7 +80,7 @@ export function exploreCheck(FS, r) {
 
 /** Whether a host may be dissolved now. */
 export function dissolveCheck(FS, r) {
-  const say = code => ({ ok: false, code, text: whyText(code) });
+  const say = code => ({ ok: false, code, get text() { return whyText(code); } });
   if (!r) return say('HostBusy');
   if (r.state === 2) return say('Forming');
   if (r.inTransit) return say('HostInTransit');

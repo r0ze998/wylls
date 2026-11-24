@@ -12,6 +12,8 @@ import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { fogActive, fogNow, viewKeeps } from '../map/fog.mjs';
+import { termsRate, turnsLine } from '../seasonterms.mjs';
+import { said } from './words.mjs';
 
 /** Minutes of the chain's clock in one turn. */
 const TURN_MIN = 10;
@@ -62,8 +64,12 @@ export function sameWorld(FS, g) {
   return !(program && typeof g.season.programId === 'string' && g.season.programId !== program);
 }
 
-/** Turns as words with their hours: 「12 ターン（2 時間）」. */
+/** Turns as words with their hours: 「12 ターン（2 時間）」; on a faster TEST clock with the real time instead —
+ *  「42 ターン（この世界の実時間で約 7 分）」 (fix-loop13, LP13-8: at ×60 the card said "(7 h)" for 7 real minutes; the
+ *  keep list and the guide already say the real time, seasonterms.mjs turnsLine). */
 export function turnsText(n) {
+  const r = termsRate();
+  if (r !== null && r > 1) return L`${fmtNum(n)} ターン（${turnsLine(n)}）`;
   const min = n * TURN_MIN;
   const h = min / 60;
   return h >= 1 ? L`${fmtNum(n)} ターン（${fmtNum(Math.round(h * 10) / 10)} 時間）` : L`${fmtNum(n)} ターン（${fmtNum(min)} 分）`;
@@ -117,6 +123,10 @@ export function seenFlag(FS, f) {
     if (fogActive(FS) && !(FS?.holdings ?? []).length) return { ...f, ...hidden, holder: null, seen: 'never' };
     return { ...f, seen: 'live' };
   }
+  // (fix-loop13, LP13-11: the viewer's own nation's keeps are always known — map/fog.mjs fogKeeps — but in `--wide` the
+  //  page's keep map lacks most rim keeps, so a flag keep the judge says the viewer's nation holds was told "not seen".
+  //  The judge's holder is enough here: telling the viewer that their own nation holds a keep leaks nothing of others)
+  if (nation(FS?.citizen?.faction) && f.holder === FS.citizen.faction) return { ...f, seen: 'live' };
   const keeps = viewKeeps(FS?.conquest?.keeps);
   const k = keeps instanceof Map ? keeps.get(`${f.p},${f.q}`) ?? null : null;
   if (!k) return { ...f, ...hidden, holder: null, seen: 'never' };
@@ -151,6 +161,27 @@ function achievementMarkup(a, FS) {
   return html`<li class="goal-achieved${mine ? ' mine' : ''}" data-round="${a.round}"><h4>${L`第 ${fmtNum(a.round)} 回：${names}が達成（ターン ${fmtNum(a.bell)}）`}</h4>
     ${you}
     <p class="muted small">${L`もし賞金が有効なら：賞金庫 ${usdc(a.prize.vaultBefore)} のうち ${usdc(a.prize.payout)} テスト USDC を、達成した国の ${fmtNum(others)} 人に分けていました（残り ${usdc(a.prize.returned)} は賞金庫へ）`}</p></li>`;
+}
+
+/**
+ * (fix-loop13, LP13-9) An achievement told outside the card too: one feed line per achieved round (`goal:<seasonId>:<round>`,
+ * so the feed never says it twice), in every language (hud/words.mjs said). `first`: the page's first good read — the
+ * achievements already on record then are put in the list quietly (no toast for something long past); later ones are
+ * notices. → items for hud/feed.mjs pushFeed, or null when the read is not this world's (nothing is learned from it).
+ */
+export function achievementNews(FS, b, { first = false } = {}) {
+  if (!b || b.read !== 'ok' || !sameWorld(FS, b.goals)) return null;
+  const me = FS?.citizen?.faction, sid = String(b.goals.season.seasonId);
+  return b.goals.achievements.map(a => {
+    const mine = nation(me) && a.nations.includes(me), row = mine ? viewerPrize(FS, a) : null;
+    return { id: `goal:${sid}:${a.round}`, kind: 'goal', bell: a.bell, ...(first ? { quiet: true } : {}), ...said(() => {
+      // (verify-pr208: "your nation (…)" names the viewer's nation alone — with several nations achieving at one turn it
+      //  said 「あなたの国（アステル、ボレアリス、…）」; the card's round line lists them all)
+      const names = mine ? factionName(me) : a.nations.map(n => factionName(n)).join(L`、`);
+      if (row?.eligible) return L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を、あなたの国（${names}）が達成しました（ターン ${fmtNum(a.bell)}）。賞金が有効なら、あなたは ${usdc(row.amount)} テスト USDC を受け取っていました`;
+      return mine ? L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を、あなたの国（${names}）が達成しました（ターン ${fmtNum(a.bell)}）` : L`世界の目標：第 ${fmtNum(a.round)} 回の旗の砦を ${names}が達成しました（ターン ${fmtNum(a.bell)}）`;
+    }) };
+  });
 }
 
 /** The card for a read `b` (probeGoals' answer, or null before the first read): '' when there is nothing to show. */

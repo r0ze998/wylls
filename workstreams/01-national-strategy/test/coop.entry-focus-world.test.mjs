@@ -79,7 +79,7 @@ test('entry: an unknown world (blank, missing, null, whitespace) neither fills n
 test('entry: another world, a broken destination, or no/blank request', () => {
   let r = runEntry('?program=P&season=91&to=0,0,1,0&request=r', { programId: 'P', seasonId: 90 });
   assert.deepEqual(filled(r), EMPTY); assert.equal(r.focus, null);
-  assert.match(r.els.entryWarn.textContent, /入口の村は別の世界（シーズン 91）の村のため/);
+  assert.match(r.els.entryWarn.textContent, /入口の村は別の世界（世界の番号 91）の村のため/);
   r = runEntry('?program=Q&season=90&to=0,0,1,0&request=r', { programId: 'P', seasonId: 90 });
   assert.deepEqual(filled(r), EMPTY); assert.equal(r.focus, null);
   r = runEntry('?season=90&to=0,0,1,0&request=r', { programId: 'P', seasonId: 90 });

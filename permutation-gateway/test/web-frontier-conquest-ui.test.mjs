@@ -101,10 +101,14 @@ test('rankings go by provinces held, share a rank on equal provinces, reject old
   assert.deepEqual(huge.slice(0, 2).map(r => [r.faction, r.rank]), [[0, 1], [1, 1]]);
   const ongoing = String(renderStandings(fs({ conquest: { standings: table(), final: table() } })));
   assert.doesNotMatch(ongoing, /同点首位|の勝利/);
+  // (fix-loop13, LP13-1: seasons are abolished — a TEST world's end turn is a test-world limit, never a winner's rule)
+  assert.match(ongoing, /この試しの世界が新しい命令を受け付けるのは第2,016ターンまでです/);
+  assert.doesNotMatch(ongoing, /シーズン|支配する州が最も多い国が勝ち/);
   const finishing = String(renderStandings(fs({ nowBell: 2016, conquest: { standings: table() } })));
-  assert.match(finishing, /得点の確定を待っています/);
+  assert.match(finishing, /最後の戦いの記録を待っています/);
   const finished = String(renderStandings(fs({ nowBell: 2016, conquest: { final: table() } })));
-  assert.match(finished, /同点首位/);
+  assert.match(finished, /この試しの世界の最後の記録/);
+  assert.doesNotMatch(finished, /同点首位|の勝利|シーズン/);
   assert.match(finished, /州・時間/);
 });
 

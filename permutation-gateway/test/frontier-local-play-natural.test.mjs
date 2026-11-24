@@ -229,7 +229,7 @@ test('the gate: the natural page says what a natural start does, in either langu
       makeWallet: async () => ({ address: WALLET, destroyed: false, destroy() {}, announce() {} }), retryDelayMs: 1, launcherTimeoutMs: 5000, now: () => 0 });
     for (let i = 0; i < 500 && gate.state().phase === 'creating'; i++) await settle(1);
     const p = gate.connect(); await settle();
-    assert.ok(doc.all.some(e => /新しいシーズンを最初から作っています…（最大4分/.test(e.textContent)), 'the natural starting text');
+    assert.ok(doc.all.some(e => /新しい世界を最初から作っています…（最大4分/.test(e.textContent)), 'the natural starting text');
     assert.ok(!doc.all.some(e => /最大70秒/.test(e.textContent)));
     release(); await p;
   } finally { setLang(was); }
