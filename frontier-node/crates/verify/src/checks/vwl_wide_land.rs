@@ -431,11 +431,23 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
     }
     writable(ix, 2, "the configuration", true)?;
     e.absent(&config, "the configuration")?;
-    if x.config_version != wr::WIDE_RULES_CONFIG_VERSION {
+    // The program build that made the archive took ITS table's version
+    // only: v2 for the deployed playable-lane programs (da3dc1aa, 67a33c92),
+    // v3 from #209 (player territory) on. An archive is judged against the
+    // table its record names, so any known table is taken, and a rule byte
+    // outside that table is refused below (verify-pr206-209: the v3 bump
+    // made every recorded v2 archive a false FAIL).
+    if ![
+        wr::WIDE_RULES_CONFIG_VERSION,
+        wr::WIDE_RULES_CONFIG_VERSION_V2,
+        wr::WIDE_RULES_CONFIG_VERSION_V1,
+    ]
+    .contains(&x.config_version)
+    {
         return Err(fail(
             WIDE_RULE,
             format!(
-                "config_version {} is not the current table",
+                "config_version {} is not a known table",
                 x.config_version
             ),
         ));
@@ -453,6 +465,15 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
             format!("a keep-holder byte the program refuses ({er:?})"),
         )
     })?;
+    if !holder.in_table(x.config_version) {
+        return Err(fail(
+            WIDE_RULE,
+            format!(
+                "keep-holder rule {holder:?} is not in table {} (the program refuses it)",
+                x.config_version
+            ),
+        ));
+    }
     if !wr::keep_holder_allowed(placement, holder) {
         return Err(fail(
             WIDE_RULE,
@@ -470,6 +491,15 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
             format!("a Free City byte the program refuses ({er:?})"),
         )
     })?;
+    if !free_city.in_table(x.config_version) {
+        return Err(fail(
+            WIDE_RULE,
+            format!(
+                "Free City rule {free_city:?} is not in table {} (the program refuses it)",
+                x.config_version
+            ),
+        ));
+    }
     if !wr::free_city_allowed(placement, free_city) {
         return Err(fail(
             WIDE_RULE,
@@ -478,7 +508,7 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
             ),
         ));
     }
-    let rec = WideRulesConfig::new(
+    let mut rec = WideRulesConfig::new(
         e.sid,
         world,
         authority,
@@ -495,6 +525,7 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
             format!("a rule byte the program refuses ({er:?})"),
         )
     })?;
+    rec.config_version = x.config_version;
     let mut want = vec![0u8; wr::rules_config::SIZE];
     rec.write(&mut want)
         .map_err(|er| fail(WIDE_ACCOUNTS, format!("the configuration's bytes: {er:?}")))?;
