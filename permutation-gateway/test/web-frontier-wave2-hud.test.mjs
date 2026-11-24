@@ -48,9 +48,9 @@ test('the title: an opaque scene of its own (the six standards on the chart as a
   assert.doesNotMatch(out, /banner-pick|data-act="pick-faction"|data-tab=|data-map=|class="lens/, 'nothing of the nation choice, the dock or the map buttons');
   assert.doesNotMatch(out, /\sstyle=|<style|<script|https?:\/\/(?!www\.w3\.org)/, 'no inline style, no remote asset');
   // the numbered reference is a turn; nothing claims secrecy
-  assert.equal(title.liveLine({ seasonId: 1, bell: 1034, holdings: 1055 }), '第1季 · ターン 1,034 · 1,055 の村 · 6 つの国');
+  assert.equal(title.liveLine({ seasonId: 1, bell: 1034, holdings: 1055 }), '世界の番号 1 · ターン 1,034 · 1,055 の村 · 6 つの国');
   // (verify-pr180) once the season's orders are over the status words stand in place of the turn
-  assert.equal(title.liveLine({ seasonId: 1, bell: 1440, holdings: 3, over: '閉鎖' }), '第1季 · 閉鎖 · 3 の村 · 6 つの国');
+  assert.equal(title.liveLine({ seasonId: 1, bell: 1440, holdings: 3, over: '閉鎖' }), '世界の番号 1 · 閉鎖 · 3 の村 · 6 つの国');
   assert.doesNotMatch(text(out), /誰にもわからない|秘密|第\d+鐘|知るのは送った者だけ/);
   assert.match(text(out), /10 分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。/);
   assert.deepEqual(title.sentences('Six nations. A bell every ten minutes. Every march sealed.'), ['Six nations. ', 'A bell every ten minutes. ', 'Every march sealed.']);
@@ -74,7 +74,7 @@ test('the title: an opaque scene of its own (the six standards on the chart as a
   const en = text(title.render({ mode: 'play', live: title.liveLine({ seasonId: 1, bell: 42, holdings: 44 }), stage: 'final' }));
   assert.doesNotMatch(en.replace(/Wylls/g, ''), JP, en);
   assert.match(en, /Back to your village/);
-  assert.match(en, /Season 1 · Turn 42/);
+  assert.match(en, /World no\. 1 · Turn 42/);
   assert.equal(title.ctaText('play', 'none'), 'Choose a nation');
   assert.equal(title.ctaText('play', 'ticket'), 'Back to the Frontier');
   assert.equal(title.ctaText('play', null), 'Enter the Frontier');
@@ -135,7 +135,7 @@ test('what the map keeps out of: the HUD\'s pieces as client rectangles', () => 
   assert.deepEqual(noGoRects(undefined), []);
   // (integration of wave 2: a milestone's banner is listed, and each notice of the stack is a piece of its own instead of the column they stand in)
   // (rewritten for the prototype rule "banners": its fixed chip and its score are pieces too; they are in the page only in a sample world that serves the prototype)
-  assert.deepEqual(NO_GO.map(x => x[0]), ['plaque-left', 'dial', 'plaque-right', 'search', 'search-field', 'todo', 'todo-list', 'plate', 'dock', 'hand', 'hand-card', 'hand-fan', 'lenses', 'minimap', 'map-tools', 'notices', 'banner', 'local-play-session', 'provinces', 'proto-chip', 'proto-chip-map', 'proto-score', 'drawer']);
+  assert.deepEqual(NO_GO.map(x => x[0]), ['plaque-left', 'dial', 'plaque-right', 'search', 'search-field', 'todo', 'todo-list', 'plate', 'dock', 'hand', 'hand-card', 'hand-fan', 'lenses', 'minimap', 'map-tools', 'notices', 'banner', 'local-play-session', 'provinces', 'wide-legend', 'proto-chip', 'proto-chip-map', 'proto-score', 'drawer']);
   const toasts = [rect(1080, 64, 348, 60), rect(1080, 132, 348, 44)];
   const withNotices = { ...page, querySelectorAll: sel => (sel === '#feed > *' ? toasts.map(r => ({ getBoundingClientRect: () => r, hidden: false, dataset: {} })) : []) };
   assert.deepEqual(noGoRects(withNotices).filter(r => r.id === 'notices'), [{ id: 'notices', x: 1080, y: 64, width: 348, height: 60 }, { id: 'notices', x: 1080, y: 132, width: 348, height: 44 }]);

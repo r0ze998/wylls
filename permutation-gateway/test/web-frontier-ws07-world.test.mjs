@@ -25,8 +25,8 @@ test('with nothing registered, the page says only the program\'s facts: its end 
   setLang('ja');
   assert.deepEqual(WC.worldLines(FSat(100)), [], 'no "the world goes on" and no war period from a guess');
   assert.equal(WC.renderWorldLines(FSat(100)), '');
-  assert.match(T.deadlineLine(FSat(100)), /このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第2,016ターンまでです/);
-  assert.match(T.deadlineLine(FSat(2100)), /このプログラム（旧方式のシーズン）は第2,016ターンで新しい命令の受付を終えました/);
+  assert.match(T.deadlineLine(FSat(100)), /この試しの世界が新しい命令を受け付けるのは第2,016ターンまでです/);
+  assert.match(T.deadlineLine(FSat(2100)), /この試しの世界は第2,016ターンで新しい命令の受付を終えました（試しの世界の上限です）/);
   for (const t of [T.deadlineLine(FSat(100)), T.deadlineLine(FSat(2100)), T.wrongStatusWhy(FSat(2100), 'build')]) assert.doesNotMatch(t, /世界が終わ|世界は終わ|リセット|作り直|シーズンは終わり|シーズンは第[\d,]+ターンで終わ/);
 });
 
@@ -35,7 +35,7 @@ test('when 04/08 register that the world goes on, the end turn is not said and W
   const off1 = WC.registerWorldSource('continuity', () => ({ continuous: true }));
   const off2 = WC.registerWorldSource('warPeriod', () => ({ fromBell: 2017, toBell: 3024 }));
   try {
-    assert.doesNotMatch(T.deadlineLine(FSat(2100)), /このプログラム|第2,016ターン/);
+    assert.doesNotMatch(T.deadlineLine(FSat(2100)), /この試しの世界|第2,016ターン/);
     assert.equal(T.wrongStatusWhy(FSat(2100), 'build'), null);
     const lines = WC.worldLines(FSat(2100));
     assert.deepEqual(lines.map(x => x.key), ['world', 'warPeriod']);
@@ -46,14 +46,14 @@ test('when 04/08 register that the world goes on, the end turn is not said and W
   const off3 = WC.registerWorldSource('warPeriod', () => ({ fromBell: 1, toBell: 9, label: '第一戦期', tally: '州の保持時間' }));
   try { assert.equal(WC.worldLines(FSat(5))[0].text, '第一戦期：第1〜9ターン。集計：州の保持時間（世界はこの区切りで終わりません）'); } finally { off3(); }
   const bad = WC.registerWorldSource('continuity', () => { throw new Error('x'); });
-  try { assert.deepEqual(WC.worldLines(FSat(5)), []); assert.match(T.deadlineLine(FSat(5)), /このプログラム/); } finally { bad(); }
+  try { assert.deepEqual(WC.worldLines(FSat(5)), []); assert.match(T.deadlineLine(FSat(5)), /この試しの世界/); } finally { bad(); }
   assert.throws(() => WC.registerWorldSource('season', () => null), TypeError);
 });
 
 test('the words the page keeps say no world end or reset: the dial, the conquest card, the map, the quota, the away summary', () => {
   const src = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
   assert.match(src('app.mjs'), /L`ターン \$\{fmtNum\(chip\.bell\)\} · 受付終了`/);
-  assert.match(src('hud/provstrip.mjs'), /L`この征服戦（旧方式のシーズン）は終わりました`/);
+  assert.match(src('hud/provstrip.mjs'), /L`この試しの世界は新しい命令の受付を終えました`/);
   assert.match(src('map/world.mjs'), /L`ここはいまの地図の外です`/);
   for (const f of ['seasonterms.mjs', 'hud/worldclock.mjs', 'hud/returnwords.mjs', 'hud/provstrip.mjs', 'map/world.mjs', 'hud/dialcard.mjs', 'hud/glossary.mjs']) {
     const strings = [...src(f).matchAll(/L`([^`]*)`/g)].map(m => m[1]);

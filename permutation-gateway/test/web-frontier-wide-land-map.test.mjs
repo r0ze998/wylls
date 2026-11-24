@@ -13,7 +13,7 @@ import { encode } from '../../permutation-server/web/sdk/base58.mjs';
 import { parseWideManifest, worldIdOf, ringPosition, compareRingOrder, WORLD_DOMAIN, WideWalk, loadWide } from '../../permutation-server/web/frontier/map/wide.mjs';
 import {
   terrainOfCapture, wideLandOf, cellsIn, paintWideLand, wideTags, paintWideTags, wideLevel, mountWideLand, holderFill, meanColour,
-  MAP_LIMIT, POLL_S, RETRY_S, NEUTRAL_LAND, WIDE_WORDS, MIN_CELL_PX, cellGrow, PATH_CHUNK, villageNation, villagesOf, villageRec,
+  MAP_LIMIT, POLL_S, RETRY_S, NEUTRAL_LAND, WIDE_WORDS, MIN_CELL_PX, cellGrow, PATH_CHUNK, villageNation, villagesOf, villageRec, WASH,
 } from '../../permutation-server/web/frontier/map/wideland.mjs';
 import { NATION_LAND } from '../../permutation-server/web/frontier/palette.mjs';
 import { landBox, fitView } from '../../permutation-server/web/frontier/map/camera.mjs';
@@ -170,7 +170,8 @@ test('far: the nation\'s own colour; nearer: the terrain under a wash of it; til
   assert.ok(chart.log.stroke.length >= 3, 'borders and the outer edge');
   const prov = fakeCtx();
   paintWideLand(prov.ctx, land, { seen, zoom: 0.4, level: 'province' });
-  const washes = prov.log.fill.filter(f => f.alpha < 1);
+  // (verify-pr205: the nations' own borders are filled bands too, at their own alphas — a wash is the level's WASH)
+  const washes = prov.log.fill.filter(f => f.alpha === WASH.province);
   assert.deepEqual(washes.map(f => f.style).sort(), [NATION_LAND[0], NATION_LAND[3], NEUTRAL_LAND].sort());
   const tile = fakeCtx();
   paintWideLand(tile.ctx, land, { seen, zoom: 1.2, level: 'tile' });

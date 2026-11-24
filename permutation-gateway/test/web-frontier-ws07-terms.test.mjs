@@ -35,11 +35,11 @@ test('the turn is said from the clock: 10 game minutes, and on a faster clock th
 
 test('the deadlines are the season\'s; after the join deadline the join is off and says why', () => {
   setLang('ja');
-  assert.equal(T.deadlineLine(FSat(100)), '参加の受付は第1,512ターンまで（あと約 10 日）。このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第2,016ターンまでです（あと約 13 日）。');
+  assert.equal(T.deadlineLine(FSat(100)), '参加の受付は第1,512ターンまで（あと約 10 日）。この試しの世界が新しい命令を受け付けるのは第2,016ターンまでです（あと約 13 日。試しの世界の上限です）。');
   assert.equal(T.wrongStatusWhy(FSat(100), 'join'), null);
   assert.equal(T.wrongStatusWhy(FSat(1600), 'join'), '参加の受付は第1,512ターンで締め切られました。');
   assert.equal(T.wrongStatusWhy(FSat(1600), 'build'), null, 'other orders are still taken');
-  assert.match(T.wrongStatusWhy(FSat(2100), 'build'), /このプログラム（旧方式のシーズン）は第2,016ターンで新しい命令の受付を終えたため/);
+  assert.match(T.wrongStatusWhy(FSat(2100), 'build'), /この試しの世界は第2,016ターンで新しい命令の受付を終えたため（試しの世界の上限です）/);
   const cards = { factions: Array.from({ length: 6 }, (_, f) => ({ faction: f })) };
   const markup = s => String(renderNations({ ...FSat(s), ...cards, wallet: { address: 'W' }, joinDraft: { faction: 1 }, overviews: new Map(), homeChoice: null, inFlight: 0 }));
   assert.match(markup(100), /参加の受付は第1,512ターンまで/);
@@ -59,7 +59,7 @@ test('loop-play3: a continuous season (no-end turn + continuous flag) names neit
   // a continuous world with a real join close still says that close, and never its (absent) end
   assert.equal(T.deadlineLine(at({ ...kept, joinCloseBell: 1512 }, 100)), '参加の受付は第1,512ターンまで（あと約 10 日）。');
   // the no-end turn alone is not continuity (clock.mjs): an inconsistent record still says its end turn
-  assert.match(T.deadlineLine(at({ ...kept, conquestParams: { continuous: 0 } }, 3)), /旧方式のシーズン/);
+  assert.match(T.deadlineLine(at({ ...kept, conquestParams: { continuous: 0 } }, 3)), /この試しの世界が新しい命令を受け付けるのは/);
   setLang('en');
   assert.equal(T.deadlineLine(at(kept, 3)), '');
   setLang('ja');
