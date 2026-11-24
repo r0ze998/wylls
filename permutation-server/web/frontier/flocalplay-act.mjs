@@ -59,7 +59,8 @@ export const DEVNET_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', '
  */
 // (devnet-p17, devnet gap P17: and a wide village's own Harvest, Build, Train and Muster — flocalplay-wide-host.mjs
 //  WIDE_VILLAGE_ACTS — taken only all four together, when the gateway lists every one of them)
-export const DEVNET_ACT_OPTIONAL = Object.freeze([OUTPOST_ACT, ...WIDE_VILLAGE_ACTS]);
+// (devnet-territory-dev: and the single-tile claim of a territory world)
+export const DEVNET_ACT_OPTIONAL = Object.freeze([OUTPOST_ACT, ...WIDE_VILLAGE_ACTS, TERRITORY_CLAIM]);
 /**
  * WHICH TRANSPORT: local play's (the launcher's loopback relay, season 11, the memory-only wallet) — the default
  * everywhere — or a devnet season's (`devnetLane`). Paths, schemas, the cluster the identity must name, the Season id

@@ -63,6 +63,12 @@ pub struct LandIndex {
     pub provinces: BTreeSet<(i16, i16)>,
     /// P9: wide provinces `(P, Q)` named by an accounted PSW1 record (the `wide-resolve` role's set).
     pub wide_provinces: BTreeSet<(i64, i64)>,
+    /// devnet-territory-dev (`playable-lane`): the wide provinces named by a
+    /// SUCCESSFUL WideClaimTile (0xDA op 7) of this program in the feed —
+    /// the provinces that may hold a territory record (the `territory`
+    /// role's decay and conquest candidates; [`crate::territory::claimed_provinces`]).
+    /// A hint only: the role reads each record before it plans.
+    pub territory_provinces: BTreeSet<(i64, i64)>,
     /// Records ingested, by kind (status).
     pub counts: BTreeMap<&'static str, u64>,
     /// Records that did not decode.
@@ -180,6 +186,9 @@ impl LandIndex {
             self.feed.account_wide(&bodies.wide);
             self.wide_provinces
                 .extend(bodies.wide_provinces.iter().copied());
+            #[cfg(feature = "playable-lane")]
+            self.territory_provinces
+                .extend(crate::territory::claimed_provinces(tx, &addrs.program));
             // (P10: an expedition's settlement may raise its rim Holding's `pool_owed` with no TRANSIT_SETTLED)
             for f in &bodies.expedition {
                 if let crate::feedguard::ExpeditionFact::Settled { holding, .. }

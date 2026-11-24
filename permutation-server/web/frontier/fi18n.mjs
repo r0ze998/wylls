@@ -415,6 +415,10 @@ const CLIENT_TEXT = {
   LocalActProvinceAbsent: () => L`この州はまだ開かれていません。開かれるまで村は出せません。送っていません。`,
   // (devnet-p17: a wide village's own acts on the devnet page — the page's refusals before anything is signed)
   WideVillageStale: () => L`確認の内容が古くなりました。もう一度「費用を確認」を押してください。`,
+  // (devnet-territory-dev: the tile claim on the devnet page — the page's refusals before anything is signed)
+  TileUnpaid: () => L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。食料が貯まると、また取れます。`,
+  TileOre: () => L`本拠地の鉱石が足りないので、このマスは取れません。`,
+  TileProvinceAbsent: () => L`この州はまだ開かれていません。開かれるまでマスは取れません。送っていません。`,
   WideVillageUnread: () => L`遠方の村の記録をまだ読めていません。少し待ってからもう一度押してください。`,
   WideVillageNotLive: () => L`この遠方の村は、いま命令を受けられる状態ではありません。`,
   WideVillageTroops: () => L`軍勢は 100〜30,000 の兵で編成します。`,

@@ -88,3 +88,8 @@ export const devnetOutpostOn = dp => !!dp?.lane?.names?.includes?.('FileOutpost'
  * WideTrain and WideMuster, all four (the gateway listed them; flocalplay-act.mjs devnetLane takes them only together).
  */
 export const devnetWideVillageOn = dp => ['WideHarvest', 'WideBuild', 'WideTrain', 'WideMuster'].every(n => !!dp?.lane?.names?.includes?.(n));
+/**
+ * (devnet-territory-dev) Whether this devnet play carries the single-tile claim of a territory world (the gateway listed
+ * TerritoryClaim: its world runs the program of #206/#209 — tiles, villages on own tiles, the nation-land reach witness).
+ */
+export const devnetTerritoryOn = dp => !!dp?.lane?.names?.includes?.('TerritoryClaim');

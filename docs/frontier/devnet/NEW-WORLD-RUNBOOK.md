@@ -1,10 +1,32 @@
-# Devnet: program upgrade + the NEW world (DRAFT, 2026-11-24, devnet-new-world-plan)
+# Devnet: program upgrade + the NEW world (DRAFT, 2026-11-24, devnet-new-world-plan; territory steps 2026-11-25, devnet-territory-dev)
 
 Owner decisions this follows (STATE.md): 12:07 U2 postpone the world creation and create it **after** the new rules
 (#206 neutral wide land + reach from the nation's land, #209 player territory with the 13:15 numbers) are merged and the
 devnet program is upgraded, with **all wide land unowned**; 12:07 U3 no ReleaseDormant; Q-4 the devnet upgrade is
 approved (devnet only, **never 01:30–03:30 JST**); player-facing text never says "season" ("season" below is the
 on-chain name only). Nothing in this file has been run on devnet. Every send needs r0ze's confirmation (§3).
+
+**Later owner decisions (authoritative):** NWP-1 (19:28) world 2 aborted for its bond (done 11-24); NWP-2 create world 3
+**only after territory is playable on devnet** (keeper A runs upkeep/decay, the devnet page sends claims) **and r0ze
+re-confirms right before the create**; NWP-3 after the upgrade move ≈2 SOL deployer → authority; NWP-4 on-chain id 3;
+23:58 item 7: the wallet signing text change (fsession.mjs "World: N", #219) **must be merged before world 3 is
+created**. The ordered checklist is §0a.
+
+## 0a. The order, start to finish (devnet-territory-dev)
+
+| Step | What | Who / gate | Notes |
+|---|---|---|---|
+| 0 | #219 (signing text "World: N") merged; this PR (keeper `territory` role, devnet tile claim) merged; P18 re-run on the merge commit | CI + independent verify | §1 |
+| 1 | Build the `.so` on the merge commit M: `scripts/build-frontier-devnet-playable-sbf.sh --twice` → sha256 **H**, so_len | anyone | main ca317418 (this PR does not change the program): **H = 31acbb59757f0c9fe52ca3a6fbda73f76ac957d5be2aef0a8a113843916819e7**, 3,517,472 B, program_hash 3ee8f824…59fd (single build; take H from `--twice` on M) |
+| 2 | Read devnet: SIMD-0500 inactive, SIMD-0433 state, deployer and authority balances, rent rate | read-only (B5) | §1.3, §1.4 |
+| 3 | Upgrade in place **[R2: "upgrade OK H"]** | r0ze; never 01:30–03:30 JST; devnet only, never `--final` | §4. Peak ≈ (128+37+3,517,472)×5,080 = **17.870 SOL** + ≈0.04 fees, back when it lands; deployer 23.649 SOL (11-24) |
+| 4 | Move ≈2 SOL deployer → authority (NWP-3) **[R5]** | r0ze | `solana transfer --from ~/wylls-devnet-keys/deployer.json 7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA 2 --fee-payer ~/wylls-devnet-keys/deployer.json --url https://api.devnet.solana.com --commitment confirmed` (authority 57.628 SOL vs the plan's 57.1397: margin 0.49 → ≈2.49) |
+| 5 | Switch herald / gateway / keeper A binaries to M (still no world 3) | R4 | §6; keeper A with role `territory` |
+| 6 | Announce world 3 **[R3: params hash P + H]**, between ≈09:00 and 22:00 JST | r0ze | §5; tell players ≥ 24 h ahead (the program's lead: CreateSeason opens at t_create_min = announce + 24 h + 300 s) |
+| 7 | **r0ze re-confirms the create** (NWP-2) — with P18's evidence and the live page/keeper status | r0ze | nothing is sent without it |
+| 8 | CreateSeason, InitBeaconLogs, InitShards ×6 (driver at T+90), keeper A seeds, WideSetRules NeutralTerritoryV1 | driver / operator | §6.1 |
+| 9 | Join check from the page; the first tile claim from the page (preview, then sign); keeper A's `/v1/status` `territory.landed["territory-settle"]` grows every bell | anyone | §6.6 |
+
 
 The commands are the existing runbook's (DEVNET-DEPLOY-RUNBOOK.md §5, §6b, §8) with the new world's profile
 `scripts/devnet/devnet-new-world-profile.json`; only what differs is spelled out.
@@ -13,14 +35,14 @@ The commands are the existing runbook's (DEVNET-DEPLOY-RUNBOOK.md §5, §6b, §8
 
 | Piece | Today (live) | New world |
 |---|---|---|
-| Program `GGFRJr9d…` | `.so` 67a33c92…06b3 (3,447,064 B), ProgramData max_len 4,308,992 | upgraded in place to the build of merged main with #206 + #209 (sha256 **H**, taken from `--twice` on that commit). At territory-q2 a671926d: eb66d974…2e24, 3,514,376 B — fits max_len, **no extend** |
+| Program `GGFRJr9d…` | `.so` 67a33c92…06b3 (3,447,064 B), ProgramData max_len 4,308,992 | upgraded in place to the build of merged main with #206 + #209 (sha256 **H**, taken from `--twice` on that commit). On main ca317418 (devnet-territory-dev, single build): **31acbb59…19e7, 3,517,472 B** — fits max_len (791,520 B spare), **no extend** |
 | Season (on-chain) | 2: Announced 11-24 02:15, never created (`47GBAC71…`) | **3** (`5iDH2fZy6jstCpHRvnVxAKY5xqnS63ohAyayvVNPLBHJ`), preset `S1_DEVNET_TERRITORY`, a new AnnounceSeason + the 24 h lead |
 | Preset | `S1_DEVNET_WIDE_CONTINUOUS` (params hash f63f0b36…) | `S1_DEVNET_TERRITORY` = the same with `release_after_secs = u32::MAX` (U3). Another params hash (50edfaaa… at a671926d) → Season 2 can **not** be created with it (CreateSeason compares the hash) |
 | WideSetRules | `keep_holder MixedInterleaved(1)`, config v2 | `keep_holder NeutralTerritoryV1(4)`, config v3 (every wide keep unowned, 50 troops; player territory) — from the profile's `wide.keepHolder` |
 | frontier-operator | hard-coded MixedInterleaved | reads `wide.keepHolder`; refuses `S1_DEVNET_TERRITORY` / byte 3 / byte 4 until #206/#209 are in its build |
-| keeper A | 3be56cba binary, `season = 2` | binary from merged main (#192 back-off + #206/#209), `season = 3`; a territory duty (§6, gap G1) |
+| keeper A | 3be56cba binary, `season = 2` | binary from merged main (#192 back-off + #206/#209), `season = 3`, role **`territory`** (devnet-territory-dev: upkeep settle every bell, decay, conquest transfer) |
 | herald | `--season 2 --data herald-2` | `--season 3 --data herald-3`, binary from merged main |
-| gateway | not started (waits for season 2's rulesetHash) | `--season 3`, new ruleset hash, page/gateway source = merged main |
+| gateway | not started (waits for season 2's rulesetHash) | `--season 3`, new ruleset hash, page/gateway source = merged main; its devnet act list carries **TerritoryClaim** (wallet-paid tile claim; context names the records' rent) |
 | health monitor | season 2 / postponed mode | season 3 PDA, t_create_min from chain, driver/keeper season 3 |
 
 ## 1. Before anything: what must be true
@@ -28,14 +50,21 @@ The commands are the existing runbook's (DEVNET-DEPLOY-RUNBOOK.md §5, §6b, §8
 1. #206 and #209 merged to main, CI green, independently verified with a play-through (merge rule). Their open owner
    questions answered (t497u). Note the merged commit **M**.
 2. Gaps closed or knowingly accepted by r0ze (from devnet-new-world-plan, as of territory-q2 a671926d):
-   - **G1 keeper:** the territory cranks (WideTerritorySettle / Decay / Conquer, 0xDC ops 12–14) have builders in
-     `keeper::widelane::territory` but **no keeper role sends them**. On devnet only keeper A cranks; without a role,
-     upkeep, decay and conquest transfer never happen. Needed before CreateSeason.
-   - **G2 page (devnet path):** `devnet-play-act.mjs` `DEVNET_ACT_COMMANDS` has no territory tile claim
-     (0xDA op 7 WideClaimTile). Without it a devnet player cannot claim tiles.
-   - **G3 herald:** the herald must serve the territory accounts to the page (not checked here).
-   - **G4 verifier:** `verify` does not know WideClaimTile or the territory ops yet (UNVERIFIABLE at best; ⑪ is after the
-     first playable devnet, so not a creation blocker).
+   - **G1 keeper — closed in code (devnet-territory-dev, keeper role `territory`, `keeper/src/territory.rs`):** once
+     a bell it settles every known Citizen's territory upkeep (0xDC op 12), decays unpaid land past 24 bells, farthest
+     first, one a bell (settle alone, then settle + op 13), and moves a captured province's tiles to the captor (settle
+     both + op 14; village tiles stay). Players from the JOIN records; provinces from every landed WideClaimTile in the
+     feed. #192 refusal back-off applies; `/v1/status` → `territory` counters. Proven offline in operator_playable
+     **P18** on the new `.so` (§0a).
+   - **G2 page — closed in code:** the gateway's `DEVNET_ACT_COMMANDS` carries `TerritoryClaim`; the page's wide claim
+     card on a devnet territory world shows 「1マス取る」 and previews ore + SOL before the wallet signs (P18).
+   - **G3 herald — checked in P18:** the page reads a province's territory facts (site tiles, keep tile, the
+     territory byte) from the herald's wide route captures; the territory records themselves are read through the
+     gateway's territory context (rent, presence, tiles). No herald change was needed.
+   - **G4 verifier — still open:** `verify` does not know WideClaimTile or the territory ops yet (UNVERIFIABLE at best;
+     ⑪ is after the first playable devnet, so not a creation blocker).
+   - **#219** (wallet signing text "World: N") must be merged before world 3 is created — owner 23:58 item 7: merged
+     11-25 03:41 JST (6b5409ec).
 3. Read devnet's feature state (read-only, 4.x CLI; B5): **SIMD-0500** `B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g`
    must be **inactive** (the `.so` is SBPF v2; active = the upgrade is refused: blocker, r0ze). **SIMD-0433**
    `EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy` decides whether the upgrade shrinks ProgramData (§4).
@@ -139,10 +168,12 @@ $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha2
    `keeper-a/keeper.toml` check `season = 3`; `CREATE_AT=T` (the chain's t_create_min from step 5, not a guess);
    `H=` the new sha; `OP=` the operator built from M; `--profile …/devnet-new-world-profile.json`; record
    `season-3.jsonl`. It sends at T+90, starts keeper A, re-runs until WideSetRules (exit 0).
-2. **keeper A:** binary from M with `--features playable-lane` (#192 back-off; territory duty once G1 lands);
-   `keeper.toml`: `season = 3`, everything else as today (payer keys do not depend on the season id: the funded
-   funders and `delay_floor = 50000000` stay). Add the territory role to the profile's `services.keeperA.roles` and
-   to `preflight-checks.mjs RUNBOOK_KEEPER_ROLES` in the same PR as G1.
+2. **keeper A:** binary from M with `--features playable-lane` (#192 back-off; the `territory` role);
+   `keeper.toml`: `season = 3`, `roles = [… the runbook's 16 …, "territory"]` (the profile's `services.keeperA.roles`;
+   `preflight-checks.mjs keeperRolesFor` requires it for S1_DEVNET_TERRITORY), optional `territory_settle_bells = 1`
+   and `territory_per_bell = 24` (the defaults); everything else as today (payer keys do not depend on the season id:
+   the funded funders and `delay_floor = 50000000` stay). Watch `/v1/status` → `territory` (`landed`, `refused`,
+   `unpaid`, `tiles`).
 3. **herald:** binary from M (`--features land-preview,wide-world-experimental,expedition-records-experimental`),
    `--season 3 --data herald-3` (a new data dir); it answers NoSeasonYet until CreateSeason lands. Switch it after
    step 5 (announce), before T. Page source = M (the herald serves `--web` by path: the src-dir swap of

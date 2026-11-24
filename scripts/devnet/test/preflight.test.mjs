@@ -165,7 +165,8 @@ test('profile: wrong cluster, lane, roles, rings duty, same address twice, bad b
     assert.equal(byId(checkProfile(q), 'profile.shape').status, 'PASS', preset);
   }
   // devnet-new-world-plan: the new world's preset needs a neutral keep holder; unknown / OrbitBalanced are refused
-  const t = filled(); t.season.preset = 'S1_DEVNET_TERRITORY';
+  // devnet-territory-dev (verify-pr221): that world's keeper A also runs `territory` (keeperRolesFor)
+  const t = filled(); t.season.preset = 'S1_DEVNET_TERRITORY'; t.services.keeperA.roles = [...t.services.keeperA.roles, 'territory'];
   assert.match(byId(checkProfile(t), 'profile.shape').detail, /S1_DEVNET_TERRITORY needs Neutral or NeutralTerritoryV1/);
   for (const k of ['Neutral', 'NeutralTerritoryV1']) {
     t.wide = { keepHolder: k };
