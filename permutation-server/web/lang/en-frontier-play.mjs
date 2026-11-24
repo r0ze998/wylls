@@ -818,7 +818,7 @@ export default {
   '進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。': 'How a march fights. Assault beats Flank, Flank beats Brace and Brace beats Assault; Hold has no edge either way.',
   '撤退の倍率': 'Retreat ratio',
   '守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。': 'If the defenders outnumber your host by more than this ratio, it turns back without a fight (no loss).',
-  'ひらいた土地をとりまく州の輪です。ターンが進むと、その外側に新しい輪がひらきます。': 'The rings of provinces around the opened land. As the season goes on, a new ring opens beyond them.',
+  'ひらいた土地をとりまく州の輪です。ターンが進むと、その外側に新しい輪がひらきます。': 'The rings of provinces around the opened land. As the turns go by, a new ring opens beyond them.',
   '村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。': 'The defenders who stay in a village. Those present when the turn began are counted, and they strike back at attackers; walls make them stronger.',
   '集落・町・都市・城塞の四つです。上がるほど生産と守りが増えます。': 'There are four: Hamlet, Town, City, Stronghold. Each step raises production and defence.',
   // ---- what is happening on a tile (people/activity.mjs): a march on the road names its owner; a sealed destination is never said

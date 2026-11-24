@@ -1090,7 +1090,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .choice-k { font-size: var(--t2); }
 .link-row { font-size: var(--t2); }
 .cost-list { display: grid; gap: var(--s1); font-size: var(--t1); line-height: 1.5; }
-.cost-list li { display: grid; grid-template-columns: 3.4em 1fr; gap: var(--s2); }
+.cost-list li { display: grid; grid-template-columns: minmax(3.4em, max-content) 1fr; gap: var(--s2); }
 .cost-list span { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 /* a fold that holds a whole document of another module: its own heading is the fold's line */
 .fold-doc > .fold-body > section > h3:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
