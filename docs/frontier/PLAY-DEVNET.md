@@ -79,7 +79,7 @@ Good to know:
 - Every march spends 74 stamina and stamina returns 1 per turn (the cap is 120), so the same host waits about
   28 turns (about 4 hours 40 minutes) before its next march.
 - For the first while, first villages are placed in the heartland. A rim village can be requested once the map has
-  grown out to the rim (about 21 hours after the start, expected **about 2026-11-25 17:00 JST**). Wide-land requests
+  grown out to the rim (about 21 hours after the start, expected **about 2026-11-26 00:00 JST**). Wide-land requests
   come after that.
 - A second village or a wide-land village takes a day or more of harvests (a second village, on the wide land:
   food 800, wood 800, stone 400, gold 200).
