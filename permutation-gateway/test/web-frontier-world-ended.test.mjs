@@ -187,3 +187,18 @@ test('a kept world the launcher no longer runs is PAUSED: progress saved, play c
   assert.equal(worldEndedWord({ kept: true }), '一時停止'); assert.equal(chipText(chip), 'ターン 26 · 一時停止');
   setLang('en');
 });
+
+// The start page of a KEPT launcher (persist=local): its list's key stops a world, it does not end it (seen live,
+// world-wording: after "End it" the same start press said "The kept world was resumed").
+test('a kept launcher\'s start page says "stop" (progress saved, a start resumes), never "end … cannot be undone"', async () => {
+  const gate = read('flocalplay.mjs');
+  assert.match(gate, /      if \(persisted\) \{\n        r\.end\.textContent = L`この世界を止める…`; r\.yes\.textContent = L`止める`;\n        r\.ask\.textContent = L`この世界を止めますか？ 進行は保存され、「世界を開始」を押すと続きから再開できます。止まっているあいだ、この世界で遊んでいるページは続けられません。`;\n      \}/);
+  assert.match(gate, /s\.phase === 'stopping' && persisted \? L`選んだ世界を止めています…`/);
+  assert.match(gate, /s\.ended && persisted \? L`世界を止めました。進行は保存されています。その世界は、同じブラウザで「世界を開始」を押すと続きから再開します。`/);
+  assert.match(gate, /s\.listed > 0 && persisted \? L`動いている世界は\$\{s\.listed\}個です。止める世界があれば、下の一覧のその行で選べます。`/);
+  const { EN } = await import('../../permutation-server/web/lang.mjs');
+  assert.equal(EN['この世界を止める…'], 'Stop this world…'); assert.equal(EN['止める'], 'Stop it');
+  assert.equal(EN['この世界を止めますか？ 進行は保存され、「世界を開始」を押すと続きから再開できます。止まっているあいだ、この世界で遊んでいるページは続けられません。'], 'Stop this world? Its progress is saved, and pressing "Start the world" resumes it from where it stopped. While it is stopped, a page playing in this world cannot continue.');
+  assert.equal(EN['世界を止めました。進行は保存されています。その世界は、同じブラウザで「世界を開始」を押すと続きから再開します。'], 'The world was stopped. Its progress is saved: pressing "Start the world" in the same browser resumes it from where it stopped.');
+  assert.equal(EN['動いている世界は{0}個です。止める世界があれば、下の一覧のその行で選べます。'](1), '{0} world is running. To stop it, use its row in the list below.');
+});

@@ -674,6 +674,12 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
     for (const r of rows) {
       r.end.textContent = L`この世界を終了…`; r.yes.textContent = L`終了する`; r.no.textContent = L`やめる`;
       r.ask.textContent = L`この世界を終了しますか？ 元に戻せません。この世界で遊んでいるページは、続けられなくなります。`;
+      // (owner decision 2026-11-24, LP14-1: a KEPT world is not ended by this press — its launcher stops it, its progress
+      //  stays on disk and a start resumes it — so the key and its question say "stop", not "end … cannot be undone")
+      if (persisted) {
+        r.end.textContent = L`この世界を止める…`; r.yes.textContent = L`止める`;
+        r.ask.textContent = L`この世界を止めますか？ 進行は保存され、「世界を開始」を押すと続きから再開できます。止まっているあいだ、この世界で遊んでいるページは続けられません。`;
+      }
     }
     if (ticking !== null) tick();
   };
@@ -728,10 +734,13 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, onFor
       if (!greeted && idle) { greeted = true; button.focus?.(); }
       before = s.phase;
       const said = () => s.phase === 'creating' ? L`試験用ウォレットを作っています…`
+        : s.phase === 'stopping' && persisted ? L`選んだ世界を止めています…`
         : s.phase === 'stopping' ? L`選んだ世界を終了しています…`
         : s.phase === 'listing' ? L`動いている世界を確認しています…`
         : s.phase === 'waiting' && launcher && s.listed === 0 ? L`動いている世界はありません。`
+        : s.phase === 'waiting' && launcher && s.listed > 0 && persisted ? L`動いている世界は${s.listed}個です。止める世界があれば、下の一覧のその行で選べます。`
         : s.phase === 'waiting' && launcher && s.listed > 0 ? L`動いている世界は${s.listed}個です。終了する世界があれば、下の一覧のその行で選べます。`
+        : s.phase === 'waiting' && launcher && s.ended && persisted ? L`世界を止めました。進行は保存されています。その世界は、同じブラウザで「世界を開始」を押すと続きから再開します。`
         : s.phase === 'waiting' && launcher && s.ended ? L`世界を終了しました。「新しい世界を開始」をもう一度押すと、新しい世界を用意します。`
         : s.phase === 'waiting' && launcher && persisted ? L`「世界を開始」を押すと、保存された世界があれば続きから、なければ新しく準備します。送信や署名はゲーム中に自分で確認します。`
         : s.phase === 'waiting' && launcher ? L`「新しい世界を開始」を押すと準備します。送信や署名はゲーム中に自分で確認します。`

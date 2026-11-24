@@ -184,7 +184,7 @@ scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
 3. With both there, one world starts; each picks a nation and places a village.
 - `--resume` brings the same two back (`--two` is not needed). Open it in the same browser at the same address as before.
 - A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
-- When either presses "End this world…" it stops for both. A third person cannot join. `--wide` is for one person.
+- When either presses "End this world…" (a kept world: "Stop this world…") it stops for both. A third person cannot join. `--wide` is for one person.
 
 ## 4. Check the wide land (`--wide`, about 60–90 minutes)
 

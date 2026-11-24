@@ -1576,6 +1576,13 @@ export default {
   '{0}分前に開始・{1}': 'Started {0} min ago · {1}',
   // (the explicit end of one world: the row's key only asks; "End it" ends it, "Cancel" takes the question back)
   'この世界を終了…': 'End this world…',
+  // (a kept world is stopped, not ended: its progress is saved and a start resumes it — owner decision 2026-11-24, LP14-1)
+  'この世界を止める…': 'Stop this world…',
+  '止める': 'Stop it',
+  'この世界を止めますか？ 進行は保存され、「世界を開始」を押すと続きから再開できます。止まっているあいだ、この世界で遊んでいるページは続けられません。': 'Stop this world? Its progress is saved, and pressing "Start the world" resumes it from where it stopped. While it is stopped, a page playing in this world cannot continue.',
+  '選んだ世界を止めています…': 'Stopping the chosen world…',
+  '世界を止めました。進行は保存されています。その世界は、同じブラウザで「世界を開始」を押すと続きから再開します。': 'The world was stopped. Its progress is saved: pressing "Start the world" in the same browser resumes it from where it stopped.',
+  '動いている世界は{0}個です。止める世界があれば、下の一覧のその行で選べます。': n => plural(n, '{0} world is running. To stop it, use its row in the list below.', '{0} worlds are running. To stop one, use its row in the list below.'),
   'この世界を終了しますか？ 元に戻せません。この世界で遊んでいるページは、続けられなくなります。': 'End this world? This cannot be undone. A page playing in this world will not be able to continue.',
   '終了する': 'End it',
   '選んだ世界を終了しています…': 'Ending the chosen world…',
