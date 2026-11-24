@@ -514,14 +514,14 @@ test('from the event of step 1 AND cited: one mark says both, the verdict says s
   assert.match(textOf(en), /not that the choice rested on it/);
   assert.doesNotMatch(textOf(en).replace('I must muster my reserve into a host.', ''), NO_CAUSE);
   // step 3: the bundle's candidates, said to be from the season-end publication; step 4: the muster transaction, no march
-  assert.match(textOf(byClass(en, 'trace-step-3')[0]), /The candidates come from the season-end publication/);
+  assert.match(textOf(byClass(en, 'trace-step-3')[0]), /The candidates come from the publication made when the world ended/);
   assert.match(textOf(byClass(ja, 'trace-step-3')[0]), /候補は世界の終了時の公開物（終了後に公開）によるものです。/);
   assert.match(textOf(byClass(en, 'trace-step-3')[0]), /c5 Muster 200 spearman into a new armychosen.*Chose: c5 Muster 200 spearman into a new army · goal G1Parameters: c5: share 50/);
   assert.match(textOf(byClass(en, 'trace-step-4')[0]), /muster sent .*This decision sent no march\./);
   // without the bundle the same record says the list is not published, and claims no source
   const bare = renderTrace(ctxOf('en'), buildTrace({ rec, opened: null, minds: [rec], episodes: episodes(), herald: heraldOf(DEPART_ROW), events: eventsOf(departEvent(T.human)), index }));
   assert.match(textOf(bare), /The candidate list is not published for this record\./);
-  assert.doesNotMatch(textOf(bare), /season-end publication/);
+  assert.doesNotMatch(textOf(bare), /publication made when the world ended/);
   // an opened march keeps its own candidates (the bundle is not laid over them)
   assert.equal(buildTrace({ rec: rec0(), opened: op0(), full: fullDecision(), minds: [rec0()], episodes: episodes(), index }).fromBundle, false);
 });
