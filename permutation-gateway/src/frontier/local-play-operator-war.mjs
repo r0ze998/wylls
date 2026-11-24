@@ -76,15 +76,20 @@ export function orderableHosts(hosts, { nowBell, departStamina, holdingKey = () 
  * troops, route, origin: {host, troops}, defend?}`) for the orderable hosts. Defence first (nearest), then the attack
  * with the best (strength score, −travel time, p, q). `taken(row)`: a keep another of this resident's hosts is already
  * marching on or holding (never doubled).
+ * (flag-keeps-ai, F4) `weights`: Map "p,q" → `{goal, bonus}` from local-play-operator-goals.mjs flagWeights (only what
+ * the resident's nation sees): a 'defend-flag' keep is defended before other keeps; an attack's score gets the bonus.
+ * The attack's safety (strongEnough) is never weighted. The answer names the `goal` when a weight decided it.
  */
-export function chooseMarch(rows, { taken = () => false } = {}) {
+export function chooseMarch(rows, { taken = () => false, weights = null } = {}) {
   const ok = (rows ?? []).filter(r => r && r.origin && !taken(r));
-  const defend = ok.filter(r => r.defend).sort((a, b) => a.route.secs - b.route.secs || a.p - b.p || a.q - b.q);
-  if (defend.length) return Object.freeze({ kind: 'defend', row: defend[0] });
+  const w = r => weights?.get?.(`${r.p},${r.q}`) ?? null;
+  const flagDefence = r => (r.defend && w(r)?.goal === 'defend-flag' ? 0 : 1);
+  const defend = ok.filter(r => r.defend).sort((a, b) => flagDefence(a) - flagDefence(b) || a.route.secs - b.route.secs || a.p - b.p || a.q - b.q);
+  if (defend.length) return Object.freeze({ kind: 'defend', row: defend[0], ...(flagDefence(defend[0]) === 0 ? { goal: 'defend-flag' } : {}) });
   const attack = ok.filter(r => !r.defend && strongEnough(r.origin.troops, r.troops))
-    .map(r => ({ r, s: strengthScore(r.origin.troops, r.troops) }))
+    .map(r => { const g = w(r); const bonus = g && g.goal !== 'defend-flag' ? g.bonus : 0; return { r, s: strengthScore(r.origin.troops, r.troops) + bonus, g: bonus ? g.goal : null }; })
     .sort((a, b) => b.s - a.s || a.r.route.secs - b.r.route.secs || a.r.p - b.r.p || a.r.q - b.r.q);
-  return attack.length ? Object.freeze({ kind: 'attack', row: attack[0].r, score: attack[0].s }) : null;
+  return attack.length ? Object.freeze({ kind: 'attack', row: attack[0].r, score: attack[0].s, ...(attack[0].g ? { goal: attack[0].g } : {}) }) : null;
 }
 
 /**
@@ -102,7 +107,7 @@ export function warStep(war) {
     if (war.march || wantsMuster) return Object.freeze({ wait: true, why: 'the village\'s province has not settled this turn: holding the turn for the ' + (war.march ? 'march' : 'muster') });
     return !war.refused?.Train && (war.reserve ?? 0) < MUSTER_MIN * 2 ? Object.freeze({ name: 'Train', n: TRAIN_BATCH }) : null;
   }
-  if (war.march) return Object.freeze({ name: 'Depart', kind: war.march.kind, row: war.march.row });
+  if (war.march) return Object.freeze({ name: 'Depart', kind: war.march.kind, row: war.march.row, ...(war.march.goal ? { goal: war.march.goal } : {}) });
   const room = (war.hostCount ?? 0) < MAX_HOSTS;
   const musterable = Math.max(0, (war.reserve ?? 0) - KEEP_BACK);
   if (room && musterable >= MUSTER_MIN && !war.refused?.Muster) return Object.freeze({ name: 'Muster', troops: musterable });

@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-24 (through #207). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-24 (through #207, and #203). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -12,7 +12,7 @@ The world is continuous: there are no seasons and no season end. Only the test w
 New since the last refresh (#187): a march whose answer never came is now answered, and the guide no longer counts it
 (#193, #200 → §3 step 6); the keep list of a fresh 1× world, the guide after `--resume`, the boundary card's road (#195
 → §3 step 6, §4 step 3, §6); the wide land shows whose it is and expedition columns walk their road (#197 → §4); the
-"World goals" card and the flag keeps (#198 → §14); English text fixes (#207). #201 and #202 changed documents and the
+"World goals" card and the flag keeps (#198 → §14); the AI residents weigh the flag keeps (#203 → §14); English text fixes (#207). #201 and #202 changed documents and the
 prize program only: a `play-local.sh` world pays nothing (§7, §14). What is left: §8. The devnet playable version:
 [PLAY-DEVNET.md](PLAY-DEVNET.md).
 
@@ -443,9 +443,9 @@ not in this guide. #179 (the verifier reads declared patches), #180 (the operato
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local test world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-24, main through #207)
+## 8. Known problems (2026-11-24, main through #207 and #203)
 
-### 8.1 Still on main (after #207)
+### 8.1 Still on main (after #207 and #203)
 
 Everything loop-play6 … 12 found (LP6 … LP12) is fixed on main, with these exceptions, all in the table and notes below:
 the cause of one Ctrl-C that did not stop a world (LP6-3), the lag under load (LP8-4), the late "W2" button seen once
@@ -936,9 +936,19 @@ reinforcement is 1 point per 100 troops on the keep). Operator AI residents earn
 turns) before the achievement gets nothing for that round. Nothing is paid, nothing is sent, and the chain is not
 changed: the prize program's goals pool (#202, test USDC only) is not connected to `play-local.sh`.
 
-In a local world only ring 1 keeps are contestable (rings 2–3 are heartland), so each nation has **one** flag keep: 6
-flags, need 3 (loop-play13's `--wide` world: 12 flags, need 6). The card writes times in chain hours, so at ×60
-"42 turns (7 h) left" is 7 real minutes. The AI residents do not aim at flag keeps on purpose; they take them as any
-other keep. For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
+In a local world rings 2–3 are heartland and round 1 is posted at the start, before ring 4 opens, so the only
+contestable keeps then are ring 1's: each nation has **one** flag keep, 6 flags, need 3 (when ring 4 opens — in one
+×60 run by turn 13, in another not by turn 60 — its 24 keeps are contestable, without a flag; a later round is chosen
+from the keeps open at its posting; loop-play13's `--wide` world had 12 flags, need 6). The card writes times in chain
+hours, so at ×60 "42 turns (7 h) left" is 7 real minutes. For a quick try, use the TEST overrides `--flag-keeps-need N` and `--flag-keeps-hold N` (turns). For
 example `scripts/play-local.sh --demo --ai 0 --flag-keeps-need 2 --flag-keeps-hold 72`: capture one neighbouring flag keep
 (72 turns), then hold it 72 more turns.
+
+**AI residents and the flag keeps.** With `--ai N` (at war) the AI residents read the same "World goals" card as a player
+of their nation, under the same fog: the posting and every nation's count, and each flag keep's holder and siege only
+where their own villages, hosts and their nation's held provinces see it (never the judge's live answer for a keep they
+cannot see). They defend their nation's flag keep under siege before any other keep, and march first on a flag keep held
+by a nation that holds the need minus one or more (still only with 1.5× the keep's garrison). Otherwise a flag keep they
+see only wins a near tie. A resident with one march already on a flag keep gets no more of that tie-break (two for a
+close rival's flags), so its other hosts fight the ordinary war. Once ring 4 is open its keeps are contestable too
+but carry no flag in round 1, and the AI residents keep fighting over them. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.
