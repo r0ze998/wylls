@@ -365,6 +365,14 @@ jobs:
       - name: Program host tests (wide claim reach, neutral wide land)
         if: hashFiles('permutation-frontier/Cargo.toml') != ''
         run: cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::wide_claim_reaches_from_the_nations_land_not_only_from_home map_growth_runtime_tests::wide_land::wide_land_opens_unowned_under_the_neutral_rule --exact
+      # territory-impl (owner 2026-11-24 12:09 T-1..T-8, E-Q1, U3): the player-territory flow through the real dispatch
+      # (tile claims, upkeep, decay, villages on own tiles, conquest transfer, no idle-home release), single-threaded
+      # (the harness shares the test clock), and the territory model of frontier-abi.
+      - name: Program host tests (player territory)
+        if: hashFiles('permutation-frontier/Cargo.toml') != ''
+        run: |
+          cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::territory_tests --test-threads=1
+          cargo test --locked -p frontier-abi --features world-index-experimental --lib -- world_index::territory world_index::rules world_index::land
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
       # The LiteSVM harness itself (67k lines of tests) was formatted and linted
@@ -428,6 +436,7 @@ jobs:
       - name: Lints with the preview features
         run: |
           cargo clippy --locked -p permutation-rules --features capacity-preview --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-rules --features std,territory-preview --all-targets -- -D warnings
           cargo clippy --locked -p frontier-abi --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features custody-preview --all-targets -- -D warnings
@@ -437,6 +446,8 @@ jobs:
       - name: Host tests with the preview features
         run: |
           cargo test --locked -p permutation-rules --features capacity-preview
+          # territory preview (owner Q-2): the kernel and its committed vectors (the page/AI copy checks the same file)
+          cargo test --locked -p permutation-rules --features territory-preview territory
           cargo test --locked -p frontier-abi --features capacity-preview
           cargo test --locked -p permutation-frontier --features capacity-preview
           cargo test --locked -p permutation-frontier --features custody-preview

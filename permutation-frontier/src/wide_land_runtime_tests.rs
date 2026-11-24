@@ -12152,3 +12152,573 @@ fn wide_land_opens_unowned_under_the_neutral_rule() {
         "a neutral keep gives no reach"
     );
 }
+
+/// **Player territory** (territory-impl, owner decisions 2026-11-24 12:09
+/// JST, T-1 … T-8, E-Q1; U3 12:07) through the real dispatch: a world
+/// configured with the new-world bundle `NeutralTerritoryV1` opens weaker
+/// neutral keeps and plays single-tile claims paid in ore by the first home
+/// (one per turn, first transaction wins, reach from home / own land /
+/// nation land), food upkeep from the first home (unpaid → claims stop →
+/// after 24 turns the farthest tile returns, one per turn), villages only
+/// on one's own tile, and a captured keep moving the province's tiles.
+mod territory_tests {
+    use super::*;
+    use frontier_abi::world_index::land as wl2;
+    use frontier_abi::world_index::territory::{
+        self as wtr, TerritoryPlayer, TerritoryProvince, TERRITORY_V1,
+    };
+
+    fn absent_at(key: [u8; 32], cap: usize) -> AccountInfo<'static> {
+        info(leak(key, SYSTEM, vec![], cap, 0), false, true)
+    }
+
+    struct T {
+        w: Wide,
+        a: Member,
+        b: Member,
+        tprov: HashMap<(i64, i64), AccountInfo<'static>>,
+        tplayer: HashMap<[u8; 32], AccountInfo<'static>>,
+    }
+
+    impl T {
+        fn new() -> T {
+            let mut w = Wide::rim();
+            w.w.fold();
+            assert_eq!(w.request(FIRST_WIDE_RING), Ok(()));
+            w.seed_as_consume_would(FIRST_WIDE_RING, &RING129_SEED);
+            let bundle = (
+                wr::WIDE_RULES_CONFIG_VERSION,
+                KeepHolderRule::NeutralTerritoryV1 as u8,
+                RULES.2,
+                RULES.3,
+                RULES.4,
+            );
+            assert_eq!(w.set_rules(AUTHORITY, bundle), Ok(()));
+            for q in [0i64, -1, -2, -3, -4, -6, -8] {
+                assert_eq!(w.open_province(129, q), Ok(()), "q {q}");
+            }
+            let (home, nation) = off_wedge_province();
+            let a = w.w.member(WALLET_A, nation);
+            assert_eq!(w.w.place_home(&a, home, 0), Ok(()));
+            let template = w.w.holding_data(home, 0);
+            w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+            let b = w.w.member(WALLET_B, (nation + 1) % 6);
+            w.fixture_rim_home(&b, &template, 1, 1_500 * MILLI);
+            records();
+            T {
+                w,
+                a,
+                b,
+                tprov: HashMap::new(),
+                tplayer: HashMap::new(),
+            }
+        }
+
+        fn tprov(&mut self, at: WideCoord) -> AccountInfo<'static> {
+            let key = wtr::province_address(&self.w.w.ctx, at);
+            self.tprov
+                .entry((at.p(), at.q()))
+                .or_insert_with(|| absent_at(key, wtr::territory_province::SIZE))
+                .clone()
+        }
+
+        fn tplayer(&mut self, m: &Member) -> AccountInfo<'static> {
+            let key = wtr::player_address(&self.w.w.ctx, &m.key);
+            self.tplayer
+                .entry(m.key)
+                .or_insert_with(|| absent_at(key, wtr::territory_player::SIZE))
+                .clone()
+        }
+
+        fn tprov_rec(&mut self, at: WideCoord) -> TerritoryProvince {
+            TerritoryProvince::read(&self.tprov(at).try_borrow_data().unwrap()).unwrap()
+        }
+
+        fn tplayer_rec(&mut self, m: &Member) -> TerritoryPlayer {
+            TerritoryPlayer::read(&self.tplayer(m).try_borrow_data().unwrap()).unwrap()
+        }
+
+        fn home(&mut self, m: &Member) -> (AccountInfo<'static>, u8) {
+            let site = if m.key == self.a.key { 0 } else { 1 };
+            (self.w.w.holding(RIM, site), site)
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn claim(
+            &mut self,
+            m: &Member,
+            wallet_key: [u8; 32],
+            at: WideCoord,
+            tile: u8,
+            witness: Option<(u8, AccountInfo<'static>)>,
+        ) -> Result<(), u32> {
+            let (home, _) = self.home(m);
+            let mut accts = vec![
+                wallet(wallet_key, true, false, 0),
+                self.w.w.payer.clone(),
+                self.w.w.season.clone(),
+                m.citizen.clone(),
+                with_writable(&self.w.province(at), false),
+                self.tprov(at),
+                self.tplayer(m),
+                with_writable(&home, true),
+                with_writable(&self.w.w.province(RIM), false),
+                self.w.w.system.clone(),
+            ];
+            let wbyte = witness.as_ref().map_or(0, |(b, _)| *b);
+            accts.extend(witness.map(|(_, ai)| ai));
+            code(run_tx(
+                &accts,
+                &wix::ClaimTile {
+                    p: at.p(),
+                    q: at.q(),
+                    tile,
+                    witness: wbyte,
+                    village: 0,
+                }
+                .to_bytes(),
+            ))
+        }
+
+        fn settle(&mut self, m: &Member) -> Result<(), u32> {
+            let (home, _) = self.home(m);
+            let accts = vec![
+                self.w.w.payer.clone(),
+                self.w.w.season.clone(),
+                self.tplayer(m),
+                with_writable(&m.citizen, true),
+                with_writable(&home, true),
+            ];
+            code(run_tx(&accts, &wix::TerritorySettle.to_bytes()))
+        }
+
+        fn decay(&mut self, m: &Member, at: WideCoord, tile: u8) -> Result<(), u32> {
+            let accts = vec![
+                self.w.w.payer.clone(),
+                self.w.w.season.clone(),
+                self.tplayer(m),
+                self.tprov(at),
+            ];
+            code(run_tx(&accts, &wix::TerritoryDecay { tile }.to_bytes()))
+        }
+
+        /// A tile of `at` that is neither the keep's nor a village site's.
+        fn free_tiles(&mut self, at: WideCoord) -> Vec<u8> {
+            let pd = self.w.province_data(at);
+            let keep = read_keep(&pd).unwrap().map(|k| k.tile);
+            let sites = &pd[PV::SITES..PV::SITES + pd[PV::SITE_COUNT] as usize];
+            (0..61u8)
+                .filter(|t| Some(*t) != keep && !sites.contains(t))
+                .collect()
+        }
+
+        /// The member's first home with no food at `ts` and nothing accruing
+        /// (rate 0, T0 = ts): upkeep cannot be paid.
+        fn starve(&mut self, m: &Member, ts: i64) {
+            let (home, _) = self.home(m);
+            let mut hd = home.try_borrow_mut_data().unwrap();
+            let o = H::store(0);
+            put(&mut hd, o + AC::VALUE, &0i64.to_le_bytes());
+            put(&mut hd, o + AC::RATE, &0i64.to_le_bytes());
+            put(&mut hd, o + AC::T0, &ts.to_le_bytes());
+            put(&mut hd, o + AC::FRAC, &0i64.to_le_bytes());
+        }
+
+        fn store(&mut self, m: &Member, r: usize) -> i64 {
+            let (home, _) = self.home(m);
+            let hd = home.try_borrow_data().unwrap();
+            rd_i64(&hd, H::store(r) + AC::VALUE)
+        }
+    }
+
+    fn rd_i64(d: &[u8], o: usize) -> i64 {
+        i64::from_le_bytes(d[o..o + 8].try_into().unwrap())
+    }
+
+    #[test]
+    fn the_new_world_bundle_opens_weaker_neutral_keeps_with_territory() {
+        let _g = begin();
+        at_bell(1);
+        let mut t = T::new();
+        let pd = t.w.province_data(c(129, 0));
+        let k = read_keep(&pd).unwrap().expect("a wide keep");
+        assert_eq!(k.holder, wr::KEEP_NEUTRAL);
+        assert_eq!(
+            k.troops,
+            t.w.w.cq.keep_home_guard / 2,
+            "E-Q1: half the home guard"
+        );
+        assert_eq!(
+            wl2::territory_rule_of(&pd),
+            Some(Some(wtr::TerritoryRule::V1))
+        );
+        assert!(WideProvince::read(&pd).is_ok());
+    }
+
+    #[test]
+    fn a_tile_claim_is_instant_paid_in_ore_one_per_turn_first_wins() {
+        let _g = begin();
+        let mut t = T::new();
+        t.w.at(2, 10);
+        let (a, b) = (t.a.clone_member(), t.b.clone_member());
+        let target = c(129, 0);
+        let tiles = t.free_tiles(target);
+        let keep_tile = read_keep(&t.w.province_data(target)).unwrap().unwrap().tile;
+        // the keep's tile is never a player's
+        assert_eq!(
+            t.claim(&a, WALLET_A, target, keep_tile, None),
+            Err(E::ReservedSite as u32)
+        );
+        let ore0 = t.store(&a, 3);
+        assert_eq!(t.claim(&a, WALLET_A, target, tiles[0], None), Ok(()));
+        let tag_a = rd_u64(&a.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
+        let rec = t.tprov_rec(target);
+        assert_eq!(rec.owner[tiles[0] as usize], tag_a);
+        assert_eq!(rec.dist[tiles[0] as usize], 1, "rim home to ring 129");
+        let pl = t.tplayer_rec(&a);
+        assert_eq!((pl.tiles, pl.claimed, pl.faction), (1, 1, a.faction));
+        // 10 ore burned (plus the touch's production since the fixture)
+        assert!(t.store(&a, 3) <= ore0 - 10 * MILLI + 60 * MILLI);
+        // one claim per turn
+        assert_eq!(
+            t.claim(&a, WALLET_A, target, tiles[1], None),
+            Err(E::Cooldown as u32)
+        );
+        // first transaction wins: B cannot take A's tile (T-7)
+        assert_eq!(
+            t.claim(&b, WALLET_B, target, tiles[0], None),
+            Err(E::SiteTaken as u32)
+        );
+        assert_eq!(t.claim(&b, WALLET_B, target, tiles[1], None), Ok(()));
+        // next turn: A again; not enough ore refuses
+        t.w.at(3, 10);
+        t.w.set_stores(0, 9 * MILLI);
+        assert_eq!(
+            t.claim(&a, WALLET_A, target, tiles[2], None),
+            Err(E::Insufficient as u32)
+        );
+        t.w.set_stores(0, 1_500 * MILLI);
+        assert_eq!(t.claim(&a, WALLET_A, target, tiles[2], None), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).tiles, 2);
+    }
+
+    #[test]
+    fn reach_runs_from_home_or_own_land_and_a_far_tile_costs_more_upkeep() {
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let mut bell = 2;
+        // (129,-8) is 8 from the rim home: out of reach alone
+        let far = c(129, -8);
+        let ft = t.free_tiles(far)[0];
+        t.w.at(bell, 5);
+        assert_eq!(
+            t.claim(&a, WALLET_A, far, ft, None),
+            Err(CE::OutpostRule.code())
+        );
+        // creep: own land at (129,-3) reaches (129,-6), then (129,-8)
+        for at in [c(129, -2), c(129, -4), c(129, -6), far] {
+            bell += 1;
+            t.w.at(bell, 5);
+            let tile = t.free_tiles(at)[0];
+            let prev = c(at.p(), at.q() + 2);
+            let wit = (
+                wix::CLAIM_TILE_WITNESS_OWN,
+                with_writable(&t.tprov(prev), false),
+            );
+            let r = if at == c(129, -2) {
+                t.claim(&a, WALLET_A, at, tile, None)
+            } else {
+                t.claim(&a, WALLET_A, at, tile, Some(wit))
+            };
+            assert_eq!(r, Ok(()), "{at:?}");
+        }
+        let pl = t.tplayer_rec(&a);
+        assert_eq!(pl.tiles, 4);
+        // distances to the first home: 2, 4, 6, 8 → excess over 3: 1+3+5
+        assert_eq!(pl.excess_sum, 1 + 3 + 5);
+        let v1 = TERRITORY_V1.kernel.upkeep;
+        assert_eq!(
+            pl.upkeep_per_hour(),
+            Some(4 * v1.flat + 9 * v1.per_distance)
+        );
+    }
+
+    #[test]
+    fn unpaid_upkeep_stops_claims_then_the_farthest_tile_returns_one_per_turn() {
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let near = c(129, 0);
+        let mid = c(129, -2);
+        t.w.at(2, 5);
+        let tn = t.free_tiles(near)[0];
+        assert_eq!(t.claim(&a, WALLET_A, near, tn, None), Ok(()));
+        t.w.at(3, 5);
+        let tm = t.free_tiles(mid)[0];
+        assert_eq!(t.claim(&a, WALLET_A, mid, tm, None), Ok(()));
+        // paid: settle takes food
+        t.w.at(9, 5);
+        let food0 = t.store(&a, 0);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert!(t.tplayer_rec(&a).unpaid_since.is_none());
+        assert!(t.store(&a, 0) < food0 + 200 * MILLI);
+        // no food: unpaid since bell 20, claims refused
+        let ts = t.w.at(20, 5);
+        t.starve(&a, ts);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(20));
+        let ts = t.w.at(21, 5);
+        t.starve(&a, ts);
+        let tn2 = t.free_tiles(near)[1];
+        assert_eq!(
+            t.claim(&a, WALLET_A, near, tn2, None),
+            Err(E::NotEligible as u32)
+        );
+        // (verify-pr206-209) a settle just before the claim in the same
+        // second owes nothing, but does not make an empty store paying
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(20));
+        assert_eq!(
+            t.claim(&a, WALLET_A, near, tn2, None),
+            Err(E::NotEligible as u32)
+        );
+        // before 24 unpaid turns: no decay
+        let ts = t.w.at(43, 5);
+        t.starve(&a, ts);
+        assert_eq!(t.settle(&a), Ok(()));
+        // (two settles in one second no longer reset the unpaid clock)
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(20));
+        assert_eq!(t.decay(&a, mid, tm), Err(E::TooEarly as u32));
+        // at 24: the farthest (mid, distance 2) first, not the near one
+        let ts = t.w.at(44, 5);
+        t.starve(&a, ts);
+        // decay needs the settle in this second
+        assert_eq!(t.decay(&a, mid, tm), Err(E::OutOfOrder as u32));
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.decay(&a, near, tn), Err(E::OutOfOrder as u32));
+        assert_eq!(t.decay(&a, mid, tm), Ok(()));
+        assert_eq!(t.tprov_rec(mid).owner[tm as usize], 0);
+        // one per turn
+        assert_eq!(t.decay(&a, near, tn), Err(E::TooEarly as u32));
+        let ts = t.w.at(45, 5);
+        t.starve(&a, ts);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.decay(&a, near, tn), Ok(()));
+        let pl = t.tplayer_rec(&a);
+        assert_eq!((pl.tiles, pl.released), (0, 2));
+    }
+
+    #[test]
+    fn a_lost_first_home_leaves_the_land_unpaid_not_free() {
+        // (verify-pr206-209) a first home that is no longer the bound village
+        // pays nothing: upkeep is unpaid (claims stop, the land decays),
+        // instead of every settle failing and the land staying forever
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let near = c(129, 0);
+        t.w.at(2, 5);
+        let tn = t.free_tiles(near)[0];
+        assert_eq!(t.claim(&a, WALLET_A, near, tn, None), Ok(()));
+        t.w.at(5, 5);
+        {
+            let (home, _) = t.home(&a);
+            let mut hd = home.try_borrow_mut_data().unwrap();
+            hd[H::GEN] = hd[H::GEN].wrapping_add(1);
+        }
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(5));
+        t.w.at(29, 5);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.decay(&a, near, tn), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).tiles, 0);
+    }
+
+    #[test]
+    fn a_village_stands_only_on_ones_own_tile() {
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let target = c(129, 0);
+        let pd = t.w.province_data(target);
+        let site = (0..pd[PV::SITE_COUNT])
+            .find(|s| pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("a free site");
+        let site_tile = pd[PV::SITES + site as usize];
+        let payer = t.w.w.payer.clone();
+        let file = |t: &mut T, with_rec: bool| {
+            let mut accts =
+                t.w.file_accounts(&a, WALLET_A, target, 0, payer.clone(), None);
+            if with_rec {
+                accts.push(with_writable(&t.tprov(target), false));
+            }
+            code(run_tx(
+                &accts,
+                &wix::ClaimSite {
+                    p: target.p(),
+                    q: target.q(),
+                    site,
+                    slot: 2,
+                }
+                .to_bytes(),
+            ))
+        };
+        t.w.at(2, 5);
+        assert_eq!(file(&mut t, false), Err(E::TooManyAccounts as u32));
+        assert_eq!(file(&mut t, true), Err(E::NotOwner as u32), "no record yet");
+        assert_eq!(t.claim(&a, WALLET_A, target, site_tile, None), Ok(()));
+        // TQ-6 (b): a village on a neighbouring site (within 3 tiles) leaves no free site between
+        let neighbour = {
+            let pd = t.w.province_data(target);
+            let at = |s: u8| {
+                permutation_rules::frontier::geometry::tile_offset(pd[PV::SITES + s as usize])
+                    .unwrap()
+            };
+            (0..pd[PV::SITE_COUNT]).find(|s| *s != site && at(*s).distance(at(site)) <= 3)
+        };
+        t.w.at(3, 5);
+        {
+            let n = neighbour.expect("12 sites in 61 tiles: some site within 3 tiles");
+            let ai = t.w.province(target);
+            ai.try_borrow_mut_data().unwrap()[PV::site(n as usize) + SM::STATE] = SM::STATE_HOLDING;
+            assert_eq!(
+                file(&mut t, true),
+                Err(E::ReservedSite as u32),
+                "a village next door"
+            );
+            ai.try_borrow_mut_data().unwrap()[PV::site(n as usize) + SM::STATE] = SM::STATE_FREE;
+        }
+        assert_eq!(file(&mut t, true), Ok(()), "on its own tile");
+    }
+
+    #[test]
+    fn a_captured_keep_moves_the_province_tiles_to_the_captor() {
+        let _g = begin();
+        let mut t = T::new();
+        let (a, b) = (t.a.clone_member(), t.b.clone_member());
+        let target = c(129, 0);
+        t.w.at(2, 5);
+        let tiles = t.free_tiles(target);
+        assert_eq!(t.claim(&a, WALLET_A, target, tiles[0], None), Ok(()));
+        // (verify-pr206-209) A's village on a free site of the province: its
+        // tile stays with the village when the keep falls (TQ-7)
+        let pd = t.w.province_data(target);
+        let vsite = (0..pd[PV::SITE_COUNT])
+            .find(|s| pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("a free site") as usize;
+        let vtile = pd[PV::SITES + vsite];
+        t.w.at(3, 5);
+        assert_eq!(t.claim(&a, WALLET_A, target, vtile, None), Ok(()));
+        {
+            let ai = t.w.province(target);
+            let mut pd = ai.try_borrow_mut_data().unwrap();
+            pd[PV::site(vsite) + SM::STATE] = SM::STATE_HOLDING;
+            pd[PV::site(vsite) + SM::FACTION] = a.faction;
+        }
+        // B's host from B's first home takes the keep (what WideResolve records)
+        let gen_b = t.w.w.holding(RIM, 1).try_borrow_data().unwrap()[H::GEN];
+        let mut k = read_keep(&t.w.province_data(target)).unwrap().unwrap();
+        let conquer = |t: &mut T| {
+            let (bh, _) = t.home(&b);
+            let accts = vec![
+                t.w.w.payer.clone(),
+                t.w.w.season.clone(),
+                with_writable(&t.w.province(target), false),
+                t.tprov(target),
+                t.tplayer(&a),
+                with_writable(&bh, false),
+                with_writable(&b.citizen, false),
+                t.tplayer(&b),
+                t.w.w.system.clone(),
+            ];
+            code(run_tx(&accts, &wix::TerritoryConquer.to_bytes()))
+        };
+        t.w.at(4, 5);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(conquer(&mut t), Err(E::TooEarly as u32), "no capture yet");
+        {
+            let ai = t.w.province(target);
+            let mut pd = ai.try_borrow_mut_data().unwrap();
+            k.holder = b.faction;
+            k.changes = 1;
+            k.gen += 1;
+            frontier_abi::conquest_model::write_keep(&mut pd, &k).unwrap();
+            assert!(wl2::set_captor(
+                &mut pd,
+                &wl2::KeepCaptor {
+                    home: WideCoord::checked(RIM.p as i64, RIM.q as i64).unwrap(),
+                    site: 1,
+                    gen: gen_b,
+                    keep_gen: k.gen,
+                }
+            ));
+        }
+        assert!(WideProvince::read(&t.w.province_data(target)).is_ok());
+        assert_eq!(conquer(&mut t), Ok(()));
+        let tag_b = rd_u64(&b.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
+        assert_eq!(t.tprov_rec(target).owner[tiles[0] as usize], tag_b);
+        let tag_a = rd_u64(&a.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
+        assert_eq!(
+            t.tprov_rec(target).owner[vtile as usize],
+            tag_a,
+            "the village's tile stays"
+        );
+        assert_eq!(t.tplayer_rec(&a).tiles, 1);
+        assert_eq!(t.tplayer_rec(&b).tiles, 1);
+        // nothing left to move
+        assert_eq!(conquer(&mut t), Err(E::TooEarly as u32));
+    }
+
+    #[test]
+    fn the_territory_world_has_no_idle_home_release() {
+        let _g = begin();
+        let mut t = T::new();
+        {
+            let mut sd = t.w.w.season.try_borrow_mut_data().unwrap();
+            put(
+                &mut sd,
+                S::RELEASE_AFTER_SECS,
+                &frontier_abi::v2::presets::RELEASE_DORMANT_NEVER.to_le_bytes(),
+            );
+        }
+        t.w.at(10_000, 0);
+        let a = t.a.clone_member();
+        let (home, _) = t.home(&a);
+        let junk = t.w.w.payer.clone();
+        let accts = vec![
+            junk.clone(),
+            t.w.w.season.clone(),
+            home,
+            t.w.w.province(RIM),
+            a.citizen.clone(),
+            junk.clone(),
+            junk.clone(),
+            junk,
+        ];
+        let data = [frontier_abi::v2::tags::Ix::ReleaseDormant as u8];
+        let r = code(run_tx(&accts, &data));
+        assert_eq!(r, Err(E::NotDormant as u32));
+    }
+
+    fn rd_u64(d: &[u8], o: usize) -> u64 {
+        u64::from_le_bytes(d[o..o + 8].try_into().unwrap())
+    }
+
+    trait CloneMember {
+        fn clone_member(&self) -> Member;
+    }
+    impl CloneMember for Member {
+        fn clone_member(&self) -> Member {
+            Member {
+                wallet: self.wallet,
+                faction: self.faction,
+                shard_i: self.shard_i,
+                key: self.key,
+                citizen: self.citizen.clone(),
+            }
+        }
+    }
+}

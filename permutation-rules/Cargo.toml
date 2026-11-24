@@ -35,6 +35,11 @@ capacity-preview = []
 # stands. Off by default: no default-build code, vector, hash input or
 # budget changes; no new dependency.
 land-preview = []
+# Player territory (owner Q-2, 2026-11-24), a preview: `frontier::territory`,
+# the pure seams (upkeep curve, claim cost, reach sources, unpaid upkeep,
+# decay order) with every open owner question as a parameter. Off by
+# default: no default-build code, vector, hash input or budget changes.
+territory-preview = []
 
 # On Solana, hash with the runtime's sol_sha256 syscall (bit-identical, far
 # cheaper in compute units than hashing in SBF code).
@@ -43,3 +48,7 @@ solana-define-syscall = "=4.0.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[[example]]
+name = "territory_calibrate"
+required-features = ["std", "territory-preview"]

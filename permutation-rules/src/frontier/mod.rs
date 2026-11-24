@@ -493,3 +493,9 @@ pub fn ruleset_hash_input_v4() -> alloc::vec::Vec<u8> {
 pub fn ruleset_hash_v4() -> [u8; 32] {
     crate::hash::sha256(&[&ruleset_hash_input_v4()])
 }
+
+// Appended last on purpose: a line added above would move the panic
+// locations the committed WASM kernels embed (build-wasm --check).
+/// Player territory (preview, owner Q-2): parameter seams only; off by default.
+#[cfg(feature = "territory-preview")]
+pub mod territory;

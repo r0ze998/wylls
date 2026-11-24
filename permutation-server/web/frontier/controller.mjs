@@ -38,6 +38,7 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
+import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -964,7 +965,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   //  LP10-1); now that tab presses keep it, a viewer change drops it here. The stored preferences stay)
   if (FS.ui) {
     if (FS.ui.wideHost) wideHostStopWait(FS.ui.wideHost);
-    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ...kept } = FS.ui;
+    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ownTiles: _o, ...kept } = FS.ui;
     FS.ui = kept;
   }
   FS.notice = null;
@@ -4593,6 +4594,37 @@ export const ACTIONS = {
   // the site picker is gone (owner decision V2): the client files the ticket itself; a retry now
   'auto-ticket': () => autoTicket({ force: true }),
   // (TEST-ONLY wide play, local wide-land worlds only: the wide claim from the first home — screens/holding.mjs wideClaimCard)
+  // (verify-pr206-209) a TERRITORY world's single tile, from the village card's province row: one free tile of that
+  // province (not a village site, not the keep's, not already this page's), instant, paid in ore by the first home,
+  // one a turn — whatever the next village's cost. The same reach witness as the row's village; the nearest own
+  // village names the upkeep distance (TQ-2). A tile another player owns moves the next press on; "already yours"
+  // is remembered.
+  'territory-tile': async d => {
+    const h = activeHolding(FS);
+    if (!h || !localPlay?.wideLand) return;
+    const target = { p: String(d.p), q: String(d.q) };
+    const reach = d.rp !== undefined && d.rq !== undefined ? { p: String(d.rp), q: String(d.rq) } : null;
+    let terr = null;
+    try { const r = await herald.wideRoute({ places: [target] }); terr = r?.ok !== false ? territoryOfRoute(r?.json ?? r).get(`${target.p},${target.q}`) ?? null : null; } catch { terr = null; }
+    if (!terr) return failed({ code: 'NoTerritory', text: L`この州ではマスを取れません（自分の土地のない世界か、州が読めませんでした）。` });
+    const mine = FS.ui?.ownTiles ?? {}, triedKey = `t:${target.p},${target.q}`, from = num(FS.ui?.wideTried?.[triedKey] ?? 0);
+    const blocked = new Set([...terr.siteTiles, terr.keepTile]);
+    let tile = null;
+    for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !mine[`${target.p},${target.q},${i}`]) { tile = i; break; }
+    if (tile === null) return failed({ code: 'NoFreeTile', text: L`この州に取れるマスは残っていません。` });
+    const home = { p: h.p, q: h.q, site: h.site }, key = `${target.p},${target.q},${tile}`;
+    const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
+    const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile },
+      say: () => L`広い土地（${target.p}, ${target.q}）のマス ${tile} を自分の土地にしました。` });
+    const ans = t ?? (FS.notice?.ok === false ? FS.notice : null);
+    const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
+    const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
+    const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+    if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
+    if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
+    invalidate('panel');
+    return t;
+  },
   'wide-claim': async d => {
     const h = activeHolding(FS);
     if (!h || !(localPlay?.wideLand || devnetWideNow())) return;
@@ -4604,13 +4636,37 @@ export const ACTIONS = {
     const previous = slot === 3 && d.pp !== undefined ? { p: String(d.pp), q: String(d.pq), site: num(d.ps) } : null;
     // (a claim names a FREE site of the province as the herald last captured it — any other is "taken" at its settle,
     //  the cost spent for nothing; flocalplay-wide.mjs freeWideSites. None known: nothing is sent)
-    let site = num(d.site);
+    let site = num(d.site), terr = null;
     try {
       const r = await herald.wideRoute({ places: [target] });
       const free = r?.ok !== false ? freeWideSites(r?.json ?? r)?.get(`${target.p},${target.q}`) : null;
       if (Array.isArray(free)) { const next = free.find(x => x >= site) ?? free[0]; if (next === undefined) { failed({ code: 'NoFreeHome', text: L`この州には空いている村の場所がありません。` }); return; } site = next; }
+      // (territory-impl, owner 2026-11-24 12:09 T-6: in a territory world the village stands on your own tile)
+      terr = r?.ok !== false ? territoryOfRoute(r?.json ?? r).get(`${target.p},${target.q}`) ?? null : null;
     } catch { /* the herald did not answer: the card's own site, as before */ }
-    const r = await act('WideClaim', { v: { holding: { p: h.p, q: h.q, site: h.site }, target, ...(reach ? { reach } : {}), ...(previous ? { previous } : {}) }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
+    const home = { p: h.p, q: h.q, site: h.site };
+    if (terr) {
+      // first press: the site's tile (one tile a turn, paid in ore by the first home; the same reach witness);
+      // the next press — the tile yours — the village on it, naming the territory record (flocalplay-wide.mjs)
+      const tile = terr.siteTiles[site], key = `${target.p},${target.q},${tile}`;
+      const mineTiles = FS.ui?.ownTiles ?? {};
+      if (!mineTiles[key]) {
+        // (owner TQ-2: the upkeep distance is from the NEAREST own village — an own wide village nearer than home is named)
+        const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
+        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile }, say: () => L`広い土地（${target.p}, ${target.q}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
+        // (a refusal returns nothing — failed() only sets the notice — so the answer is read there; verify-pr206-209:
+        //  "already yours" (52) after a reload or a refused village never reached the village, and a tile another
+        //  player owns (SiteTaken 11) was asked again at every press)
+        const ans = t ?? (FS.notice?.ok === false ? FS.notice : null);
+        const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
+        const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
+        const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+        if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
+        if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
+        if (!already) return t;
+      }
+    }
+    const r = await act('WideClaim', { v: { holding: home, target, ...(reach && !terr ? { reach } : {}), ...(previous ? { previous } : {}), ...(terr ? { territory: true } : {}) }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
     // (a refused or failed site is not offered again: the next press names the next site)
     if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
     return r;

@@ -243,6 +243,10 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Dissolve(x) => dissolve_as(p, a, &x, &Auth::Wallet),
         C::Economy(x) => economy_exec::economy_as(p, a, &x, &Auth::Wallet),
         C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &Auth::Wallet),
+        C::ClaimTile(x) => territory::claim_tile_as(p, a, &x, &Auth::Wallet),
+        C::TerritorySettle(_) => territory::settle(p, a),
+        C::TerritoryDecay(x) => territory::decay(p, a, &x),
+        C::TerritoryConquer(_) => territory::conquer(p, a),
         command @ (C::DeclareSiege(_) | C::SettleCapture(_) | C::ResolveWithConquest(_)) => {
             require_conquest_lifecycle()?;
             conquest_draft::execute_command(p, a, command)
@@ -833,7 +837,11 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .map_err(rules_err)?;
     let mut opening =
         WideProvince::open(world, hdr.id, coord, &seed, &rules, now_bell, 0).map_err(land_err)?;
-    let keep = wr::wide_keep_open(opening.keep_holder, keep_tile, &cq.keep_params(), now_bell)
+    // E-Q1 (territory-impl, owner 2026-11-24 12:09): the new-world bundle's
+    // neutral keeps open weaker (`KeepHolderRule::keep_guard`).
+    let mut keep_prm = cq.keep_params();
+    keep_prm.home_guard = cfg.keep_holder.keep_guard(keep_prm.home_guard);
+    let keep = wr::wide_keep_open(opening.keep_holder, keep_tile, &keep_prm, now_bell)
         .map_err(|_| kernel(SUB_KEEP_CAP))?;
     let garrison_milli = cq
         .free_city_garrison
@@ -917,6 +925,11 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             .province
             .write_identity(&mut pd)
             .map_err(|_| BAD_ACCOUNT)?;
+        // T-1 … T-8 (territory-impl): the province plays the configuration's
+        // territory rule (trailer byte; 0 = none).
+        if !wl::set_territory_rule(&mut pd, cfg.keep_holder.territory()) {
+            return Err(BAD_ACCOUNT);
+        }
     }
     // The wedge fund's live counters (I-48) and the wide seed's count.
     {
@@ -1436,21 +1449,42 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
     // A wide ring and a wide distance are compared against `u8` bounds;
     // saturating the narrowing can only turn a pass into a refusal.
     let target_ring = u32::try_from(coord.ring()).unwrap_or(u32::MAX);
-    // The reach witness, when named: a wide province of this world, read
-    // only, that is the claimer's nation's land (`OutpostRule` otherwise);
-    // the range is then the nearer of the anchor and the witness.
-    let witness_distance = match reach_ai {
-        None => None,
-        Some(w) => Some(reach_witness_distance(
-            p, &ctx, hdr.id, world, w, faction, now_bell, coord,
-        )?),
+    // T-6 (territory-impl, owner 2026-11-24 12:09): in a territory world a
+    // village is a building inside the claimer's own territory. The 13th
+    // account is then the target's territory record (never a reach
+    // witness), the site's tile must be the claimer's, and ownership is the
+    // reach: neither the range nor #206's share rule applies.
+    let territory = {
+        let pd = province.try_borrow_data()?;
+        wl::territory_rule_of(&pd).ok_or(BAD_ACCOUNT)?
     };
-    let range = u32::try_from(wreach::claim_range(
-        anchor_coord.distance(coord),
-        witness_distance,
-    ))
-    .unwrap_or(u32::MAX);
-    let (mine, total) = {
+    let (range, witness_distance) = if territory.is_some() {
+        let rec_ai = reach_ai.ok_or(FrontierError::TooManyAccounts)?;
+        territory::require_own_site(
+            p, &ctx, hdr.id, world, coord, rec_ai, province, x.site, citizen,
+        )?;
+        (0, None)
+    } else {
+        // The reach witness, when named: a wide province of this world, read
+        // only, that is the claimer's nation's land (`OutpostRule` otherwise);
+        // the range is then the nearer of the anchor and the witness.
+        let witness_distance = match reach_ai {
+            None => None,
+            Some(w) => Some(reach_witness_distance(
+                p, &ctx, hdr.id, world, w, faction, now_bell, coord,
+            )?),
+        };
+        let range = u32::try_from(wreach::claim_range(
+            anchor_coord.distance(coord),
+            witness_distance,
+        ))
+        .unwrap_or(u32::MAX);
+        (range, witness_distance)
+    };
+    let _ = witness_distance;
+    let (mine, total) = if territory.is_some() {
+        (0, 0)
+    } else {
         let pd = province.try_borrow_data()?;
         cz::province_weights(&pd, faction, now_bell)?
     };
@@ -2836,6 +2870,7 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
         C::Dissolve(d) => dissolve_as(p, a, &d, &auth),
         C::Economy(e) => economy_exec::economy_as(p, a, &e, &auth),
         C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &auth),
+        C::ClaimTile(x) => territory::claim_tile_as(p, a, &x, &auth),
         C::DeclareSiege(_) => conquest_exec::declare_siege_resident(p, accounts, d),
         _ => Err(FrontierError::BadData.into()),
     }
@@ -2855,6 +2890,12 @@ mod economy_exec;
 /// Citizen, holding, province and both receipt chains commit atomically.
 #[path = "wide_garrison_exec.rs"]
 mod garrison_exec;
+
+/// Player territory on wide land (territory-impl, owner 2026-11-24 12:09):
+/// WideClaimTile (0xDA op 7), WideTerritorySettle / Decay / Conquer
+/// (0xDC ops 12–14).
+#[path = "wide_territory.rs"]
+mod territory;
 
 #[cfg(feature = "expedition-dispatch-experimental")]
 #[path = "wide_expedition_dispatch.rs"]
