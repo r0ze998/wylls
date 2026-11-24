@@ -250,7 +250,11 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     if (v && deps.wideLand) { try { live = await deps.wideLand.read(); } catch { live = null; } }
     const faction = Number.isInteger(view?.faction) ? view.faction : r.memory.faction;
     const targets = !v ? [] : live ? expansionTargets(v, live, faction, { heading: r.memory.heading ?? headingOf(r.index) }) : claimTargets(v, wideTargets);
-    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + (view.wide ?? 0)) };
+    // (expansion-gameplay-1: the herald's /h/me holdings list carries the legacy villages only, so `view.wide` stays 0
+    //  after a wide village settles and the third village was priced as a second — 800 for a 1,200 cost, refused
+    //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)
+    const wideHeld = Math.max(Number.isInteger(view?.wide) ? view.wide : 0, (r.memory.wideVillages ?? []).length);
+    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld) };
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {
