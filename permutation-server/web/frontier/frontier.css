@@ -2661,9 +2661,10 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 }
 
 /* the land preview (TEST-ONLY worlds with that option): the territory line beside the resource strip */
-/* fix-loop13 LP13-2: the land chip yields first — it took the plaque's room and the resource numbers were cut ("736" → "73",
-   wood/stone gone). It shrinks (its whole text stays in the DOM and its title) before the strip gives up a token. */
-#land-chip-box { flex: 0 1000 auto; min-width: 40px; overflow: hidden; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
+/* fix-loop13 LP13-2: the long chip took the plaque's room and the resource numbers were cut ("736" → "73", wood/stone gone).
+   Under 1440 px it shows its short form (.land-chip-short) and keeps it whole; the strip, which never cuts a token, shows
+   fewer tokens and its "N more" (app.mjs strip fit). Capped so a far-provinces part cannot take the plaque either. */
+#land-chip-box { flex: 0 0 auto; max-width: 180px; overflow: hidden; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
 #land-chip-box[hidden] { display: none; }
 .land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .land-chip-short { display: none; }
