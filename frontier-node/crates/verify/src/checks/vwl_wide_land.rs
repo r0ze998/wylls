@@ -446,10 +446,7 @@ fn set_rules(e: &Env, ix: &Ix, x: &wix::SetRules) -> Result<Vec<(Key, Lam)>, Wro
     {
         return Err(fail(
             WIDE_RULE,
-            format!(
-                "config_version {} is not a known table",
-                x.config_version
-            ),
+            format!("config_version {} is not a known table", x.config_version),
         ));
     }
     // ⑧ wide land (i) (#38, `proc/wide.rs` `set_rules`): a Season whose
