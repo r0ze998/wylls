@@ -12,7 +12,7 @@ test('the entry fills the destination only for this board\'s present world', () 
   assert.match(ui, /if \(to && \/\^-\?\\d\+,-\?\\d\+,\\d\+,\\d\+\$\/\.test\(to\) && sameWorld\) \[\$\('toP'\)\.value/);
   // another world, or a world not named: not filled, and why (the broken-format case keeps its own words)
   assert.match(ui, /入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない/);
-  assert.match(ui, /入口の村は別の世界（シーズン \$\{qs\.get\('season'\)\.slice\(0, 20\)\}）の村のため、届け先に入れていない/);
+  assert.match(ui, /入口の村は別の世界（世界の番号 \$\{qs\.get\('season'\)\.slice\(0, 20\)\}）の村のため、届け先に入れていない/);
   assert.match(ui, /入口から渡された届け先（\?to=\$\{to\.slice\(0, 40\)\}）が読めない。届け先の村を入れてください/);
 });
 

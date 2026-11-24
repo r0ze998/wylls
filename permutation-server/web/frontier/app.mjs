@@ -2749,16 +2749,7 @@ function renderHudTick(now) {
     const w = globalThis.innerWidth ?? 1440;
     // (a phone's strip: the two most pressing and a chip for the rest, which opens them all; the second review:
     // a strip that scrolled sideways ended in half an icon at the plaque's point)
-    const room = w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8;
-    // (what does not fit is never cut: a strip that overflows its plaque shows one token fewer, and stays so at this width)
-    // (tried again now and then: the first measure may have been taken before the fonts were in)
-    if (stripFit.w !== w || (stripFit.n = (stripFit.n ?? 0) + 1) % 5 === 0) stripFit = { w, max: room, n: stripFit.w === w ? stripFit.n : 0 };
-    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.min(room, stripFit.max)));
-    if (tokens.length && stripFit.max > 1 && strip.scrollWidth > strip.clientWidth + 1) {
-      stripFit.max = Math.min(room, stripFit.max, tokens.length) - 1;
-      setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
-    }
-    resChanges(strip, tokens);
+    const room0 = w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8;
     // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
     //  (2026-11-16: and, apart, the land the viewer's nation has claimed in other provinces the map has loaded — a take far
     //  from home showed 0 there, or no chip at all when the home province had no land record)
@@ -2767,6 +2758,19 @@ function renderHudTick(now) {
     //  promotion already produces —, as ClaimLandYield's yield_for reads it after settle_tiered; the stored record lagged)
     const ls = lh ? landSummary(FS, settledHolding(lh, now ?? 0), lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
     const landShown = !!ls || (le?.tiles ?? 0) > 0;
+    // (fix-loop13, LP13-2: the land chip stands in the same plaque — one token fewer while it is shown, so neither is cut)
+    const room = landShown && w > PHONE_MAX ? Math.max(1, room0 - 1) : room0;
+    // (what does not fit is never cut: a strip that overflows its plaque shows one token fewer, and stays so at this width)
+    // (tried again now and then: the first measure may have been taken before the fonts were in)
+    if (stripFit.w !== w || (stripFit.n = (stripFit.n ?? 0) + 1) % 5 === 0) stripFit = { w, max: room, n: stripFit.w === w ? stripFit.n : 0 };
+    setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.min(room, stripFit.max)));
+    // (verify-pr208: until it fits, within this pass — one step a pass left a token cut on screen for a pass at each
+    //  retry: beside the land chip a third number came and went every few seconds, 「254 3 more」 measured live at 1280 px)
+    while (tokens.length && stripFit.max > 1 && strip.scrollWidth > strip.clientWidth + 1) {
+      stripFit.max = Math.min(room, stripFit.max, tokens.length) - 1;
+      setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
+    }
+    resChanges(strip, tokens);
     let chip = $('land-chip-box');
     if (landShown && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
     if (chip) { chip.hidden = !landShown; setHtmlIfChanged(chip, renderLandChip(ls, le)); }
@@ -5224,7 +5228,10 @@ export async function boot() {
         // (world goals, first slice: the flag keeps judged off chain by the local-play launcher — read only, no money;
         //  the card in Territory and the gold pennants on the map; nothing on a server without the judge — hud/worldgoals.mjs)
         const goalsBase = cfg.localPlay ? worldGoals.localGoalsBase(cfg.herald) : null;
-        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); } }); } catch (e) { console.error('frontier world goals:', e); } }
+        // (fix-loop13, LP13-9: an achievement is also a feed line — a notice when it happens while the page is open)
+        let goalsFirst = true;
+        const goalNews = b => { const items = worldGoals.achievementNews(FS, b, { first: goalsFirst }); if (!items) return; goalsFirst = false; if (items.length) { FS.feed = feed.pushFeed(FS.feed ?? [], items); renderFeed(); } };
+        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); try { goalNews(b); } catch (e) { console.error('frontier world goals news:', e); } } }); } catch (e) { console.error('frontier world goals:', e); } }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

@@ -677,7 +677,7 @@ $('judge').addEventListener('change', refresh);
   W.discover();
   W.onChange(renderWallets);
   renderWallets();
-  $('season').textContent = `シーズン ${cfg.season.seasonId}（プログラム ${short(cfg.season.programId)}）`;
+  $('season').textContent = `世界の番号 ${cfg.season.seasonId}（プログラム ${short(cfg.season.programId)}）`;
   await readComposition();   // （2026-11-17、同じ入口）投げない：読めなければ「分からない」と言う
   $('goalTitle').textContent = cfg.goals[goalId].title;
   $('judge').innerHTML = cfg.judges.map(j => `<option value="${esc(j.id)}"${j.id === cfg.judge ? ' selected' : ''}>${esc(j.label)}</option>`).join('');
@@ -695,7 +695,7 @@ $('judge').addEventListener('change', refresh);
   else if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) {
     $('entryWarn').textContent = qs.get('program') === null || qs.get('season') === null
       ? '入口の村が、どの世界（シーズン・プログラム）の村か分からないため、届け先に入れていない。この板の世界の届け先の村を入れてください'
-      : `入口の村は別の世界（シーズン ${qs.get('season').slice(0, 20)}）の村のため、届け先に入れていない。この板の世界（シーズン ${cfg.season.seasonId}）の届け先の村を入れてください`;
+      : `入口の村は別の世界（世界の番号 ${qs.get('season').slice(0, 20)}）の村のため、届け先に入れていない。この板の世界（世界の番号 ${cfg.season.seasonId}）の届け先の村を入れてください`;
     $('entryWarn').hidden = false;
   } else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
   // （2026-11-17、一つの依頼）名指しされた依頼は、届け先と同じく、入口の村の世界がこの板の世界のときだけ持つ。
