@@ -170,3 +170,24 @@ export function citizenTagOf(citizen) {
   const b = Uint8Array.from(decode(citizen));
   return u64(b, 0).toString();
 }
+
+/**
+ * The territory facts of the provinces a herald wide route captured (`{route: [{p, q, capture: {bytes_b64}}]}`): a Map
+ * "p,q" → `{siteTiles, keepTile}` for each province of a territory world (its trailer byte RSV_53 = 4,736 + 53 is 1:
+ * frontier-abi world_index/land.rs territory_rule_of; the site tiles are Province v2 SITES @250, SITE_COUNT @262; the
+ * keep's tile KEEP @4480). A province of a world without territory is absent.
+ */
+export function territoryOfRoute(route) {
+  const out = new Map();
+  for (const r of Array.isArray(route?.route) ? route.route : []) {
+    try {
+      const b64 = r?.capture?.bytes_b64;
+      if (typeof b64 !== 'string') continue;
+      const b = typeof Buffer !== 'undefined' ? new Uint8Array(Buffer.from(b64, 'base64')) : Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      if (b.length !== 4864 || b[4789] !== 1) continue;
+      const n = Math.min(b[262], 12);
+      out.set(`${r.p},${r.q}`, { siteTiles: Array.from(b.subarray(250, 250 + n)), keepTile: b[4480] });
+    } catch { /* unreadable: not a territory province here */ }
+  }
+  return out;
+}

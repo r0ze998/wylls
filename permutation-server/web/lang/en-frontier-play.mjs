@@ -1959,6 +1959,7 @@ export default {
   "辺境の村を申し込みました。ターンの終わりに決まります。": "The rim village was requested. It is decided at the end of the turn.",
   "村の申し込みを送れませんでした。候補を更新してください。": "The village request could not be sent. Refresh the candidates.",
   "広い土地（{0}, {1}）に村の申し込みを出しました。ターンの終わりに決まります。": "A village was requested on the wide land ({0}, {1}). It is decided at the end of the turn.",
+  "広い土地（{0}, {1}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。": "That tile of the wide land ({0}, {1}) is now your land. Press again to put a village on it.",
   "広い土地に村を出す（テスト）": "Found a village on the wide land (test)",
   "この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。": "This village stands beside the wide land (past ring 129). You can found a 2nd and 3rd village in a province nearby.",
   "費用（村の蔵から）": "Cost (from the village's stores)",
