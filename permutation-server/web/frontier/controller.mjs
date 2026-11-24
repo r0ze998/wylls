@@ -4317,7 +4317,7 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     }
     const d = w.decision;
     const noticeBefore = FS.notice;
-    const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });
+    const r = await act(d.name, { v: d.v, fields: d.fields, say: () => wideHostDoneText(wideHostSayOf(w)) });
     // (verify-pr184, live: a W2 step the chain refused — WideMuster NotResident — was told as 「訓練はまだされていません。」
     //  with 「もう一度」, both from FS.lastAct: the person's last FORM press, a train at the rim village. That retry would
     //  have trained again there. The refusal is the W2 step's: its own words, and no retry — the card's wait sends again)
@@ -4344,6 +4344,19 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     else if (heldDepart && d.name === 'WideDepart') wideHostWait(mem, { reason: 'march', lag: null });
     else wideHostStopWait(mem);
     return r;
+}
+
+/**
+ * (fix-loop14, LP14-15) What the notice says once a W2 step has landed, in the page's language: the step was told with
+ * the planner's own log words (`decision.why`, English: "train 100 Spearmen at the wide village -64,-65 toward a new
+ * host (reserve 0; …)") on a Japanese page too. `say`: wideHostSayOf's facts of the decision.
+ */
+export function wideHostDoneText(say) {
+  const at = x => (x ? `${x.p},${x.q}` : '?');
+  if (say?.name === 'WideTrain') return L`広い土地の村（州 ${at(say.village)}）で槍兵 ${fmtNum(Number(say.n ?? 0))} を訓練しました。`;
+  if (say?.name === 'WideMuster') return L`広い土地の村（州 ${at(say.village)}）で槍兵 ${fmtNum(Number(say.troops ?? 0))} の軍勢の編成を命じました。`;
+  if (say?.name === 'WideDepart') return L`軍勢（兵 ${fmtNum(Number(say.troops ?? 0))}）が州 ${at(say.to)} の砦へ進軍しました。到着はターン ${fmtNum(Number(say.arrive ?? 0))} です。`;
+  return L`広い土地の村の次の一手を送りました。`;
 }
 
 /** (fix-loop6, LP6-15) The planner's answer as plain facts for the card to put in words (screens/wideholding.mjs wideHostSayText). */

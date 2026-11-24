@@ -4406,6 +4406,9 @@ export async function openReport(p, q, bell) {
     const k = await heraldRef.keep(p, q).catch(() => null);
     if (k?.ok && FS.report === open && reportWorld() === world) { open.keep = k.keep; invalidate('panel'); }
   }
+  // (fix-loop14, LP14-4: a record that does not say what was left of a side is checked at once — the same check as the
+  //  button's, in this browser —, so the report is not read as 「316 → —」; see screens/report.mjs outcomeUnknown)
+  if (r.ok && FS.report === open && reportWorld() === world && reportScreen.outcomeUnknown(open, mineOf(FS.holdings))) verifyReport();
 }
 
 async function verifyReport() {
@@ -4413,7 +4416,8 @@ async function verifyReport() {
   if (!rep?.clash || rep.verifying || !FS.clock) return;
   rep.verifying = true;
   invalidate('panel');
-  const v = await reportScreen.verifyClash({ p: rep.p, q: rep.q, bell: rep.bell, clash: rep.clash, herald: heraldRef, kernel: seasonKernel, clock: FS.clock, season: FS.season });
+  const v = await reportScreen.verifyClash({ p: rep.p, q: rep.q, bell: rep.bell, clash: rep.clash, herald: heraldRef, kernel: seasonKernel, clock: FS.clock, season: FS.season,
+    kernelRuleset: FS.season?.rulesetHash ? kernelRulesetFor(FS.season.rulesetHash) : null });
   rep.verifying = false;
   if (FS.report === rep) { rep.verify = v; invalidate('panel'); }
 }
@@ -4518,12 +4522,17 @@ function shake(control) {
  * (`[data-nation]`), and with the chosen nation (or null) when the pointer or the focus leaves the banners.
  */
 let nationShown;
-function nationFocus(faction) {
+const chosenNation = () => (drawerOf(FS)?.kind === 'nation' && Number.isInteger(FS.joinDraft?.faction) ? FS.joinDraft.faction : null);
+function nationFocus(faction, picked = chosenNation()) {
   const f = Number.isInteger(faction) && faction >= 0 && faction < 6 ? faction : null;
+  // the confirm line says the looked-at nation's leader and creed (screens/join.mjs renders all six; the stylesheet shows one)
+  // (fix-loop14, LP14-11: once a nation is CHOSEN the line stays that nation's — the pointer resting on another banner
+  //  put "Cinder — Doctrine: Flame…" beside the button 「Join Aster」. Before a choice the looked-at banner's line is
+  //  shown as before; the map's lit wedge still follows the pointer either way. `picked`: the choice a click just made)
+  const look = Number.isInteger(picked) ? picked : f;
+  const panel = $('panel'); if (panel?.dataset) panel.dataset.look = look === null ? '' : String(look);
   if (f === nationShown) return;
   nationShown = f;
-  // the confirm line says the looked-at nation's leader and creed (screens/join.mjs renders all six; the stylesheet shows one)
-  const panel = $('panel'); if (panel?.dataset) panel.dataset.look = f === null ? '' : String(f);
   try { globalThis.dispatchEvent?.(new CustomEvent('wylls:nation-focus', { detail: { faction: f } })); } catch { /* no events here (tests) */ }
 }
 function mountNationFocus(doc) {
@@ -4532,7 +4541,7 @@ function mountNationFocus(doc) {
   doc.addEventListener('pointerover', e => { if (e.target?.closest?.('.nations')) nationFocus(at(e) ?? chosen()); else if (nationShown !== null && nationShown !== undefined) nationFocus(chosen()); });
   doc.addEventListener('focusin', e => { const f = at(e); if (f !== null) nationFocus(f); });
   doc.addEventListener('focusout', e => { if (at(e) !== null && !e.relatedTarget?.closest?.('[data-nation]')) nationFocus(chosen()); });
-  doc.addEventListener('click', e => { const f = at(e); if (f !== null) nationFocus(f); });
+  doc.addEventListener('click', e => { const f = at(e); if (f !== null) nationFocus(f, e.target?.closest?.('[data-act="pick-faction"]:not([disabled])') ? f : undefined); });
 }
 
 /**
