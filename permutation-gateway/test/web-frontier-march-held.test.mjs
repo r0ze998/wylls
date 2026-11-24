@@ -38,7 +38,7 @@ test('the new codes have texts in both languages; NotResident is named by its pr
   setLang('en');
   try {
     assert.match(text(failureText({ code: 'LocalMarchRejected' })), /not sent/i);
-    assert.match(text(failureText({ code: 'LocalMarchExpired' })), /can no longer be/);
+    assert.match(text(failureText({ code: 'LocalMarchExpired' })), /now it never will be/);
   } finally { setLang('ja'); }
 });
 
