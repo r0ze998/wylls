@@ -212,6 +212,9 @@ test('LP14-14: the Japanese board names the local test wallet in Japanese; the E
   const ui = read('workstreams/01-national-strategy/coop/coop-ui.mjs');
   assert.ok(ui.includes(`const LOCAL_TEST_WALLET = '${COOP_WALLET_NAME}';`), 'the board knows the name the page key gives itself');
   assert.match(ui, /\$\('who'\)\.textContent = `署名する人：\$\{short\(c\.address\)\}（\$\{walletWords\(c\.name\)\}）`;/);
+  // (verify-pr217: the wallet chooser's row on the same board said the English name too — live, JA board; same words there)
+  assert.ok(ui.includes('>${esc(walletWords(e.name))}${e.why'), 'the chooser row names the wallet with the same words');
+  assert.equal(toEnglish('このページのテスト用の鍵（メモリのみ・協力の記録だけに署名）'), COOP_WALLET_NAME);
   const ja = '署名する人：GMqY…XsTU（このページのテスト用の鍵（メモリのみ・協力の記録だけに署名））';
   assert.doesNotMatch(ja.replace('GMqY…XsTU', ''), /[A-Za-z]/);
   assert.equal(toEnglish(ja), `Signer: GMqY…XsTU (${COOP_WALLET_NAME})`);
