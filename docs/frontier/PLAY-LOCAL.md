@@ -234,6 +234,17 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      Nation-mates' villages count too, AI residents' included. The world opens new wide land around your nation's villages and
      won keeps (at most 3 provinces a turn, out to ring 136). Owner Q-1: in a `--wide` world every wide keep starts **unowned**
      (drawn neutral, "Land of no nation"); a nation's colour there is only what it took. Design: docs/design/expansion/01-reach-from-land.md
+   - **Your own land (player territory, #209; owner 11-24 12:09 / 13:15)**: every `--wide` world is a territory world. Land is
+     owned **tile by tile**. Each province row of the card has "Claim a tile": one free tile of that province (not a village site,
+     not the keep's) becomes yours at once for 10 ore (+2 % per tile you own, rounded down to whole ore), one tile a turn, first
+     come first served. A village stands only on your own tile: "Found a village here" claims that site's tile on the **first**
+     press (instant) and files the village on the **second**. Upkeep comes from your first village's food: 0.033 food an hour per
+     tile, +0.016 an hour per province beyond 3 from your nearest own village (fixed when you claim). If the food cannot pay,
+     claims stop, and after 24 unpaid turns your farthest tile is let go each turn (at the start a village makes about 40 food an
+     hour, so land upkeep does not bind until you hold very many tiles). Taking a province's keep moves its tiles of other
+     nations' players (not your nation-mates', not tiles with a village on them) to the owner of the army that took it. Wide
+     keeps open neutral with 50 troops (held 72 turns to take). The map does not draw tiles or borders yet (owner question T-9).
+     Design: docs/design/expansion/02-player-territory.md
 
    Once the village exists (the "W2" button normally comes within a few turns of the claim; once, under load, about
    80 turns later: loop-play12), the easiest way to

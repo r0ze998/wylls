@@ -13,6 +13,7 @@
 // Identity decoders are the page's existing ones (fexpedition-seal.mjs `decodeWideProvinceKey` / `decodeWideHostRef`,
 // faddr.mjs `hostId`), not offsets written again here. The region decoder is conquest-reservations.mjs (checked
 // against the ABI codec's vectors). NOT compared with an account read from a chain yet.
+import { wideTrailerReservedOk } from '../../../permutation-server/web/frontier/map/widecapture.mjs';
 import { decodeReservationRegion, CONQUEST_TABLE_SIZE, RESERVATION_REGION_OFFSET, RESERVATION_RECORD_SIZE } from './conquest-reservations.mjs';
 import { decodeWideProvinceKey, decodeWideHostRef } from '../../../permutation-server/web/frontier/fexpedition-seal.mjs';
 import { hostId } from '../../../permutation-server/web/frontier/faddr.mjs';
@@ -51,7 +52,8 @@ export function wideProvinceIdentity(bytes, { seasonId, key }) {
   const T = WIDE_PROVINCE_TRAILER, v = view(bytes);
   header(bytes, 'PSFXWPV1', seasonId, WIDE_LAYOUT_VERSION, 'WideProvinceHeader');
   check(v.getUint16(T, true) === WIDE_LAND_FAMILY_VERSION && bytes[T + 2] === WIDE_PROVINCE_STATUS_OPENED && bytes[T + 3] === WIDE_PROVINCE_READINESS_REQUIRED, 'WideProvinceTrailer');
-  check(zero(bytes.subarray(T + 53, T + 56)) && zero(bytes.subarray(T + 104, T + 128)), 'WideProvinceTrailer');
+  // (territory-impl: the territory byte and the keep captor record, as frontier-abi land.rs WideProvince::read)
+  check(wideTrailerReservedOk(bytes, T), 'WideProvinceTrailer');
   check(v.getInt16(64, true) === 0 && v.getInt16(66, true) === 0 && v.getUint16(68, true) === 0, 'WideProvinceLegacyIdentity');
   // (the existing strict key decoder: version tag, a real world, a canonical sort key within bounds)
   const want = (() => { try { return decodeWideProvinceKey(key); } catch { return fail('WideProvinceKey'); } })();

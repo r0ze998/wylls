@@ -134,7 +134,7 @@ test('raw original v2 and wide identities reject shadow families, versions, seas
     expectError('LandLength', () => routeLandFromBytes({ source: source(), at: id, bytes }));
   for (const [id, off, value, code] of [[original, 16, 1, 'LandVersion'], [wide, 16, 2, 'LandVersion'],
     [wide, 4736, 2, 'LandVersion'], [wide, 4738, 0, 'LandNotReady'], [wide, 4739, 31, 'LandNotReady'],
-    [wide, 4789, 1, 'LandReserved'], [wide, 4840, 1, 'LandReserved'], [wide, 64, 1, 'LandLegacyPrefix'],
+    [wide, 4789, 2, 'LandReserved'], [wide, 4840, 2, 'LandReserved'], [wide, 4790, 1, 'LandReserved'], [wide, 64, 1, 'LandLegacyPrefix'],
     [wide, 70, 1, 'LandWedge'], [wide, 4740, 0, 'WorldMismatch'], [wide, 4788, 1, 'LandIdentity'],
     [original, 8, 12, 'SeasonPinMismatch'], [wide, 8, 12, 'SeasonPinMismatch'], [original, 64, 127, 'LandIdentity']]) {
     const b = bytesFor(id); b[off] = value;

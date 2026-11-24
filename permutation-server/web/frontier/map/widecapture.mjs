@@ -8,6 +8,19 @@ import { sha256 } from '../../sdk/sha256.mjs';
 const check = (ok, message) => { if (!ok) throw new Error(message); };
 const zero = (b, start, size) => b.subarray(start, start + size).every(x => x === 0);
 
+/**
+ * The wide province trailer's once-reserved bytes as frontier-abi world_index/land.rs WideProvince::read takes them
+ * (territory-impl, owner 2026-11-24 12:09): RSV_53 byte 0 is the territory rule (0 none, 1 V1), bytes 1-2 zero; the 24
+ * bytes at RSV are the keep captor record — all zero, or tag 1 then a sort key, site, gen and keep generation (the
+ * sort key's canonical form is the Rust reader's check). `t` = the trailer offset (4,736).
+ */
+export function wideTrailerReservedOk(b, t) {
+  const rule = b[t + 53];
+  if (!(rule === 0 || rule === 1) || !zero(b, t + 54, 2)) return false;
+  const c = b[t + 104];
+  return c === 0 ? zero(b, t + 104, 24) : c === 1;
+}
+
 /** Canonical public with-seed address, using the ABI's wide seed domains. */
 export function captureAddress(kind, sortKey, site, seasonAddress, program) {
   const domain = kind === 'province' ? 'PSF-WIDE-PROVINCE-SEED-v1' : 'PSF-WIDE-HOLDING-SEED-v1';
@@ -44,7 +57,7 @@ export function checkCapturedBytes(kind, summary, capture, expected) {
   check(toHex(b.subarray(keyOffset, keyOffset + 17)) === toHex(key), 'capture coordinate');
   check(capture.address === captureAddress(kind, key, summary.site, manifest.seasonAddress, manifest.program), 'capture address');
   if (province) {
-    check(b[t + 3] === 15 && zero(b, t + 53, 3) && zero(b, t + 104, 24), 'province readiness/reserved');
+    check(b[t + 3] === 15 && wideTrailerReservedOk(b, t), 'province readiness/reserved');
     check(v.getUint16(68, true) === 0 && b[70] === wedge, 'province legacy ring/wedge');
     check(!zero(b, t + 64, 32), 'province seed');
     check(b[71] === summary.region && v.getUint32(76, true) === summary.openedBell

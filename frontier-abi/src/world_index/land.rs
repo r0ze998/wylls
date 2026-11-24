@@ -143,6 +143,76 @@ pub mod province {
     };
 }
 
+/// **Territory (territory-impl, owner 2026-11-24 12:09)**: the territory
+/// rule of a wide province (trailer byte `RSV_53`), written at the opening
+/// from the rules configuration's bundle (`rules::KeepHolderRule::territory`).
+/// 0 = no territory. `None` for a byte outside the table (never written).
+pub fn territory_rule_of(d: &[u8]) -> Option<Option<super::territory::TerritoryRule>> {
+    super::territory::TerritoryRule::from_byte(*d.get(province::RSV_53)?)
+}
+
+/// Writes the territory rule byte (the opening, after `write_identity`).
+pub fn set_territory_rule(d: &mut [u8], rule: Option<super::territory::TerritoryRule>) -> bool {
+    wr_u8(d, province::RSV_53, rule.map_or(0, |r| r.to_byte()))
+}
+
+/// The host that last took this province's keep (T-8): the home village
+/// of the capturing host as the roster names it (`WideHostRef`'s province
+/// key, site and generation) and the keep generation it took it at. Kept
+/// in the trailer's 24 reserved bytes: `[1] ‖ sort key 17 ‖ site ‖ gen ‖
+/// LE32(keep gen)`; all zero = no capture recorded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KeepCaptor {
+    pub home: WideCoord,
+    pub site: u8,
+    pub gen: u8,
+    pub keep_gen: u32,
+}
+
+/// The recorded captor (`Ok(None)` when none); `Err` on a malformed record.
+pub fn captor_of(d: &[u8]) -> Result<Option<KeepCaptor>, LandError> {
+    let o = province::RSV;
+    let raw = d
+        .get(o..o + province::RSV_LEN)
+        .ok_or(truncated(province::SIZE))?;
+    match raw[0] {
+        0 => {
+            if raw.iter().any(|b| *b != 0) {
+                return Err(LandError::Reserved);
+            }
+            Ok(None)
+        }
+        1 => {
+            let mut key = [0u8; SORT_KEY_LEN];
+            key.copy_from_slice(&raw[1..1 + SORT_KEY_LEN]);
+            let home = WideCoord::from_sort_key(&key)?;
+            let mut g = [0u8; 4];
+            g.copy_from_slice(&raw[20..24]);
+            Ok(Some(KeepCaptor {
+                home,
+                site: raw[18],
+                gen: raw[19],
+                keep_gen: u32::from_le_bytes(g),
+            }))
+        }
+        _ => Err(LandError::Reserved),
+    }
+}
+
+/// Records the captor of the keep (the resolve that took it).
+pub fn set_captor(d: &mut [u8], c: &KeepCaptor) -> bool {
+    let o = province::RSV;
+    let Some(raw) = d.get_mut(o..o + province::RSV_LEN) else {
+        return false;
+    };
+    raw[0] = 1;
+    raw[1..1 + SORT_KEY_LEN].copy_from_slice(&c.home.sort_key());
+    raw[18] = c.site;
+    raw[19] = c.gen;
+    raw[20..24].copy_from_slice(&c.keep_gen.to_le_bytes());
+    true
+}
+
 /// Why a record or a transition is refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LandError {
@@ -755,8 +825,15 @@ impl WideProvince {
                 missing: readiness::REQUIRED & !ready,
             });
         }
-        zero(d, L::RSV_53, 3)?;
-        zero(d, L::RSV, L::RSV_LEN)?;
+        // byte 0 of RSV_53: the territory rule (territory-impl), a known
+        // candidate or 0; the captor record in RSV: absent (zero) or present
+        if super::territory::TerritoryRule::from_byte(rd_u8(d, L::RSV_53).ok_or(t)?).is_none() {
+            return Err(LandError::Reserved);
+        }
+        zero(d, L::RSV_53 + 1, 2)?;
+        if captor_of(d).is_err() {
+            return Err(LandError::Reserved);
+        }
         if rd_i16(d, PV2::P).ok_or(t)? != 0
             || rd_i16(d, PV2::Q).ok_or(t)? != 0
             || rd_u16(d, PV2::RING).ok_or(t)? != 0
@@ -1439,19 +1516,42 @@ mod tests {
                 missing: readiness::REQUIRED
             })
         );
-        for off in [
-            province::RSV_53 + 2,
-            province::RSV,
-            province::RSV + province::RSV_LEN - 1,
+        // territory-impl: RSV_53 byte 0 is the territory rule (0 or a known
+        // candidate) and RSV the keep-captor record (all zero or tagged 1);
+        // anything else is still Reserved.
+        for (off, v) in [
+            (province::RSV_53 + 2, 1u8),
+            (province::RSV_53, 9),
+            (province::RSV, 2),
+            (province::RSV + province::RSV_LEN - 1, 1),
         ] {
             let mut x = d.clone();
-            x[off] = 1;
+            x[off] = v;
             assert_eq!(
                 WideProvince::read(&x),
                 Err(LandError::Reserved),
                 "offset {off}"
             );
         }
+        let mut x = d.clone();
+        assert!(set_territory_rule(
+            &mut x,
+            Some(crate::world_index::territory::TerritoryRule::V1)
+        ));
+        let cap = KeepCaptor {
+            home: WideCoord::checked(128, 0).unwrap(),
+            site: 3,
+            gen: 2,
+            keep_gen: 7,
+        };
+        assert!(set_captor(&mut x, &cap));
+        assert!(WideProvince::read(&x).is_ok());
+        assert_eq!(captor_of(&x), Ok(Some(cap)));
+        assert_eq!(
+            territory_rule_of(&x),
+            Some(Some(crate::world_index::territory::TerritoryRule::V1))
+        );
+        assert_eq!(captor_of(&d), Ok(None));
         let mut x = d.clone();
         x[province::WORLD..province::WORLD + 32].fill(0);
         assert_eq!(
