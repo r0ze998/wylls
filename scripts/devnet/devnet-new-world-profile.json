@@ -1,0 +1,237 @@
+{
+  "schema": "wylls-devnet-profile-v1",
+  "note": "DRAFT profile of the NEW devnet world (devnet-new-world-plan, 2026-11-24; owner 12:07 U2/U3, 12:09 T-1..T-8, 13:15 TQ-1..TQ-8): the same playable-lane program GGFRJr9d... UPGRADED to a build with #206 (neutral wide land, reach from the nation's land) and #209 (player territory, no ReleaseDormant), a NEW season id 3 (the on-chain name; players never see 'season') with preset S1_DEVNET_TERRITORY and WideSetRules keep holder NeutralTerritoryV1 (every wide keep unowned at 50 troops). Not usable before #206 and #209 merge: an operator built from main refuses both the preset and the keep holder by name. Nothing here is announced or created; the upgrade sha256 and every send need r0ze's confirmation (runbook section 9). No key material is ever stored here.",
+  "cluster": "devnet",
+  "rpcUrl": "https://api.devnet.solana.com",
+  "allowedRpcHosts": [
+    "api.devnet.solana.com"
+  ],
+  "refusedRpcHostPatterns": [
+    "mainnet",
+    "api.solana.com",
+    "testnet"
+  ],
+  "programId": "GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr",
+  "upgradeAuthority": "7sVNs9v5E3Euv5A2aeZEwmzABwc6zhDHskzqo8jz9CbA",
+  "program": {
+    "crate": "permutation-frontier",
+    "build": "scripts/build-frontier-devnet-playable-sbf.sh",
+    "so": "permutation-frontier/target/deploy-devnet-playable-sbf/permutation_frontier.so",
+    "maxLenRule": "round_up(1.25 x so_len, 4096) (I-45, fees::deploy_max_len)",
+    "soLenCap": 8388608,
+    "soLenCapSource": "Solana's MAX_PERMITTED_DATA_LENGTH 10,485,760 B bounds the ProgramData; max_len = round_up(1.25 x so_len, 4096) reaches it at so_len 8,388,608. No L(kind) table bounds this lane: every lane client requests the 64 MiB runtime loaded-data limit (local-play-act.mjs LOCAL_ACT_LOADED_LIMIT, flocalplay-reveal.mjs LOCAL_REVEAL_BUDGET).",
+    "minSolanaCli": "4.0.0 (plan.mjs MIN_SOLANA_CLI): the CLI verifies the ELF with its own syscall table before sending, and 3.1.x does not know sol_curve_decompress / sol_curve_pairing_map. The build stays on cargo-build-sbf 3.1.9.",
+    "refusedMarkers": [
+      "PSF_ORACLE_BUILD",
+      "PSF_TRACE_BUILD",
+      "PSF_TEST_BEACON_BUILD",
+      "PSF_CUSTODY_PREVIEW_BUILD",
+      "PSF_LOCALNET_EXPEDITION_SBF_BUILD",
+      "PSF_LOCALNET_CONQUEST_SBF_BUILD",
+      "PSF_RIGHTS_EXPERIMENTAL_BUILD",
+      "PSF_NFT_EXPERIMENTAL_BUILD",
+      "PSF_LOCALNET_NFT_SBF_BUILD",
+      "PSF_LOCALNET_WIDE_DEPART_BUILD",
+      "PSF_LOCALNET_COEXIST_SBF_BUILD"
+    ],
+    "programVersion": "0x4804",
+    "features": "devnet-playable-sbf = expedition-dispatch-experimental + land-preview (the land lane localnet-land-sbf without the [0x45; 32] id check and, P14 b, without conquest-dispatch-experimental: wrapper kinds 12-18 refused BadData)",
+    "requiredMarkers": [
+      "PSF_DEVNET_PLAYABLE_BUILD"
+    ]
+  },
+  "rent": {
+    "formula": "rent_exempt(len) = (128 + len) x lamports_per_byte",
+    "lamportsPerByteCandidates": [
+      6960,
+      6333,
+      5080,
+      2575,
+      1322,
+      696
+    ],
+    "assume": 5080,
+    "why": "MEASURED on devnet 2026-11-18 20:40 JST by the devnet-readonly-checks run (read-only public RPC, no key, no transaction; reports/devnet-readonly-checks.md, DRAFT PR #52, which also records it in devnet-profile.json's \"measured\" block): 5080 lamports per byte (SIMD-0437-2 active since epoch 1141; 2575/1322/696 and SIMD-0438's reset to 6960 inactive). It reproduced (128 + len) x 5080 for 16 sizes, including the conquest lane's ProgramData 4,485,165 B = 22.78528844 SOL. The rate can change at an epoch boundary: read it again right before a deploy and pass --rate if it moved."
+  },
+  "fees": {
+    "lamportsPerSignature": 5000,
+    "writeChunkBytes": 850,
+    "signaturesPerWrite": 2,
+    "writeChunkNote": "bytes per loader-v3 Write transaction. With a fee payer and a separate upgrade (= buffer) authority the CLI's calculate_max_chunk_size leaves about 876 B [derived from agave v3.1.9 cli/src/program.rs, not run]; 850 is the conservative figure (fewer bytes = more transactions = a higher estimate). Each Write carries two signatures: the fee payer's and the authority's."
+  },
+  "season": {
+    "preset": "S1_DEVNET_TERRITORY",
+    "regions": 16,
+    "rMax": 16,
+    "rMaxCeiling": 128,
+    "wideFirstRing": 129,
+    "players": 50,
+    "lamports": {
+      "creationBond": 1000000000,
+      "pfundInitial": 36000000000,
+      "dpoolInitial": 20000000000,
+      "keeperRevealPools": 4800000000,
+      "keeperDelayPools": 6400000000,
+      "keeperBeneficiaries": 200000000,
+      "relayPool": 7500000000,
+      "feesAndTipsPer50Players": 625000000
+    },
+    "lamportsNotes": {
+      "creationBond": "frontier_abi::presets::MIN_CREATION_BOND, returned after a normal season (burned on a post-round pre-join abort, I-09)",
+      "pfundInitial": "S1_DEVNET_WIDE_7D = frontier_abi::v2::presets::PFUND_DEVNET_WIDE (36 SOL, 6 SOL per wedge fund). OpenRing / WideRequestRingSeed check that every wedge fund holds d x rent(province) above its own rent (a balance check, not a spend): ring 128 needs 128 x rent(4,736) = 3.163 SOL and wide ring 129 needs 129 x rent(4,864) = 3.271 SOL per fund at 5,080 lamports/byte (4.333 / 4.482 SOL at 6,960). The rest pays for the provinces actually opened (24,709,120 lamports each legacy, 25,359,360 wide, at 5,080). Float.",
+      "dpoolInitial": "M1_LOCAL_7D.dpool_initial (20 SOL), inherited by MC_LOCAL_7D/S1_LOCAL_7D. Returned if unspent.",
+      "keeperRevealPools": "2 keepers x 150 payers x up to 2 x F_r (F_r = 0.0080 SOL at r99_reveals 150; RUN-A-KEEPER 4.3)",
+      "keeperDelayPools": "2 keepers x 32 payers x up to 2 x delay_floor 0.05 SOL (PLAYTEST-RUNBOOK 4)",
+      "keeperBeneficiaries": "2 x 0.1 SOL (ClaimDefence fee payer, RUN-A-KEEPER 1)",
+      "relayPool": "150 relay payers x minPayerLamports 0.05 SOL (permutation-gateway/src/frontier/config.mjs)",
+      "feesAndTipsPer50Players": "PLAYTEST-RUNBOOK 5: <= 2.5 SOL per 200 players-week, scaled to 50 (spent)"
+    },
+    "accounts": [
+      {
+        "name": "Season",
+        "bytes": 2048,
+        "count": 1
+      },
+      {
+        "name": "Frontier",
+        "bytes": 512,
+        "count": 1
+      },
+      {
+        "name": "JoinShard",
+        "bytes": 256,
+        "count": 48
+      },
+      {
+        "name": "BeaconLog",
+        "bytes": 128,
+        "count": 16
+      },
+      {
+        "name": "ProvinceFund",
+        "bytes": 128,
+        "count": 6
+      },
+      {
+        "name": "DefencePool",
+        "bytes": 256,
+        "count": 1
+      },
+      {
+        "name": "RingSeed (legacy rings 0..128: genesis 0..3, then one per bell via ExtendFrontier + OpenRing)",
+        "bytes": 128,
+        "count": 129
+      },
+      {
+        "name": "Wide ring seed (rings 129..131: the wide rings keeper A opens, services.keeperA.ringsDuty.wide_rings 3)",
+        "bytes": 192,
+        "count": 3
+      },
+      {
+        "name": "AnchorArchive (16 regions x 16 half-days)",
+        "bytes": 6144,
+        "count": 256
+      },
+      {
+        "name": "BellAnchor float (16 regions x 288 bells kept 48 h) [model]",
+        "bytes": 144,
+        "count": 4608
+      },
+      {
+        "name": "SeedCache float (16 regions x 288 bells kept 48 h) [model]",
+        "bytes": 144,
+        "count": 4608
+      }
+    ],
+    "perPlayerAccounts": [
+      {
+        "name": "Citizen",
+        "bytes": 384
+      },
+      {
+        "name": "Holding",
+        "bytes": 1280
+      }
+    ],
+    "continuousWorldPerDay": [
+      {
+        "name": "AnchorArchive per day (16 regions x 2 half-days), never closed while the world runs [model]",
+        "bytes": 6144,
+        "count": 32
+      }
+    ],
+    "continuousNote": "devnet-continuous-1 (owner 2026-11-23 22:42 JST: seasons abolished; t481u Q11 2026-11-24 00:21 JST): the devnet world is S1_DEVNET_WIDE_CONTINUOUS = continuous(S1_DEVNET_WIDE_7D), the 7-day preset below with exactly three bytes changed: conquest byte 80 continuous = 1, end_bell = join_close_bell = 4,294,967,295 (NO_END_BELL). Joins never close, EndSeason is refused (CqError::ContinuousWorld 94), so CloseSeason never runs and the province fund / defence pool float is never returned. The deployed program (base 6912906d, .so 67a33c92) already validates and stores this shape (commit 2c29496f); no upgrade. Season 1 was announced with the 7-day preset (its params hash is pinned), so the continuous world is a NEW season id 2 with its own AnnounceSeason and the program's 24 h lead. The per-week figures below (fees, SkipQuiet) now repeat every week.",
+    "note": "S1_DEVNET_WIDE_7D (frontier-abi/src/v2/presets.rs; devnet-preset-wide, D-1 of verifier-wide-instrs): S1_LOCAL_7D with r_max_ceiling 128, theta 1 bp early/late, pfund_initial 36 SOL and (Q-W1, 2026-11-20) outpost_tier_min 0 (a rim Hamlet first village anchors a wide claim), so the legacy map can grow one ring per bell to ring 128 (~21 h from genesis ring 3) and the wide land (ring 129+) can be requested; S1_LOCAL_7D's map ends at ring 16 and no wide instruction but WideSetRules could ever land there. Provinces past the genesis rings are opened on demand only (keeper lazy_provinces = true): opening every province to ring 128 would cost 49,537 x 24,709,120 lamports = 1,224 SOL. On demand means keeper A's rings duty: provinces_reach (within 3 of a settled province, for second villages and R3 homes), rim_per_wedge (the rim) and wide_rings (the wide land); anyone may also send OpenProvince (permissionless, rent from the wedge fund). The natural local world (itest natural_play.rs) still creates its Season from S1_LOCAL_7D with program_version 0x4804. frontier-operator --preset S1_DEVNET_WIDE_7D creates the 0x4804 season (B3; loopback-tested on the devnet .so); the verifier needs its playable-lane build for such a season (risks.verifier).",
+    "newWorldNote": "S1_DEVNET_TERRITORY (frontier-abi presets, from #209) = no_dormant_release(S1_DEVNET_WIDE_CONTINUOUS): the continuous playable world with release_after_secs = u32::MAX in both blocks (owner 12:07 U3: the 7-day idle first-village release, ReleaseDormant, is removed; the 5-day idle half-production stays). Every other byte, the funds (pfund 36 SOL, dpool 20 SOL) and the bond are S1_DEVNET_WIDE_CONTINUOUS's. Its params hash differs from Season 2's announced f63f0b36...7a64, so the new world cannot be created from Season 2's announcement (program CreateSeason compares the params hash): a new AnnounceSeason with id 3 and the 24 h lead."
+  },
+  "wide": {
+    "keepHolder": "NeutralTerritoryV1",
+    "why": "WideSetRules keep-holder byte 4 (frontier-abi KeepHolderRule::NeutralTerritoryV1, from #209; table v3): every wide keep opens unowned (the neutral side) with 50 troops (TQ-8) and the world plays player territory V1 (single-tile claims for ore 10 +2%/tile, reach 3 provinces, upkeep food, decay 1 tile/turn; owner 12:09 + 13:15). Neutral (byte 3, #206) would be the unowned land without territory. The free_city / camp / region bytes stay DeployedLe32V1(3) / NoCamp(1) / SortKeyHashV1(1). WideSetRules is write-once per season."
+  },
+  "operator": {
+    "seasonId": 3,
+    "beacon": "quicknet",
+    "note": "frontier-operator (built --features playable-lane from main after #206 + #209 merge) --profile scripts/devnet/devnet-new-world-profile.json. seasonId 3: 1 = the 7-day season (Aborted 11-24 06:34), 2 = the continuous world announced 11-24 02:15 and never created (postponed 12:07; refund-abort only before 11-25 01:30 JST, inbox Q-NWP-1), 3 = this world. The setup: AnnounceSeason, the 24 h lead, CreateSeason, InitBeaconLogs, InitShards x 6, then WideSetRules with wide.keepHolder once keeper A has seeded the season."
+  },
+  "services": {
+    "herald": {
+      "listen": "127.0.0.1:41040",
+      "public": "only through a TLS reverse proxy"
+    },
+    "relay": {
+      "port": 41030,
+      "publicPort": 41033,
+      "public": "never directly; the herald proxies /gw/*"
+    },
+    "keeperA": {
+      "api": "127.0.0.1:41050",
+      "ringsDuty": {
+        "extend": true,
+        "extend_max_ring": 128,
+        "lazy_provinces": true,
+        "why": "S1_DEVNET_WIDE_7D grows the map one ring per bell to the legacy rim (r_max_ceiling 128) so the wide land (ring 129+) can be requested; lazy_provinces opens the genesis rings whole and every later ring without its provinces (they open on demand: provinces_reach next to the settled land, rim_per_wedge on the rim, wide_rings past it). Only the rings keeper (A) needs it.",
+        "rim_per_wedge": 6,
+        "rimWhy": "Owner decision Q-W1 (2026-11-20 t398u): on this wide season a player's FIRST village may also be founded on the rim (rings 126-128, beside the wide land), as in local wide play. PlaceHome cannot name a province past the base r_max 16, so a rim first village is a one-site FileTicket; lazy_provinces leaves the rim without provinces, so once ring 128 is opened and seeded the rings duty opens the ring-128 provinces beside the middle 6 ring-129 provinces of each wedge (keeper::rings::rim_plan, the local wide world's rim): 42 provinces, 24,709,120 lamports of rent each from the wedge funds (1.038 SOL of the 36 SOL float at 5,080 lamports/byte, 1.422 SOL at 6,960; every fund still covers ring 129's balance check), about 140,000 CU each (measured offline, stack/tests/operator_playable.rs P4).",
+        "provinces_reach": 3,
+        "provincesWhy": "devnet-open-province (D-devnet-rim-homes-2): lazy_provinces leaves rings 4..127 without provinces, and nothing else opened them, yet every second or third village is a FileOutpost, which the program allows only at ring > heartland_max_ring 3, within outpost_range 3 of the home, into a PRESENT Province (an absent one: BadAccount, code 2), and a R3 home past the heartland needs one too. With provinces_reach 3 the rings duty opens every absent province of a seeded legacy ring within 3 provinces of a settled one (n_sites_used > 0), nearest first (keeper::rings::demand_plan), at most provinces_per_pass 12 a scan and provinces_max 600 a run, never below a wedge fund's floor (keeper::rings::demand_fund_floor: ring 131's balance check plus the rim's and wide rings' shares, 3.95 SOL per fund at 5,080) and never while the feed guard holds automatic writes. Each open: 24,709,120 lamports of rent from the wedge fund (5,080 lamports/byte; 33,853,440 at 6,960), 26,332 lamports of fee from keeper A's payer (5,000 base + its class-D priority bid), 140,606-148,207 CU (measured offline, stack/tests/operator_playable.rs PPROV: a ring-2 home opened 14 provinces, its ring-4 FileOutpost settled by the tickets role, then 14 more around the new village). A fully settled band of rings 4-6 is 90 provinces = 2.22 SOL of the wedge funds' float (not new money); each opened province also adds keeper A's SkipQuiet fees (about 0.0070 SOL a province for a 7-day season at the measured 0.43 a bell, not in the season totals above). The page's devnet path sends FileOutpost since #141 (permutation-gateway devnet-play-act.mjs DEVNET_ACT_COMMANDS, operator_playable PPOST). The real bound is the fund floor, not provinces_max (verify-pr138, from PPROV's fund balances after the genesis and rim openings, 5.68 SOL a wedge): at 5,080 at most 69 provinces a wedge (68 in wedge 0) = 413 before the wide rings open, 51 (50) = 305 after them; at 6,960 at most 4 (3) = 23 before and none after, because the floor (5.41 SOL) then exceeds what a 6 SOL fund keeps. provinces_max counts per keeper run (a restart starts it again).",
+        "wide_rings": 3,
+        "wide_per_wedge": 6,
+        "wideWhy": "Devnet runbook gap P6 (closed in code, loopback test only): once ring 128 is seeded the rings duty opens the wide rings 129, 130 and 131 one at a time, each a bell after the previous one opened (the program's rule): WideRequestRingSeed (its 192-byte record 1,625,600 lamports of rent at 5,080 lamports/byte, 2,227,200 at 6,960, from keeper A's payer), WideConsumeRingSeed on the round the request bound (the beacon path: the drand port, BLS-verified by the program), then WideOpenProvince for the middle 6 provinces of each wedge's arc (keeper::rings::wide_plan, the local wide world's plan; every rim village is within outpost_range of a ring-129 one): 108 provinces, 25,359,360 lamports each from the wedge funds (2.739 SOL of the 36 SOL float at 5,080, 3.752 SOL at 6,960; every fund still clears ring 131's balance check, 3.32 / 4.55 SOL). Needs keeper A built with --features playable-lane. Measured offline (stack/tests/operator_playable.rs P5): request about 15,400 CU, consume about 331,000 CU, open 476,712-538,387 CU."
+      },
+      "roles": [
+        "beacon",
+        "archive",
+        "rings",
+        "fold",
+        "tickets",
+        "wide-tickets",
+        "reveal",
+        "settle-departure",
+        "gather",
+        "resolve",
+        "skip",
+        "settle",
+        "close",
+        "claims",
+        "expeditions",
+        "wide-resolve"
+      ],
+      "rolesWhy": "tickets (Q-W1): settles every open FileTicket on its bell's seed (SettleTicket, class D) -- the rim first villages; the beacon role posts that seed (PostAnchor / PostSeed from the live quicknet rounds). Measured offline (P4): SettleTicket 21,306 CU. wide-tickets (P7, closed in code, loopback test only; needs keeper A built with --features playable-lane): settles every open wide claim (0xD9 WideClaimSite) once its bell's seed is on chain (WideSettleTicket 0xDC, one per wide site in the lottery order, the displacing form when someone settled out of order; expired after 24 bells) and finalizes every provisional wide village once the program's own finality rule holds (WideFinalize 0xDF); fees only (the village's rent comes from the claim's escrow). Measured offline (P5): WideSettleTicket 21,410 CU, WideFinalize 6,424 CU. reveal, settle-departure, gather, resolve, skip, settle, close, claims (devnet-page-war; the S1 playtest keeper A's play roles, keeper/src/play.rs): the LEGACY war of the page's sealed marches (ring <= 128) -- SettleDeparture once the origin resolved past the departure, the Reveal of every sealed march from the public round T(arrive) (the seal opens for anyone once that round is out) or from the owner's material the page hands over (POST /gw/f/reveal -> /v1/reveal), never at or after A + W - 2 slots, GatherClash / ResolveFromInputs of the arrival bells and every contested keep bell, SkipQuiet of the quiet bells of every opened province (so that Muster and Depart stay resident), SettleTransit (the host routed, stood or home), the return settles, the closes and the keeper's own late-reveal claims; class D/W/N fees only. Measured offline (operator_playable P8/P9, a march onto a rim keep arriving on the real round T(21)): Reveal 20,973 CU, SettleDeparture 7,068, GatherClash 14,240-37,389, ResolveFromInputs 32,605-35,595, SettleTransit 60,670, SkipQuiet 13,596-25,774 CU (about 0.43 SkipQuiet per opened province per bell: about 0.55 SOL of fees for a 7-day season at 79 provinces, not in the season totals above). expeditions (devnet-expedition-keeper, runbook P13 + P10, closed in code, loopback test only; needs keeper A built with --features playable-lane and the roles beacon, gather and resolve): every step of a rim -> wide expedition after the player's ExpeditionDepart (the 0x4804 wrapper, kind 0; the player pays only the Depart) -- the origin's departure bell handed to the play duty (GatherClash with no arrivals, ResolveFromInputs), ExpeditionSettleOrigin, the wide ExpeditionReveal opened from the public round T(arrive) (never at or after A + W - 2 slots), the destination's catch-up wide Resolves bell by bell, ExpeditionGather, the arrival's wide Resolve and SettleMember; class D/W fees and the ArrivalSlot / ArrivalDay / ClashInputs rent it creates (returned by the settlement's rules). Its records (PS2 146-149, PSW1 25/26, PSFF, PSFT) no longer latch the feed guard (P10). Measured offline (operator_playable P11): ExpeditionSettleOrigin 80,742 CU, ExpeditionReveal 160,572, ExpeditionGather 158,361-409,792 (two packet-sized batches), the destination's wide Resolve 83,460-144,073 (19 bells, the catch-up from the ring-129 province's opening), SettleMember 196,933; keeper A's lamports for one expedition about 0.046 SOL (mostly rent: the origin's ClashInputs 7.2M, the Reveal's ArrivalSlot / ArrivalDay 3.8M, the wide ClashInputs 16.2M, the 19 Resolves 18.4M; the rest fees); the player paid only the Depart (86,241 CU, 2,407,514 lamports incl. the escrowed tip and bond). wide-resolve (devnet-p15-p9, runbook P9, closed in code, loopback test only; needs keeper A built with --features playable-lane and the role beacon): keeps every wide province it knows of (named by an accounted PSW1 record, or holding a wide village won by a claim) resolved bell by bell with the quiet wide Resolve (0xDC op 1) once the bell's anchor window closed and its seed is on chain, so that a wide village's WideMuster and WideGarrison stay resident (resolved_next + 1 >= the current bell) on every later bell; a bell with arrivals is left to the expeditions role; class D fees only (64,331 lamports a bell and province as measured offline (verify-pr129: 5,000 base fee + 59,331 priority fee, keeper A's class-D starting bid P_LOW_MILLI 100 on the role's 600,000 CU limit; a quiet Resolve uses about 84,000 CU), so about 0.065 SOL per known wide province for a 7-day season of 1,008 bells, at most about 7.0 SOL if all 108 wide provinces keeper A opens became known from the first bell; more if a write waits and its bid rises; not in the season totals above)."
+    },
+    "keeperB": {
+      "api": "127.0.0.1:41051"
+    }
+  },
+  "excluded": {
+    "permutation-prize": "not deployed with this profile. Owner decision 17 was reopened on 2026-11-18 (devnet / test USDC only; no mainnet real-money prize without a legal review); this profile has no prize section, so dry-run.mjs --with-prize refuses it",
+    "wylls_resident_program (NFT)": "not deployed. Owner decision 20 was reopened on 2026-11-18 as a devnet / local dry run only (dry-run.mjs --nft-resident; its send gate stays closed)",
+    "permutation-chain (v9)": "superseded by permutation-frontier: not deployed",
+    "permutation-frontier S1 release": "a separate program (scripts/devnet/devnet-profile.json); B7 ships this playable lane first"
+  },
+  "lane": "playable",
+  "risks": {
+    "SIMD-0500": "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g 'Disable deployment of SBPF v0, v1 and v2 programs' was inactive on devnet at 2026-11-18 20:40 JST (devnet-readonly-checks). This .so is SBPF v2: once it activates, a deploy or upgrade of it is refused. Moving to SBPF v3 leaves the pinned cargo-build-sbf 3.1.9 (blocked on r0ze).",
+    "verifier": "frontier-verify built with --features playable-lane judges a 0x4804 season (re-execution on the pinned .so; whole offline seasons judged with no FAIL, verify-pr118); a default build cannot. On a public RPC a PASS also needs a second, independent witness RPC that serves the whole season: a 7-day public endpoint reads UNVERIFIABLE once the season is over (devnet-readonly-rpc, 2026-11-21; the endpoint is r0ze's choice).",
+    "seasonTool": "frontier-operator --preset S1_DEVNET_WIDE_7D creates the 0x4804 season and its WideSetRules (B3, tested on loopback only with the devnet .so). Keeper A opens the wide rings (rings duty wide_rings / wide_per_wedge, runbook P6) and settles / finalizes the wide claims (role wide-tickets, P7), both closed in code by PR #107; rim first villages (Q-W1) are settled by its tickets role on the rim provinces its rim_per_wedge duty opens. All tested on loopback only, never on devnet. Open: runbook section 7.0 (the witness endpoint, hosting; P14 closed in the build by (b): no conquest kinds, a new .so to approve)."
+  }
+}
