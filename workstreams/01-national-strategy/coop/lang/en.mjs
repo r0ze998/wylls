@@ -53,6 +53,8 @@ export default {
   'ウォレットを選んでください': 'Choose a wallet',
   'ウォレットが別の文に署名した': 'the wallet signed a different message',
   '署名する人：{0}（{1}）': 'Signer: {0} ({1})',
+  '署名する人：{0}（このページのテスト用の鍵（メモリのみ・協力の記録だけに署名））': 'Signer: {0} (Local Play Wallet (memory only) — co-op records only)',
+  'このページのテスト用の鍵（メモリのみ・協力の記録だけに署名）': 'Local Play Wallet (memory only) — co-op records only',
   '接続できない：{0}': 'Cannot connect: {0}',
   '先に署名する人を接続してください': 'Connect a signer first',
   '署名できない：{0}': 'Cannot sign: {0}',

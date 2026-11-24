@@ -19,6 +19,15 @@ import { GAME_PAGE, compositionOf, compositionText } from './composition.mjs';
 import { arrivedCandidates, excludedCaravans, createArrivedPicks, renderArrived, arrivedClick } from './arrived.mjs';
 import { shown } from './lang.mjs';   // 表示の言語（日本語か英語）。この画面の文は日本語のまま書き、表示だけを lang.mjs が英語にする
 
+// (fix-loop14, LP14-14) A wallet's name is its own (the wallet standard's `name`: whatever the wallet calls itself). The
+// local test world's page key calls itself in English (permutation-server/web/frontier/hud/coopboard-local.mjs
+// COOP_WALLET_NAME), so the Japanese board read 「署名する人：GMqY…XsTU（Local Play Wallet (memory only) — co-op records
+// only）」. That one name is said in the board's own words (the English table gives the English back); any other wallet's
+// name is shown as it is.
+// (verify-pr217: the wallet chooser's row above the line said the same English name; it uses the same words.)
+const LOCAL_TEST_WALLET = 'Local Play Wallet (memory only) — co-op records only';
+const walletWords = name => (name === LOCAL_TEST_WALLET ? 'このページのテスト用の鍵（メモリのみ・協力の記録だけに署名）' : name);
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const short = a => (a ? `${String(a).slice(0, 4)}…${String(a).slice(-4)}` : '?');
@@ -77,7 +86,7 @@ const DEV = 'dev';
 let walletPicked = false;
 function renderWallets() {
   const list = W.list(chainOf()).filter(e => !e.dev);
-  const opts = [...list.map((e, i) => `<option value="${i}"${e.why ? ' disabled' : ''}>${esc(e.name)}${e.why ? `（${esc(e.why)}）` : ''}</option>`),
+  const opts = [...list.map((e, i) => `<option value="${i}"${e.why ? ' disabled' : ''}>${esc(walletWords(e.name))}${e.why ? `（${esc(e.why)}）` : ''}</option>`),
     ...(chainOf() === 'solana:localnet' ? [`<option value="${DEV}">Dev Wallet（ローカル）</option>`] : [])];
   // （2026-11-18、B13）人が選ぶ前は、あとから見つかったウォレット（ゲームの画面が渡すローカルプレイの鍵など）を Dev Wallet より先に選ぶ
   const keep = walletPicked ? $('wallet').value : null;
@@ -105,7 +114,7 @@ async function connectWallet() {
         return r.signature;
       },
     };
-    $('who').textContent = `署名する人：${short(c.address)}（${c.name}）`;
+    $('who').textContent = `署名する人：${short(c.address)}（${walletWords(c.name)}）`;
     say('');
     await refresh();
   } catch (e) { say(`接続できない：${e.message ?? e}`, 'bad'); }
