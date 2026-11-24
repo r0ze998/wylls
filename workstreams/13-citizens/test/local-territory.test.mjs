@@ -198,6 +198,21 @@ test('TB4 holds, each said: this turn\'s claim used, upkeep unpaid, the ore shor
   assert.match((await held(world(), { landStage: 'provisional' })).join(' '), /not final yet/);
 });
 
+test('TB5 (live run1) while my landed village claim settles, no other site\'s tile is bought', async () => {
+  // my tile 5 (site 0) is mine and my claim on site 0 landed last turn: site 0 is tried, the village is not in my record yet
+  const st = mem();
+  noteOutcome(st, { id: 'wideclaim:-65,-64,0', kind: 'wideclaim', site: '-65,-64,0', order: { name: 'WideClaim', v: { target: { p: A.p, q: A.q } }, fields: { site: 0, slot: 2 } } }, 'landed', { bell: BELL - 1 });
+  const obs = obsOf(village({ stores: [900, 900, 500, 200, 0, 300, 0, 0] }), await viewOf(world({ mine: { '-65,-64': [5] } })));
+  const c = localCandidates(obs, st);
+  assert.equal(tiles(c).filter(x => x.meta.purpose === 'site').length, 0, 'no second site tile while the claim settles');
+  assert.equal(c.candidates.filter(x => x.kind === 'wideclaim' && !x.held).length, 0);
+  // the claim founded nothing (its wait is over, no village): the next site's tile is looked at again
+  const later = { ...obs, bell: BELL + 20 };
+  later.territory = await viewOf(world({ mine: { '-65,-64': [5] } }), { bell: BELL + 20 });
+  const c2 = localCandidates(later, st);
+  assert.deepEqual(tiles(c2).filter(x => x.meta.purpose === 'site').map(x => x.order.fields.tile), [20]);
+});
+
 // ------------------------------------------------------------------ growth, at the resident's own pace (LP15-5)
 
 test('TG1 a growth tile is bought only from ore beyond the plan, the reserve and a training hundred — land does not come before troops', async () => {
@@ -253,7 +268,7 @@ test('TG2 memory: a landing sets the pace; another player\'s tile is not asked a
 
 // ------------------------------------------------------------------ the runner: one order, one action a turn
 
-function harness(w, { raw = village(), st = mem(), bell = BELL, sendOutcome = () => ({ outcome: 'landed', code: null }) } = {}) {
+function harness(w, { raw = village(), st = mem(), bell = BELL, sendOutcome = () => ({ outcome: 'landed', code: null }), plan = null } = {}) {
   const store = { state: st, saves: 0, save() { this.saves++; } };
   const sent = [], logs = [];
   const eyes = createTerritoryEyes({ herald: 'http://herald.test', identity: { address: WALLET, programId: PROGRAM, seasonAddress: w.addresses.season }, read: w.read, getJson: w.getJson });
@@ -261,7 +276,7 @@ function harness(w, { raw = village(), st = mem(), bell = BELL, sendOutcome = ()
   const clock = { bell };
   const observe = async () => { const { wideLand: _w, territory: _t, ...o } = obsOf(raw, null); return { ...o, bell: clock.bell, wideInv: { villages: [], bound: 0 } }; };
   const send = async (order, { onSigned }) => { const sig = `sig${sent.length + 1}`; await onSigned(sig); sent.push({ order, sig, saved: st.journal[`b${clock.bell}`]?.signature }); return { ...sendOutcome(order), signature: sig }; };
-  const step = () => localStep({ store, observe, send, follow: async () => null, bellNow: async () => clock.bell, log: (s, f) => logs.push({ s, ...f }), wide, territory: eyes, limits: LOCAL_LIMITS });
+  const step = () => localStep({ store, observe, send, follow: async () => null, bellNow: async () => clock.bell, log: (s, f) => logs.push({ s, ...f }), wide, territory: eyes, limits: LOCAL_LIMITS, plan });
   return { st, sent, logs, step, clock };
 }
 
@@ -332,4 +347,21 @@ test('TP1 a plan\'s WideClaim step waits while the site\'s tile is claimed first
   const mine = obsOf(village({ stores: [900, 900, 500, 200, 0, 300, 0, 0] }), await viewOf(world({ mine: { '-65,-64': [5] } })));
   const go = checkStep({ idx: 0, name: 'WideClaim', fields: {}, expect: {}, note: 'claim wide land' }, mine, st, { patience: 48 });
   assert.equal(go.go.order.v.territory, true);
+});
+
+test('TP2 with ④\'s plans on, the turn the site\'s tile can be asked is the brain\'s: the plan is not asked for a step and is not touched', async () => {
+  const asked = { next: 0, intend: 0, settle: 0 };
+  const plan = { holder: 'h', reconcile: async () => {}, next: async () => { asked.next++; return { wait: 'the plan\'s WideClaim step waits for the tile' }; }, intend: async () => { asked.intend++; }, signed: async () => {}, settle: async () => { asked.settle++; } };
+  const w = world();
+  const h = harness(w, { raw: village({ stores: [900, 900, 500, 200, 0, 300, 0, 0] }), plan });
+  const r = await h.step();
+  assert.deepEqual([r.did, r.order, r.outcome], ['act', TERRITORY_CLAIM, 'landed']);
+  assert.deepEqual(asked, { next: 0, intend: 0, settle: 0 }, 'no plan step was taken, intended or settled for the tile');
+  assert.ok(h.logs.some(l => l.s === 'decide' && l.by === 'ws13-territory'));
+  // the tile mine: the next turn the plan is asked again (its WideClaim step goes on from there)
+  w.record(A.p, A.q, provinceRecord({ owners: { 5: w.tagOf(WALLET) }, dist: { 5: 1 } })).player(WALLET, playerRecord({ tag: w.tagOf(WALLET), tiles: 1, lastClaimBell: BELL, claimsInBell: 1 }));
+  h.clock.bell = BELL + 1;
+  const r2 = await h.step();
+  assert.equal(r2.did, 'plan-wait');
+  assert.equal(asked.next, 1);
 });

@@ -4,7 +4,7 @@
 // (resident.mjs DEFAULT_LIMITS: the shortest gap between decisions, the idle back-off, the allowance of decisions,
 // the day's actions, the doubling hold after a failed action) and its own memory (journal.mjs) are mapped onto the
 // six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and, in a local
-// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER) and the wide land's own orders (wide.mjs: WideClaim, WideTrain/WideMuster/WideDepart, the Expedition); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
+// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER) and the wide land's own orders (wide.mjs: WideClaim, WideTrain/WideMuster/WideDepart, the Expedition) and, where the world plays player territory (#209), the page's single-tile claim (territory.mjs: TerritoryClaim); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
 // plans with are the page's own (hud/rulebook.mjs buildOffers, trainCost, maxTrain; fland.mjs storesAt), never the
 // test world's (world/rules.mjs). A choice is only a request: the relay and the program refuse it exactly as they
 // refuse a person's.
@@ -302,7 +302,9 @@ export function wideCandidates(obs, mem, out, { bell, limits = LOCAL_LIMITS, a =
     }
   }
   // (ws13-territory) the land's tiles, in a world with player territory
-  if (obs.territory?.on === true) territoryCandidates(obs, mem, out, { bell, a, siteFirst: notDue ? null : claimOrder(obs, mem).tileFirst ?? null, final: !claimNotFinal(obs) });
+  // (live run1: with a landed village claim still settling, the next site's tile was bought — a second site is looked at
+  //  only once that claim is known to have founded nothing: no site tile while a claim settles)
+  if (obs.territory?.on === true) territoryCandidates(obs, mem, out, { bell, a, siteFirst: notDue || claimSettling(obs, mem, wl) ? null : claimOrder(obs, mem).tileFirst ?? null, final: !claimNotFinal(obs) });
   // the wide village's host
   const hd = wideHostDecision(obs, mem, wl);
   if (hd.decision) {
