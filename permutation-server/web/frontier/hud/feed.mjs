@@ -76,12 +76,17 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
   // (`fights`: the engagements of every CLASH record read, by "p,q,bell". The program logs a CLASH for every turn
   // of a province it resolves with arrivals, also when nobody stood against them: `engagements` 0 is an arrival
   // with no fight, and is not told as a battle)
-  const clashes = new Set(), fights = new Map();
+  // (fix-loop14, LP14-7 — `still`: a CLASH record with no engagement AND no arrival's fate. The program also logs one
+  //  for every turn a host merely STANDS on a tile of the province (a host holding a road tile or a keep: resolved
+  //  again each turn), and each was told as 「…に軍勢が着きました。戦いはありませんでした」 — one line and one summary
+  //  every turn, though nothing arrived. A record without `fates` (an older herald) is taken as an arrival, as before)
+  const clashes = new Set(), fights = new Map(), still = new Set();
   for (const x of FS.chronicle ?? []) {
     const r = x.record ?? x;
     if (r.name !== 'CLASH') continue;
     const k = `${Number(r.p)},${Number(r.q)},${Number(r.bell)}`;
     fights.set(k, Number(r.engagements ?? 1));
+    if (Number(r.engagements ?? 1) === 0 && r.fates && typeof r.fates === 'object' && Object.values(r.fates).every(v => Number(v) === 0)) still.add(k);
     if (own.has(`${Number(r.p)},${Number(r.q)}`)) clashes.add(k);
   }
   // (the results of the viewer's own explorations, from the log's EXPLORE_RESULT records: "host:turn" → Works earned)
@@ -113,7 +118,7 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
   // null until the season's days are read, as `keeps`
   const mine = new Map((FS.holdings ?? []).map(h => [`${h.p},${h.q},${h.site}`, h]));
   const returns = Array.isArray(FS.conquest?.events) ? new Map((FS.conquest.returns ?? []).filter(e => mine.has(`${e.p},${e.q},${e.site}`)).map(e => [String(e.seq), e])) : null;
-  return { bell: FS.nowBell ?? null, now, keeps, returns, territory, territoryKnown, territorySeen, marches, builds, pendingBuilds, holdings, clashes, fights, explored, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
+  return { bell: FS.nowBell ?? null, now, keeps, returns, territory, territoryKnown, territorySeen, marches, builds, pendingBuilds, holdings, clashes, fights, still, explored, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
 }
 
 const SIDE_TEXT = { gain: () => L`あなたの国が得た`, loss: () => L`あなたの国が失った`, attack: () => L`あなたの国が攻めている`, defend: () => L`あなたの国が守っている` };
@@ -170,6 +175,7 @@ function diffFeedNow(prev, next) {
     // (an arrival nobody fought: said as what it was, with no battle to watch; the viewer's own arrival there has its own line)
     // (`quiet`: kept in the list and counted in the turn's summary, not raised as a card over the map: in a province
     // with neighbours it would be raised every turn)
+    if (next.still?.has(c)) continue;   // (LP14-7: nobody arrived and nobody fought — a host only stood there: not news)
     if (next.fights?.get(c) === 0) {
       if (!out.some(x => x.id.startsWith('rs:') && x.p === p && x.q === q)) out.push({ id: `cl:${c}`, kind: 'march', bell, p, q, quiet: true, text: L`${provinceName(own, p, q)}に軍勢が着きました。戦いはありませんでした（ターン ${fmtNum(b)}）` });
       continue;

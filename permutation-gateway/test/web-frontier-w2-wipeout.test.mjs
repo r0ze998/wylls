@@ -193,7 +193,7 @@ test('home village (conquest guide): after a capture the card offers the next ar
 
 test('a REFUSED WideDepart (act answers undefined + FS.notice) is not counted as a march — live world B turn 473: NotResident counted, cap reached with no 2nd march', () => {
   const c = src('controller.mjs');
-  const at = c.indexOf("const r = await act(d.name, { v: d.v, fields: d.fields, say: () => d.why });");
+  const at = c.indexOf("const r = await act(d.name, { v: d.v, fields: d.fields, say: () => wideHostDoneText(wideHostSayOf(w)) });");   // (fix-loop14, LP14-15: the notice in the page's language, not the planner's English log words)
   assert.ok(at > 0);
   const body = c.slice(at, c.indexOf('return r;', at));
   assert.ok(body.includes('const n = r === undefined ? FS.notice : r;'));
