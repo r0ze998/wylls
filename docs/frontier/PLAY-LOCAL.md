@@ -217,7 +217,7 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    build): the farm takes 1 h 30 min (about 1.5 minutes at ×60).
    - "Join (nation)" takes on one press (#130; each of the 8 joins in verify-pr130 took one). While the page is
      reading the village sites the button reads "Preparing your village…" and cannot be pressed.
-   - If a card "While you were away: This device holds no "seen" mark for this season and wallet…" comes first, close it with
+   - If a card "While you were away: This device holds no "seen" mark for this world and wallet…" comes first, close it with
      "Mark as seen" (the world starts around turn 140; it is not a defect).
 2. **A wide village (30–60 minutes at ×60; 75 under heavy load)**: the village screen's "Found a village on the wide land (test)" shows
    the cost — the program's price, for a second village "Cost (from the village's stores): Food 800 · Wood 800 · Stone 400 · Gold 200" — and the
