@@ -290,6 +290,19 @@ pub(crate) async fn submit_and_wait(
     timeout: Duration,
     stop: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Sent {
+    submit_ixs_and_wait(state, payer, vec![ix], what, timeout, stop).await
+}
+
+/// [`submit_and_wait`] for several instructions in ONE transaction (territory-impl: a settle and the decay or
+/// conquest that needs it in the same second).
+pub(crate) async fn submit_ixs_and_wait(
+    state: &Shared,
+    payer: &Keypair,
+    ixs: Vec<Instruction>,
+    what: &str,
+    timeout: Duration,
+    stop: &mut tokio::sync::watch::Receiver<bool>,
+) -> Sent {
     let sig = {
         let mut c = lock(state);
         // a stop that arrived while waiting for the lock: nothing is sent
@@ -297,7 +310,7 @@ pub(crate) async fn submit_and_wait(
             return Sent::Failed(format!("{what}: stopped by request before sending"));
         }
         let (blockhash, _) = c.latest_blockhash();
-        let t = match fclient::tx::build(&[ix], &lk::budget(), &[payer], &blockhash) {
+        let t = match fclient::tx::build(&ixs, &lk::budget(), &[payer], &blockhash) {
             Ok(t) => t,
             Err(e) => return Sent::Failed(format!("{what}: {e}")),
         };
