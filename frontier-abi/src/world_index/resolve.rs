@@ -1039,6 +1039,22 @@ fn step_keep_snapshot(
                     }
                     out.roster_changed = true;
                 }
+                // T-8 (territory-impl): the province remembers the capturing
+                // host's home village and the keep generation it took, so
+                // WideTerritoryConquer can move the province's tiles to that
+                // village's owner. Written for every wide keep, whatever the
+                // territory rule (the trailer bytes were reserved zero).
+                if let Some(h) = taken.donor {
+                    let c = super::land::KeepCaptor {
+                        home: h.key().coord(),
+                        site: h.site(),
+                        gen: h.gen(),
+                        keep_gen: k.gen,
+                    };
+                    if !super::land::set_captor(pd, &c) {
+                        return Err(BAD);
+                    }
+                }
                 if (to as usize) < P2::FACTIONS {
                     let o = P2::keeps_taken_by(to as usize);
                     let v = rd_u16(pd, o).ok_or(BAD)?.saturating_add(1);

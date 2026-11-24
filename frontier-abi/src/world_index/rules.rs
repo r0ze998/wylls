@@ -67,7 +67,9 @@ use permutation_rules::rng::rand;
 /// 2026-11-18: wide land's Free City "as deployed") adds
 /// [`FreeCityRule::DeployedLe32V1`]; a version-1 record is still read with
 /// version 1's table (byte 3 is unknown there), never reinterpreted.
-pub const WIDE_RULES_CONFIG_VERSION: u16 = 2;
+pub const WIDE_RULES_CONFIG_VERSION: u16 = 3;
+/// The second table (`FreeCityRule` 1–3, `KeepHolderRule` 1–3).
+pub const WIDE_RULES_CONFIG_VERSION_V2: u16 = 2;
 /// The first table (`FreeCityRule` 1–2).
 pub const WIDE_RULES_CONFIG_VERSION_V1: u16 = 1;
 /// Seed tag of the configuration record (**provisional**; not a kernel
@@ -155,6 +157,49 @@ pub enum KeepHolderRule {
     /// with the season's home guard. Nations take wide land only by
     /// taking keeps; the interleaved genesis colours of ⑧ (i) are gone.
     Neutral = 3,
+    /// territory-impl, owner decisions 2026-11-24 12:09 JST (t506s1577),
+    /// **the new-world bundle** (table v3 only): every wide keep opens
+    /// unowned as [`KeepHolderRule::Neutral`], but **weaker** (E-Q1: the
+    /// home guard × [`NEUTRAL_KEEP_GUARD_BPS_V1`]), and the world plays
+    /// player territory [`super::territory::TerritoryRule::V1`] (T-1 … T-8).
+    /// One byte, so the deployed WideSetRules wire is unchanged.
+    NeutralTerritoryV1 = 4,
+}
+
+/// E-Q1 (owner 2026-11-24 12:09: neutral keeps weaker, numbers to be
+/// proposed): a [`KeepHolderRule::NeutralTerritoryV1`] keep opens with
+/// this share of the season's home guard. **Provisional** 50 % (100 → 50
+/// troops; inbox `2026-11-24-1225-territory-impl-questions.md` TQ-8).
+pub const NEUTRAL_KEEP_GUARD_BPS_V1: u32 = 5_000;
+
+impl KeepHolderRule {
+    /// Whether the rule is in table `config_version`.
+    pub const fn in_table(self, config_version: u16) -> bool {
+        match self {
+            KeepHolderRule::NeutralTerritoryV1 => config_version >= WIDE_RULES_CONFIG_VERSION,
+            _ => true,
+        }
+    }
+
+    /// The territory rule this keep-holder bundle selects (`None`: no
+    /// territory, #206's villages).
+    pub const fn territory(self) -> Option<super::territory::TerritoryRule> {
+        match self {
+            KeepHolderRule::NeutralTerritoryV1 => Some(super::territory::TerritoryRule::V1),
+            _ => None,
+        }
+    }
+
+    /// A wide keep's opening garrison under this rule, from the season's
+    /// home guard (whole troops).
+    pub const fn keep_guard(self, home_guard: u32) -> u32 {
+        match self {
+            KeepHolderRule::NeutralTerritoryV1 => {
+                (home_guard as u64 * NEUTRAL_KEEP_GUARD_BPS_V1 as u64 / 10_000) as u32
+            }
+            _ => home_guard,
+        }
+    }
 }
 
 /// The keep holder of a [`KeepHolderRule::Neutral`] opening: the clash's
@@ -182,7 +227,7 @@ impl FreeCityRule {
     /// not in version 1's).
     pub const fn in_table(self, config_version: u16) -> bool {
         match self {
-            FreeCityRule::DeployedLe32V1 => config_version >= WIDE_RULES_CONFIG_VERSION,
+            FreeCityRule::DeployedLe32V1 => config_version >= WIDE_RULES_CONFIG_VERSION_V2,
             _ => true,
         }
     }
@@ -230,7 +275,7 @@ macro_rules! rule_bytes {
 rule_bytes!(
     KeepHolderRule,
     "keep_holder",
-    [MixedInterleaved, OrbitBalanced, Neutral]
+    [MixedInterleaved, OrbitBalanced, Neutral, NeutralTerritoryV1]
 );
 rule_bytes!(
     FreeCityRule,
@@ -506,7 +551,7 @@ impl WideRulesConfig {
         let keep_holder = match self.keep_holder {
             KeepHolderRule::MixedInterleaved => mixed_home_nation(coord, input.genesis_seed),
             KeepHolderRule::OrbitBalanced => orbit_balanced_outer_nation(coord, input.genesis_seed),
-            KeepHolderRule::Neutral => Some(KEEP_NEUTRAL),
+            KeepHolderRule::Neutral | KeepHolderRule::NeutralTerritoryV1 => Some(KEEP_NEUTRAL),
         }
         .ok_or(RulesError::NotWide { ring })?;
         let site_count = input.terrain.site_count;
@@ -565,7 +610,10 @@ impl WideRulesConfig {
             return Err(RulesError::Magic);
         }
         let version = rd_u16(d, L::CONFIG_VERSION).ok_or(t)?;
-        if version != WIDE_RULES_CONFIG_VERSION && version != WIDE_RULES_CONFIG_VERSION_V1 {
+        if version != WIDE_RULES_CONFIG_VERSION
+            && version != WIDE_RULES_CONFIG_VERSION_V2
+            && version != WIDE_RULES_CONFIG_VERSION_V1
+        {
             return Err(RulesError::Version {
                 expected: WIDE_RULES_CONFIG_VERSION,
                 got: version,
@@ -584,6 +632,12 @@ impl WideRulesConfig {
             authority: rd_arr(d, L::AUTHORITY).ok_or(t)?,
         };
         // a byte outside the record's own table is unknown there
+        if !cfg.keep_holder.in_table(version) {
+            return Err(RulesError::Unknown {
+                rule: KeepHolderRule::NAME,
+                byte: cfg.keep_holder.to_byte(),
+            });
+        }
         if !cfg.free_city.in_table(version) {
             return Err(RulesError::Unknown {
                 rule: FreeCityRule::NAME,
@@ -638,7 +692,9 @@ pub const fn keep_holder_allowed(placement: u8, rule: KeepHolderRule) -> bool {
     placement != permutation_rules::frontier::geometry::PLACEMENT_MIXED
         || matches!(
             rule,
-            KeepHolderRule::MixedInterleaved | KeepHolderRule::Neutral
+            KeepHolderRule::MixedInterleaved
+                | KeepHolderRule::Neutral
+                | KeepHolderRule::NeutralTerritoryV1
         )
 }
 
@@ -738,7 +794,8 @@ mod tests {
         );
         assert_ne!(rules_config::MAGIC, land::ring_seed::MAGIC);
         assert_ne!(rules_config::MAGIC, land::province::MAGIC);
-        assert_eq!(WIDE_RULES_CONFIG_VERSION, 2);
+        assert_eq!(WIDE_RULES_CONFIG_VERSION, 3);
+        assert_eq!(WIDE_RULES_CONFIG_VERSION_V2, 2);
         assert_eq!(WIDE_RULES_CONFIG_VERSION_V1, 1);
         assert_eq!(
             permutation_rules::frontier::addr::SeedKind::from_tag(&RULES_CONFIG_TAG),
@@ -816,9 +873,13 @@ mod tests {
         assert_eq!(KeepHolderRule::from_byte(3), Ok(KeepHolderRule::Neutral));
         assert_eq!(
             KeepHolderRule::from_byte(4),
+            Ok(KeepHolderRule::NeutralTerritoryV1)
+        );
+        assert_eq!(
+            KeepHolderRule::from_byte(5),
             Err(RulesError::Unknown {
                 rule: "keep_holder",
-                byte: 4
+                byte: 5
             })
         );
         assert_eq!(FreeCityRule::from_byte(1), Ok(FreeCityRule::NoFreeCity));
@@ -877,12 +938,12 @@ mod tests {
         x[2] ^= 1;
         assert_eq!(WideRulesConfig::read(&x), Err(RulesError::Magic));
         let mut x = d;
-        x[rules_config::CONFIG_VERSION] = 3;
+        x[rules_config::CONFIG_VERSION] = 4;
         assert_eq!(
             WideRulesConfig::read(&x),
             Err(RulesError::Version {
-                expected: 2,
-                got: 3
+                expected: 3,
+                got: 4
             })
         );
         for off in [
@@ -1284,7 +1345,7 @@ mod tests {
         let mut cfg = all();
         cfg.free_city = FreeCityRule::DeployedLe32V1;
         assert_eq!(cfg.config_version, WIDE_RULES_CONFIG_VERSION);
-        assert_eq!(WIDE_RULES_CONFIG_VERSION, 2);
+        assert_eq!(WIDE_RULES_CONFIG_VERSION, 3);
         let mut d = [0u8; rules_config::SIZE];
         cfg.write(&mut d).unwrap();
         assert_eq!(WideRulesConfig::read(&d), Ok(cfg));
@@ -1327,5 +1388,37 @@ mod tests {
                 assert!(free_city_allowed(p, r));
             }
         }
+    }
+
+    /// territory-impl (owner 2026-11-24 12:09): byte 4 is the new-world
+    /// bundle — neutral keeps at half the home guard (E-Q1, provisional) and
+    /// player territory V1 — only in table v3; a v2 record naming it is
+    /// refused, never reinterpreted.
+    #[test]
+    fn table_v3_adds_the_neutral_territory_bundle() {
+        use crate::world_index::territory::TerritoryRule;
+        let b = KeepHolderRule::NeutralTerritoryV1;
+        assert_eq!(b.territory(), Some(TerritoryRule::V1));
+        assert_eq!(KeepHolderRule::Neutral.territory(), None);
+        assert_eq!(b.keep_guard(100), 50);
+        assert_eq!(KeepHolderRule::Neutral.keep_guard(100), 100);
+        assert!(keep_holder_allowed(
+            permutation_rules::frontier::geometry::PLACEMENT_MIXED,
+            b
+        ));
+        let mut cfg = all();
+        cfg.keep_holder = b;
+        let mut d = [0u8; rules_config::SIZE];
+        cfg.write(&mut d).unwrap();
+        assert_eq!(WideRulesConfig::read(&d), Ok(cfg));
+        let mut v2 = d;
+        v2[rules_config::CONFIG_VERSION] = 2;
+        assert_eq!(
+            WideRulesConfig::read(&v2),
+            Err(RulesError::Unknown {
+                rule: "keep_holder",
+                byte: 4
+            })
+        );
     }
 }

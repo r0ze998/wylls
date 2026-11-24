@@ -579,6 +579,18 @@ pub const OP_DISSOLVE: u8 = 2;
 pub const OP_ECONOMY: u8 = 3;
 /// Provisional class-P sub-operation, not a new allocated tag.
 pub const OP_GARRISON: u8 = 4;
+/// 0xDA op 7 (territory-impl, owner 2026-11-24 12:09 T-1/T-3): claim one
+/// wide tile, instantly, paid in ore by the first home. Provisional.
+pub const OP_CLAIM_TILE: u8 = 7;
+/// 0xDC op 12: settle a player's territory upkeep from the first home
+/// (T-4). Class D, anyone. Provisional.
+pub const OP_TERRITORY_SETTLE: u8 = 12;
+/// 0xDC op 13: one unpaid territory's farthest tile returns to unowned
+/// (T-5). Class D, anyone. Provisional.
+pub const OP_TERRITORY_DECAY: u8 = 13;
+/// 0xDC op 14: a captured keep's province tiles move to the captor (T-8).
+/// Class D, anyone. Provisional.
+pub const OP_TERRITORY_CONQUER: u8 = 14;
 pub const OP_RESOLVE: u8 = 1;
 pub const OP_RETURN: u8 = 2;
 /// 0xDC op 3: the origin side of a march after its departure bell (the
@@ -1118,6 +1130,130 @@ impl Garrison {
     }
 }
 
+/// 0xDA op 7 WideClaimTile: `p i64, q i64, tile u8, witness u8, village u8`.
+/// `witness`: 0 none (reach from the first home), 1 a wide province that is
+/// the claimer's nation's land, 2 the territory record of a province where
+/// the claimer owns a tile. `village`: 0 the distance is measured to the
+/// first home, 1 to the claimer's own wide village named after the witness.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClaimTile {
+    pub p: i64,
+    pub q: i64,
+    pub tile: u8,
+    pub witness: u8,
+    pub village: u8,
+}
+
+pub const CLAIM_TILE_WITNESS_NONE: u8 = 0;
+pub const CLAIM_TILE_WITNESS_NATION_LAND: u8 = 1;
+pub const CLAIM_TILE_WITNESS_OWN: u8 = 2;
+
+impl ClaimTile {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_CLAIM_TILE;
+    pub const LEN: usize = ENVELOPE_HEAD + 8 + 8 + 3;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[4..12].copy_from_slice(&self.p.to_le_bytes());
+        b[12..20].copy_from_slice(&self.q.to_le_bytes());
+        b[20] = self.tile;
+        b[21] = self.witness;
+        b[22] = self.village;
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let bad = FrontierError::BadData;
+        let x = ClaimTile {
+            p: c.i64().ok_or(bad)?,
+            q: c.i64().ok_or(bad)?,
+            tile: c.u8().ok_or(bad)?,
+            witness: c.u8().ok_or(bad)?,
+            village: c.u8().ok_or(bad)?,
+        };
+        if x.witness > CLAIM_TILE_WITNESS_OWN || x.village > 1 {
+            return Err(bad);
+        }
+        Ok(x)
+    }
+
+    /// The account count this datum needs.
+    pub const fn accounts_len(&self) -> usize {
+        10 + (self.witness != 0) as usize + self.village as usize
+    }
+}
+
+/// 0xDC op 12 WideTerritorySettle: no data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerritorySettle;
+
+impl TerritorySettle {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_TERRITORY_SETTLE;
+    pub const LEN: usize = ENVELOPE_HEAD;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(TerritorySettle)
+    }
+}
+
+/// 0xDC op 13 WideTerritoryDecay: `tile u8` (of the named territory record).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerritoryDecay {
+    pub tile: u8,
+}
+
+impl TerritoryDecay {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_TERRITORY_DECAY;
+    pub const LEN: usize = ENVELOPE_HEAD + 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[4] = self.tile;
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(TerritoryDecay {
+            tile: c.u8().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+
+/// 0xDC op 14 WideTerritoryConquer: no data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerritoryConquer;
+
+impl TerritoryConquer {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_TERRITORY_CONQUER;
+    pub const LEN: usize = ENVELOPE_HEAD;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(TerritoryConquer)
+    }
+}
+
 /// 0xDC op 1: the deployed ResolveFromInputs' data (`bell u32,
 /// beneficiary 32`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1353,6 +1489,10 @@ pub enum WideCommand<'a> {
     ResolveWithConquest(ResolveWithConquest),
     CloseConquest(CloseConquest),
     CloseCaptureEscrow(CloseCaptureEscrow),
+    ClaimTile(ClaimTile),
+    TerritorySettle(TerritorySettle),
+    TerritoryDecay(TerritoryDecay),
+    TerritoryConquer(TerritoryConquer),
 }
 
 impl<'a> WideCommand<'a> {
@@ -1422,6 +1562,16 @@ impl<'a> WideCommand<'a> {
             (WideIx::Depart, OP_MUSTER) => Muster::decode(d).map(WideCommand::Muster),
             (WideIx::Depart, OP_DISSOLVE) => Dissolve::decode(d).map(WideCommand::Dissolve),
             (WideIx::Depart, OP_GARRISON) => Garrison::decode(d).map(WideCommand::Garrison),
+            (WideIx::Depart, OP_CLAIM_TILE) => ClaimTile::decode(d).map(WideCommand::ClaimTile),
+            (WideIx::SettleTicket, OP_TERRITORY_SETTLE) => {
+                TerritorySettle::decode(d).map(WideCommand::TerritorySettle)
+            }
+            (WideIx::SettleTicket, OP_TERRITORY_DECAY) => {
+                TerritoryDecay::decode(d).map(WideCommand::TerritoryDecay)
+            }
+            (WideIx::SettleTicket, OP_TERRITORY_CONQUER) => {
+                TerritoryConquer::decode(d).map(WideCommand::TerritoryConquer)
+            }
             (WideIx::Depart, OP_ECONOMY) => Economy::decode(d).map(WideCommand::Economy),
             (WideIx::SettleTicket, OP_RESOLVE) => Resolve::decode(d).map(WideCommand::Resolve),
             (WideIx::SettleTicket, OP_RETURN) => Return::decode(d).map(WideCommand::Return),
@@ -1466,7 +1616,8 @@ impl<'a> WideCommand<'a> {
             | WideCommand::Muster(_)
             | WideCommand::Dissolve(_)
             | WideCommand::Economy(_)
-            | WideCommand::Garrison(_) => WideIx::Depart,
+            | WideCommand::Garrison(_)
+            | WideCommand::ClaimTile(_) => WideIx::Depart,
             WideCommand::SetRules(_) => WideIx::SetRules,
             WideCommand::SettleTicket(_)
             | WideCommand::Resolve(_)
@@ -1474,7 +1625,10 @@ impl<'a> WideCommand<'a> {
             | WideCommand::SettleDeparture(_)
             | WideCommand::Gather(_)
             | WideCommand::SettleTransit(_)
-            | WideCommand::ClaimDefence(_) => WideIx::SettleTicket,
+            | WideCommand::ClaimDefence(_)
+            | WideCommand::TerritorySettle(_)
+            | WideCommand::TerritoryDecay(_)
+            | WideCommand::TerritoryConquer(_) => WideIx::SettleTicket,
             WideCommand::ResidentAct(_) => WideIx::ResidentAct,
             WideCommand::Close(_)
             | WideCommand::CloseRoster(_)
@@ -1508,6 +1662,10 @@ impl<'a> WideCommand<'a> {
             WideCommand::Gather(_) => "WideGather",
             WideCommand::SettleTransit(_) => "WideSettleTransit",
             WideCommand::ClaimDefence(_) => "WideClaimDefence",
+            WideCommand::ClaimTile(_) => "WideClaimTile",
+            WideCommand::TerritorySettle(_) => "WideTerritorySettle",
+            WideCommand::TerritoryDecay(_) => "WideTerritoryDecay",
+            WideCommand::TerritoryConquer(_) => "WideTerritoryConquer",
             _ => self.ix().name(),
         }
     }
@@ -1558,6 +1716,7 @@ impl<'a> WideCommand<'a> {
                 | WideCommand::Economy(_)
                 | WideCommand::Garrison(_)
                 | WideCommand::DeclareSiege(_)
+                | WideCommand::ClaimTile(_)
         )
     }
 
@@ -1595,6 +1754,10 @@ impl<'a> WideCommand<'a> {
             WideCommand::Gather(_) => GATHER,
             WideCommand::SettleTransit(_) => SETTLE_TRANSIT,
             WideCommand::ClaimDefence(_) => CLAIM_DEFENCE,
+            WideCommand::ClaimTile(_) => CLAIM_TILE,
+            WideCommand::TerritorySettle(_) => TERRITORY_SETTLE,
+            WideCommand::TerritoryDecay(_) => TERRITORY_DECAY,
+            WideCommand::TerritoryConquer(_) => TERRITORY_CONQUER,
             WideCommand::Reveal(_) => REVEAL,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_HOLDING => CLOSE_HOLDING,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_SLOT => CLOSE_SLOT,
@@ -2204,6 +2367,70 @@ pub const SETTLE_DEPARTURE: &[Group] = &[one(&[
     s("holding", WIDE, false, Wr::W),
     s("roster", WIDE, false, Wr::W),
     s("transit", WIDE, false, Wr::W),
+])];
+
+/// WideClaimTile (territory-impl): the player prologue, the target wide
+/// province, its territory record and the claimer's summary (created from
+/// the payer when absent), the first home that pays (and the distance's
+/// default village), System; then the reach witness when `witness ≠ 0` (a
+/// wide province, or a territory record), then the claimer's own wide
+/// village when `village = 1`.
+pub const CLAIM_TILE: &[Group] = &[
+    one(&[
+        s("actor", Acc::Wallet, true, Wr::R),
+        s("payer", Acc::Wallet, true, Wr::W),
+        s("season", Acc::Kind(K::Season), false, Wr::R),
+        s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+        s("province", WIDE, false, Wr::R),
+        s("territory_province", WIDE, false, Wr::W),
+        s("territory_player", WIDE, false, Wr::W),
+        s("home_holding", Acc::Kind(K::Holding), false, Wr::W),
+        s("home_province", Acc::Kind(K::Province), false, Wr::R),
+        s("system", Acc::System, false, Wr::R),
+    ]),
+    // the witness and/or the village (by the datum's flags): one varying
+    // group of 0–2 read-only accounts (`counts_in` admits one varying group)
+    Group {
+        specs: &[s("witness_or_village", WIDE, false, Wr::R)],
+        min: 0,
+        max: 2,
+    },
+];
+
+/// WideTerritorySettle: `[payer s,w] [season r] [territory_player w]
+/// [citizen r] [home_holding w]`.
+pub const TERRITORY_SETTLE: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("territory_player", WIDE, false, Wr::W),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::R),
+    s("home_holding", Acc::Kind(K::Holding), false, Wr::W),
+])];
+
+/// WideTerritoryDecay: `[payer s,w] [season r] [territory_player w]
+/// [territory_province w]`; the summary settled in this second (a
+/// WideTerritorySettle earlier in the same transaction).
+pub const TERRITORY_DECAY: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("territory_player", WIDE, false, Wr::W),
+    s("territory_province", WIDE, false, Wr::W),
+])];
+
+/// WideTerritoryConquer: `[payer s,w] [season r] [province r]
+/// [territory_province w] [loser_player w] [captor_holding r]
+/// [captor_citizen r] [captor_player w] [system]`; both summaries settled
+/// in this second (the captor's may be created here).
+pub const TERRITORY_CONQUER: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("province", WIDE, false, Wr::R),
+    s("territory_province", WIDE, false, Wr::W),
+    s("loser_player", WIDE, false, Wr::W),
+    s("captor_holding", WIDE, false, Wr::R),
+    s("captor_citizen", Acc::Kind(K::Citizen), false, Wr::R),
+    s("captor_player", WIDE, false, Wr::W),
+    s("system", Acc::System, false, Wr::R),
 ])];
 
 /// Positions of a gather or a final set: 6 factions × 4 slots.
