@@ -379,15 +379,17 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
   }
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
-  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
+  let programCode = null;
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; programCode = Number.isInteger(sent.programCode) ? sent.programCode : null; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);
     outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown';
     code = f.code ?? sent.relayCode ?? null;
+    programCode = Number.isInteger(f.programCode) ? f.programCode : null;
   }
   if (war && outcome !== 'refused' && d.name !== 'Join') r.memory.lastBell = spentBell(nowBell, deps);
-  noteOutcome(r.memory, d, outcome);
+  noteOutcome(r.memory, d, outcome, { code, programCode });
   r.budget.spent(outcome, deps.now(), turnBell);
   return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, fields: JSON.parse(JSON.stringify(d.fields, (_, v) => (typeof v === 'bigint' ? v.toString() : v))), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), ...(signature ? { signature } : {}), seen, budget: r.budget.state() };
 }

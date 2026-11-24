@@ -38,6 +38,7 @@
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, warStep, warHomeOrder } from './local-play-operator-war.mjs';
+import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
 export const OPERATOR_RESIDENTS_SCHEMA = 'frontier-local-play-operator-residents-v1';
@@ -225,6 +226,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     return { name: 'PlaceHome', v: { holding: next, faction: view.faction }, fields: { p: next.p, q: next.q, site: next.site }, why: 'a citizen with no village: the next heartland site of its nation' };
   }
   const h = { p: view.holding.p, q: view.holding.q, site: view.holding.site };
+  // (verify-pr206-209, owner TQ-2: a tile's upkeep distance is from the NEAREST own village — an own wide village
+  //  nearer than the first home is named in the claim)
+  const nearer = t => { const v = nearerOwnVillage(h, t, memory.wideVillages); return v ? { village: v } : {}; };
   // (a war resident of a wide world: its FIRST expedition into the wide land before the war step takes every ready host —
   //  loop-play4 B-6, war on by default: the AI nations both fight and go out into the wide land)
   if (memory.war && war && wide?.march && (memory.wideMarches ?? 0) === 0) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell}), before the war takes it` };
@@ -265,7 +269,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
       if (terr && !owned) {
         if (!Number.isInteger(tile)) { (memory.triedClaims ??= []).push(`${next.t.p},${next.t.q},${next.site}`); return { name: 'Harvest', v: { holding: h }, fields: {}, why: 'that site has no tile: harvest' }; }
         if ((memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions)
-          return { name: 'TerritoryClaim', v: { holding: h, target: next.t, ...(next.reach ? { witness: { kind: 'nation', p: next.reach.p, q: next.reach.q } } : {}) }, fields: { tile }, site: next.site, blocked: [...terr.siteTiles, terr.keepTile],
+          return { name: 'TerritoryClaim', v: { holding: h, target: next.t, ...(next.reach ? { witness: { kind: 'nation', p: next.reach.p, q: next.reach.q } } : {}), ...nearer(next.t) }, fields: { tile }, site: next.site, blocked: [...terr.siteTiles, terr.keepTile],
             why: `claim the tile of site ${next.site} at ${next.t.p},${next.t.q} first (a village stands on one's own land)${next.reach ? ` through the nation's land at ${next.reach.p},${next.reach.q}` : ''}` };
       }
       if (wide.canClaim && !waiting) {
@@ -292,7 +296,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
       const blocked = new Set(blockedList);
       const tile = Array.from({ length: 61 }, (_, i) => i).find(i => !blocked.has(i) && !own.some(x => x.p === o.p && x.q === o.q && x.tile === i) && !tried.has(`${o.p},${o.q},${i}`));
       if (Number.isInteger(tile))
-        return { name: 'TerritoryClaim', v: { holding: h, target: { p: o.p, q: o.q }, witness: { kind: 'own', p: o.p, q: o.q } }, fields: { tile }, growth: true, blocked: blockedList,
+        return { name: 'TerritoryClaim', v: { holding: h, target: { p: o.p, q: o.q }, witness: { kind: 'own', p: o.p, q: o.q }, ...nearer({ p: o.p, q: o.q }) }, fields: { tile }, growth: true, blocked: blockedList,
           why: `grow the land: one more tile at ${o.p},${o.q} (${own.length} owned)` };
     }
   }
@@ -312,7 +316,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
  * After a decision was sent (or refused): `outcome` one of 'landed' | 'failed' | 'refused' | 'unknown'. A refused or
  * failed PlaceHome marks its site tried; a refused or failed rotation command cools down; the rotation moves on.
  */
-export function noteOutcome(memory, decision, outcome) {
+/** Program refusals of a tile claim that pass with time (stores, unpaid upkeep, the turn's claim): cool down, never mark tried. */
+const TILE_CLAIM_TEMPORARY = new Set([21, 29, 43, 'Insufficient', 'Cooldown', 'NotEligible']);
+export function noteOutcome(memory, decision, outcome, why = {}) {
   memory.decisions += 1;
   if (decision?.wait) return memory;
   const bad = outcome === 'refused' || outcome === 'failed';
@@ -332,9 +338,16 @@ export function noteOutcome(memory, decision, outcome) {
   }
   if (decision.name === 'TerritoryClaim') {
     const k = `${decision.v.target.p},${decision.v.target.q},${decision.fields.tile}`;
-    if (outcome === 'landed') (memory.ownTiles ??= []).push({ p: String(decision.v.target.p), q: String(decision.v.target.q), tile: decision.fields.tile, ...(Array.isArray(decision.blocked) ? { blocked: decision.blocked } : {}) });
-    // (refused or not known: that tile is not asked again — taken by another, the keep's, out of reach — and the claim cools)
-    if (bad || outcome === 'unknown') {
+    // (already the resident's — AlreadyDone 52, e.g. an earlier answer was not known — counts as landed)
+    const mine = outcome === 'landed' || (bad && (why.programCode === 52 || why.code === 'AlreadyDone'));
+    if (mine && !(memory.ownTiles ?? []).some(o => `${o.p},${o.q},${o.tile}` === k)) (memory.ownTiles ??= []).push({ p: String(decision.v.target.p), q: String(decision.v.target.q), tile: decision.fields.tile, ...(Array.isArray(decision.blocked) ? { blocked: decision.blocked } : {}) });
+    // (verify-pr206-209: a refusal that passes with time — ore short, upkeep unpaid, the turn's claim — only cools the
+    //  claim; the tile and its village site stay candidates. Not known: the tile is not asked again, the site stays)
+    const temporary = bad && (TILE_CLAIM_TEMPORARY.has(why.programCode) || TILE_CLAIM_TEMPORARY.has(why.code));
+    if (temporary) memory.cooldown.TerritoryClaim = memory.decisions + OPERATOR_COOLDOWN;
+    else if (outcome === 'unknown') { (memory.triedTiles ??= []).push(k); memory.cooldown.TerritoryClaim = memory.decisions + OPERATOR_COOLDOWN; }
+    // (refused for good: that tile is not asked again — taken by another, the keep's, out of reach — and the claim cools)
+    else if (bad && !mine) {
       (memory.triedTiles ??= []).push(k);
       if (Number.isInteger(decision.site)) (memory.triedClaims ??= []).push(`${decision.v.target.p},${decision.v.target.q},${decision.site}`);
       memory.cooldown.TerritoryClaim = memory.decisions + OPERATOR_COOLDOWN;

@@ -118,6 +118,14 @@ pub fn plan(v: &View, bell: u32, now_ts: i64) -> Vec<Step> {
                 })
             });
             if let Some((province, tile)) = pick {
+                // the settle alone first (verify-pr206-209): a home that can
+                // pay again makes the decay refuse, and its transaction then
+                // rolled back its own settle too — upkeep was never taken
+                if pl.paid_to < now_ts {
+                    out.push(Step::Settle {
+                        citizen: pl.citizen,
+                    });
+                }
                 out.push(Step::Decay {
                     citizen: pl.citizen,
                     province,
@@ -266,9 +274,22 @@ pub async fn run(
                 (bell, vec![])
             } else {
                 let v = scan(&c, &a);
-                let work: Vec<(Step, Vec<Instruction>)> = plan(&v, bell, now)
+                let mut steps = plan(&v, bell, now);
+                // (verify-pr206-209) more steps than a bell's sends: start at
+                // another place each bell, so the last players are not starved
+                if steps.len() > SENDS_PER_BELL {
+                    let k = (bell as usize).wrapping_mul(SENDS_PER_BELL) % steps.len();
+                    steps.rotate_left(k);
+                }
+                let work: Vec<(Step, Vec<Instruction>)> = steps
                     .into_iter()
-                    .filter_map(|s| ixs_of(&c, &a, payer.pubkey(), &s).map(|i| (s, i)))
+                    .filter_map(|s| match ixs_of(&c, &a, payer.pubkey(), &s) {
+                        Some(i) => Some((s, i)),
+                        None => {
+                            println!("territory: {s:?} skipped (no first home to name)");
+                            None
+                        }
+                    })
                     .take(SENDS_PER_BELL)
                     .collect();
                 (bell, work)

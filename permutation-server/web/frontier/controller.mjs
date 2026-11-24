@@ -38,7 +38,7 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
-import { territoryOfRoute } from './flocalplay-territory.mjs';
+import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -4607,9 +4607,18 @@ export const ACTIONS = {
       const tile = terr.siteTiles[site], key = `${target.p},${target.q},${tile}`;
       const mineTiles = FS.ui?.ownTiles ?? {};
       if (!mineTiles[key]) {
-        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}) }, fields: { tile }, say: () => L`広い土地（${target.p}, ${target.q}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
-        const already = t && t.ok === false && /AlreadyDone|\b52\b|0x34/.test(String(t.code ?? '') + String(t.detail ?? ''));
+        // (owner TQ-2: the upkeep distance is from the NEAREST own village — an own wide village nearer than home is named)
+        const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
+        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile }, say: () => L`広い土地（${target.p}, ${target.q}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
+        // (a refusal returns nothing — failed() only sets the notice — so the answer is read there; verify-pr206-209:
+        //  "already yours" (52) after a reload or a refused village never reached the village, and a tile another
+        //  player owns (SiteTaken 11) was asked again at every press)
+        const ans = t ?? (FS.notice?.ok === false ? FS.notice : null);
+        const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
+        const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
+        const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
         if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
+        if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
         if (!already) return t;
       }
     }

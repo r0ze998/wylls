@@ -57,6 +57,8 @@ pub const HIST_BUCKETS: usize = 64;
 pub const NO_BELL: u32 = u32::MAX;
 /// Seconds per upkeep hour.
 const HOUR: i128 = 3_600;
+/// One turn (bell): `prologue::bell_at` is ⌊(t − genesis) / 600⌋.
+const TURN_SECS: i128 = 600;
 
 // ------------------------------------------------------------ the rule
 
@@ -646,7 +648,24 @@ pub fn settle_upkeep(
     let rem = (owed_ms % HOUR) as u64;
     let charge = Milli::try_from(charge).map_err(|_| TerritoryError::Overflow)?;
     pl.paid_to = pl.paid_to.max(now_ts);
-    if charge <= available.max(0) {
+    // While unpaid, the store must hold at least one turn's upkeep (a bell,
+    // 600 s, at the current rate) besides covering this period before the
+    // player counts as paying again. Without it a second settle in the same
+    // second (nothing owed: charge 0) cleared `unpaid_since` from an empty
+    // store, so settle + claim in one transaction claimed while unpaid and
+    // two settles every < 24 bells kept the land from ever decaying
+    // (verify-pr206-209). The missed food stays forgiven (TQ-11 default).
+    let need = if pl.unpaid_since.is_some() {
+        let turn = rate
+            .checked_mul(TURN_SECS)
+            .map(|v| (v + HOUR - 1) / HOUR)
+            .ok_or(TerritoryError::Overflow)?;
+        let turn = Milli::try_from(turn).map_err(|_| TerritoryError::Overflow)?;
+        charge.max(turn)
+    } else {
+        charge
+    };
+    if need <= available.max(0) {
         pl.remainder = rem;
         pl.unpaid_since = None;
         Ok(UpkeepSettle { charge, paid: true })
@@ -848,21 +867,25 @@ pub fn apply_decay(
 // ------------------------------------------------------------ conquest
 
 /// Moves every tile `from` owns in `prov` to `to` (T-8: a captured keep
-/// transfers its province). The captor's distance for each moved tile is
-/// `to_dist` (the captor's nearest village to this province). Returns the
-/// number moved; `NotDue` when `from` owns none here.
+/// transfers its province), except the tiles in `village_tiles`: a tile
+/// with a village on it stays with its village (TQ-7: the village's tile
+/// moves with the village; capturing a keep does not take villages;
+/// verify-pr206-209). The captor's distance for each moved tile is
+/// `to_dist`. Returns the number moved; `NotDue` when `from` owns none
+/// here outside its villages.
 pub fn transfer_tiles(
     prov: &mut TerritoryProvince,
     from: &mut TerritoryPlayer,
     to: &mut TerritoryPlayer,
     to_dist: u8,
+    village_tiles: &[u8],
 ) -> Result<u32, TerritoryError> {
     if from.citizen_tag == to.citizen_tag {
         return Err(TerritoryError::Mismatch);
     }
     let mut n = 0u32;
     for i in 0..PROVINCE_TILES {
-        if prov.owner[i] == from.citizen_tag {
+        if prov.owner[i] == from.citizen_tag && !village_tiles.contains(&(i as u8)) {
             from.remove_tile(prov.dist[i])?;
             to.add_tile(to_dist)?;
             prov.owner[i] = to.citizen_tag;
@@ -1093,6 +1116,32 @@ mod tests {
         // still short later: since stays the first bell
         settle_upkeep(&mut pl, 1_000 + 3_600 * 3, 9, 0).unwrap();
         assert_eq!(pl.unpaid_since, Some(7));
+        // a second settle in the same second owes nothing, but an empty
+        // store does not make the player paying again (verify-pr206-209)
+        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3, 9, 0).unwrap();
+        assert_eq!(
+            s,
+            UpkeepSettle {
+                charge: 0,
+                paid: false
+            }
+        );
+        assert_eq!(pl.unpaid_since, Some(7));
+        // nor does a store below one turn's upkeep (330 milli/h → 55 a turn)
+        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3 + 1, 9, 54).unwrap();
+        assert!(!s.paid);
+        assert_eq!(pl.unpaid_since, Some(7));
+        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3 + 1, 9, 55).unwrap();
+        assert_eq!(
+            s,
+            UpkeepSettle {
+                charge: 0,
+                paid: true
+            }
+        );
+        assert_eq!(pl.unpaid_since, None);
+        pl.unpaid_since = Some(7);
+        pl.paid_to = 1_000 + 3_600 * 3;
         // paid again clears it
         let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 4, 12, 1_000_000).unwrap();
         assert_eq!(
@@ -1156,17 +1205,20 @@ mod tests {
             apply_claim(&mut p, &mut a, t, ClaimOk { cost: 0, dist: 6 }, t as u32).unwrap();
         }
         apply_claim(&mut p, &mut c, 9, ClaimOk { cost: 0, dist: 1 }, 1).unwrap();
-        assert_eq!(transfer_tiles(&mut p, &mut a, &mut b, 0), Ok(3));
+        apply_claim(&mut p, &mut a, 4, ClaimOk { cost: 0, dist: 6 }, 4).unwrap();
+        // tile 4 carries a village of `a`: it stays with the village
+        assert_eq!(transfer_tiles(&mut p, &mut a, &mut b, 0, &[4, 9]), Ok(3));
         assert_eq!(p.owned_by(11), 3);
         assert_eq!(p.owned_by(12), 1);
-        assert_eq!((a.tiles, a.excess_sum, b.tiles, b.excess_sum), (0, 0, 3, 0));
+        assert_eq!(p.owned_by(10), 1);
+        assert_eq!((a.tiles, b.tiles, b.excess_sum), (1, 3, 0));
         assert_eq!(
-            transfer_tiles(&mut p, &mut a, &mut b, 0),
+            transfer_tiles(&mut p, &mut a, &mut b, 0, &[4]),
             Err(TerritoryError::NotDue)
         );
         let mut b2 = b.clone();
         assert_eq!(
-            transfer_tiles(&mut p, &mut b, &mut b2, 0),
+            transfer_tiles(&mut p, &mut b, &mut b2, 0, &[]),
             Err(TerritoryError::Mismatch)
         );
     }

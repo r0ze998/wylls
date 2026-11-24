@@ -424,6 +424,29 @@ pub(crate) fn settle(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     )?;
     let mut pl = tplayer_at(tplayer_ai, p, hdr.id, world, Some(&ckey))?.ok_or(BAD_ACCOUNT)?;
     let cd = citizen.try_borrow_data()?.to_vec();
+    // A first home that is gone (the Citizen's slot 1 no longer binds a
+    // legacy village, or the canonical account is no longer that village of
+    // the bound generation) pays nothing: upkeep is unpaid, so claims stop
+    // and the land decays / can be conquered (verify-pr206-209: such land
+    // was upkeep-free, decay- and conquest-proof forever). A wrong account
+    // for a bound home is still refused.
+    let home_gone = match home_ref(&cd) {
+        Err(_) => true,
+        Ok(hr) => {
+            expect_key(home, &ctx.holding(hr.p as i32, hr.q as i32, hr.site))?;
+            let hd = home.try_borrow_data()?;
+            match ap::check_holding(&view(home, &hd), &ctx, hdr.id, &ckey) {
+                Ok(hh) => hh.gen != hr.gen,
+                Err(_) => true,
+            }
+        }
+    };
+    if home_gone {
+        wtr::settle_upkeep(&mut pl, now.ts, now_bell, 0).map_err(territory_err)?;
+        return pl
+            .write(&mut tplayer_ai.try_borrow_mut_data()?)
+            .map_err(territory_err);
+    }
     let hh = check_home(home, &ctx, hdr.id, &ckey, &cd)?;
     let mut h = hold::load_touched(home, now.ts)?;
     let changed = settle_into(&mut pl, &mut h, now.ts, now_bell)?;
@@ -494,8 +517,20 @@ pub(crate) fn conquer(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
         return Err(BAD_ACCOUNT);
     }
     expect_key(province, &wl::province_address(&ctx, prov.coord))?;
+    let mut village_tiles = [u8::MAX; 12];
     let (rule, keep, captor) = {
         let pd = province.try_borrow_data()?;
+        // the tiles with a village on them (they stay with their village)
+        let r = Ro(&pd);
+        let n = (r.u8(crate::layout::province::SITE_COUNT)? as usize)
+            .min(permutation_rules::frontier::geometry::SITES_PER_PROVINCE);
+        for (j, t) in village_tiles.iter_mut().enumerate().take(n) {
+            if r.u8(crate::layout::province::site(j) + crate::layout::site::STATE)?
+                == crate::layout::site::STATE_HOLDING
+            {
+                *t = r.u8(crate::layout::province::SITES + j)?;
+            }
+        }
         let keep = frontier_abi::conquest_model::read_keep(&pd)?.ok_or(FrontierError::TooEarly)?;
         let c = wl::captor_of(&pd)
             .map_err(|_| BAD_ACCOUNT)?
@@ -576,7 +611,8 @@ pub(crate) fn conquer(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     }
     // the captor's distance: from its capturing village's province
     let to_dist = u8::try_from(captor.home.distance(prov.coord)).unwrap_or(u8::MAX);
-    wtr::transfer_tiles(&mut tprov, &mut loser, &mut cap, to_dist).map_err(territory_err)?;
+    wtr::transfer_tiles(&mut tprov, &mut loser, &mut cap, to_dist, &village_tiles)
+        .map_err(territory_err)?;
     let rent_pl = init::rent(wtr::territory_player::SIZE)?;
     if captor_new {
         if payer.lamports() < rent_pl {

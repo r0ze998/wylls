@@ -12475,10 +12475,22 @@ mod territory_tests {
             t.claim(&a, WALLET_A, near, tn2, None),
             Err(E::NotEligible as u32)
         );
+        // (verify-pr206-209) a settle just before the claim in the same
+        // second owes nothing, but does not make an empty store paying
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(20));
+        assert_eq!(
+            t.claim(&a, WALLET_A, near, tn2, None),
+            Err(E::NotEligible as u32)
+        );
         // before 24 unpaid turns: no decay
         let ts = t.w.at(43, 5);
         t.starve(&a, ts);
         assert_eq!(t.settle(&a), Ok(()));
+        // (two settles in one second no longer reset the unpaid clock)
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(20));
         assert_eq!(t.decay(&a, mid, tm), Err(E::TooEarly as u32));
         // at 24: the farthest (mid, distance 2) first, not the near one
         let ts = t.w.at(44, 5);
@@ -12497,6 +12509,32 @@ mod territory_tests {
         assert_eq!(t.decay(&a, near, tn), Ok(()));
         let pl = t.tplayer_rec(&a);
         assert_eq!((pl.tiles, pl.released), (0, 2));
+    }
+
+    #[test]
+    fn a_lost_first_home_leaves_the_land_unpaid_not_free() {
+        // (verify-pr206-209) a first home that is no longer the bound village
+        // pays nothing: upkeep is unpaid (claims stop, the land decays),
+        // instead of every settle failing and the land staying forever
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let near = c(129, 0);
+        t.w.at(2, 5);
+        let tn = t.free_tiles(near)[0];
+        assert_eq!(t.claim(&a, WALLET_A, near, tn, None), Ok(()));
+        t.w.at(5, 5);
+        {
+            let (home, _) = t.home(&a);
+            let mut hd = home.try_borrow_mut_data().unwrap();
+            hd[H::GEN] = hd[H::GEN].wrapping_add(1);
+        }
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(5));
+        t.w.at(29, 5);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.decay(&a, near, tn), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).tiles, 0);
     }
 
     #[test]
@@ -12565,6 +12603,21 @@ mod territory_tests {
         t.w.at(2, 5);
         let tiles = t.free_tiles(target);
         assert_eq!(t.claim(&a, WALLET_A, target, tiles[0], None), Ok(()));
+        // (verify-pr206-209) A's village on a free site of the province: its
+        // tile stays with the village when the keep falls (TQ-7)
+        let pd = t.w.province_data(target);
+        let vsite = (0..pd[PV::SITE_COUNT])
+            .find(|s| pd[PV::site(*s as usize) + SM::STATE] == SM::STATE_FREE)
+            .expect("a free site") as usize;
+        let vtile = pd[PV::SITES + vsite];
+        t.w.at(3, 5);
+        assert_eq!(t.claim(&a, WALLET_A, target, vtile, None), Ok(()));
+        {
+            let ai = t.w.province(target);
+            let mut pd = ai.try_borrow_mut_data().unwrap();
+            pd[PV::site(vsite) + SM::STATE] = SM::STATE_HOLDING;
+            pd[PV::site(vsite) + SM::FACTION] = a.faction;
+        }
         // B's host from B's first home takes the keep (what WideResolve records)
         let gen_b = t.w.w.holding(RIM, 1).try_borrow_data().unwrap()[H::GEN];
         let mut k = read_keep(&t.w.province_data(target)).unwrap().unwrap();
@@ -12607,7 +12660,13 @@ mod territory_tests {
         assert_eq!(conquer(&mut t), Ok(()));
         let tag_b = rd_u64(&b.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
         assert_eq!(t.tprov_rec(target).owner[tiles[0] as usize], tag_b);
-        assert_eq!(t.tplayer_rec(&a).tiles, 0);
+        let tag_a = rd_u64(&a.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
+        assert_eq!(
+            t.tprov_rec(target).owner[vtile as usize],
+            tag_a,
+            "the village's tile stays"
+        );
+        assert_eq!(t.tplayer_rec(&a).tiles, 1);
         assert_eq!(t.tplayer_rec(&b).tiles, 1);
         // nothing left to move
         assert_eq!(conquer(&mut t), Err(E::TooEarly as u32));

@@ -15,7 +15,7 @@
 //   addresses with_seed(season, 'wn' ‖ hex(sha256('PSF-WIDE-TERRITORY-PROVINCE-v1' ‖ sort key)[..15]), program),
 //             with_seed(season, 'wu' ‖ hex(sha256('PSF-WIDE-TERRITORY-PLAYER-v1' ‖ citizen)[..15]), program)
 import { seasonAddresses, withSeed } from './faddr.mjs';
-import { sortKeyOf } from './fwide.mjs';
+import { sortKeyOf, wideHoldingAddress } from './fwide.mjs';
 import { ringPosition } from './map/wide.mjs';
 import { wideProvinceAddress, distance, FIRST_WIDE_RING } from './flocalplay-wide.mjs';
 import { setComputeUnitLimit, setComputeUnitPrice, setLoadedAccountsDataSizeLimit, requestHeapFrame } from '../sdk/frontier/budgets.mjs';
@@ -66,6 +66,15 @@ export function claimCostV1(tiles) {
 }
 
 /** The upkeep (milli-food per hour) one more tile at `dist` provinces adds. */
+/** The own wide village (of `villages`, `{p, q, site}`) nearer to `target` than the first home `home`, or null (TQ-2). */
+export function nearerOwnVillage(home, target, villages) {
+  let best = null, bd = distance(home, target);
+  for (const v of Array.isArray(villages) ? villages : []) {
+    try { const d = distance(v, target); if (d < bd) { bd = d; best = { p: String(v.p), q: String(v.q), site: Number(v.site) }; } } catch { /* not a coordinate */ }
+  }
+  return best;
+}
+
 export function tileUpkeepV1(dist) {
   const u = TERRITORY_V1.upkeep;
   return u.flat + u.perDistance * Math.max(0, dist - u.freeDistance);
@@ -79,8 +88,16 @@ export function tileUpkeepV1(dist) {
  */
 export function territoryClaimIntent(subject, fields, code = 'LocalActShape') {
   const withW = subject !== null && typeof subject === 'object' && Object.hasOwn(subject, 'witness');
-  check(exactKeys(subject, ['holding', 'target', ...(withW ? ['witness'] : [])]) && exactKeys(fields, ['tile']), code);
-  const h = subject.holding, t = subject.target, w = withW ? subject.witness : null;
+  const withV = subject !== null && typeof subject === 'object' && Object.hasOwn(subject, 'village');
+  check(exactKeys(subject, ['holding', 'target', ...(withW ? ['witness'] : []), ...(withV ? ['village'] : [])]) && exactKeys(fields, ['tile']), code);
+  const h = subject.holding, t = subject.target, w = withW ? subject.witness : null, vg = withV ? subject.village : null;
+  // (verify-pr206-209, owner TQ-2: upkeep distance from the NEAREST own village — an own wide village nearer than the
+  //  first home is named; the program checks it is the claimer's and takes min(home, village))
+  if (vg) {
+    check(exactKeys(vg, ['p', 'q', 'site']) && wideText(vg.p) && wideText(vg.q) && int(vg.site, 0, 11), code);
+    let vr; try { vr = ringPosition(BigInt(vg.p), BigInt(vg.q)).ring; } catch { fail(code); }
+    check(vr >= FIRST_WIDE_RING, code);
+  }
   check(exactKeys(h, ['p', 'q', 'site']) && Number.isSafeInteger(h.p) && Number.isSafeInteger(h.q) && int(h.site, 0, 11), code);
   check(exactKeys(t, ['p', 'q']) && wideText(t.p) && wideText(t.q), code);
   if (w) check(exactKeys(w, ['kind', 'p', 'q']) && (w.kind === 'nation' || w.kind === 'own') && wideText(w.p) && wideText(w.q), code);
@@ -93,6 +110,7 @@ export function territoryClaimIntent(subject, fields, code = 'LocalActShape') {
   check(int(fields.tile, 0, 60), code);
   const subj = { holding: Object.freeze({ p: h.p, q: h.q, site: h.site }), target: Object.freeze({ p: t.p, q: t.q }) };
   if (w) subj.witness = Object.freeze({ kind: w.kind, p: w.p, q: w.q });
+  if (vg) subj.village = Object.freeze({ p: vg.p, q: vg.q, site: vg.site });
   return Object.freeze({ name: TERRITORY_CLAIM, subject: Object.freeze(subj), fields: Object.freeze({ tile: fields.tile }) });
 }
 
@@ -119,10 +137,12 @@ export function territoryClaimInstruction(intent, { programId, seasonId, wallet 
     const addr = w.kind === 'nation' ? wideProvinceAddress(A.season, programId, w.p, w.q) : territoryProvinceAddress(A.season, programId, w.p, w.q);
     keys.push({ pubkey: addr, isSigner: false, isWritable: false });
   }
+  const vg = intent.subject.village ?? null;
+  if (vg) keys.push({ pubkey: wideHoldingAddress(A.season, programId, BigInt(vg.p), BigInt(vg.q), vg.site), isSigner: false, isWritable: false });
   const data = new Uint8Array(23), dv = new DataView(data.buffer);
   data[0] = 0xda; data[1] = 0xff; data[2] = 0x01; data[3] = 0x07;
   dv.setBigInt64(4, BigInt(t.p), true); dv.setBigInt64(12, BigInt(t.q), true);
-  data[20] = intent.fields.tile; data[21] = wbyte; data[22] = 0;
+  data[20] = intent.fields.tile; data[21] = wbyte; data[22] = vg ? 1 : 0;
   return { programId, keys, data };
 }
 
