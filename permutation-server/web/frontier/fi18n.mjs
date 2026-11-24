@@ -338,6 +338,8 @@ const CLIENT_TEXT = {
   ExploreNone: () => L`この村には、受け取る探索の結果がありません。`,
   // (TEST-ONLY local wide play: the wide claim found no free site in the province the herald last captured; nothing sent)
   NoFreeHome: () => L`この州には空いている村の場所がありません。`,
+  NoTerritory: () => L`この州ではマスを取れません（自分の土地のない世界か、州が読めませんでした）。`,
+  NoFreeTile: () => L`この州に取れるマスは残っていません。`,
   ExploreChanged: () => L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。探索の結果は受け取っていません。もう一度確かめてから受け取ってください。`,
   S1PrepChanged: () => L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`,
   // The code of a failure that named none (`e?.code ?? 'Error'`: a province read, a march reread, a thrown order).
