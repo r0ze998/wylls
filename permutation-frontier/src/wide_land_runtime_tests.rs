@@ -12095,3 +12095,60 @@ fn wide_claim_reaches_from_the_nations_land_not_only_from_home() {
         "a village of the nation, two away"
     );
 }
+
+/// **Neutral wide land** (expansion-gameplay-1, owner Q-1 2026-11-24): under
+/// the `Neutral` keep-holder rule every wide province opens with its keep held
+/// by the neutral side (`KEEP_NEUTRAL`, 6) and the season's home guard, never a
+/// nation; such a keep is nobody's land, so it gives no claim reach.
+#[test]
+fn wide_land_opens_unowned_under_the_neutral_rule() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = Wide::rim();
+    w.w.fold();
+    assert_eq!(w.request(FIRST_WIDE_RING), Ok(()));
+    w.seed_as_consume_would(FIRST_WIDE_RING, &RING129_SEED);
+    let neutral = (
+        RULES.0,
+        KeepHolderRule::Neutral as u8,
+        RULES.2,
+        RULES.3,
+        RULES.4,
+    );
+    assert_eq!(w.set_rules(AUTHORITY, neutral), Ok(()));
+    for q in [0i64, -6, -8] {
+        assert_eq!(w.open_province(129, q), Ok(()), "q {q}");
+        let k = read_keep(&w.province_data(c(129, q)))
+            .unwrap()
+            .expect("a wide keep");
+        assert_eq!(k.holder, wr::KEEP_NEUTRAL, "unowned");
+        assert_eq!(
+            (k.changes, k.troops),
+            (0, w.w.cq.keep_home_guard),
+            "the home guard"
+        );
+    }
+    // A neutral keep is no nation's land: no reach through it.
+    let (home, nation) = off_wedge_province();
+    let a = w.w.member(WALLET_A, nation);
+    assert_eq!(w.w.place_home(&a, home, 0), Ok(()));
+    let template = w.w.holding_data(home, 0);
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    let target = c(129, -8);
+    let mut accts = w.file_accounts(&a, WALLET_A, target, 0, w.w.payer.clone(), None);
+    accts.push(with_writable(&w.province(c(129, -6)), false));
+    assert_eq!(
+        code(run_tx(
+            &accts,
+            &wix::ClaimSite {
+                p: 129,
+                q: -8,
+                site: 0,
+                slot: 2
+            }
+            .to_bytes()
+        )),
+        Err(CE::OutpostRule.code()),
+        "a neutral keep gives no reach"
+    );
+}

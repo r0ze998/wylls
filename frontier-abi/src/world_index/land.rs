@@ -674,7 +674,9 @@ impl WideProvince {
                 missing: rules.missing(),
             });
         };
-        if keep_holder as usize >= permutation_rules::frontier::geometry::FACTIONS as usize
+        // (a nation 0–5, or the neutral side of a Neutral rule, Q-1)
+        if (keep_holder as usize >= permutation_rules::frontier::geometry::FACTIONS as usize
+            && keep_holder != crate::world_index::rules::KEEP_NEUTRAL)
             || region >= permutation_rules::frontier::geometry::REGIONS
             || free_city_site.is_some_and(|s| s as usize >= SITES_PER_PROVINCE)
         {
@@ -1308,8 +1310,12 @@ mod tests {
             );
         }
         // decided values out of range are refused
+        // (6 is the neutral side of a Neutral rule, Q-1: allowed; 7+ is no side)
+        let mut neutral = decided();
+        neutral.keep_holder = Decision::Decided(6);
+        assert!(WideProvince::open(world(), 11, c(129, 0), &s, &neutral, 1, 1).is_ok());
         let mut bad = decided();
-        bad.keep_holder = Decision::Decided(6);
+        bad.keep_holder = Decision::Decided(7);
         assert!(WideProvince::open(world(), 11, c(129, 0), &s, &bad, 1, 1).is_err());
         let mut bad = decided();
         bad.region = Decision::Decided(16);
