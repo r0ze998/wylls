@@ -310,16 +310,44 @@ test('B21: the "About this test world" box — an ended or stopped world is said
     assert.equal(said.hidden, true, 'the launcher answers again: the stale answer is not brought back');
     assert.doesNotMatch(points[1].textContent, /stopped now/);
     notice.worldState('ended');
-    assert.match(said.textContent, /^This world has ended\./); assert.doesNotMatch(said.textContent, /running/);
-    assert.equal(points[1].textContent, 'This world has ended. Its turns no longer advance.');
+    assert.match(said.textContent, /^This test world has ended \(/); assert.doesNotMatch(said.textContent, /running/);
+    assert.equal(points[1].textContent, 'This test world has ended. Its turns no longer advance.');
     notice.worldState('live'); notice.worldState('lost');
     assert.equal(notice.worldStateNow(), 'ended', 'an end is never taken back');
     setLang('ja'); await flush();
-    assert.match(said.textContent, /^この世界は終了しました。/); assert.equal(points[1].textContent, 'この世界は終了しました。ターンはもう進みません。');
+    assert.match(said.textContent, /^このテスト用の世界は終了しました（/); assert.equal(points[1].textContent, 'このテスト用の世界は終了しました。ターンはもう進みません。');
     check.click(); await flush(); await flush();
-    assert.match(said.textContent, /^この世界は終了しました。/, 'a later "running" answer of the keeper does not replace the end');
+    assert.match(said.textContent, /^このテスト用の世界は終了しました（/, 'a later "running" answer of the keeper does not replace the end');
   } finally { notice.unmount(); }
   assert.equal(sessionNoticeOf(doc), null);
+});
+
+// Owner decision 2026-11-24 21:51 (LP14-1): a KEPT world's box says "paused, progress saved", never "ended".
+test('LP14-1: the "About this test world" box of a kept world the launcher stopped — paused, progress saved, how to continue', async () => {
+  const doc = fakeDoc();
+  const notice = mountSessionNotice({ doc, win: null, persisted: true, onCheck: async () => ({ state: 'ended' }) });
+  try {
+    const check = doc.byClass('local-play-session-check')[0], said = doc.byClass('local-play-session-keeper')[0], points = doc.byClass('local-play-session-point');
+    setLang('en');
+    check.click(); await flush(); await flush();
+    assert.match(said.textContent, /^This world is paused\. Your progress is saved\./, 'the key\'s own answer (the launcher\'s WorldNotFound) on a kept world');
+    notice.worldState('ended');
+    assert.equal(points[1].textContent, 'This world is paused. Your progress is saved.');
+    assert.match(said.textContent, /continues from where it stopped/); assert.match(said.textContent, /--resume/);
+    assert.doesNotMatch(points.map(p => p.textContent).join(' ') + said.textContent, /has ended|new world/);
+    setLang('ja'); await flush();
+    assert.equal(points[1].textContent, 'この世界は止まっています。進行は保存されています。');
+    assert.match(said.textContent, /^この世界は止まっています。進行は保存されています。/); assert.doesNotMatch(said.textContent, /終了/);
+    setLang('en');
+  } finally { notice.unmount(); }
+  // the dial: "Turn N · paused" for a kept world, "Turn N · ended" for a memory-only test world (app.mjs)
+  const { stoppedChip, chipText, dialParts } = await import('../../permutation-server/web/frontier/app.mjs');
+  const chip = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1, paused: true });
+  assert.equal(chip.stopped, true); assert.equal(chip.paused, true);
+  assert.equal(chipText(chip), 'Turn 26 · paused'); assert.equal(dialParts(chip).left, 'paused');
+  const over = stoppedChip({ bell: 26, secondsLeft: 12, ended: false, beforeGenesis: false }, { at: 1 });
+  assert.equal(over.paused, undefined); assert.equal(chipText(over), 'Turn 26 · ended', 'a memory-only test world still says ended');
+  setLang('ja'); assert.equal(chipText(chip), 'ターン 26 · 一時停止'); assert.equal(chipText(over), 'ターン 26 · 終了済み'); setLang('en');
 });
 
 // ------------------------------------------------------------------ loop-play7: the workshop's name in build labels

@@ -104,7 +104,7 @@ export default {
   'この取引は預け入れ済みです': 'This transaction was deposited already',
   '引き出しました（{0}）': 'Withdrawn ({0})',
   '引き出しを送りました。確定を待っています。': 'Withdrawal sent; waiting for confirmation.',
-  'シーズンを読めませんでした': 'Could not read the season',
+  '世界を読めませんでした': 'Could not read the world',
   '残高が足りない': 'the balance is too low',
   '合計の上限に達した': 'the total budget is used up',
   '1日の上限に達した': 'the daily limit is reached',

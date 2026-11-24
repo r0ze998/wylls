@@ -144,7 +144,7 @@ export function wideActsCard(FS, m) {
     status = html`<div class="wide-act-preview" role="status" data-wide-act-step="preview" data-total="${String(c.total)}">
       <p><strong>${wideActLabel(pv.name, pv.fields)}</strong></p>
       <p>${L`ウォレットが払う額：最大 ${solText(c.total)} SOL（devnet の SOL）`}</p>
-      <ul class="muted"><li>${L`手数料（署名1つ）：${solText(c.fee)} SOL`}</li>${pv.rosterNew ? html`<li>${L`この州で最初の編成：軍勢の名簿（3,248 バイト）の家賃 ${solText(c.deposit)} SOL。名簿はシーズンの終わりまで残ります。`}</li>` : ''}</ul>
+      <ul class="muted"><li>${L`手数料（署名1つ）：${solText(c.fee)} SOL`}</li>${pv.rosterNew ? html`<li>${L`この州で最初の編成：軍勢の名簿（3,248 バイト）の家賃 ${solText(c.deposit)} SOL。名簿はこの世界が続くあいだ残ります。`}</li>` : ''}</ul>
       ${(pv.warn ?? []).includes('WideProvinceLag') ? html`<p class="blocked">${L`この村の州の記録は ${fmtNum(Number(pv.province?.resolvedNext ?? 0))} ターンまで決着しています（いまはターン ${fmtNum(Number(FS.nowBell ?? 0))}）。チェーンに断られたら送られず、手数料もかかりません。少し待ってからもう一度どうぞ。`}</p>` : ''}
       <p class="muted">${L`送る前にチェーンが内容を確かめます。断られたら送られず、何も払いません。`}</p>
       <div class="actions"><button type="button" class="btn primary" data-act="wide-act-send" ${raw(busy ? 'disabled' : '')}>${L`署名して送る`}</button><button type="button" class="btn ghost" data-act="wide-act-cancel">${L`やめる`}</button></div></div>`;
@@ -328,7 +328,7 @@ export function render(FS) {
     <dl class="facts">
       ${fact(L`場所（正確な座標）`, coordText(h.p, h.q))}
       ${fact(L`世界`, html`<code title="${h.world}">${h.world.slice(0, 16)}…</code>`)}
-      ${fact(L`シーズン`, h.season)}
+      ${fact(L`世界の番号`, h.season)}
       ${fact(L`所有者（市民）`, html`<code>${h.ownerCitizen}</code>`)}
       ${fact(L`記録の場所`, html`<code>${h.capture.address}</code>`)}
       ${fact(L`捕捉スロット`, String(c.capturedSlot))}

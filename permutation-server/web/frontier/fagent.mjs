@@ -529,7 +529,7 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize, ch
     say(L`ウォレットで署名して、チェーンの確定を待っています…`);
     // Seven days of the chain's own clock (the local test world's time is not the wall clock's).
     const now = await herald.season();
-    if (!now.ok) return say(L`シーズンを読めませんでした`, 'bad');
+    if (!now.ok) return say(L`世界を読めませんでした`, 'bad');
     const expiry = Number(now.record.latestUnix) + 7 * 86_400;
     const r = await chain.setSessionOnChain({ addresses: S.pin.addresses, wallet: S.wallet, sessionKey, expiry });
     if (!r.ok) return say(r.error ?? r.code, 'bad');
@@ -593,7 +593,7 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize, ch
   });
   // Pin the season from the herald, point the relay at /gw, read the terms.
   const s = await herald.season();
-  if (!s.ok) { setHtml(root, html`<p class="muted">${L`シーズンを読めませんでした`}</p>`); return S; }
+  if (!s.ok) { setHtml(root, html`<p class="muted">${L`世界を読めませんでした`}</p>`); return S; }
   // The ruleset hash picks the protocol profile the shapes are built with (the conquest world is profile 2).
   const rulesetHash = s.season?.rulesetHash ? toHex(s.season.rulesetHash) : (s.record.rulesetHash ?? null);
   S.pin = io.setPin({ programId: s.record.programId, cluster: s.record.cluster, seasonId: s.record.season, seasonAddress: s.record.seasonAddress, rulesetHash });

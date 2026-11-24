@@ -639,10 +639,10 @@ test('in English: a prepared world, and every way a start, a stop or a list can 
     assert.equal(status(doc), 'The world is not ready yet. You can try again with the same wallet. (LauncherTimeout)'); allEnglish(doc, 'timeout');
     // the world answers, but it is not this wallet's local play
     const refusedBy = async (season, me, said) => { const x = open(); x.h.season = season; x.h.me = me; await made(x.gate); await x.gate.connect(); assert.equal(status(x.doc), said); allEnglish(x.doc, said); };
-    await refusedBy(goodSeason({ season: { programVersion: 4 } }), goodMe, 'This herald\'s season is not the local-play revision. (LocalPlayVersion)');
+    await refusedBy(goodSeason({ season: { programVersion: 4 } }), goodMe, 'This herald\'s world is not the local-play revision. (LocalPlayVersion)');
     await refusedBy(goodSeason({ record: { programId: W2 } }), goodMe, 'This herald does not serve the dedicated local-play program. (LocalPlayProgram)');
     await refusedBy(goodSeason({ record: { cluster: 'devnet' } }), goodMe, 'The records server is not serving a localnet world. (LocalPlayCluster)');
-    await refusedBy(goodSeason({ record: { seasonAddress: W2 } }), goodMe, 'This herald\'s season is not the canonical season of the dedicated local-play program. (LocalPlaySeason)');
+    await refusedBy(goodSeason({ record: { seasonAddress: W2 } }), goodMe, 'This herald\'s world is not the canonical world of the dedicated local-play program. (LocalPlaySeason)');
     await refusedBy(goodSeason(), goodMe.bind(null, W2), 'The citizen this herald serves belongs to another wallet. (WalletBindingMismatch)');
     // the list and the end can fail too
     answer.worlds = () => { throw new Error('ECONNREFUSED'); }; doc.byId('local-play-list').click(); for (let i = 0; i < 4; i++) await settle();
@@ -668,7 +668,7 @@ test('in English: the operator\'s panel (no launcher) reads in English too', asy
     assert.equal(doc.byClass('local-play-note')[0].textContent, 'A test wallet for this machine only. Its key is kept only in this page\'s memory and is never stored. Closing or reloading the page loses it.');
     assert.equal(status(doc), 'Getting ready: start the runner and the herald for this address, then press "Connect".'); allEnglish(doc, 'operator waiting');
     await gate.connect(); assert.equal(status(doc), 'This herald cannot be reached yet. Start the runner and the herald, then connect again. (HeraldUnreachable)');
-    h.season = { ok: false, code: 'NotFound' }; await gate.connect(); assert.equal(status(doc), 'The herald answered, but it has no season record yet. Wait a moment, then connect again. (HeraldNotReady)');
+    h.season = { ok: false, code: 'NotFound' }; await gate.connect(); assert.equal(status(doc), 'The herald answered, but it has no world record yet. Wait a moment, then connect again. (HeraldNotReady)');
     h.season = goodSeason(); h.me = { ok: false, code: 'NotFound' }; await gate.connect(); assert.equal(status(doc), 'This herald has no citizen or village for this wallet. Start the runner with the address above. (WalletNotBound)');
     allEnglish(doc, 'operator refused');
     let release; h.hold = new Promise(r => { release = r; }); h.me = goodMe; const checking = gate.connect(); await settle();

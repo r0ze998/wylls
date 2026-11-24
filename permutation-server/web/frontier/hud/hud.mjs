@@ -419,7 +419,7 @@ export function renderPlate(FS) {
       <span class="plate-text"><strong class="plate-name">${name}${h.state === 2 ? '' : html` <span class="plate-tag">${L`仮`}</span>`}</strong>
         <span class="plate-sub">${who}</span>
         ${warned ? html`<span class="plate-warn">${icon('alert')}${L`来襲の恐れ`}</span>` : clocks.length ? html`<span class="plate-clock">${clocks[0]}</span>` : ''}
-        ${surveyed > 0 ? html`<span class="plate-survey" title="${L`このシーズンに測量したマスの数です。村や軍勢から見えた土地、探索したマス、進軍で通ったマスが入ります。`}">${icon('chart')}${L`測量 ${fmtNum(surveyed)} マス`}</span>` : ''}</span>
+        ${surveyed > 0 ? html`<span class="plate-survey" title="${L`この世界で測量したマスの数です。村や軍勢から見えた土地、探索したマス、進軍で通ったマスが入ります。`}">${icon('chart')}${L`測量 ${fmtNum(surveyed)} マス`}</span>` : ''}</span>
       <span class="plate-home">${icon('home')}</span>
     </button>
     ${protoPlateLines(FS)}
@@ -438,7 +438,7 @@ export function renderRail(FS, { todoOpen = false } = {}) {
     // says that the record is being read, or that it could not be; the standings come with the first answer.)
     const unread = !FS.season && !(FS.overviews?.size > 0);
     const body = unread
-      ? html`<p class="read-state" role="status" data-read="${FS.error ? 'unread' : 'waiting'}">${icon(FS.error ? 'alert' : 'hourglass')}<span>${FS.error ? html`${L`シーズンの記録を読めません`}<span class="read-more">${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</span>` : L`記録を読み込んでいます…`}</span></p>`
+      ? html`<p class="read-state" role="status" data-read="${FS.error ? 'unread' : 'waiting'}">${icon(FS.error ? 'alert' : 'hourglass')}<span>${FS.error ? html`${L`世界の記録を読めません`}<span class="read-more">${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</span>` : L`記録を読み込んでいます…`}</span></p>`
       : html`${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p>`;
     return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${body}</div>`;
   }

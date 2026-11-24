@@ -44,9 +44,9 @@ let pinGen = 0, pinIdentity = null;
  */
 export function setPin({ programId, cluster, seasonId, seasonAddress = null, rulesetHash = null }) {
   const addresses = seasonAddresses(programId, seasonId);
-  if (seasonAddress && seasonAddress !== addresses.season) throw Object.assign(new Error(L`シーズンの記録の宛先が、プログラムから導いたものと一致しません`), { code: 'PinMismatch' });
+  if (seasonAddress && seasonAddress !== addresses.season) throw Object.assign(new Error(L`世界の記録の宛先が、プログラムから導いたものと一致しません`), { code: 'PinMismatch' });
   const profile = rulesetHash === null ? 1 : profileForHash(rulesetHash);
-  if (!profile) throw Object.assign(new Error(L`このシーズンは別のルールで動いています`), { code: 'RulesetMismatch' });
+  if (!profile) throw Object.assign(new Error(L`この世界は別のルールで動いています`), { code: 'RulesetMismatch' });
   const identity = `${String(cluster || 'localnet')}|${addresses.programId}|${addresses.season}`;
   if (identity !== pinIdentity) { pinGen += 1; pinIdentity = identity; }
   pin = Object.freeze({ programId: addresses.programId, cluster: String(cluster || 'localnet'), seasonId: addresses.seasonId, addresses, profile, gen: pinGen });
@@ -85,7 +85,7 @@ export async function request(method, path, { body, fetch: f = (...a) => globalT
 export async function relayInfo(opts) {
   const r = await request('GET', '/f/relay', opts);
   if (!r.ok) return r;
-  if (!pin) return fail('NoPin', L`シーズンがまだ決まっていません`);
+  if (!pin) return fail('NoPin', L`世界がまだ決まっていません`);
   try {
     if (pubkeyString(r.programId) !== pin.programId) return fail('PinMismatch', L`中継サーバーが別のプログラムを名乗っています`);
     pubkeyString(r.feePayer);

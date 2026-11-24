@@ -54,7 +54,7 @@ retype their names in a dictionary.
 | 文明 | civilization | the one civilization every player lives in (all six factions together); never a single faction; the `ONE CIVILIZATION` label |
 | メンバー（旧: 国民） | member | a person or agent in a faction; メンバー N人 → `N members` |
 | 人（メンバーの数） | members / people | |
-| シーズン | season | |
+| シーズン | season | the earlier (pre-Frontier) pages only. The Frontier client never says シーズン / season to a player: 世界 / world (owner decision 2026-11-24; on-chain and operator names may keep Season) |
 | ティック | tick | never “turn”, except in “End turn” |
 | 締切 | deadline | the tick's commit deadline |
 | 時代 / 第N時代 | era / Era N | |

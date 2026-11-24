@@ -211,10 +211,10 @@ test('the lines: each phase says only its facts; returned only when returned; a 
     assert.match(c, GENERAL); assert.match(c, /data-siege-reason="derived"/); assert.match(c, /状態から導出した理由（記録された理由ではありません）：軍勢がもういません/);
     assert.match(view({ ...GOOD.notAppliedOwed, reason: 'SomeNewReason' }), /記録された理由ではありません）：SomeNewReason/);
     // TERMINAL: lapsed with the season — said as that, with no turn and no cause; without a basis, nothing of how it ended
-    const BY_TURN = /予約したターンの処理のときに|先の予約が包囲になりました|ターン 41/, BY_END = /シーズンの終了または中断により、予約は成立しませんでした。/;
+    const BY_TURN = /予約したターンの処理のときに|先の予約が包囲になりました|ターン 41/, BY_END = /世界の受付の終了または中断により、予約は成立しませんでした。/;
     const NOTE = /返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。/;
     c = view(LAPSED);
-    assert.match(c, /包囲は始まりませんでした（場所 3）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。/); assert.doesNotMatch(c, BY_TURN); assert.doesNotMatch(c, CAUSES);
+    assert.match(c, /包囲は始まりませんでした（場所 3）。世界の受付の終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。/); assert.doesNotMatch(c, BY_TURN); assert.doesNotMatch(c, CAUSES);
     assert.match(c, /data-siege-settled="no"/); assert.match(c, /預けた資源：返却待ちです。返却の債務として/); assert.match(c, NOTE);
     c = view(UNKNOWN_END);
     assert.match(c, /包囲は始まりませんでした（場所 3）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。/); assert.doesNotMatch(c, BY_TURN); assert.doesNotMatch(c, BY_END); assert.doesNotMatch(c, CAUSES); assert.match(c, NOTE);
@@ -249,12 +249,12 @@ test('the lines: each phase says only its facts; returned only when returned; a 
     assert.doesNotMatch(view(GOOD.notAppliedDebt), /reason|host|leads|no longer/i);
     assert.match(view(GOOD.ordered), /It cannot be cancelled\./);
     for (const f of [...Object.values(GOOD), LAPSED, UNKNOWN_END, { ...LAPSED, source: 'absent' }]) view(f);
-    assert.match(view(LAPSED), /The siege did not start \(site 3\)\. The reservation did not take effect because the season ended or was interrupted\./);
+    assert.match(view(LAPSED), /The siege did not start \(site 3\)\. The reservation did not take effect because the world stopped taking orders or was interrupted\./);
     assert.match(view({ ...UNKNOWN_END, source: 'absent' }), /The holding it came from no longer exists\. It is still owed to you and its result has not been collected yet\. When and where it will be returned is not decided yet\./);
     assert.match(view(UNKNOWN_END), /Returns and releases take effect when the siege(?:'|&#39;)s result is collected\. That may not happen automatically\./);
     for (const reason of O.SIEGE_ORDER_REASONS) assert.doesNotMatch(view({ ...GOOD.notAppliedOwed, reason }), new RegExp(`not a recorded reason\\): ${reason}<`), reason);
     String(hand.siegeOrderView({ ok: false, code: 'X' })); card(null);
-    assert.deepEqual(missingKeys().filter(k => /包囲|予約|預けた資源|使用枠|宣言回数|軍勢が|都市はもう|シーズンの終わり|導出|返却|精算|シーズンの終了/.test(k)), []);
+    assert.deepEqual(missingKeys().filter(k => /包囲|予約|預けた資源|使用枠|宣言回数|軍勢が|都市はもう|世界の終わり|導出|返却|精算|世界の終了/.test(k)), []);
   } finally { setLang('ja'); }
 });
 

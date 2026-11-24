@@ -69,7 +69,7 @@ export function readAccount(kind, bytes, seasonId, names) {
   if (!L || bytes.length !== L.size) throw new Error(`${kind}: ${bytes.length} B（${L?.size} B のはず）`);
   if (new TextDecoder().decode(bytes.subarray(0, 8)) !== L.magic) throw new Error(`${kind}: magic が違う`);
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (dv.getBigUint64(8, true) !== BigInt(seasonId)) throw new Error(`${kind}: シーズンが違う`);
+  if (dv.getBigUint64(8, true) !== BigInt(seasonId)) throw new Error(`${kind}: 世界が違う`);
   const out = {};
   for (const n of names) {
     const f = L.fields.find(x => x.name === n);
@@ -273,11 +273,11 @@ export async function seasonRules(reader, season) {
   const A = addressesOf(season);
   let bytes;
   try { bytes = await reader.account(A.season); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
-  if (!bytes) return { status: 'unverified', why: 'シーズンの口座がない' };
+  if (!bytes) return { status: 'unverified', why: '世界の口座がない' };
   try {
     const x = readAccount('Season', bytes, season.seasonId, ['RULESET_HASH', 'PROGRAM_VERSION']);
     return { status: 'verified', rulesetHash: Array.from(x.RULESET_HASH, b => b.toString(16).padStart(2, '0')).join(''), programVersion: x.PROGRAM_VERSION };
-  } catch (e) { return { status: 'unverified', why: `シーズンの口座が読めない：${e.message ?? e}` }; }
+  } catch (e) { return { status: 'unverified', why: `世界の口座が読めない：${e.message ?? e}` }; }
 }
 
 /**
@@ -289,7 +289,7 @@ export async function citizenOf(reader, season, wallet) {
   const citizen = addressesOf(season).of('Citizen', { wallet });
   let bytes;
   try { bytes = await reader.account(citizen); } catch (e) { return { status: 'unverified', why: `チェーンを読めない：${e.message ?? e}` }; }
-  if (!bytes) return { status: 'unverified', why: 'このシーズンの Citizen の口座がない（参加していない）' };
+  if (!bytes) return { status: 'unverified', why: 'この世界の Citizen の口座がない（参加していない）' };
   let c;
   try { c = decode('Citizen', bytes, { seasonId: season.seasonId }); } catch (e) { return { status: 'unverified', why: `Citizen の口座が読めない：${e.code ?? e.message}` }; }
   if (!equal(c.wallet, pubkeyBytes(wallet))) return { status: 'unverified', why: 'Citizen の口座のウォレットが署名した人と違う' };
