@@ -1042,9 +1042,13 @@ fn step_keep_snapshot(
                 // T-8 (territory-impl): the province remembers the capturing
                 // host's home village and the keep generation it took, so
                 // WideTerritoryConquer can move the province's tiles to that
-                // village's owner. Written for every wide keep, whatever the
-                // territory rule (the trailer bytes were reserved zero).
-                if let Some(h) = taken.donor {
+                // village's owner. Written only in a territory world
+                // (trailer byte RSV_53 set): elsewhere the province stays
+                // byte for byte the deployed program's, so recorded archives
+                // re-run exactly and readers that require the reserved bytes
+                // zero keep working (verify-pr206-209).
+                let territory = matches!(super::land::territory_rule_of(pd), Some(Some(_)));
+                if let (true, Some(h)) = (territory, taken.donor) {
                     let c = super::land::KeepCaptor {
                         home: h.key().coord(),
                         site: h.site(),
