@@ -51,7 +51,7 @@ import { createWideMarch } from './local-play-operator-wide-march.mjs';
 import { createWideHost } from './local-play-operator-wide-host.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
-import { createWideLandReader, expansionTargets, headingOf } from './local-play-operator-expansion.mjs';
+import { createWideLandReader, expansionTargets, headingOf, withTerritory } from './local-play-operator-expansion.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 
@@ -252,7 +252,8 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     //  best first for this resident's heading; without it, the launcher's opened list within reach of home, as before)
     if (v && deps.wideLand) { try { live = await deps.wideLand.read(); } catch { live = null; } }
     const faction = Number.isInteger(view?.faction) ? view.faction : r.memory.faction;
-    const targets = !v ? [] : live ? expansionTargets(v, live, faction, { heading: r.memory.heading ?? headingOf(r.index) }) : claimTargets(v, wideTargets);
+    // (territory-impl: in a territory world each target carries its site tiles — the policy claims the site's tile first)
+    const targets = !v ? [] : live ? withTerritory(expansionTargets(v, live, faction, { heading: r.memory.heading ?? headingOf(r.index) }), live) : claimTargets(v, wideTargets);
     // (expansion-gameplay-1: the herald's /h/me holdings list carries the legacy villages only, so `view.wide` stays 0
     //  after a wide village settles and the third village was priced as a second — 800 for a 1,200 cost, refused
     //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)

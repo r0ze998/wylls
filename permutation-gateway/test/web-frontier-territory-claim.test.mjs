@@ -74,3 +74,16 @@ test('record views decode the Rust layouts', () => {
   assert.equal(T.decodeTerritoryPlayer(new Uint8Array(320)), null);
   assert.equal(T.citizenTagOf(encode(Uint8Array.from([1, 0, 0, 0, 0, 0, 0, 0, ...new Array(24).fill(9)]))), '1');
 });
+
+test('a village claim in a territory world names the territory record (13th account) and skips the home range', async () => {
+  const W = await import('../../permutation-server/web/frontier/flocalplay-wide.mjs');
+  const { seasonAddresses } = await import('../../permutation-server/web/frontier/faddr.mjs');
+  const far = W.wideClaimIntent({ holding: HOME, target: { p: '129', q: '-8' }, territory: true }, { site: 3, slot: 2 });
+  const ix = W.wideClaimInstruction(far, { programId: PROGRAM, seasonId: 1, wallet: WALLET });
+  assert.equal(ix.keys.length, 13);
+  const A = seasonAddresses(PROGRAM, '1');
+  assert.equal(ix.keys[12].pubkey, T.territoryProvinceAddress(A.season, PROGRAM, '129', '-8'));
+  assert.equal(ix.keys[12].isWritable, false);
+  assert.throws(() => W.wideClaimIntent({ holding: HOME, target: { p: '129', q: '-8' }, territory: true, reach: { p: '129', q: '-6' } }, { site: 3, slot: 2 }));
+  assert.throws(() => W.wideClaimIntent({ holding: HOME, target: { p: '129', q: '-8' }, territory: 'yes' }, { site: 3, slot: 2 }));
+});
