@@ -374,3 +374,135 @@ mod tests {
         assert_eq!(request_ring_seed(&a, p, 130).accounts.len(), 12);
     }
 }
+
+// ------------------------------------------------------------ territory (territory-impl)
+
+/// Player territory's class-D cranks (territory-impl, owner 2026-11-24 12:09; program
+/// `proc/wide_territory.rs`, accounts `wide_ix::TERRITORY_*`). The keeper's devnet role and the local runner's duty
+/// (`itest::wide_territory`) send these; the claim itself (0xDA op 7) is a player's.
+pub mod territory {
+    use super::*;
+    use frontier_abi::world_index::territory as wtr;
+
+    /// 0xDC op 12 WideTerritorySettle: `[payer s,w] [season r] [territory_player w] [citizen r] [home_holding w]`.
+    pub fn settle(a: &Addresses, payer: Address, citizen: &[u8; 32], home: Address) -> Instruction {
+        let c = ctx(a);
+        ix(
+            a,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(wtr::player_address(&c, citizen)), false),
+                AccountMeta::new_readonly(adr(*citizen), false),
+                AccountMeta::new(home, false),
+            ],
+            wix::TerritorySettle.to_bytes().to_vec(),
+        )
+    }
+
+    /// 0xDC op 13 WideTerritoryDecay: `[payer s,w] [season r] [territory_player w] [territory_province w]`.
+    pub fn decay(
+        a: &Addresses,
+        payer: Address,
+        citizen: &[u8; 32],
+        province: WideCoord,
+        tile: u8,
+    ) -> Instruction {
+        let c = ctx(a);
+        ix(
+            a,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(wtr::player_address(&c, citizen)), false),
+                AccountMeta::new(adr(wtr::province_address(&c, province)), false),
+            ],
+            wix::TerritoryDecay { tile }.to_bytes().to_vec(),
+        )
+    }
+
+    /// 0xDC op 14 WideTerritoryConquer: `[payer s,w] [season r] [province r] [territory_province w]
+    /// [loser_player w] [captor_holding r] [captor_citizen r] [captor_player w] [system]`.
+    pub fn conquer(
+        a: &Addresses,
+        payer: Address,
+        province: WideCoord,
+        loser_citizen: &[u8; 32],
+        captor_holding: Address,
+        captor_citizen: &[u8; 32],
+    ) -> Instruction {
+        let c = ctx(a);
+        ix(
+            a,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new_readonly(adr(wl::province_address(&c, province)), false),
+                AccountMeta::new(adr(wtr::province_address(&c, province)), false),
+                AccountMeta::new(adr(wtr::player_address(&c, loser_citizen)), false),
+                AccountMeta::new_readonly(captor_holding, false),
+                AccountMeta::new_readonly(adr(*captor_citizen), false),
+                AccountMeta::new(adr(wtr::player_address(&c, captor_citizen)), false),
+                AccountMeta::new_readonly(fclient::addr::system_program(), false),
+            ],
+            wix::TerritoryConquer.to_bytes().to_vec(),
+        )
+    }
+
+    /// The home village of a keep captor record: legacy (ring ≤ 128) or wide.
+    pub fn captor_holding(a: &Addresses, cap: &wl::KeepCaptor) -> Address {
+        let c = ctx(a);
+        if cap.home.ring() < FIRST_WIDE_RING {
+            a.holding(cap.home.p() as i32, cap.home.q() as i32, cap.site)
+        } else {
+            adr(wh::holding_address(&c, cap.home, cap.site))
+        }
+    }
+
+    /// 0xDA op 7 WideClaimTile for `wallet` (actor and payer), witness/village flags as `wide_ix::ClaimTile`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn claim_tile(
+        a: &Addresses,
+        wallet: Address,
+        citizen: &[u8; 32],
+        home: (i32, i32, u8),
+        target: WideCoord,
+        tile: u8,
+        witness: Option<(u8, Address)>,
+        village: Option<Address>,
+    ) -> Instruction {
+        let c = ctx(a);
+        let mut accounts = vec![
+            AccountMeta::new_readonly(wallet, true),
+            AccountMeta::new(wallet, true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new(adr(*citizen), false),
+            AccountMeta::new_readonly(adr(wl::province_address(&c, target)), false),
+            AccountMeta::new(adr(wtr::province_address(&c, target)), false),
+            AccountMeta::new(adr(wtr::player_address(&c, citizen)), false),
+            AccountMeta::new(a.holding(home.0, home.1, home.2), false),
+            AccountMeta::new_readonly(a.province(home.0, home.1), false),
+            AccountMeta::new_readonly(fclient::addr::system_program(), false),
+        ];
+        let wbyte = witness.map_or(0, |(b, _)| b);
+        if let Some((_, w)) = witness {
+            accounts.push(AccountMeta::new_readonly(w, false));
+        }
+        if let Some(v) = village {
+            accounts.push(AccountMeta::new_readonly(v, false));
+        }
+        ix(
+            a,
+            accounts,
+            wix::ClaimTile {
+                p: target.p(),
+                q: target.q(),
+                tile,
+                witness: wbyte,
+                village: village.is_some() as u8,
+            }
+            .to_bytes()
+            .to_vec(),
+        )
+    }
+}

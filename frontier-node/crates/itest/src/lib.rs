@@ -107,4 +107,7 @@ pub mod wide_depart;
 // TEST-ONLY map growth where nations go (expansion-gameplay-1): wide land opened next to villages and won keeps
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_frontier;
+// TEST-ONLY player territory (territory-impl, owner 2026-11-24 12:09): upkeep settles, decay and conquest transfers
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_territory;
 pub mod world;
