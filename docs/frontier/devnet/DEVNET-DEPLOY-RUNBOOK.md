@@ -436,8 +436,13 @@ PLAYTEST-RUNBOOK §6):
 solana program deploy <new .so> --program-id <PROGRAM_ID address> --upgrade-authority authority.json --keypair deployer.json --url https://api.devnet.solana.com --max-sign-attempts 50
 ```
 
-An upgrade writes a new buffer first, so the deployer needs the buffer's rent at its peak (21.89 SOL for the playable
-`.so` at 5,080) on top of the fees; the upgrade returns the buffer's lamports to the spill account (the deployer) when it lands.
+An upgrade writes a new buffer first, so the deployer needs the buffer's rent at its peak, `(128 + 37 + so_len) × rate`
+(17.85 SOL for a 3,514,376 B `.so` at 5,080; 21.89 SOL is the FIRST deploy's ProgramData rent at max_len, not an upgrade's
+peak), on top of the fees (≈0.04 SOL); the upgrade returns the buffer's lamports to the spill account (the deployer) when it
+lands. Where SIMD-0433 (`EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy`, Loader V3 Set Program Data to ELF Length) is
+active the upgrade also cuts the ProgramData to the new ELF length and returns the difference's rent; a later larger
+`.so` then needs an extend. Measured on a local agave 4.4.1 validator by devnet-new-world-plan; the new world's upgrade
+and creation steps: NEW-WORLD-RUNBOOK.md.
 
 A larger `.so` than `--max-len` needs the ProgramData extended first. `solana program deploy` does that by itself
 unless `--no-auto-extend` is given; `solana program extend <PROGRAM_ID> <bytes>` is the manual form [not checked

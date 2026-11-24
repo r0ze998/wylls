@@ -189,7 +189,8 @@ export function buildMessage(blockhash) {
 
 const log = (...a) => console.log(...a);
 
-function loadKey(path) {
+/** The authority's key from a Solana CLI key file (checked; bytes zeroed). Also used by abort-season-2.mjs. */
+export function loadAuthorityKey(path) {
   const p = keyFileProblem(path);
   if (p) throw new Refused(p);
   let raw;
@@ -207,7 +208,7 @@ function loadKey(path) {
   if (b58e(pub) !== AUTHORITY) throw new Refused(`key is ${b58e(pub)}, not the season authority ${AUTHORITY}`);
   return priv;
 }
-class Refused extends Error {}
+export class Refused extends Error {}
 
 async function main(argv) {
   const parsed = parseArgs(argv);
@@ -216,7 +217,7 @@ async function main(argv) {
   const closed = gateFlags(o);
   if (o.yesSend && closed.length) throw new Refused(`SEND GATE: CLOSED\n  - ${closed.join('\n  - ')}\n(nothing was read or sent)`);
   log(o.yesSend ? 'SEND (--yes-send)' : 'DRY RUN: nothing is sent without --yes-send');
-  const priv = o.key ? loadKey(o.key) : null;
+  const priv = o.key ? loadAuthorityKey(o.key) : null;
   if (priv) log(`signer ${AUTHORITY} (key file matches; bytes not printed)`);
 
   let lastCall = 0;
