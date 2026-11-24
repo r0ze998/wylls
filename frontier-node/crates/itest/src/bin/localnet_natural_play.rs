@@ -145,6 +145,16 @@ fn main() {
                     }
                 });
             }
+            // (TEST-ONLY player territory, territory-impl owner 2026-11-24 12:09: the class-D crank of upkeep, decay
+            //  and conquest transfers — the devnet keeper's role; play-local runs no keeper crate)
+            if wide {
+                let (st, a, rx) = (world.state.clone(), world.a.clone(), stop_rx.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = itest::wide_territory::run(st, a, rx, |v| println!("{v}")).await {
+                        println!("{}", serde_json::json!({"schema": itest::wide_territory::TERRITORY_SCHEMA, "wide_territory_step": "stopped", "test_only": true, "why": e}));
+                    }
+                });
+            }
             // (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: the wide bells and marches' class-D crank; the local
             //  land .so's `localnet-wide-depart` gate decides whether a WideDepart can land at all)
             if wide {

@@ -86,4 +86,33 @@ export function expansionTargets(home, wideNow, faction, { heading = 'outward' }
     .map(x => x.t);
 }
 
+// (territory-impl, owner 2026-11-24 12:09: the wide province's trailer byte RSV_53 = 4,736 + 53 names its territory rule —
+//  frontier-abi world_index/land.rs territory_rule_of; the site tiles are Province v2 SITES @250 × 12, SITE_COUNT @262;
+//  the keep's tile KEEP @4480)
+const TERRITORY_AT = 4789, SITES_AT = 250, SITE_COUNT_AT = 262, KEEP_TILE_AT = 4480;
+const bytesOf = e => {
+  const b64 = e?.bytes_b64;
+  if (typeof b64 !== 'string') return null;
+  return typeof Buffer !== 'undefined' ? new Uint8Array(Buffer.from(b64, 'base64')) : Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+};
+
+/** A wide province's territory facts from its herald capture, or null outside a territory world / unread:
+ *  `{siteTiles: [tile] (by site), keepTile}`. */
+export function territoryOfBytes(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length !== 4864 || bytes[TERRITORY_AT] !== 1) return null;
+  const n = Math.min(bytes[SITE_COUNT_AT], 12);
+  return { siteTiles: Array.from(bytes.subarray(SITES_AT, SITES_AT + n)), keepTile: bytes[KEEP_TILE_AT] };
+}
+
+/** `targets` (expansionTargets) with each one's territory facts attached when the world plays territory. */
+export function withTerritory(targets, wideNow) {
+  if (!wideNow?.entries) return targets;
+  const by = new Map(wideNow.entries.map(e => [`${e.p},${e.q}`, e]));
+  return targets.map(t => {
+    let tf = null;
+    try { tf = territoryOfBytes(bytesOf(by.get(`${t.p},${t.q}`))); } catch { tf = null; }
+    return tf ? { ...t, territory: tf } : t;
+  });
+}
+
 export { OUTPOST_RANGE };

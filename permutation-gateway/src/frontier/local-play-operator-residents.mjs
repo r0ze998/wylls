@@ -51,7 +51,7 @@ import { createWideMarch } from './local-play-operator-wide-march.mjs';
 import { createWideHost } from './local-play-operator-wide-host.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
-import { createWideLandReader, expansionTargets, headingOf } from './local-play-operator-expansion.mjs';
+import { createWideLandReader, expansionTargets, headingOf, withTerritory } from './local-play-operator-expansion.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 
@@ -60,6 +60,10 @@ import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resourc
  * holding at chain time `secs`; `holdingsN` = the villages held BEFORE it, as the program reads it (loop-play11:
  * 1 + the wide villages, not 2 + — the AI waited for 1.5× the price). False when anything is unreadable.
  */
+/** The village's ore (whole units) at `secs`, or null when unreadable (verify-pr206-209: tile claims are paid in ore). */
+export function oreAt(holding, secs) {
+  try { return Number.isSafeInteger(secs) ? Number(storesAt(holding, secs, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Ore')]?.value ?? null) : null; } catch { return null; }
+}
 export function coversSettlerCost(holding, secs, holdingsN) {
   try {
     const have = storesAt(holding, secs, RESOURCE_ORDER).map(x => x.value), need = settlerCost(holdingsN);
@@ -252,12 +256,13 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     //  best first for this resident's heading; without it, the launcher's opened list within reach of home, as before)
     if (v && deps.wideLand) { try { live = await deps.wideLand.read(); } catch { live = null; } }
     const faction = Number.isInteger(view?.faction) ? view.faction : r.memory.faction;
-    const targets = !v ? [] : live ? expansionTargets(v, live, faction, { heading: r.memory.heading ?? headingOf(r.index) }) : claimTargets(v, wideTargets);
+    // (territory-impl: in a territory world each target carries its site tiles — the policy claims the site's tile first)
+    const targets = !v ? [] : live ? withTerritory(expansionTargets(v, live, faction, { heading: r.memory.heading ?? headingOf(r.index) }), live) : claimTargets(v, wideTargets);
     // (expansion-gameplay-1: the herald's /h/me holdings list carries the legacy villages only, so `view.wide` stays 0
     //  after a wide village settles and the third village was priced as a second — 800 for a 1,200 cost, refused
     //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)
     const wideHeld = Math.max(Number.isInteger(view?.wide) ? view.wide : 0, (r.memory.wideVillages ?? []).length);
-    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld) };
+    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld), ore: oreAt(v?.decoded, secs) };
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {
@@ -378,15 +383,17 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, outcome: 'wait', code: sent.code, why: 'this resident already acted in this bell: the next bell', ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), seen, budget: r.budget.state() };
   }
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
-  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; }
+  let programCode = null;
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; programCode = Number.isInteger(sent.programCode) ? sent.programCode : null; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);
     outcome = f.state === 'landed' ? 'landed' : f.state === 'failed' ? 'failed' : sent.relayCode === 'LocalActSendRefused' ? 'failed' : 'unknown';
     code = f.code ?? sent.relayCode ?? null;
+    programCode = Number.isInteger(f.programCode) ? f.programCode : null;
   }
   if (war && outcome !== 'refused' && d.name !== 'Join') r.memory.lastBell = spentBell(nowBell, deps);
-  noteOutcome(r.memory, d, outcome);
+  noteOutcome(r.memory, d, outcome, { code, programCode });
   r.budget.spent(outcome, deps.now(), turnBell);
   return { resident: r.index, wallet: r.key.address, step: 'act', act: d.name, fields: JSON.parse(JSON.stringify(d.fields, (_, v) => (typeof v === 'bigint' ? v.toString() : v))), why: d.why, outcome, ...(code ? { code } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), ...(signature ? { signature } : {}), seen, budget: r.budget.state() };
 }

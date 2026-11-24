@@ -29,7 +29,7 @@ test('wide map verifies both raw capture identities at exact coordinates in ever
 });
 
 test('zero bytes, malformed ABI headers and contradictory province fields are refused', () => {
-  for (const [offset,value] of [[0,0],[16,2],[4736,2],[4738,0],[4739,0],[4789,1],[4840,1],[64,1],[68,1],[70,1],[71,4],[76,6],[4481,3],[4740,0],[4772,1],[8,6]]) {
+  for (const [offset,value] of [[0,0],[16,2],[4736,2],[4738,0],[4739,0],[4789,2],[4840,2],[4790,1],[64,1],[68,1],[70,1],[71,4],[76,6],[4481,3],[4740,0],[4772,1],[8,6]]) {
     const e = entry(); alter(e.wide.capture,offset,value); bad(e);
   }
   const e = entry(); e.wide.capture.bytes_b64 = Buffer.alloc(4864).toString('base64'); bad(e);

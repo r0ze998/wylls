@@ -28,7 +28,7 @@ default = []
 # a sparse paginated opened-province index). Off by default, so the
 # program, the vectors and every hash are built exactly as before; it adds
 # no dependency (I-03 holds).
-world-index-experimental = []
+world-index-experimental = ["permutation-rules/territory-preview"]
 # Host/localnet-only: the expedition dispatch wrapper's provisional conquest
 # kinds 12–17 (`world_index::expedition_dispatch_ix`). Off by default, so the
 # default decoder keeps refusing them; never a deployed allocation.

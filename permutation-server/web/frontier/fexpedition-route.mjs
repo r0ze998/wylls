@@ -1,6 +1,7 @@
 // Observed route arithmetic, pinned to proc/wide_expedition_route.rs.
 // No account transport, authority, sealing, signing or admission. Raw bytes
 // establish a land's shape and identity, never its owner/address or freshness.
+import { wideTrailerReservedOk } from './map/widecapture.mjs';
 import { LAYOUTS } from '../sdk/frontier/abi-v2-layouts.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { decode, decodePrefix } from './fcodec.mjs';
@@ -61,8 +62,8 @@ export function routeLandFromBytes({ source, at, bytes }) {
     check(String.fromCharCode(...b.subarray(0, 8)) === 'PSFXWPV1', 'LandMagic');
     check(v.getUint16(16, true) === 3 && v.getUint16(TRAILER, true) === 1, 'LandVersion');
     check(b[TRAILER + 2] === 1 && b[TRAILER + 3] === 15, 'LandNotReady');
-    check(b.subarray(TRAILER + 53, TRAILER + 56).every(x => x === 0)
-      && b.subarray(TRAILER + 104).every(x => x === 0), 'LandReserved');
+    // (territory-impl: the territory byte and the keep captor record, as the Rust reader — map/widecapture.mjs)
+    check(wideTrailerReservedOk(b, TRAILER), 'LandReserved');
     check(toHex(b.subarray(TRAILER + 4, TRAILER + 36)) === source.world, 'WorldMismatch');
     check(toHex(b.subarray(TRAILER + 36, TRAILER + 53)) === key.slice(66), 'LandIdentity');
     check(b.subarray(TRAILER + 64, TRAILER + 96).some(x => x !== 0), 'LandSeedMissing');

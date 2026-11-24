@@ -2388,8 +2388,14 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )?;
     let release_after = {
         let sd = season_ai.try_borrow_data()?;
-        Ro(&sd).u32(S::RELEASE_AFTER_SECS)? as i64
+        Ro(&sd).u32(S::RELEASE_AFTER_SECS)?
     };
+    // U3 (owner 2026-11-24 12:07): a world whose Season stores
+    // `RELEASE_DORMANT_NEVER` has no first-village release at all.
+    if release_after == frontier_abi::v2::presets::RELEASE_DORMANT_NEVER {
+        return Err(FrontierError::NotDormant.into());
+    }
+    let release_after = release_after as i64;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     let (hp, hq, site) = holding_key(p, &ctx, hdr.id, holding)?;
     let (pi, qi) = (hp as i32, hq as i32);
