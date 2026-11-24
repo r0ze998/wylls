@@ -1,7 +1,7 @@
 // Where am I (UX brief §5.3, §11.8): when the viewer's village is off the
 // screen, a gold tab sits flush with the edge of the map, where the line to
 // the village leaves the picture. It carries the home glyph, the village's
-// name when it appears, then how far the village is, with the unit (「5 マス」).
+// name when it appears, then how far the village is, as a distance (「5 マス先」).
 // Pressing it flies home. A real button (focusable, 44 px high, named for a
 // screen reader), on phones too. It keeps out of the HUD's columns by sliding
 // along its edge, and it is put away while a set piece plays.
@@ -107,7 +107,9 @@ export function clearOfLand(place, box, avoid = [], land = [], opts = {}) {
 
 /** The pointer's name for a screen reader, and its hover title; and what the tab itself says once the name has been read. */
 export const pointerLabel = tiles => L`自分の村へ移動（${fmtNum(tiles)} マス先）`;
-export const distanceText = tiles => L`${fmtNum(tiles)} マス`;
+// (fix-loop15, LP15-6: 「13 マス」 / "13 tiles" beside a house read like a count of one's land in a world where land is
+//  claimed tile by tile; the tab says the distance as a distance — 「13 マス先」 / "13 tiles away", the order card's words)
+export const distanceText = tiles => L`${fmtNum(tiles)} マス先`;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const svgOf = (doc, cls, children) => {

@@ -244,6 +244,8 @@ function diffFeedNow(prev, next) {
   return out;
 }
 
+/** The kinds the turn's summary counts by name (bellSummaryNow); a line of any other kind is counted as 「知らせ」. */
+export const SUMMED_KINDS = Object.freeze(['battle', 'march', 'explore', 'incoming', 'build', 'holding', 'territory', 'keep', 'proto', 'goal']);
 /** The summary of a bell that ended: one line per kind, or null when nothing happened (with `words`, as diffFeed's). */
 export const bellSummary = (feed, bell) => worded(() => bellSummaryNow(feed, bell));
 function bellSummaryNow(feed, bell) {
@@ -256,6 +258,11 @@ function bellSummaryNow(feed, bell) {
     // (fix-loop13: a world-goals achievement — hud/worldgoals.mjs achievementNews — is counted by name; the summary said 「ターン 179 のまとめ：」 and nothing)
     n('goal') && L`世界の目標 ${fmtNum(n('goal'))}`,
   ].filter(Boolean);
+  // (fix-loop15, LP15-7: a line of a kind with no name of its own above — a caravan's or a storehouse's news, kind
+  //  's1' — was counted by nobody: 「ターン 14 のまとめ：」 / "Turn 183 in brief:" and nothing. Every line the summary
+  //  folds is counted now: those kinds together, as 「知らせ」 alone or 「ほかの知らせ」 beside the named ones)
+  const rest = of.filter(x => !SUMMED_KINDS.includes(x.kind)).length;
+  if (rest) parts.push(parts.length ? L`ほかの知らせ ${fmtNum(rest)}` : L`知らせ ${fmtNum(rest)}`);
   // (a turn of which only quiet lines are known is summed up quietly too: in the list, not over the map)
   return { id: `sum:${bell}`, kind: 'summary', bell: bell + 1, text: L`ターン ${fmtNum(bell)} のまとめ：${parts.join(' · ')}`, items: of.map(x => x.id), ...(of.every(x => x.quiet) ? { quiet: true } : {}) };
 }

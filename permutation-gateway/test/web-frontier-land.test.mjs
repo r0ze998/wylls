@@ -417,10 +417,11 @@ test('the pointer home: none while the village is in the picture; else a tab flu
   assert.ok(PTR.POINTER_MIN >= 56, 'about 56 px at least');
   setLang('ja');
   assert.equal(PTR.pointerLabel(12), '自分の村へ移動（12 マス先）');
-  assert.equal(PTR.distanceText(5), '5 マス', 'the distance with its unit');
+  assert.equal(PTR.distanceText(5), '5 マス先', 'the distance, said as a distance (LP15-6: not a count of tiles)');
   setLang('en');
   assert.equal(PTR.pointerLabel(12), 'Go to my village (12 tiles away)');
-  assert.equal(PTR.distanceText(5), '5 tiles');
+  assert.equal(PTR.distanceText(5), '5 tiles away');
+  assert.equal(PTR.distanceText(1), '1 tile away');
   setLang('ja');
   assert.equal(PTR.mountHomePointer({ clientWidth: 1, clientHeight: 1 }), null, 'no document: no button, nothing thrown');
   assert.equal(PTR.edgePointer({ x: 0, y: 0, zoom: 1 }, size, null), null);
