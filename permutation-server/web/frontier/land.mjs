@@ -151,5 +151,7 @@ export function renderLandChip(s, far = null) {
 }
 
 function homeChip(s) {
-  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}${s.perHour > 0 ? L`（毎時 +${fmtNum(s.perHour)}）` : ''}</span>`;
+  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}"><span class="land-chip-long">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}${s.perHour > 0 ? L`（毎時 +${fmtNum(s.perHour)}）` : ''}</span><span class="land-chip-short" aria-hidden="true">${L`領土 ${fmtNum(s.claimed)} マス · +${fmtNum(s.bonusPct)}%`}</span></span>`;
+  // (fix-loop13, LP13-2: under 1440 px the top bar shows the short form — the long one took the resource strip's room;
+  //  the long one stays for screen readers and in the title, frontier.css .land-chip-short)
 }

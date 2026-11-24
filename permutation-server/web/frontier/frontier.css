@@ -211,6 +211,10 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .next-kicker { flex: none; padding-right: 8px; border-right: 1px solid rgba(240,212,138,.4); font: 650 var(--t1)/1 var(--ui); letter-spacing: .06em; color: var(--brass-hi); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .attn-long { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attn-long strong { font-weight: 700; }
+/* fix-loop13 LP13-12: the step's name gives way, not the count after it — 「Train troops for the next host 1 m…」 */
+.attn-long:has(> .next-more) { display: flex; align-items: baseline; }
+.attn-long:has(> .next-more) > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.attn-long > .next-more { flex: none; }
 /* narrower screens: the step's name alone (a press still does its one action; the words are the button's name and title) */
 @media (max-width: 1279px) { .next-do { display: none; } .next-btn { max-width: 300px; } }
 .attn-short { display: none; font-variant-numeric: tabular-nums; }
@@ -2662,6 +2666,11 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 #land-chip-box { flex: 0 1000 auto; min-width: 40px; overflow: hidden; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
 #land-chip-box[hidden] { display: none; }
 .land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.land-chip-short { display: none; }
+@media (max-width: 1439px) {
+  .land-chip-short { display: inline; }
+  .land-chip-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .land-chip + .land-chip-far { margin-left: 10px; padding-left: 10px; border-left: 1px solid rgba(201,162,74,.28); }
 .land-chip-far { font-weight: 500; color: #e3c77a; }
 

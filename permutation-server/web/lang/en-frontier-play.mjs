@@ -500,7 +500,8 @@ export default {
   '{0} 満杯まで {1}': '{0} full in {1}',
 
   // ---- the title card and the bell toll (intro/title.mjs)
-  '第{0}季': 'Season {0}',
+  '世界の番号 {0}': 'World no. {0}',
+  '領土 {0} マス · +{1}%': n => plural(n, 'Land {0} tile · +{1}%', 'Land {0} tiles · +{1}%'),
   '{0} つの国': '{0} nations',
   '{0} の村': n => plural(n, '{0} village', '{0} villages'),
   '観戦をはじめる': 'Start watching',
