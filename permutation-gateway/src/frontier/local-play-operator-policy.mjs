@@ -229,6 +229,26 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (verify-pr206-209, owner TQ-2: a tile's upkeep distance is from the NEAREST own village — an own wide village
   //  nearer than the first home is named in the claim)
   const nearer = t => { const v = nearerOwnVillage(h, t, memory.wideVillages); return v ? { village: v } : {}; };
+  // (territory-impl: grow the land — one more tile next to the resident's own, a turn apart, up to OPERATOR_TILES_MAX;
+  //  the reach is its own tile's province (witness 'own'); a refused tile is not asked again. verify-pr206-209: also
+  //  while it saves for its next village — a tile costs ore, not the settler's goods — so AI land grows by tiles, not
+  //  only by village sites: before, the save-for-a-village Harvest came first and no growth claim was ever sent)
+  const grow = () => {
+    const own = memory.ownTiles ?? [];
+    if (!(wide && own.length && own.length < OPERATOR_TILES_MAX && (memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && memory.decisions % 2 === 0)) return null;
+    const tried = new Set(memory.triedTiles ?? []);
+    for (const o of own) {
+      const t = (wide.targets ?? []).find(x => x.p === o.p && x.q === o.q && x.territory);
+      const blockedList = t?.territory ? [...t.territory.siteTiles, t.territory.keepTile] : o.blocked;
+      if (!Array.isArray(blockedList)) continue;
+      const blocked = new Set(blockedList);
+      const tile = Array.from({ length: 61 }, (_, i) => i).find(i => !blocked.has(i) && !own.some(x => x.p === o.p && x.q === o.q && x.tile === i) && !tried.has(`${o.p},${o.q},${i}`));
+      if (Number.isInteger(tile))
+        return { name: 'TerritoryClaim', v: { holding: h, target: { p: o.p, q: o.q }, witness: { kind: 'own', p: o.p, q: o.q }, ...nearer({ p: o.p, q: o.q }) }, fields: { tile }, growth: true, blocked: blockedList,
+          why: `grow the land: one more tile at ${o.p},${o.q} (${own.length} owned)` };
+    }
+    return null;
+  };
   // (a war resident of a wide world: its FIRST expedition into the wide land before the war step takes every ready host —
   //  loop-play4 B-6, war on by default: the AI nations both fight and go out into the wide land)
   if (memory.war && war && wide?.march && (memory.wideMarches ?? 0) === 0) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell}), before the war takes it` };
@@ -281,25 +301,11 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
         return { name: 'WideClaim', v: { holding: h, target: next.t, ...(next.reach && !terr ? { reach: next.reach } : {}), ...(prev ? { previous: { p: String(prev.p), q: String(prev.q), site: prev.site } } : {}), ...(terr ? { territory: true } : {}) }, fields: { site: next.site, slot },
           why: `stores cover the settler cost: claim wide land at ${next.t.p},${next.t.q} site ${next.site} (slot ${slot})${next.reach ? ` through the nation's land at ${next.reach.p},${next.reach.q}` : ''}` };
       }
-      return { name: 'Harvest', v: { holding: h }, fields: {}, why: waiting ? 'a wide claim is settling: harvest meanwhile' : 'saving for a wide claim (the settler cost): harvest' };
+      return grow() ?? { name: 'Harvest', v: { holding: h }, fields: {}, why: waiting ? 'a wide claim is settling: harvest meanwhile' : 'saving for a wide claim (the settler cost): harvest' };
     }
   }
-  // (territory-impl: grow the land — one more tile next to the resident's own, a turn apart, up to OPERATOR_TILES_MAX;
-  //  the reach is its own tile's province (witness 'own'); a refused tile is not asked again)
-  const own = memory.ownTiles ?? [];
-  if (wide && own.length && own.length < OPERATOR_TILES_MAX && (memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && memory.decisions % 2 === 0) {
-    const tried = new Set(memory.triedTiles ?? []);
-    for (const o of own) {
-      const t = wide.targets.find(x => x.p === o.p && x.q === o.q && x.territory);
-      const blockedList = t?.territory ? [...t.territory.siteTiles, t.territory.keepTile] : o.blocked;
-      if (!Array.isArray(blockedList)) continue;
-      const blocked = new Set(blockedList);
-      const tile = Array.from({ length: 61 }, (_, i) => i).find(i => !blocked.has(i) && !own.some(x => x.p === o.p && x.q === o.q && x.tile === i) && !tried.has(`${o.p},${o.q},${i}`));
-      if (Number.isInteger(tile))
-        return { name: 'TerritoryClaim', v: { holding: h, target: { p: o.p, q: o.q }, witness: { kind: 'own', p: o.p, q: o.q }, ...nearer({ p: o.p, q: o.q }) }, fields: { tile }, growth: true, blocked: blockedList,
-          why: `grow the land: one more tile at ${o.p},${o.q} (${own.length} owned)` };
-    }
-  }
+  // (territory-impl: grow the land when idle)
+  { const g = grow(); if (g) return g; }
   for (let k = 0; k < OPERATOR_ROTATION.length; k++) {
     const a = OPERATOR_ROTATION[(memory.step + k) % OPERATOR_ROTATION.length];
     // (a war resident's troops and hosts are the war step's: its rotation is the economy only — Harvest and Build)

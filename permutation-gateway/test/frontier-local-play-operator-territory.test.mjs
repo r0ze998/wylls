@@ -79,3 +79,19 @@ test('the AI keeps a site after a temporary tile refusal, drops it after a final
   assert.deepEqual(m2.ownTiles.map(o => o.tile), [7]);
   assert.equal((m2.triedClaims ?? []).length, 0);
 });
+
+// verify-pr206-209: in the live ×60 world no AI ever sent a growth claim — the save-for-the-next-village Harvest came
+// first. A resident that owns a tile and is SAVING for its next village (stores short of the settler cost) grows its land.
+test('a resident saving for its next village still grows its land a tile at a time', () => {
+  const m = createResidentMemory(0);
+  m.ownTiles = [{ p: '129', q: '0', tile: 5 }];
+  m.decisions = 4;
+  const wide = { targets: [{ p: '129', q: '1', territory: TERR }, { p: '129', q: '0', territory: TERR }], canClaim: false };
+  m.ownTiles.push({ p: '129', q: '1', tile: 5 });
+  const d = decideNext(m, RIM, { homes: [], wide });
+  assert.equal(d.name, 'TerritoryClaim');
+  assert.equal(d.growth, true);
+  // odd decision: harvest (one growth claim every other decision)
+  m.decisions = 5;
+  assert.equal(decideNext(m, RIM, { homes: [], wide }).name, 'Harvest');
+});
