@@ -164,6 +164,23 @@ test('profile: wrong cluster, lane, roles, rings duty, same address twice, bad b
     const q = filled(); q.season.preset = preset;
     assert.equal(byId(checkProfile(q), 'profile.shape').status, 'PASS', preset);
   }
+  // devnet-new-world-plan: the new world's preset needs a neutral keep holder; unknown / OrbitBalanced are refused
+  const t = filled(); t.season.preset = 'S1_DEVNET_TERRITORY';
+  assert.match(byId(checkProfile(t), 'profile.shape').detail, /S1_DEVNET_TERRITORY needs Neutral or NeutralTerritoryV1/);
+  for (const k of ['Neutral', 'NeutralTerritoryV1']) {
+    t.wide = { keepHolder: k };
+    const r = byId(checkProfile(t), 'profile.shape');
+    assert.equal(r.status, 'PASS', `${k}: ${r.detail}`);
+    assert.match(r.detail, new RegExp(`keep holder ${k}`));
+  }
+  t.wide = { keepHolder: 'MixedInterleaved' };
+  assert.equal(byId(checkProfile(t), 'profile.shape').status, 'FAIL');
+  const w = filled(); w.wide = { keepHolder: 'neutral' };
+  assert.match(byId(checkProfile(w), 'profile.shape').detail, /wide\.keepHolder neutral/);
+  w.wide = { keepHolder: 'OrbitBalanced' };
+  assert.match(byId(checkProfile(w), 'profile.shape').detail, /placement 2 refuses it/);
+  w.wide = { keepHolder: 'NeutralTerritoryV1' }; // a reused Season 2 (Q-NWP-1 b) would keep its preset with neutral land
+  assert.equal(byId(checkProfile(w), 'profile.shape').status, 'PASS');
   rs = checkProfile({ ...filled(), upgradeAuthority: PROGRAM });
   assert.match(byId(rs, 'profile.keys').detail, /same address/);
   rs = checkProfile({ ...filled(), programId: 'not-base58-0OIl' });
