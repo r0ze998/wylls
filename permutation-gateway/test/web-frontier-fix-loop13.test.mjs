@@ -52,3 +52,18 @@ test('LP13-4: a host check\'s words are read when shown (a map note made from it
     }
   } finally { setLang('ja'); }
 });
+
+test('LP13-3 (live case): when the place under the strip is taken by another label, the defend line still stands clear of the HUD (hud)', () => {
+  // the live shot (fix-loop13 015): the dial (598–682 × 3–87) and the strip; the viewer's own 「Holding the keep · 3/72」 already under the strip
+  const nogo = [{ x: 8, y: 8, w: 568, h: 44 }, { x: 598, y: 3, w: 84, h: 84 }, { x: 811, y: 8, w: 461, h: 44 }, { x: 56, y: 64, w: 498, h: 40 }];
+  const bounds = { w: 1280, h: 800 };
+  const line = { x: 475, y: 2, w: 335, h: 23 };
+  const fill = pass => pass.block(530, 120, { x: 430, y: 110, w: 190, h: 22 });
+  const plain = createLabelPass({ nogo, bounds }); fill(plain);
+  assert.deepEqual(plain.place(640, 40, line, { keep: true, reach: CONTEST_TAG_REACH }), { dx: 0, dy: 0 }, 'without hud it stays under the HUD');
+  const p = createLabelPass({ nogo, bounds }); fill(p);
+  const mv = p.place(640, 40, line, { keep: true, reach: CONTEST_TAG_REACH, hud: true });
+  const box = { x: line.x + mv.dx, y: line.y + mv.dy, w: line.w, h: line.h };
+  for (const r of nogo) assert.ok(!(box.x < r.x + r.w && r.x < box.x + box.w && box.y < r.y + r.h && r.y < box.y + box.h), `clear of ${JSON.stringify(r)}`);
+  assert.ok(box.y >= 0);
+});

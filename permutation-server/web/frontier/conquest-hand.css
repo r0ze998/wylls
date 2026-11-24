@@ -66,6 +66,8 @@
 [data-calm="1"] .kh-row { transition: none; }
 /* the arrival's odds (rulebook.mjs keepArrival): good / even / poor */
 .kh-fig-odds .kh-fig-k { white-space: normal; }
+/* fix-loop13 LP13-12: the hold column's label too ("Ember holds th…" in English) */
+.kh-fig-hold .kh-fig-k { white-space: normal; }
 .kh-fig-odds.kh-odds-good .kh-fig-v { color: #8fd18a; }
 .kh-fig-odds.kh-odds-even .kh-fig-v { color: #f3c567; }
 .kh-fig-odds.kh-odds-poor .kh-fig-v { color: #f08a6c; }

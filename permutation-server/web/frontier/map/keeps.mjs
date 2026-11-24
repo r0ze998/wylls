@@ -437,7 +437,9 @@ export function paintDialBreak(g, x, y, k, { zoom = 1, colour = GOLD, share = 0.
 // ------------------------------------------------------------------ the words
 /** (fix-loop13, LP13-3) How far (px) a contest's line may slide out from under the HUD: a keep right under the top bar
  *  had its 「エンバーがあなたの国の砦を保持中 · 53 / 72 ターン」 cut at the top of the screen — the one move down out of the
- *  top bar (≈70 px) landed on the provinces-held strip, and the way out from under that was past the pass's 96 px. */
+ *  top bar (≈70 px) landed on the provinces-held strip, and the way out from under that was past the pass's 96 px.
+ *  Another nation holding the viewer's own keep is a threat: that line also takes the pass's `hud` place — live, the
+ *  free place under the strip was taken by the viewer's own 「砦を保持中 · 3 / 72」 and the line stayed cut. */
 export const CONTEST_TAG_REACH = 170;
 export const holdText = (held, of) => L`砦を保持中 · ${fmtNum(held)} / ${fmtNum(of)} ターン`;
 export const holdByText = (f, held, of) => L`${factionName(f)}が砦を保持中 · ${fmtNum(held)} / ${fmtNum(of)} ターン`;
@@ -745,7 +747,7 @@ export class KeepBoard {
         const bump = still || age >= DIAL_BUMP_MS ? 0 : 1 - age / DIAL_BUMP_MS;
         upright(o, P.x, P.y, () => paintTurnDial(o, dx, dy, { zoom: z, share: c.held / c.of, left: c.held, total: c.of, colour, r: D.r, arc: D.arc, now: fx, still, pulse: defend || (mine && c.of - c.held <= 6), bump, sparks: bump > 0 }));
         if (bump > 0) F.rolling = true;
-        if (near) paintTag(o, P.x, head, mine ? holdText(c.held, c.of) : defend ? holdAgainstText(c.by, c.held, c.of) : holdByText(c.by, c.held, c.of), { zoom: z, tone: mine ? 'you' : defend ? 'warn' : 'plain', place: 'above', gap: 6, size: 13, anchor, pass, reach: CONTEST_TAG_REACH });
+        if (near) paintTag(o, P.x, head, mine ? holdText(c.held, c.of) : defend ? holdAgainstText(c.by, c.held, c.of) : holdByText(c.by, c.held, c.of), { zoom: z, tone: mine ? 'you' : defend ? 'warn' : 'plain', place: 'above', gap: 6, size: 13, anchor, pass, reach: CONTEST_TAG_REACH, hud: defend });
         F.live = true;
       }
       // a contest that ended without a capture: the dial falls apart, and the board says so for a few seconds

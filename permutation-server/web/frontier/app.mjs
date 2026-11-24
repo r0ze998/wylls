@@ -2746,7 +2746,17 @@ function renderHudTick(now) {
     const w = globalThis.innerWidth ?? 1440;
     // (a phone's strip: the two most pressing and a chip for the rest, which opens them all; the second review:
     // a strip that scrolled sideways ended in half an icon at the plaque's point)
-    const room = w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8;
+    const room0 = w < 380 ? 1 : w <= PHONE_MAX ? 2 : w < 900 ? 2 : w < 1040 ? 3 : w < 1280 ? 4 : w < 1600 ? 5 : 8;
+    // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
+    //  (2026-11-16: and, apart, the land the viewer's nation has claimed in other provinces the map has loaded — a take far
+    //  from home showed 0 there, or no chip at all when the home province had no land record)
+    const lh = FS.mode === 'play' ? hud.activeHolding(FS) : null, lf = FS.citizen?.faction;
+    //  (2026-11-16: the per-hour figure reads the village as the strip does — settledHolding: a finished building or
+    //  promotion already produces —, as ClaimLandYield's yield_for reads it after settle_tiered; the stored record lagged)
+    const ls = lh ? landSummary(FS, settledHolding(lh, now ?? 0), lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
+    const landShown = !!ls || (le?.tiles ?? 0) > 0;
+    // (fix-loop13, LP13-2: the land chip stands in the same plaque — one token fewer while it is shown, so neither is cut)
+    const room = landShown && w > PHONE_MAX ? Math.max(1, room0 - 1) : room0;
     // (what does not fit is never cut: a strip that overflows its plaque shows one token fewer, and stays so at this width)
     // (tried again now and then: the first measure may have been taken before the fonts were in)
     if (stripFit.w !== w || (stripFit.n = (stripFit.n ?? 0) + 1) % 5 === 0) stripFit = { w, max: room, n: stripFit.w === w ? stripFit.n : 0 };
@@ -2756,14 +2766,6 @@ function renderHudTick(now) {
       setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
     }
     resChanges(strip, tokens);
-    // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
-    //  (2026-11-16: and, apart, the land the viewer's nation has claimed in other provinces the map has loaded — a take far
-    //  from home showed 0 there, or no chip at all when the home province had no land record)
-    const lh = FS.mode === 'play' ? hud.activeHolding(FS) : null, lf = FS.citizen?.faction;
-    //  (2026-11-16: the per-hour figure reads the village as the strip does — settledHolding: a finished building or
-    //  promotion already produces —, as ClaimLandYield's yield_for reads it after settle_tiered; the stored record lagged)
-    const ls = lh ? landSummary(FS, settledHolding(lh, now ?? 0), lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
-    const landShown = !!ls || (le?.tiles ?? 0) > 0;
     let chip = $('land-chip-box');
     if (landShown && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
     if (chip) { chip.hidden = !landShown; setHtmlIfChanged(chip, renderLandChip(ls, le)); }
