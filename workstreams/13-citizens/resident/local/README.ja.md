@@ -25,6 +25,7 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 | 目標 `GOALS`（growth・use・planDepth・reserve・patienceBells） | growth：計画の建物（その村がいちばん少なく作る資源、ページの `BUILD_ITEMS` と `buildOffers` の数）。use：計画と蓄えを超えた在庫で兵を訓練、予備兵 100 以上で部隊を編成 | `brain.mjs` `assessReal`・`localCandidates` |
 | 候補と「保留の理由」 | 6 つの命令それぞれ（広い版の世界では最初の村の申し込み `FileTicket` と、広い土地の命令 `WideClaim`・`WideTrain`/`WideMuster`/`WideDepart`・`Expedition` も）。読めない数は保留（0 とみなさない） | `brain.mjs` |
 | 広い土地（external-wide-orders） | ランチャーの `wideLand`・公開の herald・自分の中継の読むだけの広い土地の読み取りから、取得の候補（3 州以内、空いた場所）、入植の費用、自分の広い村（ページの `parseWideInventory`）、ページの広い村の計画の一手、遠征の道を読む。貯める決まり（240 ターン以内に満たせるときだけ）、取得の決着待ち 12 ターン、遠征は 1 回 | `wide.mjs` |
+| 自分の土地（ws13-territory、#209 の決まりのまま） | 広い版の世界で、自分の土地の記録・取れる範囲の州の記録・herald の州の写しを読む（③ の読み取り専用 MCP の `get_territory_status` と同じ読み手）。持っているマス、次の値段（鉱石 10 ＋ 持っているマス 1 つにつき 2%、切り捨て）、維持費、未払い、このターンに取ったかどうか。他人のマスが分かるのは自分に見える範囲だけ（ページの霧と同じ数）。村の場所のマスを先に取り（ページの命令 `TerritoryClaim`、1 ターン 1 つ）、自分のマスの上にだけ村を申し込む（`territory: true`）。隣に村がある場所・他人のマスの場所・試した場所は選ばない。そのあとの隣のマスは住民自身の進め方で取る：建物の計画・蓄え・訓練 100 人ぶんを超えた鉱石があるときだけ、6 ターンに 1 つ、24 マスまで、維持費が最初の村の食料の 1 割以内（loop-play15 LP15-5：運営の AI は土地を買いすぎて訓練できなくなった。世界の決まりは増やしていない） | `territory.mjs`、`brain.mjs` `territoryCandidates`、`wide.mjs` `claimOrder` |
 | 決め方 | 料金のかからない規則（点数がいちばん高い保留なしの候補）。provider を差すときは ⑬ の `decideLive` の境界（`charges:false`、提示した候補だけ） | `brain.mjs` `decideLocal` |
 | 上限 `DEFAULT_LIMITS` | 1 ターン 1 回（世界の規則、設定ではない）。失敗ごとに保留が倍（4・8・16・32、最大 36 ターン）。待つと見る間隔が倍（最大 4 ターン）。判断回数 500。1 日 144 回。Harvest は他にすることがないとき 6 ターンに 1 回 | `brain.mjs` `LOCAL_LIMITS`、`runner.mjs` |
 | 記憶・再起動 | `intended` を保存 → 署名を保存（送る前）→ 送る → 署名で結果を追う。再起動で `intended` は「送っていない」。署名のある未決の行がある間は新しい命令を出さない | `journal.mjs`、`runner.mjs` |
@@ -33,9 +34,11 @@ node workstreams/13-citizens/resident/local/client.mjs --launcher http://localho
 S1 の値から変えた上限（住民自身の設定。⑬ の S1 の値より緩いが、世界の規則（1 ターン 1 回）より緩くはならない）：`wakeEveryBells` 3→1、`actionsPerDay` 12→144、`idleBackoffMaxBells` 24→4。
 S1 の値は S1 の 30/時のバケットに合わせたもので、1 ターン 1 回の世界では 30 ターンに 10 回しか動けないため。
 
+マスの命令（`TerritoryClaim`）は ④ の計画の手にはならない（④ の記録が知らない命令のため）。`--plan` のとき、村の場所のマスを取れるターンは頭脳がその 1 手を出し、計画はそのまま待つ。隣のマスは計画が無いターンだけ。
+
 ## 数ターンの計画（④ が実行する、2026-11-22）
 
-`--plan --runexec <runexec の絶対パス>` を付けると、村ができたあと、住民は自分の村の次の命令を **12 手の計画**にし（建物の列 → 収穫 → 訓練 → 建物 → 訓練 → … → 部隊の編成。`plan.mjs`）、④ の計画の記録（`workstreams/04-execution` の `runexec plan …`、SQLite、既定は `<dir>/plans.sqlite`）がそれを 1 ターン 1 手ずつ実行する（`executor.mjs`）。6 つの命令だけ。隊商は入れない（Q4、記録の側でも `NotLocalOrder` で断る）。
+`--plan --runexec <runexec の絶対パス>` を付けると、村ができたあと、住民は自分の村の次の命令を **12 手の計画**にし（建物の列 → 収穫 → 訓練 → 建物 → 訓練 → … → 部隊の編成。`plan.mjs`）、④ の計画の記録（`workstreams/04-execution` の `runexec plan …`、SQLite、既定は `<dir>/plans.sqlite`）がそれを 1 ターン 1 手ずつ実行する（`executor.mjs`）。6 つの命令と、広い版の世界では広い土地の命令（`WideClaim`・`WideTrain`/`WideMuster`/`WideDepart`・`Expedition`。#178）。マスの `TerritoryClaim` は計画の手にならない（下の注）。隊商は入れない（Q4、記録の側でも `NotLocalOrder` で断る）。
 
 ```sh
 (cd workstreams/04-execution && cargo build --release --locked --bin runexec)
