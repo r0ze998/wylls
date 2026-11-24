@@ -1,6 +1,6 @@
 // The Frontier's in-game key (permutation-server/web/frontier/fsession.mjs):
 // the text a wallet signs pinned byte for byte (contract §9.1: never
-// translated, printable ASCII, names site, cluster, program and season),
+// translated, printable ASCII, names site, cluster, program and world),
 // the seed domain, keys distinct from v9's (other text, domain and storage
 // prefix; web/session.mjs untouched), deriving the same key from the same
 // signature, refusing a bad or altered signature, keeping keys per wallet
@@ -30,19 +30,49 @@ test('the session text is pinned byte for byte, printable ASCII, never translate
     + 'Site: http://127.0.0.1:41040\n'
     + 'Cluster: localnet\n'
     + 'Program: J5yoiT3bVuC7pLFPJeS2yqLTouT5BHxBivvpqkG2jvAz\n'
-    + 'Season: 1\n'
-    + 'Anyone holding this key can act as you in this season (build, train, march, explore). It cannot move tokens from your wallet.\n'
+    + 'World: 1\n'
+    + 'Anyone holding this key can act as you in this world (build, train, march, explore). It cannot move tokens from your wallet.\n'
     + 'Sign only on 127.0.0.1:41040.';
   assert.equal(fs.sessionText({ ...where, ...scope }), want);
   setLang('en');
   assert.equal(fs.sessionText({ ...where, ...scope }), want, 'the language does not change it');
-  assert.equal(Buffer.from(sha256(Buffer.from(want))).toString('hex'), '932313bc2d1d7c24e7f8c8631b32902bf85f1a1ea2813da159cc9acdb75332b6', 'the pinned text\'s sha256');
+  assert.equal(Buffer.from(sha256(Buffer.from(want))).toString('hex'), 'b9e5a893bb0f3c65cc49bb904dbbfb1d95673c44c70a9bc853dcae4cf608e5bc', 'the pinned text\'s sha256');
   assert.throws(() => fs.sessionText({ ...where, ...scope, programId: 'Prög' }), e => e.code === 'BadSessionText');
   assert.throws(() => fs.sessionText({ ...where, ...scope, cluster: '本番' }), /printable ASCII/);
   // The source keeps the text in one place and is never passed through L`…`.
   const src = readFileSync(new URL('../../permutation-server/web/frontier/fsession.mjs', import.meta.url), 'utf8');
   assert.equal((src.match(/Wylls wants you/g) || []).length, 1);
   assert.doesNotMatch(src, /L`Wylls/);
+});
+
+// Owner Q-WW-1 (2026-11-24 23:56): the signed text says "World", not "Season". The
+// key is sha256(domain ‖ signature over these bytes), so this text change makes every
+// wallet derive a new key: pinned with a fixed Ed25519 wallet (signatures are
+// deterministic), old text -> old key, new text -> new key.
+test('Q-WW-1: the signed text names the world, never the season, and the derived key follows it', async () => {
+  const text = fs.sessionText({ ...where, ...scope });
+  assert.match(text, /\nWorld: 1\n/);
+  assert.match(text, /act as you in this world \(/);
+  assert.doesNotMatch(text, /season/i);
+  const seed = Buffer.alloc(32, 7);
+  const { createPrivateKey } = await import('node:crypto');
+  const key = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' });
+  const signOf = m => new Uint8Array(nodeSign(null, Buffer.from(m), key));
+  const oldText = text.replace('\nWorld: 1\n', '\nSeason: 1\n').replace('in this world (', 'in this season (');
+  const derived = m => Buffer.from(fs.seedOf(signOf(m))).toString('hex');
+  assert.notEqual(derived(text), derived(oldText), 'a stored pre-change key is not the one a new signature makes');
+  assert.equal(derived(text), derived(text), 'deterministic');
+  // The kept key (seed) is read back as is: restore never re-signs, so a key stored
+  // before the change keeps working in the world it was made for.
+  const wallet = 'Wkept';
+  fs.storage.set(fs.storeKey(scope, wallet), derived(oldText));
+  const kept = await fs.restore(scope, wallet);
+  assert.equal(kept.seedHex(), derived(oldText));
+  fs.storage.del(fs.storeKey(scope, wallet));
+  // The backup a player saves says World too (the hex key is what is read back).
+  assert.match(kept.backupText(), /^Wylls key\nWorld: 1\n/);
+  assert.match(kept.backupText(), /act as you in this world\. Keep it private\.\n$/);
+  assert.doesNotMatch(kept.backupText(), /season/i);
 });
 
 test('distinct from v9: another text, seed domain and storage prefix; v9 session.mjs untouched', () => {

@@ -52,7 +52,7 @@ test('keys: a seat key file gives the SESSION key only; the wallet secret in the
 
 test('keys: a Wylls key backup text and bare hex', async () => {
   const k = await keyFromSeed(Uint8Array.from(seed));
-  const backup = `Wylls key\nSeason: 41\nCluster: localnet\nProgram: P\nWallet: ${W.seat}\nSession: ${k.publicKey}\nKey: ${seedHex}\nAnyone holding this key can act as you in this season. Keep it private.\n`;
+  const backup = `Wylls key\nWorld: 41\nCluster: localnet\nProgram: P\nWallet: ${W.seat}\nSession: ${k.publicKey}\nKey: ${seedHex}\nAnyone holding this key can act as you in this season. Keep it private.\n`;
   const p = parseKeyText(backup);
   assert.deepEqual([p.ok, p.source, p.wallet, p.session], [true, 'backup', W.seat, k.publicKey]);
   assert.equal(parseKeyText(seedHex).source, 'hex');

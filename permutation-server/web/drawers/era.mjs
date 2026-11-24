@@ -22,7 +22,7 @@ export function drawerEra() {
   const pr = v.projection;
   const tiers = [0, 1, 2, 3, 4];
   return html`${v.over ? claimCard(v) : ''}<div class="eyebrow">${L`ERAS · 4つの道と時代`}</div><h2>${L`${civN(S.myCiv)} · 第${mine.era}時代 · ${mine.points}点`}</h2>
-    <p class="drawer-intro">${Lh`節目を1つ達成するごとに点が入り、同じ段階の節目を${eraPathsNeeded(1)}つの道（第5段階は${eraPathsNeeded(5)}つ）で達成すると新しい時代に入ります。領土・人口・宗主・条約・占領都市は<b>シーズン終了時の状態</b>で判定するので、失えば取り消されます（下は「今終わったら」）。賞金プールはメンバーのいる勢力の点の比で分けます。`}</p>
+    <p class="drawer-intro">${Lh`節目を1つ達成するごとに点が入り、同じ段階の節目を${eraPathsNeeded(1)}つの道（第5段階は${eraPathsNeeded(5)}つ）で達成すると新しい時代に入ります。領土・人口・宗主・条約・占領都市は<b>世界の終了時の状態</b>で判定するので、失えば取り消されます（下は「今終わったら」）。賞金プールはメンバーのいる勢力の点の比で分けます。`}</p>
     <table class="grid era-grid"><thead><tr><th>${L`段階`}</th>${T.PATH_JA.map(n => html`<th>${n}</th>`)}</tr></thead><tbody>
     ${tiers.map(k => html`<tr><td><b>${k + 1}</b><small> ${L`${A.tierPoints[k]}点`}</small></td>${T.PATH_JA.map((_, p) => html`<td class="${mine.tiers[p] > k ? 'met' : mine.tiers[p] === k ? 'next' : ''}">${mine.tiers[p] > k ? '✓ ' : ''}${tierText[p](k)}</td>`)}</tr>`)}
     </tbody></table><div class="meta" style="margin:6px 0">${L`いま：`}${now.map((t, i) => html`${i ? ' · ' : ''}<b>${T.PATH_JA[i]}</b> ${t}`)}</div>
@@ -38,7 +38,7 @@ export function drawerMerit() {
   if (!m) return html`<div class="eyebrow">MERIT</div><h2>${L`功績`}</h2><p class="desc">${L`観戦中は表示されません。`}</p>`;
   const share = pr?.nationShare?.[S.myCiv] ?? 0, eq = pr?.equalEach?.[S.myCiv] ?? 0;
   const max = Math.max(1, ...MERIT_BARS.map(b => m.merit[b]));
-  return html`${v.over ? claimCard(v) : ''}<div class="eyebrow">${L`MERIT · 功績と見込み`}</div><h2>${v.over ? L`シーズン終了時の配分 ${usdc(m.projectedPayout)} USDC` : L`今終わったら ${usdc(m.projectedPayout)} USDC`}</h2>
+  return html`${v.over ? claimCard(v) : ''}<div class="eyebrow">${L`MERIT · 功績と見込み`}</div><h2>${v.over ? L`世界の終了時の配分 ${usdc(m.projectedPayout)} USDC` : L`今終わったら ${usdc(m.projectedPayout)} USDC`}</h2>
     <p class="drawer-intro">${L`勢力の取り分は ${usdc(share)} USDC。その${equalSharePct(v)}%は活動したメンバーで均等（1人 ${usdc(eq)}・上限は参加費の半分）、残りは功績の比で、勢力が点を取った道の功績ほど重く分けます。活動したメンバー＝${activityWindows(v)}区間のうち${m.windowsNeeded}区間以上で命令・献策・支持・投票をした人（あなた：${m.activeWindows}区間${m.active ? ' ✓' : ''}）。`}</p>
     <div class="section-title">${L`あなたの功績 · 合計 ${m.merit.total.toFixed(1)}`}</div>
     ${MERIT_BARS.map(b => html`<div class="meter"><span>${T.MERIT_JA[b]} ${m.merit[b].toFixed(1)}</span><div class="bar"><i style="width:${(100 * m.merit[b] / max).toFixed(0)}%"></i></div></div>`)}

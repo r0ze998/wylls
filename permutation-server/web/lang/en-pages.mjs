@@ -92,10 +92,10 @@ export default {
   // ================================================================ spectate.mjs
   // loading
   'ゲームサーバーに接続できません。play サーバーを起動してから再読み込みしてください。': "Can't reach the game server. Start the play server, then reload.",
-  'シーズンの開始を待っています': 'Waiting for the season to start',
-  '登録を受け付けています。締切で、人数に関わらずシーズンが始まります。': 'Registration is open. The season starts at the deadline, however many have joined.',
+  '世界の開始を待っています': 'Waiting for the world to start',
+  '登録を受け付けています。締切で、人数に関わらず世界が始まります。': 'Registration is open. The world starts at the deadline, however many have joined.',
   'ウォレットでメンバーとして参加する →': 'Join as a member with a wallet →',
-  'シーズンを準備しています（世界の生成と着任）…': 'Preparing the season (building the world, seating members)…',
+  '世界を準備しています（地図の生成と着任）…': 'Preparing the world (building the map, seating members)…',
   // top bar
   'ティック {0}': 'Tick {0}',
   '次の解決まで {0}秒': 'Next resolution in {0}s',
@@ -113,9 +113,8 @@ export default {
   '<tr><th>勢力</th><th>都市</th><th>人口</th><th>兵</th><th>時代</th><th>節目</th><th>点</th><th>取り分 USDC</th></tr>':
     '<tr><th>Faction</th><th>Cities</th><th>Pop</th><th>Troops</th><th>Era</th><th>Tiers</th><th>Pts</th><th>Share</th></tr>',
   // the chain box
-  'ローカルモード（エンジンをこのプロセスで実行中）。<code>--chain</code> 付きで起動すると、MagicBlock ER 上のシーズンを表示します。':
-    'Local mode (the engine runs in this process). Start with <code>--chain</code> to show a season on MagicBlock ER.',
-  'シーズン': 'Season',
+  'ローカルモード（エンジンをこのプロセスで実行中）。<code>--chain</code> 付きで起動すると、MagicBlock ER 上の世界を表示します。':
+    'Local mode (the engine runs in this process). Start with <code>--chain</code> to show a world on MagicBlock ER.',
   'いまの層': 'Layer',
   'プログラム': 'Program',
   '直近の解決': 'Last resolution',
@@ -124,7 +123,7 @@ export default {
   '<dt>取引</dt>': '<dt>Transaction</dt>',
   '前の根': 'Previous root',
   '新しい根': 'New root',
-  'このシーズンを手元で再計算して、すべての根を照合します': 'Recomputes this season on your machine and checks every root',
+  'この世界を手元で再計算して、すべての根を照合します': 'Recomputes this world on your machine and checks every root',
   // the feed
   'まだ出来事はありません。': 'No events yet.',
   '✓ ブラウザで検証済み': '✓ Verified in your browser',
@@ -141,7 +140,7 @@ export default {
   'T{0} 封印 ✓': 'T{0} sealed ✓',
   '封印待ち': 'Awaiting seal',
   'ローカルモードです。エンジンはこのプロセスで動いています。': 'Local mode. The engine runs in this process.',
-  '--chain で起動すると MagicBlock ER 上のシーズンを表示します': 'Start with --chain to show a season on MagicBlock ER',
+  '--chain で起動すると MagicBlock ER 上の世界を表示します': 'Start with --chain to show a world on MagicBlock ER',
   '選挙・解任・時代の記録はまだありません': 'No elections, removals or eras recorded yet',
   '読み込み中…': 'Loading…',
 };

@@ -80,7 +80,7 @@ export function verifyCommand(c, href = globalThis.location?.href) {
 /** What to tell whoever copies the verify command (verifyCommand's answer). */
 export const verifyNote = cmd => (cmd?.rpcKnown
   ? L`verify はゲートウェイの記録を、ベース層と ER の RPC から自分で読み直して照合します。`
-  : L`verify はゲートウェイのほかに、シーズンのベース層と ER の RPC を読みます。このサイトは運営の RPC を公開していないので、<base RPC> と <ER RPC> には同じクラスター（と ER）の RPC の URL を入れてください（運営が公開 RPC を指定しているときは、ここに表示されます）。`);
+  : L`verify はゲートウェイのほかに、世界のベース層と ER の RPC を読みます。このサイトは運営の RPC を公開していないので、<base RPC> と <ER RPC> には同じクラスター（と ER）の RPC の URL を入れてください（運営が公開 RPC を指定しているときは、ここに表示されます）。`);
 
 /**
  * Text that follows the display language, for a constant other modules

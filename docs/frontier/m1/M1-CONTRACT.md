@@ -984,10 +984,12 @@ Wylls wants you to create an in-game key.
 Site: <origin>
 Cluster: <cluster>
 Program: <program id>
-Season: <season id>
-Anyone holding this key can act as you in this season (build, train, march, explore). It cannot move tokens from your wallet.
+World: <season id>
+Anyone holding this key can act as you in this world (build, train, march, explore). It cannot move tokens from your wallet.
 Sign only on <host>.
 ```
+
+Until 2026-11-25 the text said `Season: <season id>` and `… in this season …` (owner Q-WW-1, 2026-11-24 23:56, changed it to "World" before devnet world 3). The key is derived from the signature over these bytes, so every wallet makes a different key from the new text. A key already kept in a browser (`ps-fsession:…`, a seed) is read back as is and keeps working for the world it was registered in; only re-creating it (another device, cleared storage) yields the new key, which the page reports as a registered key held elsewhere (`SessionHeldElsewhere`) and lets the wallet replace with SetSession. No live world predates the change (devnet world 2 was aborted; world 3 is created after it).
 
 ### 9.2 Herald JSON envelope (province, me, clash)
 

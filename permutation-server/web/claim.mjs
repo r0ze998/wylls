@@ -6,7 +6,7 @@
 // has the wallet sign Claim to its own token account, and the gateway pays
 // the fee. Nothing is shown when there is nothing to claim.
 //
-// Also the lobby's "前のシーズンの賞金を受け取る": the connected wallet's
+// Also the lobby's "前の世界の賞金を受け取る": the connected wallet's
 // unclaimed members in the seasons this one follows, as the gateway's
 // GET /claims reads them (this page never calls an RPC itself).
 import * as T from './i18n.mjs';
@@ -77,7 +77,7 @@ export function claimCard(v) {
     if (!projected && !(Number(m.shares ?? 0) > 0)) return '';
     return html`<div class="claim-card"><div class="eyebrow">${L`RESULT · あなたの賞金`}</div>
       <h3>${L`見込み ${usdc(projected)} USDC`}</h3>
-      <p class="desc"><span class="tag warning">${L`精算待ち（最長約1時間）`}</span> ${L`シーズンの精算（運営のAIメンバーの公開と配分の確定）が終わると、ここから受け取れます。`}</p></div>`;
+      <p class="desc"><span class="tag warning">${L`精算待ち（最長約1時間）`}</span> ${L`世界の精算（運営のAIメンバーの公開と配分の確定）が終わると、ここから受け取れます。`}</p></div>`;
   }
   const total = c.parts?.total ?? 0n;
   if (total <= 0n) return '';
@@ -147,13 +147,13 @@ export async function findPastClaims(walletAddress) {
  */
 export function pastClaimsHtml(list, busy) {
   if (!list?.length) return '';
-  const row = x => html`<div class="list-row" style="cursor:default"><div class="main"><div class="title">${L`シーズン ${x.seasonId}`}</div>
+  const row = x => html`<div class="list-row" style="cursor:default"><div class="main"><div class="title">${L`世界 ${x.seasonId}`}</div>
       <div class="meta">${x.done ? L`受け取り済み ✓` : x.total === null ? L`金額をゲートウェイから読めませんでした` : `${fmtUsdc(x.total)} USDC`}</div></div>
       ${x.done ? '' : html`<button class="btn primary" type="button" data-claim-season="${x.seasonId}" ${busy ? 'disabled' : ''}>${L`受け取る`}</button>`}</div>`;
   const known = list.filter(x => x.total !== null), unknown = list.filter(x => x.total === null);
-  return html`<div class="past-claims">${known.length ? html`<div class="section-title">${L`前のシーズンの賞金を受け取る`}</div>${known.map(row)}` : ''}
-    ${unknown.length ? html`<details><summary class="section-title">${L`前のシーズンの賞金を確かめる（${unknown.length}シーズン）`}</summary>
-      <p class="desc">${L`このウォレットがそのシーズンのメンバーだったかを、ゲートウェイから読めませんでした。受け取りを試すとわかります（ウォレットの署名が必要です。メンバーでなかったシーズンでは受け取れません）。`}</p>${unknown.map(row)}</details>` : ''}</div>`;
+  return html`<div class="past-claims">${known.length ? html`<div class="section-title">${L`前の世界の賞金を受け取る`}</div>${known.map(row)}` : ''}
+    ${unknown.length ? html`<details><summary class="section-title">${L`前の世界の賞金を確かめる（${unknown.length}つの世界）`}</summary>
+      <p class="desc">${L`このウォレットがその世界のメンバーだったかを、ゲートウェイから読めませんでした。受け取りを試すとわかります（ウォレットの署名が必要です。メンバーでなかった世界では受け取れません）。`}</p>${unknown.map(row)}</details>` : ''}</div>`;
 }
 
 /** Claim an earlier season's prize with the connected wallet; returns the chainio result. */
