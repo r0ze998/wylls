@@ -10,7 +10,9 @@
 //   1. no Citizen yet                 → Join its nation (fixed per resident index: OPERATOR_FACTIONS)
 //   2. a Citizen, no village          → PlaceHome on the next untried heartland site of its nation (the runner's own
 //                                       `ready-for-join` list; the program rechecks the site and refuses a taken one)
-//   3. a village                      → the next command of a fixed rotation (OPERATOR_ROTATION); a command the program
+//   3. a village                      → first ONE mine (Build item 3; owner 2026-11-25 17:58 Q-AOR-1,
+//                                       local-play-operator-mine.mjs), then the next command of a fixed rotation
+//                                       (OPERATOR_ROTATION); a command the program
 //                                       refused waits OPERATOR_COOLDOWN decisions before it is asked for again
 // and the budget (`createOperatorBudget`): ONE action per resident per bell (owner decision Q16-2, 2026-11-18 21:44:
 // "one action per resident per turn; operator AI must not double-act"). The bell is the program's own:
@@ -40,6 +42,8 @@
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, MUSTER_MIN, warStep, warHomeOrder } from './local-play-operator-war.mjs';
 import { oreReserve, tilePays, coversTrain, oreTurn } from './local-play-operator-reserve.mjs';
 export { OPERATOR_ORE_RESERVE } from './local-play-operator-reserve.mjs';
+import { OPERATOR_EARLY_MINE, minesOf, earlyMineDue, noteEarlyMine } from './local-play-operator-mine.mjs';
+export { OPERATOR_EARLY_MINE } from './local-play-operator-mine.mjs';
 import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
@@ -280,6 +284,10 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (ai-ore-reserve: a Train is not asked for when the stores are known not to cover it; and with the army at its floor
   //  and no threat, land and troops take turns — the land's turn only while a tile can really be claimed)
   const landsTurn = () => oreTurn({ army, threatened, ore, troopsTurn: memory.troopsTurn === true, landWanted: siteTileDue() || !!growCandidate() }) === 'land';
+  // (ai-early-mine, owner 2026-11-25 17:58 Q-AOR-1 (b): ONE mine, early — the village's first command, the page's own
+  //  Build item 3 at its own price; not while threatened; local-play-operator-mine.mjs)
+  if (earlyMineDue(memory, { mines: minesOf(view.holding.decoded), stores, threatened, cooling: (memory.cooldown[`Build:${OPERATOR_EARLY_MINE.item}`] ?? 0) > memory.decisions }))
+    return { name: 'Build', v: { holding: h, item: OPERATOR_EARLY_MINE.item }, fields: { item: OPERATOR_EARLY_MINE.item }, earlyMine: true, why: 'one early mine: ore pays both troops and land' };
   // (a war resident of a wide world: its FIRST expedition into the wide land before the war step takes every ready host —
   //  loop-play4 B-6, war on by default: the AI nations both fight and go out into the wide land)
   if (memory.war && war && wide?.march && (memory.wideMarches ?? 0) === 0) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell}), before the war takes it` };
@@ -396,6 +404,8 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
   }
   // (ai-ore-reserve: a batch landed — the land may take the next ore)
   if (decision.name === 'Train' && outcome === 'landed') memory.troopsTurn = false;
+  // (ai-early-mine: counted; a refused or failed one cools like any Build, an unknown one too — never sent blindly twice)
+  if (decision.earlyMine) { noteEarlyMine(memory, outcome); if (bad || outcome === 'unknown') memory.cooldown[key(decision)] = memory.decisions + OPERATOR_COOLDOWN; }
   if (decision.wideHost && bad) memory.cooldown[decision.name === 'Muster' ? 'WideMuster' : 'WideTrain'] = memory.decisions + OPERATOR_COOLDOWN;
   if (decision.name === 'WideMarch') {
     // (landed or not known: counted and spaced — never sent twice for one plan; refused: cooled down)
