@@ -23,10 +23,12 @@
 //!    tile stays with its village (no conquest is even planned there). Then (conquest-upkeep-fix, owner Q-VT-1 (b)) the
 //!    SAME captor's host takes the second tile's province: keeper A's settle(page) + settle(captor) + conquer, the
 //!    captor Citizen writable in that message, LANDS (world 3's first `.so` 31acbb59 refused it BadAccount).
-//! 4. **Declared** starvation: the first home's food store 0 and its food upkeep the kernel's maximum (stands in for an
-//!    army the stores cannot feed: VQ-1; land upkeep alone bites only past 41 tiles of a new village since Q-CUF-1 (b) ×30,
-//!    more claims than this offline run makes — the program's host test pins that). REAL, keeper A: the next settle makes the land
-//!    unpaid; REAL, the page: 「1マス取る」 is refused before anything is signed (JA and EN); then the clock past 24
+//! 4. **Declared** short food (upkeep-decay-prep, Q-LP17-1 (b), r0ze 2026-11-25 21:22): the first home makes food at
+//!    1/1.8 of its land's upkeep, store empty (loop-play17's 73 tiles at 1.8×; land upkeep alone bites only past 41
+//!    tiles of a new village since Q-CUF-1 (b) ×30, more claims than this offline run makes — the program's host test
+//!    pins that). REAL, keeper A: the next settle makes the land unpaid; REAL, the page: 「1マス取る」 is refused before
+//!    anything is signed (JA and EN); then bell by bell, the store left alone, keeper A's settle of each bell takes
+//!    the bell's food and the land STAYS unpaid (before (b) the second bell's food paid a turn and cleared it); past 24
 //!    unpaid bells — REAL, keeper A: WideTerritoryDecay of the last tile (the village's; the farthest-first order of
 //!    several tiles is pinned by the program's host tests and verify/tests/playable_territory.rs).
 //!
@@ -382,22 +384,25 @@ fn declare_capture(
     keep.gen
 }
 
-/// Declared: the first home cannot feed anything — its food 0 and its food upkeep the kernel's maximum.
-fn declare_starved(r: &mut Run<'_>, home: Address) {
+/// Declared (Q-LP17-1 (b), upkeep-decay-prep; r0ze 2026-11-25 21:22): the first home makes food at `net` milli/h — its
+/// troop food upkeep raised to production − `net` — and its store is empty. loop-play17's shape: the land's upkeep
+/// above what the village makes (here 1.8×), nothing else touching the store.
+fn declare_short(r: &mut Run<'_>, home: Address, net: i64) {
     let mut acc = r.lock().account(&home).expect("the first home");
     let now = r.now();
+    let prod = le_i64(&acc.data, H::PRODUCTION + 8 * FOOD);
+    assert!(prod > net, "the first home makes food: {prod} milli/h");
     let so = H::store(FOOD);
-    let max = permutation_rules::frontier::holding::MAX_UPKEEP_PER_HOUR;
     acc.data[so + AC::VALUE..so + AC::VALUE + 8].copy_from_slice(&0i64.to_le_bytes());
-    acc.data[so + AC::RATE..so + AC::RATE + 8].copy_from_slice(&(-max).to_le_bytes());
+    acc.data[so + AC::RATE..so + AC::RATE + 8].copy_from_slice(&net.to_le_bytes());
     acc.data[so + AC::T0..so + AC::T0 + 8].copy_from_slice(&now.to_le_bytes());
     acc.data[so + AC::FRAC..so + AC::FRAC + 8].copy_from_slice(&0i64.to_le_bytes());
     let u = H::UPKEEP + 8 * FOOD;
-    acc.data[u..u + 8].copy_from_slice(&max.to_le_bytes());
+    acc.data[u..u + 8].copy_from_slice(&(prod - net).to_le_bytes());
     r.patch(
         home,
         acc,
-        "the first home starved: food 0, food upkeep the kernel's maximum (an army its stores cannot feed)",
+        "the first home makes food at 1/1.8 of its land's upkeep, store empty (Q-LP17-1 (b): loop-play17's 73 tiles at 1.8x)",
     );
 }
 
@@ -634,8 +639,12 @@ pub(super) async fn phase(
     );
     assert_eq!(cap.tiles, 2, "both transfers landed to the same captor");
 
-    // 4. Declared starvation → unpaid → the page's claim refused → decay after 24 bells, farthest first.
-    declare_starved(r, home);
+    // 4. Declared short food (Q-LP17-1 (b)) → unpaid → the page's claim refused → keeper A settles bell by bell, the
+    //    store left alone: still unpaid every bell (before (b) the next bell's food paid a whole turn and cleared it) →
+    //    decay after 24 bells.
+    let land = player_of(r, &citizen).unwrap().upkeep_per_hour().unwrap();
+    let net = land * 10 / 18;
+    declare_short(r, home, net);
     let b = r.bell();
     r.advance_exact(genesis_ts + 600 * (b as i64 + 1) + 30);
     r.run_until(
@@ -662,6 +671,34 @@ pub(super) async fn phase(
     let d_v = vp3.dist[vtile as usize];
     let since = r.lock().slot();
     let grace = 24u32;
+    // bell by bell: keeper A's settle of each bell lands (`paid_to` past the bell) and the land stays unpaid since the
+    // first short bell; the home's food is taken (its store at the write holds less than one bell of its production)
+    let mut short_bells = vec![];
+    let mut taken = 0i64;
+    for k in 1..grace {
+        let bell = unpaid_since + k;
+        let ts = genesis_ts + 600 * bell as i64;
+        r.advance_exact(ts + 30);
+        r.run_until(2.0, 180, "keeper A's settle of the bell", |r| {
+            player_of(r, &citizen).is_some_and(|p| p.paid_to >= ts)
+        })
+        .await;
+        let p = player_of(r, &citizen).unwrap();
+        assert_eq!(
+            p.unpaid_since,
+            Some(unpaid_since),
+            "bell {bell}: still unpaid (Q-LP17-1 (b): the bell's food alone does not clear it)"
+        );
+        assert_eq!(p.tiles, 1, "bell {bell}: no decay before the grace");
+        let acc = r.lock().account(&home).expect("the first home");
+        let food = le_i64(&acc.data, H::store(FOOD) + AC::VALUE);
+        assert!(
+            food < net / 6 + 1,
+            "bell {bell}: the short settle took the store ({food} milli left)"
+        );
+        taken += net / 6;
+        short_bells.push(bell);
+    }
     r.advance_exact(genesis_ts + 600 * ((unpaid_since + grace) as i64) + 30);
     r.run_until(2.0, 240, "keeper A's decay after the grace", |r| {
         player_of(r, &citizen).is_some_and(|p| p.tiles == 0)
@@ -679,6 +716,12 @@ pub(super) async fn phase(
         pend.released,
         before.released + 1,
         "the tile released by decay"
+    );
+    // the page after the decay (upkeep-decay-prep): its own land read shows 0 tiles; stills of the card and the map
+    let after_decay = driver_step(sync, alive, "after-decay", json!({}), 360).await;
+    assert_eq!(
+        after_decay["own"]["tiles"], 0,
+        "the page shows the land gone: {after_decay:#}"
     );
     // keeper A's own word
     run(r);
@@ -702,6 +745,8 @@ pub(super) async fn phase(
         "second_conquest": conquest2, "second_conquest_txs": second_conquest_txs,
         "after_conquest": {"page_tiles": p3.tiles, "captor_tiles": cap.tiles},
         "unpaid_since_bell": unpaid_since, "page_refusal": refusal,
+        "after_decay_page": after_decay,
+        "qlp17_b": {"land_upkeep_milli_per_hour": land, "home_net_food_milli_per_hour": net, "short_bells_still_unpaid": short_bells, "food_taken_milli_approx": taken},
         "decay": decay, "dist": {"village_tile": d_v},
         "territory_ops_by_kind": all, "keeper_status_territory": status, "verifier": verifier,
     })
