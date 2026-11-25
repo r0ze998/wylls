@@ -396,8 +396,9 @@ settles; no rule, price or reach changes:
    and asks for that site: on the standard map, with you in Aster at (-68, -60), it joined Dunmar at (-65, -63), 3
    provinces away, 2 minutes after the join (×60). The AI residents' log (`operators.out` in the world's directory)
    says `"step":"near","outcome":"chosen"` with the distance.
-3. It then claims wide land **toward you**, one tile a turn: seen live, 24 tiles in (-68, -61), the province next to
-   the player's village, within 100 turns.
+3. It then claims wide land **toward you**: seen live, 24 tiles in (-68, -61), the province next to the player's
+   village, within 100 turns (one tile a turn). Since the AI ore reserve (#236) it is slower: about one tile every 8
+   turns (3 tiles in the first 40 turns, verify-pr237).
 4. Send an expedition onto that province's keep (§4 step 3) and hold it 72 turns. When the keep becomes your nation's,
    the tiles the AI owned there become yours (§4.1 item 7): seen live at turn 264, all 24 tiles. The page does not
    draw tiles yet, so this is read from the chain's territory record, not from the map.
