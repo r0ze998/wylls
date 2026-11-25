@@ -10,6 +10,7 @@
 //! | `/h/world/wide` | the manifest: world namespace, snapshot identity, counts | `max-age=5` |
 //! | `/h/world/wide/page?limit=&after=` | one page of recorded Provinces in ring order | `max-age=5` |
 //! | `/h/world/wide/route?at=P,Q;P,Q` | at most four exact Province captures in request order | `no-store` |
+//! | `/h/world/wide/territory` | the captured territory province records' owned tiles (`crate::wide_territory`) | `max-age=5`, ETag, gzip |
 //!
 //! **What it is.** The same captured Province accounts `/h/world/ring/{d}`
 //! lists, plus captured experimental wide Province accounts, keyed by
@@ -81,6 +82,10 @@ pub struct WideIndex {
     /// Each captured wide Province's keep holder by bell: the public
     /// per-nation counts of the control fold (`crate::wide_keeps`).
     keeps: crate::wide_keeps::KeepHolders<WideCoord>,
+    /// The captured territory province records by coordinate
+    /// (`crate::wide_territory`), and a count of their changes.
+    territory: BTreeMap<WideCoord, [u8; 32]>,
+    territory_rev: u64,
     #[cfg(test)]
     inventory_reads: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
@@ -102,6 +107,8 @@ impl WideIndex {
             inventory: BTreeMap::new(),
             inventory_of: BTreeMap::new(),
             keeps: Default::default(),
+            territory: BTreeMap::new(),
+            territory_rev: 0,
             #[cfg(test)]
             inventory_reads: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -132,6 +139,16 @@ impl WideIndex {
 
     pub fn world(&self) -> WorldId {
         self.adapter.world()
+    }
+
+    /// The captured territory province records (`crate::wide_territory`).
+    pub fn territory_records(&self) -> impl Iterator<Item = (&WideCoord, &[u8; 32])> {
+        self.territory.iter()
+    }
+
+    /// Moves on every territory record captured, changed or closed.
+    pub fn territory_revision(&self) -> u64 {
+        self.territory_rev
     }
 
     pub fn epoch(&self) -> u64 {
@@ -339,7 +356,7 @@ fn parse_cursor(s: &str) -> Result<Cursor, WideFault> {
     Cursor::from_bytes(&bytes).map_err(|_| WideFault::BadCursor)
 }
 
-fn wide_of(f: &Fold) -> Result<&WideIndex, WideFault> {
+pub(crate) fn wide_of(f: &Fold) -> Result<&WideIndex, WideFault> {
     f.season.as_ref().ok_or(WideFault::NoSeasonYet)?;
     f.wide.as_ref().ok_or(WideFault::NoSeasonYet)
 }
@@ -577,15 +594,21 @@ pub fn route_json(f: &Fold, coords: &[WideCoord]) -> Result<Value, WideFault> {
 fn is_wide(d: &[u8]) -> bool {
     d.get(..8)
         .is_some_and(|m| m == land::province::MAGIC || m == holding::wide_holding::MAGIC)
+        || crate::wide_territory::is_territory(d)
 }
 
 #[derive(Clone, Copy)]
 enum CapturedWide {
     Province(land::WideProvince),
     Holding(holding::WideHolding),
+    /// A territory province record (`crate::wide_territory`), by its coordinate.
+    Territory(WideCoord),
 }
 fn authenticate(f: &Fold, key: &[u8; 32], d: &[u8]) -> Option<CapturedWide> {
     let world = f.wide.as_ref()?.world();
+    if crate::wide_territory::is_territory(d) {
+        return crate::wide_territory::authenticate(f, key, d).map(CapturedWide::Territory);
+    }
     if let Ok(p) = land::WideProvince::read(d) {
         return (p.season_id == f.cfg.season_id
             && p.world == world
@@ -642,6 +665,11 @@ pub(crate) fn index_capture(f: &mut Fold, key: &[u8; 32], d: &[u8]) -> bool {
                 );
             }
         }
+        Some(CapturedWide::Territory(coord)) => {
+            // (a territory record moves its own revision only: the province entries, their cursors and the stamp stay)
+            w.territory.insert(coord, *key);
+            w.territory_rev += 1;
+        }
         None => w.refused += 1,
     }
     true
@@ -692,6 +720,12 @@ pub(crate) fn capture_post(
                         tx.slot,
                         true,
                     );
+                }
+                Some(CapturedWide::Territory(coord)) => {
+                    if w.territory.get(&coord) == Some(key) {
+                        w.territory.remove(&coord);
+                    }
+                    w.territory_rev += 1;
                 }
                 Some(CapturedWide::Holding(h)) => {
                     w.holdings.remove(&(h.coord, h.site));

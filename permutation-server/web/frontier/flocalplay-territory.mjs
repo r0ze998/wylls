@@ -172,6 +172,36 @@ export function decodeTerritoryProvince(bytes) {
   return { rule: bytes[18], owned: bytes[19], keepTile: bytes[69], owners, dist };
 }
 
+const DEC_TAG = /^[1-9]\d{0,19}$/;
+/**
+ * (territory-map-2, owner 2026-11-25 12:04 Q-TM-4 (c)) The herald's territory answer (`GET /h/world/wide/territory`,
+ * herald wide_territory.rs: the captured territory province records with an owned tile, each owned tile as
+ * `[tile, tag index, dist]`) → Map "p,q" → `{owners, dist, keepTile, owned}` as decodeTerritoryProvince gives them
+ * (owners: 61 Citizen tags as decimal strings, null = nobody), or null when it is not one: another version, a `pins`
+ * field (`season`, `world`, `seasonAddress`, `program` — as far as the reader knows them) that differs, a tag or tile
+ * out of range. Coordinates outside a double's exact range are skipped. A province not in it has no owned tile known.
+ */
+export function heraldTerritoryRecords(json, pins = {}) {
+  if (!json || json.v !== 1 || !Array.isArray(json.tags) || !Array.isArray(json.provinces)) return null;
+  for (const k of ['season', 'world', 'seasonAddress', 'program']) if (pins[k] !== undefined && pins[k] !== null && String(json[k]) !== String(pins[k])) return null;
+  if (!json.tags.every(t => typeof t === 'string' && DEC_TAG.test(t) && BigInt(t) < 1n << 64n)) return null;
+  const out = new Map();
+  for (const r of json.provinces) {
+    const p = Number(r?.p), q = Number(r?.q);
+    if (!Number.isSafeInteger(p) || !Number.isSafeInteger(q) || String(p) !== String(r.p) || String(q) !== String(r.q)) continue;
+    if (!Array.isArray(r.tiles)) return null;
+    const owners = new Array(61).fill(null), dist = new Array(61).fill(0);
+    for (const x of r.tiles) {
+      if (!Array.isArray(x) || !Number.isInteger(x[0]) || x[0] < 0 || x[0] >= 61 || !Number.isInteger(x[1]) || x[1] < 0 || x[1] >= json.tags.length) return null;
+      owners[x[0]] = json.tags[x[1]];
+      dist[x[0]] = Number.isInteger(x[2]) && x[2] >= 0 && x[2] <= 255 ? x[2] : 0;
+    }
+    const owned = owners.filter(t => t !== null).length;
+    if (owned) out.set(`${p},${q}`, { owners, dist, owned, keepTile: Number.isInteger(r.keepTile) ? r.keepTile : 0xff });
+  }
+  return out;
+}
+
 /** A territory player summary (320 B, 'PSFXWTU1') → its fields (tag as a decimal string), or null. */
 export function decodeTerritoryPlayer(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length !== 320 || !magic(bytes, 'PSFXWTU1')) return null;

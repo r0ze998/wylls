@@ -138,7 +138,8 @@ test('decision 3: each of the viewer\'s own tiles is in sight (the tile itself, 
   // the page: its survey's extra anchors carry them, and a new read is a new survey
   const app = src('app.mjs');
   assert.match(app, /extraAnchors: \[\.\.\.nationAnchors\(src\), \.\.\.ownTileAnchors\(t\?\.owners, t\?\.ownTag\)\]/);
-  assert.ok(app.includes('if (fog) deps.push(territoryRef?.now?.().rev ?? 0);'));
+  // (territory-map-2: a new read of the viewer's OWN tiles — `ownRev` — is a new survey; others' tiles moving are not)
+  assert.ok(app.includes('if (fog) deps.push(territoryRef?.now?.().ownRev ?? 0);'));
 });
 
 test('fog: the viewer\'s own tiles always shown; another player\'s only while the tile is in sight; none before the first village', () => {
@@ -151,14 +152,14 @@ test('fog: the viewer\'s own tiles always shown; another player\'s only while th
   assert.deepEqual([c0.tiles[0], c0.tiles[1], c0.tiles[2]], [VIEWER, ASTER, NOBODY], 'the stranger\'s tile is out of sight');
   assert.deepEqual(c0.mine, [0]);
   assert.equal(fog.byKey.get('1,0').tiles, undefined, 'a province with nothing shown is passed as it is');
-  assert.deepEqual(fog.territory, { tiles: 2, mine: 1, nations: [ASTER, VIEWER] });
+  assert.deepEqual(fog.territory, { tiles: 2, mine: 1, faded: 0, nations: [ASTER, VIEWER] });
   // all in sight: an unknown nation's tiles are its own grey, never a guessed nation
   const open = territoryLand(land, { owners, tagNation, ownTag: ME, viewer: VIEWER, fogged: true, seen: () => true });
   assert.equal(open.byKey.get('0,0').tiles[2], UNKNOWN_NATION);
   assert.deepEqual(open.territory.nations, [ASTER, CINDER, VIEWER, UNKNOWN_NATION]);
   // a fogged page with no village yet (no vision): only the viewer's own
   const pre = territoryLand(land, { owners, tagNation, ownTag: ME, viewer: VIEWER, fogged: false, hidden: true });
-  assert.deepEqual(pre.territory, { tiles: 1, mine: 1, nations: [VIEWER] });
+  assert.deepEqual(pre.territory, { tiles: 1, mine: 1, faded: 0, nations: [VIEWER] });
   assert.equal(territoryLand(land, { owners: new Map() }), land, 'nothing read: the land as it is');
 });
 
@@ -270,16 +271,18 @@ test('the key: the nations whose tiles are in the picture, a player of unknown n
   assert.ok(css.indexOf('.wide-legend-swatch[data-key="keep"]') < css.lastIndexOf('@media'), 'above the film frame\'s block');
 });
 
-test('read-only: the page reads the records through the relay\'s account read for a local wide world only; nothing is signed or sent', () => {
+test('read-only: the page reads the records from the herald (territory-map-2), the relay\'s account read only as a local fallback; nothing is signed or sent', () => {
   const c = src('controller.mjs');
   const at = c.indexOf('export function territoryMapReads()');
   assert.ok(at > 0);
   const body = c.slice(at, c.indexOf('\n}\n', at));
-  assert.match(body, /if \(!localPlay\?\.wideLand/);
+  assert.match(body, /const local = !!\(localPlay\?\.wideLand && localPlay\?\.seasonAddress && localPlay\?\.programId\);/);
+  assert.match(body, /herald\.wideTerritory\(\{ etag: !fresh && territoryEtagSight === sight \? territoryEtag : null \}\)/);
+  assert.match(body, /if \(!local\) return null;\n  const g = localDepartGate\(\);/);
   assert.match(body, /schema: TERRITORY_MAP_READ, addresses/);
   assert.doesNotMatch(body, /\bsign|sendTx|\bsend\(|[^l]act\(/i);
   assert.match(c, /const TERRITORY_MAP_READ = 'frontier-local-play-act-wide-read-v1';/);
   const app = src('app.mjs');
-  assert.match(app, /if \(cfg\.localPlay && !territoryRef\) try \{ territoryRef = mountTerritoryTiles\(\{ reads: territoryMapReads,/);
+  assert.match(app, /if \(!territoryRef\) try \{ territoryRef = mountTerritoryTiles\(\{ reads: territoryMapReads,/);
   assert.ok(app.includes('if (wideLandRef) { const shown = wideLandRef.land; wideLandRef = { ...wideLandRef, land: () => withTerritory(shown()) }; }'));
 });
