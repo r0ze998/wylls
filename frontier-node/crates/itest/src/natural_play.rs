@@ -629,7 +629,11 @@ pub async fn prepare_with(
         send(
             &state,
             &[&upgrade],
-            &[crate::wide_research::start_ix(&a, upgrade.pubkey(), start_bell)],
+            &[crate::wide_research::start_ix(
+                &a,
+                upgrade.pubkey(),
+                start_bell,
+            )],
             "WideStartResearch",
         )?;
         homes.extend(rim);

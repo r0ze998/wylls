@@ -240,6 +240,31 @@ pub enum TransactionRecords {
     RolledBack,
 }
 
+/// World goal ② research receipts (`PSR1`, `frontier_abi::world_index::research::Receipt`): the program logs one per
+/// pledge / learn / era step / start / pause. They move no PS2/PSW1 chain head and are no record of any entity, so a
+/// committed, well-formed receipt is passed by (`Ok(true)`); a malformed one fails like any malformed committed data.
+/// Before this, the strict tag match below refused the transaction (`UnknownTag`), which stopped the herald's ingest
+/// at the first pledge (verify-pr232). `Ok(false)`: not a receipt.
+fn research_receipt(data: &str) -> Result<bool, DecodeError> {
+    use frontier_abi::world_index::research::{Receipt, RECEIPT_PREFIX};
+    let parts: Vec<_> = data.split_whitespace().collect();
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let Some(tag) = parts.first().and_then(|t| b64.decode(t).ok()) else {
+        return Ok(false);
+    };
+    if tag.as_slice() != RECEIPT_PREFIX.as_slice() {
+        return Ok(false);
+    }
+    let [_, body] = parts.as_slice() else {
+        return Err(DecodeError::DataShape);
+    };
+    let body = b64.decode(body).map_err(|_| DecodeError::Base64)?;
+    if Receipt::decode(&body).is_none() {
+        return Err(DecodeError::DataShape);
+    }
+    Ok(true)
+}
+
 fn decode_data(
     data: &str,
     ctx: Option<&AddrCtx>,
@@ -404,7 +429,11 @@ fn decode_transaction_inner(
     }
     let records = data
         .into_iter()
-        .map(|d| decode_data(d, ctx, expedition))
+        .filter_map(|d| match research_receipt(d) {
+            Ok(true) => None,
+            Ok(false) => Some(decode_data(d, ctx, expedition)),
+            Err(e) => Some(Err(e)),
+        })
         .collect::<Result<Vec<_>, _>>()?;
     if let Some(ctx) = ctx {
         let mut pairs = std::collections::BTreeMap::<[u8; 32], Vec<resident::Record>>::new();
