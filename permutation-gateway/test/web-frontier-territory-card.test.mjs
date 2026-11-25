@@ -157,6 +157,10 @@ test('FOG: the page reads only the record of the viewer\'s own Citizen, and drop
   assert.match(src, /const citizen = viewerCitizen\(\), world = providerWorld\(\);\n\s+if \(FS\.ownLand && \(FS\.ownLand\.citizen !== citizen \|\| FS\.ownLand\.world !== world\)\) FS\.ownLand = undefined;/, 'another world or Citizen: the old answer is gone');
   assert.match(src, /schema: devnetTerritory\.LAND_SUMMARY_SCHEMA, wallet: FS\.wallet\.address \}/);
   assert.equal((src.match(/refreshOwnLand\(\{ force: true \}\)/g) ?? []).length, 2, 'after the tile button and after "Found a village here"');
+  // a read that failed (an older devnet gateway: LocalActInvalid) is not asked again at every poll
+  assert.match(src, /const OWN_LAND_RETRY_MS = 10_000, OWN_LAND_RETRY_DEVNET_MS = 300_000;/);
+  assert.match(src, /if \(!force && Date\.now\(\) < ownLandRetryAt\) return;/);
+  assert.match(src, /ownLandRetryAt = answered \? 0 : Date\.now\(\) \+ \(local \? OWN_LAND_RETRY_MS : OWN_LAND_RETRY_DEVNET_MS\);/);
   // display only: nothing in the refresh signs or sends
   const body = src.slice(src.indexOf('async function refreshOwnLand'), src.indexOf('// ------------------------------------------------------------------ ② rights'));
   assert.ok(!/(^|[^A-Za-z.])act\(|submitLocal|currentEphemeralWallet/.test(body), 'a read, never an act: no order, no submit, no wallet key');

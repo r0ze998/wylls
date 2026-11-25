@@ -4055,39 +4055,47 @@ async function setSession({ replace = null } = {}) {
  * null is "no record yet" (no tile ever claimed); a failed read keeps the last answer of the same world and Citizen.
  */
 const OWN_LAND_EVERY_MS = 10_000, OWN_LAND_EVERY_DEVNET_MS = 60_000;
+// (a read that failed or was not understood — a devnet gateway older than the land summary answers LocalActInvalid —
+//  is not asked again at every own poll: after 10 s in a local world, after 5 minutes on devnet)
+const OWN_LAND_RETRY_MS = 10_000, OWN_LAND_RETRY_DEVNET_MS = 300_000;
 const OWN_LAND_READ = 'frontier-local-play-act-wide-read-v1';
-let ownLandBusy = false;
+let ownLandBusy = false, ownLandRetryAt = 0;
 async function refreshOwnLand({ force = false } = {}) {
   const pin = io.pinned(), local = !!localPlay?.wideLand, dev = !local && !!devnetTerritoryNow();
   if (!(local || dev) || !FS.wallet || !FS.citizen || !pin) { if (FS.ownLand) { FS.ownLand = undefined; invalidate('panel'); } return; }
   const citizen = viewerCitizen(), world = providerWorld();
   if (FS.ownLand && (FS.ownLand.citizen !== citizen || FS.ownLand.world !== world)) FS.ownLand = undefined;
   if (ownLandBusy || (!force && FS.ownLand && Date.now() - FS.ownLand.at < (local ? OWN_LAND_EVERY_MS : OWN_LAND_EVERY_DEVNET_MS))) return;
+  if (!force && Date.now() < ownLandRetryAt) return;
+  // (no relay to ask yet — the local gate shut, the devnet wallet not connected —: not a failed read, asked again at the next poll)
+  const g = local ? localDepartGate() : devnetGate();
+  if (g?.ok !== true) return;
   ownLandBusy = true;
+  let answered = false;
   try {
     let player;
     if (local) {
-      const g = localDepartGate();
-      if (!g?.ok) return;
       const at = territoryPlayerAddress(pin.addresses.season, pin.programId, citizen);
       const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: OWN_LAND_READ, addresses: [at] });
       if (!Array.isArray(j?.accounts) || j.accounts.length !== 1) return;
       player = j.accounts[0] ? decodeTerritoryPlayer(rightsB64(j.accounts[0].data_b64)) : null;
       if (j.accounts[0] && (!player || player.citizenTag !== citizenTagOf(citizen))) return;
     } else {
-      if (devnetGate().ok !== true) return;
-      const ctx = await localAct.postLocalAct(devnetPlay.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: devnetTerritory.LAND_SUMMARY_SCHEMA, wallet: FS.wallet.address });
+      const ctx = await localAct.postLocalAct(g.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: devnetTerritory.LAND_SUMMARY_SCHEMA, wallet: FS.wallet.address });
       if (!devnetTerritory.landSummaryOk(ctx, FS.wallet.address)) return;
       player = devnetTerritory.landOfSummary(ctx);
     }
     if (viewerCitizen() !== citizen || providerWorld() !== world) return;
     FS.ownLand = { world, citizen, player, at: Date.now() };
+    answered = true;
     invalidate('panel');
   } catch {
     // (a gateway older than the land summary, or a relay that did not answer: the card keeps what it had — no line at
-    //  all the first time; the next own poll asks again)
-    if (FS.ownLand) FS.ownLand = { ...FS.ownLand, at: Date.now() };
-  } finally { ownLandBusy = false; }
+    //  all the first time; asked again after OWN_LAND_RETRY_MS / OWN_LAND_RETRY_DEVNET_MS)
+  } finally {
+    ownLandBusy = false;
+    ownLandRetryAt = answered ? 0 : Date.now() + (local ? OWN_LAND_RETRY_MS : OWN_LAND_RETRY_DEVNET_MS);
+  }
 }
 
 // ------------------------------------------------------------------ ② rights (TEST-ONLY, a coexist local world only)
