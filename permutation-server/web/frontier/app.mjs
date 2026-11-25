@@ -5276,6 +5276,9 @@ export async function boot() {
     //  coordinates and ring only — the ring's opening is public geometry, as the open rings on the chart — never a holder,
     //  a village or a terrain)
     FS.wideLandNow = () => wideLandRaw?.land?.() ?? null;
+    // (fix-loop18, LP18-4: the tile owners the map's territory read KEEPS — the viewer's own always, others' only in
+    //  sight, territoryKeep above — for the village card's "no tile left in this province": screens/holding.mjs)
+    FS.territoryTilesNow = () => territoryRef?.now?.() ?? null;
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)

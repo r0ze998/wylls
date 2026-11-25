@@ -3934,7 +3934,9 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
     ? s1Refused(L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`) : { ok: false, code: 'S1PrepChanged', sent: false });
   let dst = m.destinations[dstIndex];
   const problem = caravanProblem(from, dst, cargo);
-  if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
+  // (fix-loop18, LP18-2: the field can now stand on "(choose a destination)"; the retry would send the same empty
+  //  choice again — no 「もう一度」, as for the list that changed)
+  if (problem === 'NoPlace') return failed({ code: 'S1Refused', retry: false, text: L`出発地と行き先を選んでください` });
   if (problem === 'CapturePending') return failed({ code: 'CapturePending' });
   if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
   if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
@@ -4025,7 +4027,9 @@ function s1CaravanFromForm(f) {
   if (chosen && placeKey(s1VillageModel(FS).destinations[dstIndex]) !== chosen) {
     // (the field shows the list as it is now: a second press sends to what it shows)
     if (f?.elements?.picked) f.elements.picked.value = '';
-    return Promise.resolve(s1Refused(L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。`));
+    // (fix-loop18, LP18-3: no 「もう一度」 on this toast — the retry sent the same form again, with the place that left
+    //  the list, and could only be refused the same way (loop-play18 stills 016/017); the words already say what to do)
+    return Promise.resolve(failed({ code: 'S1Refused', retry: false, text: L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。` }));
   }
   const at = s1PlanAtSend({ srcIndex, dstIndex });
   return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
@@ -4755,7 +4759,9 @@ export const ACTIONS = {
     const blocked = new Set([...terr.siteTiles, terr.keepTile]);
     let tile = null;
     for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !mine[`${target.p},${target.q},${i}`]) { tile = i; break; }
-    if (tile === null) return failed({ code: 'NoFreeTile', text: L`この州に取れるマスは残っていません。` });
+    // (fix-loop18, LP18-4: the card shuts the button once it knows the province is full — screens/holding.mjs
+    //  provinceFull; this answer stays for the press that raced it, without 「もう一度」: the same press finds no tile again)
+    if (tile === null) return failed({ code: 'NoFreeTile', retry: false, text: L`この州に取れるマスは残っていません。` });
     const home = { p: h.p, q: h.q, site: h.site }, key = `${target.p},${target.q},${tile}`;
     const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
     // (devnet-territory-dev: on devnet the first press is the cost preview — ore + SOL —, the next one signs and sends)

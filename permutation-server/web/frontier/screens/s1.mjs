@@ -739,6 +739,14 @@ export function renderS1Village(FS) {
   const plannedSrc = pl?.src !== null && pl?.src !== undefined ? m.sources[pl.src] : null;
   const firstDst = pl?.dst ?? m.destinations.findIndex(x => !x.other && !samePlace(plannedSrc ?? m.sources[0], x));
   const firstSrc = pl?.src ?? (pl?.dst !== null && pl?.dst !== undefined && samePlace(m.sources[0], m.destinations[pl.dst]) ? m.sources.findIndex(x => !samePlace(x, m.destinations[pl.dst])) : -1);
+  // (fix-loop18, LP18-2: with one village and no storehouse the only start is that village, and the field's first —
+  //  and so default — destination was the same village: "The caravan would leave from where it goes". A place that is
+  //  the form's ONLY start is not listed as a destination; and where nothing of the viewer's own is left to choose first
+  //  (another player's place is never chosen by default), the field starts on "choose a destination", which sends nothing)
+  const soleSrc = m.sources.length === 1 ? m.sources[0] : null;
+  const dstListed = d => !(soleSrc && !d.other && samePlace(soleSrc, d));
+  const dstUnchosen = !(firstDst >= 0 && m.destinations[firstDst] && dstListed(m.destinations[firstDst]));
+  const dstAsk = dstUnchosen ? html`<option value="-1" selected disabled>${L`（行き先を選んでください）`}</option>` : '';
   // (fix-loop6, LP6-13: the amounts' upper bound is the SELECTED source's stock — it was the most any source held, the
   //  village's food 629 for a storehouse of wood 19 —, and follows a change of source: app.mjs, select[name=src])
   const srcNow = m.sources[firstSrc >= 0 ? firstSrc : 0];
@@ -757,11 +765,12 @@ export function renderS1Village(FS) {
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
   const dstOption = (d, i) => html`<option value="${i}" data-key="${placeKey(d)}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
+  const ownListed = ownDst.filter(([d]) => dstListed(d));
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
     <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" data-have="${haveOf6(s).join(',')}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
-    <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${otherDst.length
-      ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
-      : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
+    <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${dstAsk}${otherDst.length
+      ? html`${ownListed.length ? html`<optgroup label="${L`あなたの場所`}">${ownListed.map(([d, i]) => dstOption(d, i))}</optgroup>` : ''}<optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
+      : ownListed.map(([d, i]) => dstOption(d, i))}</select></label>
     <input type="hidden" name="places" value="${m.destinations.map(placeKey).join('|')}">
     <input type="text" name="picked" value="" hidden tabindex="-1" aria-hidden="true" autocomplete="off">
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${haveOf6(srcNow)[x.i] ?? 0}" step="1" value="0" inputmode="numeric"></div>`)}
