@@ -456,6 +456,10 @@ this section describes what the program does today, and none of it is a promise 
   Design: docs/design/expansion/01-reach-from-land.md
 
 **Your own land: follow these presses (#209).** You need a confirmed rim village (§4 step 1) with 10 ore in its stores.
+A new village is "Provisional" at first: "Claim a tile" still shows its cost and "Sign and claim", and the claim is then
+refused with "The village is not confirmed yet." (nothing is sent). The program confirms the village on your own next
+act there once its turn's villages are placed (in world3-local-replica one "Harvest" did it at once); the page does not
+say so.
 (In verify-pr206-209's world the rim village made 26 ore an hour; an hour is one minute at ×60. A village with
 "No ore from the land" makes much less.)
 
@@ -463,7 +467,7 @@ this section describes what the program does today, and none of it is a promise 
    The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
    buttons, "Claim a tile" and "Found a village here". Above the rows the card says what you own (territory-card):
    "**Your land**: tiles owned: N · next tile: N ore · land upkeep: N food per hour" — your own land only, read about
-   every 10 s and right after a claim. The page reads it from the world's herald (`/h/world/wide/territory/player/<your
+   every 10 s in a local world (every 60 s on devnet) and right after a claim. The page reads it from the world's herald (`/h/world/wide/territory/player/<your
    Citizen>`, the chain's record as the herald recorded it), and asks the play relay only when that herald has no such
    route.
    The card lists at most 4 provinces near your first village and 6 reached through your nation's land, nearest first, so

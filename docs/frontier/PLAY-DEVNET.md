@@ -50,17 +50,19 @@ value; no in-game key is made).”
 | Act | Devnet SOL | What it is |
 |---|---|---|
 | Join | 0.0026 | the fee and the rent of your resident record |
-| First village (a heartland village, or the request for a rim village) | 0.0072 | the fee and the rent of the village's record |
+| First village (a heartland village, or the request for a rim village) | 0.0072 | the fee and the rent of the village's record. The join press sends it right after the Join (§5 step 2), so joining takes 0.0098 in all |
 | Harvest, build, train, muster | 0.000005 each | the fee only |
 | One march (the march back home counts as one more) | 0.00005 | the fee and the seal's deposit |
 | A second or third village | 0.0072 | the fee and the rent of the village's record |
 | The request for a village on the wide land | 0.0091 | the fee and the rent of the request's record |
 | One expedition from the rim to the wide land | 0.0024 | the fee and the rent of the expedition's record |
 | The first muster in a wide-land province | 0.0172 | the rent of that province's roster; every later muster there, by anyone, is the fee only |
-| One tile of your own land ([PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1; the tile itself is paid in ore) | 0.000005 | the fee only. More the first time: **0.0041** when nobody has claimed a tile in that province yet (the rent of the province's land record), and **0.0023** for your first tile ever (the rent of your own land record) |
+| One tile of your own land ([PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1; the tile itself is paid in ore) | 0.000005 | the fee only. More the first time: **0.004064** when nobody has claimed a tile in that province yet (the rent of the province's land record), and **0.00227584** for your first tile ever (the rent of your own land record). Your first tile, in a province nobody has claimed in, is 0.00634484 (0.004064 + 0.00227584 + the fee 0.000005) |
 
 - Each figure was measured on a local chain at devnet's rent rate (5,080 lamports per byte), not on devnet itself.
-  If devnet's rent rate changes, the rent parts change with it.
+  If devnet's rent rate changes, the rent parts change with it. On 2026-11-26 a local chain running the devnet
+  world's own build charged a new wallet exactly these amounts (join 0.0026, first village 0.0072, first tile
+  0.00634484, later tiles 0.000005, a wide-land village 0.0091), each the same as the page's preview to the lamport.
 - In the dress rehearsal the busiest page spent 0.0173 SOL without the wide land, and 0.0366 SOL with one village on
   the wide land.
 - Your wallet's confirmation shows what you pay before you send. Cards such as the expedition's take two presses,
@@ -70,10 +72,14 @@ value; no in-game key is made).”
 
 ## 5. How a game goes
 
-1. Open the page, press “Enter the Frontier”, then “Connect a wallet”. Choose a nation and join (one signature).
-2. Your first village comes next. It can take tens of seconds for your join to show on the page
-   (“Waiting for the record…”; no need to press again. If it has not shown after 180 seconds, press “Check again”;
-   nothing is sent twice).
+1. Open the page and press “Choose a nation” (a wallet that has already joined sees “Back to your village” or
+   “Back to the Frontier”). The nation screen says “To begin, connect a wallet first.” with one button per wallet, named by the wallet (for example
+   “Phantom”): press yours. Then press a nation's card and “Join <nation>” (for example “Join Dunmar”).
+2. That one press asks your wallet for **two signatures**: first the Join (your resident record, 0.0026 SOL), then
+   the request for your first village (its record, 0.0072 SOL). They are two separate commands of the program, and on
+   devnet your wallet signs each command itself, so it asks twice. The second comes once the page sees your join,
+   which can take tens of seconds (“Waiting for the record…”; no need to press again. If it has not shown after
+   180 seconds, press “Check again”; nothing is sent twice).
 3. Harvest, build and train in the village, muster a host and march on a keep. The screens work as in the local
    version, so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 is your guide.
 
@@ -92,6 +98,13 @@ Good to know:
   food it holds is taken and the land is unpaid; no tile can be claimed; after 24 unpaid turns (4 hours) the farthest
   tile goes back, one every turn (10 minutes), until the village pays a whole turn again (owner decision Q-LP17-1 (b),
   2026-11-25; devnet gets this rule with the program update planned before the world is created).
+- **A new village is “Provisional” at first** (shown beside its name). While it is, “Claim a tile” still shows its cost
+  and “Sign and claim”, but the claim is then refused with “The village is not confirmed yet.” (nothing is sent and
+  nothing is paid). The program confirms the village on your own next act there once its turn's villages are placed:
+  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). The page does not
+  say this, so harvest once before you claim your first tile.
+- Your land line (“Your land: tiles owned: …”) is read every 60 seconds on devnet, and once right after a claim. That
+  read can come before the world's record has the claim, so the count can stay at the old number for up to a minute.
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
 - Until the world is created the page has no world to show. It says “The world is not open yet. …”, with when it
