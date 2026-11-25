@@ -1067,6 +1067,7 @@ export default {
   '世界を起動できませんでした。': 'The world could not be started.',
   '答えが大きすぎるため、読みませんでした。': 'The answer was too large, so it was not read.',
   '道の州の指定が正しくありません（1〜4 州）。': 'The route\'s provinces are not valid (1–4 provinces).',
+  '住民のアドレスが正しくありません。': 'The resident\'s address is not valid.',
   'このウォレットはもう使えません。': 'This wallet can no longer be used.',
   // (round 42: the expedition lane's refusals: fi18n.mjs CLIENT_TEXT)
   '出発点の選択が変わりました。もう一度選んでください。': 'The starting point changed. Choose it again.',
