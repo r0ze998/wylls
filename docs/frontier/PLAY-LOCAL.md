@@ -510,7 +510,12 @@ claim no tile at all; and once they have a host's worth of troops (300), tiles a
 longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
 village stood, against the same world without the change (verify-pr236, land upkeep ×30): training refused 0 (before
 274), 54 trainings landed (24), 17 marches on keeps (1), 6 rim keeps taken (0), 30 tiles claimed (79), 4 wide villages
-(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see none of the tiles. An external resident run with workstream ⑬'s
+(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see none of the tiles. Each AI resident also **builds one mine first** (ai-early-mine, owner 2026-11-25 17:58): its village's first command is the
+same Build a player has (food 40, wood 80, stone 20; +6 ore an hour), once; not while a keep of its nation near it is
+under attack. Measured the same way (×60, `--ai 4`, 38.5 minutes after the player's village stood, same map, with and
+without the mine): ore an hour of the four AI villages 46 in all (before 22), 89 trainings landed (53), 21 marches on
+keeps (17), 9 keeps changed hands (7), 63 tiles claimed (31), **0 wide villages (4)** — with ore no longer short, the
+food and gold go to troops and the next village's cost is not saved in that time (open question Q-AEM-1). An external resident run with workstream ⑬'s
 client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
