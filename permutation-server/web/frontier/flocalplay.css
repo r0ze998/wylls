@@ -82,9 +82,11 @@
 #local-play-session .local-play-session-fold:focus-visible, #local-play-session .local-play-session-check:focus-visible { outline: 2px solid #c9a24a; outline-offset: 1px; }
 @media (max-width: 720px) { #local-play-session { top: calc(var(--dial, 84px) + 6px); max-width: calc(100vw - 16px); padding: 4px 8px; font-size: 11px; } }
 /* (en-ui-audit) the folded note and the notices beside an open drawer shared the same 84 px at 1024–1279 px wide: the
-   notice covered the end of the note's lines. The note keeps to the room left of the notices there. */
+   notice covered the end of the note's lines. The note keeps to the room left of the notices there.
+   (verify-pr229: never wider than its own 340 px — at 1117–1279 px the room is larger than that and the note grew to
+   499 px, then snapped back at 1280.) */
 @media (min-width: 760px) and (max-width: 1279px) {
-  body[data-drawer="open"][data-doc=""] #local-play-session[data-fold="folded"] { max-width: max(150px, calc(100vw - var(--drawer-w) - 348px - 4 * var(--edge))); }
+  body[data-drawer="open"][data-doc=""] #local-play-session[data-fold="folded"] { max-width: max(150px, min(340px, calc(100vw - var(--drawer-w) - 348px - 4 * var(--edge)))); }
 }
 /* (en-ui-audit) phones: the folded note stood under the search / layers buttons (left) and the World button (right),
    its first words hidden. It stands below that row of buttons. */

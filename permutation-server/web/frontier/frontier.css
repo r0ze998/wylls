@@ -2710,13 +2710,16 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
   #wide-legend { bottom: calc(var(--dock-h) + 2 * var(--edge) + 224px); }
 }
 @media (min-width: 760px) and (max-width: 1399px) {
-  body:is([data-hand="village"], [data-hand="host"]) #wide-legend { bottom: calc(var(--hand-h, 118px) + var(--edge) + 224px); }
+  /* (verify-pr229: 238, not 224 — the lens row's top stands 232 px above the bar; at 224 the legend's last 8 px lay on the
+     lens buttons) */
+  body:is([data-hand="village"], [data-hand="host"]) #wide-legend { bottom: calc(var(--hand-h, 118px) + var(--edge) + 238px); }
 }
 /* the guide chip in the top strip: at 1024 px the English step read 「See the …」 / 「Open the build l…」 (75 px of text).
    There it takes two short lines instead of an ellipsis; the "N more" count gives way (the list button beside it opens
-   all the steps). */
+   all the steps). (verify-pr229: a text that needs three lines there (about 40 letters and more) would lose its third
+   line without a mark; the two lines are a line clamp, so what does not fit ends in 「…」.) */
 @media (min-width: 760px) and (max-width: 1099px) {
-  html[lang="en"] .strip-r .attn-long, html[lang="en"] .strip-r .attn-long:has(> .next-more) { display: block; white-space: normal; font-size: 11.5px; line-height: 1.15; max-height: 27px; text-align: left; text-wrap: balance; }
+  html[lang="en"] .strip-r .attn-long, html[lang="en"] .strip-r .attn-long:has(> .next-more) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal; font-size: 11.5px; line-height: 1.15; max-height: 27px; text-align: left; text-wrap: balance; }
   html[lang="en"] .strip-r .attn-long > strong { white-space: normal; overflow: visible; }
   html[lang="en"] .strip-r .attn-long > .next-more { display: none; }
 }
