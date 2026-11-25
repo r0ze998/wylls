@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../../permutation-server/web/frontier/map/survey.mjs';
-import { buildRealms, realmNeighbourhood, REALM_REACH, FAR_RES, FAR_PIXELS, farRes } from '../../permutation-server/web/frontier/map/sprites.mjs';
+import { buildRealms, realmNeighbourhood, REALM_REACH, FAR_RES, FAR_RES_FALLBACK, FAR_PIXELS, farRes, farResFor, farSize } from '../../permutation-server/web/frontier/map/sprites.mjs';
 import { PROVINCE_CIRCUMRADIUS } from '../../permutation-server/web/frontier/map/layers.mjs';
 import { DIRECTIONS, hexDistance, locate, ringProvinces, tileHex, PROVINCE_TILES } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { RADIUS } from '../../permutation-server/web/map.mjs';
@@ -94,4 +94,26 @@ test('the far bitmaps of the opening world view fit their store at once (no drop
   assert.ok(13834 * Math.ceil(2 * half * 0.1) ** 2 > FAR_PIXELS);
   // a bitmap is never coarser than the screen: every step is at least 0.85 of the pixels it is shown at
   for (const z of [0.012, 0.02, 0.03, 0.05, 0.1, 0.3]) assert.ok(farRes(z * 1.4) >= z * 1.4 * 0.85, `zoom ${z}`);
+});
+
+test('a far view too big for FAR_PIXELS at its step falls back to a smaller one (2 device px per CSS px, a wide page)', () => {
+  // verify-pr239: on a screen of 2 device px per CSS px the ground canvas is 2 px per CSS px (no GROUND_FINER), the
+  // opening view asks for step 0.05: ~14,200 bitmaps of 45x45 px, ~29M px against 24M, dropped and painted again
+  // every frame (0.6 frames a second on the page)
+  assert.equal(farRes(0.02 * 2), 0.05);
+  assert.ok(14243 * farSize(0.05) ** 2 > FAR_PIXELS);
+  const res = farResFor(0.02 * 2, 14243);
+  assert.ok(res < 0.05 && 14243 * farSize(res) ** 2 <= FAR_PIXELS, `res ${res}`);
+  // the widest far view (the coarse chart's edge, about 41,000 provinces: map/terrain.mjs) fits only at a fallback step
+  const wide = farResFor(0.012 * 1.4, 41000);
+  assert.ok(FAR_RES_FALLBACK.includes(wide) && 41000 * farSize(wide) ** 2 <= FAR_PIXELS, `res ${wide}`);
+  // a view that fits keeps farRes exactly (the look of every view that fitted before is unchanged)
+  for (const dpr of [1, 1.4, 2]) for (const z of [0.02, 0.03, 0.05, 0.1, 0.2, 0.4]) {
+    const n = Math.floor(FAR_PIXELS / farSize(farRes(z * dpr)) ** 2);
+    assert.equal(farResFor(z * dpr, n), farRes(z * dpr), `zoom ${z} dpr ${dpr} with ${n} provinces`);
+    assert.equal(farResFor(z * dpr, 0), farRes(z * dpr));
+  }
+  // the fallback steps are never chosen by farRes alone, and the smallest step is the floor
+  for (const r of FAR_RES_FALLBACK) assert.ok(!FAR_RES.includes(r));
+  assert.equal(farResFor(0.02, 1e9), FAR_RES_FALLBACK[0]);
 });

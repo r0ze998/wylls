@@ -302,6 +302,23 @@ export function buildRealms(all, { grow = 0, levelAt = null, own = null } = {}) 
 }
 
 export const farRes = pxPerWorld => FAR_RES.find(r => r >= pxPerWorld * 0.85) ?? FAR_RES[FAR_RES.length - 1];
+/** The side (device px) of a far bitmap made at `res` (sprites.mjs farBitmap: the province and a tile's reach round it). */
+export const farSize = res => Math.max(8, Math.ceil(2 * (PROVINCE_CIRCUMRADIUS * 1.08 + RADIUS * 1.6) * res));
+/** Steps below FAR_RES that only a view too big for FAR_PIXELS falls back to (farResFor). */
+export const FAR_RES_FALLBACK = Object.freeze([0.015, 0.02]);
+/**
+ * The step for a far view of `count` bitmaps: farRes, or the largest smaller step at which `count` bitmaps fit
+ * FAR_PIXELS. (A view whose bitmaps do not fit drops and paints them again every frame: the opening world view of a
+ * 129-ring world on a screen of 2 device px per CSS px wants step 0.05 for its ~14,200 provinces, ~29M px against 24M, and stayed
+ * at 0.6 frames a second — verify-pr239. Like a tile renderer that lowers its detail when its memory budget is spent,
+ * e.g. CesiumJS's memory-adjusted screen space error.)
+ */
+export function farResFor(pxPerWorld, count = 0) {
+  const steps = [...FAR_RES_FALLBACK, ...FAR_RES];
+  let i = steps.indexOf(farRes(pxPerWorld));
+  while (i > 0 && count * farSize(steps[i]) ** 2 > FAR_PIXELS) i--;
+  return steps[i];
+}
 /** How much a far bitmap made for zoom `z` (CSS px per world px) softens its ground: 1 from afar, almost 0 next to the tile view. */
 export const farSoftness = z => { const k = Math.max(0, Math.min(1, (0.46 - z) / 0.28)); return 0.08 + 0.92 * k * k * (3 - 2 * k); };
 /** Sprite sets by tile radius (px); anchor = the tile centre on the ground plane. */
@@ -539,7 +556,7 @@ export class SpriteArt {
     if (typeof document === 'undefined' && typeof OffscreenCanvas === 'undefined') return null;
     const c = provincePixel(e.p, e.q);
     const half = PROVINCE_CIRCUMRADIUS * 1.08 + RADIUS * 1.6;
-    const size = Math.max(8, Math.ceil(2 * half * res));
+    const size = farSize(res);
     const box = { x: c.x - half, y: c.y - half, w: 2 * half, h: 2 * half };
     const canvas = () => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(size, size) : Object.assign(document.createElement('canvas'), { width: size, height: size }));
     const world = g => g.setTransform(res, 0, 0, res, (half - c.x) * res, (half - c.y) * res);
@@ -736,7 +753,11 @@ export class SpriteArt {
     const svOf = e => (limited && e.fog !== 'unopened' ? survey.province(e.p, e.q) : null);
     // `passing`: the camera is on its way through this zoom: a province that has any bitmap keeps it for now,
     // and what must be painted is painted for `resZoom` (the further of here and where the camera is going)
-    const res = farRes(resZoom * dpr);
+    // (the step all of them fit FAR_PIXELS at: a province surveyed in part keeps two bitmaps, its land and the copy
+    // with the survey over it)
+    let count = 0;
+    for (const e of entries) count += svOf(e)?.kind === 'mixed' ? 2 : 1;
+    const res = farResFor(resZoom * dpr, count);
     const t0 = now();
     let deferred = 0;
     let stale = false;
