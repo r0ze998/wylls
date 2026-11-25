@@ -885,7 +885,9 @@ function surveyNow() {
   // (the fog of war: the nation's villages and provinces see too, and the wide land can be seen — read from the overviews
   //  and the wide land, so a new one of either is a new survey)
   const fog = fogActive(FS);
-  if (fog) deps.push(wideLandRaw?.land?.() ?? null, FS.conquest?.control ?? null, territoryRef?.now?.().rev ?? 0, ...FS.overviews.values());
+  if (fog) deps.push(wideLandRaw?.land?.() ?? null, FS.conquest?.control ?? null, ...FS.overviews.values());
+  // (territory-map, owner 2026-11-25 item 3: a new read of the viewer's own tiles — they see themselves — is a new survey)
+  if (fog) deps.push(territoryRef?.now?.().rev ?? 0);
   if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
   surveyDeps = deps;
   FS.survey = surveyor({ ...surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }), ...(fog ? fogSurveyExtras() : {}) });
@@ -5206,7 +5208,9 @@ export async function boot() {
     // the same record on this map and its chart (rings 129+ in their terrain and keep nations' colours): read in the background
     try { wideLandRef = mountWideLand({ herald, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier wide land:', e); }
     // (the map reads the wide land through this: under the fog of war of a local test world, the fogged copy — map/fog.mjs)
-    if (wideLandRef) { wideLandRaw = wideLandRef; const raw = wideLandRaw; wideLandRef = { ...raw, land: () => withTerritory(shownWide(raw.land())) }; }
+    if (wideLandRef) { wideLandRaw = wideLandRef; const raw = wideLandRaw; wideLandRef = { ...raw, land: () => shownWide(raw.land()) }; }
+    // (territory-map: and the tiles players own laid on what the map shows — the viewer's own always, others' in sight)
+    if (wideLandRef) { const shown = wideLandRef.land; wideLandRef = { ...wideLandRef, land: () => withTerritory(shown()) }; }
     // (territory-map: the tiles players own — a local wide world's page only; read-only, nothing is sent)
     if (cfg.localPlay && !territoryRef) try { territoryRef = mountTerritoryTiles({ reads: territoryMapReads, candidates: territoryCandidatesNow, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier territory:', e); }
     // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged. Under

@@ -138,7 +138,7 @@ test('decision 3: each of the viewer\'s own tiles is in sight (the tile itself, 
   // the page: its survey's extra anchors carry them, and a new read is a new survey
   const app = src('app.mjs');
   assert.match(app, /extraAnchors: \[\.\.\.nationAnchors\(src\), \.\.\.ownTileAnchors\(t\?\.owners, t\?\.ownTag\)\]/);
-  assert.match(app, /territoryRef\?\.now\?\.\(\)\.rev \?\? 0, \.\.\.FS\.overviews\.values\(\)/);
+  assert.ok(app.includes('if (fog) deps.push(territoryRef?.now?.().rev ?? 0);'));
 });
 
 test('fog: the viewer\'s own tiles always shown; another player\'s only while the tile is in sight; none before the first village', () => {
@@ -258,5 +258,5 @@ test('read-only: the page reads the records through the relay\'s account read fo
   assert.match(c, /const TERRITORY_MAP_READ = 'frontier-local-play-act-wide-read-v1';/);
   const app = src('app.mjs');
   assert.match(app, /if \(cfg\.localPlay && !territoryRef\) try \{ territoryRef = mountTerritoryTiles\(\{ reads: territoryMapReads,/);
-  assert.match(app, /land: \(\) => withTerritory\(shownWide\(raw\.land\(\)\)\)/);
+  assert.ok(app.includes('if (wideLandRef) { const shown = wideLandRef.land; wideLandRef = { ...wideLandRef, land: () => withTerritory(shown()) }; }'));
 });

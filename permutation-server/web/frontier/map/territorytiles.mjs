@@ -49,7 +49,9 @@ export const UNKNOWN_LAND = '#9a9a92', UNKNOWN_DARK = '#4a4a44';
 /** The look of the tiles by level of detail (CSS px): `wash` the owned tile's fill alpha, `band`/`seam` the border's. */
 export const TILE_LOOK = Object.freeze({
   tile: Object.freeze({ wash: 0.42, band: 4, seam: 1.5 }),
-  province: Object.freeze({ wash: 0.62, band: 2.2, seam: 1 }),
+  // (the province view: one band in the nation's colour, no separate seam — measured live with every tile of 108 wide
+  //  provinces owned in a six-nation mosaic, ~4,600 rim sides in view: each band layer costs ~5.7 ms a paint there)
+  province: Object.freeze({ wash: 0.62, band: 2.4, seam: 0 }),
   world: Object.freeze({ wash: 0.9, band: 0, seam: 0 }),
   chart: Object.freeze({ wash: 0.92, band: 0, seam: 0 }),
 });
@@ -280,6 +282,7 @@ export function paintTerritoryTiles(ctx, land, { seen, zoom = 1, level = 'world'
     if (look.band > 0) {
       ctx.globalAlpha = 1;
       for (const [style, width] of [[landOf(n), look.band], [darkOf(n), look.seam]]) {
+        if (!(width > 0)) continue;
         const quads = bandsOf(group, width / z, gk);
         ctx.fillStyle = style;
         for (let i = 0; i < quads.length; i += PATH_CHUNK) {

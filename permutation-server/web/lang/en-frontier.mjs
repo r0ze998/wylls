@@ -856,7 +856,9 @@ export default {
   '第{0}輪・記録': 'Ring {0} · recorded',
   '第{0}–{1}輪・記録': 'Rings {0}–{1} · recorded',
   // (territory-video-2, map/widemarks.mjs) whose each wide province is, a keep being taken, a standing host's troops
-  'どの国のものでもない土地': 'Land of no nation',
+  '砦：どの国のものでもない': 'Keep: no nation',
+  '砦：あなたの国': 'Keep: your nation',
+  '砦：{0}': 'Keep: {0}',
   'あなたの国が砦を奪取中 {0}/{1} ターン': 'Your nation is taking the keep · {0}/{1} turns',
   '{0}が砦を奪取中 {1}/{2} ターン': '{0} is taking the keep · {1}/{2} turns',
   '兵 {0} ほか': '{0} troops (+ others)',
