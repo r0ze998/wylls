@@ -18,8 +18,8 @@ test('seeds are the Rust ones (pinned literals)', () => {
 test('V1 numbers: the claim cost rises 2 % per tile, the upkeep grows past 3 provinces', () => {
   assert.equal(T.claimCostV1(0), 10);
   assert.equal(T.claimCostV1(100), 30);
-  assert.equal(T.tileUpkeepV1(2), 330); // Q-LP15-1 (b): ×10
-  assert.equal(T.tileUpkeepV1(8), 1130);
+  assert.equal(T.tileUpkeepV1(2), 990); // Q-CUF-1 (b): ×30
+  assert.equal(T.tileUpkeepV1(8), 3390);
 });
 
 test('the wire: 23 bytes, op 7, the witness byte and the account order', () => {
@@ -70,7 +70,7 @@ test('record views decode the Rust layouts', () => {
   const v = T.decodeTerritoryPlayer(pl);
   assert.equal(v.tiles, 61);
   assert.equal(v.unpaidSince, 99);
-  assert.equal(v.upkeepMilliPerHour, 61 * 330 + 160 * 122);
+  assert.equal(v.upkeepMilliPerHour, 61 * 990 + 480 * 122);
   assert.equal(T.decodeTerritoryPlayer(new Uint8Array(320)), null);
   assert.equal(T.citizenTagOf(encode(Uint8Array.from([1, 0, 0, 0, 0, 0, 0, 0, ...new Array(24).fill(9)]))), '1');
 });

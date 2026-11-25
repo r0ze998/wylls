@@ -12680,26 +12680,26 @@ mod territory_tests {
     /// account, so the conquest sees the captor Citizen writable. That must
     /// land: with `captor_citizen` read-only (`Wr::R`) every second conquest
     /// by the same captor was refused BadAccount (D-verifier-territory-1).
-    /// Q-LP15-1 (b) (owner 2026-11-25 09:33, conquest-upkeep-fix): land
-    /// upkeep ×10 BITES in play. The first home keeps the food production
-    /// the program's own PlaceHome gave a new village; the player spends
-    /// each turn's food elsewhere the moment upkeep is paid (troops,
-    /// buildings: its food store back to 0, the production unchanged), and
-    /// claims one tile a turn near home while the keeper settles every
-    /// turn. Upkeep goes unpaid at the first turn whose upkeep passes the
-    /// village's food production — at ⌊production / 330⌋ + 1 tiles (×1 it
-    /// took ten times as many: about 1,200 tiles for a new village); claims
-    /// stop; 24 unpaid turns later the farthest tile returns, and the land
-    /// is paid again at what the village feeds.
+    /// Q-CUF-1 (b) (owner 2026-11-25 12:04, upkeep-x30; it replaced the ×10
+    /// of Q-LP15-1 (b)): land upkeep ×30 BITES in play. The first home keeps
+    /// the food production the program's own PlaceHome gave a new village;
+    /// the player spends each turn's food elsewhere the moment upkeep is
+    /// paid (troops, buildings: its food store back to 0, the production
+    /// unchanged), and claims one tile a turn near home while the keeper
+    /// settles every turn. Upkeep goes unpaid at the first turn whose upkeep
+    /// passes the village's food production — at ⌊production / 990⌋ + 1
+    /// tiles (41 for a new village's 40 food/h; ×1 it took about 1,200, ×10
+    /// about 120); claims stop; 24 unpaid turns later the farthest tile
+    /// returns, and the land is paid again at what the village feeds.
     #[test]
-    fn land_upkeep_x10_goes_unpaid_past_the_homes_food_production() {
+    fn land_upkeep_x30_goes_unpaid_past_the_homes_food_production() {
         let _g = begin();
         let mut t = T::new();
         let a = t.a.clone_member();
         let (home, _) = t.home(&a);
         let food_rate = rd_i64(&home.try_borrow_data().unwrap(), H::store(0) + AC::RATE);
         let per_tile = TERRITORY_V1.kernel.upkeep.flat;
-        assert_eq!(per_tile, 330, "Q-LP15-1 (b): ×10 the decided 33");
+        assert_eq!(per_tile, 990, "Q-CUF-1 (b): ×30 the decided 33");
         assert!(food_rate > 0, "a new village makes food: {food_rate}");
         let threshold = (food_rate / per_tile) as u32 + 1;
         // a store set at `ts` (the production rate kept): food spent, ore plenty
@@ -12760,8 +12760,9 @@ mod territory_tests {
             unpaid_at, threshold,
             "unpaid at the first turn upkeep ({unpaid_at} × {per_tile}) passes the food production {food_rate} milli/h"
         );
-        // ×1 (33 a tile) the same village paid ten times the land
-        assert!((unpaid_at as i64) * 33 <= food_rate);
+        // ×1 (33 a tile) and ×10 (330) the same village paid thirty and
+        // three times the land
+        assert!((unpaid_at as i64) * 330 <= food_rate);
         let unpaid_since = t.tplayer_rec(&a).unpaid_since.unwrap();
         // unpaid: no claim; the food still spent each turn; 24 turns later
         // the farthest tile returns (all at distance 1 here: any of the
@@ -12797,8 +12798,9 @@ mod territory_tests {
         assert_eq!(t.settle(&a), Ok(()));
         assert_eq!(t.tplayer_rec(&a).unpaid_since, None, "paid again");
         println!(
-            "Q-LP15-1 bite: food production {food_rate} milli/h; unpaid at {unpaid_at} tiles (bell {unpaid_since}); x1 would need {} tiles",
-            food_rate / 33 + 1
+            "Q-CUF-1 bite: food production {food_rate} milli/h; unpaid at {unpaid_at} tiles (bell {unpaid_since}); x1 would need {} tiles, x10 {}",
+            food_rate / 33 + 1,
+            food_rate / 330 + 1
         );
     }
 

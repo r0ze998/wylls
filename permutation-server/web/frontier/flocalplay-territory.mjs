@@ -36,14 +36,14 @@ const SYSTEM = '11111111111111111111111111111111';
 
 /**
  * The numbers of territory rule V1 (frontier-abi TERRITORY_V1; DECIDED by the owner 2026-11-24 13:15, inbox
- * 2026-11-24-1315-territory-numbers-decided.md TQ-1..TQ-5; upkeep ×10 by Q-LP15-1 (b), owner 2026-11-25 09:33): upkeep per tile 330 milli-food/h
- * + 160 milli-food/h per province of distance beyond 3 from
+ * 2026-11-24-1315-territory-numbers-decided.md TQ-1..TQ-5; upkeep ×30 by Q-CUF-1 (b), owner 2026-11-25 12:04, replacing the ×10 of Q-LP15-1 (b)): upkeep per tile 990
+ * milli-food/h + 480 milli-food/h per province of distance beyond 3 from
  * the nearest own village (home included), fixed at the claim; a claim costs 10 ore + 2 % per tile owned; reach 3 provinces from the home, a nation
  * land province or a province where the claimer owns a tile; 1 claim per turn; unpaid upkeep blocks claims, then after
  * 24 turns the farthest tile returns, one per turn.
  */
 export const TERRITORY_V1 = Object.freeze({
-  upkeep: Object.freeze({ flat: 330, perRank: 0, perDistance: 160, freeDistance: 3 }),
+  upkeep: Object.freeze({ flat: 990, perRank: 0, perDistance: 480, freeDistance: 3 }),
   cost: Object.freeze({ base: 10, perOwnedBps: 200 }),
   range: 3,
   claimsPerTurn: 1,
@@ -195,7 +195,7 @@ export function decodeTerritoryPlayer(bytes) {
  * at bell `nowBell`, with the program's numbers:
  *   tiles                the tiles owned (TILES)
  *   nextOre              the ore of the next claim (claimCostV1: whole ore, the kernel's rounding down)
- *   upkeepMilliPerHour   milli-food per hour (TerritoryPlayer::upkeep_per_hour: tiles × 33 + 16 × Σ excess)
+ *   upkeepMilliPerHour   milli-food per hour (TerritoryPlayer::upkeep_per_hour: tiles × TERRITORY_V1.upkeep.flat + perDistance × Σ excess)
  *   unpaid               the record's unpaid flag (set and cleared by a settle — a claim or the world's keeper/runner)
  *   turnsLeft            while unpaid: the turns until the first tile is let go — decay_after_bells (24) minus the bells
  *                        since `unpaidSince` (kernel unpaid_effect: released once `late >= grace`), never below 0
