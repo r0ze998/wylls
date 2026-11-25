@@ -26,7 +26,12 @@
 //!   capture-locked); for slot 3 the slot-2 holding final or due
 //!   (`previous_final`); `may_found_outpost` with the program's inputs; the
 //!   site below the count with a zero conquest record and readable
-//!   terrain; the settler cost paid from the touched anchor. Written: the
+//!   terrain; the settler cost paid from the touched anchor. In a
+//!   territory world (#209 T-6, the wide province's territory byte) the
+//!   13th account is the target's territory record instead of a reach
+//!   witness: the site's tile must be the claimer's, with no village on a
+//!   neighbouring site, and neither the range nor #206's share rule applies
+//!   (`vwl_wide_territory::require_own_site`). Written: the
 //!   Citizen (bucket debit, `LAST_ACTION_TS`, the marker, the `HARVEST`
 //!   link), the record (`WideTicket::file` / `refile`, its lamports the
 //!   payer's top-up), the anchor (the touch, the cost, the `HARVEST`
@@ -581,49 +586,44 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Ke
     let occupied = le(&fd, FR::OCCUPIED_SITES, 4);
     let anchor_coord = WideCoord::checked(home.p as i64, home.q as i64)
         .map_err(|_| fail(WIDE_RULE, "the anchor's coordinate"))?;
-    let (mine, total) = crate::checks::v22_outposts::province_weights(&pd, faction, now_bell)
-        .map_err(|er| fail(WIDE_ACCOUNTS, format!("the province's weights: {er}")))?;
-    // The reach witness (`proc/wide.rs` reach_witness_distance): a wide
-    // province of this season and world at its address, the claimer's
-    // nation's land, else the program refuses (BadAccount / OutpostRule).
-    let witness_distance = match witness {
-        None => None,
-        Some(wk) => {
-            let a = wide_before(e, &wk, "the reach witness")?.ok_or_else(|| {
-                fail(
-                    WIDE_ACCOUNTS,
-                    "the reach witness is absent (the program refuses BadAccount)",
-                )
-            })?;
-            let wp = WideProvince::read(&a.data).map_err(|er| {
-                fail(
-                    WIDE_ACCOUNTS,
-                    format!("the reach witness: {er:?} (the program refuses BadAccount)"),
-                )
-            })?;
-            if wp.season_id != e.sid
-                || wp.world != world
-                || wk != wl::province_address(&e.ctx, wp.coord)
-            {
-                return Err(fail(
-                    WIDE_ACCOUNTS,
-                    "the reach witness is not this world's wide province at its address",
-                ));
-            }
-            let (w_mine, _) = crate::checks::v22_outposts::province_weights(
-                &a.data, faction, now_bell,
+    // T-6 (territory-impl, #209): in a territory world the 13th account is
+    // the target's territory record (never a reach witness), the site's
+    // tile must be the claimer's, and ownership is the reach: neither the
+    // range nor #206's share rule applies (`proc/wide.rs` claim_site_as).
+    let territory = wl::territory_rule_of(&pd).ok_or_else(|| {
+        fail(
+            WIDE_ACCOUNTS,
+            "the wide province's territory byte (the program refuses BadAccount)",
+        )
+    })?;
+    let (range, (mine, total)) = if territory.is_some() {
+        let rk = witness.ok_or_else(|| {
+            fail(
+                UNDECODABLE,
+                "WideClaimSite in a territory world without the territory record (the program refuses TooManyAccounts)",
             )
-            .map_err(|er| fail(WIDE_ACCOUNTS, format!("the reach witness's weights: {er}")))?;
-            let keep = frontier_abi::conquest_model::read_keep(&a.data)
-                .map_err(|_| fail(WIDE_ACCOUNTS, "the reach witness's keep"))?;
-            if !wreach::is_nation_land(faction, w_mine, keep.as_ref()) {
-                return Err(fail(
-                    WIDE_RULE,
-                    "the reach witness is not the nation's land (the program refuses OutpostRule)",
-                ));
+        })?;
+        super::territory::require_own_site(e, world, coord, &rk, &pd, x.site, &cd)?;
+        (0, (0, 0))
+    } else {
+        // The reach witness (`proc/wide.rs` reach_witness_distance): a wide
+        // province of this season and world at its address, the claimer's
+        // nation's land, else the program refuses (BadAccount / OutpostRule).
+        let witness_distance = match witness {
+            None => None,
+            Some(wk) => {
+                Some(nation_land_witness(e, &wk, world, faction, now_bell)?.distance(coord))
             }
-            Some(wp.coord.distance(coord))
-        }
+        };
+        (
+            u32::try_from(wreach::claim_range(
+                anchor_coord.distance(coord),
+                witness_distance,
+            ))
+            .unwrap_or(u32::MAX),
+            crate::checks::v22_outposts::province_weights(&pd, faction, now_bell)
+                .map_err(|er| fail(WIDE_ACCOUNTS, format!("the province's weights: {er}")))?,
+        )
     };
     may_found_outpost(&OutpostCheck {
         slot: Some(x.slot),
@@ -633,11 +633,7 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Ke
         slot2_final,
         target_ring: u32::try_from(coord.ring()).unwrap_or(u32::MAX),
         heartland_max_ring: cq.heartland_max_ring,
-        range: u32::try_from(wreach::claim_range(
-            anchor_coord.distance(coord),
-            witness_distance,
-        ))
-        .unwrap_or(u32::MAX),
+        range,
         outpost_range: cq.outpost_range,
         faction_weight: mine,
         province_weight: total,
@@ -760,6 +756,49 @@ pub(super) fn claim_site(e: &Env, ix: &Ix, x: &wix::ClaimSite) -> Result<Vec<(Ke
         wrote.push((prev_k, Lam::Same));
     }
     Ok(wrote)
+}
+
+/// `reach_witness_distance`'s checks (`proc/wide.rs`): the reach witness
+/// is a wide province of this season and world at its address, the
+/// claimer's nation's land, else the program refuses (BadAccount /
+/// OutpostRule). Returns its coordinate. (Read-only: the caller checks the
+/// account's writability.)
+pub(super) fn nation_land_witness(
+    e: &Env,
+    wk: &Key,
+    world: WorldId,
+    faction: u8,
+    now_bell: u32,
+) -> Result<WideCoord, Wrong> {
+    let a = wide_before(e, wk, "the reach witness")?.ok_or_else(|| {
+        fail(
+            WIDE_ACCOUNTS,
+            "the reach witness is absent (the program refuses BadAccount)",
+        )
+    })?;
+    let wp = WideProvince::read(&a.data).map_err(|er| {
+        fail(
+            WIDE_ACCOUNTS,
+            format!("the reach witness: {er:?} (the program refuses BadAccount)"),
+        )
+    })?;
+    if wp.season_id != e.sid || wp.world != world || *wk != wl::province_address(&e.ctx, wp.coord) {
+        return Err(fail(
+            WIDE_ACCOUNTS,
+            "the reach witness is not this world's wide province at its address",
+        ));
+    }
+    let (w_mine, _) = crate::checks::v22_outposts::province_weights(&a.data, faction, now_bell)
+        .map_err(|er| fail(WIDE_ACCOUNTS, format!("the reach witness's weights: {er}")))?;
+    let keep = frontier_abi::conquest_model::read_keep(&a.data)
+        .map_err(|_| fail(WIDE_ACCOUNTS, "the reach witness's keep"))?;
+    if !wreach::is_nation_land(faction, w_mine, keep.as_ref()) {
+        return Err(fail(
+            WIDE_RULE,
+            "the reach witness is not the nation's land (the program refuses OutpostRule)",
+        ));
+    }
+    Ok(wp.coord)
 }
 
 fn rec_before_lamports(e: &Env, k: &Key) -> u64 {

@@ -80,7 +80,7 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { expeditionHoldText } from './screens/tracker.mjs';
-import { custodyLosses } from './screens/custody.mjs';
+import { custodyLosses, reserveShort, reserveShortText } from './screens/custody.mjs';
 import { heldMarchAnswer } from './screens/villageorders.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
@@ -447,6 +447,17 @@ function orderUnconfirmed(o, signature, code = 'LocalActUnconfirmed') {
 const localActUnconfirmedText = signature => () => L`この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 ${signature}`;
 const localMarchUnconfirmedText = signature => () => L`進軍は送信済みですが、まだ確認できていません。同じ進軍は送り直しません。しばらく自動で確かめます（「もう一度」でも確認できます）。署名 ${signature}`;
 /** (2026-11-19) The reason a march the runner rejected was not taken: the program's own words for its code (NotResident: the turn changed under the send), else the relay's. */
+// (loop-play15 LP15-1: the program answers a refused tile claim with shared error numbers — Cooldown 29 for "one tile a
+//  turn", NotEligible 43 for "land upkeep unpaid", Insufficient 21 for the ore — whose common texts speak of a host's
+//  stamina and of refunds. The claim's own sentences instead; proc/wide_territory.rs territory_err)
+const territoryRefusalText = pc => (pc === 29 ? L`このターンはもう1マス取りました。マスは1ターンに1つです。次のターンにもう一度押してください。`
+  : pc === 43 ? L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。`
+  : pc === 21 ? L`鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。`
+  : null);
+const territoryRefused = ans => {
+  const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
+  if (territoryRefusalText(pc)) failed({ ...ans, text: () => territoryRefusalText(pc) });
+};
 const localMarchRejectedText = r => (r.programCode === 26 ? L`送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。`
   : r.programCode === 31 ? L`送るあいだにターンが変わり、この到着ターンには着けなくなりました。`
   : failureText(r.programCode !== undefined ? r : { code: 'LocalMarchRejected' }));
@@ -4242,10 +4253,19 @@ function capacityGrant(f) {
   return custodyAct('GrantCapacity', { facility: cfac(d), user: o.user }, { grant: dnum(d, 'grant'), max_units: units, max_output: String(arms * cust.MILLI), from: String(from), until: String(until) },
     () => L`工房を使う権利を出しました`);
 }
-function capacityReserve(f) {
+async function capacityReserve(f) {
   const off = custodyOff(); if (off) return off;
   const d = f.dataset, units = Math.trunc(formNum(f, 'units')), arms = Math.trunc(formNum(f, 'arms'));
   if (!(units > 0 && arms > 0)) return s1Refused(L`工房の数と兵器の数を入れてください`);
+  // (fix-loop15, LP15-8: the booking takes its ore and wood from the user's own storehouse in the same message, and a
+  //  storehouse without them made the node refuse the whole message — 「チェーンのノードがこの命令を実行前に受け付けません
+  //  でした」, nothing about materials. Said here, before anything is signed, from the herald's read of that storehouse:
+  //  read once more first when it looks short (a caravan may just have been delivered). Not known → sent as before;
+  //  the program checks it again either way)
+  const vt = dnum(d, 'vtile'), storesNow = () => (FS.s1?.caravans?.vaults ?? []).find(v => v.p === dnum(d, 'p') && v.q === dnum(d, 'q') && v.tile === vt && Number(v.gen) === dnum(d, 'vgen'))?.stores ?? null;
+  let lack = reserveShort(storesNow(), arms);
+  if (lack) { try { await rereadS1(); } catch { /* the read before stands */ } lack = reserveShort(storesNow(), arms); }
+  if (lack) return s1Refused(reserveShortText(lack, vt));
   const plan = cust.jobPlan({ units, arms, now: now() });
   return custodyAct('ReserveCapacity', { facility: cfac(d), vault: { p: dnum(d, 'p'), q: dnum(d, 'q'), tile: dnum(d, 'vtile'), gen: dnum(d, 'vgen') } },
     { grant: dnum(d, 'grant'), job: dnum(d, 'job'), units, start: String(plan.start), end: String(plan.end), max_output: String(plan.maxOutput), ore: plan.ore, wood: plan.wood, deposit: 0 },
@@ -4627,6 +4647,7 @@ export const ACTIONS = {
     const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
     const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
     const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+    territoryRefused(ans);
     if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
     if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
     invalidate('panel');
@@ -4674,6 +4695,7 @@ export const ACTIONS = {
         const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
         const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
         const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
+        territoryRefused(ans);
         if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
         if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
         if (!already) return t;

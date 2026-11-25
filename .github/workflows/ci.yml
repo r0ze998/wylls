@@ -541,7 +541,9 @@ jobs:
       # 6,960 recording passes under it and never under an assumed 5,080;
       # versioned_season and verify_pr155_vt_tampers, verifier-v0v1: a season
       # of v0 (lookup tables) and v1 player transactions PASSes, VT checks every
-      # archived loadedAddresses against the lookup tables, tampers never PASS). These tests
+      # archived loadedAddresses against the lookup tables, tampers never PASS;
+      # playable_territory, verifier-territory: #209's player territory on world 3's
+      # .so, VWL re-runs every claim / upkeep settle / decay / conquest, tampers FAIL). These tests
       # read recorded archives only: no key is generated, derived or signed
       # (every recorder in these files is #[ignore] and is not run here).
       - name: Verifier playable lane (lints, recorded-fixture tests; key-free)
@@ -549,7 +551,7 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers --test verify_alt_archive --test verify_pr158_attacks --test playable_v11_declared --test playable_v7_declared --test verify_pr179_attacks
+          cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers --test verify_alt_archive --test verify_pr158_attacks --test playable_v11_declared --test playable_v7_declared --test verify_pr179_attacks --test playable_territory
 
       # Devnet blocker B3 (owner decision B7): frontier-operator's playable-lane
       # preset S1_DEVNET_WIDE_7D (program version 0x4804) is behind the stack

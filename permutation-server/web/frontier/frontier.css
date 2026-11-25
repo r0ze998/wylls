@@ -1556,6 +1556,10 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .host-acts { grid-column: 1 / -1; margin: 0; align-items: center; }
 .host-acts .quiet { margin-left: auto; }
 .host-card > .locked-note, .host-card > .blocked { grid-column: 1 / -1; margin: 0; font-size: var(--t1); }
+/* (fix-loop15, LP15-9a: every line under the host's head spans the card. The formation-wait line, the ways on
+   (「地図で見る」) and the plan line had no column of their own and fell into the 60 px picture column: "Estimated
+   formation wait: 1:31 (game time)" on five lines, "Show on the map" on four) */
+.host-card > p, .host-card > .host-ways { grid-column: 1 / -1; margin: 0; }
 .host-card.locked .unit-card { filter: saturate(.6); }
 /* the six tiles around a scout, as they lie on the map */
 .rose { position: relative; width: 204px; height: 186px; margin: var(--s2) auto; }

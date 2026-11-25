@@ -102,6 +102,7 @@ Good to know:
 | What happens | What to do |
 |---|---|
 | The page does not open | The address may have changed. Look for the operator's new announcement (§1) |
+| “The world is not open yet. …” | The world has not been created yet. Nothing is wrong and there is nothing to do: the line says when it opens (“It opens on or after …”, in your own time zone) or “It opens soon”, and the page shows the world automatically once it opens. You do not need to reload |
 | “No wallet found. …” | Install a wallet, then reload the page |
 | The wallet shows a balance of 0, or its confirmation shows mainnet amounts | The wallet is not on devnet (§2) |
 | The wallet or the page refuses for lack of balance | Add devnet SOL (§3) |

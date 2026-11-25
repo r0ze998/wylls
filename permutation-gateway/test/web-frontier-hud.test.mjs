@@ -245,6 +245,17 @@ test('feed: changes between two polls become notifications; a turned bell folds 
   // the summary's stamp reads "turn" (UX design section 6, turn wording); it read 第41鐘のまとめ
   assert.match(sum.text, /^ターン 41 のまとめ：戦い 2 · 進軍の知らせ 2 · 来襲の恐れ 1 · 完成 1 · 村 1$/);
   assert.equal(FEED.bellSummary([], 41), null);
+  // (fix-loop15, LP15-7: a turn whose only line is of a kind the summary names nowhere — a caravan's or a storehouse's
+  //  news, kind 's1' — read 「ターン 14 のまとめ：」 / "Turn 183 in brief:" and nothing after the colon)
+  const s1Only = [{ id: 'aw:1', kind: 's1', bell: 14, text: 'x' }];
+  assert.equal(FEED.bellSummary(s1Only, 14).text, 'ターン 14 のまとめ：知らせ 1');
+  const s1Mixed = [...s1Only, { id: 'aw:2', kind: 's1', bell: 14, text: 'y' }, { id: 'bd:1', kind: 'build', bell: 14, text: 'z' }];
+  assert.equal(FEED.bellSummary(s1Mixed, 14).text, 'ターン 14 のまとめ：完成 1 · ほかの知らせ 2');
+  setLang('en');
+  assert.equal(FEED.bellSummary(s1Only, 14).text, 'Turn 14 in brief: 1 update');
+  assert.equal(FEED.bellSummary(s1Mixed, 14).text, 'Turn 14 in brief: 1 built · 2 other updates');
+  setLang('ja');
+  for (const kind of ['s1', 'anything-new']) assert.doesNotMatch(FEED.bellSummary([{ id: 'q', kind, bell: 3, text: 'x' }], 3).text, /：$/, `a ${kind} line is counted`);
   const toasts = [FEED.renderToasts(feed, { now: 1500 })].flat(Infinity).map(String).join('');
   assert.equal((toasts.match(/class="toast /g) ?? []).length, FEED.TOAST_MAX);
   assert.match(toasts, /data-act="feed-dismiss"/);
