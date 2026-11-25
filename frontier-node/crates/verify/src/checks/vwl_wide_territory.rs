@@ -1233,3 +1233,8 @@ pub(super) fn judge_tx(e: &Env, ixs: &[Ix]) -> Result<(), Wrong> {
     }
     Ok(())
 }
+
+/// (test-gaps-territory) `settle_into` over the shared Q-LP17-1 (b) upkeep vectors.
+#[cfg(test)]
+#[path = "vwl_wide_territory_upkeep_b_tests.rs"]
+mod upkeep_b_tests;

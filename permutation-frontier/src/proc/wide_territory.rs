@@ -687,3 +687,8 @@ pub(super) fn require_own_site(
     }
     Ok(())
 }
+
+/// (test-gaps-territory) `settle_into` over the shared Q-LP17-1 (b) upkeep vectors.
+#[cfg(test)]
+#[path = "wide_territory_upkeep_b_tests.rs"]
+mod upkeep_b_tests;

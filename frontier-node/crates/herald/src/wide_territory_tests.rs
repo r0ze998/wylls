@@ -394,3 +394,173 @@ fn a_checkpointed_player_summary_is_served_again_after_a_restart() {
     h.season = None;
     assert_eq!(player_json(&h, &a).unwrap_err().code(), "NoSeasonYet");
 }
+
+/// (test-gaps-territory) The territory routes serve the chain's bytes, over random histories: three province records
+/// and two player summaries change by claims, decays, conquests, settles (paid / unpaid since a bell) and closes, one
+/// transaction at a time. After each, `/h/world/wide/territory` lists exactly the records' owned tiles (tile, owner tag,
+/// stored distance) and nothing else, its revision moves iff a province record's bytes changed (the ETag is built per
+/// revision: verify-pr240), and `/h/world/wide/territory/player/{citizen}` carries the captured bytes themselves with
+/// the fields read from them (verify-pr242 checked bytes == chain live only).
+#[test]
+fn served_territory_and_summaries_are_the_chain_bytes_over_random_histories() {
+    use std::collections::BTreeMap;
+    /// (p, q) → [(tile, owner tag, distance)]
+    type Served = BTreeMap<(String, String), Vec<(usize, String, u8)>>;
+    struct Lcg(u64);
+    impl Lcg {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % n.max(1)
+        }
+    }
+    let mut r = Lcg(0x004e_7a1d);
+    for case in 0..20u64 {
+        let mut f = fold();
+        let world = f.wide.as_ref().unwrap().world();
+        let coords = [coord(130, 0), coord(-131, 5), coord(129, 1)];
+        let tags = [11u64, 22, 33];
+        // the chain: each province record (None = closed / never made) and each summary
+        let mut provs: Vec<Option<TerritoryProvince>> = vec![None; 3];
+        let citizens = [[0xa1u8; 32], [0xb2u8; 32]];
+        let mut players: Vec<Option<TerritoryPlayer>> = vec![None; 2];
+        let mut last_rev = rev(&f);
+        let mut last_bytes: Vec<Option<Vec<u8>>> = vec![None; 3];
+        for seq in 1..=40u64 {
+            let mut post: Vec<Post> = vec![];
+            let mut changed = false;
+            let pi = r.below(3) as usize;
+            match r.below(6) {
+                // claims / decays / a conquest-like owner change on one province
+                0..=2 => {
+                    let p = provs[pi].get_or_insert_with(|| {
+                        TerritoryProvince::new(7, TerritoryRule::V1, world, coords[pi], 30, [9; 32])
+                    });
+                    for _ in 0..1 + r.below(4) {
+                        let t = r.below(61) as usize;
+                        if t == 30 {
+                            continue;
+                        }
+                        let tag = if r.below(4) == 0 {
+                            0
+                        } else {
+                            tags[r.below(3) as usize]
+                        };
+                        p.owner[t] = tag;
+                        p.dist[t] = if tag == 0 { 0 } else { r.below(12) as u8 };
+                    }
+                    let mut d = vec![0; territory_province::SIZE];
+                    p.write(&mut d).unwrap();
+                    changed = last_bytes[pi].as_ref() != Some(&d);
+                    last_bytes[pi] = Some(d.clone());
+                    post.push((wtr::province_address(&f.ctx, coords[pi]), Some(d), PROGRAM));
+                }
+                // the same bytes written again (a settle that left the province as it was)
+                3 => {
+                    if let Some(d) = last_bytes[pi].clone() {
+                        post.push((wtr::province_address(&f.ctx, coords[pi]), Some(d), PROGRAM));
+                    }
+                }
+                // a summary settled: paid, or unpaid since a bell (Q-LP17-1 (b))
+                4 => {
+                    let i = r.below(2) as usize;
+                    let z = citizens[i];
+                    let pl = players[i].get_or_insert_with(|| {
+                        TerritoryPlayer::new(
+                            7,
+                            TerritoryRule::V1,
+                            world,
+                            z,
+                            frontier_abi::addr::citizen_tag(&z),
+                            1,
+                            1_794_000_000,
+                            [9; 32],
+                        )
+                    });
+                    pl.add_tile(r.below(9) as u8).unwrap();
+                    pl.paid_to += 600;
+                    pl.remainder = r.below(3_600);
+                    pl.unpaid_since = (r.below(2) == 0).then(|| r.below(5_000) as u32);
+                    let mut d = vec![0; territory_player::SIZE];
+                    pl.write(&mut d).unwrap();
+                    post.push((wtr::player_address(&f.ctx, &z), Some(d), PROGRAM));
+                }
+                // a province record closed
+                _ => {
+                    if last_bytes[pi].is_some() {
+                        provs[pi] = None;
+                        last_bytes[pi] = None;
+                        changed = true;
+                        post.push((wtr::province_address(&f.ctx, coords[pi]), None, PROGRAM));
+                    }
+                }
+            }
+            f.apply(&tx(seq, post));
+            let now = rev(&f);
+            assert_eq!(
+                now != last_rev,
+                changed,
+                "case {case} seq {seq}: the revision moves iff the bytes did"
+            );
+            last_rev = now;
+            // the province answer = the records' owned tiles
+            let v = territory_json(&f).unwrap();
+            let served_tags: Vec<String> = serde_json::from_value(v["tags"].clone()).unwrap();
+            let mut served: Served = BTreeMap::new();
+            for p in v["provinces"].as_array().unwrap() {
+                let tiles: Vec<(usize, usize, u8)> =
+                    serde_json::from_value(p["tiles"].clone()).unwrap();
+                assert_eq!(p["owned"].as_u64().unwrap() as usize, tiles.len());
+                served.insert(
+                    (
+                        p["p"].as_str().unwrap().into(),
+                        p["q"].as_str().unwrap().into(),
+                    ),
+                    tiles
+                        .into_iter()
+                        .map(|(i, n, d)| (i, served_tags[n].clone(), d))
+                        .collect(),
+                );
+            }
+            let mut want: Served = BTreeMap::new();
+            for (i, p) in provs.iter().enumerate() {
+                let Some(p) = p else { continue };
+                let t: Vec<(usize, String, u8)> = (0..61)
+                    .filter(|&k| p.owner[k] != 0)
+                    .map(|k| (k, p.owner[k].to_string(), p.dist[k]))
+                    .collect();
+                if !t.is_empty() {
+                    want.insert((coords[i].p().to_string(), coords[i].q().to_string()), t);
+                }
+            }
+            assert_eq!(served, want, "case {case} seq {seq}");
+            // each summary answer carries the chain's bytes and reads from them
+            for (i, z) in citizens.iter().enumerate() {
+                let a = player_json(&f, z).unwrap();
+                match &players[i] {
+                    None => assert_eq!(a["player"], Value::Null),
+                    Some(pl) => {
+                        let mut d = vec![0; territory_player::SIZE];
+                        pl.write(&mut d).unwrap();
+                        let p = &a["player"];
+                        let b = base64::engine::general_purpose::STANDARD
+                            .decode(p["bytes_b64"].as_str().unwrap())
+                            .unwrap();
+                        assert_eq!(b, d, "case {case} seq {seq}: the captured bytes");
+                        assert_eq!(p["tiles"], pl.tiles);
+                        assert_eq!(p["unpaid"], pl.unpaid_since.is_some());
+                        assert_eq!(p["unpaidSince"], json!(pl.unpaid_since));
+                        assert_eq!(
+                            p["upkeepMilliPerHour"],
+                            json!(pl.upkeep_per_hour().map(|x| x.to_string()))
+                        );
+                        assert_eq!(p["remainder"], pl.remainder.to_string());
+                        assert_eq!(p["paidTo"], pl.paid_to.to_string());
+                    }
+                }
+            }
+        }
+    }
+}

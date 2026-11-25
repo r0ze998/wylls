@@ -922,6 +922,11 @@ pub fn transfer_tiles(
     Ok(n)
 }
 
+/// (test-gaps-territory) Q-LP17-1 (b) property tests and the shared upkeep vectors.
+#[cfg(test)]
+#[path = "territory_upkeep_b_tests.rs"]
+mod upkeep_b_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
