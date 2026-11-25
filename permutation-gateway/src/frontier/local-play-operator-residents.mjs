@@ -64,6 +64,10 @@ import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resourc
 export function oreAt(holding, secs) {
   try { return Number.isSafeInteger(secs) ? Number(storesAt(holding, secs, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Ore')]?.value ?? null) : null; } catch { return null; }
 }
+/** The village's stores (whole units by resource index) at `secs`, or null when unreadable (ai-ore-reserve: what a Train needs). */
+export function storesNow(holding, secs) {
+  try { return Number.isSafeInteger(secs) ? storesAt(holding, secs, RESOURCE_ORDER).map(x => Number(x.value)) : null; } catch { return null; }
+}
 export function coversSettlerCost(holding, secs, holdingsN) {
   try {
     const have = storesAt(holding, secs, RESOURCE_ORDER).map(x => x.value), need = settlerCost(holdingsN);
@@ -277,7 +281,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     //  after a wide village settles and the third village was priced as a second — 800 for a 1,200 cost, refused
     //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)
     const wideHeld = Math.max(Number.isInteger(view?.wide) ? view.wide : 0, (r.memory.wideVillages ?? []).length);
-    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld), ore: oreAt(v?.decoded, secs) };
+    wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld), ore: oreAt(v?.decoded, secs), stores: storesNow(v?.decoded, secs) };
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {
@@ -333,9 +337,9 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     }
   }
   const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
-    war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
+    war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling, army: snap.army, threatened: snap.threatened } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
-    ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready, ...(snap.goals ? { goals: snap.goals } : {}) } : {}) };
+    ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready, ...(snap.threatened ? { threatened: true } : {}), ...(Number.isFinite(wide?.ore) ? { ore: wide.ore } : {}), ...(snap.goals ? { goals: snap.goals } : {}) } : {}) };
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
   if (war) {
     // (one action per resident per turn, owner Q16-2: a war resident that acted this turn waits for the next)

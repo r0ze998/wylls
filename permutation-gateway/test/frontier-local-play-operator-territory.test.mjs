@@ -103,7 +103,10 @@ test('no tile claim while the ore read is short of the next tile; never the vill
   m.decisions = 4;
   const wide = { targets: [{ p: '129', q: '1', territory: TERR }, { p: '129', q: '0', territory: TERR }], canClaim: false, ore: 9 };
   assert.equal(decideNext(m, RIM, { homes: [], wide }).name, 'Harvest');
-  assert.equal(decideNext(m, RIM, { homes: [], wide: { ...wide, ore: 10 } }).name, 'TerritoryClaim');
+  // (ai-ore-reserve, owner 2026-11-25 09:33: the tile's 10 ore AND one training batch's 20 behind it)
+  assert.equal(decideNext(m, RIM, { homes: [], wide: { ...wide, ore: 10 } }).name, 'Harvest');
+  assert.equal(decideNext(m, RIM, { homes: [], wide: { ...wide, ore: 29 } }).name, 'Harvest');
+  assert.equal(decideNext(m, RIM, { homes: [], wide: { ...wide, ore: 30 } }).name, 'TerritoryClaim');
   // a site's tile not owned and no ore: the village claim is NOT sent (it would be refused NotOwner)
   const m2 = createResidentMemory(0);
   const d = decideNext(m2, RIM, { homes: [], wide: { targets: [{ p: '129', q: '0', territory: TERR }], canClaim: true, ore: 0 } });

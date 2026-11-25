@@ -20,7 +20,8 @@
 // buys a growth tile only from ore it does not need: the stock beyond its build plan and reserve (brain.mjs assessReal
 // `idle`) must cover the tile AND the ore of one training hundred; its land's upkeep stays under a share of its first
 // home's food per hour; one growth tile every few turns; a ceiling of tiles. The site tile of its next village is not
-// growth: it is bought as soon as the ore covers it (without it no village can be founded at all).
+// growth: it is bought as soon as the first home's ore covers it and still leaves one training hundred (owner
+// 2026-11-25 09:33, Q-LP15-4 (b): the AI keeps an ore reserve; without the tile no village can be founded at all).
 import { seasonAddresses } from '../../../../permutation-server/web/frontier/faddr.mjs';
 import { TERRITORY_CLAIM, TERRITORY_V1 } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { TILE_OFFSETS, hexDistance } from '../../../../permutation-server/web/frontier/fgeo.mjs';
@@ -31,7 +32,8 @@ export { TERRITORY_CLAIM, claimNow };
  * The resident's own pace on its land (its choices; the world's rule is one claim a turn):
  *   growthEveryBells 6      at most one growth tile every 6 turns
  *   tilesMax 24             it stops growing by tiles at 24 (the operator AI residents' ceiling, OPERATOR_TILES_MAX)
- *   oreKeepHundreds 1       after a growth tile the idle ore still pays for this many training hundreds
+ *   oreKeepHundreds 1       after a growth tile the idle ore — after a site tile the first home's ore — still pays for
+ *                           this many training hundreds
  *   upkeepSharePct 10       its land's upkeep (this tile included) stays within 10 % of its first home's food per hour
  *   blindTries 6            tiles out of its sight it asks for in one province before it leaves that province alone
  */
