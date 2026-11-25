@@ -144,6 +144,8 @@ test('Q-PDT-2: with three villages the "Claim a tile" rows remain, with the land
   assert.deepEqual([full.land.tiles, full.land.nextOre, full.tileOff], [12, 12, false]);
   const src = web('frontier/screens/holding.mjs');
   assert.match(src, /w\.full \? html`<p class="muted">\$\{L`村はもう3つあります。`\}<\/p>\$\{w\.targets\.some\(t => t\.territory\) \? html`<ul class="build-list">\$\{w\.targets\.filter\(t => t\.territory\)\.map\(/);
+  // with three villages there is no next village: the village cost line (and its "Short: …") is not shown
+  assert.match(src, /\$\{w\.full \? '' : html`<p class="muted">\$\{L`費用（村の蔵から）`\}: \$\{cost\}/);
   // a devnet territory world with three villages keeps the rows of the other provinces too
   const l = world([slot(2, -66, -63), slot(3, -67, -62)]);
   const d = wideClaimModel({ ...l, localPlay: null, devnetWideLand: l.localPlay.wideLand, devnetTerritory: true }, { holding: home, have });

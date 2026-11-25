@@ -133,11 +133,12 @@ export function ownLandBlock(land) {
 function wideClaimCard(FS, m, busy) {
   const w = wideClaimModel(FS, m);
   if (!w) return '';
+  // (territory-card: with three villages there is no next village — no village cost line, only the land and its tile rows)
   const cost = w.need.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(' · ');
   return html`<section class="vcard" id="hp-wide" aria-labelledby="hp-wide-h">
     ${cardHead({ id: 'hp-wide-h', ic: 'flag', title: L`広い土地に村を出す（テスト）` })}
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
-    <p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>
+    ${w.full ? '' : html`<p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>`}
     ${ownLandBlock(w.land)}
     ${w.tilePriceShort ? html`<p class="muted"><span class="blocked">${L`鉱石が次の1マスの値段（${fmtNum(w.tilePrice)}）に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
