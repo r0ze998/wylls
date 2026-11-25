@@ -4,7 +4,7 @@
 // (resident.mjs DEFAULT_LIMITS: the shortest gap between decisions, the idle back-off, the allowance of decisions,
 // the day's actions, the doubling hold after a failed action) and its own memory (journal.mjs) are mapped onto the
 // six orders a person's page has in local play — Join, PlaceHome, Harvest, Build, Train, Muster — and, in a local
-// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER) and the wide land's own orders (wide.mjs: WideClaim, WideTrain/WideMuster/WideDepart, the Expedition); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
+// wide-land world only, the page's rim first-village request (FileTicket, WIDE_HOME_ORDER) and the wide land's own orders (wide.mjs: WideClaim, WideTrain/WideMuster/WideDepart, the Expedition) and, where the world plays player territory (#209), the page's single-tile claim (territory.mjs: TerritoryClaim); onto nothing else. What it reads is what the page reads about ITS OWN village (the public herald, observe.mjs); the numbers it
 // plans with are the page's own (hud/rulebook.mjs buildOffers, trainCost, maxTrain; fland.mjs storesAt), never the
 // test world's (world/rules.mjs). A choice is only a request: the relay and the program refuse it exactly as they
 // refuse a person's.
@@ -24,6 +24,7 @@ import { buildOffers, trainCost, maxTrain, settled, HOST_TROOPS, TRANSIT_SLOTS, 
 import { BUILD_ITEMS, storesAt, queueItem, TIER_BONUS_PCT } from '../../../../permutation-server/web/frontier/fland.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
 import { s1On, s1OreBase, setOreExtraProvider, holdingOreExtra } from '../../../../permutation-server/web/frontier/fs1.mjs';
+import { TERRITORY_CLAIM, TERRITORY_LIMITS, territoryMem, tileOrder, growthTile, growthHolds, noteTile, claimNow, territorySeen } from './territory.mjs';
 import { WIDE_LIMITS, EXPEDITION, wideMem, claimNotDue, claimSettling, claimNotFinal, claimCost, claimOrder, saveHold, expeditionNotDue, wideHostDecision, departMeta, expeditionFields, noteWide } from './wide.mjs';
 
 export const BRAIN_KIND = 'ws13-local-brain/1';
@@ -221,7 +222,7 @@ export function refusalHold(mem, obs, item) {
   return `the chain refused this ${BUILD_ITEMS[item].resource} build (copy ${rec.copy}) for resources at turn ${rec.bell}: not sent again until ${behind.map(r => `${RESOURCE_ORDER[r]} grows past ${rec.stock[r] ?? 0}`).join(', ')}`;
 }
 
-const failKey = c => (c.kind === 'build' ? `Build:${c.order.fields.item}` : c.kind === 'home' ? (c.order.name === WIDE_HOME_ORDER ? WIDE_HOME_ORDER : 'PlaceHome') : c.order.name);
+const failKey = c => (c.kind === 'tile' ? TERRITORY_CLAIM : c.kind === 'build' ? `Build:${c.order.fields.item}` : c.kind === 'home' ? (c.order.name === WIDE_HOME_ORDER ? WIDE_HOME_ORDER : 'PlaceHome') : c.order.name);
 export { failKey };
 /** The site of a home order (PlaceHome `{p, q, site}`; FileTicket `{sites: [one]}`) as `"p,q,site"`. */
 const homeSiteKey = order => { const s = order.name === WIDE_HOME_ORDER ? order.fields.sites?.[0] ?? {} : order.fields; return `${s.p},${s.q},${s.site}`; };
@@ -245,6 +246,39 @@ function failureHold(mem, key, bell) {
 /** What the next copy of building `item` costs this village (by resource index; the page's duplicateCost on copyNumber). */
 export const buildSpend = (obs, item) => (BUILD_ITEMS[item] && obs?.settled ? BUILD_ITEMS[item].cost.map(c => duplicateCost(c, copyNumber(obs.settled, item))) : null);
 
+/**
+ * (ws13-territory, #209) The tile candidates of a world with player territory, pushed onto `out` (kind 'tile', the
+ * page's own act TerritoryClaim; one claim a turn is the world's, one action a turn the resident's):
+ *   tile:site    the tile of the site the next wide village will stand on (`siteFirst`, wide.mjs claimOrder), as soon as
+ *                the ore covers it — without it no village can be founded
+ *   tile:growth  one more tile next to its own land, at its own pace (territory.mjs TERRITORY_LIMITS / growthHolds:
+ *                only from ore beyond the plan, the reserve and a training hundred; LP15-5)
+ * Held, each with its reason: the turn's claim used, upkeep unpaid (the world refuses claims then), the ore short.
+ */
+export function territoryCandidates(obs, mem, out, { bell, a = null, siteFirst = null, final = true, tl = TERRITORY_LIMITS } = {}) {
+  const view = obs.territory;
+  territoryMem(mem);
+  const ore = (obs.stores ?? [])[idx('Ore')]?.value ?? null, now = claimNow(view, { ore });
+  const common = () => { const held = [...now.why]; const fh = failureHold(mem, TERRITORY_CLAIM, bell); if (fh) held.push(fh); return held; };
+  if (siteFirst) {
+    const x = siteFirst.province, held = common();
+    // (the same lazy final flip as the wide claim's: the site's tile is bought once the first village is final —
+    //  a tile for a village that cannot be claimed yet would only start its upkeep early)
+    if (!final) held.push('my first village is not final yet: the site\'s tile once a wide claim can follow');
+    out.push({ id: `tile:${x.p},${x.q},${siteFirst.tile}`, kind: 'tile', site: `${x.p},${x.q},${siteFirst.tile}`, meta: { purpose: 'site', villageSite: siteFirst.site }, order: tileOrder(obs.holding, x, siteFirst.tile),
+      ...(held.length ? { held } : {}), score: 1.55,
+      why: `claim tile ${siteFirst.tile} at ${x.p},${x.q} for ${view.own.nextClaimOre} ore: the site ${siteFirst.site} of my next village stands on it (a village stands only on my own land)` });
+  }
+  const g = growthTile(view, mem, tl);
+  if (g.province) {
+    const x = g.province, pv = Number(obs.programVersion ?? 1), t100 = trainCost(0, 100, pv);
+    const held = [...common(), ...growthHolds(view, mem, { bell, idleOre: a?.idle?.[idx('Ore')] ?? 0, trainOre100: t100?.[idx('Ore')] ?? 0, foodPerHour: (obs.stores ?? [])[idx('Food')]?.perHour ?? 0, addMilli: x.tileUpkeepMilliFoodPerHour, limits: tl })];
+    out.push({ id: `tile:${x.p},${x.q},${g.tile}`, kind: 'tile', site: `${x.p},${x.q},${g.tile}`, meta: { purpose: 'growth' }, order: tileOrder(obs.holding, x, g.tile), ...(held.length ? { held } : {}), score: 0.45,
+      why: `grow my land: tile ${g.tile} at ${x.p},${x.q} next to my own (${view.own.tiles} owned) for ${view.own.nextClaimOre} ore, +${(x.tileUpkeepMilliFoodPerHour / 1000).toFixed(3)} food/h upkeep${g.seen ? '' : ' (out of my sight: it may be another player\'s)'}` });
+  }
+  return out;
+}
+
 export function wideCandidates(obs, mem, out, { bell, limits = LOCAL_LIMITS, a = null, wl = WIDE_LIMITS } = {}) {
   wideMem(mem);
   const v = { holding: { p: obs.holding.p, q: obs.holding.q, site: obs.holding.site } };
@@ -267,6 +301,10 @@ export function wideCandidates(obs, mem, out, { bell, limits = LOCAL_LIMITS, a =
       if (sh) c.held = [...(c.held ?? []), sh];
     }
   }
+  // (ws13-territory) the land's tiles, in a world with player territory
+  // (live run1: with a landed village claim still settling, the next site's tile was bought — a second site is looked at
+  //  only once that claim is known to have founded nothing: no site tile while a claim settles)
+  if (obs.territory?.on === true) territoryCandidates(obs, mem, out, { bell, a, siteFirst: notDue || claimSettling(obs, mem, wl) ? null : claimOrder(obs, mem).tileFirst ?? null, final: !claimNotFinal(obs) });
   // the wide village's host
   const hd = wideHostDecision(obs, mem, wl);
   if (hd.decision) {
@@ -418,10 +456,16 @@ export function decideLocal({ candidates, obs }, provider = null, { allow = {} }
  * my village's record of landed builds, a landed Build counts in it (`mem.village`); a Build refused for resources
  * (`resources`, refusedForResources) is remembered with the copy and the stock of `obs` (`mem.refusals`, refusalHold).
  */
-export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LOCAL_LIMITS, resources = false, obs = null } = {}) {
+export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LOCAL_LIMITS, resources = false, obs = null, programCode = null } = {}) {
   const key = failKey(cand);
   mem.failures = mem.failures ?? {};
   mem.refusals = mem.refusals ?? {};
+  // (ws13-territory: a tile claim's own memory — the claim's turn, the growth pace, tiles not asked again)
+  if (cand.kind === 'tile') {
+    noteTile(mem, { site: cand.site ?? null, growth: cand.meta?.purpose === 'growth' }, outcome, { bell, programCode });
+    // ("already yours" is no failure: the tile is mine, the next look goes on from there)
+    if ((outcome === 'failed' || outcome === 'refused') && programCode === 52) return mem;
+  }
   // (external-wide-orders: the wide land's own memory — claims tried and settling, the wide host's marches, expeditions)
   if (['wideclaim', 'widehost', 'expedition'].includes(cand.kind)) {
     const site = cand.kind === 'wideclaim' ? (cand.site ?? `${cand.order.v?.target?.p},${cand.order.v?.target?.q},${cand.order.fields?.site}`) : null;
@@ -457,13 +501,14 @@ export function noteOutcome(mem, cand, outcome, { bell, code = null, limits = LO
   return mem;
 }
 
-export const ORDER_KINDS = Object.freeze({ join: 'Join', home: 'PlaceHome', harvest: 'Harvest', build: 'Build', train: 'Train', muster: 'Muster', wideclaim: 'WideClaim', expedition: EXPEDITION });   // (a wide world's rim home: kind 'home', order WIDE_HOME_ORDER; kind 'widehost': WideTrain / WideMuster / WideDepart)
+export const ORDER_KINDS = Object.freeze({ tile: TERRITORY_CLAIM, join: 'Join', home: 'PlaceHome', harvest: 'Harvest', build: 'Build', train: 'Train', muster: 'Muster', wideclaim: 'WideClaim', expedition: EXPEDITION });   // (a wide world's rim home: kind 'home', order WIDE_HOME_ORDER; kind 'widehost': WideTrain / WideMuster / WideDepart)
 /** For logs: the observation reduced to what the brain read. */
 export function seenOf(obs) {
   if (!obs) return null;
   return { bell: obs.bell, joined: obs.joined, faction: obs.faction, village: obs.holding ? `${obs.holding.p},${obs.holding.q},${obs.holding.site}` : null,
     stores: obs.stores ? Object.fromEntries(obs.stores.slice(0, 6).map(s => [s.resource, s.value])) : null, reserve: obs.settled?.reserve?.[0] !== undefined ? Number(obs.settled.reserve[0]) : null,
     queue: obs.settled?.queue ? obs.settled.queue.filter(q => q && Number(q.doneAt) > (obs.nowSecs ?? 0)).length : null, homesSeen: obs.homes?.length ?? 0,
+    ...(obs.territory ? { territory: territorySeen(obs.territory) } : {}),
     ...(obs.wideLand ? { wide: { villages: obs.wideLand.villages.map(x => `${x.p},${x.q},${x.site}`), targets: obs.wideLand.targets.length, border: obs.wideLand.border.length, host: obs.wideLand.host?.decision?.name ?? obs.wideLand.host?.why ?? null, expedition: obs.wideLand.expedition ? (obs.wideLand.expedition.ok ? 'ready' : obs.wideLand.expedition.why) : null } } : {}) };
 }
 export { settled, storesAt };
