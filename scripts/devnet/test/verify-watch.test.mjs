@@ -119,5 +119,24 @@ test('expectedLoad: per-cycle requests and the time at the cap', () => {
   // the dry run's cycle 2 (36 new tx, ~150 accounts): 83 requests measured (two settle reads were not needed)
   assert.ok(expectedLoad({ txPerHour: 72, accounts: 150, everyMin: 30 }).perCycle >= 80);
   assert.equal(l.perHour, 2 * l.perCycle);
-  assert.equal(l.seconds, Math.ceil(l.perCycle / 2));
+  assert.equal(l.seconds, Math.ceil(l.perCycle / DEFAULTS.maxRps));
+  // verify-pr251: the safe default is at most 1 request a second (devnet's public RPC: ~1/s per method per IP)
+  assert.ok(DEFAULTS.maxRps <= 1);
+  assert.ok(gapMsFor(DEFAULTS.maxRps) >= 1000);
+});
+
+test('verify-pr251: an UNVERIFIABLE code beyond the public-RPC baseline is logged and WARNs (lying balances → VG/MissingData)', () => {
+  const at = Date.parse('2026-11-26T00:00:00Z');
+  const base = summarizeReport(rep('UNVERIFIABLE', [F('V0', 'HistoryUnproven', 'unverifiable')]));
+  const lied = summarizeReport(rep('UNVERIFIABLE', [F('V0', 'HistoryUnproven', 'unverifiable'), F('VG', 'MissingData', 'unverifiable')]));
+  const l1 = logLine({ at, level: 'UNVERIFIABLE', why: '1 unverifiable', pull: pullOk(), verify: { seconds: 0.1, summary: base } });
+  const l2 = logLine({ at, level: 'UNVERIFIABLE', why: '2 unverifiable', pull: pullOk(), verify: { seconds: 0.1, summary: lied } });
+  assert.match(l1, / unv_codes=V0\/HistoryUnproven×1 /);
+  assert.match(l2, / unv_codes=\S*VG\/MissingData×1/);
+  assert.equal(watchHealth(l1 + '\n', at + 60000).level, 'OK');
+  const h = watchHealth(l2 + '\n', at + 60000);
+  assert.equal(h.level, 'WARN');
+  assert.match(h.detail, /VG\/MissingData/);
+  // a FAIL still wins
+  assert.equal(watchHealth(l2 + '\n' + logLine({ at: at + 1, level: 'FAIL', why: 'x', pull: pullOk(), verify: { seconds: 0.1, summary: summarizeReport(rep('FAIL', [F('VG', 'ReExecMismatch', 'FAIL')])) } }) + '\n', at + 60000).level, 'FAIL');
 });

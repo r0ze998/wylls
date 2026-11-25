@@ -5,7 +5,8 @@
 //! frontier-verify [tamper] --fixture FILE [options]
 //! frontier-verify [tamper] --program ID --season N --archive DIR (--finals FILE | --rpc URL) [options]
 //! frontier-verify [tamper] --program ID --season N --rpc URL [--localnet] [options]
-//! frontier-verify pull --program ID --season N --rpc URL --data DIR [--rpc-min-gap-ms N]
+//! frontier-verify pull --program ID --season N --rpc URL --data DIR [--rpc-min-gap-ms N (default 1000)]
+//!                      [--settle-tries N] [--skip-no-program-ix] [--ruleset HEX]
 //!                      (read-only: archive the new transactions, write DIR/finals.json; src/pull.rs)
 //!
 //! options: --test-key | --quicknet-pk HEX   the pinned drand key (default: quicknet)

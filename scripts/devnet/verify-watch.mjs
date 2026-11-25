@@ -4,7 +4,8 @@
 //
 //   node scripts/devnet/verify-watch.mjs --rpc URL --program ID --season N --data DIR
 //        --verify-bin PATH [--pull-bin PATH] --program-so SO [--pinned-sha256 HEX] [--ruleset HEX]
-//        [--once | --every MIN] [--max-rps 2] [--settle-tries 3] [--until UNIX] [--devnet]
+//        [--once | --every MIN] [--max-rps 1] [--settle-tries 3] [--until UNIX] [--devnet]
+//        [--keep-on-fail] [--skip-no-program-ix]
 //   node scripts/devnet/verify-watch.mjs --judge-only --data DIR … (re-judge DIR/input.json.gz, no RPC)
 //
 // Each cycle: `PULL_BIN pull` (archive the new signatures since the stored cursor in DIR/findex — the verifier's
@@ -20,6 +21,9 @@
 // --pull-bin defaults to --verify-bin (the pull subcommand needs a frontier-verify built from this branch or later;
 // the judge may be an older build, e.g. the devnet run dir's).
 // RPC: loopback always; https://api.devnet.solana.com only with --devnet; nothing else (checkRpc).
+// Owner questions Q-W3VW-1..4 are flags (defaults = the safe choice): --max-rps (default 1), --every MIN,
+// --keep-on-fail (default: the first FAIL stops the loop, exit 1; with it the loop goes on and exits 1 at --until),
+// --skip-no-program-ix (default off; pull leaves out transactions with no top-level instruction to the program).
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -29,7 +33,7 @@ import { DEFAULTS, QUICKNET_PK, checkRpc, classify, gapMsFor, logLine, nextDelay
 const KEEP_REPORTS = 48;
 
 function parseArgs(argv) {
-  const o = { once: false, judgeOnly: false, devnet: false, maxRps: DEFAULTS.maxRps, settleTries: DEFAULTS.settleTries, every: null, until: null };
+  const o = { once: false, judgeOnly: false, devnet: false, keepOnFail: false, skipNoProgramIx: false, maxRps: DEFAULTS.maxRps, settleTries: DEFAULTS.settleTries, every: null, until: null };
   const need = (i, k) => { if (i + 1 >= argv.length) usage(`${k} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -50,6 +54,8 @@ function parseArgs(argv) {
       case '--once': o.once = true; break;
       case '--judge-only': o.judgeOnly = true; o.once = true; break;
       case '--devnet': o.devnet = true; break;
+      case '--keep-on-fail': o.keepOnFail = true; break;
+      case '--skip-no-program-ix': o.skipNoProgramIx = true; break;
       case '-h': case '--help': usage(null); break;
       default: usage(`unknown argument ${k}`);
     }
@@ -69,7 +75,7 @@ function parseArgs(argv) {
 }
 
 function usage(msg) {
-  const head = readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 20).map(l => l.replace(/^\/\/ ?/, '')).join('\n');
+  const head = readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1).filter((l, i, all) => all.slice(0, i + 1).every(x => x.startsWith('//'))).map(l => l.replace(/^\/\/ ?/, '')).join('\n');
   if (msg) console.error(`verify-watch: ${msg}\n`);
   console.error(head);
   process.exit(msg ? 2 : 0);
@@ -126,7 +132,7 @@ async function cycle(o) {
   } else {
     const r = await run(o.pullBin, ['pull', '--program', o.program, '--season', String(o.season), '--rpc', o.rpc,
       '--data', o.data, '--rpc-min-gap-ms', String(o.gapMs), '--settle-tries', String(o.settleTries),
-      ...(o.ruleset ? ['--ruleset', o.ruleset] : [])]);
+      ...(o.ruleset ? ['--ruleset', o.ruleset] : []), ...(o.skipNoProgramIx ? ['--skip-no-program-ix'] : [])]);
     const last = r.stdout.trim().split('\n').pop();
     try { pull = JSON.parse(last); } catch { pull = { ok: false, error: `exit ${r.code}: ${(r.stderr || r.stdout).trim().split('\n').pop()?.slice(0, 200)}` }; }
     if (pull.ok !== false) writeFileSync(path.join(o.data, 'last-pull.json'), JSON.stringify(pull, null, 1));
@@ -169,13 +175,16 @@ async function main() {
   }
   if (o.once) { const { c } = await cycle(o); process.exit(c.exit); }
   let factor = 1;
+  let worst = 0;
   for (;;) {
     const { c, pull } = await cycle(o);
-    if (c.exit) process.exit(c.exit); // a real mismatch stops the watch (the log and the report say what)
+    // a real mismatch stops the watch (the log and the report say what) unless --keep-on-fail (Q-W3VW-3)
+    if (c.exit && !o.keepOnFail) process.exit(c.exit);
+    worst = Math.max(worst, c.exit);
     const d = nextDelayMin(factor, pull, { everyMin: o.every });
     factor = d.factor;
     const wake = Date.now() + d.minutes * 60000;
-    if (o.until && wake / 1000 > o.until) process.exit(0);
+    if (o.until && wake / 1000 > o.until) process.exit(worst);
     await new Promise(r => setTimeout(r, d.minutes * 60000));
   }
 }

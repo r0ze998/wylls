@@ -4,7 +4,7 @@
 //! ```text
 //! frontier-verify pull --program ID --season N --rpc URL --data DIR
 //!                      [--origin SIG] [--rpc-min-gap-ms N] [--page N]
-//!                      [--settle-tries N] [--no-finals]
+//!                      [--settle-tries N] [--no-finals] [--skip-no-program-ix]
 //! ```
 //!
 //! The judge is then OFFLINE: `frontier-verify --fixture DIR/input.json.gz
@@ -41,9 +41,17 @@
 //!    snapshots — as the fixture `DIR/input.json.gz` (`Input::save`; it keeps
 //!    where its transactions came from: never `as_given`).
 //!
+//! `--skip-no-program-ix` (off by default; owner question Q-W3VW-4): also
+//! leave out of the season's input every archived transaction with no
+//! TOP-LEVEL instruction to the program (a loader-v3 Upgrade names the
+//! program account but does not call it). Like other seasons'
+//! transactions this cannot hide a mismatch: a transaction left out that
+//! did write this season's accounts (a CPI into the program) leaves VG
+//! with a final state it cannot explain (FAIL, never a silent PASS).
+//!
 //! Every call goes through ONE pacer per endpoint
 //! ([`verify_core::input::rpc_client`]): `--rpc-min-gap-ms` apart (default
-//! 500, at most 2 requests a second), HTTP 429/503 retried after the
+//! 1000, at most 1 request a second; verify-pr251), HTTP 429/503 retried after the
 //! server's `Retry-After` with back-off. Prints one JSON summary line on
 //! stdout; exit 0 done, 2 the run could not complete (nothing judged).
 
@@ -68,6 +76,7 @@ struct Args {
     page: usize,
     settle_tries: u32,
     finals: bool,
+    skip_no_program_ix: bool,
 }
 
 fn fail(msg: &str) -> ! {
@@ -78,7 +87,8 @@ fn fail(msg: &str) -> ! {
 
 fn parse(mut a: impl Iterator<Item = String>) -> Args {
     let (mut program, mut season, mut rpc, mut data, mut origin) = (None, None, None, None, None);
-    let (mut page, mut settle_tries, mut finals, mut gap) = (1_000usize, 3u32, true, 500u64);
+    let (mut page, mut settle_tries, mut finals, mut gap) = (1_000usize, 3u32, true, 1_000u64);
+    let mut skip_no_program_ix = false;
     // The ruleset hash the fixture's config names (the judge's --ruleset overrides it): S1's v3, which world 3's
     // Season carries (expedition_dispatch_ix: "S1's RULESET_HASH_V3, 12").
     let mut ruleset = frontier_abi::v2::presets::RULESET_HASH_V3;
@@ -113,6 +123,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Args {
                     .unwrap_or_else(|_| fail("bad --rpc-min-gap-ms"))
             }
             "--no-finals" => finals = false,
+            "--skip-no-program-ix" => skip_no_program_ix = true,
             "--ruleset" => ruleset = input::hex_arr(&val()).unwrap_or_else(|e| fail(&e)),
             other => fail(&format!("unknown argument {other}")),
         }
@@ -129,6 +140,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Args {
         page,
         settle_tries,
         finals,
+        skip_no_program_ix,
     }
 }
 
@@ -263,7 +275,8 @@ fn split_foreign(
     finals: &mut BTreeMap<[u8; 32], Option<Account>>,
     program: &Address,
     season: u64,
-) -> (Vec<TxRecord>, Vec<String>, usize) {
+    skip_no_program_ix: bool,
+) -> (Vec<TxRecord>, Vec<String>, usize, Vec<String>) {
     let mut other: std::collections::HashSet<[u8; 32]> = (0..FOREIGN_SEASON_IDS)
         .filter(|id| *id != season)
         .map(|id| fclient::addr::season_pda(program, id).0.to_bytes())
@@ -280,20 +293,29 @@ fn split_foreign(
     }
     let mut keep = vec![];
     let mut foreign = vec![];
+    let mut no_ix = vec![];
     for t in txs {
-        let named = match verify_core::vmsg::Msg::of(&t) {
-            Ok(m) => m.keys.iter().any(|k| other.contains(&k.to_bytes())),
-            Err(_) => false,
+        let (named, calls) = match verify_core::vmsg::Msg::of(&t) {
+            Ok(m) => (
+                m.keys.iter().any(|k| other.contains(&k.to_bytes())),
+                m.view.instructions.iter().any(|ix| {
+                    m.view.account_keys.get(ix.program_id_index as usize) == Some(program)
+                }),
+            ),
+            // undecodable: kept (the judge says what it is)
+            Err(_) => (false, true),
         };
         if named {
             foreign.push(t.signature.to_string());
+        } else if skip_no_program_ix && !calls {
+            no_ix.push(t.signature.to_string());
         } else {
             keep.push(t);
         }
     }
     let before = finals.len();
     finals.retain(|k, _| !other.contains(k));
-    (keep, foreign, before - finals.len())
+    (keep, foreign, before - finals.len(), no_ix)
 }
 
 fn last_record(a: &findex::Archive) -> Option<TxRecord> {
@@ -429,13 +451,23 @@ async fn run(args: &Args) -> Result<Value, String> {
         // world) stay in the archive but not in this season's input: the verifier judges one season and FAILs a
         // foreign AnnounceSeason (V2 AnnounceMismatch, CQ1 chains; world3-verifier-watch dry run).
         let mut finals = finals;
-        let (txs, foreign, foreign_accounts) =
-            split_foreign(txs, &mut finals, &args.program, args.season);
+        let (txs, foreign, foreign_accounts, no_ix) = split_foreign(
+            txs,
+            &mut finals,
+            &args.program,
+            args.season,
+            args.skip_no_program_ix,
+        );
         let n_accounts = finals.len();
         summary["foreign_season_txs"] = json!({
             "count": foreign.len(),
             "accounts_left_out": foreign_accounts,
             "signatures": foreign.iter().take(50).collect::<Vec<_>>(),
+        });
+        summary["no_program_ix_txs"] = json!({
+            "skipped": args.skip_no_program_ix,
+            "count": no_ix.len(),
+            "signatures": no_ix.iter().take(50).collect::<Vec<_>>(),
         });
         let inp = input::Input {
             cfg: input::Config {
@@ -450,10 +482,11 @@ async fn run(args: &Args) -> Result<Value, String> {
             final_slot,
             program_hashes,
             provenance: format!(
-                "verify-watch pull: findex RpcPoll archive {} + finals at slot {final_slot} over {}; {} transaction(s) of other seasons left out (verify-watch foreign_season_txs)",
+                "verify-watch pull: findex RpcPoll archive {} + finals at slot {final_slot} over {}; {} transaction(s) of other seasons left out (verify-watch foreign_season_txs); {} with no instruction to the program left out (--skip-no-program-ix)",
                 archive_dir.display(),
                 fclient::https::redact(&args.rpc),
-                foreign.len()
+                foreign.len(),
+                no_ix.len()
             ),
             scenarios: vec![],
             history,

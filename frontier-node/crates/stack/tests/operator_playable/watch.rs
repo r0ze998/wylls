@@ -13,7 +13,7 @@
 //!    fetched (the cursor), the archive grows by exactly the node's new program transactions, exit 0, no FAIL.
 //! 3. Cycle 3 while keeper A keeps writing at ×60 (a busy world): the finals' snapshot must still be consistent (the
 //!    pull re-reads them when a transaction landed at or before their slot) or the line says RACE — never FAIL.
-//! 4. TAMPERS (copies of the data dir, `--judge-only`, no RPC): (a) one byte of one program account's final state
+//! 4. TAMPERS (copies of cycle 2's consistent data dir, `--judge-only`, no RPC): (a) one byte of one program account's final state
 //!    changed; (b) one program account drained by one lamport (a CREDIT is honest: anyone may transfer in); (c) the last successful program transaction dropped from
 //!    the watch's input. Each must exit 1 with a FAIL line: the watch catches a chain state its transactions do not
 //!    explain.
@@ -191,6 +191,10 @@ pub async fn run(c: Ctx<'_>) -> Value {
     tokio::task::block_in_place(|| run_fast(&c, 1.0, 3));
     let c2 = tokio::task::block_in_place(|| watch(&c, &data, &[]));
     keep(&data, "cycle2");
+    // verify-pr251: the tampers start from cycle 2's CONSISTENT snapshot (cycle 3 at ×60 may end RACE at 1 req/s, and a
+    // tamper of an inconsistent snapshot is RACE too, never FAIL).
+    let tamper_base = c.dir.join("watch-data-cycle2");
+    copy_dir(&data, &tamper_base);
     assert_judged_ok("cycle 2", &c2);
     assert_eq!(
         c2.pull["foreign_season_txs"]["count"],
@@ -248,8 +252,8 @@ pub async fn run(c: Ctx<'_>) -> Value {
 
     // 4. Tampers on copies of the data dir (judge only, no RPC): the watch's own fixture changed as a lying RPC (or a
     //    program bug) would leave it.
-    let base =
-        verify_core::input::Input::load(&data.join("input.json.gz")).expect("the watch's input");
+    let base = verify_core::input::Input::load(&tamper_base.join("input.json.gz"))
+        .expect("the watch's input");
     let program_key = c.program.to_bytes();
     let (key, _) = base
         .finals
@@ -272,7 +276,7 @@ pub async fn run(c: Ctx<'_>) -> Value {
     let mut tampers = vec![];
     for name in ["finals-data-byte", "finals-lamports", "drop-tx"] {
         let t = c.dir.join(format!("watch-tamper-{name}"));
-        copy_dir(&data, &t);
+        copy_dir(&tamper_base, &t);
         let mut inp = base.clone();
         let what = match name {
             "finals-data-byte" => {

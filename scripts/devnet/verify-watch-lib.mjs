@@ -12,12 +12,15 @@
 
 export const DEFAULTS = Object.freeze({
   everyMin: 30,          // minutes between cycles (loop mode)
-  maxRps: 2,             // requests per second, the whole watch (one pacer)
+  maxRps: 1,             // requests per second, the whole watch (one pacer); devnet's public RPC allows ~1/s per method (B5)
   settleTries: 3,        // finals re-reads when a transaction lands at/before the finals' slot
   staleMin: 90,          // health: no line for this long → WARN stale
   raceWarnStreak: 4,     // health: this many inconsistent snapshots in a row → WARN
   errorWarnStreak: 3,    // health: this many failed cycles in a row → WARN
   maxBackoff: 4,         // loop: at most this × everyMin after throttling
+  // health: UNVERIFIABLE codes expected over a public RPC without a witness; any OTHER one (e.g. VG/MissingData when an
+  // RPC served balances that are not a chain's — verify-pr251 tamper T3) is a WARN, not a silent OK
+  unvBaseline: ['V0/HistoryUnproven'],
 });
 
 export const DEVNET_HOST = 'api.devnet.solana.com';
@@ -111,6 +114,7 @@ export function logLine({ at, level, why, pull, verify, reportDir }) {
     `unv=${s?.unverifiable ?? '-'}`,
   ];
   if (s && s.fail) parts.push(`fail_codes=${codes(s.failCodes)}`);
+  if (s && s.unverifiable) parts.push(`unv_codes=${codes(s.unvCodes)}`);
   if (reportDir) parts.push(`report=${reportDir}`);
   if (why) parts.push(`why=${String(why).replace(/\s+/g, ' ').slice(0, 300)}`);
   return parts.join(' ');
@@ -126,7 +130,8 @@ export function parseLine(line) {
 /**
  * The health line for the watch log (proposed `verify.watch` check of health.mjs):
  *   FAIL  — the last judged cycle was FAIL (a real mismatch; it stays FAIL until a later PASS/UNVERIFIABLE);
- *   WARN  — no line for staleMin (stale), or a REPIN, or errorWarnStreak ERRORs / raceWarnStreak RACEs in a row;
+ *   WARN  — no line for staleMin (stale), or a REPIN, or errorWarnStreak ERRORs / raceWarnStreak RACEs in a row, or
+ *           the last judged cycle had an UNVERIFIABLE code outside unvBaseline (its `unv_codes=`);
  *   OK    — otherwise (PASS or UNVERIFIABLE last).
  */
 export function watchHealth(text, nowMs, o = {}) {
@@ -142,6 +147,10 @@ export function watchHealth(text, nowMs, o = {}) {
   const brief = l => l.line.slice(l.line.indexOf(' ') + 1, 220);
   if (judged?.level === 'FAIL') return { level: 'FAIL', key, detail: `mismatch: ${brief(judged)}` };
   if (ageMin > staleMin) return { level: 'WARN', key, detail: `stale: last line ${Math.round(ageMin)} min ago (> ${staleMin}): ${brief(last)}` };
+  const unvExtra = judged?.level === 'UNVERIFIABLE'
+    ? (/ unv_codes=(\S+)/.exec(judged.line)?.[1] ?? '').split(',').map(c => c.replace(/×\d+$/, '')).filter(c => c && !(o.unvBaseline ?? DEFAULTS.unvBaseline).includes(c))
+    : [];
+  if (unvExtra.length) return { level: 'WARN', key, detail: `unverifiable beyond the public-RPC baseline (${unvExtra.join(',')}): ${brief(judged)}` };
   if (last.level === 'REPIN') return { level: 'WARN', key, detail: `program changed, not judged: ${brief(last)}` };
   if (last.level === 'ERROR' && streak >= (o.errorWarnStreak ?? DEFAULTS.errorWarnStreak)) return { level: 'WARN', key, detail: `${streak} failed cycles in a row: ${brief(last)}` };
   if (last.level === 'RACE' && streak >= (o.raceWarnStreak ?? DEFAULTS.raceWarnStreak)) return { level: 'WARN', key, detail: `${streak} inconsistent snapshots in a row (busy world): ${brief(last)}` };

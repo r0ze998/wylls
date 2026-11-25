@@ -1072,7 +1072,7 @@ async fn p18_the_page_plays_player_territory_on_the_new_devnet_so_offline() {
 /// watch cycles over JSON-RPC (first pull, incremental pull, a busy world) judged PASS/UNVERIFIABLE with no FAIL, then
 /// three tampers that must FAIL (`operator_playable/watch.rs`). `OPERATOR_WATCH=1` and `OPERATOR_TERRITORY_SO` only;
 /// `FRONTIER_VERIFY_BIN` (default: this profile's frontier-verify, built with `verify/playable-lane` and the `pull`
-/// subcommand), `OPERATOR_WATCH_MAX_RPS` (default 2, the devnet cap).
+/// subcommand), `OPERATOR_WATCH_MAX_RPS` (default 1, the watch's default).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pwatch_the_verifier_watch_judges_a_world3_replica_offline() {
     if std::env::var("OPERATOR_WATCH").ok().as_deref() != Some("1") || territory_so().is_none() {
@@ -2215,7 +2215,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
                 max_rps: std::env::var("OPERATOR_WATCH_MAX_RPS")
                     .ok()
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(2.0),
+                    .unwrap_or(1.0),
                 keeper: &mut keeper.0,
             })
             .await,
