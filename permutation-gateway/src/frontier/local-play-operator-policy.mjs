@@ -37,8 +37,10 @@
 // Still one action per bell; the world's runner settles the claims (itest wide_play).
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
-import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, warStep, warHomeOrder } from './local-play-operator-war.mjs';
-import { nearerOwnVillage, claimCostV1 } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, MUSTER_MIN, warStep, warHomeOrder } from './local-play-operator-war.mjs';
+import { oreReserve, tilePays, coversTrain, oreTurn } from './local-play-operator-reserve.mjs';
+export { OPERATOR_ORE_RESERVE } from './local-play-operator-reserve.mjs';
+import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
 export const OPERATOR_RESIDENTS_SCHEMA = 'frontier-local-play-operator-residents-v1';
@@ -168,6 +170,8 @@ export function residentView(me, decode) {
 export const OPERATOR_WIDE_CLAIMS = 2;
 /** territory-impl: the most tiles an operator resident claims (its land then grows only through villages and keeps). */
 export const OPERATOR_TILES_MAX = 24;
+/** The troops a resident with no host trains up to before its first march into the wide land (a host is at least 100). */
+export const WIDE_HOST_TROOPS = 110;
 /** (TEST-ONLY wide march) Marches into the wide land per resident, and the turns between two of them. */
 export const OPERATOR_WIDE_MARCHES = 2;
 export const WIDE_MARCH_GAP_BELLS = 40;
@@ -231,14 +235,25 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   const nearer = t => { const v = nearerOwnVillage(h, t, memory.wideVillages); return v ? { village: v } : {}; };
   // (verify-pr206-209: live, 2 of 3 growth claims were refused Insufficient — a tile claim is sent only when the ore
   //  read covers the next tile's price; an unknown ore read does not block)
-  const oreCovers = () => !Number.isFinite(wide?.ore) || wide.ore >= claimCostV1((memory.ownTiles ?? []).length);
+  // (ai-ore-reserve, owner 2026-11-25 09:33 Q-LP15-4 (b): and only when the ORE RESERVE stays behind — one training
+  //  batch, the troops still missing for its next host, its next village's ore; no tile while an own keep near it is
+  //  under contest. local-play-operator-reserve.mjs)
+  const atWar = !!(memory.war && war);
+  const stores = Array.isArray(wide?.stores) ? wide.stores : null;
+  const ore = Number.isFinite(wide?.ore) ? wide.ore : null;
+  const army = atWar ? (Number.isFinite(war.army) ? war.army : Number(war.reserve ?? 0)) : wide?.needHost ? Number(wide.needHost.reserve ?? 0) : null;
+  const threatened = atWar && (war.threatened === true || war.march?.kind === 'defend');
+  const villageDue = !!wide && Array.isArray(wide.targets) && wide.targets.length > 0 && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS;
+  const oreKept = oreReserve({ army, hostGoal: atWar ? MUSTER_MIN : wide?.needHost ? WIDE_HOST_TROOPS : 0, threatened,
+    villagesHeld: villageDue ? 1 + Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length) : null });
+  const oreCovers = () => tilePays(ore, (memory.ownTiles ?? []).length, oreKept);
   // (territory-impl: grow the land — one more tile next to the resident's own, a turn apart, up to OPERATOR_TILES_MAX;
   //  the reach is its own tile's province (witness 'own'); a refused tile is not asked again. verify-pr206-209: also
   //  while it saves for its next village — a tile costs ore, not the settler's goods — so AI land grows by tiles, not
   //  only by village sites: before, the save-for-a-village Harvest came first and no growth claim was ever sent)
-  const grow = () => {
+  const growCandidate = () => {
     const own = memory.ownTiles ?? [];
-    if (!(wide && own.length && own.length < OPERATOR_TILES_MAX && (memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && memory.decisions % 2 === 0 && oreCovers())) return null;
+    if (!(wide && own.length && own.length < OPERATOR_TILES_MAX)) return null;
     const tried = new Set(memory.triedTiles ?? []);
     for (const o of own) {
       const t = (wide.targets ?? []).find(x => x.p === o.p && x.q === o.q && x.territory);
@@ -252,6 +267,19 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     }
     return null;
   };
+  const grow = () => ((memory.cooldown.TerritoryClaim ?? 0) <= memory.decisions && memory.decisions % 2 === 0 && oreCovers() ? growCandidate() : null);
+  // (ai-ore-reserve: the tile of the next village's site, when the resident still has to claim it — the same choice
+  //  the village step below makes)
+  const siteTileDue = () => {
+    if (!villageDue || !wide.targets.some(t => t.territory)) return false;
+    const tried = new Set(memory.triedClaims ?? []);
+    const next = wide.targets.flatMap(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).map(site => ({ t, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
+    const tile = next?.t.territory ? next.t.territory.siteTiles[next.site] : null;
+    return Number.isInteger(tile) && !(memory.ownTiles ?? []).some(o => o.p === next.t.p && o.q === next.t.q && o.tile === tile);
+  };
+  // (ai-ore-reserve: a Train is not asked for when the stores are known not to cover it; and with the army at its floor
+  //  and no threat, land and troops take turns — the land's turn only while a tile can really be claimed)
+  const landsTurn = () => oreTurn({ army, threatened, ore, troopsTurn: memory.troopsTurn === true, landWanted: siteTileDue() || !!growCandidate() }) === 'land';
   // (a war resident of a wide world: its FIRST expedition into the wide land before the war step takes every ready host —
   //  loop-play4 B-6, war on by default: the AI nations both fight and go out into the wide land)
   if (memory.war && war && wide?.march && (memory.wideMarches ?? 0) === 0) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell}), before the war takes it` };
@@ -264,7 +292,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     if (s?.wait) return { wait: true, why: s.why };
     if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, ...(s.goal ? { goal: s.goal } : {}), why: `${s.goal ? `${s.goal} — ` : ''}${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
-    if (s?.name === 'Train') return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
+    if (s?.name === 'Train' && coversTrain(stores, s.n) && !landsTurn()) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
   }
   // (TEST-ONLY wide march, wide-march-local: a ready host of a rim village marches INTO the bordering wide land — the
   //  page's own judged route, local-play-operator-wide-march.mjs; at most OPERATOR_WIDE_MARCHES, one at a time)
@@ -272,7 +300,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   if (wide?.needHost && view.holding.tile !== undefined) {
     const reserve = Number(wide.needHost.reserve ?? 0);
     if (reserve >= 100 && (memory.cooldown.WideMuster ?? 0) <= memory.decisions) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: Math.min(reserve, 300), tile: view.holding.tile }, wideHost: true, why: `a host of the reserve's ${Math.min(reserve, 300)} troops, to march into the wide land` };
-    if (reserve < 100 && (memory.cooldown.WideTrain ?? 0) <= memory.decisions) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: 110 - reserve }, wideHost: true, why: 'troops for a host that marches into the wide land' };
+    if (reserve < 100 && (memory.cooldown.WideTrain ?? 0) <= memory.decisions && coversTrain(stores, WIDE_HOST_TROOPS - reserve)) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: WIDE_HOST_TROOPS - reserve }, wideHost: true, why: 'troops for a host that marches into the wide land' };
   }
   if (wide?.march) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell})` };
   // (TEST-ONLY wide play: save, then claim the nearest wide land within reach — header)
@@ -351,6 +379,8 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
     const k = `${decision.v.target.p},${decision.v.target.q},${decision.fields.tile}`;
     // (already the resident's — AlreadyDone 52, e.g. an earlier answer was not known — counts as landed)
     const mine = outcome === 'landed' || (bad && (why.programCode === 52 || why.code === 'AlreadyDone'));
+    // (ai-ore-reserve: a tile landed — the next ore is the troops')
+    if (outcome === 'landed') memory.troopsTurn = true;
     if (mine && !(memory.ownTiles ?? []).some(o => `${o.p},${o.q},${o.tile}` === k)) (memory.ownTiles ??= []).push({ p: String(decision.v.target.p), q: String(decision.v.target.q), tile: decision.fields.tile, ...(Array.isArray(decision.blocked) ? { blocked: decision.blocked } : {}) });
     // (verify-pr206-209: a refusal that passes with time — ore short, upkeep unpaid, the turn's claim — only cools the
     //  claim; the tile and its village site stay candidates. Not known: the tile is not asked again, the site stays)
@@ -364,6 +394,8 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
       memory.cooldown.TerritoryClaim = memory.decisions + OPERATOR_COOLDOWN;
     }
   }
+  // (ai-ore-reserve: a batch landed — the land may take the next ore)
+  if (decision.name === 'Train' && outcome === 'landed') memory.troopsTurn = false;
   if (decision.wideHost && bad) memory.cooldown[decision.name === 'Muster' ? 'WideMuster' : 'WideTrain'] = memory.decisions + OPERATOR_COOLDOWN;
   if (decision.name === 'WideMarch') {
     // (landed or not known: counted and spaced — never sent twice for one plan; refused: cooled down)

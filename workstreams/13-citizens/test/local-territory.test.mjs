@@ -211,6 +211,9 @@ test('TB4 holds, each said: this turn\'s claim used, upkeep unpaid, the ore shor
   assert.match((await held(world({ mine: { '-65,-65': [12] }, player: { unpaidSince: 45 } })))[0], /upkeep is unpaid/);
   assert.match((await held(world(), {}, village({ stores: [500, 500, 300, 4, 0, 200, 0, 0] })))[0], /costs 10 ore; my first home has 4/);
   assert.match((await held(world(), { landStage: 'provisional' })).join(' '), /not final yet/);
+  // ai-ore-reserve (owner 2026-11-25 09:33, Q-LP15-4 (b)): the site's tile leaves one training hundred's ore (20) behind
+  assert.match((await held(world(), {}, village({ stores: [500, 500, 300, 29, 0, 200, 0, 0] })))[0], /covers the tile \(10\) but not 1 training hundred\(s\) after it \(20\): land does not come before troops/);
+  assert.deepEqual(await held(world(), {}, village({ stores: [500, 500, 300, 30, 0, 200, 0, 0] })), []);
 });
 
 test('TB5 (live run1) while my landed village claim settles, no other site\'s tile is bought', async () => {

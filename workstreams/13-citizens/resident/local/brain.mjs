@@ -250,7 +250,7 @@ export const buildSpend = (obs, item) => (BUILD_ITEMS[item] && obs?.settled ? BU
  * (ws13-territory, #209) The tile candidates of a world with player territory, pushed onto `out` (kind 'tile', the
  * page's own act TerritoryClaim; one claim a turn is the world's, one action a turn the resident's):
  *   tile:site    the tile of the site the next wide village will stand on (`siteFirst`, wide.mjs claimOrder), as soon as
- *                the ore covers it — without it no village can be founded
+ *                the ore covers it and a training hundred after it (ai-ore-reserve) — without it no village can be founded
  *   tile:growth  one more tile next to its own land, at its own pace (territory.mjs TERRITORY_LIMITS / growthHolds:
  *                only from ore beyond the plan, the reserve and a training hundred; LP15-5)
  * Held, each with its reason: the turn's claim used, upkeep unpaid (the world refuses claims then), the ore short.
@@ -265,6 +265,11 @@ export function territoryCandidates(obs, mem, out, { bell, a = null, siteFirst =
     // (the same lazy final flip as the wide claim's: the site's tile is bought once the first village is final —
     //  a tile for a village that cannot be claimed yet would only start its upkeep early)
     if (!final) held.push('my first village is not final yet: the site\'s tile once a wide claim can follow');
+    // (ai-ore-reserve, owner 2026-11-25 09:33 Q-LP15-4 (b) "AI keeps an ore reserve — don't starve its armies": the
+    //  site's tile too leaves the ore of `oreKeepHundreds` training hundred(s) behind, as a growth tile always did)
+    const keepOre = (trainCost(0, 100, Number(obs.programVersion ?? 1))?.[idx('Ore')] ?? 0) * tl.oreKeepHundreds;
+    if (Number.isFinite(ore) && ore >= view.own.nextClaimOre && ore < view.own.nextClaimOre + keepOre)
+      held.push(`my first home's ore (${Math.floor(ore)}) covers the tile (${view.own.nextClaimOre}) but not ${tl.oreKeepHundreds} training hundred(s) after it (${keepOre}): land does not come before troops`);
     out.push({ id: `tile:${x.p},${x.q},${siteFirst.tile}`, kind: 'tile', site: `${x.p},${x.q},${siteFirst.tile}`, meta: { purpose: 'site', villageSite: siteFirst.site }, order: tileOrder(obs.holding, x, siteFirst.tile),
       ...(held.length ? { held } : {}), score: 1.55,
       why: `claim tile ${siteFirst.tile} at ${x.p},${x.q} for ${view.own.nextClaimOre} ore: the site ${siteFirst.site} of my next village stands on it (a village stands only on my own land)` });
