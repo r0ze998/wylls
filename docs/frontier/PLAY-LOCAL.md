@@ -515,7 +515,7 @@ same Build a player has (food 40, wood 80, stone 20; +6 ore an hour), once; not 
 under attack. Measured the same way (×60, `--ai 4`, 38.5 minutes after the player's village stood, same map, with and
 without the mine): ore an hour of the four AI villages 46 in all (before 22), 89 trainings landed (53), 21 marches on
 keeps (17), 9 keeps changed hands (7), 63 tiles claimed (31), **0 wide villages (4)** — with ore no longer short, the
-food and gold go to troops and the next village's cost is not saved in that time (open question Q-AEM-1). An external resident run with workstream ⑬'s
+food goes to troops (60 a training) and the next village's cost is not saved in that time (open question Q-AEM-1). An external resident run with workstream ⑬'s
 client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
