@@ -591,6 +591,20 @@ pub const OP_TERRITORY_DECAY: u8 = 13;
 /// 0xDC op 14: a captured keep's province tiles move to the captor (T-8).
 /// Class D, anyone. Provisional.
 pub const OP_TERRITORY_CONQUER: u8 = 14;
+/// 0xDA op 8 (research, owner 2026-11-25 08:56): pledge a village's
+/// science to the nation's research of one tech. Class P. Provisional.
+pub const OP_PLEDGE: u8 = 8;
+/// 0xDC op 15: a nation whose pledged total reaches a (discounted) cost
+/// learns the tech. Class D, anyone. Provisional.
+pub const OP_RESEARCH_SETTLE: u8 = 15;
+/// 0xDC op 16: copy the village owner's nation's techs into the village's
+/// two spare bytes (the effects). Class D, anyone. Provisional.
+pub const OP_RESEARCH_APPLY: u8 = 16;
+/// 0xDB op 1: the Season authority starts research (creates the world's
+/// and the six nations' research records). Class O, top-level. Provisional.
+pub const OP_START_RESEARCH: u8 = 1;
+/// 0xDB op 2: the Season authority pauses or resumes pledges. Provisional.
+pub const OP_PAUSE_RESEARCH: u8 = 2;
 pub const OP_RESOLVE: u8 = 1;
 pub const OP_RETURN: u8 = 2;
 /// 0xDC op 3: the origin side of a march after its departure bell (the
@@ -1254,6 +1268,145 @@ impl TerritoryConquer {
     }
 }
 
+/// 0xDA op 8 WidePledge: `tech u8, amount u32` (whole science).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pledge {
+    pub tech: u8,
+    pub amount: u32,
+}
+
+impl Pledge {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_PLEDGE;
+    pub const LEN: usize = ENVELOPE_HEAD + 5;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[4] = self.tech;
+        b[5..9].copy_from_slice(&self.amount.to_le_bytes());
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let bad = FrontierError::BadData;
+        let x = Pledge {
+            tech: c.u8().ok_or(bad)?,
+            amount: c.u32().ok_or(bad)?,
+        };
+        if x.amount == 0 {
+            return Err(bad);
+        }
+        Ok(x)
+    }
+}
+
+/// 0xDC op 15 WideResearchSettle: `tech u8`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResearchSettle {
+    pub tech: u8,
+}
+
+impl ResearchSettle {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_RESEARCH_SETTLE;
+    pub const LEN: usize = ENVELOPE_HEAD + 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[4] = self.tech;
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(ResearchSettle {
+            tech: c.u8().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+
+/// 0xDC op 16 WideResearchApply: no data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResearchApply;
+
+impl ResearchApply {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_RESEARCH_APPLY;
+    pub const LEN: usize = ENVELOPE_HEAD;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(ResearchApply)
+    }
+}
+
+/// 0xDB op 1 WideStartResearch: `rule u8, start_bell u32`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StartResearch {
+    pub rule: u8,
+    pub start_bell: u32,
+}
+
+impl StartResearch {
+    pub const IX: WideIx = WideIx::SetRules;
+    pub const OP: u8 = OP_START_RESEARCH;
+    pub const LEN: usize = ENVELOPE_HEAD + 5;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[4] = self.rule;
+        b[5..9].copy_from_slice(&self.start_bell.to_le_bytes());
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let bad = FrontierError::BadData;
+        Ok(StartResearch {
+            rule: c.u8().ok_or(bad)?,
+            start_bell: c.u32().ok_or(bad)?,
+        })
+    }
+}
+
+/// 0xDB op 2 WidePauseResearch: `paused u8` (0 resume, 1 pause).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PauseResearch {
+    pub paused: u8,
+}
+
+impl PauseResearch {
+    pub const IX: WideIx = WideIx::SetRules;
+    pub const OP: u8 = OP_PAUSE_RESEARCH;
+    pub const LEN: usize = ENVELOPE_HEAD + 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[4] = self.paused;
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let paused = c.u8().ok_or(FrontierError::BadData)?;
+        if paused > 1 {
+            return Err(FrontierError::BadData);
+        }
+        Ok(PauseResearch { paused })
+    }
+}
+
 /// 0xDC op 1: the deployed ResolveFromInputs' data (`bell u32,
 /// beneficiary 32`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1493,6 +1646,11 @@ pub enum WideCommand<'a> {
     TerritorySettle(TerritorySettle),
     TerritoryDecay(TerritoryDecay),
     TerritoryConquer(TerritoryConquer),
+    Pledge(Pledge),
+    ResearchSettle(ResearchSettle),
+    ResearchApply(ResearchApply),
+    StartResearch(StartResearch),
+    PauseResearch(PauseResearch),
 }
 
 impl<'a> WideCommand<'a> {
@@ -1572,6 +1730,19 @@ impl<'a> WideCommand<'a> {
             (WideIx::SettleTicket, OP_TERRITORY_CONQUER) => {
                 TerritoryConquer::decode(d).map(WideCommand::TerritoryConquer)
             }
+            (WideIx::Depart, OP_PLEDGE) => Pledge::decode(d).map(WideCommand::Pledge),
+            (WideIx::SettleTicket, OP_RESEARCH_SETTLE) => {
+                ResearchSettle::decode(d).map(WideCommand::ResearchSettle)
+            }
+            (WideIx::SettleTicket, OP_RESEARCH_APPLY) => {
+                ResearchApply::decode(d).map(WideCommand::ResearchApply)
+            }
+            (WideIx::SetRules, OP_START_RESEARCH) => {
+                StartResearch::decode(d).map(WideCommand::StartResearch)
+            }
+            (WideIx::SetRules, OP_PAUSE_RESEARCH) => {
+                PauseResearch::decode(d).map(WideCommand::PauseResearch)
+            }
             (WideIx::Depart, OP_ECONOMY) => Economy::decode(d).map(WideCommand::Economy),
             (WideIx::SettleTicket, OP_RESOLVE) => Resolve::decode(d).map(WideCommand::Resolve),
             (WideIx::SettleTicket, OP_RETURN) => Return::decode(d).map(WideCommand::Return),
@@ -1617,8 +1788,11 @@ impl<'a> WideCommand<'a> {
             | WideCommand::Dissolve(_)
             | WideCommand::Economy(_)
             | WideCommand::Garrison(_)
-            | WideCommand::ClaimTile(_) => WideIx::Depart,
-            WideCommand::SetRules(_) => WideIx::SetRules,
+            | WideCommand::ClaimTile(_)
+            | WideCommand::Pledge(_) => WideIx::Depart,
+            WideCommand::SetRules(_)
+            | WideCommand::StartResearch(_)
+            | WideCommand::PauseResearch(_) => WideIx::SetRules,
             WideCommand::SettleTicket(_)
             | WideCommand::Resolve(_)
             | WideCommand::Return(_)
@@ -1628,7 +1802,9 @@ impl<'a> WideCommand<'a> {
             | WideCommand::ClaimDefence(_)
             | WideCommand::TerritorySettle(_)
             | WideCommand::TerritoryDecay(_)
-            | WideCommand::TerritoryConquer(_) => WideIx::SettleTicket,
+            | WideCommand::TerritoryConquer(_)
+            | WideCommand::ResearchSettle(_)
+            | WideCommand::ResearchApply(_) => WideIx::SettleTicket,
             WideCommand::ResidentAct(_) => WideIx::ResidentAct,
             WideCommand::Close(_)
             | WideCommand::CloseRoster(_)
@@ -1666,6 +1842,11 @@ impl<'a> WideCommand<'a> {
             WideCommand::TerritorySettle(_) => "WideTerritorySettle",
             WideCommand::TerritoryDecay(_) => "WideTerritoryDecay",
             WideCommand::TerritoryConquer(_) => "WideTerritoryConquer",
+            WideCommand::Pledge(_) => "WidePledge",
+            WideCommand::ResearchSettle(_) => "WideResearchSettle",
+            WideCommand::ResearchApply(_) => "WideResearchApply",
+            WideCommand::StartResearch(_) => "WideStartResearch",
+            WideCommand::PauseResearch(_) => "WidePauseResearch",
             _ => self.ix().name(),
         }
     }
@@ -1717,6 +1898,7 @@ impl<'a> WideCommand<'a> {
                 | WideCommand::Garrison(_)
                 | WideCommand::DeclareSiege(_)
                 | WideCommand::ClaimTile(_)
+                | WideCommand::Pledge(_)
         )
     }
 
@@ -1758,6 +1940,11 @@ impl<'a> WideCommand<'a> {
             WideCommand::TerritorySettle(_) => TERRITORY_SETTLE,
             WideCommand::TerritoryDecay(_) => TERRITORY_DECAY,
             WideCommand::TerritoryConquer(_) => TERRITORY_CONQUER,
+            WideCommand::Pledge(_) => PLEDGE,
+            WideCommand::ResearchSettle(_) => RESEARCH_SETTLE,
+            WideCommand::ResearchApply(_) => RESEARCH_APPLY,
+            WideCommand::StartResearch(_) => START_RESEARCH,
+            WideCommand::PauseResearch(_) => PAUSE_RESEARCH,
             WideCommand::Reveal(_) => REVEAL,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_HOLDING => CLOSE_HOLDING,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_SLOT => CLOSE_SLOT,
@@ -2432,6 +2619,62 @@ pub const TERRITORY_CONQUER: &[Group] = &[one(&[
     s("captor_citizen", Acc::Kind(K::Citizen), false, Wr::R),
     s("captor_player", WIDE, false, Wr::W),
     s("system", Acc::System, false, Wr::R),
+])];
+
+/// WidePledge (research): the player prologue, then `[holding w]` (the
+/// pledging village: the first home or a wide village of the Citizen),
+/// `[research_world w] [nation_research w]` (the Citizen's nation's).
+pub const PLEDGE: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+    s("research_world", WIDE, false, Wr::W),
+    s("nation_research", WIDE, false, Wr::W),
+])];
+
+/// WideResearchSettle: `[payer s,w] [season r] [research_world w]
+/// [nation_research w]`.
+pub const RESEARCH_SETTLE: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("research_world", WIDE, false, Wr::W),
+    s("nation_research", WIDE, false, Wr::W),
+])];
+
+/// WideResearchApply: `[payer s,w] [season r] [research_world r]
+/// [nation_research r] [holding w] [citizen w]` (the village and its owner
+/// Citizen: the village's `HARVEST` record chains into it).
+pub const RESEARCH_APPLY: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("research_world", WIDE, false, Wr::R),
+    s("nation_research", WIDE, false, Wr::R),
+    s("holding", WIDE, false, Wr::W),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+])];
+
+/// WideStartResearch: `[authority s,w] [season r] [research_world w]`, the
+/// six `[nation_research w]` (factions 0–5), `[system]`.
+pub const START_RESEARCH: &[Group] = &[one(&[
+    s("authority", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("research_world", WIDE, false, Wr::W),
+    s("nation_research_0", WIDE, false, Wr::W),
+    s("nation_research_1", WIDE, false, Wr::W),
+    s("nation_research_2", WIDE, false, Wr::W),
+    s("nation_research_3", WIDE, false, Wr::W),
+    s("nation_research_4", WIDE, false, Wr::W),
+    s("nation_research_5", WIDE, false, Wr::W),
+    s("system", Acc::System, false, Wr::R),
+])];
+
+/// WidePauseResearch: `[authority s] [season r] [research_world w]`.
+pub const PAUSE_RESEARCH: &[Group] = &[one(&[
+    s("authority", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("research_world", WIDE, false, Wr::W),
 ])];
 
 /// Positions of a gather or a final set: 6 factions × 4 slots.

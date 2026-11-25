@@ -39,7 +39,7 @@ use permutation_rules::frontier::holding::{
     Accrual, Effect, Holding as KHolding, LifecycleParams, QueueItem, Resource, Tier, QUEUE_SLOTS,
     RESOURCES,
 };
-use permutation_rules::frontier::{arms, catalog};
+use permutation_rules::frontier::{arms, catalog, research};
 
 use crate::world::le;
 
@@ -164,6 +164,12 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
         walls_committed_before: i64_at(d, H::WALLS_COMMITTED_BEFORE)?,
         food_shortfall: i64_at(d, H::FOOD_SHORTFALL)?,
         lent_workshops: u32_at(d, frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS)?,
+        research: {
+            // research (world goal ②): the RSV_1258 mask, gated by faction
+            let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+            research::VillageResearch::from_le([u8_at(d, o)?, u8_at(d, o + 1)?])
+                .effective(u8_at(d, H::FACTION)?)
+        },
     })
 }
 
@@ -530,10 +536,14 @@ pub fn replay(
             };
             let intro = item < catalog::ITEM_WALLS
                 && u8_at(before, H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0;
-            let secs = if intro { H::INTRO_BUILD_SECS } else { secs };
+            let secs = if intro {
+                H::INTRO_BUILD_SECS as i64
+            } else {
+                research::build_secs(&research::RESEARCH_V1, h.research, secs as i64)
+            };
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
             let done_at = h
-                .enqueue(now, secs as i64, effect)
+                .enqueue(now, secs, effect)
                 .map_err(|e| format!("enqueue: {e:?}"))?;
             write(&mut d, &h, now)?;
             if intro {
@@ -574,6 +584,7 @@ pub fn replay(
                 Rules::M1 => catalog::train(unit, n),
             }
             .ok_or(format!("train unit {unit} n {n}"))?;
+            let cost = research::train_cost(&research::RESEARCH_V1, h.research, cost);
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
             write(&mut d, &h, now)?;
             let at = H::reserve(unit as usize);
