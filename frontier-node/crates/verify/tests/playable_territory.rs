@@ -35,9 +35,9 @@
 //!    a bell, a refused second claim in the same bell, a distance-2 claim,
 //!    an own-land witness claim), WideClaimSite filed on A's own tile (the
 //!    village rule T-6), keeper settles (paid; a second in the same second).
-//! 5a. **Declared**: A's home makes 0.6 food/h net, store empty. REAL: the
-//!    short settle that makes A unpaid, and the next turn's settle that
-//!    takes the turn's food and leaves A unpaid (Q-LP17-1 (b)).
+//!    Then (step 5a) **declared**: A's home makes 0.6 food/h net, store
+//!    empty. REAL: the short settle that makes A unpaid, and the next turn's
+//!    settle that takes the turn's food and leaves A unpaid (Q-LP17-1 (b)).
 //! 5. **Declared** starvation of A's home (food 0, the kernel's maximum food
 //!    upkeep: what P18 declares, VQ-1). REAL: the settle that makes A unpaid,
 //!    a refused claim, 24 bells later settle + decay, the FARTHEST first,
