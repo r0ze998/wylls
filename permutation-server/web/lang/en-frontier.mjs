@@ -434,6 +434,7 @@ export default {
   '未測量': 'Unsurveyed',
   'まだ見ていない範囲です。地形だけを図にしています。': 'What you have not seen yet. Only the terrain is charted.',
   '雲海': 'Cloud sea',
+  '未開': 'Not open yet',
   'まだひらいていない輪です。土地そのものがまだありません。': 'Rings that are not open yet. The land itself does not exist yet.',
   '観戦ページで世界全体を見る': 'See the whole world on the spectator page',
   '仮': 'Provisional',

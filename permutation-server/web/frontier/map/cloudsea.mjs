@@ -27,6 +27,14 @@ import { locate, ringOf } from '../fgeo.mjs';
 import { HEX_W, SHEET } from './table.mjs';
 
 const SQRT3 = Math.sqrt(3);
+/**
+ * Whether the map lays the cloud sea on the sheet. Off (owner r0ze, 2026-11-25: no clouds round the map's edge): past
+ * the opened land the sheet is bare paper, and wide land nobody has recorded or seen is bare paper too. Nothing of
+ * the fog of war is here: what the viewer has not seen is the chart, the muted land and the unlisted wide land
+ * (map/survey.mjs, map/fog.mjs), and none of them reads this. The sea itself (this module) is kept whole and tested;
+ * the map (map/fmap.mjs) and the far picture (map/sprites.mjs) ask this before they paint any of it.
+ */
+export const SEA_DRAWN = false;
 /** A piece of the sea: PIECE px square; its bank is worked out on a grid of GRID cells a side. */
 export const PIECE = 512;
 const GRID = 64;
