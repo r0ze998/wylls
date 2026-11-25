@@ -29,10 +29,11 @@
 // Reads (both the page's own): the herald's public `/h/world/wide/route` (at most four province captures a request),
 // the herald's public `/h/world/wide/territory` (territory-map-2, owner 2026-11-25 12:04 Q-TM-4 (c): the territory
 // province records the herald captured — read once a view; a herald without that route falls back to the relay), and
-// `read(addresses)` → Uint8Array | null per address — the relay's read-only account read
-// (`frontier-local-play-act-wide-read-v1`: one getMultipleAccounts, program-owned accounts only, nothing sent), now
-// for the player's own territory record only (and the province records when the herald has no territory route).
-import { TERRITORY_V1, claimCostV1, tileUpkeepV1, territoryProvinceAddress, territoryPlayerAddress, decodeTerritoryProvince, decodeTerritoryPlayer, citizenTagOf, nearerOwnVillage, heraldTerritoryRecords } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+// the herald's public `/h/world/wide/territory/player/<own Citizen>` (player-territory-records, owner 2026-11-25 18:50
+// Q-TM2-1: the player's own territory summary), and `read(addresses)` → Uint8Array | null per address — the relay's
+// read-only account read (`frontier-local-play-act-wide-read-v1`: one getMultipleAccounts, program-owned accounts only,
+// nothing sent), now only when the herald has no such route (the own summary, the province records).
+import { TERRITORY_V1, claimCostV1, tileUpkeepV1, territoryProvinceAddress, territoryPlayerAddress, decodeTerritoryProvince, decodeTerritoryPlayer, citizenTagOf, nearerOwnVillage, heraldTerritoryRecords, heraldTerritoryPlayer } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { distance, isNationLandBytes, FIRST_WIDE_RING } from '../../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { ringPosition } from '../../../../permutation-server/web/frontier/map/wide.mjs';
 import { tileHex, provinceCentre, hexDistance, TILE_OFFSETS } from '../../../../permutation-server/web/frontier/fgeo.mjs';
@@ -245,9 +246,21 @@ export function createTerritoryReader({ herald, addresses, programId, getJson, r
         return answered ? { kind: TERRITORY_VIEW_KIND, on: false, bell, why: 'no opened wide province within reach plays the player-territory rule', reads }
           : { kind: TERRITORY_VIEW_KIND, on: null, bell, why: 'no wide province within reach could be read from the herald', reads };
       }
-      const [plBytes] = await read([territoryPlayerAddress(addresses.season, programId, citizen)]);
-      const pl = plBytes ? decodeTerritoryPlayer(plBytes) : null;
-      if (plBytes && (!pl || pl.citizenTag !== tag)) return { kind: TERRITORY_VIEW_KIND, on: null, bell, why: 'my territory record is not readable', reads };
+      // (player-territory-records, owner 2026-11-25 18:50 Q-TM2-1: the own summary from the herald's public
+      //  /h/world/wide/territory/player/<own Citizen>; a herald without that route, or an answer not understood: the relay)
+      const plAt = territoryPlayerAddress(addresses.season, programId, citizen);
+      let pl, fromHerald = null;
+      try {
+        reads.herald++;
+        fromHerald = heraldTerritoryPlayer(await getJson(`${base}/h/world/wide/territory/player/${citizen}`), { citizen, address: plAt, tag, pins: { seasonAddress: addresses.season, program: programId } });
+      } catch { fromHerald = null; }
+      if (fromHerald) pl = fromHerald.player;
+      else {
+        reads.records++;
+        const [plBytes] = await read([plAt]);
+        pl = plBytes ? decodeTerritoryPlayer(plBytes) : null;
+        if (plBytes && (!pl || pl.citizenTag !== tag)) return { kind: TERRITORY_VIEW_KIND, on: null, bell, why: 'my territory record is not readable', reads };
+      }
       const anchors = sightAnchors({ home, villages, faction, caps: new Map(provs.map(x => [key(x.p, x.q), x.cap])) });
       const ownAt = provs.filter(x => (x.rec?.owners ?? []).some(o => o === tag)).map(x => ({ p: x.p, q: x.q }));
       const lands = provs.filter(x => isNationLandBytes(x.cap.bytes, faction)).map(x => ({ p: x.p, q: x.q }));

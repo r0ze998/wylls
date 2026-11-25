@@ -30,8 +30,8 @@ function village({ stores = [500, 500, 300, 200, 0, 200, 0, 0], reserve = 0, pro
     production: production.map(x => BigInt(x * 1000)), upkeep: Array(8).fill(0n), queue: [], reserve: [reserve, 0, 0, 0, 0, 0, 0, 0], transit: [] };
 }
 /** A fake world: A in my sight (sites on tiles 5, 20, 50 — 50 has another nation's village), B out of it (sites 5, 40). */
-function world({ mine = {}, others = {}, player = null, aSites = [{ tile: 5 }, { tile: 20 }, { tile: 50, state: 1, faction: 2 }], heraldTerritory = false } = {}) {
-  const w = fakeTerritoryWorld({ heraldTerritory });
+function world({ mine = {}, others = {}, player = null, aSites = [{ tile: 5 }, { tile: 20 }, { tile: 50, state: 1, faction: 2 }], heraldTerritory = false, heraldPlayer = false } = {}) {
+  const w = fakeTerritoryWorld({ heraldTerritory, heraldPlayer });
   const me = w.tagOf(WALLET), other = w.tagOf(OTHER);
   w.capture(A.p, A.q, captureBytes({ sites: aSites, keepTile: 30, keepHolder: 3 }));
   w.capture(B.p, B.q, captureBytes({ sites: [{ tile: 5 }, { tile: 40 }], keepTile: 30, keepHolder: 1 }));
@@ -115,12 +115,44 @@ test('TR2h (territory-map-2, Q-TM-4 (c)) the province records come from the hera
   const { reads: ra, ...va } = a, { reads: rb, ...vb } = b;
   assert.deepEqual(vb, va, 'the same player view, fog included');
   assert.equal(viaHerald.calls.territory, 1, 'one territory read a view');
-  assert.equal(rb.herald, 1);
-  assert.equal(rb.records, 0);
+  assert.equal(rb.herald, 2, 'the territory route, then the player route (this herald has none: the relay)');
+  assert.equal(rb.records, 1, 'my own record only');
   const { territoryPlayerAddress } = await import('../../../permutation-server/web/frontier/flocalplay-territory.mjs');
   assert.deepEqual(viaHerald.calls.asked, [territoryPlayerAddress(viaHerald.addresses.season, PROGRAM, viaHerald.citizenOf(WALLET))], 'the relay: my own record only');
   assert.ok(ra.records > 0 && viaRelay.calls.asked.length > 1, 'a herald without the route: the relay reads the records as before');
   assert.deepEqual(b.own.list.map(x => [x.tile, x.upkeepDistance]), [[12, 1], [5, 1], [6, 1]].sort((x, y) => a.own.list.findIndex(l => l.tile === x[0]) - a.own.list.findIndex(l => l.tile === y[0])), 'the record\'s dist comes through');
+});
+
+test('TR2p (player-territory-records, Q-TM2-1) my own summary comes from the herald\'s player route: the same view, the relay is asked nothing, and only my own Citizen is asked about', async () => {
+  const spec = { mine: { '-65,-65': [12], '-65,-64': [5, 6] }, others: { '-65,-64': [8], '-65,-65': [13, 44] }, player: { excess: 3, unpaidSince: 40 } };
+  const viaRelay = world(spec), viaHerald = world({ ...spec, heraldTerritory: true, heraldPlayer: true });
+  const a = await viewOf(viaRelay), b = await viewOf(viaHerald);
+  const { reads: ra, ...va } = a, { reads: rb, ...vb } = b;
+  assert.deepEqual(vb, va, 'the same player view, own summary included');
+  assert.equal(b.own.unpaid, true);
+  assert.equal(b.own.unpaidSinceBell, 40);
+  assert.equal(b.own.record, 'read');
+  assert.deepEqual(viaHerald.calls.asked, [], 'the relay is asked nothing');
+  assert.equal(rb.records, 0);
+  assert.deepEqual(viaHerald.calls.playerAsked, [viaHerald.citizenOf(WALLET)], 'only my own Citizen');
+  assert.ok(ra.records > 0);
+});
+
+test('TR2q a herald player answer of another Citizen, or bytes of another tag, is not taken: the relay is asked instead', async () => {
+  const { heraldTerritoryPlayer, territoryPlayerAddress } = await import('../../../permutation-server/web/frontier/flocalplay-territory.mjs');
+  const w = world({ mine: { '-65,-64': [5] }, player: { excess: 2 }, heraldTerritory: true, heraldPlayer: true });
+  const me = w.citizenOf(WALLET), other = w.citizenOf(OTHER);
+  const address = territoryPlayerAddress(w.addresses.season, PROGRAM, me);
+  const good = await w.getJson(`http://h/h/world/wide/territory/player/${me}`);
+  const opts = { citizen: me, address, tag: w.tagOf(WALLET), pins: { seasonAddress: w.addresses.season, program: PROGRAM } };
+  assert.equal(heraldTerritoryPlayer(good, opts).player.tiles, 1);
+  assert.equal(heraldTerritoryPlayer({ ...good, citizen: other }, opts), null, 'another Citizen');
+  assert.equal(heraldTerritoryPlayer({ ...good, address: territoryPlayerAddress(w.addresses.season, PROGRAM, other) }, opts), null, 'another record address');
+  assert.equal(heraldTerritoryPlayer({ ...good, seasonAddress: other }, opts), null, 'another season');
+  assert.equal(heraldTerritoryPlayer(good, { ...opts, tag: '1' }), null, 'bytes of another tag');
+  assert.equal(heraldTerritoryPlayer({ ...good, player: { ...good.player, tiles: 9 } }, opts), null, 'stated numbers the bytes do not say');
+  assert.equal(heraldTerritoryPlayer({ ...good, v: 2 }, opts), null);
+  assert.deepEqual(heraldTerritoryPlayer({ ...good, player: null }, opts), { player: null }, 'none captured: no record yet');
 });
 
 test('TR3 unpaid upkeep: said with the turn it began and the turn tiles start to return; a claim cannot be asked', async () => {

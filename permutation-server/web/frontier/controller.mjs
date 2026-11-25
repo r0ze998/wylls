@@ -40,7 +40,7 @@ import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTi
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
 import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
 // (territory-card, owner Q-PDT-1 (a): the viewer's own territory summary, read-only, for the village card's land line)
-import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf } from './flocalplay-territory.mjs';
+import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf, heraldTerritoryPlayer } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -4050,10 +4050,14 @@ async function setSession({ replace = null } = {}) {
 /**
  * The viewer's OWN territory summary for the village card's land line (screens/holding.mjs wideClaimModel `land`):
  * tiles, next price, upkeep, unpaid. FOG RULE: only the record at the address of the viewer's own Citizen is asked
- * for, and an answer naming another Citizen's tag is dropped — nobody else's land is read here. Display only: one
- * read-only account read through the play relay (a local wide world: the wide read; a devnet territory world: the
- * gateway's land summary), nothing signed, nothing sent. `FS.ownLand = {world, citizen, player | null, at}` — `player`
- * null is "no record yet" (no tile ever claimed); a failed read keeps the last answer of the same world and Citizen.
+ * for, and an answer naming another Citizen's tag is dropped — nobody else's land is read here. Display only, nothing
+ * signed, nothing sent. (player-territory-records, owner 2026-11-25 18:50 Q-TM2-1) The herald publishes the summary:
+ * one GET of `/h/world/wide/territory/player/<own Citizen>` (herald.mjs wideTerritoryPlayer, ETag-revalidated) — in a
+ * local wide world and on a devnet territory world alike. Only when that herald serves no such route (an older build:
+ * NotFound / WideWorldUnavailable) is the play relay asked (a local wide world: the wide read; a devnet territory
+ * world: the gateway's land summary). `FS.ownLand = {world, citizen, player | null, at, via}` — `player` null is "no
+ * record yet" (no tile ever claimed); `via` 'herald' | 'relay'; a failed read keeps the last answer of the same world
+ * and Citizen.
  */
 const OWN_LAND_EVERY_MS = 10_000, OWN_LAND_EVERY_DEVNET_MS = 60_000;
 // (a read that failed or was not understood — a devnet gateway older than the land summary answers LocalActInvalid —
@@ -4061,6 +4065,49 @@ const OWN_LAND_EVERY_MS = 10_000, OWN_LAND_EVERY_DEVNET_MS = 60_000;
 const OWN_LAND_RETRY_MS = 10_000, OWN_LAND_RETRY_DEVNET_MS = 300_000;
 const OWN_LAND_READ = 'frontier-local-play-act-wide-read-v1';
 let ownLandBusy = false, ownLandRetryAt = 0;
+/** (Q-TM2-1) Set once this page's herald has said it serves no player territory route: the relay is asked instead. */
+let ownLandHeraldOff = false;
+/** The ETag of the last herald summary taken, and for which `citizen|world` (a 304 keeps that answer's `player`). */
+let ownLandEtag = null, ownLandEtagFor = null;
+/**
+ * The viewer's own summary from the herald: `{player}` (null player: none captured), `undefined` when this herald has
+ * no route (the caller then asks the relay) or the answer was not understood / did not come (`null`).
+ */
+async function ownLandFromHerald(pin, citizen, world) {
+  if (!herald?.wideTerritoryPlayer || ownLandHeraldOff) return undefined;
+  const key = `${citizen}|${world}`;
+  const same = ownLandEtagFor === key && FS.ownLand?.via === 'herald' && FS.ownLand.citizen === citizen && FS.ownLand.world === world;
+  const r = await herald.wideTerritoryPlayer(citizen, { etag: same ? ownLandEtag : null });
+  if (!r?.ok) {
+    if (r?.code === 'NotFound' || r?.code === 'WideWorldUnavailable') { ownLandHeraldOff = true; return undefined; }
+    ownLandEtag = null; ownLandEtagFor = null;
+    return null;
+  }
+  if (r.notModified) return same ? { player: FS.ownLand.player } : null;
+  const got = heraldTerritoryPlayer(r.json, { citizen, address: territoryPlayerAddress(pin.addresses.season, pin.programId, citizen),
+    tag: citizenTagOf(citizen), pins: { seasonAddress: pin.addresses.season, program: pin.programId } });
+  ownLandEtag = got && r.etag ? r.etag : null; ownLandEtagFor = ownLandEtag ? key : null;
+  return got;
+}
+/**
+ * The viewer's own summary through the play relay (the fallback): `{player}`, `undefined` when there is no relay to ask
+ * yet (the local gate shut, the devnet wallet not connected — not a failed read), null when the answer was not understood.
+ */
+async function ownLandFromRelay(pin, citizen, local) {
+  const g = local ? localDepartGate() : devnetGate();
+  if (g?.ok !== true) return undefined;
+  if (local) {
+    const at = territoryPlayerAddress(pin.addresses.season, pin.programId, citizen);
+    const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: OWN_LAND_READ, addresses: [at] });
+    if (!Array.isArray(j?.accounts) || j.accounts.length !== 1) return null;
+    const player = j.accounts[0] ? decodeTerritoryPlayer(rightsB64(j.accounts[0].data_b64)) : null;
+    if (j.accounts[0] && (!player || player.citizenTag !== citizenTagOf(citizen))) return null;
+    return { player };
+  }
+  const ctx = await localAct.postLocalAct(g.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: devnetTerritory.LAND_SUMMARY_SCHEMA, wallet: FS.wallet.address });
+  if (!devnetTerritory.landSummaryOk(ctx, FS.wallet.address)) return null;
+  return { player: devnetTerritory.landOfSummary(ctx) };
+}
 async function refreshOwnLand({ force = false } = {}) {
   const pin = io.pinned(), local = !!localPlay?.wideLand, dev = !local && !!devnetTerritoryNow();
   if (!(local || dev) || !FS.wallet || !FS.citizen || !pin) { if (FS.ownLand) { FS.ownLand = undefined; invalidate('panel'); } return; }
@@ -4068,31 +4115,24 @@ async function refreshOwnLand({ force = false } = {}) {
   if (FS.ownLand && (FS.ownLand.citizen !== citizen || FS.ownLand.world !== world)) FS.ownLand = undefined;
   if (ownLandBusy || (!force && FS.ownLand && Date.now() - FS.ownLand.at < (local ? OWN_LAND_EVERY_MS : OWN_LAND_EVERY_DEVNET_MS))) return;
   if (!force && Date.now() < ownLandRetryAt) return;
-  // (no relay to ask yet — the local gate shut, the devnet wallet not connected —: not a failed read, asked again at the next poll)
-  const g = local ? localDepartGate() : devnetGate();
-  if (g?.ok !== true) return;
   ownLandBusy = true;
   let answered = false;
   try {
-    let player;
-    if (local) {
-      const at = territoryPlayerAddress(pin.addresses.season, pin.programId, citizen);
-      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: OWN_LAND_READ, addresses: [at] });
-      if (!Array.isArray(j?.accounts) || j.accounts.length !== 1) return;
-      player = j.accounts[0] ? decodeTerritoryPlayer(rightsB64(j.accounts[0].data_b64)) : null;
-      if (j.accounts[0] && (!player || player.citizenTag !== citizenTagOf(citizen))) return;
-    } else {
-      const ctx = await localAct.postLocalAct(g.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: devnetTerritory.LAND_SUMMARY_SCHEMA, wallet: FS.wallet.address });
-      if (!devnetTerritory.landSummaryOk(ctx, FS.wallet.address)) return;
-      player = devnetTerritory.landOfSummary(ctx);
+    let via = 'herald', got = await ownLandFromHerald(pin, citizen, world);
+    if (got === undefined) {
+      via = 'relay';
+      got = await ownLandFromRelay(pin, citizen, local);
+      // (no relay to ask yet: not a failed read, asked again at the next poll)
+      if (got === undefined) { answered = true; return; }
     }
+    if (!got) return;
     if (viewerCitizen() !== citizen || providerWorld() !== world) return;
-    FS.ownLand = { world, citizen, player, at: Date.now() };
+    FS.ownLand = { world, citizen, player: got.player, at: Date.now(), via };
     answered = true;
     invalidate('panel');
   } catch {
-    // (a gateway older than the land summary, or a relay that did not answer: the card keeps what it had — no line at
-    //  all the first time; asked again after OWN_LAND_RETRY_MS / OWN_LAND_RETRY_DEVNET_MS)
+    // (a herald or gateway that did not answer, or a gateway older than the land summary: the card keeps what it had —
+    //  no line at all the first time; asked again after OWN_LAND_RETRY_MS / OWN_LAND_RETRY_DEVNET_MS)
   } finally {
     ownLandBusy = false;
     ownLandRetryAt = answered ? 0 : Date.now() + (local ? OWN_LAND_RETRY_MS : OWN_LAND_RETRY_DEVNET_MS);

@@ -457,6 +457,19 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       if (r.ok && r.notModified) return { ok: true, notModified: true, etag: r.etag };
       return r.ok ? { ok: true, json: r.json, etag: r.etag ?? null } : r;
     },
+    /**
+     * (player-territory-records, owner 2026-11-25 18:50 Q-TM2-1) GET /h/world/wide/territory/player/<citizen>: ONE
+     * Citizen's captured territory summary (herald wide_territory.rs player_json: tiles, upkeep clock, unpaid, next claim
+     * price, the record's bytes) — the village card asks for its own Citizen only (flocalplay-territory.mjs
+     * heraldTerritoryPlayer checks the answer). `etag` as wideTerritory → `{ok, notModified, etag}` | `{ok, json, etag}`;
+     * a herald without the route: `NotFound` (older build) or `WideWorldUnavailable`.
+     */
+    async wideTerritoryPlayer(citizen, { signal = null, etag = null } = {}) {
+      if (typeof citizen !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(citizen)) return fail('BadCitizen');
+      const r = await getCoded(f, `${root}/h/world/wide/territory/player/${citizen}`, { signal, maxBytes: 64 * 1024, etag: typeof etag === 'string' && etag ? etag : null });
+      if (r.ok && r.notModified) return { ok: true, notModified: true, etag: r.etag };
+      return r.ok ? { ok: true, json: r.json, etag: r.etag ?? null } : r;
+    },
     /** Separate read-only index observations. Never a map/capture verification. */
     async wideIndexStatus({ signal = null, pins = {} } = {}) {
       const r = await getCoded(f, `${root}/h/wide-index/status`, { signal });
