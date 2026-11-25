@@ -24,6 +24,9 @@ When the food cannot pay a turn's land upkeep, the food the first village holds 
 (#243, owner decision Q-LP17-1 (b) → §4.1 step 6; how it goes turn by turn and the refusal table: #245). Also #245: the
 Train form says a part hundred costs a whole hundred, a tile claim refused for the turn limit or unpaid upkeep has no
 "Try again", and the join card says its two deadlines to ten minutes ("about 1 h 40 min left").
+Then #247 (loop-play18): a full province's "Claim a tile" is off with the reason, tiles let go for unpaid upkeep are
+free again on the card, a falling food store says "Empty in …", and the caravan form never picks its own start as the
+destination (§4.1, §5).
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
