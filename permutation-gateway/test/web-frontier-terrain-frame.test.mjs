@@ -76,14 +76,34 @@ test('a frame that asks for more provinces than the store keeps still ends: what
   // two more such frames make nothing and ask for no further frame
   for (let i = 0; i < 2; i++) { terrainOf.frame(); for (const { p, q } of many) assert.ok(terrainOf(p, q)); await Promise.resolve(); await Promise.resolve(); }
   assert.equal(log.made, 3000); assert.equal(log.deferred.length, 0);
-  // once such frames are over, the store goes back to its size as other provinces are asked for
+  // an ask from outside a frame (a panel, the viewer's own land) while such frames are drawn drops none of them
+  // (fix-opening-view-perf: after joining, one such ask emptied the store to TERRAIN_CACHE under the world view)
   for (const { p, q } of ringProvinces(128)) terrainOf(p, q);
+  assert.equal(terrainOf.kept(), 3000 + 768, `${terrainOf.kept()} kept`);
+  terrainOf.frame(); for (const { p, q } of many) assert.ok(terrainOf(p, q)); await Promise.resolve(); await Promise.resolve();
+  assert.equal(log.made, 3000 + 768, 'nothing of the frame was made again');
+  // once such frames are over (two frames that ask for none of them), the store goes back to its size as other provinces are asked for
+  for (let i = 0; i < 2; i++) { terrainOf.frame(); await Promise.resolve(); await Promise.resolve(); }
+  for (const { p, q } of ringProvinces(127)) terrainOf(p, q);
   assert.ok(terrainOf.kept() <= TERRAIN_CACHE, `${terrainOf.kept()} kept`);
-  // the stated limit: a frame of more than TERRAIN_CACHE_MAX provinces is not held whole (it drops, and may make again); it does not grow without end
+});
+
+test('the store follows the view past TERRAIN_CACHE_MAX (the opening world view of a 129-ring world, 13,800 provinces) up to TERRAIN_CACHE_CEIL', async () => {
+  const { TERRAIN_CACHE_MAX, TERRAIN_CACHE_CEIL } = await import('../../permutation-server/web/frontier/map/terrain.mjs');
+  assert.ok(TERRAIN_CACHE_CEIL >= 41000, 'the widest far view (the coarse chart\'s edge, 1280×800) fits');
+  // (provinces on a square of the lattice: the rig's every province has a seed)
+  const rings = (from, n) => { const out = []; for (let p = from; out.length < n; p++) for (let q = 0; q < 400 && out.length < n; q++) out.push({ p, q }); return out; };
+  // a frame of 13,800: held whole, made once, and the next frames make nothing
   const big = rig({ cost: 0 }); big.terrainOf(128, 0); await pause(1);
-  const more = []; for (let d = 60; more.length < TERRAIN_CACHE_MAX + 500; d++) more.push(...ringProvinces(d));
-  big.terrainOf.frame(); for (const { p, q } of more) big.terrainOf(p, q);
-  assert.ok(big.terrainOf.kept() <= TERRAIN_CACHE_MAX + 1, `${big.terrainOf.kept()} kept`);
+  const view = rings(40, 13800); assert.ok(view.length > TERRAIN_CACHE_MAX);
+  for (let i = 0; i < 3; i++) { big.terrainOf.frame(); for (const { p, q } of view) assert.ok(big.terrainOf(p, q)); await Promise.resolve(); await Promise.resolve(); }
+  assert.equal(big.log.made, 13800, 'each province made once: none was dropped and made again');
+  assert.equal(big.terrainOf.kept(), 13800);
+  // the stated limit: a frame of more than TERRAIN_CACHE_CEIL provinces is not held whole (it drops, and may make again); it does not grow without end
+  const huge = rig({ cost: 0 }); huge.terrainOf(128, 0); await pause(1);
+  const more = rings(10, TERRAIN_CACHE_CEIL + 500);
+  for (let i = 0; i < 2; i++) { huge.terrainOf.frame(); for (const { p, q } of more) huge.terrainOf(p, q); await Promise.resolve(); await Promise.resolve(); }
+  assert.ok(huge.terrainOf.kept() <= TERRAIN_CACHE_CEIL + 1, `${huge.terrainOf.kept()} kept`);
 });
 
 test('a neighbour whose terrain waits for the next frame is told apart from land that has none', async () => {

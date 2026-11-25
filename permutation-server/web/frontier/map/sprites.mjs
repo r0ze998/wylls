@@ -63,8 +63,10 @@ export const ORE_RADIUS = 2;
 export const ORE_TERRAIN_MAX = 30;
 
 const BASE = new URL('../art/', import.meta.url);
-/** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
-export const FAR_RES = Object.freeze([0.1, 0.2, 0.36, 0.56, 0.8, 1]);
+/** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. (0.03 and 0.05: the opening
+ * world view of a 129-ring world shows about 13,800 provinces at zoom 0.02; made at 0.1, the smallest step before, only
+ * 3,029 of them fitted the budget and the rest were painted again every frame — fix-opening-view-perf.) */
+export const FAR_RES = Object.freeze([0.03, 0.05, 0.1, 0.2, 0.36, 0.56, 0.8, 1]);
 export const FAR_PIXELS = 24_000_000;
 /** The ground bitmaps of the tile view: their cache budget in pixels, and how many may be painted in one frame. */
 export const GROUND_PIXELS = 12_000_000;
@@ -183,8 +185,39 @@ export function paintControlWash(ctx, entries, outlineOf, lod = 'world') {
   ctx.restore();
 }
 
+/** How far (world px, between province centres) a realm can reach from a province with a holding or a held tile:
+ * two rings of provinces (a site's reach, 4 tiles, and the pocket next to it, stay inside the first one). */
+export const REALM_REACH = 2.05 * PROVINCE_CIRCUMRADIUS * Math.sqrt(3);
+/**
+ * The far entries a realm can touch: the provinces with a holding (a settled site with a nation's owner) or a held
+ * territory tile, and every province within REALM_REACH of one. The rest have nothing to wash, rim or close, so
+ * buildRealms leaves them out and draws the same picture; with none at all (the world view before joining: nothing
+ * surveyed, 11,280 provinces) it reads no tile at all. (The world view of a big world asks for every province at
+ * once; reading the 61 tiles of each whenever the view moved held the opening's view at 2 frames a second.)
+ */
+export function realmNeighbourhood(entries) {
+  const seeds = [];
+  for (const e of entries) {
+    let held = false;
+    if (e.rec && e.sites) for (let j = 0; j < e.sites.length && !held; j++) held = e.rec.sites?.[j] === 1 && e.rec.owners?.[j] < 6;
+    if (!held && e.territoryMode && e.territory?.owners) for (const f of e.territory.owners) if (Number.isInteger(f) && f >= 0 && f < 6) { held = true; break; }
+    if (held) seeds.push(provincePixel(e.p, e.q));
+  }
+  if (!seeds.length) return [];
+  const cell = new Map(), at = (x, y) => `${Math.floor(x / REALM_REACH)},${Math.floor(y / REALM_REACH)}`;
+  for (const c of seeds) { const k = at(c.x, c.y); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(c); }
+  const r2 = REALM_REACH * REALM_REACH;
+  return entries.filter(e => {
+    const c = provincePixel(e.p, e.q), gx = Math.floor(c.x / REALM_REACH), gy = Math.floor(c.y / REALM_REACH);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const s of cell.get(`${gx + dx},${gy + dy}`) ?? []) if ((s.x - c.x) ** 2 + (s.y - c.y) ** 2 <= r2) return true;
+    return false;
+  });
+}
+
 /** The realms of a set of far entries: per faction a fill path and a border path, and the holdings' marks. */
-export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = {}) {
+export function buildRealms(all, { grow = 0, levelAt = null, own = null } = {}) {
+  // (only the entries a realm can touch: the picture is the same, map/sprites.mjs realmNeighbourhood)
+  const entries = realmNeighbourhood(all);
   // `own`: a Set "P,Q,tile" of the viewer's own villages: they keep their mark; their land is the viewer's own, painted
   // in its true size by map/ownland.mjs (a quarter of the colour and one rim). Here it belongs to the nation's realm
   // without being washed or rimmed a second time: the realm's wash stops at it and the realm's rim does not run
