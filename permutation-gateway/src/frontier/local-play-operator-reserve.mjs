@@ -16,6 +16,10 @@
 //      its army is below one attack-capable host (armyFloor).
 //   4. With the army at the floor and no threat, land and troops take turns: a tile (the reserve stays), then the
 //      batch the reserve pays, then the next tile. The land's turn lasts only while a tile can actually be claimed.
+//   5. (ai-early-mine, owner 2026-11-25 20:03 Q-AEM-1 (b)) Until its next wide-land village is built, the resident's
+//      troops are capped at one host (OPERATOR_VILLAGE_SAVING.troopCap, 300): it asks for no Train at or above the
+//      cap, so its food and gold are saved for the village's settler cost. Once the village is claimed (or none can
+//      be: no wide land in reach, no site left to try) it trains freely again. `savingCapsTrain` below.
 // Every number is derived from the cost tables: the tile's price and the settler cost from the page's own modules
 // (flocalplay-territory.mjs claimCostV1, flocalplay-wide.mjs settlerCost), the training cost from TRAIN_COST_PER_100
 // below — the Spearman's row of permutation-rules catalog.rs TROOP_COST_PER_100 (the page's hud/rulebook.mjs
@@ -82,4 +86,23 @@ export function oreTurn({ army = null, threatened = false, ore = null, landWante
   if (threatened || !landWanted || troopsTurn || !Number.isFinite(ore)) return 'troops';
   if (!Number.isFinite(army) || army < cfg.armyFloor) return 'troops';
   return 'land';
+}
+
+/**
+ * The village saving's setting (the AI's own choice, owner 2026-11-25 20:03 Q-AEM-1 (b), not a rule of the world):
+ *   troopCap — the troops (at home and in its hosts) at which a resident stops training while its next wide-land
+ *              village is not built: one host (the war step's MUSTER_MIN, 300).
+ */
+export const OPERATOR_VILLAGE_SAVING = Object.freeze({ troopCap: MUSTER_MIN });
+
+/**
+ * Whether a Train is held back so the food and gold are saved for the resident's next wide-land village.
+ * `villagePlanned`: a wide village can still be claimed (wide land in reach with a site left to try, claims left);
+ * `wideVillages`: the wide villages it has (its record's count, or its own landed claims); `army`: its troops, at home
+ * and in its hosts, or null when not known (an unknown count does not block, as everywhere in the policy).
+ * Only the FIRST wide village is waited for: with one built, it trains freely again.
+ */
+export function savingCapsTrain({ villagePlanned = false, wideVillages = 0, army = null } = {}, cfg = OPERATOR_VILLAGE_SAVING) {
+  if (!villagePlanned || (Number(wideVillages) || 0) > 0) return false;
+  return Number.isFinite(army) && army >= cfg.troopCap;
 }

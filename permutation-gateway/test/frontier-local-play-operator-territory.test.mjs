@@ -88,6 +88,10 @@ test('a resident saving for its next village still grows its land a tile at a ti
   m.decisions = 4;
   const wide = { targets: [{ p: '129', q: '1', territory: TERR }, { p: '129', q: '0', territory: TERR }], canClaim: false };
   m.ownTiles.push({ p: '129', q: '1', tile: 5 });
+  // (ai-early-mine, owner 2026-11-25 22:28 Q-VPR241-1 (b): while it saves for its FIRST wide village, no tile but the
+  //  village's own — the growth below is a resident that already has its first wide village)
+  assert.equal(decideNext(m, RIM, { homes: [], wide }).name, 'Harvest', 'saving for the first village: no growth tile');
+  m.claims = 1;
   const d = decideNext(m, RIM, { homes: [], wide });
   assert.equal(d.name, 'TerritoryClaim');
   assert.equal(d.growth, true);
@@ -101,6 +105,7 @@ test('no tile claim while the ore read is short of the next tile; never the vill
   const m = createResidentMemory(0);
   m.ownTiles = [{ p: '129', q: '0', tile: 5 }, { p: '129', q: '1', tile: 5 }];
   m.decisions = 4;
+  m.claims = 1;   // (its first wide village stands: growth tiles allowed again — owner 22:28 Q-VPR241-1 (b))
   const wide = { targets: [{ p: '129', q: '1', territory: TERR }, { p: '129', q: '0', territory: TERR }], canClaim: false, ore: 9 };
   assert.equal(decideNext(m, RIM, { homes: [], wide }).name, 'Harvest');
   // (ai-ore-reserve, owner 2026-11-25 09:33: the tile's 10 ore AND one training batch's 20 behind it)
