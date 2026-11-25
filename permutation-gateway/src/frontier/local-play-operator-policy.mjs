@@ -13,7 +13,10 @@
 //   3. a village                      → first ONE mine (Build item 3; owner 2026-11-25 17:58 Q-AOR-1,
 //                                       local-play-operator-mine.mjs), then the next command of a fixed rotation
 //                                       (OPERATOR_ROTATION); a command the program
-//                                       refused waits OPERATOR_COOLDOWN decisions before it is asked for again
+//                                       refused waits OPERATOR_COOLDOWN decisions before it is asked for again;
+//                                       in a wide world, until its next wide-land village is built, no Train at or
+//                                       above one host (300 troops): the food and gold are saved for the village
+//                                       (owner 2026-11-25 20:03 Q-AEM-1 (b), local-play-operator-reserve.mjs)
 // and the budget (`createOperatorBudget`): ONE action per resident per bell (owner decision Q16-2, 2026-11-18 21:44:
 // "one action per resident per turn; operator AI must not double-act"). The bell is the program's own:
 // floor((chain unix seconds − Season.GENESIS_TS) / 600), the chain time from the herald's `/h/status` and GENESIS_TS from
@@ -40,8 +43,8 @@
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, MUSTER_MIN, warStep, warHomeOrder } from './local-play-operator-war.mjs';
-import { oreReserve, tilePays, coversTrain, oreTurn } from './local-play-operator-reserve.mjs';
-export { OPERATOR_ORE_RESERVE } from './local-play-operator-reserve.mjs';
+import { oreReserve, tilePays, coversTrain, oreTurn, savingCapsTrain } from './local-play-operator-reserve.mjs';
+export { OPERATOR_ORE_RESERVE, OPERATOR_VILLAGE_SAVING } from './local-play-operator-reserve.mjs';
 import { OPERATOR_EARLY_MINE, minesOf, earlyMineDue, noteEarlyMine } from './local-play-operator-mine.mjs';
 export { OPERATOR_EARLY_MINE } from './local-play-operator-mine.mjs';
 import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
@@ -308,6 +311,15 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (ai-ore-reserve: a Train is not asked for when the stores are known not to cover it; and with the army at its floor
   //  and no threat, land and troops take turns — the land's turn only while a tile can really be claimed)
   const landsTurn = () => oreTurn({ army, threatened, ore, troopsTurn: memory.troopsTurn === true, landWanted: siteTileDue() || !!growCandidate() }) === 'land';
+  // (ai-early-mine, owner 2026-11-25 20:03 Q-AEM-1 (b): until its next wide-land village is built the resident's troops
+  //  are capped at one host — no Train at or above 300 — so the food and gold are saved for the village; with the
+  //  village claimed, or none claimable (no wide land in reach, every site tried, no claim left), it trains freely)
+  const villageSite = () => { const tried = new Set(memory.triedClaims ?? []); return wide.targets.some(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).some(site => !tried.has(`${t.p},${t.q},${site}`))); };
+  // (a host on the march is not among the hosts the war eyes read where they stand: its troops at departure are in
+  //  the village's own transit record — `depMass`, thousandths — and count toward the cap too)
+  const marching = (Array.isArray(view.holding.decoded?.transit) ? view.holding.decoded.transit : []).reduce((n, t) => n + (t && Number(t.state) !== 0 ? Math.floor((Number(t.depMass) || 0) / 1000) : 0), 0);
+  const trainCapped = savingCapsTrain({ villagePlanned: villageDue && villageSite(), army: Number.isFinite(army) ? army + marching : army,
+    wideVillages: Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length, memory.claims ?? 0) });
   // (ai-early-mine, owner 2026-11-25 17:58 Q-AOR-1 (b): ONE mine, early — the village's first command, the page's own
   //  Build item 3 at its own price; not while threatened; local-play-operator-mine.mjs)
   if (earlyMineDue(memory, { mines: minesOf(view.holding.decoded), stores, threatened, cooling: (memory.cooldown[`Build:${OPERATOR_EARLY_MINE.item}`] ?? 0) > memory.decisions }))
@@ -324,7 +336,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     if (s?.wait) return { wait: true, why: s.why };
     if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, ...(s.goal ? { goal: s.goal } : {}), why: `${s.goal ? `${s.goal} — ` : ''}${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
-    if (s?.name === 'Train' && coversTrain(stores, s.n) && !landsTurn()) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
+    if (s?.name === 'Train' && !trainCapped && coversTrain(stores, s.n) && !landsTurn()) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
   }
   // (TEST-ONLY wide march, wide-march-local: a ready host of a rim village marches INTO the bordering wide land — the
   //  page's own judged route, local-play-operator-wide-march.mjs; at most OPERATOR_WIDE_MARCHES, one at a time)
@@ -375,6 +387,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     const a = OPERATOR_ROTATION[(memory.step + k) % OPERATOR_ROTATION.length];
     // (a war resident's troops and hosts are the war step's: its rotation is the economy only — Harvest and Build)
     if (memory.war && (a.name === 'Train' || a.name === 'Muster')) continue;
+    if (a.name === 'Train' && trainCapped) continue;   // (Q-AEM-1 (b): saving for the next wide village)
     if ((memory.cooldown[key(a)] ?? 0) > memory.decisions) continue;
     if (a.name === 'Muster' && view.holding.tile === undefined) continue;   // (no tile known: never guessed)
     const fields = a.name === 'Harvest' ? {} : a.name === 'Build' ? { item: a.item } : a.name === 'Train' ? { unit: a.unit, n: a.n } : { unit: a.unit, troops: a.troops, tile: view.holding.tile };

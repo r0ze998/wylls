@@ -4,7 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createResidentMemory, decideNext, noteOutcome, residentView, OPERATOR_EARLY_MINE, OPERATOR_COOLDOWN, OPERATOR_ROTATION } from '../src/frontier/local-play-operator-policy.mjs';
+import { createResidentMemory, decideNext, noteOutcome, residentView, OPERATOR_EARLY_MINE, OPERATOR_COOLDOWN, OPERATOR_ROTATION, OPERATOR_VILLAGE_SAVING, OPERATOR_WIDE_CLAIMS } from '../src/frontier/local-play-operator-policy.mjs';
+import { savingCapsTrain, TRAIN_COST_PER_100 } from '../src/frontier/local-play-operator-reserve.mjs';
+import { MUSTER_MIN } from '../src/frontier/local-play-operator-war.mjs';
 import { MINE_COST, MINE_PER_HOUR_MILLI, ORE_BASE_MILLI, minesOf, coversMine, earlyMineDue, noteEarlyMine } from '../src/frontier/local-play-operator-mine.mjs';
 
 // stores by resource index: Food, Wood, Stone, Ore, Horses, Gold, Science, Influence
@@ -147,4 +149,85 @@ test('residentView carries the village\'s record to the policy: a decoded fresh 
   const view = residentView({ v: 1, citizen: { bytes_b64: '' }, holdings: [{ bytes_b64: '' }] }, decode);
   assert.equal(minesOf(view.holding.decoded), 0);
   assert.equal(decideNext(createResidentMemory(0), view, { homes: [] }).earlyMine, true);
+});
+
+// ---- owner 2026-11-25 20:03 Q-AEM-1 (b): until the next wide-land village is built, troops are capped at one host
+// (300) and the food and gold are saved for the village; after it, the resident trains freely again.
+
+test('Q-AEM-1 (b) savingCapsTrain: one host is the cap, only while the first wide village is still to come', () => {
+  assert.deepEqual({ ...OPERATOR_VILLAGE_SAVING }, { troopCap: 300 });
+  assert.equal(OPERATOR_VILLAGE_SAVING.troopCap, MUSTER_MIN, 'one host: the war step\'s own muster size');
+  assert.equal(savingCapsTrain({ villagePlanned: true, wideVillages: 0, army: 300 }), true);
+  assert.equal(savingCapsTrain({ villagePlanned: true, wideVillages: 0, army: 1200 }), true);
+  assert.equal(savingCapsTrain({ villagePlanned: true, wideVillages: 0, army: 299 }), false, 'below the cap: it still trains');
+  assert.equal(savingCapsTrain({ villagePlanned: true, wideVillages: 0, army: 0 }), false);
+  assert.equal(savingCapsTrain({ villagePlanned: true, wideVillages: 1, army: 300 }), false, 'the village is built: free again');
+  assert.equal(savingCapsTrain({ villagePlanned: false, wideVillages: 0, army: 300 }), false, 'no village to save for');
+  assert.equal(savingCapsTrain({ villagePlanned: true, wideVillages: 0, army: null }), false, 'an unknown troop count does not block');
+  assert.equal(savingCapsTrain(), false);
+});
+
+test('Q-AEM-1 (b) a war resident with one host and no wide village yet does not train: it saves for the village', () => {
+  const built = viewOf(record({ ore: 10000n }));            // its mine stands
+  const rich = [900, 900, 500, 200, 0, 300, 0, 0];           // stores that pay a training, not asked about
+  const target = { p: -66, q: 130 };
+  const war = () => createResidentMemory(0, undefined, { war: true });
+  const opts = (army, wideExtra = {}, warExtra = {}) => ({ homes: [], war: warOf({ reserve: 0, army, hostCount: 1, ...warExtra }), wide: wideOf(rich, { targets: [target], ...wideExtra }) });
+  // below the cap: the war step's Train, as before
+  for (const army of [0, 100, 299]) {
+    const d = decideNext(war(), built, opts(army));
+    assert.equal(d.name, 'Train', `army ${army}`); assert.equal(d.war, true); assert.deepEqual(d.fields, { unit: 0, n: 100 });
+  }
+  // at the cap and above: no Train; the wide step saves (Harvest) until the stores cover the settler cost
+  for (const army of [300, 400, 900]) {
+    const d = decideNext(war(), built, opts(army));
+    assert.equal(d.name, 'Harvest', `army ${army}`);
+    assert.match(d.why, /saving for a wide claim/);
+  }
+  // the stores cover the village: it is claimed
+  const claim = decideNext(war(), built, opts(300, { canClaim: true }));
+  assert.equal(claim.name, 'WideClaim');
+  // the cap is not a rule against fighting: a march the war step chose still departs, a reserve still musters
+  assert.equal(decideNext(war(), built, opts(300, {}, { march: { kind: 'attack', row: { p: 1, q: 0, troops: 50, origin: { troops: 300 } } } })).name, 'Depart');
+  assert.equal(decideNext(war(), viewOf(record({ ore: 10000n })), opts(600, {}, { reserve: 300, hostCount: 1 })).name, 'Muster');
+  // a host on the march counts (the village's transit record carries its troops at departure, thousandths)
+  const away = (state, depMass) => viewOf({ ...record({ ore: 10000n }), transit: [{ state, depMass }, { state: 0, depMass: 0 }] });
+  assert.equal(decideNext(war(), away(2, 300000), opts(0)).name, 'Harvest', 'its one host is marching: no second one is trained');
+  assert.equal(decideNext(war(), away(2, 200000), opts(100)).name, 'Harvest', '200 marching + 100 at home');
+  assert.equal(decideNext(war(), away(2, 200000), opts(99)).name, 'Train', '299 in all: below the cap');
+  assert.equal(decideNext(war(), away(0, 300000), opts(0)).name, 'Train', 'a free transit record counts nothing');
+  // settling turn: the war step's Train is capped the same way
+  assert.notEqual(decideNext(war(), built, opts(300, {}, { settling: true })).name, 'Train');
+  assert.equal(decideNext(war(), built, opts(200, {}, { settling: true })).name, 'Train');
+});
+
+test('Q-AEM-1 (b) with the village built — or none claimable — the resident trains freely again', () => {
+  const rich = [900, 900, 500, 200, 0, 300, 0, 0];
+  const target = { p: -66, q: 130 };
+  const war = () => createResidentMemory(0, undefined, { war: true });
+  const wopts = (targets = [target]) => ({ homes: [], war: warOf({ reserve: 0, army: 300, hostCount: 1 }), wide: wideOf(rich, { targets }) });
+  // the herald's record counts a wide village
+  assert.equal(decideNext(war(), viewOf(record({ ore: 10000n }), { wide: 1 }), wopts()).name, 'Train');
+  // its own landed claim (the record may lag): through noteOutcome, as live
+  const m = war();
+  const c = decideNext(m, viewOf(record({ ore: 10000n })), { ...wopts(), wide: wideOf(rich, { targets: [target], canClaim: true }) });
+  assert.equal(c.name, 'WideClaim');
+  noteOutcome(m, c, 'landed');
+  assert.equal(m.claims, 1);
+  for (let k = 0; k < 8; k++) m.decisions += 1;             // (past the claim's settle wait)
+  assert.equal(decideNext(m, viewOf(record({ ore: 10000n })), wopts()).name, 'Train', 'after its village: troops again, above one host');
+  // no wide land in reach: nothing to save for
+  assert.equal(decideNext(war(), viewOf(record({ ore: 10000n })), wopts([])).name, 'Train');
+  // not a wide world at all
+  assert.equal(decideNext(war(), viewOf(record({ ore: 10000n })), { homes: [], war: warOf({ reserve: 0, army: 300, hostCount: 1 }) }).name, 'Train');
+  // every site of the reachable land was refused: no village can come, so no cap for ever
+  const tried = war(); tried.triedClaims = Array.from({ length: 12 }, (_, site) => `${target.p},${target.q},${site}`);
+  assert.equal(decideNext(tried, viewOf(record({ ore: 10000n })), wopts()).name, 'Train');
+  // both claims used
+  const done = war(); done.claims = OPERATOR_WIDE_CLAIMS;
+  assert.equal(decideNext(done, viewOf(record({ ore: 10000n })), wopts()).name, 'Train');
+});
+
+test('Q-AEM-1 (b) what the cap saves: a training is food 60 and gold 10 a hundred (catalog.rs), the village food and gold', () => {
+  assert.deepEqual([...TRAIN_COST_PER_100], [60, 0, 0, 20, 0, 10, 0, 0]);
 });
