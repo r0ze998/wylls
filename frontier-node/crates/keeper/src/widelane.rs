@@ -764,4 +764,118 @@ mod territory_plan_tests {
             .iter()
             .any(|x| matches!(x, Step::Conquer { .. })));
     }
+
+    /// (test-gaps-territory) T-5 decay order through the keeper's own plan: random territories over three
+    /// provinces, unpaid with an empty first home (each settle short, Q-LP17-1 (b)). Every planned decay names a tile
+    /// the program accepts (`apply_decay` refuses `NotFarthest` otherwise), the first comes at `since + 24`, then one
+    /// a bell per player with no gap, distances never rising; each decay of a summary behind the clock is preceded by
+    /// its settle alone (verify-pr206-209).
+    #[test]
+    fn planned_decays_are_farthest_first_one_a_bell_after_the_grace() {
+        struct Lcg(u64);
+        impl Lcg {
+            fn below(&mut self, n: u64) -> u64 {
+                self.0 = self
+                    .0
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                (self.0 >> 33) % n.max(1)
+            }
+        }
+        let mut r = Lcg(0x6ee9e7);
+        for case in 0..120u64 {
+            let mut v = View {
+                provinces: (0..3)
+                    .map(|i| {
+                        TerritoryProvince::new(
+                            1,
+                            TerritoryRule::V1,
+                            world(),
+                            c(130 + i, 0),
+                            30,
+                            [9; 32],
+                        )
+                    })
+                    .collect(),
+                ..View::default()
+            };
+            let mut since = vec![];
+            for tag in 1..=2u64 {
+                let mut p = pl(tag, tag as u8);
+                let n = 1 + r.below(25);
+                let mut placed = 0;
+                while placed < n {
+                    let pi = r.below(3) as usize;
+                    let t = r.below(61) as u8;
+                    if t == 30 || v.provinces[pi].owner[t as usize] != 0 {
+                        continue;
+                    }
+                    let dist = r.below(10) as u8;
+                    wtr::apply_claim(
+                        &mut v.provinces[pi],
+                        &mut p,
+                        t,
+                        ClaimOk { cost: 0, dist },
+                        0,
+                    )
+                    .unwrap();
+                    placed += 1;
+                }
+                let s = 10 + r.below(10) as u32;
+                p.unpaid_since = Some(s);
+                since.push(s);
+                v.players.push(p);
+            }
+            let mut released: Vec<Vec<(u32, u8)>> = vec![vec![], vec![]];
+            for bell in 10..90u32 {
+                let now = 600 * bell as i64;
+                let steps = plan(&v, bell, now);
+                for (k, st) in steps.iter().enumerate() {
+                    match *st {
+                        Step::Settle { citizen } => {
+                            let i = v.players.iter().position(|p| p.citizen == citizen).unwrap();
+                            // an empty first home: the settle lands short and keeps the first unpaid bell
+                            let s = wtr::settle_upkeep(&mut v.players[i], now, bell, 0).unwrap();
+                            assert!(!s.paid || v.players[i].tiles == 0, "case {case}");
+                            assert_eq!(v.players[i].unpaid_since, Some(since[i]), "case {case}");
+                        }
+                        Step::Decay {
+                            citizen,
+                            province,
+                            tile,
+                        } => {
+                            let i = v.players.iter().position(|p| p.citizen == citizen).unwrap();
+                            assert!(
+                                k > 0 && steps[k - 1] == Step::Settle { citizen },
+                                "case {case} bell {bell}: the settle alone goes first"
+                            );
+                            let pi = v
+                                .provinces
+                                .iter()
+                                .position(|p| p.coord == province)
+                                .unwrap();
+                            let d = v.provinces[pi].dist[tile as usize];
+                            wtr::apply_decay(&mut v.provinces[pi], &mut v.players[i], tile, bell)
+                                .unwrap_or_else(|e| {
+                                    panic!("case {case} bell {bell}: refused {e:?}")
+                                });
+                            released[i].push((bell, d));
+                        }
+                        Step::Conquer { .. } => panic!("case {case}: no keep was captured"),
+                    }
+                }
+            }
+            for (i, rel) in released.iter().enumerate() {
+                assert_eq!(
+                    v.players[i].tiles, 0,
+                    "case {case}: everything let go while unpaid"
+                );
+                assert_eq!(rel[0].0, since[i] + 24, "case {case}: first at since + 24");
+                for w in rel.windows(2) {
+                    assert_eq!(w[1].0, w[0].0 + 1, "case {case}: one a bell, no gap");
+                    assert!(w[1].1 <= w[0].1, "case {case}: farthest first");
+                }
+            }
+        }
+    }
 }
