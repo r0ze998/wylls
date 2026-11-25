@@ -1,6 +1,8 @@
 // The wide land's key (territory-video-3, owner 2026-11-24 on the territory recording: 「それは隠れてて見にくいな」 — the
 // wide land's colours ARE the nation holding each province's keep, but nothing on the screen said which colour was whose).
 //
+// (territory-map, owner 2026-11-25 OQ-3: only the tiles players own are coloured now, and a province's holder is its keep's
+// icon — the rows name the nations whose tiles are in the picture, and one line says what the keep's colour means.)
 // A small legend over the map, beside the map tools, while the wide land is drawn: "Your nation" in the viewer's colour,
 // each other nation whose land is DRAWN in this frame by colour and name, and "No nation" when unheld land is drawn.
 // It lists only holders the map itself just painted (map/wideland.mjs paintWideLand → `holders`, read from the fogged
@@ -11,12 +13,30 @@ import { L } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { NATION_LAND, NATION_DARK } from '../palette.mjs';
 import { NEUTRAL, NEUTRAL_LAND } from './wideland.mjs';
+import { UNKNOWN_NATION, UNKNOWN_LAND, UNKNOWN_DARK } from './territorytiles.mjs';
 
 export const WIDE_LEGEND_ID = 'wide-legend';
 const nation = f => Number.isInteger(f) && f >= 0 && f < 6;
 
 /**
- * The legend's rows for the `holders` drawn (nations 0–5, NEUTRAL 6) and the `viewer`'s nation (pure):
+ * (territory-map, owner 2026-11-25 items 5/6) The legend's rows for the land the map draws now: `nations` the nations
+ * whose OWNED TILES stand in the picture (map/territorytiles.mjs paintTerritoryTiles; UNKNOWN_NATION: a player's tiles
+ * whose nation the page does not know), `keeps` whether a keep held by a nation stands in it (its icon is in that
+ * nation's colour: who holds the province). → `[{key, colour, edge, text}]`: the viewer's nation first, the other nations
+ * in their order, the land of an unknown nation, then the keep's line. Unowned land is not coloured, so it has no row.
+ */
+export function territoryLegendRows(nations, { viewer = null, keeps = false } = {}) {
+  const ns = [...new Set((Array.isArray(nations) ? nations : []).filter(h => nation(h) || h === UNKNOWN_NATION))];
+  const rows = [];
+  if (nation(viewer) && ns.includes(viewer)) rows.push({ key: `n${viewer}`, colour: NATION_LAND[viewer], edge: NATION_DARK[viewer], text: L`あなたの国（${factionName(viewer)}）` });
+  for (const h of ns.filter(h => nation(h) && h !== viewer).sort((a, b) => a - b)) rows.push({ key: `n${h}`, colour: NATION_LAND[h], edge: NATION_DARK[h], text: factionName(h) });
+  if (ns.includes(UNKNOWN_NATION)) rows.push({ key: 'unknown', colour: UNKNOWN_LAND, edge: UNKNOWN_DARK, text: L`国のわからないプレイヤーの土地` });
+  if (keeps) rows.push({ key: 'keep', colour: null, edge: null, text: L`城の色：その州を持つ国` });
+  return rows;
+}
+
+/**
+ * (before territory-map: the provinces were coloured by their keep's nation) The legend's rows for the `holders` drawn (nations 0–5, NEUTRAL 6) and the `viewer`'s nation (pure):
  * `[{key, colour, edge, text}]` — the viewer's nation first, then the other nations in their order, then no nation.
  * Empty when nothing was drawn.
  */
@@ -43,7 +63,8 @@ export function mountWideLegend({ doc = globalThis.document, parent = null, onLa
   let last = null, drawnNow = null, viewerNow = null;
   const write = () => {
     // (verify-pr205: the holders of the land in the picture, `shown`; `holders` is all the frame painted, margin included)
-    const rows = wideLegendRows(drawnNow?.shown ?? drawnNow?.holders ?? [], viewerNow);
+    // (territory-map: the nations whose owned tiles are in the picture, and the keeps' line when a nation's keep is)
+    const rows = drawnNow ? territoryLegendRows(drawnNow.nations ?? [], { viewer: viewerNow, keeps: (drawnNow.keeps ?? []).length > 0 }) : [];
     const key = `${L`土地の持ち主`}|${rows.map(r => `${r.key}:${r.text}`).join(',')}`;
     if (key === last) return rows;
     last = key;
