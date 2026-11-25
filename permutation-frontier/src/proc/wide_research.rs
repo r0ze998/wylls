@@ -109,7 +109,11 @@ fn nation_rec(
         return Err(BAD_ACCOUNT);
     }
     let rec = NationResearch::read(&ai.try_borrow_data()?).map_err(research_err)?;
-    if rec.season_id != w.season_id || rec.world != w.world || rec.faction != faction || rec.rule != w.rule {
+    if rec.season_id != w.season_id
+        || rec.world != w.world
+        || rec.faction != faction
+        || rec.rule != w.rule
+    {
         return Err(BAD_ACCOUNT);
     }
     Ok(rec)
@@ -133,7 +137,13 @@ struct Village {
     hkey: [u8; 9],
 }
 
-fn village(ai: &AccountInfo, p: &Pubkey, ctx: &addr::AddrCtx, season_id: u64, world: WorldId) -> R<Village> {
+fn village(
+    ai: &AccountInfo,
+    p: &Pubkey,
+    ctx: &addr::AddrCtx,
+    season_id: u64,
+    world: WorldId,
+) -> R<Village> {
     if ai.owner != p || init::is_absent(ai) {
         return Err(BAD_ACCOUNT);
     }
@@ -278,7 +288,8 @@ pub(crate) fn start(p: &Pubkey, a: &[AccountInfo], x: &wix::StartResearch) -> R<
             p,
         )?;
     }
-    w.write(&mut world_ai.try_borrow_mut_data()?).map_err(research_err)?;
+    w.write(&mut world_ai.try_borrow_mut_data()?)
+        .map_err(research_err)?;
     for (f, n) in nations.iter().enumerate() {
         NationResearch::new(hdr.id, rule, f as u8, world, payer)
             .write(&mut n.try_borrow_mut_data()?)
@@ -320,7 +331,8 @@ pub(crate) fn pause(p: &Pubkey, a: &[AccountInfo], x: &wix::PauseResearch) -> R<
         return Err(FrontierError::AlreadyDone.into());
     }
     w.paused = paused;
-    w.write(&mut world_ai.try_borrow_mut_data()?).map_err(research_err)?;
+    w.write(&mut world_ai.try_borrow_mut_data()?)
+        .map_err(research_err)?;
     emit_receipt(&Receipt {
         kind: receipt_kind::PAUSE,
         tech: 0,
@@ -407,7 +419,11 @@ pub(crate) fn pledge_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Pledge, auth: &A
     let (faction, expelled, cd_copy) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
-        (r.u8(C::FACTION)?, r.i64(C2::EXPELLED_SINCE)? != 0, cd.to_vec())
+        (
+            r.u8(C::FACTION)?,
+            r.i64(C2::EXPELLED_SINCE)? != 0,
+            cd.to_vec(),
+        )
     };
     if expelled {
         return Err(FrontierError::NotEligible.into());
@@ -450,9 +466,11 @@ pub(crate) fn pledge_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Pledge, auth: &A
     });
     if ok.learns {
         learn(&mut w, &mut n, x.tech, now_bell, ok.cost, ckey)?;
-        w.write(&mut world_ai.try_borrow_mut_data()?).map_err(research_err)?;
+        w.write(&mut world_ai.try_borrow_mut_data()?)
+            .map_err(research_err)?;
     }
-    n.write(&mut nation_ai.try_borrow_mut_data()?).map_err(research_err)?;
+    n.write(&mut nation_ai.try_borrow_mut_data()?)
+        .map_err(research_err)?;
     {
         let mut cd = citizen.try_borrow_mut_data()?;
         start.finish(&mut cd, now.ts)?;
@@ -482,11 +500,13 @@ pub(crate) fn settle(p: &Pubkey, a: &[AccountInfo], x: &wix::ResearchSettle) -> 
     };
     let mut n = nation_rec(nation_ai, p, &ctx, &w, faction)?;
     let others = w.others_knowing(x.tech, faction);
-    let c = kr::judge_settle(w.rule.params(), x.tech, w.era, &n.view(), others)
-        .map_err(refusal_err)?;
+    let c =
+        kr::judge_settle(w.rule.params(), x.tech, w.era, &n.view(), others).map_err(refusal_err)?;
     learn(&mut w, &mut n, x.tech, now_bell, c, key(payer))?;
-    w.write(&mut world_ai.try_borrow_mut_data()?).map_err(research_err)?;
-    n.write(&mut nation_ai.try_borrow_mut_data()?).map_err(research_err)
+    w.write(&mut world_ai.try_borrow_mut_data()?)
+        .map_err(research_err)?;
+    n.write(&mut nation_ai.try_borrow_mut_data()?)
+        .map_err(research_err)
 }
 
 // ------------------------------------------------------------ 0xDC op 16
@@ -510,7 +530,12 @@ pub(crate) fn apply(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     if key(citizen) != v.owner {
         return Err(FrontierError::NotOwner.into());
     }
-    prologue::present(citizen, p, frontier_abi::layout::AccountKind::Citizen, hdr.id)?;
+    prologue::present(
+        citizen,
+        p,
+        frontier_abi::layout::AccountKind::Citizen,
+        hdr.id,
+    )?;
     let (faction, terrain_ore) = {
         let d = holding.try_borrow_data()?;
         (Ro(&d).u8(H::FACTION)?, hold::terrain_ore(&d)?)

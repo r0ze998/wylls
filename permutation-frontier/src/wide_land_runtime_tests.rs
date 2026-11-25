@@ -12763,7 +12763,13 @@ mod research_tests {
             let nations = (0..NATIONS)
                 .map(|f| absent_at(wre::nation_address(&w.w.ctx, f), wre::nation_research::SIZE))
                 .collect();
-            R { w, a, b, world, nations }
+            R {
+                w,
+                a,
+                b,
+                world,
+                nations,
+            }
         }
 
         fn start_as(&mut self, authority: [u8; 32], rule: u8, start_bell: u32) -> Result<(), u32> {
@@ -12774,7 +12780,10 @@ mod research_tests {
             ];
             accts.extend(self.nations.iter().cloned());
             accts.push(self.w.w.system.clone());
-            code(run_tx(&accts, &wix::StartResearch { rule, start_bell }.to_bytes()))
+            code(run_tx(
+                &accts,
+                &wix::StartResearch { rule, start_bell }.to_bytes(),
+            ))
         }
 
         fn pause(&mut self, paused: u8) -> Result<(), u32> {
@@ -12791,7 +12800,13 @@ mod research_tests {
             self.w.w.holding(RIM, site)
         }
 
-        fn pledge_from(&mut self, m: &Member, home: AccountInfo<'static>, t: u8, amount: u32) -> Result<(), u32> {
+        fn pledge_from(
+            &mut self,
+            m: &Member,
+            home: AccountInfo<'static>,
+            t: u8,
+            amount: u32,
+        ) -> Result<(), u32> {
             let accts = vec![
                 wallet(m.wallet, true, false, 0),
                 self.w.w.payer.clone(),
@@ -12892,7 +12907,10 @@ mod research_tests {
         r.w.at(2, 10);
         let a = r.a.clone_member();
         // no research in this world yet
-        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Err(E::NotImplemented as u32));
+        assert_eq!(
+            r.pledge(&a, tech::AGRICULTURE, 1),
+            Err(E::NotImplemented as u32)
+        );
         assert_eq!(r.start_as(PAYER2, 1, 4), Err(E::Auth as u32));
         // the host-test rule is never started on chain; an unknown byte neither
         assert_eq!(r.start_as(AUTHORITY, 255, 4), Err(E::BadData as u32));
@@ -12922,12 +12940,18 @@ mod research_tests {
         // two hours after the start: a Hamlet makes 5 science/h → 10
         r.w.at(15, 0);
         assert!(r.store(&a, SCI) >= 1_500 * MILLI, "banked before the start");
-        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 11), Err(E::Insufficient as u32));
+        assert_eq!(
+            r.pledge(&a, tech::AGRICULTURE, 11),
+            Err(E::Insufficient as u32)
+        );
         assert_eq!(r.pledge(&a, tech::AGRICULTURE, 10), Ok(()));
         assert!(r.mask(&a).rebased());
         assert_eq!(r.store(&a, SCI), 0);
         let n = r.nation_rec(a.faction);
-        assert_eq!((n.pledged[0], n.total, n.pledges, n.first_pledge_bell[0]), (10, 10, 1, 15));
+        assert_eq!(
+            (n.pledged[0], n.total, n.pledges, n.first_pledge_bell[0]),
+            (10, 10, 1, 15)
+        );
         // later science counts in full (the cut is once)
         r.fill(&a, 500 * MILLI);
         r.w.at(16, 0);
@@ -12990,16 +13014,26 @@ mod research_tests {
         r.w.at(5, 0);
         // b has 251 of 300
         assert_eq!(r.pledge(&b, tech::AGRICULTURE, 250), Ok(()));
-        assert_eq!(r.settle(b.faction, tech::AGRICULTURE), Err(E::TooEarly as u32));
+        assert_eq!(
+            r.settle(b.faction, tech::AGRICULTURE),
+            Err(E::TooEarly as u32)
+        );
         // a learns → b's cost is 240 (−20 %, live, Q-RS-5 (a))
         assert_eq!(r.pledge(&a, tech::AGRICULTURE, 299), Ok(()));
         r.w.at(6, 0);
         assert_eq!(r.settle(b.faction, tech::AGRICULTURE), Ok(()));
         let w = r.world_rec();
-        assert_eq!(w.first_nations[0], 1u8 << a.faction, "b was later: not first");
+        assert_eq!(
+            w.first_nations[0],
+            1u8 << a.faction,
+            "b was later: not first"
+        );
         assert_eq!(w.known_by[0], (1u8 << a.faction) | (1u8 << b.faction));
         assert_eq!(r.nation_rec(b.faction).learned_bell[0], 6);
-        assert_eq!(r.settle(b.faction, tech::AGRICULTURE), Err(E::AlreadyDone as u32));
+        assert_eq!(
+            r.settle(b.faction, tech::AGRICULTURE),
+            Err(E::AlreadyDone as u32)
+        );
     }
 
     #[test]
@@ -13073,7 +13107,10 @@ mod research_tests {
         {
             let h = r.home(&a);
             let mut d = h.try_borrow_mut_data().unwrap();
-            assert_eq!(crate::proc::holding::read_holding(&d).unwrap().research, 0b0111);
+            assert_eq!(
+                crate::proc::holding::read_holding(&d).unwrap().research,
+                0b0111
+            );
             let f = d[H::FACTION];
             d[H::FACTION] = (f + 1) % 6;
             assert_eq!(crate::proc::holding::read_holding(&d).unwrap().research, 0);
@@ -13091,7 +13128,10 @@ mod research_tests {
         r.w.at(4, 0);
         // another's village
         let bh = r.home(&b);
-        assert_eq!(r.pledge_from(&a, bh, tech::AGRICULTURE, 1), Err(E::NotOwner as u32));
+        assert_eq!(
+            r.pledge_from(&a, bh, tech::AGRICULTURE, 1),
+            Err(E::NotOwner as u32)
+        );
         // amount 0 is malformed
         assert_eq!(r.pledge(&a, tech::AGRICULTURE, 0), Err(E::BadData as u32));
         assert_eq!(r.pledge(&a, 12, 1), Err(E::BadData as u32));
@@ -13104,8 +13144,15 @@ mod research_tests {
         // expelled (Q-RS-10 (b))
         {
             let mut cd = a.citizen.try_borrow_mut_data().unwrap();
-            put(&mut cd, crate::layout::citizen2::EXPELLED_SINCE, &1i64.to_le_bytes());
+            put(
+                &mut cd,
+                crate::layout::citizen2::EXPELLED_SINCE,
+                &1i64.to_le_bytes(),
+            );
         }
-        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Err(E::NotEligible as u32));
+        assert_eq!(
+            r.pledge(&a, tech::AGRICULTURE, 1),
+            Err(E::NotEligible as u32)
+        );
     }
 }

@@ -420,7 +420,10 @@ pub fn research_of(d: &[u8]) -> R<u16> {
 /// The research mask bytes of a Holding (raw, not gated).
 pub fn research_mask(d: &[u8]) -> R<research::VillageResearch> {
     let r = Ro(d);
-    Ok(research::VillageResearch::from_le([r.u8(H2::RSV_1258)?, r.u8(H2::RSV_1258 + 1)?]))
+    Ok(research::VillageResearch::from_le([
+        r.u8(H2::RSV_1258)?,
+        r.u8(H2::RSV_1258 + 1)?,
+    ]))
 }
 
 /// Writes the research mask bytes of a Holding.

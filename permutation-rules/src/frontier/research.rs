@@ -66,23 +66,78 @@ const fn b(t: u8) -> u16 {
 
 /// The table of design 01 §5.2 (prerequisites as there; base cost by era).
 pub const TECHS: [Tech; TECH_COUNT] = [
-    Tech { id: tech::AGRICULTURE, era: 1, prereq: 0, key: "agriculture" },
-    Tech { id: tech::MASONRY, era: 1, prereq: 0, key: "masonry" },
-    Tech { id: tech::BRONZE, era: 1, prereq: 0, key: "bronze" },
-    Tech { id: tech::ROADS, era: 1, prereq: 0, key: "roads" },
-    Tech { id: tech::WRITING, era: 2, prereq: b(tech::AGRICULTURE), key: "writing" },
-    Tech { id: tech::WALLCRAFT, era: 2, prereq: b(tech::MASONRY), key: "wallcraft" },
-    Tech { id: tech::IRON, era: 2, prereq: b(tech::BRONZE), key: "iron" },
-    Tech { id: tech::CARTOGRAPHY, era: 2, prereq: b(tech::ROADS), key: "cartography" },
-    Tech { id: tech::CURRENCY, era: 3, prereq: b(tech::WRITING), key: "currency" },
+    Tech {
+        id: tech::AGRICULTURE,
+        era: 1,
+        prereq: 0,
+        key: "agriculture",
+    },
+    Tech {
+        id: tech::MASONRY,
+        era: 1,
+        prereq: 0,
+        key: "masonry",
+    },
+    Tech {
+        id: tech::BRONZE,
+        era: 1,
+        prereq: 0,
+        key: "bronze",
+    },
+    Tech {
+        id: tech::ROADS,
+        era: 1,
+        prereq: 0,
+        key: "roads",
+    },
+    Tech {
+        id: tech::WRITING,
+        era: 2,
+        prereq: b(tech::AGRICULTURE),
+        key: "writing",
+    },
+    Tech {
+        id: tech::WALLCRAFT,
+        era: 2,
+        prereq: b(tech::MASONRY),
+        key: "wallcraft",
+    },
+    Tech {
+        id: tech::IRON,
+        era: 2,
+        prereq: b(tech::BRONZE),
+        key: "iron",
+    },
+    Tech {
+        id: tech::CARTOGRAPHY,
+        era: 2,
+        prereq: b(tech::ROADS),
+        key: "cartography",
+    },
+    Tech {
+        id: tech::CURRENCY,
+        era: 3,
+        prereq: b(tech::WRITING),
+        key: "currency",
+    },
     Tech {
         id: tech::FORTIFICATION,
         era: 3,
         prereq: b(tech::WALLCRAFT) | b(tech::IRON),
         key: "fortification",
     },
-    Tech { id: tech::NAVIGATION, era: 3, prereq: b(tech::CARTOGRAPHY), key: "navigation" },
-    Tech { id: tech::ADMINISTRATION, era: 3, prereq: b(tech::WRITING), key: "administration" },
+    Tech {
+        id: tech::NAVIGATION,
+        era: 3,
+        prereq: b(tech::CARTOGRAPHY),
+        key: "navigation",
+    },
+    Tech {
+        id: tech::ADMINISTRATION,
+        era: 3,
+        prereq: b(tech::WRITING),
+        key: "administration",
+    },
 ];
 
 /// The roads effect (travel time −5 %) is not wired into the march and
@@ -207,11 +262,7 @@ pub const fn cost(p: &ResearchParams, t: u8, others: u32) -> Option<u32> {
         p.discount_max_nations
     };
     let off = p.discount_bps_per_nation as u64 * k as u64;
-    let keep = if off >= BPS_ONE as u64 {
-        0
-    } else {
-        BPS_ONE as u64 - off
-    };
+    let keep = (BPS_ONE as u64).saturating_sub(off);
     let c = (base * keep).div_ceil(BPS_ONE as u64);
     Some(c as u32)
 }
@@ -373,7 +424,11 @@ impl VillageResearch {
     pub const REBASED: u16 = 0x8000;
 
     pub const fn new(techs: u16, faction: u8, rebased: bool) -> VillageResearch {
-        let f = if faction < 6 { (faction as u16 + 1) & 7 } else { 0 };
+        let f = if faction < 6 {
+            (faction as u16 + 1) & 7
+        } else {
+            0
+        };
         VillageResearch(
             (techs & Self::TECH_MASK)
                 | (f << Self::FACTION_SHIFT)
@@ -524,7 +579,10 @@ mod tests {
             assert_eq!(t.era, 1 + (i / 4) as u8);
         }
         assert_eq!(TECHS[tech::FORTIFICATION as usize].prereq, 0b110_0000);
-        assert_eq!(TECHS[tech::ADMINISTRATION as usize].prereq, 1 << tech::WRITING);
+        assert_eq!(
+            TECHS[tech::ADMINISTRATION as usize].prereq,
+            1 << tech::WRITING
+        );
     }
 
     #[test]
@@ -543,7 +601,10 @@ mod tests {
             Err(ResearchRefusal::Insufficient)
         );
         let ok = judge_pledge(P, tech::AGRICULTURE, 1, &v, 0, 120, 500).unwrap();
-        assert_eq!((ok.accepted, ok.total, ok.cost, ok.learns), (120, 120, 300, false));
+        assert_eq!(
+            (ok.accepted, ok.total, ok.cost, ok.learns),
+            (120, 120, 300, false)
+        );
         // never past the cost: the rest stays in the village
         let mut v2 = v;
         v2.pledged[0] = 250;
@@ -573,7 +634,15 @@ mod tests {
         );
         assert!(judge_pledge(all, tech::WRITING, 2, &nv(1), 0, 1, 9).is_ok());
         assert_eq!(
-            judge_pledge(all, tech::FORTIFICATION, 3, &nv(1 << tech::WALLCRAFT), 0, 1, 9),
+            judge_pledge(
+                all,
+                tech::FORTIFICATION,
+                3,
+                &nv(1 << tech::WALLCRAFT),
+                0,
+                1,
+                9
+            ),
             Err(ResearchRefusal::Prereq)
         );
         // V1: era 2 closed even when the world reached it
@@ -629,7 +698,10 @@ mod tests {
     #[test]
     fn banked_science_is_cut_to_what_was_made_since_start() {
         // 5 science/h = 5,000 milli/h; 2 h since the start → 10,000
-        assert_eq!(rebased_science(840_000, 5_000, 1_000, 1_000 + 7_200), 10_000);
+        assert_eq!(
+            rebased_science(840_000, 5_000, 1_000, 1_000 + 7_200),
+            10_000
+        );
         assert_eq!(rebased_science(3_000, 5_000, 1_000, 1_000 + 7_200), 3_000);
         assert_eq!(rebased_science(840_000, 5_000, 1_000, 500), 0);
         assert_eq!(rebased_science(840_000, 0, 1_000, 9_000), 0);

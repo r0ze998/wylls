@@ -442,12 +442,8 @@ impl Holding {
         // fields directly cannot push a rate out of range.
         let prod = self.production[r].clamp(0, MAX_PRODUCTION_PER_HOUR);
         // research (agriculture): food +10 %; 0 = unchanged
-        let prod = super::research::food_rate(
-            &super::research::RESEARCH_V1,
-            self.research,
-            r,
-            prod,
-        );
+        let prod =
+            super::research::food_rate(&super::research::RESEARCH_V1, self.research, r, prod);
         let p = if dormant {
             prod * DORMANT_PRODUCTION_BPS as i64 / BPS_ONE as i64
         } else {

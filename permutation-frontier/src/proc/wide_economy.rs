@@ -52,10 +52,10 @@ use alloc::vec::Vec;
 
 use frontier_abi::prologue as ap;
 use frontier_abi::world_index::{WideCoord, WideHolding, WideProvince, WorldId};
-use permutation_rules::frontier::{arms, research};
 use permutation_rules::frontier::catalog::{self, Cost};
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::holding::{Effect, Tier, MAX_WALLS};
+use permutation_rules::frontier::{arms, research};
 
 use crate::error::{kernel, BAD_ACCOUNT, OVERFLOW};
 use crate::layout::{holding as H, province as P, site as SM, site2 as SM2, Ro, Rw};

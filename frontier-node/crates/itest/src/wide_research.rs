@@ -20,7 +20,9 @@ use fclient::{Instruction, Signer};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::v2::layout::player::holding as H2;
 use frontier_abi::world_index::holding::WideHolding;
-use frontier_abi::world_index::research::{self as wre, NationResearch, ResearchWorld, VillageResearch};
+use frontier_abi::world_index::research::{
+    self as wre, NationResearch, ResearchWorld, VillageResearch,
+};
 use keeper_core::widelane::research::{self as kr, Step, View, Village};
 use localnet::server::{lock, Shared};
 use localnet::Chain;
@@ -61,12 +63,17 @@ fn scan(c: &Chain, a: &Addresses) -> View {
             }
         } else if d.len() >= H2::SIZE && d[..8] == magic {
             // a first home or a wide village: the deployed Holding head
-            let wide_ok = WideHolding::read(d).map(|w| w.season_id == a.season_id).unwrap_or(false);
-            let season_ok = u64::from_le_bytes(d[8..16].try_into().unwrap_or_default()) == a.season_id;
+            let wide_ok = WideHolding::read(d)
+                .map(|w| w.season_id == a.season_id)
+                .unwrap_or(false);
+            let season_ok =
+                u64::from_le_bytes(d[8..16].try_into().unwrap_or_default()) == a.season_id;
             if !(wide_ok || season_ok) || d[H2::STATE] != H2::STATE_FINAL {
                 continue;
             }
-            let owner: [u8; 32] = d[H2::OWNER_CITIZEN..H2::OWNER_CITIZEN + 32].try_into().unwrap_or([0; 32]);
+            let owner: [u8; 32] = d[H2::OWNER_CITIZEN..H2::OWNER_CITIZEN + 32]
+                .try_into()
+                .unwrap_or([0; 32]);
             if owner == [0; 32] || d[H2::FACTION] >= wre::NATIONS {
                 continue;
             }
@@ -84,7 +91,11 @@ fn scan(c: &Chain, a: &Addresses) -> View {
 fn ixs_of(a: &Addresses, payer: fclient::Address, s: &Step) -> Vec<Instruction> {
     match s {
         Step::Settle { faction, tech } => vec![kr::settle(a, payer, *faction, *tech)],
-        Step::Apply { holding, owner, faction } => vec![kr::apply(a, payer, *faction, *holding, owner)],
+        Step::Apply {
+            holding,
+            owner,
+            faction,
+        } => vec![kr::apply(a, payer, *faction, *holding, owner)],
     }
 }
 
@@ -101,7 +112,9 @@ pub async fn run(
     out: impl Fn(Value),
 ) -> Result<(), String> {
     let payer = crate::keeper_loop::fund_fresh(&state, &mut stop).await?;
-    out(json!({"schema": RESEARCH_SCHEMA, "wide_research_step": "duty", "test_only": true, "per_bell": SENDS_PER_BELL}));
+    out(
+        json!({"schema": RESEARCH_SCHEMA, "wide_research_step": "duty", "test_only": true, "per_bell": SENDS_PER_BELL}),
+    );
     let mut last_bell = None;
     loop {
         if *stop.borrow() {
@@ -142,8 +155,10 @@ pub async fn run(
                     Step::Settle { .. } => "settle",
                     Step::Apply { .. } => "apply",
                 };
-                out(json!({"schema": RESEARCH_SCHEMA, "wide_research_step": kind, "test_only": true,
-                    "bell": bell, "landed": ok, "what": what, "result": format!("{sent:?}")}));
+                out(
+                    json!({"schema": RESEARCH_SCHEMA, "wide_research_step": kind, "test_only": true,
+                    "bell": bell, "landed": ok, "what": what, "result": format!("{sent:?}")}),
+                );
             }
         }
         tokio::select! {

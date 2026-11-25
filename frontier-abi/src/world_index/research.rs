@@ -21,7 +21,9 @@
 
 use super::key::WorldId;
 use crate::addr::{AddrCtx, Seed};
-use crate::bytes::{rd_arr, rd_i64, rd_u16, rd_u32, rd_u64, rd_u8, wr_arr, wr_i64, wr_u16, wr_u32, wr_u64, wr_u8};
+use crate::bytes::{
+    rd_arr, rd_i64, rd_u16, rd_u32, rd_u64, rd_u8, wr_arr, wr_i64, wr_u16, wr_u32, wr_u64, wr_u8,
+};
 pub use permutation_rules::frontier::research::{
     self as kr, NationView, ResearchRefusal, ResearchRule, VillageResearch, ERAS, NO_BELL,
     TECH_COUNT,
@@ -203,7 +205,10 @@ impl ResearchWorld {
     pub fn read(d: &[u8]) -> Result<ResearchWorld, ResearchError> {
         use research_world as L;
         if d.len() != L::SIZE {
-            return Err(ResearchError::Length { expected: L::SIZE, got: d.len() });
+            return Err(ResearchError::Length {
+                expected: L::SIZE,
+                got: d.len(),
+            });
         }
         let c = ResearchError::Corrupt;
         if rd_arr::<8>(d, L::HDR_MAGIC).ok_or(c)? != L::MAGIC {
@@ -211,9 +216,14 @@ impl ResearchWorld {
         }
         let v = rd_u16(d, L::FAMILY_VERSION).ok_or(c)?;
         if v != RESEARCH_FAMILY_VERSION {
-            return Err(ResearchError::Version { expected: RESEARCH_FAMILY_VERSION, got: v });
+            return Err(ResearchError::Version {
+                expected: RESEARCH_FAMILY_VERSION,
+                got: v,
+            });
         }
-        if d[L::RSV_57..L::RSV_57 + 3].iter().any(|b| *b != 0) || d[L::RSV..L::SIZE].iter().any(|b| *b != 0) {
+        if d[L::RSV_57..L::RSV_57 + 3].iter().any(|b| *b != 0)
+            || d[L::RSV..L::SIZE].iter().any(|b| *b != 0)
+        {
             return Err(ResearchError::Reserved);
         }
         let rule = ResearchRule::from_byte(rd_u8(d, L::RULE).ok_or(c)?).ok_or(c)?;
@@ -264,7 +274,10 @@ impl ResearchWorld {
     pub fn write(&self, d: &mut [u8]) -> Result<(), ResearchError> {
         use research_world as L;
         if d.len() != L::SIZE {
-            return Err(ResearchError::Length { expected: L::SIZE, got: d.len() });
+            return Err(ResearchError::Length {
+                expected: L::SIZE,
+                got: d.len(),
+            });
         }
         let mut ok = wr_arr(d, L::HDR_MAGIC, &L::MAGIC)
             & wr_u64(d, L::SEASON_ID, self.season_id)
@@ -340,7 +353,13 @@ pub struct NationResearch {
 }
 
 impl NationResearch {
-    pub fn new(season_id: u64, rule: ResearchRule, faction: u8, world: WorldId, rent_payer: [u8; 32]) -> Self {
+    pub fn new(
+        season_id: u64,
+        rule: ResearchRule,
+        faction: u8,
+        world: WorldId,
+        rent_payer: [u8; 32],
+    ) -> Self {
         NationResearch {
             season_id,
             rule,
@@ -357,7 +376,10 @@ impl NationResearch {
     }
 
     pub fn view(&self) -> NationView {
-        NationView { known: self.known, pledged: self.pledged }
+        NationView {
+            known: self.known,
+            pledged: self.pledged,
+        }
     }
 
     /// Adds an accepted pledge.
@@ -366,11 +388,16 @@ impl NationResearch {
         if i >= TECH_COUNT {
             return Err(ResearchError::Corrupt);
         }
-        self.pledged[i] = self.pledged[i].checked_add(accepted).ok_or(ResearchError::Corrupt)?;
+        self.pledged[i] = self.pledged[i]
+            .checked_add(accepted)
+            .ok_or(ResearchError::Corrupt)?;
         if self.first_pledge_bell[i] == NO_BELL {
             self.first_pledge_bell[i] = bell;
         }
-        self.total = self.total.checked_add(accepted as u64).ok_or(ResearchError::Corrupt)?;
+        self.total = self
+            .total
+            .checked_add(accepted as u64)
+            .ok_or(ResearchError::Corrupt)?;
         self.pledges = self.pledges.checked_add(1).ok_or(ResearchError::Corrupt)?;
         Ok(())
     }
@@ -389,7 +416,10 @@ impl NationResearch {
     pub fn read(d: &[u8]) -> Result<NationResearch, ResearchError> {
         use nation_research as L;
         if d.len() != L::SIZE {
-            return Err(ResearchError::Length { expected: L::SIZE, got: d.len() });
+            return Err(ResearchError::Length {
+                expected: L::SIZE,
+                got: d.len(),
+            });
         }
         let c = ResearchError::Corrupt;
         if rd_arr::<8>(d, L::HDR_MAGIC).ok_or(c)? != L::MAGIC {
@@ -397,7 +427,10 @@ impl NationResearch {
         }
         let v = rd_u16(d, L::FAMILY_VERSION).ok_or(c)?;
         if v != RESEARCH_FAMILY_VERSION {
-            return Err(ResearchError::Version { expected: RESEARCH_FAMILY_VERSION, got: v });
+            return Err(ResearchError::Version {
+                expected: RESEARCH_FAMILY_VERSION,
+                got: v,
+            });
         }
         if d[L::RSV_54..L::RSV_54 + 2].iter().any(|b| *b != 0)
             || d[L::RSV_260..L::RSV_260 + 4].iter().any(|b| *b != 0)
@@ -442,7 +475,10 @@ impl NationResearch {
     pub fn write(&self, d: &mut [u8]) -> Result<(), ResearchError> {
         use nation_research as L;
         if d.len() != L::SIZE {
-            return Err(ResearchError::Length { expected: L::SIZE, got: d.len() });
+            return Err(ResearchError::Length {
+                expected: L::SIZE,
+                got: d.len(),
+            });
         }
         let mut ok = wr_arr(d, L::HDR_MAGIC, &L::MAGIC)
             & wr_u64(d, L::SEASON_ID, self.season_id)
@@ -559,7 +595,10 @@ mod tests {
         assert_eq!(w.first_nations[0], 0b10100);
         assert_eq!(w.known_by[0], 0b10110);
         assert_eq!(w.others_knowing(0, 2), 2);
-        assert_eq!(w.learn(0, 2, 160, 0b1), Err(ResearchError::Rule(ResearchRefusal::Known)));
+        assert_eq!(
+            w.learn(0, 2, 160, 0b1),
+            Err(ResearchError::Rule(ResearchRefusal::Known))
+        );
         // a third era-1 tech advances the era
         w.learn(1, 2, 170, 0b011).unwrap();
         assert_eq!(w.learn(2, 2, 180, 0b111).unwrap(), (true, Some(2)));
@@ -590,7 +629,18 @@ mod tests {
 
     #[test]
     fn receipts_round_trip() {
-        let r = Receipt { kind: 1, tech: 2, nation: 5, flags: 1, bell: 77, citizen: [9; 32], amount: 10, total: 30, cost: 300, era: 1 };
+        let r = Receipt {
+            kind: 1,
+            tech: 2,
+            nation: 5,
+            flags: 1,
+            bell: 77,
+            citizen: [9; 32],
+            amount: 10,
+            total: 30,
+            cost: 300,
+            era: 1,
+        };
         assert_eq!(Receipt::decode(&r.to_bytes()), Some(r));
     }
 
@@ -599,8 +649,14 @@ mod tests {
     #[test]
     fn seeds_are_pinned_for_the_js_mirror() {
         assert_eq!(world_seed().as_bytes(), b"weed9a37491f1b6cb789f30a8a718917");
-        assert_eq!(nation_seed(0).as_bytes(), b"wkf23f021f1c9e2a9e225e935ffc2430");
-        assert_eq!(nation_seed(5).as_bytes(), b"wkcef1b317c4e9e2088f4326567f1ba9");
+        assert_eq!(
+            nation_seed(0).as_bytes(),
+            b"wkf23f021f1c9e2a9e225e935ffc2430"
+        );
+        assert_eq!(
+            nation_seed(5).as_bytes(),
+            b"wkcef1b317c4e9e2088f4326567f1ba9"
+        );
     }
 
     /// The offsets the JS views read (flocalplay-research.mjs decoders; the
@@ -610,11 +666,31 @@ mod tests {
         use nation_research as N;
         use research_world as W;
         assert_eq!(
-            (W::RULE, W::PAUSED, W::START_BELL, W::ERA, W::START_TS, W::ERA_BELL, W::FIRST_BELL, W::FIRST_NATIONS, W::KNOWN_BY, W::LEARNED),
+            (
+                W::RULE,
+                W::PAUSED,
+                W::START_BELL,
+                W::ERA,
+                W::START_TS,
+                W::ERA_BELL,
+                W::FIRST_BELL,
+                W::FIRST_NATIONS,
+                W::KNOWN_BY,
+                W::LEARNED
+            ),
             (18, 19, 52, 56, 60, 68, 80, 144, 160, 208)
         );
         assert_eq!(
-            (N::RULE, N::FACTION, N::KNOWN, N::PLEDGED, N::FIRST_PLEDGE_BELL, N::LEARNED_BELL, N::TOTAL, N::PLEDGES),
+            (
+                N::RULE,
+                N::FACTION,
+                N::KNOWN,
+                N::PLEDGED,
+                N::FIRST_PLEDGE_BELL,
+                N::LEARNED_BELL,
+                N::TOTAL,
+                N::PLEDGES
+            ),
             (18, 19, 52, 56, 120, 184, 248, 256)
         );
         assert_eq!(
