@@ -16,7 +16,8 @@
 // TILE (ore + SOL), the second signs it, the third files the village on it. Then, on the test's `<sync>/go-tile-<n>`
 // ({row, en}), 「1マス取る」 on that province row: the preview (and its English, when `en`), 「署名して取る」 → its
 // signature in `<sync>/done-tile-<n>.json`; on `<sync>/go-refusal`, the same press while the land is unpaid: refused
-// before anything is signed, JA and EN (`done-refusal.json`); `<sync>/go-end` ends.
+// before anything is signed, JA and EN (`done-refusal.json`); on `<sync>/go-after-decay`, the card and the map once
+// the page's own land read shows 0 tiles (`done-after-decay.json`); `<sync>/go-end` ends.
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -389,6 +390,35 @@ async function territory() {
     await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, 'ja']);
     out.sent = submits.length > before;
     fs.writeFileSync(path.join(SYNC, 'done-refusal.json'), JSON.stringify(out, null, 2));
+  }
+  // (upkeep-decay-prep, Q-LP17-1 (b)) after keeper A's decay: the page's own land read (every 60 s on devnet) shows
+  // the tile gone; stills of the card (JA, EN) and of the map
+  while (!exists('go-after-decay') && !exists('go-end')) await wait(500);
+  if (exists('go-after-decay')) {
+    const own = () => ev(async () => {
+      const { FS } = await import('/frontier/frontier/fstate.mjs');
+      const p = FS.ownLand?.player;
+      return p ? { tiles: p.tiles, unpaid: !!p.unpaid, unpaidSince: p.unpaidSince ?? null, released: p.released ?? null } : null;
+    });
+    const end = Date.now() + 240_000;
+    let o = await own();
+    while (Date.now() < end && !(o && o.tiles === 0)) { await wait(2000); o = await own(); }
+    log('after decay: own land', o);
+    await clear();
+    await showCard();
+    const cardText = async () => (await page.locator('#hp-wide').first().innerText({ timeout: 5000 }).catch(() => '')).slice(0, 600);
+    const card = { ja: await cardText() };
+    await shot('territory-after-decay-card-ja');
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, 'en']);
+    await wait(1200);
+    card.en = await cardText();
+    await shot('territory-after-decay-card-en');
+    await ev(async ([m, l]) => { (await import(m)).setLang(l); }, [Lg, 'ja']);
+    await wait(1200);
+    await page.keyboard.press('Escape').catch(() => {});
+    await wait(1500);
+    await shot('territory-after-decay-map');
+    fs.writeFileSync(path.join(SYNC, 'done-after-decay.json'), JSON.stringify({ own: o, card }, null, 2));
   }
   while (!exists('go-end')) await wait(500);
   await shot('territory-end');

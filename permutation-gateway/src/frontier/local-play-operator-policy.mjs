@@ -10,8 +10,14 @@
 //   1. no Citizen yet                 → Join its nation (fixed per resident index: OPERATOR_FACTIONS)
 //   2. a Citizen, no village          → PlaceHome on the next untried heartland site of its nation (the runner's own
 //                                       `ready-for-join` list; the program rechecks the site and refuses a taken one)
-//   3. a village                      → the next command of a fixed rotation (OPERATOR_ROTATION); a command the program
-//                                       refused waits OPERATOR_COOLDOWN decisions before it is asked for again
+//   3. a village                      → first ONE mine (Build item 3; owner 2026-11-25 17:58 Q-AOR-1,
+//                                       local-play-operator-mine.mjs), then the next command of a fixed rotation
+//                                       (OPERATOR_ROTATION); a command the program
+//                                       refused waits OPERATOR_COOLDOWN decisions before it is asked for again;
+//                                       in a wide world, until its next wide-land village is built, no Train at or
+//                                       above one host (300 troops): the food and gold are saved for the village
+//                                       (owner 2026-11-25 20:03 Q-AEM-1 (b), local-play-operator-reserve.mjs)
+//                                       and no new tile but the one that village stands on (owner 22:28 Q-VPR241-1 (b))
 // and the budget (`createOperatorBudget`): ONE action per resident per bell (owner decision Q16-2, 2026-11-18 21:44:
 // "one action per resident per turn; operator AI must not double-act"). The bell is the program's own:
 // floor((chain unix seconds − Season.GENESIS_TS) / 600), the chain time from the herald's `/h/status` and GENESIS_TS from
@@ -38,8 +44,10 @@
 // EXCEPT in a TEST-ONLY war world (`--operator-war operator-war-v1`, owner t359u): a resident whose memory says `war`
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, MUSTER_MIN, warStep, warHomeOrder } from './local-play-operator-war.mjs';
-import { oreReserve, tilePays, coversTrain, oreTurn } from './local-play-operator-reserve.mjs';
-export { OPERATOR_ORE_RESERVE } from './local-play-operator-reserve.mjs';
+import { oreReserve, tilePays, coversTrain, oreTurn, savingCapsTrain } from './local-play-operator-reserve.mjs';
+export { OPERATOR_ORE_RESERVE, OPERATOR_VILLAGE_SAVING } from './local-play-operator-reserve.mjs';
+import { OPERATOR_EARLY_MINE, minesOf, earlyMineDue, noteEarlyMine } from './local-play-operator-mine.mjs';
+export { OPERATOR_EARLY_MINE } from './local-play-operator-mine.mjs';
 import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
@@ -271,6 +279,17 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   const oreKept = oreReserve({ army, hostGoal: atWar ? MUSTER_MIN : wide?.needHost ? WIDE_HOST_TROOPS : 0, threatened,
     villagesHeld: villageDue ? 1 + Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length) : null });
   const oreCovers = () => tilePays(ore, (memory.ownTiles ?? []).length, oreKept);
+  // (ai-early-mine: SAVING FOR ITS FIRST WIDE VILLAGE — a wide village can still be claimed (wide land in reach, a site
+  //  not yet refused, a claim left) and the resident has none yet (its record's count, its own landed claims)
+  const villageSite = () => { const tried = new Set(memory.triedClaims ?? []); return wide.targets.some(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).some(site => !tried.has(`${t.p},${t.q},${site}`))); };
+  const savingFirstVillage = villageDue && Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length, memory.claims ?? 0) === 0 && villageSite();
+  // (ai-early-mine, owner 2026-11-25 20:03 Q-AEM-1 (b): until its next wide-land village is built the resident's troops
+  //  are capped at one host — no Train at or above 300 — so the food and gold are saved for the village; with the
+  //  village claimed, or none claimable (no wide land in reach, every site tried, no claim left), it trains freely)
+  // (a host on the march is not among the hosts the war eyes read where they stand: its troops at departure are in
+  //  the village's own transit record — `depMass`, thousandths — and count toward the cap too)
+  const marching = (Array.isArray(view.holding.decoded?.transit) ? view.holding.decoded.transit : []).reduce((n, t) => n + (t && Number(t.state) !== 0 ? Math.floor((Number(t.depMass) || 0) / 1000) : 0), 0);
+  const trainCapped = savingCapsTrain({ villagePlanned: savingFirstVillage, army: Number.isFinite(army) ? army + marching : army, wideVillages: 0 });
   // (territory-impl: grow the land — one more tile next to the resident's own, a turn apart, up to OPERATOR_TILES_MAX;
   //  the reach is its own tile's province (witness 'own'); a refused tile is not asked again. verify-pr206-209: also
   //  while it saves for its next village — a tile costs ore, not the settler's goods — so AI land grows by tiles, not
@@ -278,6 +297,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   const growCandidate = () => {
     const own = memory.ownTiles ?? [];
     if (!(wide && own.length && own.length < OPERATOR_TILES_MAX)) return null;
+    // (ai-early-mine, owner 2026-11-25 22:28 Q-VPR241-1 (b): while it saves for its FIRST wide village the resident buys
+    //  only the tile its next village stands on (the site tile, below) — no other new tile; their upkeep is food)
+    if (savingFirstVillage) return null;
     const tried = new Set(memory.triedTiles ?? []);
     for (const o of own) {
       const t = (wide.targets ?? []).find(x => x.p === o.p && x.q === o.q && x.territory);
@@ -304,6 +326,10 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (ai-ore-reserve: a Train is not asked for when the stores are known not to cover it; and with the army at its floor
   //  and no threat, land and troops take turns — the land's turn only while a tile can really be claimed)
   const landsTurn = () => oreTurn({ army, threatened, ore, troopsTurn: memory.troopsTurn === true, landWanted: siteTileDue() || !!growCandidate() }) === 'land';
+  // (ai-early-mine, owner 2026-11-25 17:58 Q-AOR-1 (b): ONE mine, early — the village's first command, the page's own
+  //  Build item 3 at its own price; not while threatened; local-play-operator-mine.mjs)
+  if (earlyMineDue(memory, { mines: minesOf(view.holding.decoded), stores, threatened, cooling: (memory.cooldown[`Build:${OPERATOR_EARLY_MINE.item}`] ?? 0) > memory.decisions }))
+    return { name: 'Build', v: { holding: h, item: OPERATOR_EARLY_MINE.item }, fields: { item: OPERATOR_EARLY_MINE.item }, earlyMine: true, why: 'one early mine: ore pays both troops and land' };
   // (a war resident of a wide world: its FIRST expedition into the wide land before the war step takes every ready host —
   //  loop-play4 B-6, war on by default: the AI nations both fight and go out into the wide land)
   if (memory.war && war && wide?.march && (memory.wideMarches ?? 0) === 0) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell}), before the war takes it` };
@@ -316,7 +342,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     if (s?.wait) return { wait: true, why: s.why };
     if (s?.name === 'Depart') return { name: 'Depart', kind: s.kind, row: s.row, war: true, bell, ...(s.goal ? { goal: s.goal } : {}), why: `${s.goal ? `${s.goal} — ` : ''}${s.kind}: the keep at ${s.row.p},${s.row.q} (garrison ${s.row.troops ?? '?'}, host ${s.row.origin?.troops ?? '?'})` };
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
-    if (s?.name === 'Train' && coversTrain(stores, s.n) && !landsTurn()) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
+    if (s?.name === 'Train' && !trainCapped && coversTrain(stores, s.n) && !landsTurn()) return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
   }
   // (TEST-ONLY wide march, wide-march-local: a ready host of a rim village marches INTO the bordering wide land — the
   //  page's own judged route, local-play-operator-wide-march.mjs; at most OPERATOR_WIDE_MARCHES, one at a time)
@@ -367,6 +393,7 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     const a = OPERATOR_ROTATION[(memory.step + k) % OPERATOR_ROTATION.length];
     // (a war resident's troops and hosts are the war step's: its rotation is the economy only — Harvest and Build)
     if (memory.war && (a.name === 'Train' || a.name === 'Muster')) continue;
+    if (a.name === 'Train' && trainCapped) continue;   // (Q-AEM-1 (b): saving for the next wide village)
     if ((memory.cooldown[key(a)] ?? 0) > memory.decisions) continue;
     if (a.name === 'Muster' && view.holding.tile === undefined) continue;   // (no tile known: never guessed)
     const fields = a.name === 'Harvest' ? {} : a.name === 'Build' ? { item: a.item } : a.name === 'Train' ? { unit: a.unit, n: a.n } : { unit: a.unit, troops: a.troops, tile: view.holding.tile };
@@ -420,6 +447,8 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
   }
   // (ai-ore-reserve: a batch landed — the land may take the next ore)
   if (decision.name === 'Train' && outcome === 'landed') memory.troopsTurn = false;
+  // (ai-early-mine: counted; a refused or failed one cools like any Build, an unknown one too — never sent blindly twice)
+  if (decision.earlyMine) { noteEarlyMine(memory, outcome); if (bad || outcome === 'unknown') memory.cooldown[key(decision)] = memory.decisions + OPERATOR_COOLDOWN; }
   if (decision.wideHost && bad) memory.cooldown[decision.name === 'Muster' ? 'WideMuster' : 'WideTrain'] = memory.decisions + OPERATOR_COOLDOWN;
   if (decision.name === 'WideMarch') {
     // (landed or not known: counted and spaced — never sent twice for one plan; refused: cooled down)
