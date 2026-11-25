@@ -290,6 +290,7 @@ permutation-gateway/test/web-frontier-fog-local-leak.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak2.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak3.test.mjs
 permutation-gateway/test/web-frontier-fog-local-leak4.test.mjs
+permutation-gateway/test/web-frontier-food-net-caravan.test.mjs
 permutation-gateway/test/web-frontier-fx3.test.mjs
 permutation-gateway/test/web-frontier-garrison-checks.test.mjs
 permutation-gateway/test/web-frontier-hand-press.test.mjs

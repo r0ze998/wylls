@@ -40,6 +40,7 @@ import { claimTargets, settlerCost, mergeOpened, nationLandsOfCells } from '../f
 import { expeditionHoldsOf } from '../flocalplay-expedition.mjs';
 import { wideSlots } from '../fwide.mjs';
 import { outpostCard } from './outpostcard.mjs';
+import { landUpkeepMilli, withLand, signedNet, landPart } from '../landfood.mjs';
 
 /**
  * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) The village screen's wide-land card in a local
@@ -303,7 +304,10 @@ export function holdingModel(FS) {
   const h = settled(raw0, now);
   const env = FS.provinces?.get(`${h.p},${h.q}`);
   const ctx = { holding: raw0, citizen: FS.citizen, province: env?.province ?? null, nowBell: FS.nowBell ?? 0, now };
-  const stores = storesAt(h, now, RESOURCE_ORDER);
+  // (food-net-caravan, owner Q-LP17-2: the ledger's food rate of the first village is net of the land upkeep —
+  //  landfood.mjs; amounts, caps and every other row are the record's, as before)
+  const land = landUpkeepMilli(FS, raw0);
+  const stores = storesAt(h, now, RESOURCE_ORDER).map(s => withLand(s, land));
   const have = stores.map(s => s.value);
   const faction = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : 0;
   const promo = promotionOffer(h, { now, have });
@@ -327,12 +331,14 @@ export const resCoin = resource => html`<span class="res-coin">${icon(RESOURCE_I
  */
 function storeRow(s) {
   const full = s.cap > 0 && s.value >= s.cap;
+  // (food-net-caravan, owner Q-LP17-2: the first village's food — `s.perHour` is already the NET rate, the land's part beside it)
+  const rate = s.landPerHour > 0 ? html`<span class="ledger-net${s.perHour < 0 ? ' ledger-net-neg' : ''}">${L`${signedNet(s.perHour)}/時`}<span class="ledger-land">${landPart(s)}</span></span>` : null;
   const near = !full && s.cap > 0 && s.perHour > 0 && ((s.cap - s.value) / s.perHour) * 3600 <= NEAR_FULL_SECS;
   return html`<tr class="ledger-row${full ? ' ledger-full' : near ? ' ledger-near' : ''}">
     <th scope="row">${icon(RESOURCE_ICON[s.resource] ?? 'crate', 'ledger-ic')}<span class="ledger-name">${RESOURCES[s.resource]}</span></th>
     <td class="ledger-val">${fmtNum(s.value)}</td>
     <td class="ledger-cap"><span aria-hidden="true">/ </span>${fmtNum(s.cap)}</td>
-    <td class="ledger-rate">${full ? stamp(L`満杯`, 'bad') : s.perHour !== 0 ? L`${signedRate(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}${near ? html`<span class="ledger-fullin">${L`満杯まで ${span(((s.cap - s.value) / s.perHour) * 3600)}`}</span>` : ''}</td></tr>`;
+    <td class="ledger-rate">${full ? html`${stamp(L`満杯`, 'bad')}${rate ? html` ${rate}` : ''}` : rate ? rate : s.perHour !== 0 ? L`${signedRate(s.perHour)}/時` : html`<span aria-hidden="true">—</span>`}${near ? html`<span class="ledger-fullin">${L`満杯まで ${span(((s.cap - s.value) / s.perHour) * 3600)}`}</span>` : ''}</td></tr>`;
 }
 /** The stores as a ruled ledger: a line per resource. */
 export function renderLedger(stores) {
@@ -552,6 +558,7 @@ export function render(FS) {
     ${upkeep.length ? html`<p>${L`現在の維持費（毎時）`}: ${upkeep.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.perHour)}`).join(' · ')}</p>` : ''}
     <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(actionBusy || m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
       <span class="muted">${full.length ? L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : L`資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。`}</span></div>
+    ${m.stores.some(s => s.landPerHour > 0) ? html`<p class="muted" id="hp-land-food">${L`食料の毎時は、あなたの土地の維持費を引いたあとの量です（「土地」がその分。ターンごとにこの村の食料から払われます）。`}</p>` : ''}
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const queueName = q => queueItemLabel(q.q);
