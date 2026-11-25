@@ -3,5 +3,7 @@
 # only by --check. aarch64-apple-darwin built the committed module (2026-11-19, from main f9a2f5fe's sources; the
 # module of 2026-10-12, 77e42c83..., was never rebuilt after later source changes and no CI step checked it).
 # x86_64-unknown-linux-gnu is the GitHub runner, from the log of CI run 44468171843 (PR #84) for the same source.
-aarch64-apple-darwin c124f7a3d19abf04e91c7f67c3361d40d6963c1986e0666300cf362e7184a890 211688
-x86_64-unknown-linux-gnu eb96d1ccadc3f382bbd4932167b2d50f181d21273cf2eae28e1ae95bc5b7dd85 211650
+aarch64-apple-darwin 1be4f3d972fc0e288bd2f3062002ec86f7935463b3bcb73396809b58c3afaffb 211688
+# (2026-11-25, PR #232 research: Holding.research in net_rate) both lines rebuilt; the Linux line from CI run
+# 45521887801 (job 138895538594) for the same source.
+x86_64-unknown-linux-gnu d5b038d91f72d5d12359c0dc76e612c9632da9200fd3d22683e7d16f6aa1d14b 211650
