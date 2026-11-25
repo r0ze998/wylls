@@ -75,7 +75,10 @@ export function resourceModel(holding, now, { land = 0 } = {}) {
     .map(s => {
       const fullIn = s.cap > 0 && s.value >= s.cap ? 0 : s.perHour > 0 && s.cap > 0 ? Math.ceil(((s.cap - s.value) / s.perHour) * 3600) : null;
       const state = fullIn === 0 ? 'full' : fullIn !== null && fullIn <= NEAR_FULL_SECS ? 'near' : 'ok';
-      return { resource: s.resource, name: RESOURCES[s.resource], value: s.value, cap: s.cap, perHour: s.perHour, fullIn, state, ...(s.landPerHour > 0 ? { villagePerHour: s.villagePerHour, landPerHour: s.landPerHour } : {}) };
+      // (fix-loop18, LP18-7: a store that falls — the first village's food under the land upkeep — says when it is
+      //  empty at this rate, as a rising one says when it is full: `emptyIn` seconds, only on a falling store that holds something)
+      const emptyIn = s.perHour < 0 && s.value > 0 ? Math.ceil((s.value / -s.perHour) * 3600) : null;
+      return { resource: s.resource, name: RESOURCES[s.resource], value: s.value, cap: s.cap, perHour: s.perHour, fullIn, state, ...(s.landPerHour > 0 ? { villagePerHour: s.villagePerHour, landPerHour: s.landPerHour } : {}), ...(emptyIn !== null ? { emptyIn } : {}) };
     });
 }
 
@@ -91,7 +94,8 @@ export function span(secs) {
 export const signedResourceRate = n => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs(n))}`;
 
 export function resourceTitle(r) {
-  const full = r.fullIn === 0 ? L`満杯です（これ以上は貯まりません）` : r.fullIn === null ? '' : L`満杯まで ${span(r.fullIn)}`;
+  // (fix-loop18, LP18-7: 「空になるまで …」 on a falling store, where a rising one says 「満杯まで …」)
+  const full = r.fullIn === 0 ? L`満杯です（これ以上は貯まりません）` : r.fullIn === null ? (r.emptyIn > 0 ? L`空になるまで ${span(r.emptyIn)}` : '') : L`満杯まで ${span(r.fullIn)}`;
   // (food-net-caravan: the first village's food — the net rate, then what the village makes and what the land takes)
   if (r.landPerHour > 0) return [`${r.name} ${fmtNum(r.value)} / ${fmtNum(r.cap)}`, `${L`毎時 ${signedNet(r.perHour)}`}${landSplit(r)}`, full].filter(Boolean).join(' · ');
   return [`${r.name} ${fmtNum(r.value)} / ${fmtNum(r.cap)}`, L`毎時 ${signedResourceRate(r.perHour)}`, full].filter(Boolean).join(' · ');
@@ -204,7 +208,7 @@ export function resourceBreakdown(holdings, resource, now, landOf = null) {
   const rows = [];
   for (const h of holdings ?? []) {
     const r = resourceModel(h, now, { land: landOf ? landOf(h) : 0 }).find(x => x.resource === resource);
-    if (r) rows.push({ holding: h, value: r.value, cap: r.cap, perHour: r.perHour, fullIn: r.fullIn, state: r.state, ...(r.landPerHour > 0 ? { villagePerHour: r.villagePerHour, landPerHour: r.landPerHour } : {}) });
+    if (r) rows.push({ holding: h, value: r.value, cap: r.cap, perHour: r.perHour, fullIn: r.fullIn, state: r.state, ...(r.landPerHour > 0 ? { villagePerHour: r.villagePerHour, landPerHour: r.landPerHour } : {}), ...(r.emptyIn > 0 ? { emptyIn: r.emptyIn } : {}) });
   }
   // (food-net-caravan: the sum is the net one too; the land's part — one village pays it — is carried for the words)
   const land = rows.find(r => r.landPerHour > 0);
@@ -237,7 +241,7 @@ export function renderBreakdown(b) {
     <ul class="list res-rows">${b.rows.map(r => html`<li class="res-${r.state}"><button type="button" class="res-row" data-act="goto" data-p="${r.holding.p}" data-q="${r.holding.q}">
       <span class="res-row-name">${holdingName(r.holding)}</span>
       <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${r.landPerHour > 0 ? html`${L`毎時 ${signedNet(r.perHour)}`}${landPart(r)}` : L`毎時 ${signedResourceRate(r.perHour)}`}</span>
-      <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : ''}</span></button></li>`)}</ul>
+      <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : r.emptyIn > 0 ? L`空になるまで ${span(r.emptyIn)}` : ''}</span></button></li>`)}</ul>
     ${b.landPerHour > 0 ? html`<p class="muted res-land-note">${L`「土地」は、あなたの土地の維持費です。最初の村の食料から、ターンごとに払われます。`}</p>` : ''}
     <p class="muted">${L`増える量は、建物と村のまわりの土地で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
