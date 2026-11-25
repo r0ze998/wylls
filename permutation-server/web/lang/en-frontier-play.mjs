@@ -2011,7 +2011,8 @@ export default {
   "次の1マス: 鉱石 {0}": "next tile: {0} ore",
   "土地の維持費: 食料 {0}/時": "land upkeep: {0} food per hour",
   "土地の維持費（本拠地の食料）が払えていません。遠いマスから1ターンに1つずつ手放されています。本拠地に食料が戻ると止まります。": "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.",
-  "土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。あと {0} ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。": "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for {0} more turns, your farthest tiles are let go, one per turn.",
+  // (verify-pr231: "1 more turn", not "1 more turns")
+  "土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。あと {0} ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。": n => plural(n, "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for {0} more turn, your farthest tiles are let go, one per turn.", "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for {0} more turns, your farthest tiles are let go, one per turn."),
   "土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。本拠地に食料が戻ると、また取れます。": "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. Once your first village has food again, you can claim again.",
   "鉱石が次の1マスの値段（{0}）に足りないので、いまは「1マス取る」を押せません。": "You have less ore than the next tile costs ({0}), so \"Claim a tile\" cannot be pressed for now.",
   "州（{0}, {1}）": "Province ({0}, {1})",

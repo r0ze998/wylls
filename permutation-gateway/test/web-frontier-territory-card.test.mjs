@@ -126,6 +126,8 @@ test('Q-PDT-1: the land lines in Japanese and English — tiles, next price, upk
     assert.equal(lines(null, 0), 'Your land: tiles owned: 0 · next tile: 10 ore · land upkeep: 0 food per hour');
     assert.equal(lines({ tiles: 61 }, 0), 'Your land: tiles owned: 61 · next tile: 22 ore · land upkeep: 2.013 food per hour');
     assert.equal(lines({ tiles: 7, unpaidSince: 100 }, 110), 'Your land: tiles owned: 7 · next tile: 11 ore · land upkeep: 0.231 food per hour Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for 14 more turns, your farthest tiles are let go, one per turn.');
+    // (verify-pr231: one turn left reads "1 more turn")
+    assert.match(lines({ tiles: 7, unpaidSince: 100 }, 123), /If it stays unpaid for 1 more turn, your farthest tiles are let go, one per turn\.$/);
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 130), /is unpaid\. Your farthest tiles are being let go, one per turn\. It stops once your first village has food again\.$/);
     assert.match(lines({ tiles: 0, unpaidSince: 100 }, 130), /is unpaid\. No new tile can be claimed\. Once your first village has food again, you can claim again\.$/);
     for (const o of [null, { tiles: 7 }, { tiles: 7, unpaidSince: 100 }, { tiles: 0, unpaidSince: 1 }]) for (const b of [110, 124, 500]) {
