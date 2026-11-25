@@ -231,3 +231,166 @@ fn no_season_yet_is_refused_by_name() {
     f.season = None;
     assert_eq!(territory_json(&f).unwrap_err().code(), "NoSeasonYet");
 }
+
+// ---------------------------------------------------------------- player summaries (Q-TM2-1)
+
+/// A territory player summary of `f`'s world for `citizen` with `tiles`
+/// owned at distance 5 (excess 2 each under V1), at its canonical address.
+fn player_as(
+    f: &Fold,
+    citizen: [u8; 32],
+    season_id: u64,
+    world: frontier_abi::world_index::WorldId,
+    tiles: u32,
+) -> ([u8; 32], Vec<u8>) {
+    let tag = frontier_abi::addr::citizen_tag(&citizen);
+    let mut r = TerritoryPlayer::new(
+        season_id,
+        TerritoryRule::V1,
+        world,
+        citizen,
+        tag,
+        2,
+        1_794_000_000,
+        [9; 32],
+    );
+    for _ in 0..tiles {
+        r.add_tile(5).unwrap();
+    }
+    let mut d = vec![0; territory_player::SIZE];
+    r.write(&mut d).unwrap();
+    (wtr::player_address(&f.ctx, &citizen), d)
+}
+
+fn player(f: &Fold, citizen: [u8; 32], tiles: u32) -> ([u8; 32], Vec<u8>) {
+    player_as(f, citizen, 7, f.wide.as_ref().unwrap().world(), tiles)
+}
+
+#[test]
+fn a_captured_player_summary_is_served_for_its_citizen_only() {
+    let mut f = fold();
+    let (a, b) = ([0xa1; 32], [0xb2; 32]);
+    let (ka, da) = player(&f, a, 3);
+    let (kb, db) = player(&f, b, 1);
+    f.apply(&tx(
+        1,
+        vec![(ka, Some(da.clone()), PROGRAM), (kb, Some(db), PROGRAM)],
+    ));
+    // (a summary is not a territory province record: the province answer and its revision are untouched)
+    assert_eq!(rev(&f), 0);
+    assert!(territory_json(&f).unwrap()["provinces"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let v = player_json(&f, &a).unwrap();
+    assert_eq!(v["v"], 1);
+    assert_eq!(v["verification"], "captured-unverified");
+    assert_eq!(v["citizen"], Address::new_from_array(a).to_string());
+    assert_eq!(v["address"], Address::new_from_array(ka).to_string());
+    let p = &v["player"];
+    assert_eq!(p["tiles"], 3);
+    assert_eq!(
+        p["citizenTag"],
+        frontier_abi::addr::citizen_tag(&a).to_string()
+    );
+    assert_eq!(
+        p["excessSum"], "6",
+        "3 tiles at 5 provinces: 2 each beyond 3"
+    );
+    // V1 (owner Q-CUF-1 (b)): 990 milli-food/h a tile + 480 a province beyond 3
+    assert_eq!(p["upkeepMilliPerHour"], (3 * 990 + 480 * 6).to_string());
+    // claim cost: 10 ore + 2 % per tile owned (whole ore, rounded down)
+    assert_eq!(p["nextClaimCost"], "10");
+    assert_eq!(p["unpaid"], false);
+    assert_eq!(p["unpaidSince"], Value::Null);
+    assert_eq!(p["paidTo"], "1794000000");
+    assert_eq!(p["decayAfterBells"], 24);
+    assert_eq!(p["rule"], 1);
+    assert_eq!(p["slot"], "101");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(p["bytes_b64"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(bytes, da, "the captured record itself");
+    // the other Citizen's answer names only that Citizen
+    assert_eq!(player_json(&f, &b).unwrap()["player"]["tiles"], 1);
+    // a Citizen with no summary: null, not an error
+    let v = player_json(&f, &[0xc3; 32]).unwrap();
+    assert_eq!(v["player"], Value::Null);
+}
+
+#[test]
+fn an_unpaid_summary_says_since_when_and_a_change_and_close_are_followed() {
+    let mut f = fold();
+    let a = [0xa1; 32];
+    let tag = frontier_abi::addr::citizen_tag(&a);
+    let world = f.wide.as_ref().unwrap().world();
+    let mut r = TerritoryPlayer::new(7, TerritoryRule::V1, world, a, tag, 1, 50, [9; 32]);
+    for _ in 0..100 {
+        r.add_tile(1).unwrap();
+    }
+    r.unpaid_since = Some(4321);
+    r.remainder = 77;
+    let mut d = vec![0; territory_player::SIZE];
+    r.write(&mut d).unwrap();
+    let k = wtr::player_address(&f.ctx, &a);
+    f.apply(&tx(1, vec![(k, Some(d), PROGRAM)]));
+    let p = player_json(&f, &a).unwrap()["player"].clone();
+    assert_eq!(
+        (p["unpaid"].clone(), p["unpaidSince"].clone()),
+        (json!(true), json!(4321))
+    );
+    assert_eq!(p["nextClaimCost"], "30", "10 + 10 × 100 × 2 %");
+    assert_eq!(p["remainder"], "77");
+    assert_eq!(p["upkeepMilliPerHour"], "99000");
+    f.apply(&tx(2, vec![(k, None, PROGRAM)]));
+    assert_eq!(player_json(&f, &a).unwrap()["player"], Value::Null);
+    assert_eq!(rev(&f), 0);
+}
+
+#[test]
+fn a_player_summary_of_another_season_world_address_or_owner_is_refused() {
+    let mut f = fold();
+    let a = [0xa1; 32];
+    let world = f.wide.as_ref().unwrap().world();
+    let other_world = frontier_abi::world_index::WorldId::new([7; 32]).unwrap();
+    let (k, wrong_season) = player_as(&f, a, 8, world, 1);
+    let (_, wrong_world) = player_as(&f, a, 7, other_world, 1);
+    let (_, good) = player(&f, a, 1);
+    // another Citizen's address holding a's record
+    let elsewhere = wtr::player_address(&f.ctx, &[0xb2; 32]);
+    let refused0 = f.wide.as_ref().unwrap().refused();
+    f.apply(&tx(1, vec![(k, Some(wrong_season), PROGRAM)]));
+    f.apply(&tx(2, vec![(k, Some(wrong_world), PROGRAM)]));
+    f.apply(&tx(3, vec![(elsewhere, Some(good.clone()), PROGRAM)]));
+    f.apply(&tx(4, vec![(k, Some(good.clone()), [0x11; 32])]));
+    assert_eq!(f.wide.as_ref().unwrap().refused(), refused0 + 4);
+    assert!(f.account(&k).is_none() && f.account(&elsewhere).is_none());
+    assert_eq!(player_json(&f, &a).unwrap()["player"], Value::Null);
+    assert_eq!(player_json(&f, &[0xb2; 32]).unwrap()["player"], Value::Null);
+    f.apply(&tx(5, vec![(k, Some(good), PROGRAM)]));
+    assert_eq!(player_json(&f, &a).unwrap()["player"]["tiles"], 1);
+}
+
+#[test]
+fn a_checkpointed_player_summary_is_served_again_after_a_restart() {
+    let mut f = fold();
+    let a = [0xa1; 32];
+    let (k, d) = player(&f, a, 2);
+    f.apply(&tx(1, vec![(k, Some(d), PROGRAM)]));
+    let st = f.st.clone();
+    let mut g = Fold::with_state(
+        FoldCfg {
+            program: Address::new_from_array(PROGRAM),
+            season_id: 7,
+            builder: Arc::new(Provisional),
+            exact_post: true,
+        },
+        Out::new("/dev/null/wide-territory-inert"),
+        st,
+    );
+    g.season = f.season.clone();
+    assert_eq!(player_json(&g, &a).unwrap()["player"]["tiles"], 2);
+    let mut h = fold();
+    h.season = None;
+    assert_eq!(player_json(&h, &a).unwrap_err().code(), "NoSeasonYet");
+}

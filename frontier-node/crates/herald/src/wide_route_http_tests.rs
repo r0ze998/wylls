@@ -276,6 +276,113 @@ async fn territory_handler_caches_per_revision_with_etag_and_gzip_without_listen
     assert_eq!((h2[header::ETAG].clone(), b2), (h[header::ETAG].clone(), b));
 }
 
+/// (player-territory-records, Q-TM2-1) `/h/world/wide/territory/player/{citizen}`:
+/// one Citizen's summary with the territory route's cache rules; refusals by name.
+#[cfg(feature = "wide-world-experimental")]
+#[tokio::test]
+async fn territory_player_handler_answers_one_citizen_with_etag_and_gzip_without_listener() {
+    use frontier_abi::layout::{header as hdr, world::season};
+    use frontier_abi::world_index::territory::{
+        self as wtr, territory_player, TerritoryPlayer, TerritoryRule,
+    };
+    async fn body(res: Response) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let (s, h) = (res.status(), res.headers().clone());
+        let b = axum::body::to_bytes(res.into_body(), 1_000_000)
+            .await
+            .unwrap();
+        (s, h, b.to_vec())
+    }
+    let citizen = [0xa1u8; 32];
+    let cit = Address::new_from_array(citizen).to_string();
+    let none = HeaderMap::new();
+    let call = |app: &Shared, c: &str, h: &HeaderMap| {
+        world_wide_territory_player(State(app.clone()), Path(c.to_string()), h.clone())
+    };
+    let (status, value) = answer(call(&app(" Fixture "), &cit, &none).await).await;
+    assert_eq!(value["code"], "FixtureWorldUnavailable");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let app = app("localnet");
+    let (status, value) = answer(call(&app, "not-an-address", &none).await).await;
+    assert_eq!(
+        (status, value["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("BadCitizen"))
+    );
+    let (status, value) = answer(call(&app, &cit, &none).await).await;
+    assert_eq!(
+        (status, value["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("NoSeasonYet"))
+    );
+    let mut data = vec![0; season::SIZE];
+    data[..8].copy_from_slice(&season::MAGIC);
+    data[hdr::SEASON_ID..hdr::SEASON_ID + 8].copy_from_slice(&7u64.to_le_bytes());
+    data[hdr::LAYOUT_VERSION..hdr::LAYOUT_VERSION + 2].copy_from_slice(&1u16.to_le_bytes());
+    data[season::PROGRAM_VERSION..season::PROGRAM_VERSION + 2].copy_from_slice(&1u16.to_le_bytes());
+    app.fold.write().unwrap().season = Some(fclient::decode::Season::decode(&data).unwrap());
+    // no summary yet: 200 with player null, cached like the territory answer
+    let (s, h, b) = body(call(&app, &cit, &none).await).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(h[header::CACHE_CONTROL], "public, max-age=5");
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    assert_eq!(
+        (v["player"].clone(), v["citizen"].clone()),
+        (Value::Null, json!(cit))
+    );
+    let etag0 = h[header::ETAG].to_str().unwrap().to_string();
+    let mut ifnm = HeaderMap::new();
+    ifnm.insert(header::IF_NONE_MATCH, etag0.parse().unwrap());
+    let (s, _, b) = body(call(&app, &cit, &ifnm).await).await;
+    assert_eq!((s, b.len()), (StatusCode::NOT_MODIFIED, 0));
+    // the first claim lands: a new answer with the tile
+    {
+        let mut f = app.fold.write().unwrap();
+        let world = f.wide.as_ref().unwrap().world();
+        let tag = frontier_abi::addr::citizen_tag(&citizen);
+        let mut r = TerritoryPlayer::new(7, TerritoryRule::V1, world, citizen, tag, 1, 9, [9; 32]);
+        r.add_tile(2).unwrap();
+        let mut d = vec![0; territory_player::SIZE];
+        r.write(&mut d).unwrap();
+        let k = wtr::player_address(&f.ctx, &citizen);
+        f.apply(&fclient::ports::TxRecord {
+            seq: 1,
+            slot: 50,
+            signature: Default::default(),
+            block_time: 0,
+            tx: vec![],
+            logs: vec![],
+            err: None,
+            code: None,
+            units: 0,
+            fee: 0,
+            post: vec![(
+                Address::new_from_array(k),
+                Some(fclient::ports::Account {
+                    lamports: 1,
+                    data: d,
+                    owner: Address::new_from_array([0x5e; 32]),
+                    executable: false,
+                }),
+            )],
+            loaded: Default::default(),
+        });
+    }
+    let mut gz = ifnm.clone();
+    gz.insert(header::ACCEPT_ENCODING, "gzip".parse().unwrap());
+    let (s, h, b) = body(call(&app, &cit, &gz).await).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(h[header::CONTENT_ENCODING], "gzip");
+    assert_ne!(h[header::ETAG].to_str().unwrap(), etag0);
+    let mut plain = vec![];
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&b[..]), &mut plain).unwrap();
+    let v: Value = serde_json::from_slice(&plain).unwrap();
+    assert_eq!(v["player"]["tiles"], 1);
+    assert_eq!(v["player"]["upkeepMilliPerHour"], "990");
+    // the same answer again: the same ETag (304 with it)
+    let mut same = HeaderMap::new();
+    same.insert(header::IF_NONE_MATCH, h[header::ETAG].clone());
+    let (s, _, _) = body(call(&app, &cit, &same).await).await;
+    assert_eq!(s, StatusCode::NOT_MODIFIED);
+}
+
 #[cfg(feature = "wide-world-experimental")]
 struct WideCoordForTest;
 #[cfg(feature = "wide-world-experimental")]
@@ -289,6 +396,9 @@ impl WideCoordForTest {
 #[tokio::test]
 async fn territory_handler_feature_off_is_unavailable_without_listener() {
     let (status, value) = answer(world_wide_territory(State(app("localnet"))).await).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(value["code"], "WideWorldUnavailable");
+    let (status, value) = answer(world_wide_territory_player(State(app("localnet"))).await).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(value["code"], "WideWorldUnavailable");
 }

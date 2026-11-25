@@ -202,6 +202,31 @@ export function heraldTerritoryRecords(json, pins = {}) {
   return out;
 }
 
+/**
+ * (player-territory-records, owner 2026-11-25 18:50 Q-TM2-1) The herald's answer for ONE Citizen's territory summary
+ * (`GET /h/world/wide/territory/player/<citizen>`, herald wide_territory.rs player_json) → `{player}` — the record as
+ * decodeTerritoryPlayer reads its captured bytes, or null when the herald has captured none (no tile ever claimed) —,
+ * or null when it is not that answer: another version, another Citizen or record address than `citizen`/`address`, a
+ * `pins` field (`season`, `world`, `seasonAddress`, `program`) that differs, bytes that are not a summary of that
+ * Citizen's tag `tag`, or numbers the herald states that the bytes do not say. FOG RULE: the caller asks for its own
+ * Citizen only; an answer naming anyone else is dropped here.
+ */
+export function heraldTerritoryPlayer(json, { citizen, address, tag, pins = {} } = {}) {
+  if (!json || json.v !== 1 || typeof citizen !== 'string' || json.citizen !== citizen || (address && json.address !== address)) return null;
+  for (const k of ['season', 'world', 'seasonAddress', 'program']) if (pins[k] !== undefined && pins[k] !== null && String(json[k]) !== String(pins[k])) return null;
+  if (!Object.hasOwn(json, 'player')) return null;
+  if (json.player === null) return { player: null };
+  const r = json.player, b64 = r?.bytes_b64;
+  if (typeof b64 !== 'string') return null;
+  let bytes;
+  try { bytes = typeof Buffer !== 'undefined' ? new Uint8Array(Buffer.from(b64, 'base64')) : Uint8Array.from(atob(b64), c => c.charCodeAt(0)); } catch { return null; }
+  const player = decodeTerritoryPlayer(bytes);
+  if (!player || (tag && player.citizenTag !== String(tag))) return null;
+  // (the stated fields are the herald's reading of the same bytes: a disagreement is an answer not understood)
+  if (r.tiles !== player.tiles || r.unpaid !== player.unpaid || (r.unpaidSince ?? null) !== player.unpaidSince || String(r.citizenTag) !== player.citizenTag) return null;
+  return { player };
+}
+
 /** A territory player summary (320 B, 'PSFXWTU1') → its fields (tag as a decimal string), or null. */
 export function decodeTerritoryPlayer(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length !== 320 || !magic(bytes, 'PSFXWTU1')) return null;
