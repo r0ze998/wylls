@@ -571,6 +571,7 @@ export function render(FS) {
     ${unitPicks(faction, UNIT_ORDER.map((u, unit) => ({ unit })).filter(x => x.unit !== SETTLER), L`兵種`, { costs: true, have: m.have, selected: trainUnit, programVersion: m.programVersion })}
     <div class="count-row"><label class="count-label" for="f-n">${L`人数`}</label><input id="f-n" name="n" type="number" min="1" step="1" value="${trainN}" max="30000" inputmode="numeric">${steps('n', { presets: [100, 200, 500], max: training.max })}</div>
     <p class="training-cost" aria-live="polite">${training.cost ? html`${L`訓練の費用`}: ${costChips(training.cost, m.have)}` : L`1〜30,000人で人数を決めてください。`}</p>
+    <p class="muted training-hundred">${L`費用は100人ごとです。100人に満たない分も100人分かかります（10人でも100人分）。`}</p>
     <p class="muted">${L`いま訓練できる人数 ${fmtNum(training.max)}（一隊の上限まで）`}</p>
     <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Train.length || !training.affordable || trainN > 30000 || trainShort.length ? 'disabled' : '')}>${L`訓練する`}</button><span class="muted">${L`訓練はすぐに終わり、兵は控えに入ります。`}</span></div>
     ${trainShort.length ? html`<p class="blocked">${shortWords(trainShort)}</p>` : ''}

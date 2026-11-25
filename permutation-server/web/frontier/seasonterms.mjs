@@ -39,6 +39,24 @@ export function spanWords(secs) {
   if (s < 48 * 3600) return L`${fmtNum(Math.round(s / 3600))} 時間`;
   return L`${fmtNum(Math.round(s / 86400))} 日`;
 }
+/**
+ * (fix-loop17, LP17-7) Seconds in words for a time LEFT, finer between an hour and a half and two days: hours and
+ * minutes to the nearest ten ("1 時間 40 分", "2 時間 20 分"; a whole hour stays "2 時間"). The join card says two
+ * deadlines side by side; with `spanWords` 101 and 143 minutes both read 「約 2 時間」. Other lengths are `spanWords`'.
+ * `key` names the deadline: its last-said tens are held until the time left is LEFT_HOLD_MIN minutes away from them, so
+ * a fast clock's measured pace (a few per cent of jitter, clock.mjs) does not flip 「1 時間 30 分」 ⇄ 「1 時間 40 分」.
+ */
+export const LEFT_HOLD_MIN = 8;
+const saidLeft = new Map();
+const fineWords = m => { const h = Math.floor(m / 60), r = m % 60; return r ? L`${fmtNum(h)} 時間 ${fmtNum(r)} 分` : L`${fmtNum(h)} 時間`; };
+export function spanFine(secs, key = null) {
+  const s = Math.max(0, Math.round(secs)), was = key === null ? undefined : saidLeft.get(key);
+  if (was !== undefined && Math.abs(s / 60 - was) < LEFT_HOLD_MIN) return fineWords(was);
+  if (s < 90 * 60 || s >= 48 * 3600) { if (key !== null) saidLeft.delete(key); return spanWords(s); }
+  const m = Math.round(s / 600) * 10;
+  if (key !== null) saidLeft.set(key, m);
+  return fineWords(m);
+}
 /** A turn's length of game time ("10 分"). */
 export const turnSpan = () => spanWords(BELL_SECS);
 /** A turn's length as the player lives it: game time, and on a faster clock the real time too. */
@@ -63,9 +81,9 @@ export function deadlineLine(FS) {
   if (!d) return '';
   // (a join close at the no-end turn is no deadline: nothing is said of it)
   // (a time left not known yet — a fast clock's pace still being measured — is not said: fix-loop8, LP8-10)
-  const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : d.join.realLeft === null ? '' : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
+  const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : d.join.realLeft === null ? '' : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanFine(d.join.realLeft, `join:${d.join.bell}`)}）。`;
   const end = worldContinues(FS) ? '' : d.end.ended ? L`この試しの世界は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました（試しの世界の上限です）。`
-    : d.end.realLeft === null ? '' : L`この試しの世界が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}。試しの世界の上限です）。`;
+    : d.end.realLeft === null ? '' : L`この試しの世界が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanFine(d.end.realLeft, `end:${d.end.bell}`)}。試しの世界の上限です）。`;
   return `${join}${end}`;
 }
 /** WrongStatus said with its cause when the cause is the season's clock; null otherwise (the page's own words stand). */

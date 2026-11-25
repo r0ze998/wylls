@@ -489,22 +489,32 @@ this section describes what the program does today, and none of it is a promise 
      decision Q-CUF-1 (b), 11-25 12:04: thirty times the first numbers; with those the land went unpaid only past about
      1,200 tiles, and with the ×10 of Q-LP15-1 (b) past about 120).
    - The village screen's "Per hour" column does not include land upkeep.
-6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
+6. **When the food cannot pay.** The food in your first village is taken (all of it, never more than the upkeep owed),
+   and your land counts as unpaid from that turn (owner decision Q-LP17-1 (b), 11-25 21:22;
+   before it nothing was taken, so the next turn's food paid a whole turn and the land never stayed unpaid):
    - at once: you cannot claim tiles (the refusal is in the table below);
    - after 24 unpaid turns (**4 minutes at ×60**, 16 minutes at `--speed 15`; **4 hours at 1×**): your **farthest** tile
      goes back to unowned, **one tile each turn** (one every 10 s at ×60; one every 10 minutes at 1×), for as long as it
      stays unpaid. A tile under one of your villages can be let go too (open question VQ-4);
-   - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit. The
-     food missed meanwhile is not charged later (open question VQ-5).
+   - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit.
+     Each short turn takes the stores, so in practice it ends when the village makes at least as much food a turn as the
+     land costs a turn (fewer tiles, or more food). The food missed meanwhile is not charged later (open question VQ-5).
    - **The card warns you** (territory-card), under the land line, for as long as the chain's record says unpaid:
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
      (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.".
      The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
      owner question Q-LP15-1), so a village's food falls only by what you spend: with no other spending it takes about
      41 tiles near home (one claim a turn: 41 turns or more) before land upkeep passes a starting village's 40 food an
-     hour. In verify-pr206-209's hour of play at ×60 and in loop-play15 (both at the old, thirty-times-smaller numbers)
-     nobody went unpaid; this part is checked by the program's tests and P18, and the warning lines by the page's tests,
-     not seen in a live world.
+     hour.
+   - **How it goes** (the program's own test of loop-play17's case: 73 tiles near home, a village that makes 40 food
+     an hour, 510 food in its stores). The land costs 72.27 food an hour, so the stores fall and are empty after 94
+     turns. From turn 95 the land is unpaid, every turn: each turn's new food is taken and is not enough. From turn 119
+     (24 turns later) one tile goes back each turn, 33 in all. At 40 tiles (39.6 food an hour) the village pays a whole
+     turn again, and it stops. Before Q-LP17-1 (b) the same land flipped between unpaid and paid every other turn and
+     lost no tile.
+   - Seen live: the warning and the refusal on a real page in loop-play17 (EN and JA, under the rule before (b));
+     the whole course under (b) — unpaid at every turn, the release after 24 turns, the card and the map with the
+     tiles gone — in #243's P18 run on a local chain. Not played by hand at ×60 under (b) yet.
 7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
    nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
    and so does a tile with a village on it. The keeper moves them within about a turn; the page says nothing about it.
@@ -512,13 +522,15 @@ this section describes what the program does today, and none of it is a promise 
    question VQ-3).
 
 **When a press is refused.** A refused tile claim is answered in the claim's own words for the first three rows (#223;
-read on a live page, JA and EN, in verify-pr223, but for the unpaid one, which cannot be reached in play); the other rows
+read on a live page, JA and EN: the first and third in verify-pr223, the unpaid one in loop-play17). The first two
+carry no "Try again" button (fix-loop17): in the same turn that press could only be refused again, so use the card's
+"Claim a tile" in the next turn, or once the land is paid. The other rows
 are the program's general sentence for that error, which does not always fit (from the code):
 
 | What happened | The notice says | What to do |
 |---|---|---|
 | A second tile claim in the same turn | "You already claimed a tile this turn. It is one tile a turn: press again next turn." | wait for the next turn |
-| Land upkeep unpaid | "Your land upkeep (food from your first village) is unpaid, so you cannot claim a new tile. Once your first village has food again you can. After 24 unpaid turns your farthest tiles are let go, one a turn." | get food into the first village, wait a turn |
+| Land upkeep unpaid | "Your land upkeep (food from your first village) is unpaid, so you cannot claim a new tile. Once your first village has food again you can. After 24 unpaid turns your farthest tiles are let go, one a turn." | get the first village to hold a whole turn's land upkeep when the keeper next looks (more food an hour, or fewer tiles: step 6), then claim again |
 | Not enough ore (rare now: the button is off below the next tile's price) | "Not enough ore. A tile costs 10 ore, plus 2 % for each tile you own (paid from your first village's stores)." | wait for ore |
 | Another player owns that tile | "That site is taken." | press again: the page tries the next tile |
 | The tile is yours already (the page had lost track of it) | "Already done." | press again: the page remembers it and goes on |
@@ -527,8 +539,10 @@ are the program's general sentence for that error, which does not always fit (fr
 | The province could not be read | "No tile can be claimed in this province (a world without player land, or the province could not be read)." | press again |
 | A village too near another village of the province (second press of "Found a village here") | "That site is reserved (rings 0 and 1)." | press again: the page names the next site; its tile has to be claimed first |
 
-**What you do not see yet.** The map draws no tiles and no player borders (owner question T-9): the card's land line
-gives the count, the next price and the upkeep, but not where the tiles are. The card's own
+**Where your tiles are.** The map draws player land tile by tile, in the colour of the owner's nation (#234): your own
+tiles always, other players' tiles while they are in your sight, and out of sight as you last saw them, faded (#240).
+Village sites and the keep's tile stay open. The card's land line
+gives the count, the next price and the upkeep. The card's own
 paragraph ("Your land: "Claim a tile" makes one tile of that province yours at once (10 ore, +2 % per tile you own, one tile a turn). …")
 states the rules in short. The card's last line, "A request is decided at the end of the turn (by lot if someone else chose the same place).",
 is about villages; a tile claim is instant.
@@ -628,7 +642,7 @@ view (fog-devnet; runbook §7 P5).
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, "Check again"; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet ("Review what will be sent" → "Sign with the wallet and send"; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
 | Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | not on devnet yet (the program on devnet is older; a new devnet world is the owner's decision) |
-| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | not playable (the devnet page and keeper have no tile claim yet; open PR #221) |
+| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | built, not played there yet: the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221, checked on a local chain by P18); the devnet world is not created yet |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
@@ -659,11 +673,10 @@ page end to end (kept world, ②⑨⑩, ① → ⑮, `--wide` with both captures
 LP13-5 and LP13-6 (English wording) are fixed by #207 and the others by #208 (verify-pr208 played them in English and
 Japanese), except what is listed below: the march card's cut line (part of LP13-12) and siege lines other than your own
 nation's (part of LP13-3). None is a rules question. loop-play14's LP14-1 … 15 are fixed by #216, #217 and #218
-(verify-pr217 and verify-pr218 played them). New with player land (#209): the first row of the table (fixed since: by #223 the refusal sentences and the tile rows that went missing with a village of your own in the province or with 3 villages; by territory-card the missing tile count, next price, upkeep and "unpaid" warning, and the "Claim a tile" button that opened at 10 ore whatever the price).
+(verify-pr217 and verify-pr218 played them). New with player land (#209): one row of the table (the unconfirmed village; fixed since: by #234 and #240 the map, which drew no player tiles; by #223 the refusal sentences and the tile rows that went missing with a village of your own in the province or with 3 villages; by territory-card the missing tile count, next price, upkeep and "unpaid" warning, and the "Claim a tile" button that opened at 10 ore whatever the price).
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Your own land (`--wide`) | the map draws no tiles or player borders (owner question T-9): the card's land line says how many tiles you own, not where they are | read the count on the card (§4.1) |
 | Your own land (`--wide`) | a tile claim on a village that was only just placed is refused "The village is not confirmed yet." until the village has done one thing (the chain confirms it lazily; territory-card saw it live) | press "Harvest" once, then claim |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |

@@ -457,9 +457,13 @@ const territoryRefusalText = pc => (pc === 29 ? L`このターンはもう1マ�
   : pc === 43 ? L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。`
   : pc === 21 ? L`鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。`
   : null);
+// (fix-loop17 LP17-6, and loop-play16's note on the second claim: the toast offered 「もう一度」 under "press again next
+//  turn" and under "upkeep is unpaid" — in that turn the same press can only be refused again. No retry button for the
+//  turn limit and for unpaid upkeep; the card's own "Claim a tile" stays, for the next turn or once the food is back.)
+const territoryNoRetry = pc => pc === 29 || pc === 43;
 const territoryRefused = ans => {
   const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
-  if (territoryRefusalText(pc)) failed({ ...ans, text: () => territoryRefusalText(pc) });
+  if (territoryRefusalText(pc)) failed({ ...ans, ...(territoryNoRetry(pc) ? { retry: false } : {}), text: () => territoryRefusalText(pc) });
 };
 const localMarchRejectedText = r => (r.programCode === 26 ? L`送るあいだにターンが変わり、出発する州の前のターンの決着がまだでした。`
   : r.programCode === 31 ? L`送るあいだにターンが変わり、この到着ターンには着けなくなりました。`
