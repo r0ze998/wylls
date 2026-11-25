@@ -2704,6 +2704,9 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 #wide-legend .wide-legend-row { display: flex; align-items: center; gap: 7px; }
 .wide-legend-swatch { flex: none; width: 16px; height: 11px; border: 2px solid #5d5848; border-radius: 2px; background: #b9b29a; }
 .wide-legend-swatch[data-key="n0"] { background: #cc303b; border-color: #81242c; } .wide-legend-swatch[data-key="n1"] { background: #31bedb; border-color: #237489; } .wide-legend-swatch[data-key="n2"] { background: #eac21b; border-color: #8c721c; } .wide-legend-swatch[data-key="n3"] { background: #a34cd8; border-color: #69338c; } .wide-legend-swatch[data-key="n4"] { background: #58727e; border-color: #5f6a68; } .wide-legend-swatch[data-key="n5"] { background: #f19232; border-color: #9c581f; }
+.wide-legend-swatch[data-key="unknown"] { background: #9a9a92; border-color: #4a4a44; }
+/* (territory-map) the keep's line: a small tower in the keep icon's ink, not a land colour (map/keeps.mjs paintKeepMark) */
+.wide-legend-swatch[data-key="keep"] { width: 12px; height: 13px; border: 0; border-radius: 0; background: #c9a24a; clip-path: polygon(0 0, 30% 0, 30% 25%, 42% 25%, 42% 0, 58% 0, 58% 25%, 70% 25%, 70% 0, 100% 0, 100% 40%, 86% 40%, 92% 100%, 8% 100%, 14% 40%, 0 40%); }
 @media (max-width: 720px) { #wide-legend { display: none; } }
 
 /* ---- en-ui-audit (English at 1280×800 and 1024×700): layout only, no rule or flow change */
