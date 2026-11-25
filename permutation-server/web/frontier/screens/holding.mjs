@@ -115,7 +115,7 @@ function tilePreviewBlock(pv, busy) {
     <button type="button" class="btn small" data-act="${act}"${raw(data)} ${raw(busy ? 'disabled' : '')}>${L`署名して取る`}</button>
     <button type="button" class="btn small ghost" data-act="territory-tile-cancel">${L`やめる`}</button></div>`;
 }
-/** (territory-card) Upkeep in food per hour from milli-food per hour: up to three decimals (one tile is 0.033). */
+/** (territory-card) Upkeep in food per hour from milli-food per hour: up to three decimals (TERRITORY_V1.upkeep is in milli-food). */
 const upkeepText = milli => fmtNum(milli / 1000, { maximumFractionDigits: 3 });
 /**
  * (territory-card, owner Q-PDT-1 (a)) The card's lines about the viewer's own land: tiles owned, the next tile's price
