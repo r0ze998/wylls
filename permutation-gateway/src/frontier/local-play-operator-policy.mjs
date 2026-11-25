@@ -17,6 +17,7 @@
 //                                       in a wide world, until its next wide-land village is built, no Train at or
 //                                       above one host (300 troops): the food and gold are saved for the village
 //                                       (owner 2026-11-25 20:03 Q-AEM-1 (b), local-play-operator-reserve.mjs)
+//                                       and no new tile but the one that village stands on (owner 22:28 Q-VPR241-1 (b))
 // and the budget (`createOperatorBudget`): ONE action per resident per bell (owner decision Q16-2, 2026-11-18 21:44:
 // "one action per resident per turn; operator AI must not double-act"). The bell is the program's own:
 // floor((chain unix seconds − Season.GENESIS_TS) / 600), the chain time from the herald's `/h/status` and GENESIS_TS from
@@ -278,6 +279,17 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   const oreKept = oreReserve({ army, hostGoal: atWar ? MUSTER_MIN : wide?.needHost ? WIDE_HOST_TROOPS : 0, threatened,
     villagesHeld: villageDue ? 1 + Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length) : null });
   const oreCovers = () => tilePays(ore, (memory.ownTiles ?? []).length, oreKept);
+  // (ai-early-mine: SAVING FOR ITS FIRST WIDE VILLAGE — a wide village can still be claimed (wide land in reach, a site
+  //  not yet refused, a claim left) and the resident has none yet (its record's count, its own landed claims)
+  const villageSite = () => { const tried = new Set(memory.triedClaims ?? []); return wide.targets.some(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).some(site => !tried.has(`${t.p},${t.q},${site}`))); };
+  const savingFirstVillage = villageDue && Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length, memory.claims ?? 0) === 0 && villageSite();
+  // (ai-early-mine, owner 2026-11-25 20:03 Q-AEM-1 (b): until its next wide-land village is built the resident's troops
+  //  are capped at one host — no Train at or above 300 — so the food and gold are saved for the village; with the
+  //  village claimed, or none claimable (no wide land in reach, every site tried, no claim left), it trains freely)
+  // (a host on the march is not among the hosts the war eyes read where they stand: its troops at departure are in
+  //  the village's own transit record — `depMass`, thousandths — and count toward the cap too)
+  const marching = (Array.isArray(view.holding.decoded?.transit) ? view.holding.decoded.transit : []).reduce((n, t) => n + (t && Number(t.state) !== 0 ? Math.floor((Number(t.depMass) || 0) / 1000) : 0), 0);
+  const trainCapped = savingCapsTrain({ villagePlanned: savingFirstVillage, army: Number.isFinite(army) ? army + marching : army, wideVillages: 0 });
   // (territory-impl: grow the land — one more tile next to the resident's own, a turn apart, up to OPERATOR_TILES_MAX;
   //  the reach is its own tile's province (witness 'own'); a refused tile is not asked again. verify-pr206-209: also
   //  while it saves for its next village — a tile costs ore, not the settler's goods — so AI land grows by tiles, not
@@ -285,6 +297,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   const growCandidate = () => {
     const own = memory.ownTiles ?? [];
     if (!(wide && own.length && own.length < OPERATOR_TILES_MAX)) return null;
+    // (ai-early-mine, owner 2026-11-25 22:28 Q-VPR241-1 (b): while it saves for its FIRST wide village the resident buys
+    //  only the tile its next village stands on (the site tile, below) — no other new tile; their upkeep is food)
+    if (savingFirstVillage) return null;
     const tried = new Set(memory.triedTiles ?? []);
     for (const o of own) {
       const t = (wide.targets ?? []).find(x => x.p === o.p && x.q === o.q && x.territory);
@@ -311,15 +326,6 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (ai-ore-reserve: a Train is not asked for when the stores are known not to cover it; and with the army at its floor
   //  and no threat, land and troops take turns — the land's turn only while a tile can really be claimed)
   const landsTurn = () => oreTurn({ army, threatened, ore, troopsTurn: memory.troopsTurn === true, landWanted: siteTileDue() || !!growCandidate() }) === 'land';
-  // (ai-early-mine, owner 2026-11-25 20:03 Q-AEM-1 (b): until its next wide-land village is built the resident's troops
-  //  are capped at one host — no Train at or above 300 — so the food and gold are saved for the village; with the
-  //  village claimed, or none claimable (no wide land in reach, every site tried, no claim left), it trains freely)
-  const villageSite = () => { const tried = new Set(memory.triedClaims ?? []); return wide.targets.some(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).some(site => !tried.has(`${t.p},${t.q},${site}`))); };
-  // (a host on the march is not among the hosts the war eyes read where they stand: its troops at departure are in
-  //  the village's own transit record — `depMass`, thousandths — and count toward the cap too)
-  const marching = (Array.isArray(view.holding.decoded?.transit) ? view.holding.decoded.transit : []).reduce((n, t) => n + (t && Number(t.state) !== 0 ? Math.floor((Number(t.depMass) || 0) / 1000) : 0), 0);
-  const trainCapped = savingCapsTrain({ villagePlanned: villageDue && villageSite(), army: Number.isFinite(army) ? army + marching : army,
-    wideVillages: Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length, memory.claims ?? 0) });
   // (ai-early-mine, owner 2026-11-25 17:58 Q-AOR-1 (b): ONE mine, early — the village's first command, the page's own
   //  Build item 3 at its own price; not while threatened; local-play-operator-mine.mjs)
   if (earlyMineDue(memory, { mines: minesOf(view.holding.decoded), stores, threatened, cooling: (memory.cooldown[`Build:${OPERATOR_EARLY_MINE.item}`] ?? 0) > memory.decisions }))

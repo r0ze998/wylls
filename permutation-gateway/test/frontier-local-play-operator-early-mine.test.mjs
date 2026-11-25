@@ -231,3 +231,40 @@ test('Q-AEM-1 (b) with the village built — or none claimable — the resident 
 test('Q-AEM-1 (b) what the cap saves: a training is food 60 and gold 10 a hundred (catalog.rs), the village food and gold', () => {
   assert.deepEqual([...TRAIN_COST_PER_100], [60, 0, 0, 20, 0, 10, 0, 0]);
 });
+
+// ---- owner 2026-11-25 22:28 Q-VPR241-1 (b): while it saves for its FIRST wide village the resident buys only the tile
+// its next village stands on — no other new tile. Q-VPR241-2 (a): the troop cap, too, lasts only until that village.
+test('Q-VPR241-1 (b) saving for the first wide village: the village\'s own site tile, no growth tile; after it, growth again', () => {
+  const TERR = { siteTiles: [3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47], keepTile: 30 };
+  const home = { p: '-65', q: '128' };
+  const rich = [900, 900, 500, 200, 0, 300, 0, 0];
+  const built = viewOf(record({ ore: 10000n }));
+  const war = () => { const m = createResidentMemory(0, undefined, { war: true }); m.ownTiles = [{ ...home, tile: 30 }]; m.decisions = 4; return m; };
+  const target = { p: '-66', q: '130', territory: TERR };
+  const mineTarget = { ...home, territory: TERR };   // (its own province: growth tiles would come from here)
+  const opts = (wideExtra = {}, army = 300) => ({ homes: [], war: warOf({ reserve: 0, army, hostCount: 1 }), wide: wideOf(rich, { targets: [target, mineTarget], ...wideExtra }) });
+  // the site's tile first — the one tile it may buy while saving
+  const site = decideNext(war(), built, opts());
+  assert.equal(site.name, 'TerritoryClaim'); assert.equal(site.growth, undefined); assert.equal(site.fields.tile, 3); assert.deepEqual(site.v.target, { p: '-66', q: '130' });
+  // the site's tile owned, the settler cost not yet covered: Harvest, never a growth tile (every decision, odd or even)
+  const m = war(); m.ownTiles.push({ p: '-66', q: '130', tile: 3 });
+  for (let k = 0; k < 6; k++) { m.decisions = 4 + k; const d = decideNext(m, built, opts()); assert.equal(d.name, 'Harvest', `decision ${m.decisions}`); assert.notEqual(d.growth, true); }
+  // also below the troop cap: a Train, but no growth tile on the land's turn
+  m.decisions = 4; const low = decideNext(m, built, opts({}, 0));
+  assert.equal(low.name, 'Train');
+  // the stores cover it: the village claim
+  assert.equal(decideNext(m, built, opts({ canClaim: true })).name, 'WideClaim');
+  // its first wide village stands (its own landed claim, or the record's count): growth tiles again
+  const after = war(); after.ownTiles.push({ p: '-66', q: '130', tile: 3 }); after.claims = 1;
+  const g = decideNext(after, built, opts());
+  assert.equal(g.name, 'TerritoryClaim'); assert.equal(g.growth, true);
+  const rec = war(); rec.ownTiles.push({ p: '-66', q: '130', tile: 3 });
+  assert.equal(decideNext(rec, viewOf(record({ ore: 10000n }), { wide: 1 }), opts()).growth, true);
+});
+
+test('Q-VPR241-2 (a) the troop cap lasts only until the first wide village — not again while saving for a second', () => {
+  const rich = [900, 900, 500, 200, 0, 300, 0, 0];
+  const m = createResidentMemory(0, undefined, { war: true }); m.claims = 1; m.wideVillages = [{ p: '-66', q: '130', site: 0 }];
+  const d = decideNext(m, viewOf(record({ ore: 10000n }), { wide: 1 }), { homes: [], war: warOf({ reserve: 0, army: 300, hostCount: 1 }), wide: wideOf(rich, { targets: [{ p: -67, q: 131 }] }) });
+  assert.equal(d.name, 'Train', 'a second village is not saved for by a troop cap');
+});
