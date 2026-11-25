@@ -18,6 +18,7 @@ import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { PROTO_LEGEND, protoLegendLine } from './protowords.mjs';
 import { protoLabelText } from './protochip.mjs';
+import { SEA_DRAWN } from './cloudsea.mjs';
 
 const STAMINA_CAP = RULES.STAMINA_CAP;
 
@@ -29,7 +30,8 @@ export const SURVEY_LEGEND = Object.freeze([
   { id: 'sight', name: () => L`視界`, text: () => L`あなたの村と軍勢から、いま見えている範囲です。村も軍勢も、そこで起きていることも描きます。` },
   { id: 'surveyed', name: () => L`測量済み`, text: () => L`前に見た範囲です。土地と村を、色を落として描きます。` },
   { id: 'chart', name: () => L`未測量`, text: () => L`まだ見ていない範囲です。地形だけを図にしています。` },
-  { id: 'cloud', name: () => L`雲海`, text: () => L`まだひらいていない輪です。土地そのものがまだありません。` },
+  // (the ring that is not open: bare paper since the cloud sea is not laid, map/cloudsea.mjs SEA_DRAWN; the level keeps its id)
+  { id: 'cloud', name: () => (SEA_DRAWN ? L`雲海` : L`未開`), text: () => L`まだひらいていない輪です。土地そのものがまだありません。` },
 ]);
 
 /**
