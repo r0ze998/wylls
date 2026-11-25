@@ -57,13 +57,16 @@ value; no in-game key is made).”
 | The request for a village on the wide land | 0.0091 | the fee and the rent of the request's record |
 | One expedition from the rim to the wide land | 0.0024 | the fee and the rent of the expedition's record |
 | The first muster in a wide-land province | 0.0172 | the rent of that province's roster; every later muster there, by anyone, is the fee only |
+| One tile of your own land ([PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1; the tile itself is paid in ore) | 0.000005 | the fee only. More the first time: **0.0041** when nobody has claimed a tile in that province yet (the rent of the province's land record), and **0.0023** for your first tile ever (the rent of your own land record) |
 
 - Each figure was measured on a local chain at devnet's rent rate (5,080 lamports per byte), not on devnet itself.
   If devnet's rent rate changes, the rent parts change with it.
 - In the dress rehearsal the busiest page spent 0.0173 SOL without the wide land, and 0.0366 SOL with one village on
   the wide land.
 - Your wallet's confirmation shows what you pay before you send. Cards such as the expedition's take two presses,
-  “Review what will be sent” and then “Sign with the wallet and send”, and show the amount first.
+  “Review what will be sent” and then “Sign with the wallet and send”, and show the amount first. A tile claim shows
+  its cost in ore and in SOL the same way (“… SOL (from your wallet)”, with “this province's land record … SOL” and
+  “your land record … SOL” when they apply), then “Sign and claim”.
 
 ## 5. How a game goes
 
@@ -91,13 +94,13 @@ Good to know:
   2026-11-25; devnet gets this rule with the program update planned before the world is created).
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
-- Until the world is created the page cannot show it: it says that the record cannot be read. That is expected
-  today. Open the page again after the announced start.
+- Until the world is created the page has no world to show. It says “The world is not open yet. …”, with when it
+  opens once that is set (§6), and shows the world by itself once it opens. That is expected today.
 - The 7-day world announced on 2026-11-23 was cancelled (2026-11-24) and is never created. The world does not end
   (decision of 2026-11-23): the devnet world will be one continuous world. Its creation, planned for 2026-11-25,
   was postponed (decision of 2026-11-24) until the rules update is ready; the new date will be announced.
-- **There is no winning or losing yet.** After a keep is taken the guide says 「この世界は続きます。戦期の勝敗と集計は未決定です。」
-  (this world goes on; its result and tally are undecided). The direction decided after that text was written (2026-11-24)
+- **There is no winning or losing yet.** After a keep is taken the guide says “This world goes on; war-period winners and counts
+  are not decided yet.” The direction decided after that text was written (2026-11-24)
   is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
   achieves one receives a prize. That is a plan and is not built: the devnet world has no goals and no prize today.
   The design record is [design 01](../design/win-conditions/01-proposal.ja.md) (Japanese).
