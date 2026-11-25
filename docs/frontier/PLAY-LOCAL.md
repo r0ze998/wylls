@@ -2,21 +2,28 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-25 (through #220). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-26 (through #244 and #243). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
 The world is continuous: there are no seasons, and the world has no end. Only the test worlds here have limits of their own
 (`--minutes`; and a `--demo` or `--wide` world's program takes orders up to a fixed turn, §4 and §6).
 
-New since the last refresh (#210): in a `--wide` world the wide land starts **neutral**, a village claim also reaches 3
-provinces from your nation's land, and new land opens where the nations go (#206 → §4, §4.1); **your own land**: single
-tiles claimed for ore, upkeep in food, villages only on your own tiles (#209 → §4.1, to follow press by press); a kept
-world whose time is up says "paused", not "ended", and continues (#218 → §6); the page's remaining old wording was
-replaced by "world" (#218; #219 did the same for the old lobby pages and the text a wallet signs for an in-game key, which a
-`play-local.sh` world never asks for); the fixes for what loop-play14 found (#216, #217 → §3 step 7, §10, §14); only flag keeps **captured** from other nations
-count toward the flag keeps goal (#220 → §14). What is left: §8.
-The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (it has no player land yet: §7).
+New since the last refresh (#222), in `--wide` worlds unless said otherwise: the village card shows **your own land**
+(tiles owned, the next tile's price, land upkeep, and a warning while upkeep is unpaid: #231; read from the world's herald
+since #242 → §4.1 step 1); the **map draws players' land tile by tile**: your own tiles always, other players' tiles while
+they are in sight and faded afterwards. It no longer colours whole provinces: who holds a province is said by its keep
+(#234, #240 → §4.1, §5); land upkeep is thirty times the first numbers (#233, #235 → §4.1 step 5), and the first village's
+food rate is shown after it, with the land's part beside it (#244); tiles now also move with a keep when the same player
+captures a second keep (#233 → §4.1 step 7); in every world "Send a caravan" lists only your own places, your nation's,
+and what is in sight now (#244 → §5); the AI residents keep ore for their troops, build a mine first and save for their
+first wide village (#236, #241 → §4.1), and `--ai-near` puts one beside you (#237 → §4.0); an external resident reads and
+plays its own land (#227 → §11); what loop-play15 and loop-play16 found is fixed (#223, #225, #237 → §3 step 6, §4, §4.1,
+§12); the first, whole-world view of the map is fast again (#239). What is left: §8.
+When the food cannot pay a turn's land upkeep, the food the first village holds is now taken and the land stays unpaid
+(#243, owner decision Q-LP17-1 (b) → §4.1 step 6). Open when this was written, and so not described here: #245 (three
+page fixes, and more guide text for that rule: how it goes turn by turn, and the refusal table).
+The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
 
@@ -209,8 +216,9 @@ The wide version is started with `--wide` alone (no `--fresh`, `--resume`, `--de
 
 During the world's setup (about 20 seconds) the program's own instructions grow the map to ring 128 (the rim) and open
 the wide land beyond it (rings 129–131, 108 provinces). The game starts around turn 140, at ×60 (a turn is 10 s).
-The wide land starts **neutral**: every wide keep is unowned, and a nation's colour there is only what it took. Land is
-also owned **tile by tile** by players. Both are in §4.1, after the four steps below.
+The wide land starts **neutral**: every wide keep is unowned. Land is owned **tile by tile** by players, and the map
+colours only those tiles (in the colour of the owner's nation); who holds a province is said by its keep. Both are in
+§4.1, after the four steps below.
 The default 90 minutes may not even reach step 2 below, so add `--minutes 240` (the maximum): saving a wide village's
 cost took 36–75 minutes and a keep is held for 72 turns, 12 minutes or more (measured in fix-loop10, verify-pr173 and
 verify-pr175 at load 60–160).
@@ -306,7 +314,7 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
      fix-loop10's check: arrived with 189, garrison 177). The result is also said once as the notice at the top of the
      screen (checked for LP10-6: it is the page's single notice slot, shown until the next notice replaces it; there is no
      list to read it again, so if you miss it, look at the march card). After a capture, a wiped-out expedition ("Destroyed: the host was lost") or a host gone from the keep's tile, the card adds that the next expedition needs a new host and a "Raise the next host at the village" button (it only opens that village's "Form a host" or "Train" card; nothing is sent; w2-wipeout). When the host that takes the keep has 200 troops or more, the half that does not become the garrison stays on the keep's tile as a host, but the page has no order for it (there is no order for a rim village's host standing in the wide land; verify-pr176: arrived with 488, garrison 242, 242 on the tile; whether it should be usable is undecided). The host sees from its tile, so the province is drawn on the map
-     (since #197 each wide province also shows its keep with its holder's standard, the hosts standing on it as one figure per tile with their troops, and a plate "Lands of Aster" / "Your nation's land" / "Dunmar is taking the keep · n/72 turns"; under the fog only hosts on tiles in sight; a province whose holder was never in sight has no plate and no keep, and before the first village no host or keep contest is drawn: verify-pr197), and "Nation & territory" lists it under "Other nations' keeps your hosts have reached". Since #197 an
+     (since #197 each wide province also shows its keep with its holder's standard, the hosts standing on it as one figure per tile with their troops, and a plate that names the keep's holder, "Keep: Aster" / "Keep: your nation" / "Keep: no nation", with "Dunmar is taking the keep · n/72 turns" at a keep that is being taken (until #234 the plate named the land, "Lands of Aster"; the land's colour is now the players' own tiles, §4.1); under the fog only hosts on tiles in sight; a province whose holder was never in sight has no plate and no keep, and before the first village no host or keep contest is drawn: verify-pr197), and "Nation & territory" lists it under "Keeps your hosts have reached (not your nation's)". Since #197 an
      expedition's column also walks its road on the map from the departure turn on, instead of standing at the village until
      the arrival (verify-pr197: turns 189 → 193, half-way at 191).
    - As a backup, on the arrival turn this page can open the seal too ("Check whether the seal can be opened" inside the boundary card →
@@ -412,8 +420,9 @@ settles; no rule, price or reach changes:
    village, within 100 turns (one tile a turn). Since the AI ore reserve (#236) it is slower: about one tile every 8
    turns (3 tiles in the first 40 turns, verify-pr237).
 4. Send an expedition onto that province's keep (§4 step 3) and hold it 72 turns. When the keep becomes your nation's,
-   the tiles the AI owned there become yours (§4.1 item 7): seen live at turn 264, all 24 tiles. The page does not
-   draw tiles yet, so this is read from the chain's territory record, not from the map.
+   the tiles the AI owned there become yours (§4.1 item 7): seen live at turn 264, all 24 tiles (read from the chain's territory
+   record then). Since #234 the map shows it: the tiles are redrawn in your nation's colour (verify-pr234: 8 tiles of an
+   Aster player, 5 of them out of sight until then, redrawn as the captor's in the turn of the capture).
 
 The neighbour is at war like the other AI residents (`--ai-peaceful` turns that off): it marches on keeps near you too.
 
@@ -425,8 +434,10 @@ this section describes what the program does today, and none of it is a promise 
 
 **The wide land starts neutral (#206).**
 
-- At the start every wide keep (rings 129–131, 108 provinces) is unowned. The map draws such a province neutral, with the
-  plate "Land of no nation" (only where you have seen it: fog, §5). A nation's colour in the wide land is only what it took.
+- At the start every wide keep (rings 129–131, 108 provinces) is unowned. The map leaves such a province's land uncoloured, and the
+  plate at its keep reads "Keep: no nation" (only where you have seen it: fog, §5). A keep a nation took is drawn in that
+  nation's colour, with "Keep: Aster" (your own: "Keep: your nation"). The land itself is coloured only tile by tile, where
+  a player owns the tile (below).
 - A neutral keep is guarded by 50 troops. Take it like any keep: put a host on the keep's tile and hold it for 72 turns
   (about 12 minutes at ×60, 48 minutes at `--speed 15`; 12 hours at 1×), by an expedition from the rim village (§4 step 3)
   or by the wide village's host (§4 step 4).
@@ -514,7 +525,9 @@ this section describes what the program does today, and none of it is a promise 
      not seen in a live world.
 7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
    nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
-   and so does a tile with a village on it. The keeper moves them within about a turn; the page says nothing about it.
+   and so does a tile with a village on it. The keeper moves them (verify-pr234: in the turn of the capture). Since #233 this also works when the same player's
+   army takes a second keep (before, the program refused that move every time). No notice tells you; the map redraws the
+   tiles in their new owner's colour.
    While the nation still holds the keep, tiles claimed there later by other nations' players move the same way (open
    question VQ-3).
 
@@ -534,8 +547,10 @@ are the program's general sentence for that error, which does not always fit (fr
 | The province could not be read | "No tile can be claimed in this province (a world without player land, or the province could not be read)." | press again |
 | A village too near another village of the province (second press of "Found a village here") | "That site is reserved (rings 0 and 1)." | press again: the page names the next site; its tile has to be claimed first |
 
-**What you do not see yet.** The map draws no tiles and no player borders (owner question T-9): the card's land line
-gives the count, the next price and the upkeep, but not where the tiles are. The card's own
+**Where your tiles are.** The map draws player land tile by tile, in the colour of the owner's nation (#234): your own
+tiles always, other players' tiles while they are in your sight, and out of sight as you last saw them, faded (#240).
+Village sites and the keep's tile stay open. The card's land line
+gives the count, the next price and the upkeep. The card's own
 paragraph ("Your land: "Claim a tile" makes one tile of that province yours at once (10 ore, +2 % per tile you own, one tile a turn). …")
 states the rules in short. The card's last line, "A request is decided at the end of the turn (by lot if someone else chose the same place).",
 is about villages; a tile claim is instant.
@@ -548,7 +563,7 @@ claim no tile at all; and once they have a host's worth of troops (300), tiles a
 longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
 village stood, against the same world without the change (verify-pr236, land upkeep ×30): training refused 0 (before
 274), 54 trainings landed (24), 17 marches on keeps (1), 6 rim keeps taken (0), 30 tiles claimed (79), 4 wide villages
-(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see none of the tiles. Each AI resident also **builds one mine first** (ai-early-mine, owner 2026-11-25 17:58): its village's first command is the
+(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see their tiles only where you have sight (§5). Each AI resident also **builds one mine first** (ai-early-mine, owner 2026-11-25 17:58): its village's first command is the
 same Build a player has (food 40, wood 80, stone 20; +6 ore an hour), once; not while a keep of its nation near it is
 under attack. And **until its first wide-land village is built it saves for it** (owner 2026-11-25 20:03 and 22:28): it
 keeps no more than one host (300 troops — at home, in its hosts and on the march; it trains again only to replace troops it
@@ -575,6 +590,7 @@ view (fog-devnet; runbook §7 P5).
 | In sight now | around your villages and hosts, around your nation's villages and the provinces your nation holds. Allies do not share sight |
 | Seen before | stays as last seen, dimmed (villages, keeps and their holders). Kept in this browser |
 | Never seen | blank on the map and on "World": no terrain, village, keep or nation colour |
+| Players' land (`--wide`, #234, #240) | your own tiles: always drawn. Another player's tile: drawn while that tile is in sight now; once out of sight it stays as you last saw it, faded; a tile you never saw is not drawn. While such land is in the picture a small key, "Who holds the land", names the colours ("Your nation (Aster)", the other nations by name, "A player's land (nation not known)"), with "Faded: the owner when last seen (out of sight now)" while a faded tile is in the picture, and "Keep colour: the nation holding the province" while a nation's keep is (that line also shows alone, with no tile in the picture) |
 | Other nations' hosts, marches, clashes, contests | only where you see now; no afterimage |
 | An enemy marching on your village | announced ("Attack") when it leaves from a place in sight, or from 3 turns before arrival |
 
@@ -651,7 +667,7 @@ view (fog-devnet; runbook §7 P5).
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, "Check again"; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet ("Review what will be sent" → "Sign with the wallet and send"; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
 | Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | not on devnet yet (the program on devnet is older; a new devnet world is the owner's decision) |
-| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | not playable (the devnet page and keeper have no tile claim yet; open PR #221) |
+| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | built, not played there yet: the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221, checked on a local chain by P18); the devnet world is not created yet |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
@@ -671,9 +687,9 @@ not in this guide. #179 (the verifier reads declared patches), #180 (the operato
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local test world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-25, main through #220)
+## 8. Known problems (2026-11-26, main through #244 and #243)
 
-### 8.1 Still on main (after #220)
+### 8.1 Still on main (after #244)
 
 Everything loop-play6 … 12 found (LP6 … LP12) is fixed on main, with these exceptions, all in the table and notes below:
 the cause of one Ctrl-C that did not stop a world (LP6-3), the lag under load (LP8-4), the late "W2" button seen once
@@ -682,11 +698,10 @@ page end to end (kept world, ②⑨⑩, ① → ⑮, `--wide` with both captures
 LP13-5 and LP13-6 (English wording) are fixed by #207 and the others by #208 (verify-pr208 played them in English and
 Japanese), except what is listed below: the march card's cut line (part of LP13-12) and siege lines other than your own
 nation's (part of LP13-3). None is a rules question. loop-play14's LP14-1 … 15 are fixed by #216, #217 and #218
-(verify-pr217 and verify-pr218 played them). New with player land (#209): the first row of the table (fixed since: by #223 the refusal sentences and the tile rows that went missing with a village of your own in the province or with 3 villages; by territory-card the missing tile count, next price, upkeep and "unpaid" warning, and the "Claim a tile" button that opened at 10 ore whatever the price).
+(verify-pr217 and verify-pr218 played them). New with player land (#209): one row of the table (the unconfirmed village; fixed since: by #234 and #240 the map, which drew no player tiles; by #223 the refusal sentences and the tile rows that went missing with a village of your own in the province or with 3 villages; by territory-card the missing tile count, next price, upkeep and "unpaid" warning, and the "Claim a tile" button that opened at 10 ore whatever the price).
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Your own land (`--wide`) | the map draws no tiles or player borders (owner question T-9): the card's land line says how many tiles you own, not where they are | read the count on the card (§4.1) |
 | Your own land (`--wide`) | a tile claim on a village that was only just placed is refused "The village is not confirmed yet." until the village has done one thing (the chain confirms it lazily; territory-card saw it live) | press "Harvest" once, then claim |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
