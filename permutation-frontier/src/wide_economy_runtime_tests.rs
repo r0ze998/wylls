@@ -1626,3 +1626,66 @@ fn wide_economy_train_during_transit_preserves_escrow_and_returns_into_changed_r
     .to_bytes();
     refuse_unchanged(&settle_accounts, &replay, E::TransitState as u32);
 }
+
+/// Research (world goal ②, verify-pr232): a wide village whose two research
+/// bytes carry masonry and bronze for its own nation builds 10 % faster and
+/// pays 10 % less ore to train, through the real dispatch — against a twin
+/// village without research at the same bell. The same bytes for another
+/// nation (a captured village before its next apply) change nothing.
+#[test]
+fn wide_economy_research_masonry_and_bronze_move_the_build_time_and_the_training_ore() {
+    use permutation_rules::frontier::research::{tech, VillageResearch};
+    let _g = begin();
+    const ORE: usize = permutation_rules::frontier::holding::Resource::Ore as usize;
+    let rsv = frontier_abi::v2::layout::player::holding::RSV_1258;
+    // (build seconds of item 0, ore paid for 100 spearmen) of a fresh village whose mask is `mask(faction)`
+    let run = |mask: &dyn Fn(u8) -> Option<VillageResearch>| -> (i64, i64) {
+        let mut e = founded(true);
+        let mut trace = Vec::new();
+        e.stock(STOCK);
+        {
+            let faction = e.holding_data()[H::FACTION];
+            if let Some(m) = mask(faction) {
+                let b = m.to_le();
+                let mut hd = e.t.holding.try_borrow_mut_data().unwrap();
+                hd[rsv] = b[0];
+                hd[rsv + 1] = b[1];
+            }
+        }
+        let ts = at_bell(4);
+        let d = e.ok(WALLET_A, Action::Build { item: 0 }, false, &mut trace);
+        let q = queued(&d.post.holding);
+        assert_eq!(q.len(), 1);
+        let secs = q[0].1 - ts;
+        at_bell(5);
+        let d = e.ok(
+            WALLET_A,
+            Action::Train { unit: 0, n: 100 },
+            false,
+            &mut trace,
+        );
+        let ore = |hd: &[u8]| rd_i64(hd, H::store(ORE) + AC::VALUE);
+        (secs, ore(&d.pre.holding) - ore(&d.post.holding))
+    };
+    let both = (1u16 << tech::MASONRY) | (1u16 << tech::BRONZE);
+    let (secs0, ore0) = run(&|_| None);
+    let (secs1, ore1) = run(&|f| Some(VillageResearch::new(both, f, true)));
+    let (secs2, ore2) = run(&|f| Some(VillageResearch::new(both, (f + 1) % 6, true)));
+    let cost = arms::train_v3(0, 100).unwrap()[ORE];
+    assert!(cost > 0);
+    assert_eq!(
+        secs1,
+        secs0 * 9 / 10,
+        "masonry: build time −10 % ({secs0} → {secs1})"
+    );
+    assert_eq!(
+        ore0 - ore1,
+        cost - cost * 9 / 10,
+        "bronze: training ore −10 % of {cost}"
+    );
+    assert_eq!(
+        (secs2, ore2),
+        (secs0, ore0),
+        "another nation's techs: no effect"
+    );
+}
