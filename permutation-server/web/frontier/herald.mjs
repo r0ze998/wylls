@@ -10,6 +10,7 @@
 // are not; own entities poll every 10 s while a march or a transaction is
 // in flight, else 30 s; overviews once per bell with a 0–15 s jitter after
 // the bell; errors back off ×2 up to 5 min; a hidden page pauses polling.
+import { villageMaskOf } from './flocalplay-research.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { encode as toB58 } from '../sdk/base58.mjs';
 import { decode } from './fcodec.mjs';
@@ -517,7 +518,8 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
         const j = { ...r.json, holdings: r.json.holdings.filter(h => h !== null && h !== undefined) };
         const opts = { seasonId: pinned ?? undefined };
         const citizen = j.citizen?.bytes_b64 ? decode('Citizen', bytesOf(j.citizen.bytes_b64), opts) : null;
-        const holdings = j.holdings.map(h => decode('Holding', bytesOf(h.bytes_b64), opts));
+        // (world goal ②: the village's research mask, RSV_1258 — rides along, not enumerable: flocalplay-research.mjs)
+        const holdings = j.holdings.map(h => { const b = bytesOf(h.bytes_b64), d = decode('Holding', b, opts); try { if (d && typeof d === 'object' && Object.isExtensible(d)) Object.defineProperty(d, 'researchMask', { value: villageMaskOf(b), enumerable: false }); } catch { /* a view without it */ } return d; });
         if (addrs) checkMe(addrs, wallet, j, citizen, holdings);
         // The viewer's own ArrivalSlots, of any bell, decoded (the record lists them from the moment a Reveal lands;
         // a province's `latest` envelope carries only the slots of the bell it resolves next).

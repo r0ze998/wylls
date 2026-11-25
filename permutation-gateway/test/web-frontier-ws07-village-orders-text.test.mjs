@@ -114,7 +114,7 @@ test('O7 the village screen is the consumer', () => {
   assert.ok(hs.includes("import { renderVillageOrders } from './villageorders.mjs';"));
   order(fnOf(hs, 'export function render(FS) {'), 'const readNote = renderHoldingRead(FS);',
     'const orderNote = renderVillageOrders(FS, m.settled, m.now, { rereadShown: holdingRead(FS).reread.can });',
-    'return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];');
+    'return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(researchCard ? [researchCard] : []), ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];');
   assert.ok(hs.includes('const actionBusy = FS.inFlight > 0 || !!FS.homeActionBusy;'), 'the buttons\' own gate is as it was');
 });
 

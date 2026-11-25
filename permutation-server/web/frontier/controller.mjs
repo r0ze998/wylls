@@ -38,6 +38,8 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
+import { researchRefusalText, techName } from './hud/research.mjs';
+import { TECHS } from './flocalplay-research.mjs';
 import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
@@ -454,6 +456,10 @@ const territoryRefusalText = pc => (pc === 29 ? L`このターンはもう1マ�
   : pc === 43 ? L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。`
   : pc === 21 ? L`鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。`
   : null);
+const researchRefused = ans => {
+  const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
+  if (researchRefusalText(pc)) failed({ ...ans, text: () => researchRefusalText(pc) });
+};
 const territoryRefused = ans => {
   const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
   if (territoryRefusalText(pc)) failed({ ...ans, text: () => territoryRefusalText(pc) });
@@ -980,7 +986,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   //  LP10-1); now that tab presses keep it, a viewer change drops it here. The stored preferences stay)
   if (FS.ui) {
     if (FS.ui.wideHost) wideHostStopWait(FS.ui.wideHost);
-    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ownTiles: _o, ...kept } = FS.ui;
+    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ownTiles: _o, researchArm: _ra, ...kept } = FS.ui;
     FS.ui = kept;
   }
   FS.notice = null;
@@ -4623,6 +4629,35 @@ export const ACTIONS = {
   // one a turn — whatever the next village's cost. The same reach witness as the row's village; the nearest own
   // village names the upkeep distance (TQ-2). A tile another player owns moves the next press on; "already yours"
   // is remembered.
+  // (world goal ②, research — hud/research.mjs villageResearchCard: the first press says what is given and that it does
+  //  not come back; the second signs and sends. The apply copies the nation's techs into the village (anyone may send it))
+  'research-arm': d => {
+    const h = activeHolding(FS);
+    if (!h) return;
+    FS.ui = { ...(FS.ui ?? {}), researchArm: { at: `${h.p},${h.q},${h.site}`, tech: num(d.tech), amount: num(d.amount) } };
+    invalidate('panel');
+  },
+  'research-cancel': () => { FS.ui = { ...(FS.ui ?? {}), researchArm: null }; invalidate('panel'); },
+  'research-pledge': async d => {
+    const h = activeHolding(FS), me = FS.citizen?.faction;
+    const arm = FS.ui?.researchArm ?? null;
+    FS.ui = { ...(FS.ui ?? {}), researchArm: null };
+    if (!h || !Number.isInteger(me) || !arm || arm.at !== `${h.p},${h.q},${h.site}` || arm.tech !== num(d.tech) || arm.amount !== num(d.amount)) { invalidate('panel'); return; }
+    const name = techName(TECHS[arm.tech]?.key);
+    const t = await act('ResearchPledge', { v: { holding: { p: h.p, q: h.q, site: h.site }, nation: me }, fields: { tech: arm.tech, amount: arm.amount },
+      say: () => L`科学 ${fmtNum(arm.amount)} を「${name}」に差し出しました（残りの費用を超える分は村に残ります）。` });
+    researchRefused(t ?? (FS.notice?.ok === false ? FS.notice : null));
+    invalidate('panel');
+    return t;
+  },
+  'research-apply': async () => {
+    const h = activeHolding(FS), me = FS.citizen?.faction;
+    if (!h || !Number.isInteger(me)) return;
+    const t = await act('ResearchApply', { v: { holding: { p: h.p, q: h.q, site: h.site }, nation: me }, fields: {}, say: () => L`国が覚えた技術の効果が、この村に届きました。` });
+    researchRefused(t ?? (FS.notice?.ok === false ? FS.notice : null));
+    invalidate('panel');
+    return t;
+  },
   'territory-tile': async d => {
     const h = activeHolding(FS);
     if (!h || !(localPlay?.wideLand || devnetTerritoryNow())) return;

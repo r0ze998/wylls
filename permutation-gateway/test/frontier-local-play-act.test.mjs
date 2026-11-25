@@ -37,8 +37,8 @@ test('the closed list: exactly the six commands, each one the page already sends
   // (wide -> wide marches, #94, owner Q-W2 t385u: plus the wide village's own WideTrain / WideMuster / WideDepart, built by
   //  flocalplay-wide-host.mjs on both sides; the list is still closed — frontier-local-play-wide-host.test.mjs)
   // (territory-impl, owner 2026-11-24 12:09: plus the single-tile claim, flocalplay-territory.mjs on both sides)
-  assert.deepEqual(LOCAL_ACT_COMMANDS, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart']); assert.ok(Object.isFrozen(LOCAL_ACT_COMMANDS));
-  const NOT_SDK = ['WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart'];
+  assert.deepEqual(LOCAL_ACT_COMMANDS, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart', 'ResearchPledge', 'ResearchApply']); assert.ok(Object.isFrozen(LOCAL_ACT_COMMANDS));
+  const NOT_SDK = ['WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart', 'ResearchPledge', 'ResearchApply'];  // (research: flocalplay-research.mjs)
   for (const n of LOCAL_ACT_COMMANDS.filter(n => !NOT_SDK.includes(n))) assert.ok(Object.hasOwn(SIGNED_BY, n), n);
   for (const n of NOT_SDK) assert.ok(!Object.hasOwn(SIGNED_BY, n), `${n} is not an SDK shape`);
   for (const name of ['SetSession', 'JoinResident', 'DeclareSiege', 'Depart', 'Dissolve', 'Garrison', 'Explore', 'SendCaravan', 'RaidCaravan', 'BuildVault', 'Vote', 'SeizeVault', 'SettleTransit', 'toString', '__proto__', '']) {

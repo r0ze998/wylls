@@ -14,6 +14,7 @@ import { factionName } from '../fi18n.mjs';
 import { fogActive, fogNow, viewKeeps } from '../map/fog.mjs';
 import { termsRate, turnsLine } from '../seasonterms.mjs';
 import { said } from './words.mjs';
+import { renderResearch } from './research.mjs';
 
 /** Minutes of the chain's clock in one turn. */
 const TURN_MIN = 10;
@@ -47,9 +48,10 @@ export function goodAnswer(j) {
 }
 
 /** Read the judge: `{read: 'ok', goals}` | `{read: 'absent'}` | `{read: 'unread', code}`. */
-export async function probeGoals({ fetch: f = (...a) => globalThis.fetch(...a), base = '' } = {}) {
+export async function probeGoals({ fetch: f = (...a) => globalThis.fetch(...a), base = '', query = '' } = {}) {
   let r;
-  try { r = await f(`${base}/goals/state`, { cache: 'no-store' }); } catch { return { read: 'unread', code: 'network' }; }
+  // (world goal ②: `query` = `?nation=<f>` asks for the viewer's nation's research totals — hud/research.mjs researchQuery)
+  try { r = await f(`${base}/goals/state${query}`, { cache: 'no-store' }); } catch { return { read: 'unread', code: 'network' }; }
   if (r.status === 404 || r.status === 204) { try { await r.arrayBuffer?.(); } catch { /* nothing to read */ } return { read: 'absent' }; }
   let j = null;
   try { j = await r.json(); } catch { j = null; }
@@ -239,7 +241,9 @@ export function render(FS, b) {
   }
   const done = [...g.achievements].reverse();
   const ach = done.length ? html`<ol class="goal-achievements">${done.slice(0, 4).map(a => achievementMarkup(a, FS))}</ol>` : '';
-  return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-round="${fk?.round ?? 0}">${head}${goals}${body}${ach}
+  // (world goal ②, research: its own part of the card when the world's research started — hud/research.mjs)
+  const research = renderResearch(FS, g);
+  return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-round="${fk?.round ?? 0}">${head}${goals}${body}${ach}${research}
     <p class="muted small">${L`賞金はまだ払われません（試算です）。お金もチェーンも動きません`}</p></section>`;
 }
 
@@ -252,11 +256,11 @@ export const current = () => last;
  * each read. Installs once. → a function that stops it.
  */
 let running = null;
-export function installWorldGoals({ fetch, base = '', every = 5_000, changed = () => {}, timers = globalThis } = {}) {
+export function installWorldGoals({ fetch, base = '', every = 5_000, changed = () => {}, timers = globalThis, query = () => '' } = {}) {
   if (running) return running;
   let stopped = false, timer = null;
   const read = async () => {
-    const b = await probeGoals({ fetch, base });
+    const b = await probeGoals({ fetch, base, query: query() });
     if (stopped) return;
     last = b;
     changed(b);

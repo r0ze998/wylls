@@ -166,7 +166,7 @@ test('WHERE AN ORDER GOES, for every command the page can send: in local play on
   // (wide-local-playable: the wide claim is not an SDK shape — flocalplay-wide.mjs builds it — so it is not among SIGNED_BY)
   // (wide -> wide marches, #94: nor are the wide village's WideTrain / WideMuster / WideDepart — flocalplay-wide-host.mjs)
   // (territory-impl: nor is the single-tile claim — flocalplay-territory.mjs)
-  const NOT_SDK = ['WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart'];
+  const NOT_SDK = ['WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart', 'ResearchPledge', 'ResearchApply'];  // (research: flocalplay-research.mjs)
   for (const n of NOT_SDK) assert.ok(!Object.hasOwn(SIGNED_BY, n), n);
   const names = [...Object.keys(SIGNED_BY), ...NOT_SDK], ID = IDENTITY, v = { holding: HOME };
   assert.ok(names.length > 20 && LOCAL_ACT_NAMES.every(n => names.includes(n)));

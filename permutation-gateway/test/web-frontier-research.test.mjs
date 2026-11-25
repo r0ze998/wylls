@@ -50,22 +50,23 @@ test('the village mask: techs, nation, the banked-science cut; gated by the vill
 });
 
 test('the pledge wire: 9 bytes, op 8, the account order (first home and wide village)', () => {
-  const intent = R.researchPledgeIntent({ holding: HOME }, { tech: 2, amount: 300 });
-  const ix = R.researchPledgeInstruction(intent, { programId: PROGRAM, seasonId: 1, wallet: WALLET, faction: 4 });
+  const intent = R.researchPledgeIntent({ holding: HOME, nation: 4 }, { tech: 2, amount: 300 });
+  const ix = R.researchPledgeInstruction(intent, { programId: PROGRAM, seasonId: 1, wallet: WALLET });
   assert.deepEqual([...ix.data], [0xda, 0xff, 0x01, 0x08, 2, 44, 1, 0, 0]);
   assert.deepEqual(ix.keys.map(k => [k.isSigner, k.isWritable]), [[true, false], [true, true], [false, false], [false, true], [false, true], [false, true], [false, true]]);
-  const wide = R.researchPledgeIntent({ wide: { p: '130', q: '-2', site: 1 } }, { tech: 0, amount: 1 });
-  const wix = R.researchPledgeInstruction(wide, { programId: PROGRAM, seasonId: 1, wallet: WALLET, faction: 4 });
+  const wide = R.researchPledgeIntent({ wide: { p: '130', q: '-2', site: 1 }, nation: 4 }, { tech: 0, amount: 1 });
+  const wix = R.researchPledgeInstruction(wide, { programId: PROGRAM, seasonId: 1, wallet: WALLET });
   assert.notEqual(wix.keys[4].pubkey, ix.keys[4].pubkey);
   assert.equal(wix.keys[6].pubkey, ix.keys[6].pubkey, 'the same nation record');
-  assert.throws(() => R.researchPledgeIntent({ holding: HOME }, { tech: 12, amount: 1 }), /LocalActShape/);
-  assert.throws(() => R.researchPledgeIntent({ holding: HOME }, { tech: 0, amount: 0 }), /LocalActShape/);
-  assert.throws(() => R.researchPledgeIntent({ holding: { p: 130, q: 0, site: 1 } }, { tech: 0, amount: 1 }), /LocalActWideHolding/);
-  assert.throws(() => R.researchPledgeIntent({ holding: HOME, extra: 1 }, { tech: 0, amount: 1 }), /LocalActShape/);
+  assert.throws(() => R.researchPledgeIntent({ holding: HOME, nation: 0 }, { tech: 12, amount: 1 }), /LocalActShape/);
+  assert.throws(() => R.researchPledgeIntent({ holding: HOME, nation: 0 }, { tech: 0, amount: 0 }), /LocalActShape/);
+  assert.throws(() => R.researchPledgeIntent({ holding: { p: 130, q: 0, site: 1 }, nation: 0 }, { tech: 0, amount: 1 }), /LocalActWideHolding/);
+  assert.throws(() => R.researchPledgeIntent({ holding: HOME }, { tech: 0, amount: 1 }), /LocalActShape/, 'the nation is named');
+  assert.throws(() => R.researchPledgeIntent({ holding: HOME, nation: 0, extra: 1 }, { tech: 0, amount: 1 }), /LocalActShape/);
 });
 
 test('the apply, settle and start wires', () => {
-  const a = R.researchApplyInstruction(R.researchApplyIntent({ holding: HOME }, {}), { programId: PROGRAM, seasonId: 1, wallet: WALLET, faction: 1 });
+  const a = R.researchApplyInstruction(R.researchApplyIntent({ holding: HOME, nation: 1 }, {}), { programId: PROGRAM, seasonId: 1, wallet: WALLET });
   assert.deepEqual([...a.data], [0xdc, 0xff, 0x01, 0x10]);
   assert.deepEqual(a.keys.map(k => [k.isSigner, k.isWritable]), [[true, true], [false, false], [false, false], [false, false], [false, true], [false, true]]);
   const s = R.researchSettleInstruction({ programId: PROGRAM, seasonId: 1, wallet: WALLET, faction: 1, tech: 3 });

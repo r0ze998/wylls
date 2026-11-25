@@ -148,24 +148,30 @@ function villageOf(subject, code) {
   return { holding: Object.freeze({ p: h.p, q: h.q, site: h.site }) };
 }
 
-/** The checked pledge intent `{name: 'ResearchPledge', subject: {holding | wide}, fields: {tech, amount}}`. Throws a code. */
-export function researchPledgeIntent(subject, fields, code = 'LocalActShape') {
-  check(subject !== null && typeof subject === 'object' && Object.keys(subject).length === 1, code);
-  const v = villageOf(subject, code);
-  check(exactKeys(fields, ['tech', 'amount']) && int(fields.tech, 0, TECH_COUNT - 1) && int(fields.amount, 1, 0xffffffff), code);
-  return Object.freeze({ name: RESEARCH_PLEDGE, subject: Object.freeze(v), fields: Object.freeze({ tech: fields.tech, amount: fields.amount }) });
+/** The subject `{holding | wide, nation}`: one village and the wallet's nation (the program refuses another nation's record). */
+function subjectOf(subject, code) {
+  check(subject !== null && typeof subject === 'object' && Object.keys(subject).length === 2 && int(subject.nation, 0, NATIONS - 1), code);
+  const { nation, ...rest } = subject;
+  return Object.freeze({ ...villageOf(rest, code), nation });
 }
 
-/** The checked apply intent `{name: 'ResearchApply', subject: {holding | wide}, fields: {}}` (the wallet's own village). */
+/** The checked pledge intent `{name: 'ResearchPledge', subject: {holding | wide, nation}, fields: {tech, amount}}`. Throws a code. */
+export function researchPledgeIntent(subject, fields, code = 'LocalActShape') {
+  const s = subjectOf(subject, code);
+  check(exactKeys(fields, ['tech', 'amount']) && int(fields.tech, 0, TECH_COUNT - 1) && int(fields.amount, 1, 0xffffffff), code);
+  return Object.freeze({ name: RESEARCH_PLEDGE, subject: s, fields: Object.freeze({ tech: fields.tech, amount: fields.amount }) });
+}
+
+/** The checked apply intent `{name: 'ResearchApply', subject: {holding | wide, nation}, fields: {}}` (the wallet's own village). */
 export function researchApplyIntent(subject, fields, code = 'LocalActShape') {
-  check(subject !== null && typeof subject === 'object' && Object.keys(subject).length === 1 && exactKeys(fields ?? {}, []), code);
-  return Object.freeze({ name: RESEARCH_APPLY, subject: Object.freeze(villageOf(subject, code)), fields: Object.freeze({}) });
+  check(exactKeys(fields ?? {}, []), code);
+  return Object.freeze({ name: RESEARCH_APPLY, subject: subjectOf(subject, code), fields: Object.freeze({}) });
 }
 
 const villageAddress = (A, programId, s) => (s.wide ? wideHoldingAddress(A.season, programId, BigInt(s.wide.p), BigInt(s.wide.q), s.wide.site) : A.of('Holding', s.holding));
 
 /** The 0xDA op 8 instruction of a pledge intent for `wallet` (actor and payer) of nation `faction`. */
-export function researchPledgeInstruction(intent, { programId, seasonId, wallet, faction }) {
+export function researchPledgeInstruction(intent, { programId, seasonId, wallet, faction = intent.subject.nation }) {
   check(int(faction, 0, NATIONS - 1), 'LocalActShape');
   const A = seasonAddresses(programId, String(seasonId));
   const keys = [
@@ -183,7 +189,7 @@ export function researchPledgeInstruction(intent, { programId, seasonId, wallet,
 }
 
 /** The 0xDC op 16 instruction (anyone pays; the village's owner Citizen is `ownerWallet`'s). */
-export function researchApplyInstruction(intent, { programId, seasonId, wallet, ownerWallet = wallet, faction }) {
+export function researchApplyInstruction(intent, { programId, seasonId, wallet, ownerWallet = wallet, faction = intent.subject.nation }) {
   check(int(faction, 0, NATIONS - 1), 'LocalActShape');
   const A = seasonAddresses(programId, String(seasonId));
   const keys = [
@@ -223,9 +229,9 @@ export function startResearchInstruction({ programId, seasonId, authority, rule 
 }
 
 /** The whole message of a pledge or an apply intent (the wallet as fee payer). */
-export function researchMessage(intent, { programId, seasonId, wallet, faction, blockhash, loadedLimit }) {
-  const ix = intent.name === RESEARCH_PLEDGE ? researchPledgeInstruction(intent, { programId, seasonId, wallet, faction })
-    : intent.name === RESEARCH_APPLY ? researchApplyInstruction(intent, { programId, seasonId, wallet, faction }) : fail('LocalActNotAllowed');
+export function researchMessage(intent, { programId, seasonId, wallet, blockhash, loadedLimit }) {
+  const ix = intent.name === RESEARCH_PLEDGE ? researchPledgeInstruction(intent, { programId, seasonId, wallet })
+    : intent.name === RESEARCH_APPLY ? researchApplyInstruction(intent, { programId, seasonId, wallet }) : fail('LocalActNotAllowed');
   const prefix = [setComputeUnitLimit(RESEARCH_CU), setComputeUnitPrice(0n), setLoadedAccountsDataSizeLimit(loadedLimit)];
   return Uint8Array.from(compileMessage({ feePayer: wallet, recentBlockhash: blockhash, instructions: [...prefix, ix] }));
 }

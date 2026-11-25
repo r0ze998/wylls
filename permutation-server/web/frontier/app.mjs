@@ -72,6 +72,7 @@ import { installCoopBoard } from './hud/coopboard.mjs';
 import { localCoopBoardOptions } from './hud/coopboard-local.mjs';
 import * as coopTitles from './hud/coopoutcomes.mjs';
 import * as worldGoals from './hud/worldgoals.mjs';
+import { researchQuery } from './hud/research.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -5277,7 +5278,7 @@ export async function boot() {
         // (fix-loop13, LP13-9: an achievement is also a feed line — a notice when it happens while the page is open)
         let goalsFirst = true;
         const goalNews = b => { const items = worldGoals.achievementNews(FS, b, { first: goalsFirst }); if (!items) return; goalsFirst = false; if (items.length) { FS.feed = feed.pushFeed(FS.feed ?? [], items); renderFeed(); } };
-        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); try { goalNews(b); } catch (e) { console.error('frontier world goals news:', e); } } }); } catch (e) { console.error('frontier world goals:', e); } }
+        if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, query: () => researchQuery(FS), changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); try { goalNews(b); } catch (e) { console.error('frontier world goals news:', e); } } }); } catch (e) { console.error('frontier world goals:', e); } }
         if (!started.play) {
           started.play = true;
           startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });

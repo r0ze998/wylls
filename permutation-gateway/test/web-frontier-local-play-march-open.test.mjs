@@ -18,7 +18,7 @@ test('the economy list stays the six; the march has its own paths, the relay\'s 
   // (wide-local-playable: plus the local wide world's one-site rim request and wide claim; still no march)
   // (wide -> wide marches, #94, owner Q-W2 t385u: plus the wide village's own WideTrain / WideMuster / WideDepart, built by
   //  flocalplay-wide-host.mjs on both sides; the list is still closed — frontier-local-play-wide-host.test.mjs)
-  assert.deepEqual([...LOCAL_ACT_NAMES], ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart']);
+  assert.deepEqual([...LOCAL_ACT_NAMES], ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart', 'ResearchPledge', 'ResearchApply']);  // (+ research, world goal ②)
   assert.ok(!LOCAL_ACT_NAMES.includes('Depart'), 'the legacy march is not an economy command');
   assert.equal(P.LOCAL_MARCH_CAPABILITY_SCHEMA, R.LOCAL_MARCH_CAPABILITY_SCHEMA);
   for (const [k, path] of [['capability', P.LOCAL_MARCH_CAPABILITY_PATH], ['submit', P.LOCAL_MARCH_SUBMIT_PATH], ['status', P.LOCAL_MARCH_STATUS_PATH]]) {
