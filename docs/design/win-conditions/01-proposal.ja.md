@@ -37,7 +37,7 @@
 | 続く世界のモード | 征服の設定の `continuous = 1`。終わりの鐘はなし（`NO_END_BELL`）。EndSeason は `ContinuousWorld`（94）で拒否。旧プールは `--continuous` では開けない（`--prize-epochs` を使う） | `frontier-abi/src/v2/presets.rs:779-794`、`frontier-node/crates/stack/src/config.rs:757-766` |
 | 砦をいつから持っているか | 鐘 `b` で砦を取ると `since_bell = b + 1` が書かれる。**これで、今の持ち主がいつから続けて持っているかがチェーンから読める** | `epoch.rs:24-33`（permutation-rules `frontier/keep.rs`） |
 | 隊商 | 資材を村や倉庫の間で運ぶ命令がある（0xB0–0xB6：BuildVault、SendCaravan、SettleCaravan、RaidCaravan など） | `permutation-frontier/src/proc/caravan.rs:1-12` |
-| 科学・影響力 | 科学：集落ごとに毎時 5（最初の段階。段階が上がると 7.5・10・13.75）、科学の建物 1 つで毎時 +3。影響力：産出は 0。型には「誓約だけ」と書いてあるが、誓約する命令はない。どちらも今は使い道がない | `permutation-rules/src/frontier/catalog.rs:43, 92-95`、`holding.rs:91-94` |
+| 科学・影響力 | 科学：集落ごとに毎時 5（最初の段階。段階が上がると 7・10・13。整数の割り算で端数は切り捨て）、科学の建物 1 つで毎時 +3。影響力：産出は 0。型には「誓約だけ」と書いてあるが、誓約する命令はない。どちらも今は使い道がない | `permutation-rules/src/frontier/catalog.rs:43, 92-95`、`holding.rs:91-94` |
 | 旧 16 技術 | 旧試作の木。Wylls のプログラムは使っていない。旧ゲームの `permutation-chain` が今も読んでいる | `permutation-rules/src/tech.rs`、`permutation-chain/src/finalize.rs:382` |
 
 **要するに：** 動いている勝ち方は「ある時点で砦を最も多く持つ国」だけ。ただし、期限のない目標を作る材料はそろっている。続く世界のモード、`since_bell`（いつから持っているか）、貢献の点で国の中を分ける仕組み、隊商がある。

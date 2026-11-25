@@ -16,7 +16,7 @@
 //! `rules::KeepHolderRule::territory`). [`TerritoryRule::V1`]'s numbers
 //! ([`TERRITORY_V1`]) are **decided** (owner answers 2026-11-24 13:15 JST to
 //! inbox `2026-11-24-1225-territory-impl-questions.md`, TQ-1 … TQ-8); a later
-//! change is a new candidate byte (one exception: Q-LP17-1 (b) changed V1).
+//! change is a new candidate byte (exceptions: V1 changed by Q-LP15-1 (b), Q-CUF-1 (b), Q-LP17-1 (b)).
 //!
 //! **Records.** Both are new with-seed accounts under provisional tags; no
 //! existing layout changes.
