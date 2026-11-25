@@ -478,8 +478,14 @@ states the rules in short. The card's last line, "A request is decided at the en
 is about villages; a tile claim is instant.
 
 **The AI residents** claim tiles too (the same rules and prices): the tile under each village they found, and one more
-from time to time while they save for the next village (verify-pr206-209, ×60, `--ai 4`: 52 tiles after about 180
-turns, none refused). Under the fog you see none of it.
+from time to time while they save for the next village. They **keep ore back for their troops** first (ai-ore-reserve,
+owner 2026-11-25): a tile is claimed only when the ore pays it and still leaves one training batch (100 Spearmen: 20
+ore), plus the troops their next host still lacks; while a keep of their own nation near them is under attack they
+claim no tile at all; and once they have a host's worth of troops (300), tiles and training take turns. They also no
+longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
+village stood, against the same world without the change: training refused 0 (before 286), 52 trainings landed (24),
+14 marches on keeps (2), 7 rim keeps and 1 wide-land keep taken (0 and 0), 21 tiles claimed (82), 4 wide villages
+(4). So the AI nations now own less land and fight more. Under the fog you see none of the tiles.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
 days without an order, longer than the test world takes orders (§4).

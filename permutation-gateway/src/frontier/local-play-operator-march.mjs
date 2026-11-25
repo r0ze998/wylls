@@ -261,7 +261,11 @@ export function createWarEyes({ herald: base, fetch: f = (...a) => globalThis.fe
     const home = provinces.get(`${holding.p},${holding.q}`) ?? null;
     const blocks = actionBlocks('Muster', { holding, province: home, nowBell, now: world.now });
     const settling = blocks.length > 0 && blocks.every(b => SETTLE_CODES.includes(b));
-    return { faction, holding, hosts, settling, blocks, reserve: Number(holding.reserve?.[0] ?? 0), hostCount: hosts.length + transits, march: march?.host ? march : null, nowBell, ready: ready.length, roomForHosts: hosts.length < MAX_HOSTS,
+    // (ai-ore-reserve: the resident's troops — at home and in its hosts — and whether a keep of its own nation within
+    //  reach of its village is under another nation's contest: then its ore goes to troops, not land)
+    const army = Number(holding.reserve?.[0] ?? 0) + hosts.reduce((n, x) => n + (Number(x.troops) || 0), 0);
+    const threatened = [...keeps.values()].some(k => k.holder === faction && Number.isInteger(k.contender) && k.contender >= 0 && k.contender <= 5 && k.contender !== faction && provinceDistance(holding, k) <= REACH_PROVINCES);
+    return { faction, holding, hosts, settling, blocks, army, threatened, reserve: Number(holding.reserve?.[0] ?? 0), hostCount: hosts.length + transits, march: march?.host ? march : null, nowBell, ready: ready.length, roomForHosts: hosts.length < MAX_HOSTS,
       ...(sight ? { goals: { round: sight.round, weighted: [...weights].map(([k, v]) => `${k}:${v.goal}`), ...(plainTarget !== undefined ? { plain: plainTarget } : {}) } } : {}) };
   }
   /**
