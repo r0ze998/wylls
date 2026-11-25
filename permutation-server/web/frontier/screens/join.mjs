@@ -63,7 +63,9 @@ export function factionCards(FS) {
   //  never by the record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0)
   const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;
   const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
-  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f }));
+  // (fix-loop16, owner Q-LP16-4 (a): `ai` — a local world's launcher says this nation has an operator AI resident)
+  const ai = Array.isArray(FS.localPlay?.aiNations) ? FS.localPlay.aiNations : [];
+  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f, ai: ai.includes(f) }));
 }
 
 /**
@@ -131,13 +133,13 @@ export function renderNations(FS) {
   const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
   const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" data-flourish="attack" aria-pressed="${c.chosen ? 'true' : 'false'}"${raw(busy ? ' disabled' : '')}>
     <span class="bn-rim"><span class="bn-cloth"><span class="bn-face"></span>
-      <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-creed">${L`教義：${c.doctrine}`}</span></span></span></span>
+      <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-creed">${L`教義：${c.doctrine}`}</span>${c.ai ? html`<span class="bn-ai" data-ai="1">${L`AIあり`}</span>` : ''}</span></span></span>
     <span class="bn-hex">${raw(leaderHex(c.faction, { size: 44 }))}</span>
     <span class="bn-crest">${crestSvg(c.faction, { size: 30 })}</span>${c.chosen ? html`<span class="bn-mark" aria-hidden="true">${icon('check')}</span>` : ''}
   </button><span class="bn-figure">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null, when: 'look' }))}</span></li>`);
   // each nation's character, its doctrine and what it is good at, in a line: the looked-at banner's, else the chosen one's
   const says = cards.map(c => html`<div class="nc-item${c.chosen ? ' nc-def' : ''}" data-n="${c.faction}" ${raw(c.chosen ? 'aria-live="polite"' : 'aria-hidden="true"')}><span class="nc-fig">${raw(leaderFigure(c.faction, { motion: c.chosen ? 'attack' : 'idle', once: c.chosen ? `pick-${c.faction}` : null }))}</span><span class="nc-face">${raw(leaderSvg(c.faction, { size: 76, shape: 'card' }))}</span>${crestSvg(c.faction, { size: 34 })}<div class="nc-text"><strong class="nc-name">${c.name} <span class="nc-title">— ${L`教義：${c.doctrine}`}</span></strong>
-      <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span></div></div>`);
+      <span class="nc-pitch">${DOCTRINE_PITCH[c.faction]()}</span>${c.ai ? html`<span class="nc-pitch nc-ai">${L`この国にはAIの住民がいます。選ぶと、そのAIは同じ国の仲間になります。`}</span>` : ''}</div></div>`);
   const confirm = html`<div class="nation-confirm${pick ? '' : ' nc-empty'}">
     <div class="nc-what" data-stable="join-says">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
     <div class="nc-go">
@@ -154,6 +156,7 @@ export function renderNations(FS) {
     ${nationFull(FS) ? fallbackNation(FS, busy) : ''}
     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.localPlay ? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS.devnetPlay ? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
+    ${FS.localPlay?.aiNear ? html`<p class="nc-note nc-ai-near">${L`起動オプション --ai-near：あなたの最初の村が建つと、AIの住民が1人、いちばん近いほかの国に入り、近くに村を出します（その1人は、上の「AIあり」の印には入っていません）。`}</p>` : ''}
     ${renderWorldLines(FS)}
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;

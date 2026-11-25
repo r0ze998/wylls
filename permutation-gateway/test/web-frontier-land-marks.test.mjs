@@ -53,15 +53,15 @@ test('the selection says it in plain English, without the machinery words', () =
   const names = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'], nameOf = f => names[f];
   const before = parsed(OWNERS[27], { 25: [0, 71] });
   const a = landTileLines(landTile(before, 25), { viewer: 0, nameOf }).map(x => x.text);
-  assert.deepEqual(a, ['Land held by Fjordal (territory trial)', 'Your nation is taking it: turn 71 of 72']);
+  assert.deepEqual(a, ['Land held by Fjordal (fields trial)', 'Your nation is taking it: turn 71 of 72']);
   const b = landTileLines(landTile(before, 25), { viewer: 5, nameOf });
   assert.equal(b[1].text, 'Aster is taking it: turn 71 of 72'); assert.equal(b[1].tone, 'bad', 'the holder sees its land being taken');
   const after = parsed(OWNERS[130], { 32: [5, 7] });
-  assert.deepEqual(landTileLines(landTile(after, 25), { viewer: 0, nameOf }).map(x => [x.text, x.tone]), [['Your nation\'s land (territory trial)', 'you']]);
+  assert.deepEqual(landTileLines(landTile(after, 25), { viewer: 0, nameOf }).map(x => [x.text, x.tone]), [['Your nation\'s land (fields trial)', 'you']]);
   assert.equal(landTileLines(landTile(after, 32), { viewer: 0, nameOf })[1].text, 'Cut off from its nation\'s land, fading: turn 7 of 36');
-  assert.equal(landTileLines(landTile(after, 0), { viewer: 0, nameOf })[0].text, 'Open ground, no nation\'s land (territory trial)');
+  assert.equal(landTileLines(landTile(after, 0), { viewer: 0, nameOf })[0].text, 'Open ground, no nation\'s land (fields trial)');
   const v = parsed('0' + '.'.repeat(60), {}, { village: [0] });
-  assert.equal(landTileLines(landTile(v, 0), { viewer: 0, nameOf })[0].text, 'Village land of your nation (territory trial)');
+  assert.equal(landTileLines(landTile(v, 0), { viewer: 0, nameOf })[0].text, 'Village land of your nation (fields trial)');
   for (const l of [...a, ...b.map(x => x.text)]) assert.doesNotMatch(l, BANNED_EN);
   setLang('ja');
 });
@@ -133,7 +133,7 @@ test('the selection carries the land line only for a tile in sight', () => {
   const terrainOf = () => ({ terrain: Array(61).fill(0), names: ['Grassland'], sites: [] });
   const m = inspectModel(FS, terrainOf);
   assert.deepEqual(m.tile.land, { owner: 0, village: false, claimed: true, count: null });
-  assert.match(String(renderInspect(FS, terrainOf)), /Your nation&#39;s land \(territory trial\)|Your nation's land \(territory trial\)/);
+  assert.match(String(renderInspect(FS, terrainOf)), /Your nation&#39;s land \(fields trial\)|Your nation's land \(fields trial\)/);
   FS.selected = { p: 4, q: -2, idx: 60 };
   assert.equal(inspectModel(FS, terrainOf).tile?.land, undefined, 'out of sight: no owner is said');
   setLang('ja');

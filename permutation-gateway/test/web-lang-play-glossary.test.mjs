@@ -69,13 +69,13 @@ const KEYS = {
     '世界の進行役は動いていますが、到着地または滞在先の処理の一つは拒否されて止まりました。その処理はもう進みません。',
     '世界の進行役の報告はまだありません。少し待ってから、もう一度確認してください。',
     // the land preview (7a514f20 and before): the strip's chip and the selected tile, frontier/land.mjs
-    '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。',
-    'この州で獲得 {0} マス · 生産 +{1}%',
-    'どの国の土地でもない空き地（領土の試験）',
-    'あなたの国の村の土地（領土の試験）',
-    '{0}の村の土地（領土の試験）',
-    'あなたの国が持つ土地（領土の試験）',
-    '{0}が持つ土地（領土の試験）',
+    '村の耕地（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。自分の領土（広い土地で取るマス）とは別のものです。',
+    'この州の耕地 {0} マス · 生産 +{1}%',
+    'どの国の土地でもない空き地（耕地の試験）',
+    'あなたの国の村の土地（耕地の試験）',
+    '{0}の村の土地（耕地の試験）',
+    'あなたの国が持つ土地（耕地の試験）',
+    '{0}が持つ土地（耕地の試験）',
     'あなたの国が奪取中：{0} / {1} ターン',
     '{0}が奪取中：{1} / {2} ターン',
     '国の土地から切り離され減っています：{0} / {1} ターン',
@@ -204,7 +204,7 @@ const TERMS = [
   ['記録の配信元', /\brecords server\b/i],
   ['端末', /\bdevice\b/i],
   ['署名', /sign/i],
-  ['領土の試験', /\bterritory trial\b/i],
+  ['耕地の試験', /\bfields trial\b/i],
   ['土地', /\bland\b/i],
   ['要塞', /\bforts?\b/i],
   ['守備隊', /\bgarrison\b/i],
@@ -303,8 +303,8 @@ proposed('D-3', '戻るのは包囲の結果を受け取ったときで、それ
 proposed('D-4', '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（開始後に終了時刻を表示します）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。',
   'At most two worlds at once. Each ends on its own once the time set by the start service has passed (its end time is shown once it starts), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
   'the end time is shown, never a default the launcher may not use (loop-play4 B-12); the Japanese names no operator');
-proposed('D-5', '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。',
-  'Territory trial (test world): the tiles hosts claimed by standing in this village\'s province, and the production they add.',
+proposed('D-5', '村の耕地（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。自分の領土（広い土地で取るマス）とは別のものです。',
+  'The village\'s fields (test world): the tiles hosts claimed by standing in this village\'s province, and the production they add. Not your own territory (the tiles you claim on the wide land).',
   'the Japanese does not say whose hosts (or the Japanese adds あなたの国の: the owner\'s call)');
 proposed('D-6', 'テスト用ウォレットは、ローカルプレイを選んだときだけ使えます。',
   'The test wallet can be used only when local play is chosen.', '使えます is "can be used", not "is used"');
@@ -317,9 +317,9 @@ proposed('D-9', 'あなたの包囲は必要なターンを満たし、占領の
   'Your siege has met its required turns and is waiting for the capture\'s result to be collected (from turn {0}; declared on turn {1}; site {2}). The city is not yours yet.',
   'in a sentence "on turn N" (GLOSSARY.md ターン); 以降 is "from", not "due from"');
 proposed('D-10', '今回の記録のスロット', 'Record slot of this check', '記録のスロット is "Record slot" (round 36); "reading" is no other entry\'s word for 記録');
-proposed('D-11', 'この州で獲得 {0} マス · 生産 +{1}%',
+proposed('D-11', 'この州の耕地 {0} マス · 生産 +{1}%',
   // (the dictionary's plural keeps {0} for the page to fill, as every plural entry does: compare in that form)
-  (n, p) => `Claimed in this province: ${n === 1 ? '{0} tile' : '{0} tiles'} · production +${p}%`,
+  (n, p) => `Fields in this province: ${n === 1 ? '{0} tile' : '{0} tiles'} · production +${p}%`,
   'この州 is "this province": "here" on the village strip does not say which place');
 
 // ------------------------------------------------------------------ round 2 (candidate aa12ce74), the audit doc's R2 entries

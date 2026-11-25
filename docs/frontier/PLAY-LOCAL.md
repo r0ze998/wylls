@@ -71,6 +71,7 @@ Options:
 | `--random-map` | give the new world its own map. Without it **every local world has the same map** | `--resume` |
 | `--ai N` | AI residents, 0–4 (default 2). **At war by default**: they march on other nations' reachable keeps and siege them (one action per resident per turn) | |
 | `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
+| `--ai-near` | with `--wide` and `--ai 1–4` (off by default): one AI resident waits for your first village, then joins the nearest **other** nation and puts its village on the rim beside yours (3 provinces away on the standard map) and claims wide land toward you (§4.0) | anything but `--wide` |
 | `--two` | two people in one world (§3.1) | `--wide` `--external` |
 | `--coexist` | a world with ②+⑨+⑩ (§10, §12; ① request caravans only here, §13): a kept world or `--demo`; works with `--ai` `--two` `--random-map` `--resume` `--external` | `--wide` |
 | `--external ADDR[,ADDR]` | admit up to two external AI residents by their **public addresses** (§11; never a key). Also starts the read-only MCP server on 127.0.0.1. A kept world, `--demo` or `--wide`; works with `--ai` `--random-map` `--coexist` `--resume` | `--two` |
@@ -89,6 +90,10 @@ Options:
 
 - The AI residents' nations are fixed: the first joins Borealis, the second Ember, the third Cinder, the fourth Fjordal.
   Pick **a nation without an AI** (with `--ai 4`: Aster or Dunmar) and you never compete with one for a village site.
+  The "Choose a nation" screen marks the nations that have an AI resident with a small plate, **"AI present"**, under
+  the banner's doctrine; the chosen nation's lines add "This nation has an AI resident. If you choose it, that AI is your
+  nation-mate." Joining such a nation works: the AI shares your nation's reach and keeps. (With `--ai-near` the first
+  AI resident has no nation yet when you choose, so the marks are Ember, Cinder and Fjordal; a line under the banners says so.)
 - `--random-map` starts the world at a randomly picked earlier time, and the program derives another genesis seed by its
   unchanged rules.
 - The page opens at two addresses only: `http://localhost:<port>/` and `http://127.0.0.1:<port>/` (no other name, no other machine; §9).
@@ -254,9 +259,9 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
       on the map, until "Endpoint derived from the route" is a wide-land province (ring 129 or more). Only the provinces the map draws
       are open (at first the strip of rings 129–131; more opens later around villages and won keeps). When the road ends on an unopened one, the card says at once "The end province P,Q is not open in this world … The nearest open province is … (N provinces away).".
       A road is at most 32 steps and may enter at most 4 provinces; the card counts both ("27/32 · 4/4 entered provinces").
-      At the limit more presses add nothing and the card does not say why (loop-play16 LP16-6; only the map's line for
-      screen readers says "The geometric route is limited to 32 steps and 4 entered provinces." after a press on the map): a keep
-      farther than that is out of an expedition's reach.
+      At the limit a press adds nothing and the card says why (fix-loop16, LP16-6): "The geometric route is limited to 32
+      steps and 4 entered provinces. This step cannot be added. Change the road with "Undo step", or pick a nearer keep."
+      (the line goes after an undo). A keep farther than that is out of an expedition's reach.
    2. "Check terrain and time". "A host cannot march onto mountains or water (N)" means step N is impassable: "Undo step" or "Clear route"
       and draw another road (the card draws roads without looking at terrain). A passable road shows
       "Proposed arrival range: turns A–B" and the button that fills in the arrival turn (step 3). The card scrolls its newest result
@@ -327,10 +332,12 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    host → march on the next province's keep. **Press once per step, then wait** (three presses in all).
    - **A new wide village starts with empty stores.** Until it has saved the first step's cost (100 Spearmen: Food 60 ·
      Ore 20 · Gold 10; a village makes at least 4 ore an hour, more beside hills, mountains or iron, so at most about
-     30 turns after it stands) the press is refused with
-     "The wide-land village's step has not gone through yet. Not enough resources or balance.". The card does not say what is
-     short or when to press again, and this village's screen shows the stores only as recorded when it was read: wait
-     and press again (loop-play16 LP16-2: refused at turn 288, trained at turn 296, village requested at turn 257).
+     30 turns after it stands) the press is refused, and the toast and the card say what is short and when to press
+     again (fix-loop16, LP16-2): "The wide-land village's stores do not cover training 100 Spearmen yet (Food 60 · Ore 20 ·
+     Gold 10). A new village starts with empty stores, which fill by the hour (4 ore an hour without a Mine). Wait about
+     30 turns, then press "Next step (wide land)" again." The 30 turns are a fixed estimate from an empty store (this
+     village's screen shows the stores only as recorded when it was read); loop-play16 saw the refusal at turn 288 and
+     the training at turn 296 for a village requested at turn 257.
    - Pressing the bottom bar's tabs ("Village", "Hosts", "Marches", "Nation & territory", "More", "Map") or the settings under "More" no longer makes the
      card forget its march (#173). A page reload still forgets it (§6).
    - The card's wait goes on when you close this wide village's screen and open the rim village or another tab (#184,
@@ -387,6 +394,29 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
   too (a few turns behind), but a war goes by fast there. A wide village's cost then takes about 2 hours to save.
 - The faster the clock, the further this machine's load makes the world trail (§8). Stop other heavy work while you test.
 
+### 4.0 An AI neighbour (`--ai-near`, TEST only; owner decision Q-LP16-2)
+
+Without it, the nations that have no AI (Aster and Dunmar with `--ai 4`) start beside each other on the rim, so no other
+nation's tile is ever within an expedition's road (32 steps, 4 provinces) and you never see tiles change hands.
+`scripts/play-local.sh --wide --ai 4 --ai-near` (off by default; `--ai 1`–`4`) changes only where ONE AI resident
+settles; no rule, price or reach changes:
+
+1. The first AI resident joins no nation at the start. The "Choose a nation" screen says so under the banners
+   ("Launch option --ai-near: once your first village stands, one AI resident joins the nearest other nation and puts its
+   village near yours (that one is not in the "AI present" marks above).").
+2. Once your first village stands, that resident joins the **other** nation whose rim village site is nearest to it
+   and asks for that site: on the standard map, with you in Aster at (-68, -60), it joined Dunmar at (-65, -63), 3
+   provinces away, 2 minutes after the join (×60). The AI residents' log (`operators.out` in the world's directory)
+   says `"step":"near","outcome":"chosen"` with the distance.
+3. It then claims wide land **toward you**: seen live, 24 tiles in (-68, -61), the province next to the player's
+   village, within 100 turns (one tile a turn). Since the AI ore reserve (#236) it is slower: about one tile every 8
+   turns (3 tiles in the first 40 turns, verify-pr237).
+4. Send an expedition onto that province's keep (§4 step 3) and hold it 72 turns. When the keep becomes your nation's,
+   the tiles the AI owned there become yours (§4.1 item 7): seen live at turn 264, all 24 tiles. The page does not
+   draw tiles yet, so this is read from the chain's territory record, not from the map.
+
+The neighbour is at war like the other AI residents (`--ai-peaceful` turns that off): it marches on keeps near you too.
+
 ### 4.1 Neutral wide land and your own land (player territory; `--wide` only, #206 and #209)
 
 Every `--wide` world plays these rules; a kept world and `--demo` have no wide land and no player land. The numbers are
@@ -419,11 +449,10 @@ this section describes what the program does today, and none of it is a promise 
    buttons, "Claim a tile" and "Found a village here". Above the rows the card says what you own (territory-card):
    "**Your land**: tiles owned: N · next tile: N ore · land upkeep: N food per hour" — your own land only, read from the
    chain about every 10 s and right after a claim.
-   - **The card does not list every province in reach**: at most 4 near your first village and at most 6 reached through
-     your nation's land. As more land opens, or once you found a village, the rows can change, and a province you
-     claimed in before (or whose keep you are taking) can leave the list although the rule still allows a claim there
-     (loop-play16 LP16-1). This is what the page does today; the owner decided on 2026-11-25 (Q-LP16-1 (b)) that such
-     provinces are to stay on the card, and that change is not in yet.
+   The card lists at most 4 provinces near your first village and 6 reached through your nation's land, nearest first, so
+   a province in reach can be missing and rows change as land opens. A province where you own a tile ("you own tiles
+   here") or whose keep your host is taking ("your host is taking this keep") or has taken ("your host took this keep")
+   always keeps its row (the tiles are those claimed in this visit of the page).
 2. Press **"Claim a tile"** on a row. It can be pressed when the village holds the ore of the next tile (the "next tile"
    number of the land line; 10 for your first tiles), whatever the village cost line above says. With less, every
    "Claim a tile" is off and the card says why: "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."
