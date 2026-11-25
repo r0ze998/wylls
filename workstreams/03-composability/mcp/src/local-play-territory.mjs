@@ -20,7 +20,8 @@
 // when it is within the sight of one of the player's own villages (map/survey.mjs SIGHT.village), of a nation-mate's
 // village, or of a province its nation holds (FOG_RULES.nationVillage / territory) — the page's own numbers. The
 // anchors are read only from the provinces this reader captured (the reachable ones): a smaller sight than the page's,
-// never a larger one (own hosts and nation-mates' villages elsewhere are not counted). What is NEVER hidden: the
+// never a larger one (own hosts and nation-mates' villages elsewhere are not counted). The player's own tiles are in
+// sight themselves (owner 2026-11-25 item 3, the tile only — not its neighbours). What is NEVER hidden: the
 // player's own tiles and summary, and the land's fixed layout (which tile is a village site, which is the keep's — the
 // page's claim card reads the same from the herald's capture, in sight or not). What is hidden out of sight: who owns a
 // tile, and whether a site has a village.
@@ -114,7 +115,10 @@ export function tileInSight(anchors, p, q, tile) {
  * neighbouring site: the program refuses ReservedSite) true / false, or null when a neighbouring site is out of sight
  * and none in sight has a village.
  */
-export function provinceTiles(cap, rec, tag, seen) {
+export function provinceTiles(cap, rec, tag, seen0) {
+  // (territory-map, owner 2026-11-25 item 3 — Q-LP15-3 (b) / Q-W13T-2 (b): the player's own tiles are always in view, the
+  //  tile itself — as the page's map/territorytiles.mjs ownTileAnchors (radius 0): what stands on an own tile is seen)
+  const seen = t => (tag !== null && tag !== undefined && (rec?.owners?.[t] ?? null) === tag) || seen0(t);
   const own = [], free = [], taken = [], unseen = [];
   for (let t = 0; t < 61; t++) {
     if (t === cap.keepTile) continue;
