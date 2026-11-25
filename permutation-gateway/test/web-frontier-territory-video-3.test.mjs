@@ -71,7 +71,9 @@ test('the fog: a province whose holder was never seen carries no border and is n
   const { ctx, log } = recorder();
   const out = paintWideLand(ctx, land, { seen: ALL, zoom: 1, level: 'province' });
   assert.deepEqual(out.holders, [VIEWER], 'the legend is told only the known holder');
-  assert.deepEqual(out.borders, [VIEWER]);
+  // (territory-map, owner 2026-11-25 OQ-3: a province is no longer bordered or washed by its keep's nation — the owned
+  //  tiles are, map/territorytiles.mjs; paintNationBorders stays for that tile border's bands)
+  assert.deepEqual(out.borders, []);
   assert.ok(!log.fills.some(f => f.style === '#b9b29a'), 'nothing is filled in the no-nation colour');
   assert.deepEqual(holdersOf([cell(0, 0, ASTER), cell(1, 0, NEUTRAL), cell(2, 0, null, { holderKnown: false }), cell(3, 0, ASTER)]), [ASTER, NEUTRAL]);
 });
@@ -140,9 +142,11 @@ test('the legend names only the land IN the picture, not the margin the canvas p
   const made = [];
   const el = tag => { const e = { tag, children: [], attrs: {}, dataset: {}, hidden: false, _t: '', set textContent(x) { e._t = x; if (x === '') e.children = []; }, get textContent() { return e._t; }, setAttribute(k, x) { e.attrs[k] = x; }, append(...xs) { e.children.push(...xs); }, remove() {} }; made.push(e); return e; };
   const lg = mountWideLegend({ doc: { createElement: el, body: el('body'), querySelector: () => null } });
-  lg.update({ holders: [ASTER, CINDER, VIEWER], shown: [VIEWER] }, VIEWER);
+  // (territory-map: the key names the nations whose owned TILES are in the picture, `nations` — paintTerritoryTiles' own
+  //  test of the picture —, not the provinces' keep holders)
+  lg.update({ holders: [ASTER, CINDER, VIEWER], shown: [ASTER, VIEWER], nations: [VIEWER] }, VIEWER);
   assert.deepEqual(lg.el.children[1].children.map(li => li.children[0].attrs['data-key']), ['n3']);
-  lg.update({ holders: [ASTER, VIEWER], shown: [] }, VIEWER);
+  lg.update({ holders: [ASTER, VIEWER], shown: [ASTER], nations: [] }, VIEWER);
   assert.equal(lg.el.hidden, true, 'land drawn only in the margin: no legend');
 });
 
@@ -187,10 +191,10 @@ test('the legend lists only the holders drawn — the viewer first, other nation
   const lg = mountWideLegend({ doc });
   assert.equal(lg.el.id, WIDE_LEGEND_ID);
   assert.equal(lg.el.hidden, true, 'nothing drawn yet');
-  lg.update({ holders: [ASTER, VIEWER] }, VIEWER);
+  lg.update({ nations: [ASTER, VIEWER] }, VIEWER);
   assert.equal(lg.el.hidden, false);
   const writes = lg.el.writes;
-  lg.update({ holders: [ASTER, VIEWER] }, VIEWER);
+  lg.update({ nations: [ASTER, VIEWER] }, VIEWER);
   assert.equal(lg.el.writes, writes, 'the same rows: the box is not rewritten');
   const rows = lg.el.children[1].children.map(li => li.children[0].attrs['data-key']);
   assert.deepEqual(rows, ['n3', 'n0'], 'swatches by class key (no inline style)');

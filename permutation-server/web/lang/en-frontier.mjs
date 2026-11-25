@@ -866,6 +866,8 @@ export default {
   '土地の持ち主': 'Who holds the land',
   'あなたの国（{0}）': 'Your nation ({0})',
   'どの国にも属さない土地': 'No nation',
+  '国のわからないプレイヤーの土地': "A player's land (nation not known)",
+  '城の色：その州を持つ国': 'Keep colour: the nation holding the province',
   '記録': 'Records',
   '記録された世界を開く（読み取り専用）': 'Open the recorded world (read-only)',
   '記録された世界を閉じる': 'Close the recorded world',

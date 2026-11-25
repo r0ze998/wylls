@@ -5254,3 +5254,30 @@ async function revealTick() {
   if (!herald || !FS.clock || !FS.wallet || !(FS.book ?? []).some(e => e.state !== 'settled' && e.state !== 'failed')) return;
   await refreshMarches();
 }
+
+// ------------------------------------------------------------------ territory on the map (territory-map, owner 2026-11-25 items 3/5/6)
+import { territoryProvinceAddress as territoryMapProvince, citizenTagOf as territoryMapTag } from './flocalplay-territory.mjs';
+const TERRITORY_MAP_READ = 'frontier-local-play-act-wide-read-v1';
+/**
+ * The map's territory reads of a local wide world (map/territorytiles.mjs mountTerritoryTiles `reads`): `{read(addresses)
+ * → [Uint8Array | null] | null, province(p, q) → the territory province record's address, ownTag}` — or null (no local
+ * wide world, no wallet or Citizen, no play relay). The read is the relay's read-only account read (at most 16
+ * addresses, program-owned accounts only): nothing is signed or sent. Which tiles the map then SHOWS is the fog's
+ * (territorytiles.mjs territoryLand): the viewer's own always, another player's only in sight.
+ */
+export function territoryMapReads() {
+  if (!localPlay?.wideLand || !localPlay?.seasonAddress || !localPlay?.programId || !FS.wallet || !FS.citizen) return null;
+  const g = localDepartGate();
+  if (!g?.ok) return null;
+  let ownTag = null;
+  try { ownTag = territoryMapTag(viewerCitizen()); } catch { return null; }
+  const { seasonAddress, programId } = localPlay;
+  return {
+    ownTag,
+    province: (p, q) => territoryMapProvince(seasonAddress, programId, p, q),
+    read: async addresses => {
+      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: TERRITORY_MAP_READ, addresses });
+      return Array.isArray(j?.accounts) ? j.accounts.map(a => (a ? rightsB64(a.data_b64) : null)) : null;
+    },
+  };
+}
