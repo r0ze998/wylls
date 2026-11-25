@@ -21,8 +21,9 @@ first wide village (#236, #241 → §4.1), and `--ai-near` puts one beside you (
 plays its own land (#227 → §11); what loop-play15 and loop-play16 found is fixed (#223, #225, #237 → §3 step 6, §4, §4.1,
 §12); the first, whole-world view of the map is fast again (#239). What is left: §8.
 When the food cannot pay a turn's land upkeep, the food the first village holds is now taken and the land stays unpaid
-(#243, owner decision Q-LP17-1 (b) → §4.1 step 6). Open when this was written, and so not described here: #245 (three
-page fixes, and more guide text for that rule: how it goes turn by turn, and the refusal table).
+(#243, owner decision Q-LP17-1 (b) → §4.1 step 6; how it goes turn by turn and the refusal table: #245). Also #245: the
+Train form says a part hundred costs a whole hundred, a tile claim refused for the turn limit or unpaid upkeep has no
+"Try again", and the join card says its two deadlines to ten minutes ("about 1 h 40 min left").
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
