@@ -824,6 +824,65 @@ fn reveal_arrival_bell_must_fit_the_path() {
 }
 
 #[test]
+fn reveal_roads_in_the_village_shortens_the_march() {
+    // World goal ② research, roads (Q-RI-1 (a), owner 2026-11-25 12:04): the
+    // doctrine's travel knob × 0.95, read at Reveal from the host's village
+    // mask for the host's nation. Over straight routes of 6–20 steps and
+    // arrival leads 3–6: a march that fits on foot fits with roads; another
+    // nation's roads in the same bytes change nothing; and some march fits
+    // only with roads.
+    use permutation_rules::frontier::research::{tech, VillageResearch};
+    let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+    let mut only_with_roads = 0;
+    for lead in 3..=6u32 {
+        for n in 6..=20usize {
+            let dirs = vec![0u8; n];
+            let mut s = scene_with(&dirs, lead, 0, SealCase::Valid);
+            s.anchor();
+            let try_with = |s: &Scene, m: Option<VillageResearch>| {
+                let mut f = s.c.fork();
+                if let Some(m) = m {
+                    f.edit(&s.e.holding, |d| d[o..o + 2].copy_from_slice(&m.to_le()));
+                }
+                send_keeper(&mut f, &s.w, s.ix(0, true))
+            };
+            let code = |r: &SendResult| match r {
+                Ok(_) => None,
+                Err(e) => Some(
+                    format!("{e:?}")
+                        .split(", err:")
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                ),
+            };
+            let plain = try_with(&s, None);
+            let other = try_with(&s, Some(VillageResearch::new(1 << tech::ROADS, 3, true)));
+            let roads = try_with(
+                &s,
+                Some(VillageResearch::new(1 << tech::ROADS, s.e.faction, true)),
+            );
+            assert_eq!(
+                code(&other),
+                code(&plain),
+                "lead {lead}, {n} steps: another nation's roads"
+            );
+            if plain.is_ok() {
+                assert!(roads.is_ok(), "lead {lead}, {n} steps: roads never slower");
+            } else if roads.is_ok() {
+                assert!(
+                    code(&plain).unwrap().contains("Some(31)"),
+                    "ArrivalBell: {:?}",
+                    code(&plain)
+                );
+                only_with_roads += 1;
+            }
+        }
+    }
+    assert!(only_with_roads > 0, "some march fits only with roads");
+}
+
+#[test]
 fn reveal_refuses_a_cpi() {
     let mut s = scene();
     s.anchor();

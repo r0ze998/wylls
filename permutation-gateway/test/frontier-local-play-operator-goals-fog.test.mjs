@@ -30,7 +30,8 @@ test('--goals: a loopback goals state, war worlds only', () => {
   const base = ['--count', '1', '--relay-ports', '41710', '--herald', 'http://127.0.0.1:41705', '--homes', JSON.stringify([{ p: 0, q: 1, nation: 1 }])];
   const url = 'http://127.0.0.1:41700/goals-world/41705/goals/state';
   assert.equal(parseArgs([...base, '--war', 'operator-war-v1', '--goals', url]).goals, url);
-  assert.throws(() => parseArgs([...base, '--goals', url]), /--goals/);
+  // (research-impl, world goal ②: a world without war reads its nation's research view too)
+  assert.equal(parseArgs([...base, '--goals', url]).goals, url);
   assert.throws(() => parseArgs([...base, '--war', 'operator-war-v1', '--goals', 'http://example.com:41700/goals-world/41705/goals/state']), /--goals/);
   assert.equal(parseArgs([...base, '--war', 'operator-war-v1']).goals, undefined);
 });

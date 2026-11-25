@@ -240,6 +240,11 @@ pub fn read_kholding(d: &[u8]) -> KHolding {
         walls_committed_before: i64_at(H::WALLS_COMMITTED_BEFORE),
         food_shortfall: i64_at(H::FOOD_SHORTFALL),
         lent_workshops: u32_at(d, H2_LENT),
+        research: permutation_rules::frontier::research::VillageResearch::from_le([
+            d[frontier_abi::v2::layout::player::holding::RSV_1258],
+            d[frontier_abi::v2::layout::player::holding::RSV_1258 + 1],
+        ])
+        .effective(d[H::FACTION]),
     }
 }
 

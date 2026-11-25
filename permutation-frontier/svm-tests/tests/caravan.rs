@@ -466,6 +466,45 @@ fn g13_s1_send_and_settle_to_own_vault() {
     );
 }
 
+/// World goal ② research, roads (Q-RI-1 (a), owner 2026-11-25 12:04): a
+/// caravan leaving a village whose `RSV_1258` mask carries roads for its
+/// nation walks at the caravan speed knob × 0.95 (`research::speed_bps`);
+/// another nation's mask in the same bytes changes nothing.
+#[test]
+fn g13_s1_send_from_a_village_with_roads_walks_five_percent_faster() {
+    use permutation_rules::frontier::research::{self as kr, tech, VillageResearch};
+    let travel = |mask: Option<VillageResearch>| -> i64 {
+        let mut k = Cast::far(8);
+        expect_lands(k.build_vault(), "BuildVault");
+        if let Some(m) = mask {
+            let mut d = k.c.data(&k.a.holding);
+            let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+            d[o..o + 2].copy_from_slice(&m.to_le());
+            k.c.set_data(&k.a.holding, d);
+        }
+        let x = k.send_args(0, [0, 50, 0, 0, 0, 0, 0, 0]);
+        expect_lands(k.send(&x), "SendCaravan");
+        let d = k.c.data(&k.caravan(0));
+        i64_at(&d, CV::ARRIVE_TS) - i64_at(&d, CV::DEPART_TS)
+    };
+    let plain = travel(None);
+    let roads = travel(Some(VillageResearch::new(1 << tech::ROADS, 0, true)));
+    let other = travel(Some(VillageResearch::new(1 << tech::ROADS, 3, true)));
+    let bps = of_faction_v3(0).unwrap().caravan_time_bps;
+    assert_eq!(
+        kr::speed_bps(&kr::RESEARCH_V1, 1 << tech::ROADS, bps),
+        bps * 95 / 100
+    );
+    assert!(roads < plain, "roads {roads} < plain {plain}");
+    // every step is scaled (rounded down), so the walk is at most 5 % + a
+    // second per step faster
+    assert!(
+        roads >= plain * 95 / 100 - 1 && roads <= plain * 95 / 100 + 8,
+        "{roads} vs {plain}"
+    );
+    assert_eq!(other, plain, "another nation's techs in this village");
+}
+
 /// A caravan standing at bell starts in two Provinces (A's village in T,
 /// its outpost next door) chains both Provinces' slots in CARAVAN_SENT.
 /// s1-season-2: every such send, and every raid take home across a

@@ -39,6 +39,7 @@
 // also marches (the page's own Depart), aimed and sized by local-play-operator-war.mjs, one action per turn (Q16-2).
 import { OPERATOR_WAR_MAX, WAR_COOLDOWN_BELLS, warStep, warHomeOrder } from './local-play-operator-war.mjs';
 import { nearerOwnVillage, claimCostV1 } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { villageMaskOf } from '../../../permutation-server/web/frontier/flocalplay-research.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
 export const OPERATOR_RESIDENTS_SCHEMA = 'frontier-local-play-operator-residents-v1';
@@ -158,7 +159,10 @@ export function residentView(me, decode) {
       if (holding) continue;
       const tile = Number(h.tile);
       // (the decoded record rides along, not enumerable: the wide rule reads its stores; the view itself is as it was)
-      holding = Object.freeze(Object.defineProperty({ p, q, site, ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) }, 'decoded', { value: h, enumerable: false }));
+      holding = Object.freeze(Object.defineProperties({ p, q, site, ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) }, {
+        decoded: { value: h, enumerable: false },
+        // (world goal ②: the village's research mask, RSV_1258 — the decoder drops reserved bytes)
+        researchMask: { value: villageMaskOf(Buffer.from(String(row?.bytes_b64 ?? ''), 'base64')), enumerable: false } }));
     } catch { /* another kind of record: not this rule's */ }
   }
   return Object.freeze({ joined: true, faction, holding, wide });
@@ -207,7 +211,31 @@ const key = a => (a.name === 'Build' ? `Build:${a.item ?? a.fields?.item}` : a.n
  * `submitLocalAct`), or `{wait: true, why}`. `view` from `residentView`; `homes` from `homesOf`; `nowSecs` the clock
  * the Join's expiry is counted from. Pure: the memory is changed only by `noteOutcome`.
  */
-export function decideNext(memory, view, { homes, nowSecs, war = null, wide = null }) {
+/** The least science an operator resident pledges at once (plan §8: "10 or more"). */
+export const RESEARCH_MIN_SCIENCE = 10;
+/**
+ * The research decision of a resident with a village (null: nothing to do): `research` = `{view, science}` — the judge's
+ * fogged view for its nation (world-research.mjs viewOf with `mine`) and the village's whole science now.
+ */
+export function researchDecision(memory, view, research, h) {
+  const v = research?.view;
+  if (!v || !view?.holding || !Number.isInteger(view.faction) || v.paused) return null;
+  const me = view.faction;
+  const mask = view.holding.researchMask ?? null;
+  const inVillage = mask && mask.nation === me ? mask.techs : 0;
+  const known = (v.techs ?? []).filter(t => t.mine?.known).reduce((a, t) => a | (1 << t.id), 0);
+  const cool = name => (memory.cooldown?.[name] ?? 0) > memory.decisions;
+  if (known & ~inVillage && !cool('ResearchApply')) return { name: 'ResearchApply', v: { holding: h, nation: me }, fields: {}, research: true, why: `bring the nation's techs to the village (${known.toString(2)} known, ${inVillage.toString(2)} here)` };
+  const sci = Math.floor(Number(research.science) || 0);
+  if (sci < RESEARCH_MIN_SCIENCE || cool('ResearchPledge')) return null;
+  const open = v.techs.filter(t => t.mine && t.mine.refusal === null);
+  if (!open.length) return null;
+  open.sort((a, b) => a.mine.left - b.mine.left || a.id - b.id);
+  const t = open[0], amount = Math.min(sci, Math.max(1, t.mine.left));
+  return { name: 'ResearchPledge', v: { holding: h, nation: me }, fields: { tech: t.id, amount }, research: true, why: `contribute ${amount} science to ${t.key} (the nation's ${t.mine.pledged} / ${t.mine.cost})` };
+}
+
+export function decideNext(memory, view, { homes, nowSecs, war = null, wide = null, research = null }) {
   if (view === null || view === undefined) return { wait: true, why: 'the herald did not give a readable answer' };
   if (!view.joined) {
     if (!Number.isSafeInteger(nowSecs) || nowSecs <= 0) return { wait: true, why: 'no clock for the Join expiry' };
@@ -266,6 +294,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     if (s?.name === 'Muster' && view.holding.tile !== undefined) return { name: 'Muster', v: { holding: h }, fields: { unit: 0, troops: s.troops, tile: view.holding.tile }, war: true, bell, why: `a host of the reserve's ${s.troops} troops` };
     if (s?.name === 'Train') return { name: 'Train', v: { holding: h }, fields: { unit: 0, n: s.n }, war: true, bell, why: `troops for the next host (reserve ${war.reserve ?? 0})` };
   }
+  // (world goal ②, research — plan §8, the players' rules: the effects of the nation's techs first (one apply per new
+  //  tech), then the village's science to the tech the nation has least left to pay for, when it holds RESEARCH_MIN_SCIENCE)
+  { const rs = researchDecision(memory, view, research, h); if (rs) return rs; }
   // (TEST-ONLY wide march, wide-march-local: a ready host of a rim village marches INTO the bordering wide land — the
   //  page's own judged route, local-play-operator-wide-march.mjs; at most OPERATOR_WIDE_MARCHES, one at a time)
   // (no host at all yet: form one first — Train to the minimum host, then Muster the reserve, each cooled after a refusal)
@@ -347,6 +378,8 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
     // (a refused site is not asked again; the claim itself cools down — a site taken, a ticket still open, stores short)
     if (bad || outcome === 'unknown') { (memory.triedClaims ??= []).push(`${decision.v.target.p},${decision.v.target.q},${decision.fields.site}`); memory.cooldown.WideClaim = memory.decisions + OPERATOR_COOLDOWN; }
   }
+  // (world goal ②: a refused or failed research order cools down; a landed apply is not asked again until a new tech)
+  if ((decision.name === 'ResearchPledge' || decision.name === 'ResearchApply') && (bad || outcome === 'unknown')) memory.cooldown[decision.name] = memory.decisions + OPERATOR_COOLDOWN;
   if (decision.name === 'TerritoryClaim') {
     const k = `${decision.v.target.p},${decision.v.target.q},${decision.fields.tile}`;
     // (already the resident's — AlreadyDone 52, e.g. an earlier answer was not known — counts as landed)

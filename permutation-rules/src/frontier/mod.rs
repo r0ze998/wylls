@@ -53,6 +53,8 @@ pub mod nation;
 pub mod office;
 pub mod payout;
 pub mod pools;
+/// World goal ② (research, world-first technology; owner 2026-11-25 08:56).
+pub mod research;
 pub mod seal;
 pub mod siege;
 pub mod stance;

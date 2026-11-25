@@ -247,6 +247,11 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::TerritorySettle(_) => territory::settle(p, a),
         C::TerritoryDecay(x) => territory::decay(p, a, &x),
         C::TerritoryConquer(_) => territory::conquer(p, a),
+        C::Pledge(x) => research::pledge_as(p, a, &x, &Auth::Wallet),
+        C::ResearchSettle(x) => research::settle(p, a, &x),
+        C::ResearchApply(_) => research::apply(p, a),
+        C::StartResearch(x) => research::start(p, a, &x),
+        C::PauseResearch(x) => research::pause(p, a, &x),
         command @ (C::DeclareSiege(_) | C::SettleCapture(_) | C::ResolveWithConquest(_)) => {
             require_conquest_lifecycle()?;
             conquest_draft::execute_command(p, a, command)
@@ -2871,6 +2876,7 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
         C::Economy(e) => economy_exec::economy_as(p, a, &e, &auth),
         C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &auth),
         C::ClaimTile(x) => territory::claim_tile_as(p, a, &x, &auth),
+        C::Pledge(x) => research::pledge_as(p, a, &x, &auth),
         C::DeclareSiege(_) => conquest_exec::declare_siege_resident(p, accounts, d),
         _ => Err(FrontierError::BadData.into()),
     }
@@ -2896,6 +2902,12 @@ mod garrison_exec;
 /// (0xDC ops 12–14).
 #[path = "wide_territory.rs"]
 mod territory;
+
+/// Research, world-first technology (world goal ②, owner 2026-11-25
+/// 08:56): WidePledge (0xDA op 8), WideResearchSettle / Apply (0xDC ops
+/// 15–16), WideStartResearch / PauseResearch (0xDB ops 1–2).
+#[path = "wide_research.rs"]
+mod research;
 
 #[cfg(feature = "expedition-dispatch-experimental")]
 #[path = "wide_expedition_dispatch.rs"]
@@ -5445,7 +5457,10 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], x: &wix::Reveal) -> R<()> {
     let unit = unit_from_u8(t.unit).ok_or(BAD_ACCOUNT)?;
     let raw = walk_wide(&plain, t.origin, &lands, is_cavalry(unit))?;
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
-    let secs = u32::try_from(doctrine.travel_secs(raw as u64)).map_err(|_| OVERFLOW)?;
+    // roads (Q-RI-1 (a)): the host's village's techs for the host's nation
+    let techs = super::holding::departing_techs(&holding.try_borrow_data()?, t.faction)?;
+    let secs = u32::try_from(super::holding::march_secs(doctrine, techs, raw as u64))
+        .map_err(|_| OVERFLOW)?;
     if check_arrival_bell(hdr.genesis_ts, t.depart_ts, secs, arrive).is_err() {
         return Err(FrontierError::ArrivalBell.into());
     }

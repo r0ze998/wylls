@@ -331,6 +331,7 @@ pub(crate) fn route(
     steps: u8,
     path: &[u8; 12],
     faction: u8,
+    techs: u16,
     who: &super::v24_structures::Walker,
     id: u64,
     at: At,
@@ -359,6 +360,13 @@ pub(crate) fn route(
     let bps = permutation_rules::frontier::doctrine::of_faction_v3(faction)
         .ok_or_else(|| caravan_wrong(format!("faction {faction}")))?
         .caravan_time_bps;
+    // roads (Q-RI-1 (a)): the speed knob × 0.95 for a caravan leaving a
+    // village that has it (the program's `proc::caravan::route`)
+    let bps = permutation_rules::frontier::research::speed_bps(
+        &permutation_rules::frontier::research::RESEARCH_V1,
+        techs,
+        bps,
+    );
     let walked = kc::walk(origin, path, steps, &lands, bps)
         .map_err(|e| caravan_wrong(format!("the walk is refused: {e:?}")))?;
     let last = walked
@@ -539,6 +547,11 @@ pub fn judge_send_caravan_as(ix: &crate::world::Ix, s: &dyn States, at: At) -> R
         x.steps,
         &x.path,
         faction,
+        if sp.kind == PL::KIND_HOLDING {
+            crate::holding::departing_techs(&sb, faction)
+        } else {
+            0
+        },
         &super::v24_structures::Walker::of(s, &keys[2], &citizen, faction),
         caravan_id(tag, seq),
         at,
@@ -761,6 +774,7 @@ pub fn judge_raid(s: &dyn States, at: At, x: &RaidIx, choice: u8) -> Result<(), 
         x.steps,
         &x.path,
         faction,
+        0,
         &super::v24_structures::Walker::of(s, &x.season, &x.raider_citizen, faction),
         id,
         at,

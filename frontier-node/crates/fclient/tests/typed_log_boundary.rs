@@ -198,3 +198,50 @@ fn rolled_back_cpi_subtrees_and_failed_transactions_never_emit_events() {
         Ok(TransactionRecords::RolledBack)
     );
 }
+/// World goal ② research receipts (`PSR1`, verify-pr232): a committed, well-formed receipt is passed by (it moves no
+/// chain head) — before, the strict tag match refused the whole transaction and the herald's ingest stopped at the
+/// first pledge. A malformed receipt still fails; the legacy PS2 reader ignores it as an unrelated tag.
+#[test]
+fn research_receipts_are_passed_by_and_malformed_ones_refused() {
+    use frontier_abi::world_index::research::{Receipt, RECEIPT_PREFIX};
+    let r = Receipt {
+        kind: 1,
+        tech: 2,
+        nation: 3,
+        flags: 0,
+        bell: 150,
+        citizen: [9; 32],
+        amount: 10,
+        total: 10,
+        cost: 300,
+        era: 1,
+    }
+    .to_bytes();
+    let old = ps2();
+    let t = framed(vec![line(RECEIPT_PREFIX, &r), line(b"PS2", &old)]);
+    let TransactionRecords::Committed(records) = decode_transaction(&t, &program()).unwrap() else {
+        panic!()
+    };
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].body(), old);
+    let alone = framed(vec![line(RECEIPT_PREFIX, &r)]);
+    assert_eq!(
+        decode_transaction(&alone, &program()).unwrap(),
+        TransactionRecords::Committed(vec![])
+    );
+    assert_eq!(
+        fclient::log::bodies_from_logs(&t.logs, &program()).unwrap(),
+        vec![old.clone()]
+    );
+    let bad = framed(vec![line(RECEIPT_PREFIX, &r[..56])]);
+    assert_eq!(
+        decode_transaction(&bad, &program()),
+        Err(DecodeError::DataShape)
+    );
+    // an unknown tag is still refused
+    let other_tag = framed(vec![line(b"PSZZ", &r)]);
+    assert!(matches!(
+        decode_transaction(&other_tag, &program()),
+        Err(DecodeError::UnknownTag(_))
+    ));
+}

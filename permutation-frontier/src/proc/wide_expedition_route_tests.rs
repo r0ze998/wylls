@@ -298,6 +298,35 @@ fn original_and_wide_accounts_form_one_read_only_route() {
 }
 
 #[test]
+fn roads_in_the_hosts_village_shorten_the_route_by_five_percent() {
+    // World goal ② research, Q-RI-1 (a) (owner 2026-11-25 12:04): the
+    // village's RSV_1258 mask with roads for the host's nation → the
+    // doctrine's travel knob × 0.95; another nation's mask → unchanged.
+    use permutation_rules::frontier::research::{tech, VillageResearch};
+    let f = fixture();
+    let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+    let plain = f.inspect().unwrap().travel_secs;
+    let set = |m: VillageResearch| {
+        let mut hd = f.holding.try_borrow_mut_data().unwrap();
+        hd[o..o + 2].copy_from_slice(&m.to_le());
+    };
+    set(VillageResearch::new(1 << tech::ROADS, 0, true));
+    let cost = f.inspect().unwrap();
+    let d = of_faction_v3(0).unwrap();
+    assert_eq!(
+        cost.travel_secs as u64,
+        cost.raw_secs as u64 * (d.travel_bps as u64 * 9_500 / 10_000) / 10_000
+    );
+    assert!(cost.travel_secs < plain);
+    // the other techs move no clock
+    set(VillageResearch::new(0b0111, 0, true));
+    assert_eq!(f.inspect().unwrap().travel_secs, plain);
+    // another nation's techs in this village do not count for this host
+    set(VillageResearch::new(1 << tech::ROADS, 3, true));
+    assert_eq!(f.inspect().unwrap().travel_secs, plain);
+}
+
+#[test]
 fn legacy_tower_watch_matches_deployed_kernel_for_roads_rough_and_mounts() {
     let f = fixture();
     f.structure(structures::KIND_TOWER, 1);

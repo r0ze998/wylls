@@ -110,4 +110,7 @@ pub mod wide_frontier;
 // TEST-ONLY player territory (territory-impl, owner 2026-11-24 12:09): upkeep settles, decay and conquest transfers
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_territory;
+// TEST-ONLY research (world goal ②, research-impl, owner 2026-11-25 08:56): settles and applies, once a bell
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_research;
 pub mod world;

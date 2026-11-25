@@ -242,7 +242,14 @@ pub(super) fn inspect(
     let cavalry = is_cavalry(unit_from_u8(t.unit).ok_or(BAD_ACCOUNT)?);
     let (raw_secs, watched_secs) = walk(&steps, &lands, cavalry)?;
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
-    let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
+    // roads (Q-RI-1 (a)): the host's village's techs for the host's nation
+    let techs = crate::proc::holding::departing_techs(&hd, t.faction)?;
+    let travel_secs = u32::try_from(crate::proc::holding::march_secs(
+        doctrine,
+        techs,
+        raw_secs as u64,
+    ))
+    .map_err(|_| OVERFLOW)?;
     check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell)
         .map_err(|_| FrontierError::ArrivalBell)?;
     Ok(RouteCost {
@@ -310,7 +317,14 @@ pub(super) fn inspect_reverse(
         is_cavalry(unit_from_u8(t.unit).ok_or(BAD_ACCOUNT)?),
     )?;
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
-    let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
+    // roads (Q-RI-1 (a)): the host's village's techs for the host's nation
+    let techs = crate::proc::holding::departing_techs(&holding.try_borrow_data()?, t.faction)?;
+    let travel_secs = u32::try_from(crate::proc::holding::march_secs(
+        doctrine,
+        techs,
+        raw_secs as u64,
+    ))
+    .map_err(|_| OVERFLOW)?;
     check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell)
         .map_err(|_| FrontierError::ArrivalBell)?;
     Ok(RouteCost {

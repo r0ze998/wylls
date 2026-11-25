@@ -12936,3 +12936,479 @@ mod territory_tests {
         }
     }
 }
+
+/// Research: world-first technology (world goal ②, owner 2026-11-25 08:56,
+/// every Q-RS recommendation) through the real dispatch.
+mod research_tests {
+    use super::*;
+    use frontier_abi::world_index::research::{
+        self as wre, NationResearch, ResearchWorld, NATIONS, NO_BELL,
+    };
+    use permutation_rules::frontier::research::{tech, VillageResearch};
+
+    const SCI: usize = 6;
+    const FOOD: usize = 0;
+
+    fn absent_at(key: [u8; 32], cap: usize) -> AccountInfo<'static> {
+        info(leak(key, SYSTEM, vec![], cap, 0), false, true)
+    }
+
+    struct R {
+        w: Wide,
+        a: Member,
+        b: Member,
+        world: AccountInfo<'static>,
+        nations: Vec<AccountInfo<'static>>,
+    }
+
+    impl R {
+        fn new() -> R {
+            let mut w = Wide::rim();
+            w.w.fold();
+            let (home, nation) = off_wedge_province();
+            let a = w.w.member(WALLET_A, nation);
+            assert_eq!(w.w.place_home(&a, home, 0), Ok(()));
+            let template = w.w.holding_data(home, 0);
+            w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+            let b = w.w.member(WALLET_B, (nation + 1) % 6);
+            w.fixture_rim_home(&b, &template, 1, 1_500 * MILLI);
+            records();
+            let world = absent_at(wre::world_address(&w.w.ctx), wre::research_world::SIZE);
+            let nations = (0..NATIONS)
+                .map(|f| absent_at(wre::nation_address(&w.w.ctx, f), wre::nation_research::SIZE))
+                .collect();
+            R {
+                w,
+                a,
+                b,
+                world,
+                nations,
+            }
+        }
+
+        fn start_as(&mut self, authority: [u8; 32], rule: u8, start_bell: u32) -> Result<(), u32> {
+            let mut accts = vec![
+                wallet(authority, true, true, 1_000_000_000),
+                self.w.w.season.clone(),
+                self.world.clone(),
+            ];
+            accts.extend(self.nations.iter().cloned());
+            accts.push(self.w.w.system.clone());
+            code(run_tx(
+                &accts,
+                &wix::StartResearch { rule, start_bell }.to_bytes(),
+            ))
+        }
+
+        fn pause(&mut self, paused: u8) -> Result<(), u32> {
+            let accts = vec![
+                wallet(AUTHORITY, true, false, 0),
+                self.w.w.season.clone(),
+                self.world.clone(),
+            ];
+            code(run_tx(&accts, &wix::PauseResearch { paused }.to_bytes()))
+        }
+
+        fn home(&mut self, m: &Member) -> AccountInfo<'static> {
+            let site = if m.key == self.a.key { 0 } else { 1 };
+            self.w.w.holding(RIM, site)
+        }
+
+        fn pledge_from(
+            &mut self,
+            m: &Member,
+            home: AccountInfo<'static>,
+            t: u8,
+            amount: u32,
+        ) -> Result<(), u32> {
+            let accts = vec![
+                wallet(m.wallet, true, false, 0),
+                self.w.w.payer.clone(),
+                self.w.w.season.clone(),
+                with_writable(&m.citizen, true),
+                with_writable(&home, true),
+                self.world.clone(),
+                self.nations[m.faction as usize].clone(),
+            ];
+            code(run_tx(&accts, &wix::Pledge { tech: t, amount }.to_bytes()))
+        }
+
+        fn pledge(&mut self, m: &Member, t: u8, amount: u32) -> Result<(), u32> {
+            let home = self.home(m);
+            self.pledge_from(m, home, t, amount)
+        }
+
+        fn settle(&mut self, faction: u8, t: u8) -> Result<(), u32> {
+            let accts = vec![
+                self.w.w.payer.clone(),
+                self.w.w.season.clone(),
+                self.world.clone(),
+                self.nations[faction as usize].clone(),
+            ];
+            code(run_tx(&accts, &wix::ResearchSettle { tech: t }.to_bytes()))
+        }
+
+        fn apply(&mut self, m: &Member) -> Result<(), u32> {
+            let home = self.home(m);
+            let accts = vec![
+                self.w.w.payer.clone(),
+                self.w.w.season.clone(),
+                with_writable(&self.world, false),
+                with_writable(&self.nations[m.faction as usize], false),
+                with_writable(&home, true),
+                with_writable(&m.citizen, true),
+            ];
+            code(run_tx(&accts, &wix::ResearchApply.to_bytes()))
+        }
+
+        fn world_rec(&self) -> ResearchWorld {
+            ResearchWorld::read(&self.world.try_borrow_data().unwrap()).unwrap()
+        }
+
+        fn nation_rec(&self, f: u8) -> NationResearch {
+            NationResearch::read(&self.nations[f as usize].try_borrow_data().unwrap()).unwrap()
+        }
+
+        fn store(&mut self, m: &Member, r: usize) -> i64 {
+            let home = self.home(m);
+            let hd = home.try_borrow_data().unwrap();
+            rd_i64(&hd, H::store(r) + AC::VALUE)
+        }
+
+        fn rate(&mut self, m: &Member, r: usize) -> i64 {
+            let home = self.home(m);
+            let hd = home.try_borrow_data().unwrap();
+            rd_i64(&hd, H::store(r) + AC::RATE)
+        }
+
+        fn mask(&mut self, m: &Member) -> VillageResearch {
+            let home = self.home(m);
+            let hd = home.try_borrow_data().unwrap();
+            let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+            VillageResearch::from_le([hd[o], hd[o + 1]])
+        }
+
+        /// Every store of `m`'s home set (after its science was cut once).
+        fn fill(&mut self, m: &Member, v: i64) {
+            let site = if m.key == self.a.key { 0 } else { 1 };
+            self.w.set_stores(site, v);
+        }
+    }
+
+    fn rd_i64(d: &[u8], o: usize) -> i64 {
+        i64::from_le_bytes(d[o..o + 8].try_into().unwrap())
+    }
+
+    trait CloneMember {
+        fn clone_member(&self) -> Member;
+    }
+    impl CloneMember for Member {
+        fn clone_member(&self) -> Member {
+            Member {
+                wallet: self.wallet,
+                faction: self.faction,
+                shard_i: self.shard_i,
+                key: self.key,
+                citizen: self.citizen.clone(),
+            }
+        }
+    }
+
+    #[test]
+    fn research_starts_once_by_the_authority_and_refuses_before_its_bell() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let a = r.a.clone_member();
+        // no research in this world yet
+        assert_eq!(
+            r.pledge(&a, tech::AGRICULTURE, 1),
+            Err(E::NotImplemented as u32)
+        );
+        assert_eq!(r.start_as(PAYER2, 1, 4), Err(E::Auth as u32));
+        // the host-test rule is never started on chain; an unknown byte neither
+        assert_eq!(r.start_as(AUTHORITY, 255, 4), Err(E::BadData as u32));
+        assert_eq!(r.start_as(AUTHORITY, 2, 4), Err(E::BadData as u32));
+        // a start bell in the past
+        assert_eq!(r.start_as(AUTHORITY, 1, 1), Err(E::BadData as u32));
+        assert_eq!(r.start_as(AUTHORITY, 1, 4), Ok(()));
+        assert_eq!(r.start_as(AUTHORITY, 1, 5), Err(E::AlreadyDone as u32));
+        let w = r.world_rec();
+        assert_eq!((w.era, w.start_bell, w.paused), (1, 4, false));
+        assert_eq!(w.start_ts, r.w.genesis() + 4 * 600);
+        for f in 0..NATIONS {
+            let n = r.nation_rec(f);
+            assert_eq!((n.faction, n.known, n.total), (f, 0, 0));
+        }
+        // before the start bell: refused (announced ahead, Q-RS-3)
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Err(E::TooEarly as u32));
+    }
+
+    #[test]
+    fn banked_science_is_cut_to_what_the_village_made_since_the_start() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let a = r.a.clone_member();
+        assert_eq!(r.start_as(AUTHORITY, 1, 3), Ok(()));
+        // two hours after the start: a Hamlet makes 5 science/h → 10
+        r.w.at(15, 0);
+        assert!(r.store(&a, SCI) >= 1_500 * MILLI, "banked before the start");
+        assert_eq!(
+            r.pledge(&a, tech::AGRICULTURE, 11),
+            Err(E::Insufficient as u32)
+        );
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 10), Ok(()));
+        assert!(r.mask(&a).rebased());
+        assert_eq!(r.store(&a, SCI), 0);
+        let n = r.nation_rec(a.faction);
+        assert_eq!(
+            (n.pledged[0], n.total, n.pledges, n.first_pledge_bell[0]),
+            (10, 10, 1, 15)
+        );
+        // later science counts in full (the cut is once)
+        r.fill(&a, 500 * MILLI);
+        r.w.at(16, 0);
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 200), Ok(()));
+        assert_eq!(r.nation_rec(a.faction).pledged[0], 210);
+    }
+
+    #[test]
+    fn a_pledge_learns_at_the_cost_records_the_world_first_and_ties_at_the_same_bell() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let (a, b) = (r.a.clone_member(), r.b.clone_member());
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(3, 0);
+        // the first pledge cuts the banked stock; then fill
+        assert_eq!(r.pledge(&a, tech::MASONRY, 1), Err(E::Insufficient as u32));
+        r.w.at(4, 0);
+        assert_eq!(r.pledge(&a, tech::MASONRY, 1), Ok(()));
+        assert_eq!(r.pledge(&b, tech::MASONRY, 1), Ok(()));
+        r.fill(&a, 1_000 * MILLI);
+        r.fill(&b, 1_000 * MILLI);
+        r.w.at(5, 0);
+        // never past the cost: 299 accepted, the rest stays in the village
+        let before = r.store(&a, SCI);
+        assert_eq!(r.pledge(&a, tech::MASONRY, 900), Ok(()));
+        assert!(r.store(&a, SCI) >= before - 299 * MILLI);
+        assert!(r.store(&a, SCI) < before - 298 * MILLI + 1_000);
+        // b learns in the same bell at the full price (Q-VR232-1 (a): a's
+        // learn does not discount it before the next bell): a tie
+        assert_eq!(r.pledge(&b, tech::MASONRY, 500), Ok(()));
+        assert_eq!(r.nation_rec(b.faction).pledged[1], 300);
+        let w = r.world_rec();
+        let both = (1u8 << a.faction) | (1u8 << b.faction);
+        assert_eq!(w.first_bell[tech::MASONRY as usize], 5);
+        assert_eq!(w.first_nations[tech::MASONRY as usize], both);
+        assert_eq!(w.known_by[tech::MASONRY as usize], both);
+        assert_eq!(r.nation_rec(a.faction).learned_bell[1], 5);
+        // known: refused
+        assert_eq!(r.pledge(&a, tech::MASONRY, 1), Err(E::AlreadyDone as u32));
+        // a later learner of another tech is the sole first
+        r.w.at(6, 0);
+        assert_eq!(r.pledge(&a, tech::BRONZE, 300), Ok(()));
+        let w = r.world_rec();
+        assert_eq!(w.first_nations[tech::BRONZE as usize], 1u8 << a.faction);
+        assert_eq!(w.first_bell[tech::ROADS as usize], NO_BELL);
+    }
+
+    #[test]
+    fn catch_up_lowers_the_cost_and_settle_learns_without_a_pledge() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let (a, b) = (r.a.clone_member(), r.b.clone_member());
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(4, 0);
+        for m in [&a, &b] {
+            assert_eq!(r.pledge(m, tech::AGRICULTURE, 1), Ok(()));
+        }
+        r.fill(&a, 1_000 * MILLI);
+        r.fill(&b, 1_000 * MILLI);
+        r.w.at(5, 0);
+        // b has 251 of 300
+        assert_eq!(r.pledge(&b, tech::AGRICULTURE, 250), Ok(()));
+        assert_eq!(
+            r.settle(b.faction, tech::AGRICULTURE),
+            Err(E::TooEarly as u32)
+        );
+        // a learns → b's cost is 240 (−20 %, live, Q-RS-5 (a))
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 299), Ok(()));
+        r.w.at(6, 0);
+        assert_eq!(r.settle(b.faction, tech::AGRICULTURE), Ok(()));
+        let w = r.world_rec();
+        assert_eq!(
+            w.first_nations[0],
+            1u8 << a.faction,
+            "b was later: not first"
+        );
+        assert_eq!(w.known_by[0], (1u8 << a.faction) | (1u8 << b.faction));
+        assert_eq!(r.nation_rec(b.faction).learned_bell[0], 6);
+        assert_eq!(
+            r.settle(b.faction, tech::AGRICULTURE),
+            Err(E::AlreadyDone as u32)
+        );
+    }
+
+    #[test]
+    fn a_same_bell_tie_needs_the_undiscounted_price() {
+        // Q-VR232-1 (a) (owner 2026-11-25 12:04): b, 251 of 300, cannot
+        // reach a's learn bell with the catch-up price (240); it learns on the
+        // next bell, not first.
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let (a, b) = (r.a.clone_member(), r.b.clone_member());
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(4, 0);
+        for m in [&a, &b] {
+            assert_eq!(r.pledge(m, tech::AGRICULTURE, 1), Ok(()));
+        }
+        r.fill(&a, 1_000 * MILLI);
+        r.fill(&b, 1_000 * MILLI);
+        r.w.at(5, 0);
+        assert_eq!(r.pledge(&b, tech::AGRICULTURE, 250), Ok(()));
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 299), Ok(()));
+        // same bell: the settle is not due (cost still 300) …
+        assert_eq!(
+            r.settle(b.faction, tech::AGRICULTURE),
+            Err(E::TooEarly as u32)
+        );
+        // … and a pledge is taken at the full price: 10 → 261, no learn
+        assert_eq!(r.pledge(&b, tech::AGRICULTURE, 10), Ok(()));
+        let n = r.nation_rec(b.faction);
+        assert_eq!((n.pledged[0], n.known & 1), (261, 0));
+        let w = r.world_rec();
+        assert_eq!(w.first_nations[0], 1u8 << a.faction);
+        assert_eq!(w.known_by[0], 1u8 << a.faction);
+        // the next bell: 240, settle learns, not first
+        r.w.at(6, 0);
+        assert_eq!(r.settle(b.faction, tech::AGRICULTURE), Ok(()));
+        let w = r.world_rec();
+        assert_eq!(w.first_nations[0], 1u8 << a.faction, "b was later");
+        assert_eq!(w.first_bell[0], 5);
+        assert_eq!(r.nation_rec(b.faction).learned_bell[0], 6);
+    }
+
+    #[test]
+    fn three_era_one_techs_advance_the_era_and_v1_keeps_era_two_closed() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let a = r.a.clone_member();
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(4, 0);
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Ok(()));
+        r.fill(&a, 1_500 * MILLI);
+        // era 2 before the era: closed
+        assert_eq!(r.pledge(&a, tech::WRITING, 1), Err(E::WindowClosed as u32));
+        r.w.at(5, 0);
+        for t in [tech::AGRICULTURE, tech::MASONRY] {
+            assert_eq!(r.pledge(&a, t, 300), Ok(()));
+        }
+        assert_eq!(r.world_rec().era, 1);
+        assert_eq!(r.pledge(&a, tech::BRONZE, 300), Ok(()));
+        let w = r.world_rec();
+        assert_eq!(w.era, 2);
+        assert_eq!(w.era_bell, [2, 5, NO_BELL]);
+        // V1 (Q-RS-6 (a)): era 2 techs stay closed even in era 2
+        assert_eq!(r.pledge(&a, tech::WRITING, 1), Err(E::WindowClosed as u32));
+        // the fourth era-1 tech is still open (and its world first stays, Q-RS-10 (c))
+        assert_eq!(r.pledge(&a, tech::ROADS, 300), Ok(()));
+        assert_eq!(r.world_rec().first_bell[tech::ROADS as usize], 5);
+    }
+
+    #[test]
+    fn apply_copies_the_nations_techs_into_the_village_and_the_effects_follow() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let a = r.a.clone_member();
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(4, 0);
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Ok(()));
+        r.fill(&a, 1_500 * MILLI);
+        r.w.at(5, 0);
+        for t in [tech::AGRICULTURE, tech::MASONRY, tech::BRONZE] {
+            assert_eq!(r.pledge(&a, t, 300), Ok(()));
+        }
+        let food_before = r.rate(&a, FOOD);
+        let last_action = {
+            let h = r.home(&a);
+            let d = h.try_borrow_data().unwrap();
+            rd_i64(&d, H::LAST_OWNER_ACTION)
+        };
+        // learned, but not in effect until applied
+        assert_eq!(r.mask(&a).techs(), 0);
+        r.w.at(6, 0);
+        assert_eq!(r.apply(&a), Ok(()));
+        let m = r.mask(&a);
+        assert_eq!(m.techs(), 0b0111);
+        assert_eq!(m.faction(), Some(a.faction));
+        assert!(m.rebased());
+        assert_eq!(r.apply(&a), Err(E::AlreadyDone as u32));
+        // agriculture: the food rate rises by a tenth of the gross production
+        let food_after = r.rate(&a, FOOD);
+        assert!(food_after > food_before, "{food_before} → {food_after}");
+        // not an owner action: the dormancy clock is untouched
+        {
+            let h = r.home(&a);
+            let d = h.try_borrow_data().unwrap();
+            assert_eq!(rd_i64(&d, H::LAST_OWNER_ACTION), last_action);
+        }
+        // the kernel loader reads the techs; a captured village (another
+        // faction byte) plays without them until the next apply
+        {
+            let h = r.home(&a);
+            let mut d = h.try_borrow_mut_data().unwrap();
+            assert_eq!(
+                crate::proc::holding::read_holding(&d).unwrap().research,
+                0b0111
+            );
+            let f = d[H::FACTION];
+            d[H::FACTION] = (f + 1) % 6;
+            assert_eq!(crate::proc::holding::read_holding(&d).unwrap().research, 0);
+            d[H::FACTION] = f;
+        }
+    }
+
+    #[test]
+    fn refusals_expelled_other_villages_and_the_pause() {
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let (a, b) = (r.a.clone_member(), r.b.clone_member());
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(4, 0);
+        // another's village
+        let bh = r.home(&b);
+        assert_eq!(
+            r.pledge_from(&a, bh, tech::AGRICULTURE, 1),
+            Err(E::NotOwner as u32)
+        );
+        // amount 0 is malformed
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 0), Err(E::BadData as u32));
+        assert_eq!(r.pledge(&a, 12, 1), Err(E::BadData as u32));
+        // the pause
+        assert_eq!(r.pause(1), Ok(()));
+        assert_eq!(r.pause(1), Err(E::AlreadyDone as u32));
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Err(E::TooEarly as u32));
+        assert_eq!(r.pause(0), Ok(()));
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 1), Ok(()));
+        // expelled (Q-RS-10 (b))
+        {
+            let mut cd = a.citizen.try_borrow_mut_data().unwrap();
+            put(
+                &mut cd,
+                crate::layout::citizen2::EXPELLED_SINCE,
+                &1i64.to_le_bytes(),
+            );
+        }
+        assert_eq!(
+            r.pledge(&a, tech::AGRICULTURE, 1),
+            Err(E::NotEligible as u32)
+        );
+    }
+}

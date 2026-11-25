@@ -502,7 +502,16 @@ pub fn rule_refusal(cx: &Ctx, dr: &Rec, p: &Plain, settle_tx: usize) -> Option<&
         return Some(reason::PATH);
     }
     let doctrine = cx.rules().doctrine(tr.faction)?;
-    let secs = u32::try_from(doctrine.travel_secs(secs)).ok()?;
+    // roads (Q-RI-1 (a)): the host's village's techs for its nation (the
+    // program's `proc::holding::march_secs`)
+    let techs = crate::holding::departing_techs(hd, tr.faction);
+    let secs = u32::try_from(permutation_rules::frontier::research::march_secs(
+        &permutation_rules::frontier::research::RESEARCH_V1,
+        techs,
+        doctrine.travel_bps,
+        secs,
+    ))
+    .ok()?;
     if travel::check_arrival_bell(f.genesis_ts, tr.depart_ts, secs, arrive).is_err() {
         return Some(reason::ARRIVAL_BELL);
     }

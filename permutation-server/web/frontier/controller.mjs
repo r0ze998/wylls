@@ -9,6 +9,7 @@
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { mergeDonorReturns } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
+import { withRoads, holdingTechs } from './flocalplay-research.mjs';
 import { createPollLoop } from './poll-loop.mjs';
 import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
@@ -38,6 +39,8 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
+import { researchRefusalText, techName } from './hud/research.mjs';
+import { TECHS } from './flocalplay-research.mjs';
 import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
 // (territory-card, owner Q-PDT-1 (a): the viewer's own territory summary, read-only, for the village card's land line)
 import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf } from './flocalplay-territory.mjs';
@@ -456,6 +459,15 @@ const territoryRefusalText = pc => (pc === 29 ? L`このターンはもう1マ�
   : pc === 43 ? L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。`
   : pc === 21 ? L`鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。`
   : null);
+const researchRefused = (ans, { apply = false } = {}) => {
+  const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
+  // (verify-pr232: AlreadyDone (52) to an apply means the village already has its nation's techs — the runner or keeper
+  //  delivers them every turn —, not "your nation already knows this tech")
+  const text = apply && pc === 52 ? () => L`国が覚えた技術の効果は、もうこの村に届いています（毎ターンの見回りが先に届けました）。` : researchRefusalText(pc) ? () => researchRefusalText(pc) : null;
+  // (a refused pledge is not sent again by 「もう一度」: it needs its two presses again, with the amount shown first)
+  if (text) failed({ ...ans, text, ...(apply ? {} : { retry: false }) });
+  else if (!apply && ans && ans.ok === false) failed({ ...ans, retry: false });
+};
 const territoryRefused = ans => {
   const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
   if (territoryRefusalText(pc)) failed({ ...ans, text: () => territoryRefusalText(pc) });
@@ -982,7 +994,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   //  LP10-1); now that tab presses keep it, a viewer change drops it here. The stored preferences stay)
   if (FS.ui) {
     if (FS.ui.wideHost) wideHostStopWait(FS.ui.wideHost);
-    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ownTiles: _o, ...kept } = FS.ui;
+    const { wideHost: _h, wideHostSay: _s, wideHostReady: _r, wideHostWhy: _w, wideHostAct: _a, custodyPair: _c, wideTried: _t, ownTiles: _o, researchArm: _ra, ...kept } = FS.ui;
     FS.ui = kept;
   }
   FS.notice = null;
@@ -3147,6 +3159,9 @@ async function setDestination(dest) {
     if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
     // (the route, the earliest turn and the arrival turn are worked out first and set together: a throw between them
     //  no longer leaves a route beside an arrival turn that was not made from it)
+    // (world goal ② roads, Q-RI-1 (a): a host leaving a village that has roads marches 5 % faster — the route's secs
+    //  carry it, so every later earliest turn of this draft, and its send's, is the same one)
+    r.route = withRoads(r.route, holdingTechs(c.holding ? holdingByRef(FS.holdings, c.holding) : activeHolding(FS), FS.citizen?.faction ?? c.host?.faction));
     const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
     const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
     c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
@@ -4680,6 +4695,35 @@ export const ACTIONS = {
   // one a turn — whatever the next village's cost. The same reach witness as the row's village; the nearest own
   // village names the upkeep distance (TQ-2). A tile another player owns moves the next press on; "already yours"
   // is remembered.
+  // (world goal ②, research — hud/research.mjs villageResearchCard: the first press says what is given and that it does
+  //  not come back; the second signs and sends. The apply copies the nation's techs into the village (anyone may send it))
+  'research-arm': d => {
+    const h = activeHolding(FS);
+    if (!h) return;
+    FS.ui = { ...(FS.ui ?? {}), researchArm: { at: `${h.p},${h.q},${h.site}`, tech: num(d.tech), amount: num(d.amount) } };
+    invalidate('panel');
+  },
+  'research-cancel': () => { FS.ui = { ...(FS.ui ?? {}), researchArm: null }; invalidate('panel'); },
+  'research-pledge': async d => {
+    const h = activeHolding(FS), me = FS.citizen?.faction;
+    const arm = FS.ui?.researchArm ?? null;
+    FS.ui = { ...(FS.ui ?? {}), researchArm: null };
+    if (!h || !Number.isInteger(me) || !arm || arm.at !== `${h.p},${h.q},${h.site}` || arm.tech !== num(d.tech) || arm.amount !== num(d.amount)) { invalidate('panel'); return; }
+    const name = techName(TECHS[arm.tech]?.key);
+    const t = await act('ResearchPledge', { v: { holding: { p: h.p, q: h.q, site: h.site }, nation: me }, fields: { tech: arm.tech, amount: arm.amount },
+      say: () => L`科学 ${fmtNum(arm.amount)} を「${name}」に差し出しました（残りの費用を超える分は村に残ります）。` });
+    researchRefused(t ?? (FS.notice?.ok === false ? FS.notice : null));
+    invalidate('panel');
+    return t;
+  },
+  'research-apply': async () => {
+    const h = activeHolding(FS), me = FS.citizen?.faction;
+    if (!h || !Number.isInteger(me)) return;
+    const t = await act('ResearchApply', { v: { holding: { p: h.p, q: h.q, site: h.site }, nation: me }, fields: {}, say: () => L`国が覚えた技術の効果が、この村に届きました。` });
+    researchRefused(t ?? (FS.notice?.ok === false ? FS.notice : null), { apply: true });
+    invalidate('panel');
+    return t;
+  },
   'territory-tile': async d => {
     const h = activeHolding(FS);
     if (!h || !(localPlay?.wideLand || devnetTerritoryNow())) return;

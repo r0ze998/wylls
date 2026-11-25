@@ -39,7 +39,7 @@ use permutation_rules::frontier::holding::{
     Accrual, Effect, Holding as KHolding, LifecycleParams, QueueItem, Resource, Tier, QUEUE_SLOTS,
     RESOURCES,
 };
-use permutation_rules::frontier::{arms, catalog};
+use permutation_rules::frontier::{arms, catalog, research};
 
 use crate::world::le;
 
@@ -164,6 +164,12 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
         walls_committed_before: i64_at(d, H::WALLS_COMMITTED_BEFORE)?,
         food_shortfall: i64_at(d, H::FOOD_SHORTFALL)?,
         lent_workshops: u32_at(d, frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS)?,
+        research: {
+            // research (world goal ②): the RSV_1258 mask, gated by faction
+            let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+            research::VillageResearch::from_le([u8_at(d, o)?, u8_at(d, o + 1)?])
+                .effective(u8_at(d, H::FACTION)?)
+        },
     })
 }
 
@@ -174,6 +180,18 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
 /// program writes it once, at founding or capture, from the season's
 /// timers (`permutation-frontier/src/proc/holding.rs` `write_holding`,
 /// MC §3.9).
+/// Roads (Q-RI-1 (a)): the techs in effect for a host or caravan of nation
+/// `faction` leaving the Holding of bytes `d` (the program's
+/// `proc::holding::departing_techs`: the `RSV_1258` mask gated by the
+/// departing nation; 0 when the bytes are short).
+pub fn departing_techs(d: &[u8], faction: u8) -> u16 {
+    let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+    match (d.get(o), d.get(o + 1)) {
+        (Some(&a), Some(&b)) => research::VillageResearch::from_le([a, b]).effective(faction),
+        _ => 0,
+    }
+}
+
 pub fn write(d: &mut [u8], h: &KHolding, now: i64) -> Result<(), String> {
     use frontier_abi::layout::header as HDR;
     let v2 = d.get(HDR::LAYOUT_VERSION..HDR::LAYOUT_VERSION + 2) == Some(&2u16.to_le_bytes()[..]);
@@ -530,10 +548,14 @@ pub fn replay(
             };
             let intro = item < catalog::ITEM_WALLS
                 && u8_at(before, H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0;
-            let secs = if intro { H::INTRO_BUILD_SECS } else { secs };
+            let secs = if intro {
+                H::INTRO_BUILD_SECS as i64
+            } else {
+                research::build_secs(&research::RESEARCH_V1, h.research, secs as i64)
+            };
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
             let done_at = h
-                .enqueue(now, secs as i64, effect)
+                .enqueue(now, secs, effect)
                 .map_err(|e| format!("enqueue: {e:?}"))?;
             write(&mut d, &h, now)?;
             if intro {
@@ -574,6 +596,7 @@ pub fn replay(
                 Rules::M1 => catalog::train(unit, n),
             }
             .ok_or(format!("train unit {unit} n {n}"))?;
+            let cost = research::train_cost(&research::RESEARCH_V1, h.research, cost);
             h.pay(now, &cost).map_err(|e| format!("pay: {e:?}"))?;
             write(&mut d, &h, now)?;
             let at = H::reserve(unit as usize);
@@ -748,6 +771,27 @@ pub fn founded(
 #[cfg(test)]
 mod intro_tests {
     use super::*;
+    #[test]
+    fn departing_techs_follow_the_programs_gate() {
+        // roads (Q-RI-1 (a)): the RSV_1258 mask gated by the departing nation
+        let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+        let mut d = vec![0u8; o + 2];
+        assert_eq!(departing_techs(&d, 0), 0);
+        d[o..o + 2].copy_from_slice(&research::VillageResearch::new(1 << 3, 2, true).to_le());
+        assert_eq!(departing_techs(&d, 2), 1 << 3);
+        assert_eq!(departing_techs(&d, 3), 0);
+        assert_eq!(departing_techs(&d[..o + 1], 2), 0, "short bytes");
+        assert_eq!(
+            research::march_secs(
+                &research::RESEARCH_V1,
+                departing_techs(&d, 2),
+                10_000,
+                6_000
+            ),
+            5_700
+        );
+    }
+
     #[test]
     fn intro_build_replay_consumes_exactly_one_persisted_entitlement() {
         let now = 1_800_000_000;

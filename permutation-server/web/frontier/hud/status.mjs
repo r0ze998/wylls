@@ -56,6 +56,9 @@ const UNSENT = {
   // (verify-pr184: a W2 step (「次の一手（広い土地）」, by a press or by the card's own wait) refused — controller wideHostStep;
   //  FS.lastAct is another control then, often a form at the rim village)
   'wide-host-step': () => L`広い土地の村の一手はまだ通っていません。`,
+  // (world goal ②, research — verify-pr232)
+  'research-pledge': () => L`科学はまだ差し出されていません。`,
+  'research-apply': () => L`技術の効果はまだ村に届けられていません。`,
 };
 /**
  * (2026-11-17) A notice of an order that was SENT and whose outcome is not known: local play's (`LocalActUnconfirmed`,

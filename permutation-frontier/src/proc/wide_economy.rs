@@ -52,10 +52,10 @@ use alloc::vec::Vec;
 
 use frontier_abi::prologue as ap;
 use frontier_abi::world_index::{WideCoord, WideHolding, WideProvince, WorldId};
-use permutation_rules::frontier::arms;
 use permutation_rules::frontier::catalog::{self, Cost};
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::holding::{Effect, Tier, MAX_WALLS};
+use permutation_rules::frontier::{arms, research};
 
 use crate::error::{kernel, BAD_ACCOUNT, OVERFLOW};
 use crate::layout::{holding as H, province as P, site as SM, site2 as SM2, Ro, Rw};
@@ -308,9 +308,13 @@ fn build(
     };
     let intro =
         item < catalog::ITEM_WALLS && Ro(hd).u8(H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0;
-    let secs = if intro { H::INTRO_BUILD_SECS } else { secs };
+    let secs = if intro {
+        H::INTRO_BUILD_SECS as i64
+    } else {
+        research::build_secs(&research::RESEARCH_V1, h.research, secs as i64)
+    };
     h.pay(now, &cost).map_err(holding_err)?;
-    let done_at = h.enqueue(now, secs as i64, effect).map_err(holding_err)?;
+    let done_at = h.enqueue(now, secs, effect).map_err(holding_err)?;
     let pd = if walls || tier_up {
         let mut pd = province.to_vec();
         let eff = ap::bell_at(clock.genesis_ts, done_at)
@@ -410,6 +414,7 @@ fn train(hd: &mut [u8], now: i64, unit: u8, n: u32) -> R<Outcome> {
     let ore = terrain_ore(hd)?;
     let mut h = read_holding(hd)?;
     touch(&mut h, now, ore)?;
+    let cost = research::train_cost(&research::RESEARCH_V1, h.research, cost);
     h.pay(now, &cost).map_err(holding_err)?;
     write_holding(hd, &h, now)?;
     let at = H::reserve(unit as usize);

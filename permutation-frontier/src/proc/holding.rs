@@ -69,7 +69,7 @@ use permutation_rules::frontier::holding::{
     Accrual, Effect, Holding as KHolding, HoldingError, QueueItem, Resource, Tier, QUEUE_SLOTS,
     RESOURCES,
 };
-use permutation_rules::frontier::{arms, catalog};
+use permutation_rules::frontier::{arms, catalog, research};
 use permutation_rules::hex::Hex;
 
 use crate::addr::{self, AddrCtx};
@@ -404,7 +404,56 @@ pub fn read_holding(d: &[u8]) -> R<KHolding> {
         walls_committed_before: r.i64(H::WALLS_COMMITTED_BEFORE)?,
         food_shortfall: r.i64(H::FOOD_SHORTFALL)?,
         lent_workshops: r.u32(H2::LENT_WORKSHOPS)?,
+        research: research_of(d)?,
     })
+}
+
+/// Research (world goal ②): the techs in effect for a Holding's bytes, its
+/// `RSV_1258` mask gated by its faction (`research::VillageResearch`; 0 for
+/// every holding research never touched).
+pub fn research_of(d: &[u8]) -> R<u16> {
+    let r = Ro(d);
+    let m = research::VillageResearch::from_le([r.u8(H2::RSV_1258)?, r.u8(H2::RSV_1258 + 1)?]);
+    Ok(m.effective(r.u8(H::FACTION)?))
+}
+
+/// Roads (Q-RI-1 (a), owner 2026-11-25 12:04): the techs in effect for a
+/// host or caravan of nation `faction` leaving the Holding of bytes `d` —
+/// its `RSV_1258` mask gated by the **departing** nation (a march keeps its
+/// own nation's knowledge after a capture of its village rewrote the
+/// village's faction; 0 for every holding research never touched).
+pub fn departing_techs(d: &[u8], faction: u8) -> R<u16> {
+    Ok(research_mask(d)?.effective(faction))
+}
+
+/// A march's travel seconds over `raw` path seconds for a host leaving a
+/// village with `techs` in effect: the doctrine's travel bias through the
+/// roads knob (`research::march_secs`; `Doctrine::travel_secs` without
+/// roads).
+pub fn march_secs(
+    doctrine: &permutation_rules::frontier::doctrine::Doctrine,
+    techs: u16,
+    raw: u64,
+) -> u64 {
+    research::march_secs(&research::RESEARCH_V1, techs, doctrine.travel_bps, raw)
+}
+
+/// The research mask bytes of a Holding (raw, not gated).
+pub fn research_mask(d: &[u8]) -> R<research::VillageResearch> {
+    let r = Ro(d);
+    Ok(research::VillageResearch::from_le([
+        r.u8(H2::RSV_1258)?,
+        r.u8(H2::RSV_1258 + 1)?,
+    ]))
+}
+
+/// Writes the research mask bytes of a Holding.
+pub fn set_research_mask(d: &mut [u8], m: research::VillageResearch) -> R<()> {
+    let b = m.to_le();
+    let mut w = Rw(d);
+    w.set_u8(H2::RSV_1258, b[0])?;
+    w.set_u8(H2::RSV_1258 + 1, b[1])?;
+    Ok(())
 }
 
 /// Encodes the kernel holding into a Holding account's data (every other
@@ -758,9 +807,13 @@ pub(crate) fn build_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Au
         let hd = holding.try_borrow_data()?;
         Ro(&hd).u8(H::FLAGS)? & H::FLAG_INTRO_BUILD_AVAILABLE != 0
     };
-    let secs = if intro { H::INTRO_BUILD_SECS } else { secs };
+    let secs = if intro {
+        H::INTRO_BUILD_SECS as i64
+    } else {
+        research::build_secs(&research::RESEARCH_V1, h.research, secs as i64)
+    };
     h.pay(now, &cost).map_err(holding_err)?;
-    let done_at = h.enqueue(now, secs as i64, effect).map_err(holding_err)?;
+    let done_at = h.enqueue(now, secs, effect).map_err(holding_err)?;
     if walls {
         wall_item(&pl, &hh, province, done_at, catalog::WALL_STEP)?;
     }
@@ -910,6 +963,7 @@ pub(crate) fn train_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Au
     let cost = train_cost(x.unit, x.n).ok_or(FrontierError::BadData)?;
     let now = pl.now.ts;
     let mut h = load_touched(holding, now)?;
+    let cost = research::train_cost(&research::RESEARCH_V1, h.research, cost);
     h.pay(now, &cost).map_err(holding_err)?;
     {
         let mut hd = holding.try_borrow_mut_data()?;

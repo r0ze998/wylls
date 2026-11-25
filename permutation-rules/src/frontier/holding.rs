@@ -385,6 +385,10 @@ pub struct Holding {
     /// Workshop copies lent out of the holding's own conversion (module
     /// note): at most the copies built. 0 for every M1 and MC holding.
     pub lent_workshops: u32,
+    /// Research (world goal ②): the techs in effect for this holding (the
+    /// account's `RSV_1258` mask, gated by its faction; `research::
+    /// VillageResearch::effective`). 0 = no research: every rate as before.
+    pub research: u16,
 }
 
 impl Holding {
@@ -405,6 +409,7 @@ impl Holding {
             walls_committed_before: i64::MIN,
             food_shortfall: 0,
             lent_workshops: 0,
+            research: 0,
         }
     }
 
@@ -436,6 +441,9 @@ impl Holding {
         // Clamped again here (CL-02, second line): a caller that writes the
         // fields directly cannot push a rate out of range.
         let prod = self.production[r].clamp(0, MAX_PRODUCTION_PER_HOUR);
+        // research (agriculture): food +10 %; 0 = unchanged
+        let prod =
+            super::research::food_rate(&super::research::RESEARCH_V1, self.research, r, prod);
         let p = if dormant {
             prod * DORMANT_PRODUCTION_BPS as i64 / BPS_ONE as i64
         } else {
@@ -755,6 +763,16 @@ impl Holding {
     pub fn touch_owner(&mut self, now: i64) -> Result<(), HoldingError> {
         self.settle(now)?;
         self.last_owner_action = now;
+        self.apply_rates(now);
+        Ok(())
+    }
+
+    /// Research (world goal ②): settle to `now`, then play with the techs
+    /// `techs` in effect from `now` (the rates re-applied). Not an owner
+    /// action: the dormancy clock is not touched.
+    pub fn set_research(&mut self, now: i64, techs: u16) -> Result<(), HoldingError> {
+        self.settle(now)?;
+        self.research = techs;
         self.apply_rates(now);
         Ok(())
     }

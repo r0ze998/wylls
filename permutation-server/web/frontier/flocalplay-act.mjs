@@ -18,6 +18,7 @@ import { accountsFor, buildShape } from './fplay.mjs';
 import { localDepartSigned } from './flocalplay-depart.mjs';
 import { WIDE_CLAIM, wideClaimIntent, wideClaimMessage } from './flocalplay-wide.mjs';
 import { TERRITORY_CLAIM, territoryClaimIntent, territoryClaimMessage } from './flocalplay-territory.mjs';
+import { RESEARCH_ACTS, RESEARCH_PLEDGE, researchApplyIntent, researchMessage, researchPledgeIntent } from './flocalplay-research.mjs';
 import { WIDE_HOST_ACTS, WIDE_BUILT_ACTS, WIDE_VILLAGE_ACTS, wideHostIntent, wideHostMessage } from './flocalplay-wide-host.mjs';
 import { worldIdOf } from './map/wide.mjs';
 import { seasonAddresses } from './faddr.mjs';
@@ -36,7 +37,7 @@ import { OUTPOST_ACT, outpostIntentOf, outpostMessage } from './fdevnet-outpost.
 //  name — and the wide claim, flocalplay-wide.mjs. The relay takes both only as these exact shapes.)
 // (TEST-ONLY wide -> wide marches, Q-W2 owner t385u: a wide village's Train, Muster and Depart, flocalplay-wide-host.mjs)
 // (territory-impl, owner 2026-11-24 12:09: the single-tile claim, flocalplay-territory.mjs)
-export const LOCAL_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, TERRITORY_CLAIM, ...WIDE_HOST_ACTS]);
+export const LOCAL_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', WIDE_CLAIM, TERRITORY_CLAIM, ...WIDE_HOST_ACTS, ...RESEARCH_ACTS]);
 export const LOCAL_ACT_CONTEXT_PATH = '/gw/f/local-play/act/context';
 export const LOCAL_ACT_SUBMIT_PATH = '/gw/f/local-play/act/submit';
 export const LOCAL_ACT_STATUS_PATH = '/gw/f/local-play/act/status';
@@ -317,6 +318,11 @@ export function localActIntentOf(name, v, fields, wallet) {
   if (name === WIDE_CLAIM) return wideClaimIntent({ holding: v.holding, target: v.target, ...(v.reach ? { reach: v.reach } : {}), ...(v.previous ? { previous: v.previous } : {}), ...(v.territory ? { territory: true } : {}) }, f);
   // (territory-impl: one tile, paid in ore by the first home; the witness when the card names one)
   if (name === TERRITORY_CLAIM) return territoryClaimIntent({ holding: v.holding, target: v.target, ...(v.witness ? { witness: v.witness } : {}), ...(v.village ? { village: v.village } : {}) }, f);
+  // (world goal ②, research: a village's science to the nation's research of one tech; the apply of the nation's techs)
+  if (RESEARCH_ACTS.includes(name)) {
+    const subj = { ...(v.wide ? { wide: v.wide } : { holding: v.holding }), nation: v.nation };
+    return name === RESEARCH_PLEDGE ? researchPledgeIntent(subj, f) : researchApplyIntent(subj, f);
+  }
   if (WIDE_BUILT_ACTS.includes(name)) return wideHostIntent(name, v.standing ? { wide: v.wide, standing: v.standing } : { wide: v.wide }, f);
   if (name === 'FileTicket') {
     check(Array.isArray(v.sites) && v.sites.length === 1 && exact(f, ['sites']) && Array.isArray(f.sites) && f.sites.length === 1, 'LocalActShape');
@@ -354,6 +360,7 @@ export function localActMessage(intent, identity, rulesetHash, blockhash, lane =
   check(A.season === identity.seasonAddress, 'LocalActIdentity');
   if (intent.name === WIDE_CLAIM) return wideClaimMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   if (intent.name === TERRITORY_CLAIM) return territoryClaimMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
+  if (RESEARCH_ACTS.includes(intent.name)) return researchMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   check(lane.names.includes(intent.name), 'LocalActNotAllowed');
   if (WIDE_BUILT_ACTS.includes(intent.name)) return wideHostMessage(intent, { programId: identity.programId, seasonId, wallet: identity.address, world: worldIdOf(A.season, identity.programId), blockhash, loadedLimit: LOCAL_ACT_LOADED_LIMIT });
   // (TEST-ONLY, the coexist lane: the one builder the relay rebuilds with too)

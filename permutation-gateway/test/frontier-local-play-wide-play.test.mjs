@@ -76,8 +76,9 @@ test('free sites: a claim names only a FREE or RELEASED site of the herald\'s ca
 });
 
 test('the page and the relay take the wide claim and a ONE-site rim request, and build the same bytes', () => {
-  // (+ the TEST-only wide village host acts of #94 wide-depart-local: WideTrain, WideMuster, WideDepart)
-  assert.deepEqual(A.LOCAL_ACT_NAMES, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart']);
+  // (+ the TEST-only wide village host acts of #94 wide-depart-local: WideTrain, WideMuster, WideDepart; + world goal ②
+  //  research #232: ResearchPledge, ResearchApply)
+  assert.deepEqual(A.LOCAL_ACT_NAMES, ['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster', 'FileTicket', 'WideClaim', 'TerritoryClaim', 'WideTrain', 'WideMuster', 'WideDepart', 'ResearchPledge', 'ResearchApply']);
   assert.deepEqual(LOCAL_ACT_COMMANDS, A.LOCAL_ACT_NAMES);
   const page = A.localActIntentOf('WideClaim', { holding: RIM, target: TARGET }, { site: 1, slot: 2 }, WALLET);
   const relay = localActIntent(JSON.parse(JSON.stringify(page)), { wallet: WALLET });

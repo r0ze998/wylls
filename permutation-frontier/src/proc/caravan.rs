@@ -283,6 +283,9 @@ fn claim_slot(pd: &mut [u8], id: u64, faction: u8, run: &Run) -> R<()> {
 
 /// Walks `path` from `origin` to `dst` over `provinces` (the origin's
 /// first) at the owner's caravan speed and writes the schedule's slots.
+/// `techs`: the research techs in effect for the caravan's nation in the
+/// village it leaves (roads: the caravan speed knob × 0.95, Q-RI-1 (a);
+/// 0 for a caravan that leaves no village — a vault, a raid's turn-back).
 /// Returns the arrival time, the runs as logged (`log_run`), the last
 /// bell and the tower wear (1d, `S1-1D-CONTRACT` §3.3: the seconds walked in
 /// the hostile coverage of the towers standing now).
@@ -298,6 +301,7 @@ pub(super) fn route(
     steps: u8,
     path: &[u8; 12],
     faction: u8,
+    techs: u16,
     who: &Owner,
     id: u64,
     provinces: &[AccountInfo],
@@ -313,6 +317,11 @@ pub(super) fn route(
     }
     let lands = &lands[..provinces.len()];
     let bps = of_faction_v3(faction).ok_or(BAD_ACCOUNT)?.caravan_time_bps;
+    let bps = permutation_rules::frontier::research::speed_bps(
+        &permutation_rules::frontier::research::RESEARCH_V1,
+        techs,
+        bps,
+    );
     // A caravan taken on its destination's own tile has no step to
     // walk: it arrives at once, with no slot (only a raid can start on its
     // destination; a send's two places never share a tile).
@@ -744,6 +753,12 @@ pub(crate) fn send_caravan_as(
     if t.owner != citizen.key.to_bytes() && pl.pc.by_session {
         return Err(cq(CqError::WalletRequired));
     }
+    // Roads (Q-RI-1 (a)): a caravan leaving a village carries its techs.
+    let techs = if s.kind == PL::KIND_HOLDING {
+        super::holding::departing_techs(&src.try_borrow_data()?, faction)?
+    } else {
+        0
+    };
     // Debit the source.
     if s.kind == PL::KIND_HOLDING {
         let mut h = hold::load_touched(src, now)?;
@@ -776,6 +791,7 @@ pub(crate) fn send_caravan_as(
         x.steps,
         &x.path,
         faction,
+        techs,
         &Owner::of(season_ai, citizen)?,
         id,
         provinces,
@@ -1282,6 +1298,7 @@ fn settle_raid(
             steps,
             path,
             raider_faction,
+            0,
             &Owner::of(rc.season, rc.raider_citizen)?,
             id,
             new_route,

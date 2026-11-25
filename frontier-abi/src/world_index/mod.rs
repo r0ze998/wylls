@@ -236,5 +236,7 @@ pub mod expedition_reverse_settlement_ix;
 pub mod expedition_reverse_terminal_event;
 pub mod expedition_reverse_terminal_ix;
 
+/// Research: world-first technology (world goal ②, owner 2026-11-25 08:56).
+pub mod research;
 /// Player territory on wide land (territory-impl, owner 2026-11-24 12:09).
 pub mod territory;

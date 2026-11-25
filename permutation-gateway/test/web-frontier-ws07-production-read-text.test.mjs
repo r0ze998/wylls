@@ -47,7 +47,7 @@ test('V2 V3 the village\'s province: why NotResident may be "not loaded"', () =>
 
 test('V6 the note rides with the head; the action rows are untouched', () => {
   assert.ok(hs.includes('const readNote = renderHoldingRead(FS);'));
-  assert.ok(hs.includes('return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];'));
+  assert.ok(hs.includes('return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(researchCard ? [researchCard] : []), ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];'));
   assert.doesNotMatch(hr + note, /data-act="(harvest|build|train|muster|garrison|nudge)"|actionBlocks\(|act\(/, 'no action and no gate in the read note');
   assert.ok(hs.includes("const lag = nudge === true && blocks.includes('NotResident');"), 'the blocked line and its button are as they were');
   assert.ok(hs.includes("blocks: Object.fromEntries(['Harvest', 'Build', 'Train', 'Muster', 'Garrison'].map(n => [n, actionBlocks(n, ctx)])),"));

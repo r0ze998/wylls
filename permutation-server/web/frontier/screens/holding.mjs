@@ -31,6 +31,8 @@ import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
+import { villageResearchCard } from '../hud/research.mjs';
+import { current as currentGoals } from '../hud/worldgoals.mjs';
 import { TERRITORY_V1, ownLandView } from '../flocalplay-territory.mjs';
 import { solText } from '../fdevnet-outpost.mjs';
 import { unreadHostPlaces } from './host.mjs';
@@ -602,5 +604,7 @@ export function render(FS) {
   //  screens/outpostcard.mjs — rides in the wide card's place, after it; the list below is as it was)
   const claimCard = wideClaimCard(FS, m, actionBusy), outpost = outpostCard(FS, m, actionBusy);
   const wideCard = claimCard && outpost ? html`${claimCard}${outpost}` : claimCard || outpost;
-  return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
+  // (world goal ②, research: the village's science to the nation's research — hud/research.mjs; only with the judge)
+  const researchCard = villageResearchCard(FS, h, { science: m.have[RESOURCE_ORDER.indexOf('Science')] ?? 0, busy: actionBusy, answer: currentGoals(), mask: m.rawHolding?.researchMask ?? null });
+  return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(researchCard ? [researchCard] : []), ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }

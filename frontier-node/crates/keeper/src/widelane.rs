@@ -765,3 +765,238 @@ mod territory_plan_tests {
             .any(|x| matches!(x, Step::Conquer { .. })));
     }
 }
+
+/// World goal ② research (research-impl, owner r0ze 2026-11-25 08:56): the
+/// class-D crank's instructions and its pure plan — ONE copy for a keeper
+/// `research` role (devnet, not built yet) and the local runner's duty
+/// (`itest::wide_research`). Handlers: `permutation-frontier/src/proc/wide_research.rs`.
+pub mod research {
+    use super::*;
+    use frontier_abi::world_index::research::{
+        self as wre, NationResearch, ResearchWorld, VillageResearch, NATIONS, TECH_COUNT,
+    };
+    use permutation_rules::frontier::research as kr;
+
+    /// 0xDB op 1 WideStartResearch (the Season authority): `[authority s,w]
+    /// [season r] [research_world w] [nation_research w] × 6 [system]`.
+    pub fn start(a: &Addresses, authority: Address, rule: u8, start_bell: u32) -> Instruction {
+        let c = ctx(a);
+        let mut accounts = vec![
+            AccountMeta::new(authority, true),
+            AccountMeta::new_readonly(a.season, false),
+            AccountMeta::new(adr(wre::world_address(&c)), false),
+        ];
+        accounts
+            .extend((0..NATIONS).map(|f| AccountMeta::new(adr(wre::nation_address(&c, f)), false)));
+        accounts.push(AccountMeta::new_readonly(
+            fclient::addr::system_program(),
+            false,
+        ));
+        ix(
+            a,
+            accounts,
+            wix::StartResearch { rule, start_bell }.to_bytes().to_vec(),
+        )
+    }
+
+    /// 0xDC op 15 WideResearchSettle: `[payer s,w] [season r] [research_world w] [nation_research w]`.
+    pub fn settle(a: &Addresses, payer: Address, faction: u8, tech: u8) -> Instruction {
+        let c = ctx(a);
+        ix(
+            a,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new(adr(wre::world_address(&c)), false),
+                AccountMeta::new(adr(wre::nation_address(&c, faction)), false),
+            ],
+            wix::ResearchSettle { tech }.to_bytes().to_vec(),
+        )
+    }
+
+    /// 0xDC op 16 WideResearchApply: `[payer s,w] [season r] [research_world r]
+    /// [nation_research r] [holding w] [citizen w]`.
+    pub fn apply(
+        a: &Addresses,
+        payer: Address,
+        faction: u8,
+        holding: Address,
+        citizen: &[u8; 32],
+    ) -> Instruction {
+        let c = ctx(a);
+        ix(
+            a,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(a.season, false),
+                AccountMeta::new_readonly(adr(wre::world_address(&c)), false),
+                AccountMeta::new_readonly(adr(wre::nation_address(&c, faction)), false),
+                AccountMeta::new(holding, false),
+                AccountMeta::new(adr(*citizen), false),
+            ],
+            wix::ResearchApply.to_bytes().to_vec(),
+        )
+    }
+
+    /// A village as the plan sees it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Village {
+        pub address: Address,
+        pub owner: [u8; 32],
+        pub faction: u8,
+        pub mask: VillageResearch,
+    }
+
+    /// The chain as [`plan`] sees it.
+    #[derive(Clone, Default)]
+    pub struct View {
+        pub world: Option<ResearchWorld>,
+        /// By faction (absent records: `None`).
+        pub nations: Vec<Option<NationResearch>>,
+        /// Final villages (first homes and wide villages) with an owner.
+        pub villages: Vec<Village>,
+    }
+
+    /// One crank step.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Step {
+        /// A nation whose total reaches the (discounted) cost learns the tech.
+        Settle { faction: u8, tech: u8 },
+        /// The nation's techs (and the banked-science cut) to a village.
+        Apply {
+            holding: Address,
+            owner: [u8; 32],
+            faction: u8,
+        },
+    }
+
+    /// The steps due at `bell` (pure): every settle due, then every village
+    /// whose mask is not the one its nation's knowledge gives (only from the
+    /// start bell; nothing while paused or before research started).
+    pub fn plan(v: &View, bell: u32) -> Vec<Step> {
+        let Some(w) = v.world.as_ref() else {
+            return vec![];
+        };
+        if w.paused || bell < w.start_bell {
+            return vec![];
+        }
+        let p = w.rule.params();
+        let mut out = vec![];
+        for n in v.nations.iter().flatten() {
+            for t in 0..TECH_COUNT as u8 {
+                let others = w.others_discounting(t, n.faction, bell);
+                if kr::judge_settle(p, t, w.era, &n.view(), others).is_ok() {
+                    out.push(Step::Settle {
+                        faction: n.faction,
+                        tech: t,
+                    });
+                }
+            }
+        }
+        for vil in &v.villages {
+            let Some(Some(n)) = v.nations.get(vil.faction as usize) else {
+                continue;
+            };
+            if vil.mask != VillageResearch::new(n.known, vil.faction, true) {
+                out.push(Step::Apply {
+                    holding: vil.address,
+                    owner: vil.owner,
+                    faction: vil.faction,
+                });
+            }
+        }
+        out
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use frontier_abi::world_index::key::WorldId;
+        use frontier_abi::world_index::research::ResearchRule;
+
+        fn view() -> View {
+            let w = ResearchWorld::new(
+                1,
+                ResearchRule::V1,
+                WorldId::new([3; 32]).unwrap(),
+                5,
+                0,
+                [0; 32],
+            );
+            let nations = (0..NATIONS)
+                .map(|f| {
+                    Some(NationResearch::new(
+                        1,
+                        ResearchRule::V1,
+                        f,
+                        WorldId::new([3; 32]).unwrap(),
+                        [0; 32],
+                    ))
+                })
+                .collect();
+            View {
+                world: Some(w),
+                nations,
+                villages: vec![],
+            }
+        }
+
+        #[test]
+        fn nothing_before_the_start_or_while_paused() {
+            let mut v = view();
+            v.villages.push(Village {
+                address: Address::new_from_array([9; 32]),
+                owner: [1; 32],
+                faction: 2,
+                mask: VillageResearch(0),
+            });
+            assert!(plan(&v, 4).is_empty());
+            assert_eq!(plan(&v, 5).len(), 1, "the first apply: nation and the cut");
+            v.world.as_mut().unwrap().paused = true;
+            assert!(plan(&v, 9).is_empty());
+        }
+
+        #[test]
+        fn settles_when_a_discount_brings_the_cost_under_the_total() {
+            let mut v = view();
+            v.nations[3].as_mut().unwrap().pledged[0] = 250;
+            assert!(plan(&v, 6).is_empty());
+            v.world.as_mut().unwrap().known_by[0] = 1; // nation 0 knows agriculture → 240
+            v.nations[0].as_mut().unwrap().known = 1;
+            assert_eq!(
+                plan(&v, 6),
+                vec![Step::Settle {
+                    faction: 3,
+                    tech: 0
+                }]
+            );
+        }
+
+        #[test]
+        fn a_village_already_carrying_its_nations_techs_is_left_alone() {
+            let mut v = view();
+            v.nations[2].as_mut().unwrap().known = 0b11;
+            let a = Address::new_from_array([9; 32]);
+            v.villages.push(Village {
+                address: a,
+                owner: [1; 32],
+                faction: 2,
+                mask: VillageResearch::new(0b11, 2, true),
+            });
+            v.villages.push(Village {
+                address: a,
+                owner: [1; 32],
+                faction: 2,
+                mask: VillageResearch::new(0b01, 2, true),
+            });
+            // a captured village: the stored nation is another one
+            v.villages.push(Village {
+                address: a,
+                owner: [1; 32],
+                faction: 2,
+                mask: VillageResearch::new(0b11, 4, true),
+            });
+            assert_eq!(plan(&v, 6).len(), 2);
+        }
+    }
+}

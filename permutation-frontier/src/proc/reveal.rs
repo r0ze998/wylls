@@ -751,6 +751,8 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             dormant: r.u8(H::FLAGS)? & H::FLAG_DORMANT_CACHE != 0,
             expelled: r.u8(H::FLAGS)? & frontier_abi::v2::layout::player::holding::FLAG_EXPELLED
                 != 0,
+            // roads (Q-RI-1 (a)): the village's techs for the host's nation
+            techs: super::holding::departing_techs(&hd, t[T::FACTION])?,
         }
     };
     if !T::in_transit(tr.state) {
@@ -910,7 +912,8 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )?;
     crate::heap::trace_checkpoint(0x5110);
     let doctrine = of_faction(tr.faction).ok_or(BAD_ACCOUNT)?;
-    let secs = u32::try_from(doctrine.travel_secs(raw as u64)).map_err(|_| OVERFLOW)?;
+    let secs = u32::try_from(super::holding::march_secs(doctrine, tr.techs, raw as u64))
+        .map_err(|_| OVERFLOW)?;
     if check_arrival_bell(hdr.genesis_ts, tr.depart_ts, secs, arrive).is_err() {
         return Err(FrontierError::ArrivalBell.into());
     }
@@ -1222,6 +1225,9 @@ struct Transit {
     dormant: bool,
     /// S1 1e: the owner is expelled from its nation (`FLAG_EXPELLED`).
     expelled: bool,
+    /// World goal ② research: the techs in effect for the host's nation in
+    /// its village (roads shortens the march, Q-RI-1 (a)).
+    techs: u16,
 }
 
 #[cfg(test)]

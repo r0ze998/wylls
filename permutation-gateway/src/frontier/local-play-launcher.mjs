@@ -985,7 +985,8 @@ export async function startOperatorResidents({ n, nations = null, dir, ports, rp
   launchSide('operators', process.execPath, [path.join(root, 'permutation-gateway/src/frontier/local-play-operator-residents.mjs'), '--count', String(n), '--relay-ports', ports.join(','),
     '--herald', `http://127.0.0.1:${herald}`, '--homes', JSON.stringify(homes), ...(nations ? ['--nations', nations.join(',')] : []), ...paceArgs, ...(war ? ['--war', OPERATOR_WAR_MODE] : []),
     // (flag-keeps-ai, F4: a war world with the world's goals — its residents read the judge's posting as the page's card does)
-    ...(war && goals ? ['--goals', goals] : []), ...(localLane() === COEXIST_LANE ? ['--lane', COEXIST_LANE_WORD] : []),
+    //  (world goal ②: every world with the judge — the residents read their nation's research view; research-impl)
+    ...(goals ? ['--goals', goals] : []), ...(localLane() === COEXIST_LANE ? ['--lane', COEXIST_LANE_WORD] : []),
     // (⑧ P2, TEST-ONLY: a persisted world keeps its residents' keys in its own private dir, so a resume has the same residents)
     ...(keysDir ? ['--keys-dir', keysDir] : []),
     // (TEST-ONLY wide play: the opened wide provinces, so the residents claim wide land within reach of a rim village)

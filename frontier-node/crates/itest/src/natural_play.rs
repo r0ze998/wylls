@@ -617,6 +617,25 @@ pub async fn prepare_with(
         let (summary, rim) =
             crate::wide_land::grow(&state, &a, &upgrade, &payer, &homes, send, advance_to).await?;
         crate::wide_land::wide_metadata(&mut metadata, &summary);
+        // (TEST-ONLY research, world goal ②, owner 2026-11-25 08:56: started by the Season authority at the bell the
+        //  growth left the clock on — before any player or resident joins, so every nation starts from 0 science at
+        //  the same bell, Q-RS-3 (b); the crank is `wide_research::run`. Not bell 0: the growth's synthetic clock is
+        //  past it by now and the program refuses a start bell in the past — verify-pr232)
+        let start_bell = {
+            let c = lock(&state);
+            let clock = crate::local_keeper::season_clock(&c, &a)?;
+            clock.bell_at(c.unix_timestamp()).unwrap_or(0)
+        };
+        send(
+            &state,
+            &[&upgrade],
+            &[crate::wide_research::start_ix(
+                &a,
+                upgrade.pubkey(),
+                start_bell,
+            )],
+            "WideStartResearch",
+        )?;
         homes.extend(rim);
     }
     // (TEST-ONLY local rules: the centre free; its ring-1 provinces opened, never PlaceHome targets: the program's
