@@ -2535,4 +2535,11 @@ export default {
   "開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界は終わりました。保存されない世界なので、続きからは始められません。ターンは進まず、命令も送れません。もう一度遊ぶには、開始サービスを起動し直して、開始ページから新しい世界を始めてください。": "The start service (the program you run in a terminal) cannot be reached. If you stopped it, this world has ended: it is not a kept world, so it cannot be continued. Its turns do not advance and no order can be sent. To play again, start the service again and start a new world from the start page.",
   "この端末の世界で遊ぶ": "Play in a world on this machine",
   "この端末だけの試験用の世界です。開始ボタンは、保存された世界があれば続きから、なければ新しい世界を用意します。": "A test world on this machine only. The start button resumes a kept world if there is one, otherwise it prepares a new world.",
+  // (food-net-caravan, owner 2026-11-25 21:22 Q-LP17-2 / Q-LP17-4)
+  "（土地 −{0}）": " (land −{0})",
+  "（村 {0} · 土地 −{1}）": " (village {0} · land −{1})",
+  "「土地」は、あなたの土地の維持費です。最初の村の食料から、ターンごとに払われます。": "\"Land\" is the upkeep of your land. It is paid from your first village's food every turn.",
+  "食料の毎時は、あなたの土地の維持費を引いたあとの量です（「土地」がその分。ターンごとにこの村の食料から払われます）。": "The food rate is what is left after your land upkeep (\"land\" is that part; it is paid from this village's food every turn).",
+  "行き先に並ぶのは、あなたの場所、あなたの国の村と貯蔵庫、いま見えている村と貯蔵庫だけです。": "The list shows only your own places, your nation's villages and storehouses, and the villages and storehouses you can see now.",
+  "行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。": "The destination list has changed (a place that goes out of sight leaves the list). No caravan was sent. Choose the destination again.",
 };

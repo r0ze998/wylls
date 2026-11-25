@@ -36,6 +36,7 @@ import { arrivalView, cancelView, costView, manualView, spendable, renderStatus,
 import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussources.mjs';
 import { renderRights } from './rights.mjs';
 import { renderCustody } from './custody.mjs';
+import { viewTile, fogActive } from '../map/fog.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -354,12 +355,26 @@ const planScope = FS => { const pin = FS.pin ?? null; return { world: pin?.progr
  * another's village the province's record shows on that tile. Null when the page holds no such thing there — a tile
  * whose lists or province are not read gives null, never a guessed place.
  */
+/**
+ * (food-net-caravan, owner 2026-11-25 21:22 Q-LP17-4) Whether ANOTHER player's place — a village or a storehouse at
+ * tile `tile` of (p, q), of nation `faction` — may be offered as a caravan's destination: one of the viewer's own
+ * nation's, or one whose tile is IN SIGHT NOW (map/fog.mjs viewTile, L3). Under the fog the list named every village
+ * of the provinces the page had read — six nations' villages with province and tile, none of them on the map
+ * (loop-play17 LP17-4). A place seen before and now out of sight is not offered. Without fog (viewTile: always):
+ * every place, as before. The viewer's own places and the ① requests the viewer accepted (a place its owner
+ * published on the board, fix-loop8 LP8-3) do not pass through here.
+ */
+export const otherPlaceOffered = (FS, { p, q, tile, faction }) =>
+  (Number.isInteger(FS?.citizen?.faction) && Number(faction) === FS.citizen.faction) || viewTile(p, q, tile);
+
 export function s1PlaceAt(FS, sel) {
   if (!sel || !Number.isInteger(sel.p) || !Number.isInteger(sel.q) || !Number.isInteger(sel.idx)) return null;
   const { p, q, idx } = sel, mine = viewerTag(FS);
   const v = (FS.s1?.caravans?.vaults ?? []).find(x => x.p === p && x.q === q && x.tile === idx);
   if (v) {
     if (mine === null || mine === undefined) return null;
+    // (food-net-caravan, Q-LP17-4: another's storehouse out of sight is not a place the map hands over)
+    if (!isMine(v.ownerTag, mine) && !otherPlaceOffered(FS, { p, q, tile: idx, faction: v.faction })) return null;
     return isMine(v.ownerTag, mine) ? { kind: 'vault', p, q, tile: idx, gen: v.gen } : { kind: 'vault', p, q, tile: idx, gen: v.gen, other: true, faction: v.faction };
   }
   const own = (FS.holdings ?? []).find(o => o.p === p && o.q === q && o.tile === idx);
@@ -370,6 +385,7 @@ export function s1PlaceAt(FS, sel) {
     const mirror = prov.siteMirror?.[j];
     if (!mirror || Number(mirror.state) !== SITE_HOLDING || Number(prov.sites?.[j]) !== idx) continue;
     if ((FS.holdings ?? []).some(o => o.p === p && o.q === q && o.site === j)) continue;
+    if (!otherPlaceOffered(FS, { p, q, tile: idx, faction: Number(mirror.faction) })) return null;
     return { kind: 'holding', p, q, site: j, gen: null, tile: idx, other: true, faction: Number(mirror.faction) };
   }
   return null;
@@ -500,6 +516,7 @@ export const OTHER_PLACES = 24;
  * caravans feed and their villages in the provinces the page has read (a
  * village's generation is read from its Holding at sending: `gen: null`),
  * the nearest to the village in hand first, OTHER_PLACES of them.
+ * (food-net-caravan, owner Q-LP17-4: only the viewer's own nation's places and those in sight now — otherPlaceOffered.)
  */
 /** Whether `c` (p, q, site) is one of the viewer's own villages. */
 const own = (FS, c) => (FS.holdings ?? []).some(o => o.p === c.p && o.q === c.q && o.site === c.site);
@@ -508,6 +525,7 @@ export function othersPlaces(FS, mine, h) {
   const own = FS.holdings ?? [];
   // (the viewer's tag not read yet: whose storehouse is whose is unknown, so none is offered)
   const out = mine === null || mine === undefined ? [] : (FS.s1?.caravans?.vaults ?? []).filter(v => !isMine(v.ownerTag, mine))
+    .filter(v => otherPlaceOffered(FS, v))
     .map(v => ({ kind: 'vault', p: v.p, q: v.q, tile: v.tile, gen: v.gen, other: true, faction: v.faction }));
   for (const [key, e] of FS.provinces ?? []) {
     const prov = e?.province;
@@ -518,6 +536,7 @@ export function othersPlaces(FS, mine, h) {
       const mirror = prov.siteMirror?.[j];
       if (!mirror || Number(mirror.state) !== SITE_HOLDING) continue;
       if (own.some(o => o.p === p && o.q === q && o.site === j)) continue;
+      if (!otherPlaceOffered(FS, { p, q, tile: Number(prov.sites?.[j]), faction: Number(mirror.faction) })) continue;
       out.push({ kind: 'holding', p, q, site: j, gen: null, tile: Number(prov.sites?.[j]), other: true, faction: Number(mirror.faction) });
     }
   }
@@ -525,6 +544,13 @@ export function othersPlaces(FS, mine, h) {
   return out.map((x, i) => ({ x, i, d: far(x) })).sort((a, b) => a.d - b.d || a.i - b.i).slice(0, OTHER_PLACES).map(o => o.x);
 }
 
+/**
+ * (food-net-caravan) A destination's name for the form: the list is made again at every render AND at the send, and
+ * under the fog it changes as places come into and leave sight — the option's index alone could then name another
+ * place at the send. The form carries every option's key (the hidden `places`, by index); the send checks the place at
+ * the chosen index still has its key.
+ */
+export const placeKey = d => (d ? `${d.kind}:${d.p}:${d.q}:${d.kind === 'vault' ? `t${d.tile}` : `s${d.site}`}` : '');
 /** Two places are the same (a caravan cannot go where it starts). */
 export const samePlace = (a, b) => !!a && !!b && a.kind === b.kind && a.p === b.p && a.q === b.q && (a.kind === 'vault' ? a.tile === b.tile : a.site === b.site);
 
@@ -729,17 +755,20 @@ export function renderS1Village(FS) {
     : pl.fort !== null ? html`<p class="notice" role="status" data-plan="fort" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ要塞：マス ${pl.fort}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。`} ${unpick}</p>` : '';
   const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
-  const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
+  const dstOption = (d, i) => html`<option value="${i}" data-key="${placeKey(d)}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
     <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" data-have="${haveOf6(s).join(',')}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
     <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${otherDst.length
       ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
       : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
+    <input type="hidden" name="places" value="${m.destinations.map(placeKey).join('|')}">
+    <input type="text" name="picked" value="" hidden tabindex="-1" aria-hidden="true" autocomplete="off">
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${haveOf6(srcNow)[x.i] ?? 0}" step="1" value="0" inputmode="numeric"></div>`)}
     <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
     ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}
+    ${fogActive(FS) ? html`<p class="muted s1-dst-sight">${L`行き先に並ぶのは、あなたの場所、あなたの国の村と貯蔵庫、いま見えている村と貯蔵庫だけです。`}</p>` : ''}
     ${otherDst.some(([d]) => d.coop) ? html`<p class="muted s1-coop-dst">${L`「① 依頼の届け先」は、国をまたぐ依頼の板であなたが「応じる」と答えた依頼の行き先です（依頼した人が板に公開した場所だけ。まわりの土地は見えないままです）。送ったあと、板で隊商を依頼に結び付けると、到着が数えられます。`}</p>` : ''}
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
     : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;

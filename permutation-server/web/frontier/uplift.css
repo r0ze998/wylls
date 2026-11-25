@@ -75,6 +75,10 @@
 
 /* ---- the ledger: a store about to be full says when (the prompt is to spend it) */
 .ledger-fullin { display: block; font-size: var(--t1); font-weight: 700; color: var(--st-wait); white-space: nowrap; }
+/* (food-net-caravan, owner Q-LP17-2) the first village's food: the net rate, the land's part on its own line under it
+   (one line was wider than the column and pushed every rate out of the card); a net rate below zero in the loss ink */
+.ledger-land { display: block; font-size: var(--t1); font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+.ledger-net-neg { color: var(--bad); }
 
 /* ---- the send track: each step a state (wait while under way, done once past) */
 .send-track li.now { color: var(--st-wait); font-weight: 700; }

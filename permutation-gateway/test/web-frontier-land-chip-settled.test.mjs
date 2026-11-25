@@ -53,6 +53,8 @@ test('nothing finished: the same figure either way', () => {
 test('the page: the chip is given the settled village, the same as the strip (pinned as text)', () => {
   const a = read('permutation-server/web/frontier/app.mjs');
   assert.match(a, /const settledHolding = \(h, now\) => \{ try \{ return h \? settled\(h, now\) : h; \} catch \{ return h; \} \};/);
-  assert.match(a, /hud\.resourceModel\(settledHolding\(hud\.activeHolding\(FS\), now \?\? 0\), now \?\? 0\)/, 'the strip');
+  // (food-net-caravan, owner Q-LP17-2: the strip is still given the SETTLED village; it is also told the land upkeep
+  //  charged to that village, so the food rate it shows is net — the third argument)
+  assert.match(a, /hud\.resourceModel\(settledHolding\(hud\.activeHolding\(FS\), now \?\? 0\), now \?\? 0, \{ land: landUpkeepMilli\(FS, hud\.activeHolding\(FS\)\) \}\)/, 'the strip');
   assert.match(a, /const ls = lh \? landSummary\(FS, settledHolding\(lh, now \?\? 0\), lf\) : null, le = lh \? landElsewhere\(FS, lh, lf\) : null;/, 'the chip');
 });
