@@ -368,10 +368,13 @@ jobs:
       # territory-impl (owner 2026-11-24 12:09 T-1..T-8, E-Q1, U3): the player-territory flow through the real dispatch
       # (tile claims, upkeep, decay, villages on own tiles, conquest transfer, no idle-home release), single-threaded
       # (the harness shares the test clock), and the territory model of frontier-abi.
+      # test-gaps-territory: + proc::wide::territory:: (the program's settle_into over the shared Q-LP17-1 (b) upkeep
+      # vectors frontier-abi/vectors/territory-upkeep-b.txt; frontier-abi's world_index::territory runs the (b)
+      # property tests and checks the vectors are current).
       - name: Program host tests (player territory)
         if: hashFiles('permutation-frontier/Cargo.toml') != ''
         run: |
-          cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::territory_tests --test-threads=1
+          cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::territory_tests proc::wide::territory:: --test-threads=1
           cargo test --locked -p frontier-abi --features world-index-experimental --lib -- world_index::territory world_index::rules world_index::land
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
@@ -490,6 +493,10 @@ jobs:
           # records): old archives byte-identical, malformed ones refused.
           cargo test --locked -p findex --test pr158_archive_tables
           cargo test --locked -p herald --lib
+          # test-gaps-territory: the wide routes' tests (territory + player territory routes: ETag/304/gzip per
+          # revision, served tiles and summary bytes = the captured chain records, #240/#242) compile only with
+          # `wide-world-experimental`, so the line above never ran them. In-memory folds and handlers, no listener, no key.
+          cargo test --locked -p herald --features wide-world-experimental --lib
           # fix-herald-gw-502: the /gw relay proxy when the relay answers early
           # and resets (429 kept, one write, no re-send). Loopback fakes only.
           cargo test --locked -p herald --test gw_relay_reset
@@ -551,6 +558,8 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p verify --features playable-lane --all-targets -- -D warnings
+          # test-gaps-territory: VWL's settle_into over the shared Q-LP17-1 (b) upkeep vectors (pure, no archive, no key)
+          cargo test --locked -p verify --features playable-lane --lib -- vwl_wide_land::territory::
           cargo test --locked -p verify --features playable-lane --test playable_lane --test playable_wide_land --test playable_wide_claims --test playable_wide_next --test playable_wide_march --test playable_march --test playable_legacy_war --test playable_expedition --test playable_genesis --test playable_witness --test playable_rent --test wallet_finals --test p14b_devnet_no_conquest --test versioned_season --test verify_pr155_vt_tampers --test verify_alt_archive --test verify_pr158_attacks --test playable_v11_declared --test playable_v7_declared --test verify_pr179_attacks --test playable_territory
 
       # Devnet blocker B3 (owner decision B7): frontier-operator's playable-lane
@@ -578,7 +587,9 @@ jobs:
         working-directory: frontier-node
         run: |
           cargo clippy --locked -p keeper --features playable-lane --all-targets -- -D warnings
-          cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: wideresolve:: config:: rings::
+          # test-gaps-territory: + territory:: (the territory role's keys, thinning, caps, landed-settle memory, feed
+          # claims, home lookup; pure, literal records) — the filter above it never matched `territory::tests`.
+          cargo test --locked -p keeper --features playable-lane --lib -- widelane:: widetickets:: wideresolve:: config:: rings:: territory::
           cargo test --locked -p keeper --features playable-lane --test wide_feed_guard
           cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
           cargo test --locked -p keeper --features playable-lane --test verify_pr121_guard_mutations
