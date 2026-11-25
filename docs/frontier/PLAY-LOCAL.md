@@ -434,13 +434,14 @@ this section describes what the program does today, and none of it is a promise 
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
      (loop-play15, #223; before, that row and its button were gone).
 5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
-   - 0.33 food an hour for each tile;
-   - plus 0.16 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
+   - 0.99 food an hour for each tile;
+   - plus 0.48 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
      a wide village of yours). It is measured once, when you claim the tile, and does not change later.
-   - Examples: 10 tiles near home cost 3.3 food an hour; 100 tiles 33; one tile 5 provinces from your nearest village
-     costs 0.33 + 2 × 0.16 = 0.65. A starting village makes about 40 food an hour, so about 120 tiles near home cost more
-     than it makes, and sooner if you spend your food on troops and buildings (owner decision Q-LP15-1 (b), 11-25: the
-     old numbers, a tenth of these, only went unpaid past about 1,200 tiles).
+   - Examples: 10 tiles near home cost 9.9 food an hour; 100 tiles 99; one tile 5 provinces from your nearest village
+     costs 0.99 + 2 × 0.48 = 1.95. A starting village makes about 40 food an hour, so 41 tiles near home cost more than
+     it makes (claiming them takes 558 ore in all), and sooner if you spend your food on troops and buildings (owner
+     decision Q-CUF-1 (b), 11-25 12:04: thirty times the first numbers; with those the land went unpaid only past about
+     1,200 tiles, and with the ×10 of Q-LP15-1 (b) past about 120).
    - The village screen's "Per hour" column does not include land upkeep.
 6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
    - at once: you cannot claim tiles (the refusal is in the table below);
@@ -452,11 +453,12 @@ this section describes what the program does today, and none of it is a promise 
    - **The card warns you** (territory-card), under the land line, for as long as the chain's record says unpaid:
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
      (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.".
-     In play today it does not happen: the program charges no food for troops (the
-     rule that large hosts eat food is in the simulator only; loop-play15, owner question Q-LP15-1), so a village's food
-     does not fall and land upkeep stays far below what a village makes. In verify-pr206-209's hour of play at ×60 and in
-     loop-play15 nobody went unpaid; this part is checked by the program's tests and the warning lines by the page's
-     tests, not seen in a live world.
+     The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
+     owner question Q-LP15-1), so a village's food falls only by what you spend: with no other spending it takes about
+     41 tiles near home (one claim a turn: 41 turns or more) before land upkeep passes a starting village's 40 food an
+     hour. In verify-pr206-209's hour of play at ×60 and in loop-play15 (both at the old, thirty-times-smaller numbers)
+     nobody went unpaid; this part is checked by the program's tests and P18, and the warning lines by the page's tests,
+     not seen in a live world.
 7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
    nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
    and so does a tile with a village on it. The keeper moves them within about a turn; the page says nothing about it.

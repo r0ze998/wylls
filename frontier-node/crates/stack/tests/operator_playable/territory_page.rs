@@ -24,7 +24,8 @@
 //!    SAME captor's host takes the second tile's province: keeper A's settle(page) + settle(captor) + conquer, the
 //!    captor Citizen writable in that message, LANDS (world 3's first `.so` 31acbb59 refused it BadAccount).
 //! 4. **Declared** starvation: the first home's food store 0 and its food upkeep the kernel's maximum (stands in for an
-//!    army the stores cannot feed: VQ-1, land upkeep alone never bites). REAL, keeper A: the next settle makes the land
+//!    army the stores cannot feed: VQ-1; land upkeep alone bites only past 41 tiles of a new village since Q-CUF-1 (b) ×30,
+//!    more claims than this offline run makes — the program's host test pins that). REAL, keeper A: the next settle makes the land
 //!    unpaid; REAL, the page: 「1マス取る」 is refused before anything is signed (JA and EN); then the clock past 24
 //!    unpaid bells — REAL, keeper A: WideTerritoryDecay of the last tile (the village's; the farthest-first order of
 //!    several tiles is pinned by the program's host tests and verify/tests/playable_territory.rs).

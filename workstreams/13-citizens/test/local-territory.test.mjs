@@ -71,7 +71,7 @@ test('TR1 the view: my own tiles, the next claim\'s price, my upkeep, this turn\
   assert.equal(v.own.listComplete, true);
   assert.equal(v.own.nextClaimOre, claimCostV1(2));   // 10 + 2 % per tile owned, rounded down → 10
   assert.equal(claimCostV1(5), 11);
-  assert.equal(v.own.upkeepMilliFoodPerHour, 660);    // 2 tiles × 0.33 food/h (Q-LP15-1 (b): ×10)
+  assert.equal(v.own.upkeepMilliFoodPerHour, 1980);   // 2 tiles × 0.99 food/h (Q-CUF-1 (b): ×30)
   assert.equal(v.own.unpaid, false);
   assert.equal(v.own.claimsThisTurn, 1);
   assert.deepEqual(claimNow(v, { ore: 200 }), { ok: false, why: ['this turn\'s claim is used (1 a turn)'] });
@@ -114,8 +114,8 @@ test('TR3 unpaid upkeep: said with the turn it began and the turn tiles start to
   assert.equal(v.own.unpaid, true);
   assert.equal(v.own.unpaidSinceBell, 40);
   assert.equal(v.own.decayFromBell, 64);   // after 24 turns one tile returns per turn
-  assert.equal(v.own.upkeepMilliFoodPerHour, 330 + 160 * 2);   // + 0.16 food/h per province beyond 3 (×10)
-  assert.equal(tileUpkeepV1(5), 330 + 320);
+  assert.equal(v.own.upkeepMilliFoodPerHour, 990 + 480 * 2);   // + 0.48 food/h per province beyond 3 (×30)
+  assert.equal(tileUpkeepV1(5), 990 + 960);
   const c = claimNow(v, { ore: 500 });
   assert.equal(c.ok, false);
   assert.match(c.why[0], /unpaid since turn 40.*refuses new claims/);
