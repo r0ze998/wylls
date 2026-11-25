@@ -169,7 +169,7 @@ test('Q-PDT-2: with three villages the "Claim a tile" rows remain, with the land
 test('FOG: the page reads only the record of the viewer\'s own Citizen, and drops an answer of another tag', () => {
   const src = web('frontier/controller.mjs');
   assert.match(src, /const at = territoryPlayerAddress\(pin\.addresses\.season, pin\.programId, citizen\);\n\s+const j = await localAct\.postLocalAct\(g\.relay, localAct\.LOCAL_ACT_CONTEXT_PATH, \{ schema: OWN_LAND_READ, addresses: \[at\] \}\);/);
-  assert.match(src, /if \(j\.accounts\[0\] && \(!player \|\| player\.citizenTag !== citizenTagOf\(citizen\)\)\) return;/);
+  assert.match(src, /if \(j\.accounts\[0\] && \(!player \|\| player\.citizenTag !== citizenTagOf\(citizen\)\)\) return null;/);
   assert.match(src, /const citizen = viewerCitizen\(\), world = providerWorld\(\);\n\s+if \(FS\.ownLand && \(FS\.ownLand\.citizen !== citizen \|\| FS\.ownLand\.world !== world\)\) FS\.ownLand = undefined;/, 'another world or Citizen: the old answer is gone');
   assert.match(src, /schema: devnetTerritory\.LAND_SUMMARY_SCHEMA, wallet: FS\.wallet\.address \}/);
   assert.equal((src.match(/refreshOwnLand\(\{ force: true \}\)/g) ?? []).length, 2, 'after the tile button and after "Found a village here"');
@@ -178,7 +178,8 @@ test('FOG: the page reads only the record of the viewer\'s own Citizen, and drop
   assert.match(src, /if \(!force && Date\.now\(\) < ownLandRetryAt\) return;/);
   assert.match(src, /ownLandRetryAt = answered \? 0 : Date\.now\(\) \+ \(local \? OWN_LAND_RETRY_MS : OWN_LAND_RETRY_DEVNET_MS\);/);
   // display only: nothing in the refresh signs or sends
-  const body = src.slice(src.indexOf('async function refreshOwnLand'), src.indexOf('// ------------------------------------------------------------------ ② rights'));
+  const body = src.slice(src.indexOf('let ownLandHeraldOff'), src.indexOf('// ------------------------------------------------------------------ ② rights'));
+  assert.ok(body.includes('async function ownLandFromRelay') && body.includes('async function refreshOwnLand'));
   assert.ok(!/(^|[^A-Za-z.])act\(|submitLocal|currentEphemeralWallet/.test(body), 'a read, never an act: no order, no submit, no wallet key');
 });
 

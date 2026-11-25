@@ -11,6 +11,7 @@
 //! | `/h/world/wide/page?limit=&after=` | one page of recorded Provinces in ring order | `max-age=5` |
 //! | `/h/world/wide/route?at=P,Q;P,Q` | at most four exact Province captures in request order | `no-store` |
 //! | `/h/world/wide/territory` | the captured territory province records' owned tiles (`crate::wide_territory`) | `max-age=5`, ETag, gzip |
+//! | `/h/world/wide/territory/player/{citizen}` | one Citizen's captured territory summary (`crate::wide_territory::player_json`) | `max-age=5`, ETag, gzip |
 //!
 //! **What it is.** The same captured Province accounts `/h/world/ring/{d}`
 //! lists, plus captured experimental wide Province accounts, keyed by
@@ -595,6 +596,7 @@ fn is_wide(d: &[u8]) -> bool {
     d.get(..8)
         .is_some_and(|m| m == land::province::MAGIC || m == holding::wide_holding::MAGIC)
         || crate::wide_territory::is_territory(d)
+        || crate::wide_territory::is_territory_player(d)
 }
 
 #[derive(Clone, Copy)]
@@ -603,11 +605,18 @@ enum CapturedWide {
     Holding(holding::WideHolding),
     /// A territory province record (`crate::wide_territory`), by its coordinate.
     Territory(WideCoord),
+    /// A territory player summary (`crate::wide_territory`), by its Citizen:
+    /// stored and served by address, indexed by nothing (no revision moves).
+    TerritoryPlayer,
 }
 fn authenticate(f: &Fold, key: &[u8; 32], d: &[u8]) -> Option<CapturedWide> {
     let world = f.wide.as_ref()?.world();
     if crate::wide_territory::is_territory(d) {
         return crate::wide_territory::authenticate(f, key, d).map(CapturedWide::Territory);
+    }
+    if crate::wide_territory::is_territory_player(d) {
+        return crate::wide_territory::authenticate_player(f, key, d)
+            .map(|_| CapturedWide::TerritoryPlayer);
     }
     if let Ok(p) = land::WideProvince::read(d) {
         return (p.season_id == f.cfg.season_id
@@ -670,6 +679,7 @@ pub(crate) fn index_capture(f: &mut Fold, key: &[u8; 32], d: &[u8]) -> bool {
             w.territory.insert(coord, *key);
             w.territory_rev += 1;
         }
+        Some(CapturedWide::TerritoryPlayer) => {}
         None => w.refused += 1,
     }
     true
@@ -727,6 +737,7 @@ pub(crate) fn capture_post(
                     }
                     w.territory_rev += 1;
                 }
+                Some(CapturedWide::TerritoryPlayer) => {}
                 Some(CapturedWide::Holding(h)) => {
                     w.holdings.remove(&(h.coord, h.site));
                     w.remove_inventory(key);

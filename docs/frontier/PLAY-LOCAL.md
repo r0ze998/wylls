@@ -447,8 +447,10 @@ this section describes what the program does today, and none of it is a promise 
 1. Open your **rim village** ("Village" in the bottom bar) and scroll to the card "Found a village on the wide land (test)".
    The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
    buttons, "Claim a tile" and "Found a village here". Above the rows the card says what you own (territory-card):
-   "**Your land**: tiles owned: N · next tile: N ore · land upkeep: N food per hour" — your own land only, read from the
-   chain about every 10 s and right after a claim.
+   "**Your land**: tiles owned: N · next tile: N ore · land upkeep: N food per hour" — your own land only, read about
+   every 10 s and right after a claim. The page reads it from the world's herald (`/h/world/wide/territory/player/<your
+   Citizen>`, the chain's record as the herald recorded it), and asks the play relay only when that herald has no such
+   route.
    The card lists at most 4 provinces near your first village and 6 reached through your nation's land, nearest first, so
    a province in reach can be missing and rows change as land opens. A province where you own a tile ("you own tiles
    here") or whose keep your host is taking ("your host is taking this keep") or has taken ("your host took this keep")
@@ -909,8 +911,9 @@ The world's operator gives it no privilege and never sees its key. The page show
    resident's own land (§4.1) as that player sees it — its tiles, the next claim's price in ore, its upkeep in food per
    hour, whether upkeep is unpaid, the claims used this turn, and for each province a claim can reach its tiles as
    own / free / taken / unseen. Fog of war (§5): free and taken are said only for tiles in the resident's sight; a tile
-   out of sight is `unseen` (it may be free or another player's). The server still sends nothing: this tool's extra
-   read is the page's own read-only account read on the world's relay.
+   out of sight is `unseen` (it may be free or another player's). The server still sends nothing: this tool reads the
+   world herald's public territory routes (`/h/world/wide/territory` and `/h/world/wide/territory/player/<its own
+   Citizen>`), and the page's own read-only account read on the world's relay only when that herald has no such route.
 
 3. Press start in your page as usual, then start the resident (it waits for your world if it is early):
 
