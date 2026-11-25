@@ -71,7 +71,7 @@ Options:
 | `--random-map` | give the new world its own map. Without it **every local world has the same map** | `--resume` |
 | `--ai N` | AI residents, 0–4 (default 2). **At war by default**: they march on other nations' reachable keeps and siege them (one action per resident per turn) | |
 | `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
-| `--ai-near` | with `--wide` and `--ai 1–4` (off by default): one AI resident waits for your first village, then joins the nearest **other** nation and puts its village on the rim beside yours (3 provinces away on the standard map) and claims wide land toward you (§4, "An AI neighbour") | anything but `--wide` |
+| `--ai-near` | with `--wide` and `--ai 1–4` (off by default): one AI resident waits for your first village, then joins the nearest **other** nation and puts its village on the rim beside yours (3 provinces away on the standard map) and claims wide land toward you (§4.0) | anything but `--wide` |
 | `--two` | two people in one world (§3.1) | `--wide` `--external` |
 | `--coexist` | a world with ②+⑨+⑩ (§10, §12; ① request caravans only here, §13): a kept world or `--demo`; works with `--ai` `--two` `--random-map` `--resume` `--external` | `--wide` |
 | `--external ADDR[,ADDR]` | admit up to two external AI residents by their **public addresses** (§11; never a key). Also starts the read-only MCP server on 127.0.0.1. A kept world, `--demo` or `--wide`; works with `--ai` `--random-map` `--coexist` `--resume` | `--two` |
@@ -381,6 +381,28 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
   up, and a capture reached them about 90 turns after the start). Since runner-throughput the standings keep up at ×60
   too (a few turns behind), but a war goes by fast there. A wide village's cost then takes about 2 hours to save.
 - The faster the clock, the further this machine's load makes the world trail (§8). Stop other heavy work while you test.
+
+### 4.0 An AI neighbour (`--ai-near`, TEST only; owner decision Q-LP16-2)
+
+Without it, the nations that have no AI (Aster and Dunmar with `--ai 4`) start beside each other on the rim, so no other
+nation's tile is ever within an expedition's road (32 steps, 4 provinces) and you never see tiles change hands.
+`scripts/play-local.sh --wide --ai 4 --ai-near` (off by default; `--ai 1`–`4`) changes only where ONE AI resident
+settles; no rule, price or reach changes:
+
+1. The first AI resident joins no nation at the start. The "Choose a nation" screen says so under the banners
+   ("Launch option --ai-near: once your first village stands, one AI resident joins the nearest other nation and puts its
+   village near yours (that one is not in the "AI present" marks above).").
+2. Once your first village stands, that resident joins the **other** nation whose rim village site is nearest to it
+   and asks for that site: on the standard map, with you in Aster at (-68, -60), it joined Dunmar at (-65, -63), 3
+   provinces away, 2 minutes after the join (×60). The AI residents' log (`operators.out` in the world's directory)
+   says `"step":"near","outcome":"chosen"` with the distance.
+3. It then claims wide land **toward you**, one tile a turn: seen live, 24 tiles in (-68, -61), the province next to
+   the player's village, within 100 turns.
+4. Send an expedition onto that province's keep (§4 step 3) and hold it 72 turns. When the keep becomes your nation's,
+   the tiles the AI owned there become yours (§4.1 item 7): seen live at turn 264, all 24 tiles. The page does not
+   draw tiles yet, so this is read from the chain's territory record, not from the map.
+
+The neighbour is at war like the other AI residents (`--ai-peaceful` turns that off): it marches on keeps near you too.
 
 ### 4.1 Neutral wide land and your own land (player territory; `--wide` only, #206 and #209)
 

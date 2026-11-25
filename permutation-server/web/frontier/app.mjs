@@ -4812,7 +4812,14 @@ async function loadSeason(herald) {
   if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
   // (fix-loop8, LP8-10: null while a fast clock's pace is not known yet: the page then says no real time rather than a wrong one)
-  setTermsPace(() => (FS.chain?.accelerated ? (FS.chain.rateKnown === false ? null : FS.chain.rate) : 1));
+  // (fix-loop16, LP16-10: a capture demo's clock is measured at about ×1 until the player has joined — the join card
+  //  said "about 5 days left" in a ×60 world that lasts minutes. The launcher states the world's clock (`clockScale`; a
+  //  wide world's `wideLand.scale`): while the measured pace is unknown or under half of it, the stated one is used)
+  setTermsPace(() => {
+    const stated = Number(FS.localPlay?.clockScale ?? FS.localPlay?.wideLand?.scale ?? 0);
+    const r = FS.chain?.accelerated ? (FS.chain.rateKnown === false ? null : FS.chain.rate) : 1;
+    return stated > 1 && (r === null || Number(r) < stated / 2) ? stated : r;
+  });
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
   // (2026-11-17, ⑦: another pinned world's samples are not this world's: its chain time, slot and offset would hold

@@ -4352,7 +4352,7 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     if (d.name === 'WideTrain' && FS.notice !== noticeBefore && FS.notice?.ok === false && (Number(FS.notice.programCode) === 21 || FS.notice.code === 'Insufficient')) {
       const say = { kind: 'wait', wait: 'stores', n: d.fields?.n ?? 100, cost: trainingCost(0, Number(d.fields?.n ?? 100), Number(FS.season?.programVersion ?? 1)) ?? [] };
       FS.ui = { ...FS.ui, wideHostSay: say, wideHostAct: null };
-      setNotice({ ...FS.notice, text: wideStoresShortText(say) });
+      setNotice({ ...FS.notice, text: () => wideStoresShortText(say) });   // (a function: the toast follows a language switch)
     }
     mem.decisions = (mem.decisions ?? 0) + 1;
     // (`act` answers a refusal with its notice — FS.notice — not with a result)

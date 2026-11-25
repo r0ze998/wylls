@@ -319,7 +319,8 @@ export function render(FS) {
   const hostCard = FS.localPlay?.wideLand ? html`<section class="vcard wide-village" id="wide-host" aria-labelledby="wide-host-h">
     ${cardHead({ id: 'wide-host-h', ic: 'flag', title: L`広い土地の軍勢（テスト）`, side: stamp(L`ローカル専用`, 'warn') })}
     <p>${L`押すたびに一手：槍兵を訓練 → 軍勢を編成 → 隣の州の砦へ進軍（広い土地の中どうし）。砦の上に決まった回数とどまると砦を奪います。`}</p>
-    ${FS.ui?.wideHostSay ? html`<p class="wide-host-why" role="status" title="${FS.ui.wideHostWhy ?? ''}">${wideHostSayText(FS.ui.wideHostSay)}</p>` : FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
+    ${/* (fix-loop16, LP15-9(e): while the card waits for the province to catch up, the wait line below says the same sentence — 「この村の州の決着が N ターン遅れています。」 was printed twice) */ ''}
+    ${FS.ui?.wideHostSay && !(FS.ui.wideHostSay.kind === 'wait' && FS.ui.wideHostSay.wait === 'lag' && FS.ui?.wideHost?.waiting?.reason === 'lag' && !FS.ui.wideHostSay.hold) ? html`<p class="wide-host-why" role="status" title="${FS.ui.wideHostWhy ?? ''}">${wideHostSayText(FS.ui.wideHostSay)}</p>` : FS.ui?.wideHostSay ? '' : FS.ui?.wideHostWhy ? html`<p class="wide-host-why" role="status">${FS.ui.wideHostWhy}</p>` : ''}
     ${FS.ui?.wideHostSay?.kind === 'decision' && FS.ui.wideHostSay.hold?.outcome ? html`<p class="wide-host-held" role="status">${wideHoldOutcomeText(FS.ui.wideHostSay.hold)}</p>` : ''}
     ${FS.ui?.wideHostReady && !FS.ui?.wideHost?.waiting ? html`<p class="wide-host-ready" role="status" data-wide-host-ready="${FS.ui.wideHostReady === 'rebuild' ? 'rebuild' : 'next'}">${FS.ui.wideHostReady === 'rebuild' ? L`次の一手を送れます（新しい軍勢づくり）。自動では送りません。押すと上の一手を送ります。` : L`次の一手を送れます（新しい軍勢の訓練から）。押すと送ります。`}</p>` : ''}
     ${wideHostWaitLine(FS.ui?.wideHost?.waiting)}

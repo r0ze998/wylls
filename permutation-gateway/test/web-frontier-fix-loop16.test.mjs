@@ -136,3 +136,15 @@ test('LP16-5 / LP16-6 / LP16-8: a keep of no nation, the road\'s limit and the k
   const f = src('permutation-server/web/frontier/flocalplay.mjs');
   assert.ok(f.includes('title.textContent = launcher && persisted ? L`この端末の世界で遊ぶ` : launcher ? L`新しい世界で遊ぶ` : L`ローカルプレイの準備`;'));
 });
+
+test('LP16-6 / LP16-10 / LP15-9(e): another host\'s confirmed departure is not this card\'s; the join card uses the stated clock; the lag sentence is said once', () => {
+  const hand = src('permutation-server/web/frontier/hud/hand.mjs');
+  assert.ok(hand.includes("const d = d0.status === 'confirmed' && typeof d0.host === 'string' && typeof src === 'string' && d0.host !== src ? { ...d0, status: 'idle' } : d0;"));
+  const app = src('permutation-server/web/frontier/app.mjs');
+  assert.ok(app.includes("const stated = Number(FS.localPlay?.clockScale ?? FS.localPlay?.wideLand?.scale ?? 0);"));
+  assert.ok(app.includes("return stated > 1 && (r === null || Number(r) < stated / 2) ? stated : r;"));
+  const w = src('permutation-server/web/frontier/screens/wideholding.mjs');
+  assert.ok(w.includes("!(FS.ui.wideHostSay.kind === 'wait' && FS.ui.wideHostSay.wait === 'lag' && FS.ui?.wideHost?.waiting?.reason === 'lag' && !FS.ui.wideHostSay.hold)"));
+  const c = src('permutation-server/web/frontier/controller.mjs');
+  assert.ok(c.includes('setNotice({ ...FS.notice, text: () => wideStoresShortText(say) });'), 'the toast follows a language switch');
+});

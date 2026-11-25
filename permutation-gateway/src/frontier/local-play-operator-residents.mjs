@@ -461,7 +461,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     }
   }
   if (stop.signal.aborted) return 0;
-  print(JSON.stringify({ step: 'ready', residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, relay: r.origin, faction: r.memory.faction })) }));
+  print(JSON.stringify({ step: 'ready', residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, relay: r.origin, faction: r.memory.near && !r.memory.near.home ? null : r.memory.faction, ...(r.memory.near ? { near: true } : {}) })) }));
   const posts = new Map(residents.map(r => [r.origin, relayPost(globalThis.fetch, a => { r.lastRefusal = a; })]));
   const postFor = r => posts.get(r.origin);
   const deps = {
