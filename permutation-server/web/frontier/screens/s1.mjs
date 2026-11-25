@@ -755,7 +755,7 @@ export function renderS1Village(FS) {
     : pl.fort !== null ? html`<p class="notice" role="status" data-plan="fort" data-plan-id="${pl.id ?? ''}">${L`地図で選んだ要塞：マス ${pl.fort}。要塞の欄の最初の選択にしました。欄で選び直すと、兵を入れるのは選び直した要塞です。入れる人数は、あなたが決めてください。`} ${unpick}</p>` : '';
   const haveText = s => (s.kind === 'vault' && !s.known ? L`在庫はまだ読み込んでいません`
     : s.have.slice(0, 6).map((v, i) => (v > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(v))}` : '')).filter(Boolean).join(' · ') || L`空`);
-  const dstOption = (d, i) => html`<option value="${i}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
+  const dstOption = (d, i) => html`<option value="${i}" data-key="${placeKey(d)}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
     <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" data-have="${haveOf6(s).join(',')}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
@@ -763,6 +763,7 @@ export function renderS1Village(FS) {
       ? html`<optgroup label="${L`あなたの場所`}">${ownDst.map(([d, i]) => dstOption(d, i))}</optgroup><optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
       : ownDst.map(([d, i]) => dstOption(d, i))}</select></label>
     <input type="hidden" name="places" value="${m.destinations.map(placeKey).join('|')}">
+    <input type="text" name="picked" value="" hidden tabindex="-1" aria-hidden="true" autocomplete="off">
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${haveOf6(srcNow)[x.i] ?? 0}" step="1" value="0" inputmode="numeric"></div>`)}
     <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
     <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>

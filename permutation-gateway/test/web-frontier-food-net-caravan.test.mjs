@@ -278,3 +278,66 @@ test('the send: the chosen place is checked; a list that changed under the form 
   const en = web('lang/en-frontier-play.mjs');
   assert.ok(en.includes('"The destination list has changed (a place that goes out of sight leaves the list). No caravan was sent. Choose the destination again."'));
 });
+
+// (verify-pr244) The form is drawn again about once a second at ×60 while it is open (app.mjs keepState). The options'
+// values are indexes, and a village coming into or leaving sight moves every index after it: the redraw put the person's
+// choice on ANOTHER place, and the hidden `places` was drawn again with it, so the check above let it go there. The
+// choice is now kept by its place (`data-key`), and the place chosen in the field (`picked`) is what the send checks.
+test('a redraw keeps the chosen PLACE, not its index; a chosen place that left the list is refused at the send', async () => {
+  const { keepState } = await import('../../permutation-server/web/frontier/app.mjs');
+  const opt = (i, key, sel = false) => ({ tagName: 'OPTION', value: String(i), defaultSelected: sel, dataset: { key } });
+  const build = keys => {
+    const options = keys.map((k, i) => opt(i, k, i === 0));
+    const select = { tagName: 'SELECT', name: 'dst', dataset: {}, options, value: '0', closest: s => (s === 'form[data-form]' ? { dataset: { form: 's1-caravan' } } : null), matches: () => false,
+      get selectedOptions() { return options.filter(o => o.value === this.value); } };
+    const picked = { tagName: 'INPUT', type: 'text', name: 'picked', dataset: {}, value: '', defaultValue: '', closest: select.closest, matches: () => false };
+    return { select, picked, el: { querySelectorAll: s => (s === 'input, select, textarea' ? [select, picked] : []), contains: () => false } };
+  };
+  let cur = build(['holding:0:0:s0', 'holding:1:0:s1', 'holding:5:0:s0']);
+  const el = { contains: () => false, querySelectorAll: s => cur.el.querySelectorAll(s) };
+  cur.select.value = '2'; cur.picked.value = 'holding:5:0:s0';
+  // the village at index 1 leaves sight: the chosen one is now at index 1
+  keepState(el, () => { cur = build(['holding:0:0:s0', 'holding:5:0:s0']); }, null);
+  assert.equal(cur.select.value, '1', 'the same place stays chosen');
+  assert.equal(cur.picked.value, 'holding:5:0:s0', 'the place chosen is kept over the redraw');
+  // a nearer village comes into sight in front of it
+  keepState(el, () => { cur = build(['holding:0:0:s0', 'holding:2:0:s3', 'holding:5:0:s0']); }, null);
+  assert.equal(cur.select.value, '2');
+  // the chosen place leaves sight: the field falls back to its first choice, and `picked` still names the place chosen
+  keepState(el, () => { cur = build(['holding:0:0:s0', 'holding:2:0:s3']); }, null);
+  assert.equal(cur.select.value, '0');
+  assert.equal(cur.picked.value, 'holding:5:0:s0');
+  // the markup: every destination option names its place; the field for the chosen place is there, empty
+  const html = String(SCR.renderS1Village(fogWorld()));
+  assert.match(html, /<option value="0" data-key="holding:0:0:s0" >村（0, 0）<\/option><option value="1" data-key="holding:1:0:s2" selected>/);
+  assert.match(html, /<input type="text" name="picked" value="" hidden tabindex="-1" aria-hidden="true" autocomplete="off">/);
+  const app = web('frontier/app.mjs');
+  assert.ok(app.includes("if (dst) { if (dst.form?.elements?.picked) dst.form.elements.picked.value = dst.selectedOptions?.[0]?.dataset?.key ?? ''; return; }"), 'a change of the field writes the place chosen');
+});
+
+test('the send checks the place chosen in the field: not at the index any more → nothing sent, and the next press sends what the field shows', async () => {
+  const saved = { ...FS };
+  const sent = [];
+  const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
+  io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
+  try {
+    FOG.resetFogNow();
+    const provinces = new Map();
+    for (const c of CAR.landsWanted({ p: 0, q: 0 }, { p: 1, q: 0 })) provinces.set(`${c.p},${c.q}`, { province: prov(c.p, c.q) });
+    Object.assign(FS, world({ provinces }), { wallet: { address: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr' }, session: { publicKey: V.program, sign: async () => new Uint8Array(64) }, notice: null, inFlight: 0 });
+    C.useTransport({ submit: async req => { sent.push(req); return { ok: false, code: 'Stop' }; } });
+    const keys = SCR.s1VillageModel(FS).destinations.map(SCR.placeKey);
+    // the person chose a place that is no longer in the list (the redraw left the field on index 1, another place)
+    const picked = { value: 'holding:9:9:s1' };
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '1' }, places: { value: keys.join('|') }, picked, c1: { value: '120' } } });
+    assert.equal(sent.length, 0, 'the drawn list agrees with the field, but the place chosen is gone: nothing is sent');
+    assert.match(String(FS.notice?.text ?? ''), /行き先の一覧が変わりました/);
+    assert.equal(picked.value, '', 'the next press sends to what the field shows');
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '1' }, places: { value: keys.join('|') }, picked, c1: { value: '120' } } });
+    assert.equal(sent.length, 1);
+    // the place chosen is still at the index: sent
+    await C.FORMS['s1-caravan']({ elements: { src: { value: '0' }, dst: { value: '1' }, places: { value: keys.join('|') }, picked: { value: keys[1] }, c1: { value: '120' } } });
+    assert.equal(sent.length, 2);
+    assert.deepEqual([sent[1].fields.dst_kind, sent[1].fields.dst_p, sent[1].fields.dst_q, sent[1].fields.dst_at], [1, 1, 0, 2]);
+  } finally { for (const k of Object.keys(FS)) delete FS[k]; Object.assign(FS, saved); C.useTransport(null); }
+});

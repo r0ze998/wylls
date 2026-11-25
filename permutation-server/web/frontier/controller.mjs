@@ -4014,8 +4014,15 @@ function s1CaravanFromForm(f) {
   const srcIndex = Math.trunc(formNum(f, 'src') || 0), dstIndex = Math.trunc(formNum(f, 'dst'));
   // (food-net-caravan, Q-LP17-4: the destination list follows what is in sight; the option chosen names its place —
   //  screens/s1.mjs placeKey — and a list that changed under it since the form was drawn sends nothing)
-  const drawn = f?.elements?.places?.value, chosen = typeof drawn === 'string' ? drawn.split('|')[dstIndex] ?? null : null;
-  if (chosen && placeKey(s1VillageModel(FS).destinations[dstIndex]) !== chosen) return Promise.resolve(s1Refused(L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。`));
+  //  (verify-pr244: `picked` is the place the person chose in the field — kept over redraws, which move the options as
+  //   places come into and leave sight —; without it, the place the drawn list named at that index)
+  const drawn = f?.elements?.places?.value, picked = f?.elements?.picked?.value;
+  const chosen = typeof picked === 'string' && picked ? picked : typeof drawn === 'string' ? drawn.split('|')[dstIndex] ?? null : null;
+  if (chosen && placeKey(s1VillageModel(FS).destinations[dstIndex]) !== chosen) {
+    // (the field shows the list as it is now: a second press sends to what it shows)
+    if (f?.elements?.picked) f.elements.picked.value = '';
+    return Promise.resolve(s1Refused(L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。`));
+  }
   const at = s1PlanAtSend({ srcIndex, dstIndex });
   return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
 }

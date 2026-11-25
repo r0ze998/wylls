@@ -643,11 +643,15 @@ export function keepState(el, render, scroller = el) {
   // a button, a summary or a link is found again by what it does: its action and data, then its place among its like
   const actOf = x => `${x.tagName}|${x.dataset?.act ?? ''}|${JSON.stringify({ ...x.dataset })}|${x.closest('[data-fold]')?.dataset.fold ?? ''}`;
   const nthOf = x => [...el.querySelectorAll(x.tagName)].filter(y => actOf(y) === actOf(x)).indexOf(x);
-  const typed = new Map(), picked = new Map(), folds = new Map();
+  const typed = new Map(), picked = new Map(), folds = new Map(), placed = new Map();
   for (const x of el.querySelectorAll('input, select, textarea')) {
     // a control bound to the store (data-bind, data-act) is the store's to restore
     if (x.type === 'checkbox') continue;
     if (x.type === 'radio') { if (x.checked && !x.defaultChecked && !x.dataset.bind && !x.dataset.act) picked.set(keyOf(x), x.value); continue; }
+    // (verify-pr244: a select whose options name their place — `data-key`, the caravan's destinations, whose list follows
+    //  the fog — keeps the PLACE chosen, not the option's index: a village that came into or left sight moved every index
+    //  after it, and the redraw put the choice on another place)
+    if (x.tagName === 'SELECT' && !x.dataset.bind && x.selectedOptions?.[0]?.dataset?.key) { const def = [...x.options].find(o => o.defaultSelected) ?? x.options[0]; if (x.selectedOptions[0].dataset.key !== def?.dataset?.key) placed.set(keyOf(x), x.selectedOptions[0].dataset.key); continue; }
     if (x.tagName === 'SELECT') { if (!x.dataset.bind && x.value !== ([...x.options].find(o => o.defaultSelected) ?? x.options[0])?.value) picked.set(keyOf(x), x.value); continue; }
     if (x.value !== (x.defaultValue ?? x.value)) typed.set(keyOf(x), x.value);
   }
@@ -675,9 +679,10 @@ export function keepState(el, render, scroller = el) {
   // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
   // typing in the Muster form opened from its fold lost the focus at the first key's redraw
   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
-  if (typed.size || picked.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
+  if (typed.size || picked.size || placed.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
     const k = keyOf(x);
     if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
+    else if (x.tagName === 'SELECT' && placed.has(k)) { const o = [...x.options].find(y => y.dataset?.key === placed.get(k)); if (o) x.value = o.value; }
     else if (x.tagName === 'SELECT') { if (picked.has(k) && [...x.options].some(o => o.value === picked.get(k))) x.value = picked.get(k); }
     else if (typed.has(k) && x.type !== 'checkbox') x.value = typed.get(k);
     if (k === focusKey && (x.type !== 'radio' || x.checked)) {
@@ -4762,6 +4767,9 @@ function delegate(doc) {
     // (fix-loop6, LP6-13: the caravan's amounts are bounded by the stock of the source now selected)
     const src = e.target.closest?.('form[data-form="s1-caravan"] select[name="src"]');
     if (src) { capCaravanAmounts(src); return; }
+    // (verify-pr244: the destination the person chose, by its place — the send refuses if the list no longer holds it there)
+    const dst = e.target.closest?.('form[data-form="s1-caravan"] select[name="dst"]');
+    if (dst) { if (dst.form?.elements?.picked) dst.form.elements.picked.value = dst.selectedOptions?.[0]?.dataset?.key ?? ''; return; }
     const el = e.target.closest?.('[data-bind]');
     if (!el) return;
     if (w4Bind(el.dataset.bind, el.value)) invalidate('panel');
