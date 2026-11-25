@@ -155,7 +155,7 @@ test('English chip for the active village: British spelling, none of the banned 
   try {
     for (const h of [A, B]) {
       const t = String(renderLandChip(landSummary(FS, h, F), landElsewhere(FS, h, F)));
-      assert.match(t, /Claimed in this province: \d+ tiles · production \+\d+%/);
+      assert.match(t, /Fields in this province: \d+ tiles · production \+\d+%/);
       assert.doesNotMatch(t, /[぀-ヿ一-鿿]/);
       assert.doesNotMatch(t, /\bsettle|keeper|beacon|\bseed\b/i);
       assert.doesNotMatch(t, /\b(color|center|harbor|defense|neighbor)\b/i);

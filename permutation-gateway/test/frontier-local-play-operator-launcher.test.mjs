@@ -80,13 +80,17 @@ test('the command line: 1-4 residents, natural worlds only, their ports inside t
   await assert.rejects(parseConfig([...argv({ ...base, 'prize-epochs': 'on' }), '--external-residents', '11111111111111111111111111111112']), e => e.code === 'AiResidentsInPaidWindow');
 });
 
-test('a natural world with two residents: funded like the player, one relay each pinned to its wallet; the page is told nothing', { timeout: 60000 }, async t => {
+test('a natural world with two residents: funded like the player, one relay each pinned to its wallet; the page is told only which nations have one', { timeout: 60000 }, async t => {
   const { c, read, funded, worldDir } = await tree(t);
   let stops = 0;
   const w = await startWorld(c, WALLET, 0, () => { stops++; });
   t.after(() => w.stop());
-  // the answer the page gets has no word about the residents (Y2: shown as any other resident)
-  assert.deepEqual(Object.keys(w).filter(k => /operator|resident|ai/i.test(k)), []);
+  // the answer the page gets has no word about WHO the residents are (Y2: shown as any other resident) — only the
+  // nations that have one, as numbers, for the nation picker's "AI present" mark (owner 2026-11-25 12:04 Q-LP16-4 (a);
+  // verify-pr237: this test still said "the page is told nothing" and failed on the new field)
+  assert.deepEqual(Object.keys(w).filter(k => /operator|resident|ai/i.test(k)), ['aiNations']);
+  assert.deepEqual(w.aiNations, [1, 4]);
+  assert.ok(!JSON.stringify(w.aiNations).includes(AI[0]) && w.aiNear === undefined);
   assert.deepEqual(funded, AI);
   const r0 = await read('relay-41440.json'), r1 = await read('relay-41441.json');
   const arg = (a, k) => a[a.indexOf(k) + 1];

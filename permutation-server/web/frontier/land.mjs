@@ -70,9 +70,9 @@ export function landTileLines(info, { viewer = null, nameOf = f => String(f) } =
   if (!info) return [];
   const out = [];
   const mine = info.owner !== null && info.owner === viewer;
-  if (info.owner === null) out.push({ text: L`どの国の土地でもない空き地（領土の試験）`, tone: '' });
-  else if (info.village) out.push({ text: mine ? L`あなたの国の村の土地（領土の試験）` : L`${nameOf(info.owner)}の村の土地（領土の試験）`, tone: mine ? 'you' : '' });
-  else out.push({ text: mine ? L`あなたの国が持つ土地（領土の試験）` : L`${nameOf(info.owner)}が持つ土地（領土の試験）`, tone: mine ? 'you' : '' });
+  if (info.owner === null) out.push({ text: L`どの国の土地でもない空き地（耕地の試験）`, tone: '' });
+  else if (info.village) out.push({ text: mine ? L`あなたの国の村の土地（耕地の試験）` : L`${nameOf(info.owner)}の村の土地（耕地の試験）`, tone: mine ? 'you' : '' });
+  else out.push({ text: mine ? L`あなたの国が持つ土地（耕地の試験）` : L`${nameOf(info.owner)}が持つ土地（耕地の試験）`, tone: mine ? 'you' : '' });
   const c = info.count;
   if (c?.kind === 'take') out.push({ text: c.by === viewer ? L`あなたの国が奪取中：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン` : L`${nameOf(c.by)}が奪取中：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン`, tone: mine ? 'bad' : c.by === viewer ? 'you' : '' });
   else if (c?.kind === 'fade') out.push({ text: L`国の土地から切り離され減っています：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン`, tone: mine ? 'bad' : '' });
@@ -151,7 +151,9 @@ export function renderLandChip(s, far = null) {
 }
 
 function homeChip(s) {
-  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}"><span class="land-chip-long">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}${s.perHour > 0 ? L`（毎時 +${fmtNum(s.perHour)}）` : ''}</span><span class="land-chip-short" aria-hidden="true">${L`領土 ${fmtNum(s.claimed)} マス · +${fmtNum(s.bonusPct)}%`}</span></span>`;
+  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`村の耕地（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。自分の領土（広い土地で取るマス）とは別のものです。`}"><span class="land-chip-long">${L`この州の耕地 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}${s.perHour > 0 ? L`（毎時 +${fmtNum(s.perHour)}）` : ''}</span><span class="land-chip-short" aria-hidden="true">${L`耕地 ${fmtNum(s.claimed)} マス · +${fmtNum(s.bonusPct)}%`}</span></span>`;
+  // (fix-loop16, owner 2026-11-25 12:04 Q-LP16-3 (a): the village's worked land is "Fields" / 「耕地」 — "Land … tiles" /
+  //  「領土」 read as the player's own territory, which is the wide land's tiles, a different thing)
   // (fix-loop13, LP13-2: the top bar shows the short form — the long one took the resource strip's room at every width
   //  (verify-pr208: measured at 1280–1920 px); the long one stays for screen readers and in the title, frontier.css)
 }

@@ -22,7 +22,7 @@ export const endedBannerView = ({ kept = false } = {}) => ({ hidden: false, text
  * B21 (loop-play3): the banner while the launcher itself cannot be reached (stopped): a plain line instead of only the
  * dial's red mark. Not an end — a launcher started again takes it away — and no re-read (nothing answers).
  */
-export const launcherLostBannerView = () => ({ hidden: false, text: launcherLostText(), reread: false, lost: true });
+export const launcherLostBannerView = ({ kept } = {}) => ({ hidden: false, text: launcherLostText({ kept }), reread: false, lost: true });
 
 /** The re-read button's words. */
 export const rereadLabel = () => L`最新の状態を読み直す`;

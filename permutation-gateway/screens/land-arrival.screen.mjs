@@ -165,7 +165,7 @@ for (const lang of ['en', 'ja']) test(`land layer (${lang} @ 1440): another nati
     // the strip's land chip counts the viewer's claimed tile in this province when it is the viewer's
     await setLand('me', false); await settle(page);
     const chip = await page.locator('#land-chip-box .land-chip').first().textContent();
-    assert.match(chip, lang === 'en' ? /Claimed in this province: 1 tile/ : /この州で獲得 1 マス/);
+    assert.match(chip, lang === 'en' ? /Fields in this province: 1 tile/ : /この州の耕地 1 マス/);
     for (const t of [chip, held]) if (lang === 'en') assert.doesNotMatch(t, JA); else assert.match(t, JA);
     assert.deepEqual(posts, [], 'nothing is sent');
     assert.deepEqual(errors, []);

@@ -24,7 +24,7 @@ import { AGENTS_REFRESH_MS, delegatedTo, delegationOf, loadAgents, refusalNote, 
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
-import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, buildItemOf, UNIT_ORDER } from './fland.mjs';
+import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, buildItemOf, UNIT_ORDER, trainingCost } from './fland.mjs';
 import { BUILDINGS, TIERS, unitCount, failureText, departRefusedReason } from './fi18n.mjs';
 import { villageInUse } from './hud/rulebook.mjs';
 import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS, HOST_TROOPS } from './hud/rulebook.mjs';
@@ -82,6 +82,7 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { expeditionHoldText } from './screens/tracker.mjs';
+import { wideStoresShortText } from './screens/wideholding.mjs';
 import { custodyLosses, reserveShort, reserveShortText } from './screens/custody.mjs';
 import { heldMarchAnswer } from './screens/villageorders.mjs';
 import { s1On } from './fs1.mjs';
@@ -4403,6 +4404,13 @@ async function wideHostStep(e, mem, { auto = false } = {}) {
     //  with 「もう一度」, both from FS.lastAct: the person's last FORM press, a train at the rim village. That retry would
     //  have trained again there. The refusal is the W2 step's: its own words, and no retry — the card's wait sends again)
     if (FS.notice !== noticeBefore && FS.notice && !FS.notice.ok && !FS.notice.busy && !FS.notice.waiting) setNotice({ ...FS.notice, unsent: 'wide-host-step', retry: false });
+    // (fix-loop16, LP16-2: a WideTrain refused for the village's stores — Insufficient 21 — said 「資源か残高が足りません」 and
+    //  the card went back to 「訓練します」: what is short and when to press again, in the toast and on the card)
+    if (d.name === 'WideTrain' && FS.notice !== noticeBefore && FS.notice?.ok === false && (Number(FS.notice.programCode) === 21 || FS.notice.code === 'Insufficient')) {
+      const say = { kind: 'wait', wait: 'stores', n: d.fields?.n ?? 100, cost: trainingCost(0, Number(d.fields?.n ?? 100), Number(FS.season?.programVersion ?? 1)) ?? [] };
+      FS.ui = { ...FS.ui, wideHostSay: say, wideHostAct: null };
+      setNotice({ ...FS.notice, text: () => wideStoresShortText(say) });   // (a function: the toast follows a language switch)
+    }
     mem.decisions = (mem.decisions ?? 0) + 1;
     // (`act` answers a refusal with its notice — FS.notice — not with a result)
     const n = r === undefined ? FS.notice : r;

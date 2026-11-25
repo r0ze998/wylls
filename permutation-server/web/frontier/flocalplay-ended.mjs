@@ -94,7 +94,11 @@ export function createLauncherWatch({ onLost = () => {}, onBack = () => {}, afte
 }
 
 /** B21: the plain line of a launcher that cannot be reached (the banner and the "About this test world" box). */
-export const launcherLostText = () => L`開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界はいま止まっています。ターンは進まず、命令も送れません。続けるには、開始サービスをもう一度起動し（保存した世界は続きから）、開始ページを開き直してください。`;
+// (fix-loop16, LP16-7: `kept` false — a memory-only world (--wide, --demo): a stopped start service ended it for good, and
+//  「続けるには…（保存した世界は続きから）」 promised a resume it does not have. `kept` unknown (undefined): the old words)
+export const launcherLostText = ({ kept } = {}) => (kept === false
+  ? L`開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界は終わりました。保存されない世界なので、続きからは始められません。ターンは進まず、命令も送れません。もう一度遊ぶには、開始サービスを起動し直して、開始ページから新しい世界を始めてください。`
+  : L`開始サービス（ターミナルで動かしている開始用のプログラム）に届きません。止めたのであれば、この世界はいま止まっています。ターンは進まず、命令も送れません。続けるには、開始サービスをもう一度起動し（保存した世界は続きから）、開始ページを開き直してください。`);
 
 /**
  * The banner's sentence once the launcher no longer runs the world (it replaces the "view is behind" banner: there is
