@@ -158,3 +158,137 @@ async fn grants_are_unavailable_without_the_feature() {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(value["code"], "GrantsUnavailable");
 }
+
+/// (territory-map-2) `/h/world/wide/territory`: one answer per territory
+/// revision, ETag + 304, gzip when asked; refusals by name.
+#[cfg(feature = "wide-world-experimental")]
+#[tokio::test]
+async fn territory_handler_caches_per_revision_with_etag_and_gzip_without_listener() {
+    use frontier_abi::layout::{header as hdr, world::season};
+    use frontier_abi::world_index::territory::{
+        self as wtr, territory_province, TerritoryProvince, TerritoryRule,
+    };
+    let none = HeaderMap::new();
+    let (status, value) =
+        answer(world_wide_territory(State(app(" Fixture ")), none.clone()).await).await;
+    assert_eq!(
+        (status, value["code"].as_str()),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Some("FixtureWorldUnavailable")
+        )
+    );
+    let app = app("localnet");
+    let (status, value) =
+        answer(world_wide_territory(State(app.clone()), none.clone()).await).await;
+    assert_eq!(
+        (status, value["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("NoSeasonYet"))
+    );
+    let mut data = vec![0; season::SIZE];
+    data[..8].copy_from_slice(&season::MAGIC);
+    data[hdr::SEASON_ID..hdr::SEASON_ID + 8].copy_from_slice(&7u64.to_le_bytes());
+    data[hdr::LAYOUT_VERSION..hdr::LAYOUT_VERSION + 2].copy_from_slice(&1u16.to_le_bytes());
+    data[season::PROGRAM_VERSION..season::PROGRAM_VERSION + 2].copy_from_slice(&1u16.to_le_bytes());
+    app.fold.write().unwrap().season = Some(fclient::decode::Season::decode(&data).unwrap());
+    async fn body(res: Response) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let (s, h) = (res.status(), res.headers().clone());
+        (
+            s,
+            h,
+            axum::body::to_bytes(res.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+    }
+    let (s, h, b) = body(world_wide_territory(State(app.clone()), none.clone()).await).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(h[header::CACHE_CONTROL], "public, max-age=5");
+    assert!(h.get(header::CONTENT_ENCODING).is_none());
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    assert_eq!(
+        (
+            v["revision"].as_str(),
+            v["provinces"].as_array().map(Vec::len)
+        ),
+        (Some("0"), Some(0))
+    );
+    let etag0 = h[header::ETAG].to_str().unwrap().to_string();
+    let mut ifnm = HeaderMap::new();
+    ifnm.insert(header::IF_NONE_MATCH, etag0.parse().unwrap());
+    let (s, _, b) = body(world_wide_territory(State(app.clone()), ifnm.clone()).await).await;
+    assert_eq!((s, b.len()), (StatusCode::NOT_MODIFIED, 0));
+    // a claim lands: the revision moves, the old ETag is stale, the new answer names the tile
+    {
+        let mut f = app.fold.write().unwrap();
+        let c = WideCoordForTest::c(130, 0);
+        let mut r = TerritoryProvince::new(
+            7,
+            TerritoryRule::V1,
+            f.wide.as_ref().unwrap().world(),
+            c,
+            30,
+            [9; 32],
+        );
+        r.owner[12] = 4242;
+        r.dist[12] = 1;
+        let mut d = vec![0; territory_province::SIZE];
+        r.write(&mut d).unwrap();
+        let k = wtr::province_address(&f.ctx, c);
+        f.apply(&fclient::ports::TxRecord {
+            seq: 1,
+            slot: 50,
+            signature: Default::default(),
+            block_time: 0,
+            tx: vec![],
+            logs: vec![],
+            err: None,
+            code: None,
+            units: 0,
+            fee: 0,
+            post: vec![(
+                Address::new_from_array(k),
+                Some(fclient::ports::Account {
+                    lamports: 1,
+                    data: d,
+                    owner: Address::new_from_array([0x5e; 32]),
+                    executable: false,
+                }),
+            )],
+            loaded: Default::default(),
+        });
+    }
+    let mut gz = ifnm.clone();
+    gz.insert(header::ACCEPT_ENCODING, "br, gzip".parse().unwrap());
+    let (s, h, b) = body(world_wide_territory(State(app.clone()), gz.clone()).await).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(h[header::CONTENT_ENCODING], "gzip");
+    assert_ne!(h[header::ETAG].to_str().unwrap(), etag0);
+    let mut plain = vec![];
+    std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&b[..]), &mut plain).unwrap();
+    let v: Value = serde_json::from_slice(&plain).unwrap();
+    assert_eq!(v["revision"], "1");
+    assert_eq!(v["tags"], json!(["4242"]));
+    assert_eq!(v["provinces"][0]["tiles"], json!([[12, 0, 1]]));
+    // the cached answer is the same bytes for the next viewer
+    let (_, h2, b2) = body(world_wide_territory(State(app.clone()), gz).await).await;
+    assert_eq!((h2[header::ETAG].clone(), b2), (h[header::ETAG].clone(), b));
+}
+
+#[cfg(feature = "wide-world-experimental")]
+struct WideCoordForTest;
+#[cfg(feature = "wide-world-experimental")]
+impl WideCoordForTest {
+    fn c(p: i64, q: i64) -> frontier_abi::world_index::WideCoord {
+        frontier_abi::world_index::WideCoord::checked(p, q).unwrap()
+    }
+}
+
+#[cfg(not(feature = "wide-world-experimental"))]
+#[tokio::test]
+async fn territory_handler_feature_off_is_unavailable_without_listener() {
+    let (status, value) = answer(world_wide_territory(State(app("localnet"))).await).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(value["code"], "WideWorldUnavailable");
+}

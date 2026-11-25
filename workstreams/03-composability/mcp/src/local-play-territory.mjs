@@ -27,9 +27,12 @@
 // tile, and whether a site has a village.
 //
 // Reads (both the page's own): the herald's public `/h/world/wide/route` (at most four province captures a request),
-// and `read(addresses)` → Uint8Array | null per address — the relay's read-only account read
-// (`frontier-local-play-act-wide-read-v1`: one getMultipleAccounts, program-owned accounts only, nothing sent).
-import { TERRITORY_V1, claimCostV1, tileUpkeepV1, territoryProvinceAddress, territoryPlayerAddress, decodeTerritoryProvince, decodeTerritoryPlayer, citizenTagOf, nearerOwnVillage } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+// the herald's public `/h/world/wide/territory` (territory-map-2, owner 2026-11-25 12:04 Q-TM-4 (c): the territory
+// province records the herald captured — read once a view; a herald without that route falls back to the relay), and
+// `read(addresses)` → Uint8Array | null per address — the relay's read-only account read
+// (`frontier-local-play-act-wide-read-v1`: one getMultipleAccounts, program-owned accounts only, nothing sent), now
+// for the player's own territory record only (and the province records when the herald has no territory route).
+import { TERRITORY_V1, claimCostV1, tileUpkeepV1, territoryProvinceAddress, territoryPlayerAddress, decodeTerritoryProvince, decodeTerritoryPlayer, citizenTagOf, nearerOwnVillage, heraldTerritoryRecords } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { distance, isNationLandBytes, FIRST_WIDE_RING } from '../../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { ringPosition } from '../../../../permutation-server/web/frontier/map/wide.mjs';
 import { tileHex, provinceCentre, hexDistance, TILE_OFFSETS } from '../../../../permutation-server/web/frontier/fgeo.mjs';
@@ -194,7 +197,21 @@ export function createTerritoryReader({ herald, addresses, programId, getJson, r
   }
   return Object.freeze({
     async view({ wallet, home, faction, villages = [], bell = null }) {
-      const reads = { captures: 0, records: 0 };
+      const reads = { captures: 0, records: 0, herald: 0 };
+      // (territory-map-2: the province records from the herald's territory route, once a view; null: that herald has none → the relay)
+      let heraldRecs;
+      const recordsOf = async list => {
+        if (heraldRecs === undefined) {
+          let j = null;
+          try { j = await getJson(`${base}/h/world/wide/territory`); } catch { j = null; }
+          reads.herald++;
+          heraldRecs = heraldTerritoryRecords(j, { seasonAddress: addresses.season, program: programId });
+        }
+        if (heraldRecs) return list.map(c => heraldRecs.get(key(c.p, c.q)) ?? null);
+        reads.records += list.length;
+        const rows = await readMany(list.map(c => territoryProvinceAddress(addresses.season, programId, c.p, c.q)));
+        return rows.map(b => (b ? decodeTerritoryProvince(b) : null));
+      };
       const citizen = addresses.of('Citizen', { wallet }), tag = citizenTagOf(citizen);
       const homeAt = { p: String(home.p), q: String(home.q) };
       // the reachable provinces, round by round: the home's disc, then the discs of where the player owns a tile and of its nation's land
@@ -214,9 +231,8 @@ export function createTerritoryReader({ herald, addresses, programId, getJson, r
         const fresh = [];
         todo.forEach((c, i) => { if (got[i]) answered++; caps.set(key(c.p, c.q), got[i]?.facts ?? null); raws.set(key(c.p, c.q), got[i]?.raw ?? null); if (got[i]?.facts) fresh.push(c); });
         if (fresh.length) {
-          const rows = await readMany(fresh.map(c => territoryProvinceAddress(addresses.season, programId, c.p, c.q)));
-          reads.records += fresh.length;
-          fresh.forEach((c, i) => recs.set(key(c.p, c.q), rows[i] ? decodeTerritoryProvince(rows[i]) : null));
+          const rows = await recordsOf(fresh);
+          fresh.forEach((c, i) => recs.set(key(c.p, c.q), rows[i]));
         }
         frontier = [];
         for (const c of fresh) {

@@ -3,7 +3,7 @@
 // (permutation-server/web/frontier/flocalplay-territory.mjs), and a fake herald route + relay account read over them.
 // KEY-FREE. Not a test file itself.
 import { seasonAddresses } from '../../../../permutation-server/web/frontier/faddr.mjs';
-import { territoryProvinceAddress, territoryPlayerAddress, citizenTagOf } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { territoryProvinceAddress, territoryPlayerAddress, citizenTagOf, decodeTerritoryProvince } from '../../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 
 export const PROGRAM = 'Vote111111111111111111111111111111111111111', WALLET = 'SysvarRent111111111111111111111111111111111', OTHER = 'SysvarC1ock11111111111111111111111111111111', SEASON_ID = '11';
 const ascii = (b, s) => { for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); };
@@ -35,20 +35,33 @@ export function playerRecord({ tag, tiles = 0, excess = 0, unpaidSince = null, l
 
 /**
  * A fake world: `capture(p, q, bytes)`, `record(p, q, bytes)`, `player(wallet, bytes)`; `getJson(url)` answers the
- * herald's `/h/world/wide/route` (at most four places), `read(addresses)` the relay's account read. `calls` counts both.
+ * herald's `/h/world/wide/route` (at most four places) — and, with `heraldTerritory` (territory-map-2, Q-TM-4 (c)), its
+ * `/h/world/wide/territory` (herald wide_territory.rs: the province records' owned tiles as [tile, tag index, dist]) —,
+ * `read(addresses)` the relay's account read. `calls` counts them.
  */
-export function fakeTerritoryWorld({ programId = PROGRAM, seasonId = SEASON_ID } = {}) {
+export function fakeTerritoryWorld({ programId = PROGRAM, seasonId = SEASON_ID, heraldTerritory = false } = {}) {
   const addresses = seasonAddresses(programId, seasonId);
-  const caps = new Map(), accounts = new Map(), calls = { route: 0, read: 0, places: [], asked: [] };
+  const caps = new Map(), accounts = new Map(), recs = new Map(), calls = { route: 0, read: 0, territory: 0, places: [], asked: [] };
   const citizenOf = wallet => addresses.of('Citizen', { wallet });
   return {
     addresses, programId, seasonId, calls, citizenOf,
     tagOf: wallet => citizenTagOf(citizenOf(wallet)),
     capture(p, q, bytes) { caps.set(`${p},${q}`, bytes); return this; },
-    record(p, q, bytes) { accounts.set(territoryProvinceAddress(addresses.season, programId, String(p), String(q)), bytes); return this; },
+    record(p, q, bytes) { accounts.set(territoryProvinceAddress(addresses.season, programId, String(p), String(q)), bytes); recs.set(`${p},${q}`, bytes); return this; },
     player(wallet, bytes) { accounts.set(territoryPlayerAddress(addresses.season, programId, citizenOf(wallet)), bytes); return this; },
     async getJson(url) {
       const u = new URL(url);
+      if (heraldTerritory && u.pathname === '/h/world/wide/territory') {
+        calls.territory++;
+        const tags = [], ix = t => { let i = tags.indexOf(t); if (i < 0) { tags.push(t); i = tags.length - 1; } return i; };
+        const provinces = [];
+        for (const [k, b] of recs) {
+          const r = decodeTerritoryProvince(b), [p, q] = k.split(',');
+          const tiles = r.owners.map((t, i) => (t === null ? null : [i, ix(t), r.dist[i]])).filter(Boolean);
+          if (tiles.length) provinces.push({ p, q, address: territoryProvinceAddress(addresses.season, programId, p, q), slot: '1', archiveSequence: '1', keepTile: r.keepTile, owned: tiles.length, tiles });
+        }
+        return { v: 1, readOnly: true, verification: 'captured-unverified', season: String(seasonId), program: programId, seasonAddress: addresses.season, revision: '1', tags, provinces };
+      }
       if (u.pathname !== '/h/world/wide/route') throw new Error(`unexpected GET ${u.pathname}`);
       const places = decodeURIComponent(u.searchParams.get('at') ?? '').split(';').filter(Boolean);
       if (places.length < 1 || places.length > 4) throw new Error('RoutePlaces');

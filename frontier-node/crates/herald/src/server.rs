@@ -258,12 +258,19 @@ impl HostPolicy {
 type SeasonKey = (u64, Option<(u64, i64)>);
 /// A season answer: body and ETag.
 type SeasonAnswer = Arc<(Vec<u8>, String)>;
+/// A territory answer (`/h/world/wide/territory`): gzip, JSON and ETag.
+#[cfg(feature = "wide-world-experimental")]
+type TerritoryAnswer = Arc<(Vec<u8>, Vec<u8>, String)>;
 
 #[derive(Default)]
 struct LiveCache {
     season: Option<(SeasonKey, SeasonAnswer)>,
     overview: std::collections::BTreeMap<u16, (u64, Arc<Vec<u8>>)>,
     roster: std::collections::BTreeMap<u16, (u64, Arc<Vec<u8>>)>,
+    /// `/h/world/wide/territory` (`wide_territory.rs`): one answer per
+    /// territory revision — `(gzip, json, etag)` — shared by every viewer.
+    #[cfg(feature = "wide-world-experimental")]
+    territory: Option<(u64, TerritoryAnswer)>,
 }
 
 impl App {
@@ -307,6 +314,7 @@ pub fn router(app: Shared) -> Router {
         .route("/h/world/wide", get(world_wide))
         .route("/h/world/wide/page", get(world_wide_page))
         .route("/h/world/wide/route", get(world_wide_route))
+        .route("/h/world/wide/territory", get(world_wide_territory))
         .route("/h/overview/{ring}/{file}", get(overview))
         .route("/h/roster/{ring}/latest.bin", get(roster))
         .route("/h/province/{pq}/{bell}", get(province))
@@ -607,6 +615,66 @@ async fn world_wide_route(
     }
 }
 
+/// `/h/world/wide/territory` (`wide_territory.rs`, territory-map-2): the
+/// captured territory province records' owned tiles, built once per
+/// territory revision (gzip and ETag with it); `If-None-Match` → 304.
+#[cfg(feature = "wide-world-experimental")]
+async fn world_wide_territory(State(app): State<Shared>, h: HeaderMap) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
+    let entry = {
+        let f = read_fold(&app);
+        let Some(rev) = f.wide.as_ref().map(|w| w.territory_revision()) else {
+            return err(StatusCode::SERVICE_UNAVAILABLE, "NoSeasonYet");
+        };
+        let mut c = app.cache.lock().unwrap_or_else(|e| e.into_inner());
+        match &c.territory {
+            Some((r, e)) if *r == rev => e.clone(),
+            _ => {
+                let v = match crate::wide_territory::territory_json(&f) {
+                    Ok(v) => v,
+                    Err(e) => return err(wide_status(e), e.code()),
+                };
+                let body = serde_json::to_vec(&v).unwrap_or_default();
+                let etag = format!("\"{}\"", &hex::encode(Sha256::digest(&body))[..32]);
+                let e = Arc::new((crate::files::gzip(&body), body, etag));
+                c.territory = Some((rev, e.clone()));
+                e
+            }
+        }
+    };
+    let (gz, body, etag) = (&entry.0, &entry.1, &entry.2);
+    let cache = "public, max-age=5";
+    if h.get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == etag))
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag.clone()),
+                (header::CACHE_CONTROL, cache.into()),
+            ],
+        )
+            .into_response();
+    }
+    let mut r = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::CACHE_CONTROL, cache)
+        .header(header::ETAG, etag.as_str())
+        .header(header::VARY, "Accept-Encoding");
+    let out = if accepts_gzip(&h) {
+        r = r.header(header::CONTENT_ENCODING, "gzip");
+        gz.clone()
+    } else {
+        body.clone()
+    };
+    r.body(Body::from(out))
+        .unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "Internal"))
+}
+
 /// `/h/grants?citizen=<base58>` (`grants.rs`): the season's ② Grants from
 /// their records; with `citizen`, only the Grants that Citizen is a party
 /// to (issuer or grantee) — the page asks with its own Citizen and draws
@@ -645,6 +713,11 @@ async fn world_wide_page(State(_app): State<Shared>) -> Response {
 
 #[cfg(not(feature = "wide-world-experimental"))]
 async fn world_wide_route(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
+}
+
+#[cfg(not(feature = "wide-world-experimental"))]
+async fn world_wide_territory(State(_app): State<Shared>) -> Response {
     err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
 }
 

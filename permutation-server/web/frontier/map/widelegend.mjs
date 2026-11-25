@@ -22,15 +22,18 @@ const nation = f => Number.isInteger(f) && f >= 0 && f < 6;
  * (territory-map, owner 2026-11-25 items 5/6) The legend's rows for the land the map draws now: `nations` the nations
  * whose OWNED TILES stand in the picture (map/territorytiles.mjs paintTerritoryTiles; UNKNOWN_NATION: a player's tiles
  * whose nation the page does not know), `keeps` whether a keep held by a nation stands in it (its icon is in that
- * nation's colour: who holds the province). → `[{key, colour, edge, text}]`: the viewer's nation first, the other nations
- * in their order, the land of an unknown nation, then the keep's line. Unowned land is not coloured, so it has no row.
+ * nation's colour: who holds the province), `faded` whether a remembered tile (last seen, out of sight now) is in it.
+ * → `[{key, colour, edge, text}]`: the viewer's nation first, the other nations in their order, the land of an unknown
+ * nation, the faded line, then the keep's line. Unowned land is not coloured, so it has no row.
  */
-export function territoryLegendRows(nations, { viewer = null, keeps = false } = {}) {
+export function territoryLegendRows(nations, { viewer = null, keeps = false, faded = false } = {}) {
   const ns = [...new Set((Array.isArray(nations) ? nations : []).filter(h => nation(h) || h === UNKNOWN_NATION))];
   const rows = [];
   if (nation(viewer) && ns.includes(viewer)) rows.push({ key: `n${viewer}`, colour: NATION_LAND[viewer], edge: NATION_DARK[viewer], text: L`あなたの国（${factionName(viewer)}）` });
   for (const h of ns.filter(h => nation(h) && h !== viewer).sort((a, b) => a - b)) rows.push({ key: `n${h}`, colour: NATION_LAND[h], edge: NATION_DARK[h], text: factionName(h) });
   if (ns.includes(UNKNOWN_NATION)) rows.push({ key: 'unknown', colour: UNKNOWN_LAND, edge: UNKNOWN_DARK, text: L`国のわからないプレイヤーの土地` });
+  // (territory-map-2, Q-TM-1 (b): a tile out of sight shows the owner it had when last seen, faded — said once when one is in the picture)
+  if (faded && rows.length) rows.push({ key: 'faded', colour: null, edge: null, text: L`薄い色：前に見たときの持ち主（いまは見えていません）` });
   if (keeps) rows.push({ key: 'keep', colour: null, edge: null, text: L`城の色：その州を持つ国` });
   return rows;
 }
@@ -64,7 +67,7 @@ export function mountWideLegend({ doc = globalThis.document, parent = null, onLa
   const write = () => {
     // (verify-pr205: the holders of the land in the picture, `shown`; `holders` is all the frame painted, margin included)
     // (territory-map: the nations whose owned tiles are in the picture, and the keeps' line when a nation's keep is)
-    const rows = drawnNow ? territoryLegendRows(drawnNow.nations ?? [], { viewer: viewerNow, keeps: (drawnNow.keeps ?? []).length > 0 }) : [];
+    const rows = drawnNow ? territoryLegendRows(drawnNow.nations ?? [], { viewer: viewerNow, keeps: (drawnNow.keeps ?? []).length > 0, faded: (drawnNow.territory?.faded ?? 0) > 0 }) : [];
     const key = `${L`土地の持ち主`}|${rows.map(r => `${r.key}:${r.text}`).join(',')}`;
     if (key === last) return rows;
     last = key;
