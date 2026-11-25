@@ -365,6 +365,7 @@ permutation-gateway/test/web-frontier-ready-again-card.test.mjs
 permutation-gateway/test/web-frontier-ready-again.test.mjs
 permutation-gateway/test/web-frontier-recorded.test.mjs
 permutation-gateway/test/web-frontier-rent-live.test.mjs
+permutation-gateway/test/web-frontier-research-toast.test.mjs
 permutation-gateway/test/web-frontier-resident.test.mjs
 permutation-gateway/test/web-frontier-rights.test.mjs
 permutation-gateway/test/web-frontier-route-bounded.test.mjs
