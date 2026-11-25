@@ -102,14 +102,16 @@ export const researchRefusalText = pc => (pc === 13 ? L`研究はまだ始まっ
  * `b` = worldGoals.current()), the two-press pledge of the village's science, and the effects of the techs the nation
  * knows that have not reached this village yet. '' without research or a nation.
  */
-export function villageResearchCard(FS, h, { science, busy = false, answer = null } = {}) {
+export function villageResearchCard(FS, h, { science, busy = false, answer = null, mask: rawMask = null } = {}) {
   const g = answer?.read === 'ok' ? answer.goals : null;
   const r = g?.research, me = FS?.citizen?.faction;
   if (!r || !goodResearch(r) || !nation(me) || !h) return '';
   const v = r.view, bell = g.bell;
   const started = !v.paused && !(int(bell) && bell < v.startBell);
   const sci = Math.max(0, Math.floor(Number(science) || 0));
-  const mask = h.researchMask ?? null;
+  // (the mask rides on the herald's decoded holding, not enumerable: a settled copy of it has none — the screen passes
+  //  the raw holding's; verify-pr232)
+  const mask = rawMask ?? h.researchMask ?? null;
   const inVillage = mask && mask.nation === me ? mask.techs : 0;
   const known = v.techs.filter(t => t.mine?.known).reduce((a, t) => a | (1 << t.id), 0);
   const pending = known & ~inVillage;

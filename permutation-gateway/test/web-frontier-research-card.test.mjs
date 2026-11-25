@@ -65,6 +65,12 @@ test('the village card: the two presses, the banked-science note, the effects no
   const fx = String(RC.villageResearchCard(FS(), { ...h, researchMask: { techs: 0, nation: null, rebased: true } }, { science: 0, answer: kb }));
   assert.match(fx, /data-act="research-apply"/);
   assert.match(text(fx), /Masonry/);
+  // (verify-pr232) the screen passes the RAW holding's mask: its settled copy has none (the mask is not enumerable).
+  // Masonry already here, the cut done: no apply button, no cut note, "in effect" instead
+  const here = String(RC.villageResearchCard(FS(), h, { science: 0, answer: kb, mask: { techs: 0b10, nation: ME, rebased: true } }));
+  assert.doesNotMatch(here, /data-act="research-apply"/);
+  assert.doesNotMatch(text(here), /Science stored before research started/);
+  assert.match(text(here), /Masonry/);
   setLang('ja');
 });
 

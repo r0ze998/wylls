@@ -581,6 +581,6 @@ export function render(FS) {
   const claimCard = wideClaimCard(FS, m, actionBusy), outpost = outpostCard(FS, m, actionBusy);
   const wideCard = claimCard && outpost ? html`${claimCard}${outpost}` : claimCard || outpost;
   // (world goal ②, research: the village's science to the nation's research — hud/research.mjs; only with the judge)
-  const researchCard = villageResearchCard(FS, h, { science: m.have[RESOURCE_ORDER.indexOf('Science')] ?? 0, busy: actionBusy, answer: currentGoals() });
+  const researchCard = villageResearchCard(FS, h, { science: m.have[RESOURCE_ORDER.indexOf('Science')] ?? 0, busy: actionBusy, answer: currentGoals(), mask: m.rawHolding?.researchMask ?? null });
   return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(researchCard ? [researchCard] : []), ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }
