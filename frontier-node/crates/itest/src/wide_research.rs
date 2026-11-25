@@ -1,7 +1,7 @@
 //! **TEST-ONLY research duty** in a local wide world (world goal ②, research-impl; owner r0ze 2026-11-25 08:56 JST:
-//! every Q-RS recommendation; program `proc/wide_research.rs`). The world starts research at its genesis (bell 0;
-//! `natural_play` sends WideStartResearch with the Season authority right after the wide land's growth), so every
-//! nation starts from 0 science at the same bell (Q-RS-3 (b)).
+//! every Q-RS recommendation; program `proc/wide_research.rs`). The world starts research during its preparation
+//! (`natural_play` sends WideStartResearch with the Season authority right after the wide land's growth, at the bell
+//! the chain is on then, before anyone joins), so every nation starts from 0 science at the same bell (Q-RS-3 (b)).
 //!
 //! The pledges are the players' (page, AI residents). What the program leaves to a class-D crank — on devnet a keeper
 //! `research` role (not built yet), here this duty because play-local runs no keeper crate — is, once a bell:
@@ -99,9 +99,10 @@ fn ixs_of(a: &Addresses, payer: fclient::Address, s: &Step) -> Vec<Instruction> 
     }
 }
 
-/// The world's WideStartResearch (the Season authority), sent once at the world's preparation (start bell 0).
-pub fn start_ix(a: &Addresses, authority: fclient::Address) -> Instruction {
-    kr::start(a, authority, RULE, 0)
+/// The world's WideStartResearch (the Season authority), sent once at the world's preparation (`start_bell`: the
+/// chain's bell then — the program refuses a start bell before the current one).
+pub fn start_ix(a: &Addresses, authority: fclient::Address, start_bell: u32) -> Instruction {
+    kr::start(a, authority, RULE, start_bell)
 }
 
 /// The duty (module doc), until `stop`.
