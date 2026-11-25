@@ -877,8 +877,11 @@ The world's operator gives it no privilege and never sees its key. The page show
    a turn, and its one action a turn), then the village on its own tile, and afterwards one more tile next to its land
    from time to time. It buys such a growth tile only from ore it does not need — the ore beyond its build plan, its
    reserve and one training hundred — at most one every 6 turns, up to 24 tiles, and only while its land's upkeep
-   stays within a tenth of its first village's food per hour. (These four are the resident's own pace, not rules of the
-   world: the operator AI residents buy a tile whenever the ore covers it, and in loop-play15 they then failed to train.)
+   stays within a tenth of its first village's food per hour. The tile under its next village's site is bought once the
+   first village's ore pays it and still leaves one training hundred (30 ore for the first tile). (These are the
+   resident's own pace, not rules of the world. The operator AI residents keep ore back for their troops too since
+   ai-ore-reserve, §4.1; in loop-play15, before that, they bought a tile whenever the ore covered it and then failed
+   to train.)
 
    Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
    resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.
