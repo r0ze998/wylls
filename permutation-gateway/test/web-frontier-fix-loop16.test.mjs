@@ -37,7 +37,7 @@ test('Q-LP16-1 (b): the card keeps 4 + 6 rows, and a province with own tiles or 
   expeditionHoldsOf(FS).set('c3', { to: { p: '-65', q: '129' }, outcome: 'taken', keepLostAt: 300 });
   expeditionHoldsOf(FS).set('c4', { to: { p: '-61', q: '129' }, outcome: 'taken' });
   const got = claimPins(FS);
-  assert.deepEqual([...got].sort(), [['-61,129', 'siege'], ['-62,129', 'siege'], ['-62,130', 'tiles'], ['-63,129', 'siege']]);
+  assert.deepEqual([...got].sort(), [['-61,129', 'keep'], ['-62,129', 'siege'], ['-62,130', 'tiles'], ['-63,129', 'siege']]);
   assert.equal(claimPins({ ui: { wideHostSay: { kind: 'wait', march: { to: { p: '1', q: '129' }, phase: 'gone' } } } }).size, 0, 'a march that is gone pins nothing');
   assert.equal(claimPins({ ui: { wideHostSay: { kind: 'decision', name: 'WideDepart', to: { p: '1', q: '129', holder: 6 } } } }).get('1,129'), 'siege');
   assert.equal(claimPins({}).size, 0);
@@ -129,7 +129,10 @@ test('LP16-5 / LP16-6 / LP16-8: a keep of no nation, the road\'s limit and the k
   const w = src('permutation-server/web/frontier/screens/wideholding.mjs');
   assert.ok(w.includes("if (say.name === 'WideDepart' && say.to?.holder === 6) return L`軍勢（兵 ${fmtNum(Number(say.troops ?? 0))}）が州 ${at(say.to)} の砦へ進軍します（どの国のものでもない砦）。"));
   const hand = src('permutation-server/web/frontier/hud/hand.mjs');
-  assert.ok(hand.includes(": s.error === 'PathTooLong' || s.error === 'PathProvinces' ? L`道の形は 32 マス・4 州までです。` + ' ' + L`この一歩は足せません。「一歩戻す」で道を変えるか、もっと近い砦を選んでください。`"));
+  assert.ok(hand.includes('${s.stepRefused ? html`<p class="pop-line pop-why outbound-step-refused" role="status">${L`道の形は 32 マス・4 州までです。`} ${L`この一歩は足せません。「一歩戻す」で道を変えるか、もっと近い砦を選んでください。`}</p>` : \'\'}'));
+  const comp = src('permutation-server/web/frontier/fexpedition-compose.mjs');
+  assert.ok(comp.includes("if (s.error === 'PathTooLong' || s.error === 'PathProvinces') s.stepRefused = s.error; return false; }"));
+  assert.ok(comp.includes("s.directions = directions; s.stepRefused = null;"), 'a step that lands clears it');
   const f = src('permutation-server/web/frontier/flocalplay.mjs');
   assert.ok(f.includes('title.textContent = launcher && persisted ? L`この端末の世界で遊ぶ` : launcher ? L`新しい世界で遊ぶ` : L`ローカルプレイの準備`;'));
 });

@@ -2514,6 +2514,7 @@ export default {
   "賞金はまだ払われません（試算です）。お金もチェーンも動きません": "No prize is paid yet (this is an estimate). No money moves and nothing is written on chain",
   // fix-loop16 (owner 2026-11-25 12:04 Q-LP16-1..4 and the plain LP16 fixes)
   "あなたの軍勢が砦を奪っている州": "your host is taking this keep",
+  "あなたの軍勢が砦を奪った州": "your host took this keep",
   "あなたのマスがある州": "you own tiles here",
   "AIあり": "AI present",
   "この国にはAIの住民がいます。選ぶと、そのAIは同じ国の仲間になります。": "This nation has an AI resident. If you choose it, that AI is your nation-mate.",

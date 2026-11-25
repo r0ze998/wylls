@@ -51,17 +51,18 @@ import { outpostCard } from './outpostcard.mjs';
 /**
  * (fix-loop16, Q-LP16-1 (b)) The provinces whose rows the wide claim card never drops: Map "p,q" → 'tiles' (this player
  * owns a tile there: the page's own memory of the tile claims that landed in this visit, `FS.ui.ownTiles`, keys
- * "p,q,tile") or 'siege' (a host of this player is taking that province's keep, or has taken it: a kept expedition's
- * followed hold that is not lost — flocalplay-expedition.mjs expeditionHoldsOf — or the wide village's host marching on
- * or holding it — `FS.ui.wideHostSay`). 'siege' wins where both hold. Display only: nothing is read from the chain here.
+ * "p,q,tile"), 'siege' (a host of this player is taking that province's keep: a kept expedition's followed hold that
+ * is not lost — flocalplay-expedition.mjs expeditionHoldsOf — or the wide village's host marching on or holding it —
+ * `FS.ui.wideHostSay`) or 'keep' (that hold ended with the keep taken). 'siege' / 'keep' win over 'tiles'. Display only: nothing is read from the chain here.
  */
 export function claimPins(FS) {
   const pins = new Map();
   for (const k of Object.keys(FS?.ui?.ownTiles ?? {})) { const m = /^(-?\d+),(-?\d+),\d+$/.exec(k); if (m && FS.ui.ownTiles[k]) pins.set(`${m[1]},${m[2]}`, 'tiles'); }
-  const siege = to => { if (to && to.p !== undefined && to.q !== undefined) pins.set(`${String(to.p)},${String(to.q)}`, 'siege'); };
-  for (const h of expeditionHoldsOf(FS ?? {}).values()) if (h?.to && h.outcome !== 'lost' && !Number.isInteger(h.keepLostAt)) siege(h.to);
+  // ('keep': the hold ended with the keep taken — the row says 「奪った」, not 「奪っている」)
+  const siege = (to, taken = false) => { if (to && to.p !== undefined && to.q !== undefined) pins.set(`${String(to.p)},${String(to.q)}`, taken ? 'keep' : 'siege'); };
+  for (const h of expeditionHoldsOf(FS ?? {}).values()) if (h?.to && h.outcome !== 'lost' && !Number.isInteger(h.keepLostAt)) siege(h.to, h.outcome === 'taken');
   const say = FS?.ui?.wideHostSay ?? null;
-  if (say?.hold?.to && say.hold.outcome !== 'lost') siege(say.hold.to);
+  if (say?.hold?.to && say.hold.outcome !== 'lost') siege(say.hold.to, say.hold.outcome === 'taken');
   if (say?.march?.to && say.march.phase !== 'gone') siege(say.march.to);
   if (say?.kind === 'decision' && say.name === 'WideDepart' && say.to) siege(say.to);
   return pins;
@@ -150,8 +151,8 @@ function wideClaimCard(FS, m, busy) {
     ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span></span>
       <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
-    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
+    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
       ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}

@@ -71,6 +71,7 @@ Options:
 | `--random-map` | give the new world its own map. Without it **every local world has the same map** | `--resume` |
 | `--ai N` | AI residents, 0–4 (default 2). **At war by default**: they march on other nations' reachable keeps and siege them (one action per resident per turn) | |
 | `--ai-peaceful` | the AI residents do not march on keeps (build, harvest, train, muster; in `--wide` they still take rim and wide villages and send expeditions) | |
+| `--ai-near` | with `--wide` and `--ai 1–4` (off by default): one AI resident waits for your first village, then joins the nearest **other** nation and puts its village on the rim beside yours (3 provinces away on the standard map) and claims wide land toward you (§4, "An AI neighbour") | anything but `--wide` |
 | `--two` | two people in one world (§3.1) | `--wide` `--external` |
 | `--coexist` | a world with ②+⑨+⑩ (§10, §12; ① request caravans only here, §13): a kept world or `--demo`; works with `--ai` `--two` `--random-map` `--resume` `--external` | `--wide` |
 | `--external ADDR[,ADDR]` | admit up to two external AI residents by their **public addresses** (§11; never a key). Also starts the read-only MCP server on 127.0.0.1. A kept world, `--demo` or `--wide`; works with `--ai` `--random-map` `--coexist` `--resume` | `--two` |
@@ -89,6 +90,10 @@ Options:
 
 - The AI residents' nations are fixed: the first joins Borealis, the second Ember, the third Cinder, the fourth Fjordal.
   Pick **a nation without an AI** (with `--ai 4`: Aster or Dunmar) and you never compete with one for a village site.
+  The "Choose a nation" screen marks the nations that have an AI resident with a small plate, **"AI present"**, under
+  the banner's doctrine; the chosen nation's lines add "This nation has an AI resident. If you choose it, that AI is your
+  nation-mate." Joining such a nation works: the AI shares your nation's reach and keeps. (With `--ai-near` the first
+  AI resident has no nation yet when you choose, so the marks are Ember, Cinder and Fjordal; a line under the banners says so.)
 - `--random-map` starts the world at a randomly picked earlier time, and the program derives another genesis seed by its
   unchanged rules.
 - The page opens at two addresses only: `http://localhost:<port>/` and `http://127.0.0.1:<port>/` (no other name, no other machine; §9).
@@ -406,7 +411,10 @@ this section describes what the program does today, and none of it is a promise 
 
 1. Open your **rim village** ("Village" in the bottom bar) and scroll to the card "Found a village on the wide land (test)".
    The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
-   buttons, "Claim a tile" and "Found a village here".
+   buttons, "Claim a tile" and "Found a village here". The card lists at most 4 provinces near your first village and 6
+   reached through your nation's land, nearest first, so a province in reach can be missing and rows change as land
+   opens. A province where you own a tile ("you own tiles here") or whose keep your host is taking
+   ("your host is taking this keep") or has taken ("your host took this keep") always keeps its row (the tiles are those claimed in this visit of the page).
 2. Press **"Claim a tile"** on a row. It can be pressed when the village holds 10 ore or more, whatever the village cost
    line above says (with less, every "Claim a tile" is off and the card says "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."). One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
    says "Tile N of the wide land (P, Q) is now your land.". The ore leaves the village's stores ("Ore" on the same screen).

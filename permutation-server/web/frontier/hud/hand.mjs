@@ -540,7 +540,13 @@ export function renderPop(FS, model) {
  */
 function outboundLocalDepart(FS, ready) {
   if (!FS.localPlay) return '';
-  const d = localDepartOf(FS), sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '';
+  const d0 = localDepartOf(FS);
+  // (fix-loop16, LP16-6: a departure that was CONFIRMED belongs to the host that left. On the card of another host — the
+  //  next expedition — its line 「出発が確定しました（ターン N に到着予定…）」 stood for hundreds of turns, as if it were this
+  //  draft's. A run in flight or not settled is still shown whatever the host: its signature is the way to ask about it)
+  const src = FS.expeditionCompose?.source?.host ?? null;
+  const d = d0.status === 'confirmed' && typeof d0.host === 'string' && typeof src === 'string' && d0.host !== src ? { ...d0, status: 'idle' } : d0;
+  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '';
   const step = { sealing: L`封をしています…`, preparing: L`出発の取引を用意しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
   const line = step ? html`<p class="pop-line local-depart-step" role="status">${step}</p>`
     : d.status === 'confirmed' ? html`<p class="pop-line local-depart-done" role="status">${L`出発が確定しました（ターン ${d.arriveBell} に到着予定・移動枠 ${d.transitSlot}）。署名 ${sig}`}</p>`
@@ -763,13 +769,13 @@ function outboundPop(FS, model) {
     : s.error === 'WideDestinationRequired' ? L`終点はまだリング 128 の内側です。境界の外まで道を続けてください。`
     : s.error === 'ArrivalRequired' ? L`到着ターンの候補を入力し、地形・時間を確認してください。`
     : s.error === 'SourceChanged' ? L`軍勢・所有者・接続情報が変わりました。カードを開き直してください。`
-    // (fix-loop16, LP16-6: a step past the road's limit was refused with 「この準備は利用できません (PathProvinces)」 or nothing)
-    : s.error === 'PathTooLong' || s.error === 'PathProvinces' ? L`道の形は 32 マス・4 州までです。` + ' ' + L`この一歩は足せません。「一歩戻す」で道を変えるか、もっと近い砦を選んでください。`
+    : s.error === 'PathTooLong' || s.error === 'PathProvinces' ? null
     : s.error ? L`この準備は利用できません` : null;
   return html`${popHead(L`境界への道を準備`)}
     <p class="pop-line outbound-help">${L`地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。`}</p>
     ${s.error === 'SourceChanged' ? html`<p class="pop-line pop-why" role="status">${reason}</p>` : ''}
     <div class="pop-foot outbound-directions" role="group" aria-label="${L`一歩進む方向`}">${DIR_TEXT.map((name, direction) => html`<button type="button" class="btn small" data-act="outbound-step" data-direction="${direction}" ${raw(!source || directions.length >= 32 ? 'aria-disabled="true"' : '')}>${name()}</button>`)}</div>
+    ${s.stepRefused ? html`<p class="pop-line pop-why outbound-step-refused" role="status">${L`道の形は 32 マス・4 州までです。`} ${L`この一歩は足せません。「一歩戻す」で道を変えるか、もっと近い砦を選んでください。`}</p>` : ''}
     <div class="pop-foot"><span>${directions.length}/32 · ${s.trace?.accountKeys.length ?? 0}/4 ${L`入る州`}</span>
       <button type="button" class="btn small" data-act="outbound-undo" ${raw(!directions.length ? 'aria-disabled="true"' : '')}>${L`一歩戻す`}</button>
       <button type="button" class="btn small" data-act="outbound-reset">${L`道を消す`}</button></div>
@@ -800,7 +806,7 @@ function outboundPop(FS, model) {
     <div class="pop-line"><label>${L`撤退`} <select data-bind="outbound-retreat">${choices.retreat.map(x => html`<option value="${x.id}" ${raw(s.retreat === x.id ? 'selected' : '')}>${x.text}</option>`)}</select></label>
       ${s.retreat === 'custom' ? html`<label>${L`倍率`} <input type="text" inputmode="decimal" maxlength="12" data-bind="outbound-ratio" value="${s.ratio ?? ''}"></label>` : ''}</div>
     <div class="pop-line"><label>${L`チップの候補`} <select data-bind="outbound-tip">${choices.tips.map(x => html`<option value="${x.id}" ${raw(s.tip === x.id ? 'selected' : '')}>${x.text} · ${x.lamports.toString()} lamports</option>`)}</select></label></div>
-    <div aria-live="polite">${reason && s.error !== 'SourceChanged' ? html`<p class="pop-line pop-why">${reason}${!['ChooseSteps', 'WideDestinationRequired', 'ArrivalRequired', 'PathTooLong', 'PathProvinces'].includes(s.error) ? ` (${s.error})` : ''}</p>` : ''}
+    <div aria-live="polite">${reason && s.error !== 'SourceChanged' ? html`<p class="pop-line pop-why">${reason}${!['ChooseSteps', 'WideDestinationRequired', 'ArrivalRequired'].includes(s.error) ? ` (${s.error})` : ''}</p>` : ''}
     ${review ? html`<p class="pop-line">${L`136 バイトの平文案です。封印・署名・送信は行っていません。`}</p>
       <details><summary>${L`平文の全バイトを確認`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${review.plainHex}</p></details>
       <details><summary>${L`出発点・軍勢・州の識別子`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${L`軍勢: ${review.host}`}</p>
