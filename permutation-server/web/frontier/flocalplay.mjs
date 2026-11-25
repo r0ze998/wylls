@@ -94,6 +94,15 @@ export function launcherWideLand(w) {
   if (!w.targets.every(t => t && typeof t === 'object' && num(t.p) && num(t.q))) return null;
   return Object.freeze({ scale: w.scale, targets: Object.freeze(w.targets.map(t => Object.freeze({ p: t.p, q: t.q }))) });
 }
+/**
+ * (fix-loop16, owner 2026-11-25 12:04 Q-LP16-4 (a)) The start answer's `aiNations` → the nations (0-5, each once) that
+ * have an operator AI resident, for the nation picker's "AI present" mark; null when absent or malformed (then no mark:
+ * display only, never a refusal). Nation numbers only — which resident is an AI is not said to the page.
+ */
+export function launcherAiNations(v) {
+  if (!Array.isArray(v) || v.length > 6 || !v.every(n => Number.isInteger(n) && n >= 0 && n <= 5) || new Set(v).size !== v.length) return null;
+  return Object.freeze([...v]);
+}
 /** The start answer's `captureDemo` → its synthetic clock scale (a whole number 10..60), or null. */
 export function launcherCaptureDemo(v) {
   const s = v?.scale;
@@ -342,7 +351,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
   let keyStore = null;
   // (a launcher that prepares its worlds fast needs longer for a start: the wait is 150 s there, 70 s otherwise)
   const marchTrial = localMarchTrialPage(cfg, loc), demoPage = localCaptureDemoPage(cfg, loc);
-  let claimedDemo = null, claimedWide = null;
+  let claimedDemo = null, claimedWide = null, claimedAi = null, claimedAiNear = false;
   const coexistPage = localCoexistLane(cfg, loc);
   const accelerated = localPreparationAccelerated(cfg, loc), natural = localNaturalWorld(cfg, loc), longest = natural ? NATURAL_START_MS : accelerated ? 150000 : 70000;
   let pendingLaunch = null;
@@ -401,6 +410,8 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             // (TEST-ONLY wide play: the wide world's own statement, carried to the identity as `wideLand`)
             claimedWide = launcherWideLand(body?.wideLand);
             if (body?.wideLand !== undefined && claimedWide === null) return { ok: false, code: 'LauncherWorldMismatch' };
+            // (fix-loop16, Q-LP16-4: the nations with an AI resident, for the picker's mark; `aiNear`: play-local --ai-near)
+            claimedAi = launcherAiNations(body?.aiNations); claimedAiNear = claimedAi !== null && body?.aiNear === true;
             // (TEST-ONLY persisted worlds: the page's `persist=local` and the answer's `persisted` agree)
             const kept = launcherPersisted(body?.persisted);
             if ((kept !== null) !== persisted || (body?.persisted !== undefined && kept === null)) return { ok: false, code: 'LauncherWorldMismatch' };
@@ -443,7 +454,8 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const playedWide = launcher && claimedWide !== null ? Object.freeze({ ...playedDemo, wideLand: claimedWide }) : playedDemo;
     // (fix-loop6, LP6-12: the TEST-ONLY contest pair's role rides on the identity: the controller gives the pair one order
     //  of first-village places, so two people of one nation start in the same province — controller homeSeed)
-    const playedAs = launcher && state.pairRole ? Object.freeze({ ...playedWide, pair: state.pairRole }) : playedWide;
+    const playedAi = launcher && claimedAi !== null ? Object.freeze({ ...playedWide, aiNations: claimedAi, ...(claimedAiNear ? { aiNear: true } : {}) }) : playedWide;
+    const playedAs = launcher && state.pairRole ? Object.freeze({ ...playedAi, pair: state.pairRole }) : playedAi;
     // (TEST-ONLY persisted world: the march book (the sealed marches' reveal halves) is kept encrypted for this wallet,
     //  loaded before the game boots, and the game's march sender uses it instead of a memory-only one)
     if (persisted && keyStore) {

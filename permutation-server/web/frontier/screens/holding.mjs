@@ -37,6 +37,7 @@ import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
 import { claimTargets, settlerCost, mergeOpened, nationLandsOfCells } from '../flocalplay-wide.mjs';
+import { expeditionHoldsOf } from '../flocalplay-expedition.mjs';
 import { wideSlots } from '../fwide.mjs';
 import { outpostCard } from './outpostcard.mjs';
 
@@ -47,6 +48,30 @@ import { outpostCard } from './outpostcard.mjs';
  * that files the WIDE CLAIM (0xD9 WideClaimSite, flocalplay-wide.mjs) on its next untried site. The world's runner
  * settles the claim. Nothing for any other world, a village that is not the first home, or one out of reach.
  */
+/**
+ * (fix-loop16, Q-LP16-1 (b)) The provinces whose rows the wide claim card never drops: Map "p,q" → 'tiles' (this player
+ * owns a tile there: the page's own memory of the tile claims that landed in this visit, `FS.ui.ownTiles`, keys
+ * "p,q,tile") or 'siege' (a host of this player is taking that province's keep, or has taken it: a kept expedition's
+ * followed hold that is not lost — flocalplay-expedition.mjs expeditionHoldsOf — or the wide village's host marching on
+ * or holding it — `FS.ui.wideHostSay`). 'siege' wins where both hold. Display only: nothing is read from the chain here.
+ */
+export function claimPins(FS) {
+  const pins = new Map();
+  for (const k of Object.keys(FS?.ui?.ownTiles ?? {})) { const m = /^(-?\d+),(-?\d+),\d+$/.exec(k); if (m && FS.ui.ownTiles[k]) pins.set(`${m[1]},${m[2]}`, 'tiles'); }
+  const siege = to => { if (to && to.p !== undefined && to.q !== undefined) pins.set(`${String(to.p)},${String(to.q)}`, 'siege'); };
+  for (const h of expeditionHoldsOf(FS ?? {}).values()) if (h?.to && h.outcome !== 'lost' && !Number.isInteger(h.keepLostAt)) siege(h.to);
+  const say = FS?.ui?.wideHostSay ?? null;
+  if (say?.hold?.to && say.hold.outcome !== 'lost') siege(say.hold.to);
+  if (say?.march?.to && say.march.phase !== 'gone') siege(say.march.to);
+  if (say?.kind === 'decision' && say.name === 'WideDepart' && say.to) siege(say.to);
+  return pins;
+}
+/** `list` (in its order) cut to `cap` rows, the pinned ones never cut: each kept row carries `pin` ('tiles' | 'siege' | null). */
+export function pinnedRows(list, cap, pins) {
+  const pinOf = t => pins?.get?.(`${String(t.p)},${String(t.q)}`) ?? null;
+  let room = Math.max(0, cap - list.filter(pinOf).length);
+  return list.filter(t => pinOf(t) || room-- > 0).map(t => ({ ...t, pin: pinOf(t) }));
+}
 export function wideClaimModel(FS, m) {
   // (DEVNET PLAY, devnet gap P1: a wide devnet season's opened wide provinces, controller FS.devnetWideLand)
   const wide = FS?.localPlay?.wideLand ?? FS?.devnetWideLand ?? null;
@@ -68,7 +93,12 @@ export function wideClaimModel(FS, m) {
   const opened = rich ? mergeOpened(wide.targets, cells) : wide.targets;
   const lands = rich ? nationLandsOfCells(cells, FS.citizen?.faction) : [];
   const all = claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => !held.has(`${String(t.p)},${String(t.q)}`));
-  const targets = [...all.filter(t => !t.reach).slice(0, 4), ...all.filter(t => t.reach).slice(0, 6)];
+  // (fix-loop16, owner 2026-11-25 12:04 Q-LP16-1 (b): the card keeps its short list — 4 provinces near the first home, 6
+  //  through the nation's land — but a province where this player owns a tile, or whose keep a host of this player is
+  //  taking, ALWAYS keeps its row: as the land opened, nearer provinces pushed those rows off the card (loop-play16
+  //  LP16-1) while the rule still took their claims. A pinned row counts toward the 4 / 6; more pinned than that all stay)
+  const pins = claimPins(FS);
+  const targets = [...pinnedRows(all.filter(t => !t.reach), 4, pins), ...pinnedRows(all.filter(t => t.reach), 6, pins)];
   const owned = (Array.isArray(FS.holdings) ? FS.holdings.length : 1) + mine.length;
   // (loop-play11 / D-verify-pr177-1: the program charges `settler_cost(holdings_n)` with holdings_n = the villages
   //  held BEFORE the claim — frontier proc wide.rs reads C::HOLDINGS_N — so a second village costs 800/800/400/200,
@@ -120,8 +150,8 @@ function wideClaimCard(FS, m, busy) {
     ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span></span>
       <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
-    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
+    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
       ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}

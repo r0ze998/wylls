@@ -63,6 +63,9 @@ const ringOf = (p, q) => Number(ringPosition(BigInt(p), BigInt(q)).ring);
 
 /** How well `t` follows `heading` from `home`: provinces outward, or along the ring (signed), ≥ 0. */
 export function headingBonus(home, t, heading) {
+  // (fix-loop16, `--near`: `{toward: {p, q}}` — each province nearer to that place than home is, counted twice: with the
+  //  score's half weight and its push away from home, a province 1 nearer to the place wins over one 1 farther from home)
+  if (heading && typeof heading === 'object' && heading.toward) return Math.max(0, 4 * (distance(home, heading.toward) - distance(t, heading.toward)));
   if (heading === 'outward') return Math.max(0, ringOf(t.p, t.q) - ringOf(home.p, home.q));
   let d = turnOf(t.p, t.q) - turnOf(home.p, home.q);
   d -= Math.round(d);
