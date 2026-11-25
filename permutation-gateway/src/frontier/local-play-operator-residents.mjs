@@ -181,7 +181,8 @@ export function parseArgs(argv) {
   if (ports.length !== count || ports.some(p => !Number.isInteger(p) || p < 41000 || p > 41999)) throw new Error('--relay-ports');
   if (!/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}$/.test(o.herald ?? '')) throw new Error('--herald (loopback only)');
   // (flag-keeps-ai, TEST-ONLY: the launcher's world-goals judge of THIS world — the page's 「世界の目標」 read; war worlds only)
-  if (o.goals !== undefined && (!war || !/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}\/goals-world\/\d{5}\/goals\/state$/.test(o.goals))) throw new Error('--goals (loopback goals state of a war world only)');
+  // (world goal ②, research: every world with the judge — not only a war world — reads its research view for each nation)
+  if (o.goals !== undefined && !/^http:\/\/(localhost|127\.0\.0\.1):\d{4,5}\/goals-world\/\d{5}\/goals\/state$/.test(o.goals)) throw new Error('--goals (loopback goals state of this world)');
   const homes = JSON.parse(o.homes ?? 'null');
   if (!Array.isArray(homes) || !homes.length) throw new Error('--homes');
   const num = (k, d) => { if (o[k] === undefined) return d; const n = Number(o[k]); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`--${k}`); return n; };
@@ -317,7 +318,19 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
         ...(code ? { code } : {}), ...(signature ? { signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), budget: r.budget.state() };
     }
   }
-  const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
+  // (world goal ②: the judge's research view for this resident's nation, and the village's science now)
+  let research = null;
+  if (deps.research && view?.holding && Number.isInteger(view.faction)) {
+    try {
+      const rv = await deps.research(view.faction);
+      if (rv) {
+        const secs = await deps.nowSecs().catch(() => null);
+        const science = Number.isSafeInteger(secs) ? Number(storesAt(view.holding.decoded, secs, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Science')]?.value ?? 0) : 0;
+        research = { view: rv, science };
+      }
+    } catch { research = null; }
+  }
+  const d = decideNext(r.memory, view, { homes, wide, research, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
     ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready, ...(snap.goals ? { goals: snap.goals } : {}) } : {}) };
@@ -463,6 +476,18 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   if (o.wide) deps.wideHost = createWideHost({ herald: o.herald });
   // (expansion-gameplay-1: the live wide land for the reach rule's claim targets)
   if (o.wide) deps.wideLand = createWideLandReader({ herald: o.herald });
+  // (world goal ②: the research view of a nation, read once per round per nation — the page's card read, `?nation=`)
+  if (o.goals) {
+    const cache = new Map();
+    deps.research = async faction => {
+      const k = `${faction}`, now = Date.now(), c = cache.get(k);
+      if (c && now - c.at < Math.max(1000, o.cadenceMs)) return c.view;
+      const j = await getJson(`${o.goals}?nation=${faction}`);
+      const view = j?.research?.view?.techs ? j.research.view : null;
+      cache.set(k, { at: now, view });
+      return view;
+    };
+  }
   // (TEST-ONLY war world: the world's eyes, read once per loop; the march opened per resident by its own relay)
   const eyes = o.war ? createWarEyes({ herald: o.herald, goals: o.goals ?? null }) : null;
   if (eyes) {
