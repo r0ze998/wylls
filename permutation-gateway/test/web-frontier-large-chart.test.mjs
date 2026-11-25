@@ -14,6 +14,7 @@ import { provincePixel, PROVINCE_CIRCUMRADIUS } from '../../permutation-server/w
 import { tileHex, ringProvinces } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { buildSurvey, hexKey } from '../../permutation-server/web/frontier/map/survey.mjs';
 import { KeepBoard, provinceGeo } from '../../permutation-server/web/frontier/map/keeps.mjs';
+import { SEA_DRAWN } from '../../permutation-server/web/frontier/map/cloudsea.mjs';
 
 const desktop = { width: 1440, height: 900 }, phone = { width: 390, height: 844 };
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
@@ -132,7 +133,8 @@ test('actual radius128 scene has zero terrain/province hydration, far bitmaps or
     const nearer = {...view, zoom: COARSE_CHART_PX / (2 * PROVINCE_CIRCUMRADIUS) * 1.01};
     m.paintScene(ctx, src, nearer, 'world', size, 1, {now: 1000});
     assert.ok(calls.terrain > 0); assert.ok(calls.survey > 0);
-    assert.equal(calls.cloud, 1); assert.equal(calls.own, 2); assert.equal(calls.top, 2);
+    // (remove-edge-clouds, owner 2026-11-25: the cloud sea is not laid, map/cloudsea.mjs SEA_DRAWN; the near world asks for none)
+    assert.equal(calls.cloud, SEA_DRAWN ? 1 : 0); assert.equal(calls.own, 2); assert.equal(calls.top, 2);
   }
   assert.deepEqual(keyCalls, []);
 });
