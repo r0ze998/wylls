@@ -107,12 +107,14 @@ pub struct TerritoryV1 {
 
 /// The numbers of [`TerritoryRule::V1`] (**decided** 2026-11-24 13:15, TQ-1 … TQ-5):
 ///
-/// - upkeep (T-4, TQ-1 (a)): the owner's 2 food/h per province ÷ 61 tiles =
-///   33 milli-food/h per tile (rounded up: a whole province 2.013 food/h),
-///   plus the owner's 1 food/h per province of distance beyond 3 ÷ 61 =
-///   16 milli-food/h per tile per province beyond 3 (rounded down); the
-///   distance is province steps from the tile's province to the owner's
-///   nearest OWN village (home included), fixed at the claim (TQ-2);
+/// - upkeep (T-4, TQ-1 (a); **×10** by Q-LP15-1 (b), owner 2026-11-25
+///   09:33): 330 milli-food/h per tile (10 × the decided 33 = the owner's
+///   2 food/h per province ÷ 61 tiles rounded up; a whole province 20.13
+///   food/h), plus 160 milli-food/h per tile per province beyond 3 (10 ×
+///   the decided 16 = 1 food/h per province ÷ 61 rounded down); the same
+///   formula and rounding, every number ten times. The distance is
+///   province steps from the tile's province to the owner's nearest OWN
+///   village (home included), fixed at the claim (TQ-2);
 /// - cost (T-3, TQ-3): 10 ore + 2 % per tile owned;
 /// - reach (T-2, TQ-4): within 3 provinces of the home, of a province that
 ///   is the nation's land (own or teammates' villages, keeps the nation
@@ -123,9 +125,9 @@ pub struct TerritoryV1 {
 pub const TERRITORY_V1: TerritoryV1 = TerritoryV1 {
     kernel: TerritoryParams {
         upkeep: UpkeepCurve {
-            flat: 33,
+            flat: 330,
             per_rank: 0,
-            per_distance: 16,
+            per_distance: 160,
             free_distance: 3,
         },
         cost: ClaimCost {
@@ -995,18 +997,19 @@ mod tests {
 
     #[test]
     fn v1_upkeep_is_the_owner_numbers_per_tile() {
-        // 61 tiles near home: 61 × 33 = 2,013 milli-food/h ≈ 2 food/h per province.
+        // 61 tiles near home: 61 × 330 = 20,130 milli-food/h ≈ 20 food/h per
+        // province (Q-LP15-1 (b): ×10 the decided 61 × 33 = 2,013).
         let mut pl = player(1);
         for _ in 0..61 {
             pl.add_tile(2).unwrap();
         }
-        assert_eq!(pl.upkeep_per_hour(), Some(2_013));
-        // the same 61 tiles 5 provinces away: + 61 × 16 × 2 = 1,952 (≈ 2 × 1 food/h).
+        assert_eq!(pl.upkeep_per_hour(), Some(20_130));
+        // the same 61 tiles 5 provinces away: + 61 × 160 × 2 = 19,520 (≈ 2 × 10 food/h).
         let mut far = player(2);
         for _ in 0..61 {
             far.add_tile(5).unwrap();
         }
-        assert_eq!(far.upkeep_per_hour(), Some(2_013 + 1_952));
+        assert_eq!(far.upkeep_per_hour(), Some(20_130 + 19_520));
         // equal to the kernel's per-cell sum over the same distances
         let dists: Vec<u32> = (0..61).map(|_| 5).collect();
         assert_eq!(
@@ -1083,9 +1086,8 @@ mod tests {
     #[test]
     fn upkeep_settles_exactly_and_goes_unpaid_all_or_nothing() {
         let mut pl = player(3);
-        for _ in 0..10 {
-            pl.add_tile(0).unwrap();
-        }
+        // one tile: 330 milli/h (Q-LP15-1 ×10; before, ten tiles made 330)
+        pl.add_tile(0).unwrap();
         // 330 milli/h; 100 s → 9.1666 milli, remainder carried
         let s = settle_upkeep(&mut pl, 1_100, 1, 1_000_000).unwrap();
         assert_eq!(
@@ -1255,7 +1257,7 @@ mod tests {
         assert_eq!(kt::claim_cost(&TERRITORY_V1.kernel.cost, 100), Some(30));
         assert_eq!(
             kt::cell_upkeep(&TERRITORY_V1.kernel.upkeep, 0, 8),
-            Some(113)
+            Some(1_130)
         );
     }
 

@@ -36,13 +36,14 @@ const SYSTEM = '11111111111111111111111111111111';
 
 /**
  * The numbers of territory rule V1 (frontier-abi TERRITORY_V1; DECIDED by the owner 2026-11-24 13:15, inbox
- * 2026-11-24-1315-territory-numbers-decided.md TQ-1..TQ-5): upkeep per tile 33 milli-food/h + 16 milli-food/h per province of distance beyond 3 from
+ * 2026-11-24-1315-territory-numbers-decided.md TQ-1..TQ-5; upkeep ×10 by Q-LP15-1 (b), owner 2026-11-25 09:33): upkeep per tile 330 milli-food/h
+ * + 160 milli-food/h per province of distance beyond 3 from
  * the nearest own village (home included), fixed at the claim; a claim costs 10 ore + 2 % per tile owned; reach 3 provinces from the home, a nation
  * land province or a province where the claimer owns a tile; 1 claim per turn; unpaid upkeep blocks claims, then after
  * 24 turns the farthest tile returns, one per turn.
  */
 export const TERRITORY_V1 = Object.freeze({
-  upkeep: Object.freeze({ flat: 33, perRank: 0, perDistance: 16, freeDistance: 3 }),
+  upkeep: Object.freeze({ flat: 330, perRank: 0, perDistance: 160, freeDistance: 3 }),
   cost: Object.freeze({ base: 10, perOwnedBps: 200 }),
   range: 3,
   claimsPerTurn: 1,

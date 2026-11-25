@@ -71,7 +71,7 @@ test('TR1 the view: my own tiles, the next claim\'s price, my upkeep, this turn\
   assert.equal(v.own.listComplete, true);
   assert.equal(v.own.nextClaimOre, claimCostV1(2));   // 10 + 2 % per tile owned, rounded down → 10
   assert.equal(claimCostV1(5), 11);
-  assert.equal(v.own.upkeepMilliFoodPerHour, 66);     // 2 tiles × 0.033 food/h
+  assert.equal(v.own.upkeepMilliFoodPerHour, 660);    // 2 tiles × 0.33 food/h (Q-LP15-1 (b): ×10)
   assert.equal(v.own.unpaid, false);
   assert.equal(v.own.claimsThisTurn, 1);
   assert.deepEqual(claimNow(v, { ore: 200 }), { ok: false, why: ['this turn\'s claim is used (1 a turn)'] });
@@ -114,8 +114,8 @@ test('TR3 unpaid upkeep: said with the turn it began and the turn tiles start to
   assert.equal(v.own.unpaid, true);
   assert.equal(v.own.unpaidSinceBell, 40);
   assert.equal(v.own.decayFromBell, 64);   // after 24 turns one tile returns per turn
-  assert.equal(v.own.upkeepMilliFoodPerHour, 33 + 16 * 2);   // + 0.016 food/h per province beyond 3
-  assert.equal(tileUpkeepV1(5), 33 + 32);
+  assert.equal(v.own.upkeepMilliFoodPerHour, 330 + 160 * 2);   // + 0.16 food/h per province beyond 3 (×10)
+  assert.equal(tileUpkeepV1(5), 330 + 320);
   const c = claimNow(v, { ore: 500 });
   assert.equal(c.ok, false);
   assert.match(c.why[0], /unpaid since turn 40.*refuses new claims/);
@@ -233,7 +233,7 @@ test('TG1 a growth tile is bought only from ore beyond the plan, the reserve and
   assert.ok(gr.score < rich.candidates.find(x => x.kind === 'wideclaim').score);
   assert.notEqual(localRule(rich).choice, gr.id, 'the village claim comes first');
   // the pace itself (pure): one every 6 turns, a ceiling of 24, upkeep within 10 % of the first home's food
-  const base = { bell: BELL, idleOre: 500, trainOre100: 20, foodPerHour: 40, addMilli: 33 };
+  const base = { bell: BELL, idleOre: 500, trainOre100: 20, foodPerHour: 40, addMilli: tileUpkeepV1(1) };
   assert.deepEqual(growthHolds(v, mem(), base), []);
   const st = mem(); territoryMem(st).lastGrowthBell = BELL - 2;
   assert.match(growthHolds(v, st, base)[0], /one every 6 turns/);
