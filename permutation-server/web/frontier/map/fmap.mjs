@@ -80,6 +80,7 @@ import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
 // the wide land (rings 129+, the herald's recorded wide world) on this map and its chart: map/wideland.mjs
 import { paintWideLand, paintWideTags, wideLevel, cellsIn, holdersInView } from './wideland.mjs';
+import { paintTerritoryTiles, paintFarKeeps } from './territorytiles.mjs';
 import { paintWideMarks, paintWideNames } from './widemarks.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
 import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
@@ -2585,11 +2586,21 @@ export class FrontierMap {
     // the recorded wide land (rings 129+, map/wideland.mjs): over the cloud sea that lies past the opened rings, at this
     // frame's level of detail; a place the record does not list stays cloud (unknown, not land)
     const wideLand = src.wideLand?.count ? src.wideLand : null;
-    if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse) }); }
+    // (territory-map, owner 2026-11-25 items 5/6: over the land, under the villages' marks, the tiles players own coloured
+    //  tile by tile with their nation's border round them — map/territorytiles.mjs)
+    const overLand = c => paintTerritoryTiles(c, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), view: quad ?? corners });
+    if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), overLand }); }
     // (verify-pr205: and the holders of the drawn land that stands in the picture — the canvas paints a margin past the
     //  screen, the tilted board more; the page's key names only colours the player can see: `shown`)
     if (this.wideDrawn) this.wideDrawn.shown = holdersInView(cellsIn(wideLand, seen), quad ?? corners);
     else this.wideDrawn = null;
+    // (territory-map: who holds a province is its keep's icon — from far painted here, nearer map/widemarks.mjs. The
+    //  page's key then names the nations whose TILES are in the picture, `nations`, and `keeps` those whose keep is)
+    if (this.wideDrawn && wideLand) {
+      this.wideDrawn.farKeeps = paintFarKeeps(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), viewer: src.viewerFaction ?? survey?.faction ?? null });
+      this.wideDrawn.nations = this.wideDrawn.territory?.nations ?? [];
+      this.wideDrawn.keeps = [...new Set(cellsIn(wideLand, seen).filter(c => c.holderKnown !== false && Number.isInteger(c.keep?.holder) && c.keep.holder < 6).map(c => c.keep.holder))].sort((a, b) => a - b);
+    }
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     // the season's first-home placement (home.mjs seasonPlace, in the source as `place`): the home region the map

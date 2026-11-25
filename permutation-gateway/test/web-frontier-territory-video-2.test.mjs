@@ -53,14 +53,14 @@ test('one figure per tile, never a heap: the strongest host stands for the tile,
   assert.ok(k.x > widekeepPlace(land.cells[0], 1).cx, 'on the keep tile the figure stands before the gate, not on the fortress');
 });
 
-test('the plate says whose land it is and who is taking its keep (English and Japanese)', () => {
+test('the plate says whose keep it is (territory-map OQ-3) and who is taking it (English and Japanese)', () => {
   const kh = { keep: { tile: 30, holder: ENEMY, contender: VIEWER, progress: 11, required: 72 }, hosts: [] };
   setLang('en');
   try {
-    assert.deepEqual(wideProvinceWords({ holder: ENEMY, ...kh }, VIEWER), { name: 'Lands of Aster', sub: 'Your nation is taking the keep · 11/72 turns' });
-    assert.deepEqual(wideProvinceWords({ holder: VIEWER, keep: { tile: 30, holder: VIEWER, contender: null } }, VIEWER), { name: 'Your nation\'s land', sub: null });
+    assert.deepEqual(wideProvinceWords({ holder: ENEMY, ...kh }, VIEWER), { name: 'Keep: Aster', sub: 'Your nation is taking the keep · 11/72 turns' });
+    assert.deepEqual(wideProvinceWords({ holder: VIEWER, keep: { tile: 30, holder: VIEWER, contender: null } }, VIEWER), { name: 'Keep: your nation', sub: null });
     assert.equal(wideProvinceWords({ holder: VIEWER, keep: { tile: 30, holder: VIEWER, contender: OTHER, progress: 3, required: 72 } }, VIEWER).sub, 'Ember is taking the keep · 3/72 turns');
-    assert.equal(wideProvinceWords({ holder: 6, keep: null }, VIEWER).name, 'Land of no nation');
+    assert.equal(wideProvinceWords({ holder: 6, keep: null }, VIEWER).name, 'Keep: no nation', 'territory-map OQ-3: the plate says whose keep, not whose land');
   } finally { setLang('ja'); }
   assert.equal(wideProvinceWords({ holder: ENEMY, ...kh }, VIEWER).sub, 'あなたの国が砦を奪取中 11/72 ターン');
 });

@@ -159,20 +159,22 @@ test('thousands of wide provinces: no canvas path holds more than PATH_CHUNK of 
   }
 });
 
-test('far: the nation\'s own colour; nearer: the terrain under a wash of it; tile view: the 61 tiles', async () => {
+test('far: the terrain\'s own colour; nearer: the terrain, no keep-nation wash (territory-map OQ-3); tile view: the 61 tiles', async () => {
   const land = await landOf([bareAt(129, 0, 0), bareAt(129, -1, 0), bareAt(130, -1, 3), bareAt(131, -1, 6)]);
   const seen = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
   const chart = fakeCtx();
   paintWideLand(chart.ctx, land, { seen, zoom: 0.05, level: 'chart' });
-  // one path per colour (batched): red, purple, neutral; no wash on the chart
-  assert.deepEqual(chart.log.fill.map(f => f.style).sort(), [NATION_LAND[0], NATION_LAND[3], NEUTRAL_LAND].sort());
+  // (territory-map, owner 2026-11-25 OQ-3: "colour only the tiles actually owned; show province control with the keep
+  //  icon" — the land is its terrain's colour at every level, one path per colour; no nation's colour, no wash)
+  const terrainColours = [...new Set(land.cells.map(c => c.colour))].sort();
+  assert.deepEqual(chart.log.fill.map(f => f.style).sort(), terrainColours);
+  assert.ok(!chart.log.fill.some(f => [NATION_LAND[0], NATION_LAND[3], NEUTRAL_LAND].includes(f.style)), 'no keep nation\'s colour');
   assert.ok(chart.log.fill.every(f => f.alpha === 1));
-  assert.ok(chart.log.stroke.length >= 3, 'borders and the outer edge');
+  assert.ok(chart.log.stroke.length >= 1, 'the outer edge');
   const prov = fakeCtx();
   paintWideLand(prov.ctx, land, { seen, zoom: 0.4, level: 'province' });
-  // (verify-pr205: the nations' own borders are filled bands too, at their own alphas — a wash is the level's WASH)
-  const washes = prov.log.fill.filter(f => f.alpha === WASH.province);
-  assert.deepEqual(washes.map(f => f.style).sort(), [NATION_LAND[0], NATION_LAND[3], NEUTRAL_LAND].sort());
+  assert.deepEqual(prov.log.fill.filter(f => f.alpha === WASH.province), [], 'no keep-nation wash');
+  assert.ok(!prov.log.fill.some(f => [NATION_LAND[0], NATION_LAND[3]].includes(f.style)));
   const tile = fakeCtx();
   paintWideLand(tile.ctx, land, { seen, zoom: 1.2, level: 'tile' });
   // 4 provinces × 61 tiles, then the washes
@@ -219,9 +221,9 @@ test('from far a province is never less than MIN_CELL_PX on screen: a mosaic rin
     const { ctx, log } = fakeCtx();
     const r = paintWideLand(ctx, land, { seen, zoom: z, level });
     assert.ok(r.grow > 1);
-    // the ink ring first, then one fill per nation
+    // the ink ring first, then one fill per terrain colour (territory-map OQ-3: not the keep nations')
     assert.equal(log.fill[0].style, 'rgba(27,46,40,.9)');
-    assert.deepEqual(log.fill.slice(1).map(f => f.style).sort(), [NATION_LAND[0], NATION_LAND[3]].sort());
+    assert.deepEqual(log.fill.slice(1).map(f => f.style).sort(), [...new Set(land.cells.map(c => c.colour))].sort());
   }
   // nearer levels never enlarge
   const { ctx } = fakeCtx();
@@ -284,7 +286,7 @@ test('the map paints the land over the cloud sea and lets the camera, sheet and 
   const read = p => readFileSync(new URL(`../../permutation-server/web/frontier/${p}`, import.meta.url), 'utf8');
   const fmap = read('map/fmap.mjs'), app = read('app.mjs'), en = readFileSync(new URL('../../permutation-server/web/lang/en-frontier.mjs', import.meta.url), 'utf8');
   const sea = fmap.indexOf("if (lod !== 'tile' || !tileOpts) { ctx.setTransform(...world); sea(ctx, null); }");
-  const wide = fmap.indexOf('paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse) })');
+  const wide = fmap.indexOf('paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), overLand })');
   assert.ok(sea > 0 && wide > sea, 'the wide land is painted after (over) the cloud sea');
   assert.match(fmap, /ringsNow\(\) \{ return Math\.max\(1, this\.rings \?\? this\.source\?\.\(\)\?\.ringsOpen \?\? 1, this\.wideReach \?\? 0\); \}/);
   assert.match(fmap, /sheetRings\(\) \{ return Math\.max\(1, this\.rings \?\? 1, this\.wideReach \?\? 0\); \}/);

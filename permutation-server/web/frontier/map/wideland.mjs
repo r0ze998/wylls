@@ -17,12 +17,13 @@
 // summary); the client never regenerates wide terrain.
 //
 // Levels of detail (the ordinary map's own: map/fmap.mjs coarseChart / lod):
-//  - chart and world: one cell per province in its keep nation's colour, cells batched per colour, at most PATH_CHUNK a path (as
-//    fmap.mjs paintChartCells does), the borders where the keep nation changes, and the wide land's outer edge;
-//  - province: each cell in the mean colour of its terrain, washed with its nation's colour, the same borders;
-//  - tile: the 61 tiles in their terrain colours, a lighter wash of the nation, the same borders.
-//  (territory-video-3) At the world (unenlarged), province and tile levels each nation's own border runs round the union
-//  of its land in its colour (paintNationBorders) — the outline says whose land it is; the wash under it stays light.
+//  - chart and world: one cell per province in the mean colour of its terrain, cells batched per colour, at most PATH_CHUNK a
+//    path (as fmap.mjs paintChartCells does), and the wide land's outer edge;
+//  - province: each cell in the mean colour of its terrain, the outer edge;
+//  - tile: the 61 tiles in their terrain colours, the outer edge.
+//  (territory-map, owner 2026-11-25 OQ-3: a province is no longer coloured, washed or bordered by its keep's nation — the
+//  tiles players own are, map/territorytiles.mjs, over this land and under the villages' marks (`overLand`); who holds a
+//  province is its keep's icon. Before: territory-video-3's nation border round the union of the keep-held provinces.)
 // Villages (verify-pr88): every captured wide Holding of a province (`e.wide.holdings`, the herald's own capture of the
 // PSFXWHL1 account: a v2 Holding plus a trailer, so its nation is Holding.FACTION @112) is drawn as its nation's sigil
 // — on its own site at the tile view (layers.mjs paintTiles' `rec`, as a legacy province's settled sites), and from
@@ -72,6 +73,20 @@ export function villageNation(h) {
   if (!(b instanceof Uint8Array) || b.length !== WIDE_HOLDING_BYTES) return null;
   const f = b[HOLDING_FACTION_AT];
   return f < 6 ? f : null;
+}
+// (territory-map) the wide Holding's owner: OWNER_CITIZEN @72 (frontier-abi v2/layout/player.rs holding)
+const HOLDING_OWNER_AT = 72;
+/**
+ * (territory-map) A captured wide Holding's owner as the territory records name one: `{tag, nation}` (the Citizen tag =
+ * OWNER_CITIZEN's first 8 bytes, little-endian, as a decimal string; FACTION @112), or null (not a whole wide holding,
+ * no owner, no nation). map/territorytiles.mjs reads a tile owner's nation from it.
+ */
+export function villageOwner(h) {
+  let b;
+  try { b = fromBase64(h?.capture?.bytes_b64); } catch { return null; }
+  if (!(b instanceof Uint8Array) || b.length !== WIDE_HOLDING_BYTES) return null;
+  const tag = new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(HOLDING_OWNER_AT, true), f = b[HOLDING_FACTION_AT];
+  return tag === 0n || !(f < 6) ? null : { tag: tag.toString(), nation: f };
 }
 /** The villages of a wide province record: `[{site, nation}]` (site 0–11, nation 0–5 or null), in site order. */
 export function villagesOf(holdings) {
@@ -174,6 +189,7 @@ export function wideLandOf(walk) {
     const t = terrainOfCapture(e.wide.capture?.bytes_b64), kh = keepAndHostsOfCapture(e.wide.capture?.bytes_b64);
     const c = provincePixel(p, q), r = PROVINCE_CIRCUMRADIUS;
     const cell = { p, q, key: `${p},${q}`, ring, wedge: e.wedge, holder: e.wide.keepHolder, holdings: e.wide.holdings?.length ?? 0, villages: villagesOf(e.wide.holdings), terrain: t,
+      owners: (Array.isArray(e.wide.holdings) ? e.wide.holdings : []).map(villageOwner).filter(Boolean),
       keep: kh?.keep ?? null, hosts: kh?.hosts ?? [], territory: territoryOfCapture(e.wide.capture?.bytes_b64),
       colour: t ? meanColour(t.terrain) : NEUTRAL_LAND, x: c.x, y: c.y, box: { x0: c.x - r, y0: c.y - r, x1: c.x + r, y1: c.y + r } };
     cells.push(cell); byKey.set(cell.key, cell);
@@ -267,7 +283,7 @@ export const cellGrow = zoom => Math.max(1, MIN_CELL_PX / (2 * PROVINCE_CIRCUMRA
  * Paints the wide land that is in `seen` (world px) into `ctx`, already in the map's world transform, at `zoom`.
  * `level`: wideLevel's. Returns `{cells, fills}` (what was drawn: for the tests and the trace).
  */
-export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {}) {
+export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world', overLand = null } = {}) {
   const cells = cellsIn(land, seen);
   if (!cells.length) return { cells: 0, fills: 0 };
   let fills = 0;
@@ -280,9 +296,11 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     const base = new Map();
     for (const c of cells) { const colour = landFill(c); if (!base.has(colour)) base.set(colour, []); base.get(colour).push(c); }
     for (const [colour, group] of base) { ctx.fillStyle = colour; fills += fillCells(ctx, group, grow); }
+    // (territory-map: `overLand(ctx)` paints over the land and under the villages' marks — the owned tiles)
+    const territory = overLand ? overLand(ctx) : null;
     const villages = paintVillageMarks(ctx, cells, { zoom, grow });
     ctx.restore();
-    return { cells: cells.length, fills, grow, villages, holders: holdersOf(cells) };
+    return { cells: cells.length, fills, grow, villages, holders: holdersOf(cells), territory };
   }
   if (level === 'tile') {
     for (const c of cells) {
@@ -300,28 +318,15 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     }
     for (const [colour, group] of base) { ctx.fillStyle = colour; fills += fillCells(ctx, group); }
   }
-  // the nation's wash over the land (none on the chart, whose land is already the nation's)
-  if (level === 'province' || level === 'tile') {
-    const wash = new Map();
-    for (const c of cells) {
-      // (territory-video-3: a province whose holder the fog never saw is not washed as "no nation's": its terrain alone)
-      if (!known(c)) continue;
-      const colour = holderFill(c.holder);
-      if (!wash.has(colour)) wash.set(colour, []);
-      wash.get(colour).push(c);
-    }
-    ctx.globalAlpha = WASH[level];
-    for (const [colour, group] of wash) { ctx.fillStyle = colour; fills += fillCells(ctx, group); }
-    ctx.globalAlpha = 1;
-  }
-  // (territory-video-3) each nation's own border round all its land: its colour on its side of the line, a soft band
-  // fading inward, a dark seam at the edge (map/wideland.mjs paintNationBorders)
-  const borders = paintNationBorders(ctx, cells, { zoom, level });
-  fills += borders.strokes;
-  // borders: between keep nations, in ink with a paper halo under it; the wide land's outer edge, a dashed ink line
+  // (territory-map, owner 2026-11-25 OQ-3: "colour only the tiles actually owned; show province control with the keep
+  //  icon" — a province is no longer washed or bordered in its keep nation's colour. The owned tiles and their
+  //  tile-by-tile border are map/territorytiles.mjs paintTerritoryTiles, painted after this; the keep's icon,
+  //  map/widemarks.mjs near and territorytiles.mjs paintFarKeeps from far. paintNationBorders / nationBands stay: the
+  //  tiles' border is the same band, per tile)
+  // the wide land's outer edge, a dashed ink line
   ctx.lineCap = 'round';
-  const inner = [], outer = [];
-  for (const c of cells) for (const e of c.edges ?? []) (e.inner ? inner : outer).push(e);
+  const outer = [];
+  for (const c of cells) for (const e of c.edges ?? []) if (!e.inner) outer.push(e);
   const stroke = (list, colour, width) => {
     ctx.strokeStyle = colour; ctx.lineWidth = width / zoom;
     for (let i = 0; i < list.length; i += PATH_CHUNK) {
@@ -331,20 +336,19 @@ export function paintWideLand(ctx, land, { seen, zoom = 1, level = 'world' } = {
     }
   };
   const w = level === 'chart' ? 1 : level === 'world' ? 1.4 : 2;
-  stroke(inner, 'rgba(244,239,224,.85)', w + 1.6);
-  stroke(inner, 'rgba(27,46,40,.85)', w);
   ctx.setLineDash([6 / zoom, 4 / zoom]);
   stroke(outer, 'rgba(27,46,40,.9)', w + 0.4);
   ctx.setLineDash([]);
+  const territory = overLand ? overLand(ctx) : null;
   // (the tile view drew each village on its own site, with the tiles; farther, one mark at the province's centre)
   const villages = level === 'tile' ? cells.reduce((n, c) => n + (c.terrain ? (c.villages ?? []).filter(v => v.nation !== null).length : 0), 0)
     : paintVillageMarks(ctx, cells, { zoom, grow });
   ctx.restore();
-  return { cells: cells.length, fills, grow, villages, holders: holdersOf(cells), borders: borders.nations };
+  return { cells: cells.length, fills, grow, villages, holders: holdersOf(cells), borders: [], territory };
 }
 
-/** The fill of a cell from afar: its keep nation's land colour; a holder the fog never saw, the terrain's own colour. */
-const landFill = c => (known(c) ? holderFill(c.holder) : c.colour);
+/** The fill of a cell from afar: its terrain's own colour (territory-map OQ-3: never its keep nation's — the keep's icon says that). */
+const landFill = c => c.colour;
 /** The holders drawn (`cells`), for the page's legend: nations 0–5 and NEUTRAL, each once, ascending; unknown ones left out. */
 export const holdersOf = cells => [...new Set(cells.filter(known).map(c => (Number.isInteger(c.holder) && c.holder >= 0 && c.holder < 6 ? c.holder : NEUTRAL)))].sort((a, b) => a - b);
 /** Whether the world point (x, y) lies inside the convex polygon `poly` ([{x, y}], either winding). */

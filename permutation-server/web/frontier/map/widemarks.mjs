@@ -108,7 +108,9 @@ export function wideProvinceWords(cell, viewer = null) {
   // (verify-pr197: under the fog a province whose holder was never seen says nothing — not 「どの国のものでもない土地」)
   if (cell?.holderKnown === false) return { name: null, sub: null };
   const h = nation(cell?.holder) ? cell.holder : null;
-  const name = h === null ? L`どの国のものでもない土地` : h === viewer ? L`あなたの国の土地` : L`${factionName(h)}の土地`;
+  // (territory-map, owner 2026-11-25 OQ-3: the land is the tiles players own; a province's holder is its KEEP's — the
+  //  plate over the keep says whose keep it is, not "whose land", which read wrong over a player's own tiles in it)
+  const name = h === null ? L`砦：どの国のものでもない` : h === viewer ? L`砦：あなたの国` : L`砦：${factionName(h)}`;
   const k = cell?.keep;
   const sub = k && nation(k.contender) && k.contender !== h && Number.isInteger(k.progress) && k.required > 0
     ? (k.contender === viewer ? L`あなたの国が砦を奪取中 ${fmtNum(k.progress)}/${fmtNum(k.required)} ターン` : L`${factionName(k.contender)}が砦を奪取中 ${fmtNum(k.progress)}/${fmtNum(k.required)} ターン`)
