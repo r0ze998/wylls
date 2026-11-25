@@ -277,7 +277,7 @@ test('read-only: the page reads the records from the herald (territory-map-2), t
   assert.ok(at > 0);
   const body = c.slice(at, c.indexOf('\n}\n', at));
   assert.match(body, /const local = !!\(localPlay\?\.wideLand && localPlay\?\.seasonAddress && localPlay\?\.programId\);/);
-  assert.match(body, /herald\.wideTerritory\(\)/);
+  assert.match(body, /herald\.wideTerritory\(\{ etag: !fresh && territoryEtagSight === sight \? territoryEtag : null \}\)/);
   assert.match(body, /if \(!local\) return null;\n  const g = localDepartGate\(\);/);
   assert.match(body, /schema: TERRITORY_MAP_READ, addresses/);
   assert.doesNotMatch(body, /\bsign|sendTx|\bsend\(|[^l]act\(/i);

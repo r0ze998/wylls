@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   heraldTerritoryOwners, mountTerritoryTiles, territoryLand, paintTerritoryTiles, rememberTerritory, rememberedOf, createTerritoryMemory,
-  territoryMemoryKey, NOBODY, FADED, TILE_LOOK, TERRITORY_HERALD_PATH,
+  territoryMemoryKey, NOBODY, FADED, TILE_LOOK, TERRITORY_HERALD_PATH, TERRITORY_UNCHANGED,
 } from '../../permutation-server/web/frontier/map/territorytiles.mjs';
 import { heraldTerritoryRecords } from '../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { fogMemoryKey } from '../../permutation-server/web/frontier/map/fog.mjs';
@@ -72,7 +72,7 @@ test('Q-TM-4: the herald\'s answer decodes to 61 owners per province with the re
   assert.equal(heraldTerritoryRecords(answer([{ p: '9007199254740993', q: 0, tiles: { 1: ME } }])).size, 0);
 });
 
-test('Q-TM-4: the herald client asks again with the last ETag and an unchanged world (304) gives the last answer back', async () => {
+test('Q-TM-4: the herald client asks again with the caller\'s ETag; an unchanged world (304) is `notModified` and the client holds no answer (verify-pr240)', async () => {
   const calls = [];
   let body = answer([{ p: 130, q: 0, tiles: { 1: ME } }]), status = 200;
   const fetch = async (url, init = {}) => {
@@ -87,9 +87,12 @@ test('Q-TM-4: the herald client asks again with the last ETag and an unchanged w
   assert.equal(a.json.provinces.length, 1);
   assert.equal(calls[0].url, `http://h${TERRITORY_HERALD_PATH}`);
   assert.equal(calls[0].inm, null);
-  const b = await h.wideTerritory();
+  assert.equal(a.etag, '"e1"');
+  const b = await h.wideTerritory({ etag: a.etag });
   assert.deepEqual([b.ok, b.notModified, calls[1].inm], [true, true, '"e1"']);
-  assert.equal(b.json, a.json, 'the answer held');
+  assert.equal(b.json, undefined, 'no answer held by the client: the whole world\'s owners are never kept outside the fogged reader');
+  const b2 = await h.wideTerritory();
+  assert.deepEqual([b2.ok, b2.notModified ?? false, calls[2].inm, b2.json.provinces.length], [true, false, null, 1], 'no ETag from the caller: the whole answer');
   status = 404;
   const c = await h.wideTerritory();
   assert.deepEqual([c.ok, c.code], [false, 'NotFound']);
@@ -291,5 +294,28 @@ test('no leak: under the fog the reader keeps only the owners of tiles in sight 
   const c = out.byKey.get('0,0');
   assert.deepEqual([c.tiles[1], c.tiles[5]], [ASTER, CINDER]);
   assert.deepEqual(c.faded, [5], 'in sight but not read yet: its memory, faded, until the next read');
+  r.stop();
+});
+
+test('verify-pr240: a 304 keeps the filtered state for the same candidates; new candidates ask for the whole answer again (fresh)', async () => {
+  const world = new Map([['0,0', ownersOf({ 1: ASTER_TAG, 3: ME })], ['1,0', ownersOf({ 4: CINDER_TAG })]]);
+  let keys = ['0,0'], unchanged = false;
+  const asked = [], timers = [];
+  const r = mountTerritoryTiles({
+    reads: () => ({ ownTag: ME, all: async ({ fresh = false } = {}) => { asked.push(fresh); return unchanged && !fresh ? TERRITORY_UNCHANGED : world; } }),
+    candidates: () => keys, keep: () => true, setTimer: f => { timers.push(f); return timers.length; }, clearTimer: () => {},
+  });
+  const step = async () => { const f = timers.shift(); await f(); };
+  await step();
+  const s1 = r.now();
+  assert.deepEqual([...s1.owners.keys()], ['0,0']);
+  unchanged = true;
+  r.reload(); await step();
+  assert.equal(r.now().rev, s1.rev, '304, same candidates: the state stays');
+  assert.deepEqual(asked, [false, false]);
+  keys = ['0,0', '1,0'];
+  r.reload(); await step();
+  assert.deepEqual(asked, [false, false, false, true], 'new candidates: the whole answer again');
+  assert.deepEqual([...r.now().owners.keys()].sort(), ['0,0', '1,0']);
   r.stop();
 });

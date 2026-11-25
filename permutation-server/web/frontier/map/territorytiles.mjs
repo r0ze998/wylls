@@ -59,6 +59,8 @@ export const TERRITORY_POLL_MS = 10_000, TERRITORY_MAX_PROVINCES = 160;
 export const CLAIM_REACH = 3;
 /** The value of a tile no one owns (or whose owner is not shown), and of one whose owner's nation is not known. */
 export const NOBODY = -1, UNKNOWN_NATION = 6;
+/** (verify-pr240) What `reads().all()` answers when the herald said 304: the world is as the last answer the reader took. */
+export const TERRITORY_UNCHANGED = Object.freeze({ unchanged: true });
 /** The colours of a player's land whose nation is not known. */
 export const UNKNOWN_LAND = '#9a9a92', UNKNOWN_DARK = '#4a4a44';
 /** The look of the tiles by level of detail (CSS px): `wash` the owned tile's fill alpha, `band`/`seam` the border's. */
@@ -138,8 +140,9 @@ export function territoryCandidates({ cells = [], ownAt = [], anchors = [], sigh
 
 /**
  * Keeps the territory of the provinces `candidates()` names read in the background: `{now(), reload(), stop()}`.
- * `reads()` → `{all() → Map key → owners | null, ownTag}` (the herald's route: one GET for the whole world, of which only
- * the candidates are kept), or `{read(addresses) → [Uint8Array | null], province(p, q) → address, ownTag}` (the relay's
+ * `reads()` → `{all({fresh}) → Map key → owners | TERRITORY_UNCHANGED | null, ownTag}` (the herald's route: one GET for
+ * the whole world, of which only the candidates are kept and the answer dropped; TERRITORY_UNCHANGED — a 304 — keeps
+ * the state when the candidates and viewer are the same, else the whole answer is asked for again with `fresh`), or `{read(addresses) → [Uint8Array | null], province(p, q) → address, ownTag}` (the relay's
  * account read, 16 a request), or null (no wide world, no Citizen yet: nothing is read and the land is forgotten).
  * `now()` → `{rev, ownRev, owners: Map key → [tag | null] × 61, known, ownTag, ownAt: [key], read: [key], at}` (`read`:
  * the provinces the last answer covered). A read that fails keeps the last answer. `onChange()` runs when what was
@@ -201,8 +204,16 @@ export function mountTerritoryTiles({ reads = () => null, candidates = () => [],
       const owners = new Map();
       if (typeof r.all === 'function') {
         // (the herald's whole answer: only the candidates are kept — the land neither within the viewer's reach nor in sight is dropped here)
-        const all = await r.all();
+        let all = await r.all();
         if (stopped) return;
+        if (all === TERRITORY_UNCHANGED) {
+          // (verify-pr240: nothing of the answer is held anywhere but in this state, filtered — "unchanged" is enough only
+          //  for the same provinces and viewer; else the whole answer again, filtered under today's fog)
+          const same = state.ownTag === (r.ownTag ?? null) && keys.length === state.read.length && keys.every((k, i) => k === state.read[i]);
+          if (same) { state = { ...state, at: Date.now() }; return; }
+          all = await r.all({ fresh: true });
+          if (stopped) return;
+        }
         if (!(all instanceof Map)) return; // (a failed read keeps the last answer)
         take(keys, k => all.get(k) ?? null, r.ownTag ?? null);
         return;

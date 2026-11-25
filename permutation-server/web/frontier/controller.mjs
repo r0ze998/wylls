@@ -5317,10 +5317,17 @@ async function revealTick() {
 
 // ------------------------------------------------------------------ territory on the map (territory-map, owner 2026-11-25 items 3/5/6)
 import { territoryProvinceAddress as territoryMapProvince, citizenTagOf as territoryMapTag } from './flocalplay-territory.mjs';
-import { heraldTerritoryOwners } from './map/territorytiles.mjs';
+import { heraldTerritoryOwners, TERRITORY_UNCHANGED } from './map/territorytiles.mjs';
 const TERRITORY_MAP_READ = 'frontier-local-play-act-wide-read-v1';
 /** (territory-map-2) Set once this page's herald has said it serves no territory route: a local world then reads through its relay. */
 let territoryHeraldOff = false;
+/**
+ * (verify-pr240) The ETag of the last territory answer the reader took, and the sight it was taken under. The herald
+ * client keeps no answer, so a 304 only says "the same as the last one you filtered": it is asked for only while the
+ * sight (survey revision, fog, viewer, world) is the one the last full answer was filtered with — a new sight asks for
+ * the whole answer again, so a tile coming into sight is known without the page ever holding the tiles out of it.
+ */
+let territoryEtag = null, territoryEtagSight = null;
 /**
  * The map's territory reads (map/territorytiles.mjs mountTerritoryTiles `reads`), or null (no wide world with player
  * territory, no wallet or Citizen). (territory-map-2, owner 2026-11-25 12:04 Q-TM-4 (c)) The herald publishes the
@@ -5342,10 +5349,19 @@ export function territoryMapReads() {
   if (herald?.wideTerritory && !territoryHeraldOff) {
     return {
       ownTag,
-      all: async () => {
-        const r = await herald.wideTerritory();
-        if (!r?.ok) { if (r?.code === 'NotFound' || r?.code === 'WideWorldUnavailable') territoryHeraldOff = true; return null; }
-        return heraldTerritoryOwners(r.json, { seasonAddress, ...(programId ? { program: programId } : {}) });
+      all: async ({ fresh = false } = {}) => {
+        const sight = `${ownTag}|${seasonAddress}|${programId}|${!!FS.fog?.on}|${FS.survey?.rev ?? ''}`;
+        const r = await herald.wideTerritory({ etag: !fresh && territoryEtagSight === sight ? territoryEtag : null });
+        if (!r?.ok) {
+          if (r?.code === 'NotFound' || r?.code === 'WideWorldUnavailable') territoryHeraldOff = true;
+          // (a request with If-None-Match that did not get through — a cross-origin preflight refused —: ask plainly next time)
+          territoryEtag = null; territoryEtagSight = null;
+          return null;
+        }
+        if (r.notModified) return TERRITORY_UNCHANGED;
+        const out = heraldTerritoryOwners(r.json, { seasonAddress, ...(programId ? { program: programId } : {}) });
+        territoryEtag = out && r.etag ? r.etag : null; territoryEtagSight = territoryEtag ? sight : null;
+        return out;
       },
     };
   }
