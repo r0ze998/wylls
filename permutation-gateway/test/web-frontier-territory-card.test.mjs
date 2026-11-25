@@ -30,14 +30,25 @@ function summaryBytes({ tiles = 0, excess = 0n, unpaidSince = null, tag = 77n } 
   v.setBigUint64(84, tag, true); v.setUint32(92, tiles, true); v.setBigUint64(96, excess, true); v.setUint32(120, unpaidSince ?? 0, true);
   return b;
 }
+// (verify-pr231: the upkeep numbers are READ from the Rust constant, not written here — an owner change of the numbers
+//  (Q-LP15-1 (b): upkeep ×10) moves the card with the program and its JS mirror, and this file needs no edit)
+const RUST_UPKEEP = (() => {
+  const m = /flat: (\d+),\s+per_rank: (\d+),\s+per_distance: (\d+),\s+free_distance: (\d+),/.exec(rust('frontier-abi/src/world_index/territory.rs'));
+  assert.ok(m, 'TERRITORY_V1 upkeep curve in frontier-abi');
+  return { flat: Number(m[1]), perRank: Number(m[2]), perDistance: Number(m[3]), freeDistance: Number(m[4]) };
+})();
+/** The card's upkeep text (food per hour, up to three decimals) of `tiles` tiles with Σ excess `excess`, from the Rust numbers. */
+const upkeepOf = (tiles, excess = 0) => tiles * RUST_UPKEEP.flat + RUST_UPKEEP.perDistance * excess;
+const foodText = milli => String(Number((milli / 1000).toFixed(3)));
 const view = (o, bell = 0) => T.ownLandView(T.decodeTerritoryPlayer(summaryBytes(o)), bell);
 
-test('the JS numbers are the Rust numbers (TERRITORY_V1: 33 + 16 beyond 3, 10 ore + 2 %, 24 turns)', () => {
+test('the JS numbers are the Rust numbers (TERRITORY_V1: flat + per-distance beyond 3, 10 ore + 2 %, 24 turns)', () => {
   const abi = rust('frontier-abi/src/world_index/territory.rs');
-  assert.match(abi, /flat: 33,\s+per_rank: 0,\s+per_distance: 16,\s+free_distance: 3,/);
+  assert.deepEqual([RUST_UPKEEP.perRank, RUST_UPKEEP.freeDistance], [0, 3]);
+  assert.ok(RUST_UPKEEP.flat > 0 && RUST_UPKEEP.perDistance > 0);
   assert.match(abi, /base: 10,\s+per_owned_bps: 200,/);
   assert.match(abi, /decay_after_bells: Some\(24\),/);
-  assert.deepEqual(T.TERRITORY_V1.upkeep, { flat: 33, perRank: 0, perDistance: 16, freeDistance: 3 });
+  assert.deepEqual(T.TERRITORY_V1.upkeep, RUST_UPKEEP);
   assert.deepEqual(T.TERRITORY_V1.cost, { base: 10, perOwnedBps: 200 });
   assert.equal(T.TERRITORY_V1.decayAfterBells, 24);
   // the summary's fields where the Rust layout puts them
@@ -51,14 +62,15 @@ test('next price: whole ore, rounded down as the kernel does (claim_cost), for e
   assert.equal(T.ownLandView(null, 5).nextOre, 10, 'no record yet: the first tile');
 });
 
-test('upkeep per hour: tiles × 33 + 16 × Σ(distance beyond 3) milli-food, the kernel\'s sum over the same tiles', () => {
+test('upkeep per hour: tiles × flat + per-distance × Σ(distance beyond 3) milli-food, the kernel\'s sum over the same tiles', () => {
   for (const distances of [[], [0], [1, 2, 3], [4], [3, 4, 7], Array(61).fill(2), [...Array(30).fill(1), ...Array(31).fill(5)]]) {
     const excess = distances.reduce((a, d) => a + BigInt(Math.max(0, d - 3)), 0n);
     const v = view({ tiles: distances.length, excess });
     assert.equal(v.upkeepMilliPerHour, K.upkeepPerHour(T.TERRITORY_V1.upkeep, distances), JSON.stringify(distances));
+    assert.equal(v.upkeepMilliPerHour, upkeepOf(distances.length, Number(excess)), 'the Rust numbers');
     assert.equal(v.tiles, distances.length);
   }
-  assert.equal(view({ tiles: 61 }).upkeepMilliPerHour, 2013, 'a whole near province: 2.013 food an hour');
+  assert.equal(view({ tiles: 61 }).upkeepMilliPerHour, 61 * RUST_UPKEEP.flat, 'a whole near province');
   assert.equal(T.ownLandView(null, 0).upkeepMilliPerHour, 0);
 });
 
@@ -94,7 +106,7 @@ test('Q-PDT-1: the card model carries the viewer\'s own land once it was read; u
   const none = wideClaimModel(world([], { ownLand: ownLand(null) }), { holding: home, have }).land;
   assert.deepEqual([none.tiles, none.nextOre, none.upkeepMilliPerHour, none.unpaid], [0, 10, 0, false], 'no record yet: 0 tiles, the first price');
   const m = wideClaimModel(world([], { ownLand: ownLand({ tiles: 7, excess: 2n }) }), { holding: home, have });
-  assert.deepEqual([m.land.tiles, m.land.nextOre, m.land.upkeepMilliPerHour, m.land.unpaid], [7, 11, 7 * 33 + 32, false]);
+  assert.deepEqual([m.land.tiles, m.land.nextOre, m.land.upkeepMilliPerHour, m.land.unpaid], [7, 11, upkeepOf(7, 2), false]);
   const u = wideClaimModel(world([], { ownLand: ownLand({ tiles: 7, unpaidSince: 100 }) }), { holding: home, have }).land;
   assert.deepEqual([u.unpaid, u.turnsLeft, u.letting], [true, 14, false], 'bell 110, unpaid since 100: 14 turns left');
   // a world without player land: no land line whatever was read
@@ -119,13 +131,13 @@ test('Q-PDT-1: the land lines in Japanese and English — tiles, next price, upk
   assert.equal(String(ownLandBlock(null)), '');
   try {
     setLang('ja');
-    assert.equal(lines({ tiles: 7, excess: 2n }, 0), 'あなたの土地: 持っているマス 7 · 次の1マス: 鉱石 11 · 土地の維持費: 食料 0.263/時');
+    assert.equal(lines({ tiles: 7, excess: 2n }, 0), `あなたの土地: 持っているマス 7 · 次の1マス: 鉱石 11 · 土地の維持費: 食料 ${foodText(upkeepOf(7, 2))}/時`);
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 110), /払えていません。新しいマスは取れません。あと 14 ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。$/);
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 124), /遠いマスから1ターンに1つずつ手放されています。本拠地に食料が戻ると止まります。$/);
     setLang('en');
     assert.equal(lines(null, 0), 'Your land: tiles owned: 0 · next tile: 10 ore · land upkeep: 0 food per hour');
-    assert.equal(lines({ tiles: 61 }, 0), 'Your land: tiles owned: 61 · next tile: 22 ore · land upkeep: 2.013 food per hour');
-    assert.equal(lines({ tiles: 7, unpaidSince: 100 }, 110), 'Your land: tiles owned: 7 · next tile: 11 ore · land upkeep: 0.231 food per hour Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for 14 more turns, your farthest tiles are let go, one per turn.');
+    assert.equal(lines({ tiles: 61 }, 0), `Your land: tiles owned: 61 · next tile: 22 ore · land upkeep: ${foodText(upkeepOf(61))} food per hour`);
+    assert.equal(lines({ tiles: 7, unpaidSince: 100 }, 110), `Your land: tiles owned: 7 · next tile: 11 ore · land upkeep: ${foodText(upkeepOf(7))} food per hour Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for 14 more turns, your farthest tiles are let go, one per turn.`);
     // (verify-pr231: one turn left reads "1 more turn")
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 123), /If it stays unpaid for 1 more turn, your farthest tiles are let go, one per turn\.$/);
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 130), /is unpaid\. Your farthest tiles are being let go, one per turn\. It stops once your first village has food again\.$/);
@@ -201,7 +213,7 @@ test('devnet: the gateway\'s land summary is ONE read of the wallet\'s own recor
     assert.deepEqual(g.rpc, ['getMultipleAccounts'], 'one read, nothing sent'); assert.deepEqual(g.asked, [[TPLAYER_AT]]);
     assert.equal(landSummaryOk(ctx, WALLET), true); assert.equal(landSummaryOk(ctx, CITIZEN_AT), false, 'an answer for another wallet is refused');
     const v = T.ownLandView(landOfSummary(ctx), 110);
-    assert.deepEqual([v.tiles, v.nextOre, v.upkeepMilliPerHour, v.unpaid, v.turnsLeft], [want.tiles, T.claimCostV1(want.tiles), want.tiles * 33 + 16 * Number(want.excess_sum), want.unpaid, want.unpaid ? 14 : null]);
+    assert.deepEqual([v.tiles, v.nextOre, v.upkeepMilliPerHour, v.unpaid, v.turnsLeft], [want.tiles, T.claimCostV1(want.tiles), upkeepOf(want.tiles, Number(want.excess_sum)), want.unpaid, want.unpaid ? 14 : null]);
   }
   const g = gateway(null);
   for (const bad of [{ schema: DEVNET_LAND_SUMMARY_SCHEMA }, { schema: DEVNET_LAND_SUMMARY_SCHEMA, wallet: 'x' }, { schema: DEVNET_LAND_SUMMARY_SCHEMA, wallet: WALLET, target: { p: '130', q: '-60' } }])
