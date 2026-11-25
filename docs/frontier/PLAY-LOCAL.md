@@ -590,7 +590,7 @@ view (fog-devnet; runbook §7 P5).
 | In sight now | around your villages and hosts, around your nation's villages and the provinces your nation holds. Allies do not share sight |
 | Seen before | stays as last seen, dimmed (villages, keeps and their holders). Kept in this browser |
 | Never seen | blank on the map and on "World": no terrain, village, keep or nation colour |
-| Players' land (`--wide`, #234, #240) | your own tiles: always drawn. Another player's tile: drawn while that tile is in sight now; once out of sight it stays as you last saw it, faded; a tile you never saw is not drawn. While such land is in the picture a small key, "Who holds the land", names the colours ("Your nation (Aster)", the other nations by name, "A player's land (nation not known)"), with "Faded: the owner when last seen (out of sight now)" and "Keep colour: the nation holding the province" |
+| Players' land (`--wide`, #234, #240) | your own tiles: always drawn. Another player's tile: drawn while that tile is in sight now; once out of sight it stays as you last saw it, faded; a tile you never saw is not drawn. While such land is in the picture a small key, "Who holds the land", names the colours ("Your nation (Aster)", the other nations by name, "A player's land (nation not known)"), with "Faded: the owner when last seen (out of sight now)" while a faded tile is in the picture, and "Keep colour: the nation holding the province" while a nation's keep is (that line also shows alone, with no tile in the picture) |
 | Other nations' hosts, marches, clashes, contests | only where you see now; no afterimage |
 | An enemy marching on your village | announced ("Attack") when it leaves from a place in sight, or from 3 turns before arrival |
 
