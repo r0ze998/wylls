@@ -24,6 +24,9 @@ When the food cannot pay a turn's land upkeep, the food the first village holds 
 (#243, owner decision Q-LP17-1 (b) → §4.1 step 6; how it goes turn by turn and the refusal table: #245). Also #245: the
 Train form says a part hundred costs a whole hundred, a tile claim refused for the turn limit or unpaid upkeep has no
 "Try again", and the join card says its two deadlines to ten minutes ("about 1 h 40 min left").
+Then #247 (loop-play18): a full province's "Claim a tile" is off with the reason, tiles let go for unpaid upkeep are
+free again on the card, a falling food store says "Empty in …", and the caravan form never picks its own start as the
+destination (§4.1, §5).
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
@@ -503,7 +506,11 @@ this section describes what the program does today, and none of it is a promise 
    - The first village's food rate is shown after land upkeep, with the land's part beside it: with 73 tiles near home
      and a village that makes 40, the top bar and the village screen's "Per hour" column read "−32.27/h (land −72.27)"
      (the top bar shows rates on a window at least 1,600 px wide; its hover text and the resource list always do:
-     "Food 11 / 2,000 · −32.27 per hour (village +40 · land −72.27)"). The amount in store is the record's, as before.
+     "Food 11 / 2,000 · −32.27 per hour (village +40 · land −72.27) · Empty in 20:28" — a falling store says when it is
+     empty at that rate, as a rising one says "Full in …"). The amount in store is the record's, as before. Once the
+     rate is 0 or below, the card adds under the land line: "Your food no longer grows (−5.54/h): the food your first
+     village makes each turn cannot pay for another tile." "Claim a tile" stays open (the rule still takes the claim
+     while the store pays).
 6. **When the food cannot pay.** The food in your first village is taken (all of it, never more than the upkeep owed),
    and your land counts as unpaid from that turn (owner decision Q-LP17-1 (b), 11-25 21:22;
    before it nothing was taken, so the next turn's food paid a whole turn and the land never stayed unpaid):
@@ -516,7 +523,7 @@ this section describes what the program does today, and none of it is a promise 
      land costs a turn (fewer tiles, or more food). The food missed meanwhile is not charged later (open question VQ-5).
    - **The card warns you** (territory-card), under the land line, for as long as the chain's record says unpaid:
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
-     (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.".
+     (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village makes enough food for your land each turn.".
      The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
      owner question Q-LP15-1), so a village's food falls only by what you spend: with no other spending it takes about
      41 tiles near home (one claim a turn: 41 turns or more) before land upkeep passes a starting village's 40 food an
@@ -552,7 +559,7 @@ are the program's general sentence for that error, which does not always fit (fr
 | Another player owns that tile | "That site is taken." | press again: the page tries the next tile |
 | The tile is yours already (the page had lost track of it) | "Already done." | press again: the page remembers it and goes on |
 | The province is out of reach | "Outpost requirements are not met. Check your town and province control." | pick a nearer row |
-| No free tile left in the province | "No tile is left to claim in this province." | another province |
+| No free tile left in the province | the row's "Claim a tile" is off with "No tile is left to claim in this province." beside it once the page knows (your own tiles always; other players' tiles only in sight). Pressed before the page knew: the same words as a notice, with no "Try again" | another province |
 | The province could not be read | "No tile can be claimed in this province (a world without player land, or the province could not be read)." | press again |
 | A village too near another village of the province (second press of "Found a village here") | "That site is reserved (rings 0 and 1)." | press again: the page names the next site; its tile has to be claimed first |
 
@@ -616,7 +623,10 @@ view (fog-devnet; runbook §7 P5).
   nation's villages and storehouses, and other villages and storehouses that are in sight now — nothing seen before or
   never seen (it used to name every village of every province the page had read, with province and tile). The form says
   so. A place that goes out of sight leaves the list; if that happens between drawing the form and pressing "Send a
-  caravan", nothing is sent ("The destination list has changed … Choose the destination again."). "① Request
+  caravan", nothing is sent ("The destination list has changed … Choose the destination again."; the notice has no
+  "Try again": choose in the field and press "Send a caravan"). The village the caravan leaves from is not listed when
+  it is the form's only start; with nothing of your own to send to, the field starts on "(choose a destination)" —
+  another player's place is never chosen for you. "① Request
   destination" (§13) stays listed whatever is in sight: the requester published that place on the board.
 - In a fog world the map's "Records" view (every recorded province) and the links to the spectator page (the legend's and
   the settings' "Spectator page") are **not shown**, from the first picture on (fog-devnet).

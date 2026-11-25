@@ -264,6 +264,24 @@ export function ownLandView(player, nowBell) {
     turnsLeft: unpaid ? Math.max(0, grace - late) : null, letting: unpaid && late >= grace && tiles > 0 });
 }
 
+/**
+ * (fix-loop18, LP18-4 live: after 9 tiles were let go for unpaid upkeep the card still said "No tile is left" and a
+ * press found no tile — the page's memory of the tiles it claimed in this visit, `FS.ui.ownTiles` "p,q,tile", outlived
+ * the release) Whether that memory still stands for tile `i` of (p, q) against `now`, the map's territory read
+ * (app.mjs FS.territoryTilesNow: `{read: [keys], owners, ownTag, at}`): the read wins once it covers the province and
+ * was taken more than OWN_TILE_GRACE_MS after the claim (the value is the claim's time, Date.now(); an older `true` is
+ * time 0) and does not show the tile as the viewer's. No read of the province: the memory, as before.
+ */
+export const OWN_TILE_GRACE_MS = 15_000;
+export function tileStillMine(ownTiles, p, q, i, now = null) {
+  const v = ownTiles?.[`${p},${q},${i}`];
+  if (!v) return false;
+  const k = `${p},${q}`;
+  if (!now || !Array.isArray(now.read) || !now.read.includes(k) || !Number.isFinite(now.at) || !now.ownTag) return true;
+  if ((now.owners?.get?.(k)?.[i] ?? null) === now.ownTag) return true;
+  return (typeof v === 'number' ? v : 0) + OWN_TILE_GRACE_MS > now.at;
+}
+
 /** The Citizen tag the records name an owner by: the first 8 bytes of the Citizen address, little-endian. */
 export function citizenTagOf(citizen) {
   const b = Uint8Array.from(decode(citizen));

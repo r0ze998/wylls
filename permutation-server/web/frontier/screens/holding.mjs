@@ -31,7 +31,7 @@ import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
-import { TERRITORY_V1, ownLandView } from '../flocalplay-territory.mjs';
+import { TERRITORY_V1, ownLandView, tileStillMine } from '../flocalplay-territory.mjs';
 import { solText } from '../fdevnet-outpost.mjs';
 import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
@@ -52,13 +52,17 @@ import { landUpkeepMilli, withLand, signedNet, landPart } from '../landfood.mjs'
 /**
  * (fix-loop16, Q-LP16-1 (b)) The provinces whose rows the wide claim card never drops: Map "p,q" → 'tiles' (this player
  * owns a tile there: the page's own memory of the tile claims that landed in this visit, `FS.ui.ownTiles`, keys
- * "p,q,tile"), 'siege' (a host of this player is taking that province's keep: a kept expedition's followed hold that
+ * "p,q,tile", while the territory read has not shown it let go since: tileStillMine), 'siege' (a host of this player is taking that province's keep: a kept expedition's followed hold that
  * is not lost — flocalplay-expedition.mjs expeditionHoldsOf — or the wide village's host marching on or holding it —
  * `FS.ui.wideHostSay`) or 'keep' (that hold ended with the keep taken). 'siege' / 'keep' win over 'tiles'. Display only: nothing is read from the chain here.
  */
 export function claimPins(FS) {
   const pins = new Map();
-  for (const k of Object.keys(FS?.ui?.ownTiles ?? {})) { const m = /^(-?\d+),(-?\d+),\d+$/.exec(k); if (m && FS.ui.ownTiles[k]) pins.set(`${m[1]},${m[2]}`, 'tiles'); }
+  // (verify-pr247: a remembered tile the territory read shows let go since pins nothing — live, a province whose only
+  //  tile was released for unpaid upkeep still said 「あなたのマスがある州」; the same rule as the card and the presses,
+  //  flocalplay-territory.mjs tileStillMine)
+  const tnow = typeof FS?.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null;
+  for (const k of Object.keys(FS?.ui?.ownTiles ?? {})) { const m = /^(-?\d+),(-?\d+),(\d+)$/.exec(k); if (m && tileStillMine(FS.ui.ownTiles, m[1], m[2], m[3], tnow)) pins.set(`${m[1]},${m[2]}`, 'tiles'); }
   // ('keep': the hold ended with the keep taken — the row says 「奪った」, not 「奪っている」)
   const siege = (to, taken = false) => { if (to && to.p !== undefined && to.q !== undefined) pins.set(`${String(to.p)},${String(to.q)}`, taken ? 'keep' : 'siege'); };
   for (const h of expeditionHoldsOf(FS ?? {}).values()) if (h?.to && h.outcome !== 'lost' && !Number.isInteger(h.keepLostAt)) siege(h.to, h.outcome === 'taken');
@@ -127,11 +131,38 @@ export function wideClaimModel(FS, m) {
   //  controller refreshOwnLand, `FS.ownLand` of this world and Citizen —: tiles, the next tile's ore, upkeep per hour,
   //  and while upkeep is unpaid the turns left before tiles are let go. Unread yet: no line, the old card)
   const land = territory && FS.ownLand && Object.hasOwn(FS.ownLand, 'player') ? ownLandView(FS.ownLand.player, FS.nowBell ?? 0) : null;
+  // (fix-loop18, LP18-4: a province with no tile left to claim kept an open "Claim a tile"; the press was answered
+  //  「この州に取れるマスは残っていません。」. The row's button is shut, with those words, once the PAGE knows the province is
+  //  full: every tile that is not a village site or the keep's has an owner in what the map's territory read keeps —
+  //  the viewer's own tiles always, another player's only in sight (app.mjs FS.territoryTilesNow; nothing the fog hides
+  //  is used: a tile whose owner the page may not know counts as free) — or is one this page claimed in this visit
+  //  and the read has not shown let go since (flocalplay-territory.mjs tileStillMine).
+  //  A race (the last tile taken since the read) is still answered by the press: controller.mjs 'territory-tile')
+  const tnow = territory && typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null;
+  const noFree = t => provinceFull(terrOf(t), tnow?.owners?.get?.(`${t.p},${t.q}`) ?? null, i => tileStillMine(FS.ui?.ownTiles, t.p, t.q, i, tnow));
+  // (fix-loop18, LP18-8: the first village's food no longer grows — the net rate the stores show is 0 or below — while
+  //  upkeep is still paid from the store: one line says another tile cannot be paid from what the village makes. The
+  //  button stays — the rule takes the claim —; unpaid upkeep has its own lines above)
+  const foodRow = land && !land.unpaid && land.tiles > 0 && Array.isArray(h.stores) ? withLand(storesAt(h, FS.chain?.now?.() ?? 0, RESOURCE_ORDER).find(x => x.resource === 'Food') ?? null, landUpkeepMilli(FS, h)) : null;
+  const foodStalled = foodRow && foodRow.landPerHour > 0 && foodRow.perHour <= 0 ? { perHour: foodRow.perHour } : null;
   // (the button is off below the NEXT tile's price too — it opened at 10 ore whatever the price, and the claim was then refused)
   const tilePrice = land ? land.nextOre : TERRITORY_V1.cost.base;
-  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t) })), own, need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous,
+  return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t), noFree: noFree(t) })), own: own.map(t => ({ ...t, noFree: noFree(t) })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous, foodStalled,
     territory, tileShort: ore < TERRITORY_V1.cost.base, land, tilePrice, tilePriceShort: ore >= TERRITORY_V1.cost.base && ore < tilePrice, tileOff: ore < tilePrice, devnet: !local && !!FS?.devnetTerritory, preview: !local && FS?.devnetTerritory && FS.tilePreview?.step === 'preview' ? FS.tilePreview : null };
 }
+/**
+ * (fix-loop18, LP18-4) Whether a territory province is known to have no tile left for "Claim a tile": `terr` its
+ * `{siteTiles, keepTile}` (wideland.mjs territoryOfCapture), `owners` the 61 owners the page keeps of it (a tag, or null
+ * for a free tile AND for one whose owner the page may not know), `mine(i)` a tile this page claimed. Unknown: false.
+ */
+export function provinceFull(terr, owners, mine = () => false) {
+  if (!terr || !Array.isArray(terr.siteTiles) || !Array.isArray(owners) || owners.length !== 61) return false;
+  const skip = new Set([...terr.siteTiles, terr.keepTile]);
+  for (let i = 0; i < 61; i++) if (!skip.has(i) && owners[i] === null && !mine(i)) return false;
+  return true;
+}
+/** (fix-loop18, LP18-4) The row's words beside a shut "Claim a tile" of a full province. */
+const noFreeNote = t => (t.noFree ? html` <span class="blocked" data-nofree="1">${L`この州に取れるマスは残っていません。`}</span>` : '');
 /** (devnet-territory-dev) The tile claim's cost preview on a devnet territory world (fdevnet-territory.mjs): ore from the
  * first home's store, SOL from the wallet (the records the claim creates + the fee); the next press signs and sends. */
 function tilePreviewBlock(pv, busy) {
@@ -158,7 +189,7 @@ export function ownLandBlock(land) {
   if (!land) return '';
   return html`<p id="hp-own-land"><strong>${L`あなたの土地`}</strong>: ${L`持っているマス ${fmtNum(land.tiles)}`} · ${L`次の1マス: 鉱石 ${fmtNum(land.nextOre)}`} · ${L`土地の維持費: 食料 ${upkeepText(land.upkeepMilliPerHour)}/時`}</p>
     ${land.unpaid ? html`<p id="hp-own-land-unpaid" role="status"><span class="blocked">${land.letting
-      ? L`土地の維持費（本拠地の食料）が払えていません。遠いマスから1ターンに1つずつ手放されています。本拠地に食料が戻ると止まります。`
+      ? L`土地の維持費（本拠地の食料）が払えていません。遠いマスから1ターンに1つずつ手放されています。本拠地の毎ターンの食料が土地の維持費に足りるようになると止まります。`
       : land.tiles > 0 ? L`土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。あと ${fmtNum(land.turnsLeft)} ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。`
         : L`土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。本拠地に食料が戻ると、また取れます。`}</span></p>` : ''}`;
 }
@@ -172,13 +203,14 @@ function wideClaimCard(FS, m, busy) {
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
     ${w.full ? '' : html`<p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>`}
     ${ownLandBlock(w.land)}
+    ${w.foodStalled ? html`<p class="muted" id="hp-own-land-stalled"><span class="blocked">${L`食料の増え方はもう 0 以下です（${signedNet(w.foodStalled.perHour)}/時）。次の1マスの維持費は、本拠地が毎ターン作る食料では払えません。`}</span></p>` : ''}
     ${w.tilePriceShort ? html`<p class="muted"><span class="blocked">${L`鉱石が次の1マスの値段（${fmtNum(w.tilePrice)}）に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
-    ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span></span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
-    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}</span>
-      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
+    ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span>${noFreeNote(t)}</span>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
+    ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}${noFreeNote(t)}</span>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}${noFreeNote(t)}</span>
+      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
     ${tilePreviewBlock(w.preview, busy)}

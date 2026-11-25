@@ -122,7 +122,7 @@ test('Q-PDT-1: "Claim a tile" is off below the NEXT tile\'s price, and the card 
   const unread = wideClaimModel(world(), { holding: home, have: have.map((v, i) => (i === ORE ? 10 : v)) });
   assert.deepEqual([unread.tileOff, unread.tilePrice], [false, 10], 'unread: the base price, as before');
   const src = web('frontier/screens/holding.mjs');
-  assert.equal((src.match(/busy \|\| w\.tileOff \? 'disabled'/g) ?? []).length, 3, 'every "Claim a tile" button');
+  assert.equal((src.match(/busy \|\| w\.tileOff \|\| t\.noFree \? 'disabled'/g) ?? []).length, 3, 'every "Claim a tile" button (fix-loop18 LP18-4: also off in a province with no tile left)');
   assert.match(src, /\$\{ownLandBlock\(w\.land\)\}/);
 });
 
@@ -133,14 +133,14 @@ test('Q-PDT-1: the land lines in Japanese and English — tiles, next price, upk
     setLang('ja');
     assert.equal(lines({ tiles: 7, excess: 2n }, 0), `あなたの土地: 持っているマス 7 · 次の1マス: 鉱石 11 · 土地の維持費: 食料 ${foodText(upkeepOf(7, 2))}/時`);
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 110), /払えていません。新しいマスは取れません。あと 14 ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。$/);
-    assert.match(lines({ tiles: 7, unpaidSince: 100 }, 124), /遠いマスから1ターンに1つずつ手放されています。本拠地に食料が戻ると止まります。$/);
+    assert.match(lines({ tiles: 7, unpaidSince: 100 }, 124), /遠いマスから1ターンに1つずつ手放されています。本拠地の毎ターンの食料が土地の維持費に足りるようになると止まります。$/);
     setLang('en');
     assert.equal(lines(null, 0), 'Your land: tiles owned: 0 · next tile: 10 ore · land upkeep: 0 food per hour');
     assert.equal(lines({ tiles: 61 }, 0), `Your land: tiles owned: 61 · next tile: 22 ore · land upkeep: ${foodText(upkeepOf(61))} food per hour`);
     assert.equal(lines({ tiles: 7, unpaidSince: 100 }, 110), `Your land: tiles owned: 7 · next tile: 11 ore · land upkeep: ${foodText(upkeepOf(7))} food per hour Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for 14 more turns, your farthest tiles are let go, one per turn.`);
     // (verify-pr231: one turn left reads "1 more turn")
     assert.match(lines({ tiles: 7, unpaidSince: 100 }, 123), /If it stays unpaid for 1 more turn, your farthest tiles are let go, one per turn\.$/);
-    assert.match(lines({ tiles: 7, unpaidSince: 100 }, 130), /is unpaid\. Your farthest tiles are being let go, one per turn\. It stops once your first village has food again\.$/);
+    assert.match(lines({ tiles: 7, unpaidSince: 100 }, 130), /is unpaid\. Your farthest tiles are being let go, one per turn\. It stops once your first village makes enough food for your land each turn\.$/);
     assert.match(lines({ tiles: 0, unpaidSince: 100 }, 130), /is unpaid\. No new tile can be claimed\. Once your first village has food again, you can claim again\.$/);
     for (const o of [null, { tiles: 7 }, { tiles: 7, unpaidSince: 100 }, { tiles: 0, unpaidSince: 1 }]) for (const b of [110, 124, 500]) {
       const t = lines(o, b);
