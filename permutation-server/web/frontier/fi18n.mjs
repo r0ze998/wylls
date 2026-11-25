@@ -500,6 +500,8 @@ const CLIENT_TEXT = {
   LauncherFailed: () => L`世界を起動できませんでした。`,
   ResponseTooLarge: () => L`答えが大きすぎるため、読みませんでした。`,
   RoutePlaces: () => L`道の州の指定が正しくありません（1〜4 州）。`,
+  // (player-territory-records: herald.mjs wideTerritoryPlayer refuses a Citizen address that is not one, before any read)
+  BadCitizen: () => L`住民のアドレスが正しくありません。`,
   WalletGone: () => L`このウォレットはもう使えません。`,
   // (round 42: the expedition lane's codes — fexpedition*.mjs, seal-wide.mjs —: their sentences, display only)
   ClockBeaconMismatch: () => L`公開乱数の時計が世界の記録と一致しません`,
