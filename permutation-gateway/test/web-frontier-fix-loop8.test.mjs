@@ -30,7 +30,7 @@ test('LP7-6 (rest): a keep the viewer\'s host stands on, or has arrived at with 
   assert.equal(ownHostOnKeep(fs({ marches: [{ ...march, dest: null }] }), keep), false);
   const c = src('screens/conquest.mjs');
   assert.ok(c.includes('const held = rest.filter(x => ownHostOnKeep(FS, x)), others = rest.filter(x => !held.includes(x));'));
-  assert.ok(c.includes('あなたの軍勢が着いている他国の砦'));
+  assert.ok(c.includes('あなたの軍勢が着いている砦（自分の国のもの以外）'));
   assert.ok(c.includes('${others.length ? html`<ul class="list kr-rows" aria-labelledby="conquest-reach-title">${others.map(row)}</ul>`'), 'the reach list is the others only');
 });
 

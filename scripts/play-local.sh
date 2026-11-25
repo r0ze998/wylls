@@ -49,6 +49,12 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   action per resident per turn, in every world (kept, --random-map, --wide, --demo)
   --ai-peaceful   the AI residents do not march on keeps: they build, harvest, train and muster (in a --wide world
                   they still take rim and wide-land villages and send expeditions)
+  --ai-near       with --wide and --ai 1-4 (TEST-ONLY launcher option --operator-near; off by default): ONE of the AI
+                  residents joins no nation at first. Once you have your first village it joins the other nation
+                  whose rim village site is nearest to it (3 provinces away on the standard map), puts its village
+                  there and claims wide land toward you. So another nation's tiles stand within your expedition's
+                  reach (4 provinces) and you can see them change hands when you take that province's keep.
+                  No rule changes; the nation picker's "AI present" mark does not show this one resident
   --two           TWO people in ONE world (TEST-ONLY launcher option --contest-pair): the second person opens the
                   same page in another browser (or this browser at http://127.0.0.1:<port>/ instead of localhost)
                   and presses the same start button; the first start waits for the second (about 4 minutes, then
@@ -146,7 +152,7 @@ EOF
 }
 
 # ------------------------------------------------------------------ arguments
-AI=2 PEACEFUL=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0 COOP=1 GOALS=1 FK_HOLD='' FK_NEED=''
+AI=2 PEACEFUL=0 AI_NEAR=0 SPEED=60 MINUTES=90 PORT=41920 DEMO=0 WIDE=0 PORT_SET=0 AI_SET=0 SPEED_SET=0 FRESH=0 RESUME=0 RANDOM_MAP=0 REBUILD=0 NOBUILD=0 NOOPEN=0 CHECKONLY=0 PLAN=0 CLUSTER=localnet TWO=0 TWO_SET=0 COEXIST=0 COEXIST_NODE=0 EXTERNAL='' NO_MCP=0 COOP=1 GOALS=1 FK_HOLD='' FK_NEED=''
 case "${LANG:-}${LC_ALL:-}" in ja*|*ja_JP*) LANG_UI=ja ;; *) LANG_UI=en ;; esac
 
 need_val() { [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#--}" = "$2" ] || { err "$1 には値が必要です" "$1 needs a value"; exit 2; }; }
@@ -164,6 +170,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --ai) need_val "$@"; AI="$2"; AI_SET=1; shift 2 ;;
     --ai-peaceful) PEACEFUL=1; shift ;;
+    --ai-near) AI_NEAR=1; shift ;;
     --speed) need_val "$@"; SPEED="$2"; SPEED_SET=1; shift 2 ;;
     --demo) DEMO=1; shift ;;
     --wide) WIDE=1; shift ;;
@@ -290,6 +297,11 @@ if [ "$MCP" = 1 ] && [ ! -f "$MCP_BIN" ]; then
 fi
 if [ "$REBUILD" = 1 ] && [ "$NOBUILD" = 1 ]; then err "--rebuild と --no-build は同時に使えません" "--rebuild and --no-build cannot be combined"; exit 2; fi
 is_int "$AI" && [ "$AI" -le 4 ] || { err "--ai は 0〜4 です" "--ai must be 0-4"; exit 2; }
+# (fix-loop16, owner Q-LP16-2 (b): --ai-near is the wide world's — elsewhere every nation's keeps are already in reach)
+if [ "$AI_NEAR" = 1 ]; then
+  if [ "$WIDE" = 0 ] || [ "$AI" -lt 1 ]; then err "--ai-near は --wide と --ai 1〜4 と一緒に使います (例: scripts/play-local.sh --wide --ai 4 --ai-near)" "--ai-near works with --wide and --ai 1-4 (e.g. scripts/play-local.sh --wide --ai 4 --ai-near)"; exit 2; fi
+  if ! grep -q "'operator-near'" "$LAUNCHER" 2>/dev/null; then err "--ai-near: このチェックアウトのランチャーにはまだありません。" "--ai-near: the launcher on this checkout does not have it yet."; exit 5; fi
+fi
 is_int "$SPEED" && [ "$SPEED" -ge 10 ] && [ "$SPEED" -le 60 ] || { err "--speed は 10〜60 です" "--speed must be 10-60"; exit 2; }
 is_int "$MINUTES" && [ "$MINUTES" -ge 15 ] && [ "$MINUTES" -le 240 ] || { err "--minutes は 15〜240 です" "--minutes must be 15-240"; exit 2; }
 if [ -n "$FK_HOLD" ]; then is_int "$FK_HOLD" && [ "$FK_HOLD" -ge 1 ] && [ "$FK_HOLD" -le 100000 ] || { err "--flag-keeps-hold は 1〜100000 です" "--flag-keeps-hold must be 1-100000"; exit 2; }; fi
@@ -422,6 +434,7 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
     --artifact "$SO" --artifact-sha "$sha" --world-ttl-minutes "$MINUTES" --port "$PORT" --world-port "$WORLD_PORT"
   if [ "$AI" -gt 0 ]; then printf '%s\n' --operator-residents "$AI"; fi
   if [ "$AI" -gt 0 ] && [ "$WAR" = 1 ]; then printf '%s\n' --operator-war operator-war-v1; fi
+  if [ "$AI_NEAR" = 1 ]; then printf '%s\n' --operator-near operator-near-v1; fi
   if [ "$RANDOM_MAP" = 1 ]; then printf '%s\n' --fresh-map "$FRESH_MAP_WORD"; fi
   if [ "$TWO" = 1 ]; then printf '%s\n' --contest-pair "$PAIR_WORD"; fi
   if [ "$COEXIST" = 1 ]; then printf '%s\n' --coexist local-coexist-v1; fi
@@ -795,6 +808,8 @@ else
   if [ "$RESUME" = 1 ]; then say "   前回の世界を続けます (同じ村)。止めているあいだ、世界の時計は止まっていました。" "   Resuming the last world (the same village). Its clock stood still while it was stopped."; fi
 fi
 [ "$AI" -gt 0 ] && say "   AI 住民 $AI 人 (運営側のテスト住民) が同じ世界で動きます。" "   $AI operator AI resident(s) play in the same world."
+[ "$AI_NEAR" = 1 ] && say "   --ai-near: AI 住民のうち 1 人は、あなたの最初の村が建ってから、いちばん近いほかの国に入り、近くの辺境に村を出します (あなたのほうへ土地を広げます)。" \
+    "   --ai-near: one AI resident waits for your first village, then joins the nearest other nation and puts its village on the rim beside you (it claims land toward you)."
 [ "$AI" -gt 0 ] && [ "$WAR" = 1 ] && say "   AI の国は戦争中です: 届く他国の砦へ進軍し、包囲して奪います (1 ターンに 1 回の行動)。止めるには --ai-peaceful。" \
     "   The AI nations are at war: they march on reachable keeps of other nations, siege and capture them (one action per turn). --ai-peaceful turns it off."
 if [ "$EXTERNAL_SET" = 1 ]; then

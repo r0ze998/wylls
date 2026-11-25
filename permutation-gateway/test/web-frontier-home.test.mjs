@@ -113,7 +113,7 @@ test('LP6-12: a local contest pair of one nation is offered the same province fi
   for (const w of ['AAAAwallet', 'BBBBwallet', 'CCCCwallet', 'DDDDwallet']) { const c = (await plan(w)).candidates[0]; own.push(`${c.p},${c.q}`); }
   assert.ok(new Set(own).size > 1, `wallet seeds spread the players: ${own}`);
   const src = (await import('node:fs')).readFileSync(new URL('../../permutation-server/web/frontier/flocalplay.mjs', import.meta.url), 'utf8');
-  assert.match(src, /const playedAs = launcher && state\.pairRole \? Object\.freeze\(\{ \.\.\.playedWide, pair: state\.pairRole \}\) : playedWide;/);
+  assert.match(src, /const playedAs = launcher && state\.pairRole \? Object\.freeze\(\{ \.\.\.playedAi, pair: state\.pairRole \}\) : playedAi;/);
 });
 
 // (fix-loop6, LP6-11) B-8's real cause: a press made before the candidates were read started a forced reading, the next
