@@ -178,6 +178,15 @@ $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha2
    `--season 3 --data herald-3` (a new data dir); it answers NoSeasonYet until CreateSeason lands. Switch it after
    step 5 (announce), before T. Page source = M (the herald serves `--web` by path: the src-dir swap of
    devnet-services-update, 0 downtime).
+   **The page before the create (page-not-open-yet):** while the herald answers `503 NoSeasonYet` — no account for
+   its `--season`, or only the announced one — the game page says "The world is not open yet" on its calm banner
+   and on the plate (not the red "the world's record cannot be read (HTTP503)" / "check your connection"), keeps
+   asking every 30 s and opens the world by itself. The herald does not serve the announced time, so to name it put
+   one file beside the page: `<web>/frontier/world-open.json` = `{"v":1,"opensAt":<t_create_min, unix seconds>}`
+   (world 3: `{"v":1,"opensAt":1795662000}`). The page then says "It opens on or after <that time in the reader's
+   zone>"; without the file, or once the time is past, "It opens soon". The file is not in the repository (it is this
+   run directory's own): write it again after a src-dir swap, and remove it after the create (it is not read once a
+   world answers). A failed connection is still the red line.
 4. **gateway:** `gateway-starter.sh` with `--season 3`; it waits for `/h/season`'s rulesetHash of season 3. Fresh
    `relay/` (season 2's was never created).
 5. **health monitor:** season 3 PDA `5iDH2fZy6jstCpHRvnVxAKY5xqnS63ohAyayvVNPLBHJ`, `createAt` = T from chain,

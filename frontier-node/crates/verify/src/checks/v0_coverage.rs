@@ -69,7 +69,9 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 /// (WideClaimSite in its wallet form, WideSettleTicket, WideFinalize), the
 /// season-end WideClose of a ticket record, a holding and a province, and
 /// the wide economy and garrison (wallet forms), WideMuster (wallet form)
-/// and WideResolve (the bell, the wide keep capture) by VWL, the expedition
+/// and WideResolve (the bell, the wide keep capture) and player territory
+/// (WideClaimTile, WideTerritorySettle / Decay / Conquer, #209;
+/// verifier-territory) by VWL, the expedition
 /// dispatch envelope (`[tag, 0xff, 2, kind]`, kinds 0–18: the expedition
 /// wrapper and the Free City conquest, 2026-11-19) by VX (re-executed by the
 /// pinned program, `vx_reexec`), the wide-native host lifecycle's
@@ -236,6 +238,18 @@ pub fn vx_tx(t: &crate::world::Tx, pv: Option<u16>) -> bool {
         && t.ixs
             .iter()
             .any(|ix| ix.tag().is_some_and(is_wide_tag) && vx_judged(&ix.data))
+}
+
+/// Whether VWL re-judges transaction `t` as a whole: every program
+/// instruction a wide one VWL names (one instruction, or — player
+/// territory, verifier-territory — the keeper's settle + decay / settle +
+/// conquer, which VWL re-runs in order; any other mix is VWL's
+/// `MissingData`, never a PASS). Its writes are VWL's to judge.
+pub fn vwl_tx(t: &crate::world::Tx) -> bool {
+    !t.ixs.is_empty()
+        && t.ixs
+            .iter()
+            .all(|ix| ix.tag().is_some_and(is_wide_tag) && vwl_judged(&ix.data))
 }
 
 /// Whether VWL re-judges this wide instruction (playable-lane build only).

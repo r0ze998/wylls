@@ -478,8 +478,15 @@ impl<'a> Run<'a> {
     /// re-execution, and every patch of this run as a declared state. Saved as `{tag}-season.json.gz` under
     /// `OPERATOR_EVIDENCE_DIR` when set. → `{verdict, counts by (severity, check, code), the non-WARN findings}`.
     fn judge_season(&self, tag: &str) -> Value {
-        let so = super::devnet_so_of(self.c.conquest);
-        let so_sha256 = super::devnet_build(self.c.conquest).0;
+        self.judge_season_so(
+            tag,
+            super::devnet_so_of(self.c.conquest),
+            super::devnet_build(self.c.conquest).0,
+        )
+    }
+    /// [`Run::judge_season`] with the `.so` the run deployed given explicitly (P18: `OPERATOR_TERRITORY_SO`, the new
+    /// world's binary; verify-pr228).
+    fn judge_season_so(&self, tag: &str, so: Vec<u8>, so_sha256: &str) -> Value {
         let so_hash: [u8; 32] = hex::decode(so_sha256).unwrap().try_into().unwrap();
         let program = self.c.program;
         // (verify-pr150) the chain's Rent sysvar, as `frontier-verify --rpc` reads it: VX / VG re-execute under the
