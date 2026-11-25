@@ -69,7 +69,6 @@ export function claimCostV1(tiles) {
   return Number(b + (b * BigInt(tiles) * BigInt(TERRITORY_V1.cost.perOwnedBps)) / 10_000n);
 }
 
-/** The upkeep (milli-food per hour) one more tile at `dist` provinces adds. */
 /** The own wide village (of `villages`, `{p, q, site}`) nearer to `target` than the first home `home`, or null (TQ-2). */
 export function nearerOwnVillage(home, target, villages) {
   let best = null, bd = distance(home, target);
@@ -79,6 +78,7 @@ export function nearerOwnVillage(home, target, villages) {
   return best;
 }
 
+/** The upkeep (milli-food per hour) one more tile at `dist` provinces adds. */
 export function tileUpkeepV1(dist) {
   const u = TERRITORY_V1.upkeep;
   return u.flat + u.perDistance * Math.max(0, dist - u.freeDistance);

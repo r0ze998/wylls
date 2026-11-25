@@ -264,7 +264,7 @@ faucet gives at most 5 SOL per request and is rate-limited (solana.com docs), so
 offline. The previous `.so` cost 23.29 / 31.89 SOL at the peak.)
 
 At 5 SOL per faucet request: 5 requests for the deploy at 5,080 (7 at 6,960), 25 for deploy + one season (28). Of a
-season's 98.21 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned or float. A world that never ends
+season's 98.21 SOL only 0.625 SOL (fees and tips) is spent; the rest is returned at the season's end or float (a continuous world never ends, so nothing is returned: EndSeason is refused, §6). A world that never ends
 adds 1.02 SOL per day of AnchorArchives (1.40 at 6,960) [model].
 
 ### 4b. Running cost: each player, and the operator's keeper A (2026-11-21; refreshed 2026-11-22)

@@ -88,7 +88,7 @@ export function wideClaimModel(FS, m) {
   //  counts toward the three villages, and its province is never offered again)
   const mine = wideSlots(FS);
   const held = new Set(mine.filter(e => e.holding).map(e => `${String(e.holding.p)},${String(e.holding.q)}`));
-  // (expansion-gameplay-1, reach from the nation's land — local wide worlds only, the devnet program takes no witness:
+  // (expansion-gameplay-1, reach from the nation's land — local wide worlds and devnet territory worlds (below); the devnet wide program 67a33c92 takes no witness:
   //  the opened wide land as the herald records it now (it grows where nations go), and the nation's land in it —
   //  a village of the nation, or a keep it won —, from which a claim may also reach OUTPOST_RANGE provinces)
   const local = !!FS?.localPlay?.wideLand;

@@ -63,19 +63,19 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
         why: ore.by === 'record' ? 'S1: mines are counted above my Holding\'s own terrain ore' : ore.by === 'landed' ? 'S1: my Holding does not say its terrain ore; mines are counted from my own landed builds' : 'S1: my terrain ore is not known (no TERRAIN_ORE, no complete record of my builds): ore copies are counted above the tier\'s base and may read low; a refusal for resources holds the build' });
     }
   }
-  // (external-wide-orders: the wide land, read once per turn and memory change — reads only, nothing is sent)
+  // (ws13-territory: the resident's own land and the tiles it could claim — reads only; before the wide land's look, whose
+  //  claim order needs it in a world with player territory)
   if (territory && obs.holding) {
     try { obs.territory = await territory.look(obs, st); } catch (e) { obs.territory = { on: null, why: `territory look failed: ${String(e?.message ?? e).slice(0, 160)}` }; }
     const seenT = obs.territory ? JSON.stringify(territorySeen(obs.territory)) : null;
     if (seenT && st.territorySeen !== seenT) { st.territorySeen = seenT; log('territory', { what: 'seen', bell: obs.bell, ...territorySeen(obs.territory) }); }
   }
+  // (external-wide-orders: the wide land, read once per turn and memory change — reads only, nothing is sent)
   if (wide && obs.holding) {
     try { obs.wideLand = await wide.look(obs, st); } catch (e) { obs.wideLand = null; log('wide', { what: 'look-failed', why: String(e?.message ?? e).slice(0, 200) }); }
     const seen = obs.wideLand ? JSON.stringify(seenOf(obs).wide).replace(/[0-9]+/g, '#') : null;   // (said when it changes, not each turn's numbers)
     if (seen && st.wideSeen !== seen) { st.wideSeen = seen; log('wide', { what: 'seen', bell: obs.bell, ...seenOf(obs).wide }); }
   }
-  // (ws13-territory: the resident's own land and the tiles it could claim — reads only; before the wide land's look, whose
-  //  claim order needs it in a world with player territory)
   store.save();
   if (halted()) { log('stop', { why: 'halted-by-operator', bell: obs.bell }); return { did: 'halted' }; }
   if (st.decisions >= limits.maxTurns) { log('stop', { why: 'max-turns', decisions: st.decisions }); return { did: 'max-turns' }; }

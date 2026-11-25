@@ -442,7 +442,8 @@ pub mod wide {
 
     /// The rule bytes every playable-lane world and test uses (svm-tests
     /// `devnet_preset_wide.rs`, itest `wide_land.rs`): interleaved keeps
-    /// (the only holder rule placement 2 allows), the deployed Free City
+    /// (the default; placement 2 also allows Neutral and NeutralTerritoryV1 from
+    /// the profile through [`rules_for`]), the deployed Free City
     /// site (the only Free City rule placement 2 allows), no camp, the
     /// sort-key-hash region. Write-once on chain.
     pub const RULES: wr::RuleBytes = wr::RuleBytes {
