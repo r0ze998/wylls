@@ -2,7 +2,7 @@
 
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-26 (through #244). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-26 (through #244 and #243). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -20,9 +20,9 @@ and what is in sight now (#244 → §5); the AI residents keep ore for their tro
 first wide village (#236, #241 → §4.1), and `--ai-near` puts one beside you (#237 → §4.0); an external resident reads and
 plays its own land (#227 → §11); what loop-play15 and loop-play16 found is fixed (#223, #225, #237 → §3 step 6, §4, §4.1,
 §12); the first, whole-world view of the map is fast again (#239). What is left: §8.
-Open when this was written, and so not described as the world's rule here: #243 (when the food cannot pay, the food the
-first village holds is taken and the land stays unpaid; §4.1 step 6 still tells the rule on main) and #245 (three page
-fixes and the guide text for that rule).
+When the food cannot pay a turn's land upkeep, the food the first village holds is now taken and the land stays unpaid
+(#243, owner decision Q-LP17-1 (b) → §4.1 step 6). Open when this was written, and so not described here: #245 (three
+page fixes, and more guide text for that rule: how it goes turn by turn, and the refusal table).
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
@@ -687,7 +687,7 @@ not in this guide. #179 (the verifier reads declared patches), #180 (the operato
 and #181 (the read-only deploy-day preflight `scripts/devnet/preflight.mjs`) are devnet and verifier changes too: nothing
 changes in a `play-local.sh` world (the script uses none of these tools; a local test world stops at its time limit or on Ctrl-C).
 
-## 8. Known problems (2026-11-26, main through #244)
+## 8. Known problems (2026-11-26, main through #244 and #243)
 
 ### 8.1 Still on main (after #244)
 
