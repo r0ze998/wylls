@@ -132,7 +132,7 @@ pub const WALL_COST_STONE: i64 = 300;
 pub const WALL_SECS: i64 = 4 * HOUR;
 
 /// A second or third holding (M2+): base cost, × `duplicate_cost`
-/// (model.rs `SETTLER_COST`; not used in M1, kept in the hash).
+/// (model.rs `SETTLER_COST`; the 2nd/3rd village price, citizen.rs `settler_cost`).
 pub const SETTLER_COST: [i64; RESOURCES] = [800, 800, 400, 0, 0, 200, 0, 0];
 
 /// Starter kit of a new first holding (units; model.rs `STARTER_KIT`).

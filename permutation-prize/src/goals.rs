@@ -302,7 +302,7 @@ pub struct Params {
 
 impl Params {
     /// The design record's initial values (§7.1–§7.4, Q13/Q14/Q19, Q5) for
-    /// a 6-decimal test mint: a 25 test USDC pass of 30 days, 80/20, kinds
+    /// a 6-decimal test mint: a 25 test USDC pass (⑰ owner default) of 30 days, 80/20, kinds
     /// 40/20/20/20, claims for 14 days, 24 h membership, 0.01 minimum, a 3-day
     /// dispute window, retire after 30 days.
     pub const fn recommended(params_hash: [u8; 32]) -> Params {

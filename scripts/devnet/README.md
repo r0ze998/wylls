@@ -12,7 +12,7 @@ its gate is open, and only r0ze opens it.
 | `devnet-playable-profile.json` | The **playable lane**'s profile (owner decision B7: expedition / wide land + the land preview, version 0x4804; no Free City conquest kinds since P14 b, 2026-11-22): its own program-id placeholder, build `scripts/build-frontier-devnet-playable-sbf.sh`, required marker `PSF_DEVNET_PLAYABLE_BUILD`, cap = the loader's 10 MiB, measured devnet rent 5,080, and the `operator` block read by `frontier-operator` (preset `S1_DEVNET_WIDE_CONTINUOUS` since devnet-continuous-1: the continuous world, season 2; `S1_DEVNET_WIDE_7D` before) |
 | `test/dry-run.test.mjs` | 40 tests (33 + 7 of ⑰ `--with-prize` / `prize.enabled`) with a fake file system and a fake Solana CLI (CI job `devnet-dry-run`, key-free) |
 | `test/playable-profile.test.mjs` | 10 tests of the playable profile (marker drift guard both ways, cap, build wiring, gate) |
-| `preflight.mjs`, `preflight-checks.mjs`, `test/preflight.test.mjs` | The **deploy-day preflight** (runbook §8 step 0): every MUST item checked read-only, one PASS / FAIL / WARN / SKIP line each with the fix; 29 tests with fakes (CI job `devnet-dry-run`) |
+| `preflight.mjs`, `preflight-checks.mjs`, `test/preflight.test.mjs` | The **deploy-day preflight** (runbook §8 step 0): every MUST item checked read-only, one PASS / FAIL / WARN / SKIP line each with the fix; 34 tests with fakes (CI job `devnet-dry-run`) |
 | `readonly-guard.mjs`, `test/readonly-guard.test.mjs` | The loopback guard of the read-only devnet runs (B5, #123): a read-method allow-list, batches refused, devnet-only upstream with a genesis check, spacing, a hard request budget, a JSONL log; and its tests |
 
 ```sh
@@ -154,7 +154,7 @@ read, so duties/rent/lag come from its log), tunnel name vs the herald's `public
 
 Process checks: a process is found by its command line only — no PID is written in `health.mjs`. Each pattern
 starts at the program being run (`zsh ./run-herald.sh`, `…/frontier-herald … --listen 127.0.0.1:41140`), so a
-line that only names it (`pgrep -f …`, `tail -f …`, an editor) is not taken for it. Wanted and not running = FAIL. "restarted" is a WARN only for a while, so a planned restart (a herald swap) clears by itself:
+line that only names it (`pgrep -f …`, `tail -f …`, an editor) is not taken for it. A script must keep its own name: a copy named `season-driver-2.sh` or `run-herald-2.sh` is not matched (a FAIL), so keep a copy under the same name in its own run directory. Wanted and not running = FAIL. "restarted" is a WARN only for a while, so a planned restart (a herald swap) clears by itself:
 
 - with `--state FILE` (the loop uses it): the run that finds a different PID than the previous run did is a WARN
   (`pid 7001 up 02:10 — was 94463 at the previous run (restarted)`), and it stays a WARN until the new process is

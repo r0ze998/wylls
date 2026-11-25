@@ -153,13 +153,13 @@ v3 RulesConfig or territory accounts, the old program cannot read them; after th
 
 Timing: the announce and the whole create window `t_create_min … t_create_min + ≈35 min` (CreateSeason, genesis
 ≈ +21 min, WideSetRules, join check) must avoid 01:30–03:30 JST: announce between about 09:00 and 22:00 JST
-(t_create_min = announce + 24 h + 300 s margin).
+(by default t_create_min = announce + 24 h + 300 s margin; the operator's `--t-create-min UNIX`, at least chain clock + 24 h + 60 s, picks a later create time, and then the announce may be at any hour).
 
 ```sh
 P=scripts/devnet/devnet-new-world-profile.json; K=~/wylls-devnet-keys/authority.json
 $B --profile $P --authority $K                                       # dry run: P (params hash), balance, gate
 $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha256 $H --max-txs 1 --record ~/wylls-season-3.jsonl
-#   → AnnounceSeason; exit 3 "CreateSeason opens at chain clock T"   (measured on the local validator: 12,779 CU)
+#   → AnnounceSeason; exit 0 "stopped after 1 transaction(s) (--max-txs)" (without --max-txs: exit 3 "CreateSeason opens at chain clock T")   (measured on the local validator: 12,779 CU)
 ```
 
 ## 6. Services, in order (the run directory's scripts are r0ze's / the operator run's; never edit a running script)
@@ -186,7 +186,7 @@ $B --profile $P --authority $K --yes-send --i-have-r0ze-approval --approved-sha2
    (world 3: `{"v":1,"opensAt":1795662000}`). The page then says "It opens on or after <that time in the reader's
    zone>"; without the file, or once the time is past, "It opens soon". The file is not in the repository (it is this
    run directory's own): write it again after a src-dir swap, and remove it after the create (it is not read once a
-   world answers). A failed connection is still the red line.
+   world answers). A failed connection is still the red line, but a herald that cannot reach its chain RPC and has no saved world also answers `503 NoSeasonYet`, so the page then says "The world is not open yet" too (verify-pr226 gap 1).
 4. **gateway:** `gateway-starter.sh` with `--season 3`; it waits for `/h/season`'s rulesetHash of season 3. Fresh
    `relay/` (season 2's was never created).
 5. **health monitor:** season 3 PDA `5iDH2fZy6jstCpHRvnVxAKY5xqnS63ohAyayvVNPLBHJ`, `createAt` = T from chain,

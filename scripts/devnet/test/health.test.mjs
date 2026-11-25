@@ -1,6 +1,7 @@
 // Tests of the read-only devnet health check (scripts/devnet/health.mjs): pure
-// helpers and the RPC wrapper with a fake fetch. Nothing here contacts a
-// network, reads a key or touches a process.
+// helpers, the RPC wrapper with a fake fetch, and runChecks end to end against
+// stand-in servers on 127.0.0.1 and temp dirs. Nothing here contacts a
+// network beyond 127.0.0.1, reads a key or touches a process.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {

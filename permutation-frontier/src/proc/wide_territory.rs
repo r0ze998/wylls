@@ -13,8 +13,8 @@
 //! runs before the first byte write. The first home's stores change by the
 //! deployed holding kernel (`pay`) and are logged with the deployed
 //! `HARVEST` record and stores digest, as WideClaimSite's settler cost is.
-//! No PS2/PSW1 record of a territory change is allocated yet (gap: the
-//! verifier does not replay these ops; report territory-impl).
+//! No PS2/PSW1 record of a territory change is allocated yet (the
+//! verifier re-runs these ops: VWL part 6, vwl_wide_territory.rs).
 
 use super::{player_start_as, province_at, reach_witness_distance, settle_season, world_of, Shape};
 use crate::addr;
