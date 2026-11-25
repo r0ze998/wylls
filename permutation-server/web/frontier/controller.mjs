@@ -89,7 +89,7 @@ import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
 import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
-import { raidOffers, domesticRaidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
+import { raidOffers, domesticRaidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, placeKey, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
@@ -4012,6 +4012,10 @@ function s1PlanAtSend({ srcIndex = null, dstIndex = null, fortTile = null } = {}
 const s1PlanDone = (at, r) => { if (r?.ok === true && at.used && at.plan !== null && FS.s1Plan === at.plan) clearS1Plan(); return r; };
 function s1CaravanFromForm(f) {
   const srcIndex = Math.trunc(formNum(f, 'src') || 0), dstIndex = Math.trunc(formNum(f, 'dst'));
+  // (food-net-caravan, Q-LP17-4: the destination list follows what is in sight; the option chosen names its place —
+  //  screens/s1.mjs placeKey — and a list that changed under it since the form was drawn sends nothing)
+  const drawn = f?.elements?.places?.value, chosen = typeof drawn === 'string' ? drawn.split('|')[dstIndex] ?? null : null;
+  if (chosen && placeKey(s1VillageModel(FS).destinations[dstIndex]) !== chosen) return Promise.resolve(s1Refused(L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。`));
   const at = s1PlanAtSend({ srcIndex, dstIndex });
   return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
 }

@@ -44,6 +44,7 @@ export const NEAR_FULL_SECS = 3600;
 export { activeHolding } from '../fstate.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { heartlandFull } from '../home.mjs';
+import { withLand, signedNet, landPart, landSplit } from '../landfood.mjs';
 
 // ------------------------------------------------------------------ the bell pill
 /** `{bell, secondsLeft, frac, urgency, beforeGenesis, ended}` at chain time `now`. */
@@ -62,15 +63,19 @@ export function bellModel(clock, now) {
  * perHour, fullIn, state}]`, only resources the holding produces or holds;
  * `fullIn` is seconds to the cap (0 when full, null without production),
  * `state` 'full' | 'near' | 'ok'.
+ * (food-net-caravan, owner Q-LP17-2: `land` — the land upkeep charged to this village, milli-food per hour,
+ *  landfood.mjs landUpkeepMilli — makes the food's `perHour` the NET rate, with `villagePerHour` and `landPerHour`
+ *  beside it; `fullIn` follows the net rate. 0: as before.)
  */
-export function resourceModel(holding, now) {
+export function resourceModel(holding, now, { land = 0 } = {}) {
   if (!holding) return [];
   return storesAt(holding, now, RESOURCE_ORDER)
     .filter(s => s.value > 0 || s.perHour !== 0)
+    .map(s => withLand(s, land))
     .map(s => {
       const fullIn = s.cap > 0 && s.value >= s.cap ? 0 : s.perHour > 0 && s.cap > 0 ? Math.ceil(((s.cap - s.value) / s.perHour) * 3600) : null;
       const state = fullIn === 0 ? 'full' : fullIn !== null && fullIn <= NEAR_FULL_SECS ? 'near' : 'ok';
-      return { resource: s.resource, name: RESOURCES[s.resource], value: s.value, cap: s.cap, perHour: s.perHour, fullIn, state };
+      return { resource: s.resource, name: RESOURCES[s.resource], value: s.value, cap: s.cap, perHour: s.perHour, fullIn, state, ...(s.landPerHour > 0 ? { villagePerHour: s.villagePerHour, landPerHour: s.landPerHour } : {}) };
     });
 }
 
@@ -87,6 +92,8 @@ export const signedResourceRate = n => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs
 
 export function resourceTitle(r) {
   const full = r.fullIn === 0 ? L`満杯です（これ以上は貯まりません）` : r.fullIn === null ? '' : L`満杯まで ${span(r.fullIn)}`;
+  // (food-net-caravan: the first village's food — the net rate, then what the village makes and what the land takes)
+  if (r.landPerHour > 0) return [`${r.name} ${fmtNum(r.value)} / ${fmtNum(r.cap)}`, `${L`毎時 ${signedNet(r.perHour)}`}${landSplit(r)}`, full].filter(Boolean).join(' · ');
   return [`${r.name} ${fmtNum(r.value)} / ${fmtNum(r.cap)}`, L`毎時 ${signedResourceRate(r.perHour)}`, full].filter(Boolean).join(' · ');
 }
 
@@ -172,7 +179,7 @@ export function renderStrip(tokens, open = null, max = tokens.length) {
   return shown.map((r, i) => html`<button type="button" class="res res-${r.state}" data-act="res-open" data-r="${all ? '*' : r.resource}" data-res="${r.resource}" aria-expanded="${open === (all ? '*' : r.resource) ? 'true' : 'false'}" aria-haspopup="dialog" title="${resourceTitle(r)}" aria-label="${all ? L`${resourceTitle(r)} · ほか ${fmtNum(tokens.length - max)} 種` : resourceTitle(r)}">
     ${icon(RESOURCE_ICON[r.resource] ?? 'crate', `res-ic res-c-${r.resource}`)}
     <span class="res-val">${fmtNum(r.value)}</span><span class="res-short" aria-hidden="true">${shortNum(r.value)}</span>
-    ${r.perHour !== 0 ? html`<span class="res-rate">${L`${signedResourceRate(r.perHour)}/時`}</span>` : ''}
+    ${r.landPerHour > 0 ? html`<span class="res-rate res-rate-land">${L`${signedNet(r.perHour)}/時`}${landPart(r)}</span>` : r.perHour !== 0 ? html`<span class="res-rate">${L`${signedResourceRate(r.perHour)}/時`}</span>` : ''}
     ${r.state === 'full' ? html`<span class="res-flag">${L`満杯`}</span>` : r.state === 'near' ? html`<span class="res-flag">${span(r.fullIn)}</span>` : ''}
     ${more > 0 && i === shown.length - 1 ? html`<span class="res-more-n" aria-hidden="true"><span class="res-more-w">${L`ほか ${fmtNum(more)}`}</span><span class="res-more-s">${icon('list', 'res-more-ic')}${fmtNum(more)}</span></span>` : ''}
   </button>`);
@@ -190,21 +197,27 @@ export function shortNum(n) {
  * One resource across the viewer's holdings (UI plan E1, Civ's yield
  * breakdown on press): `{resource, name, total, perHour, rows: [{holding,
  * value, cap, perHour, fullIn, state}]}`.
+ * (food-net-caravan: `landOf(holding)` → the land upkeep charged to it, milli-food per hour — its food row and the
+ *  sum are then net, with `villagePerHour` / `landPerHour`.)
  */
-export function resourceBreakdown(holdings, resource, now) {
+export function resourceBreakdown(holdings, resource, now, landOf = null) {
   const rows = [];
   for (const h of holdings ?? []) {
-    const r = resourceModel(h, now).find(x => x.resource === resource);
-    if (r) rows.push({ holding: h, value: r.value, cap: r.cap, perHour: r.perHour, fullIn: r.fullIn, state: r.state });
+    const r = resourceModel(h, now, { land: landOf ? landOf(h) : 0 }).find(x => x.resource === resource);
+    if (r) rows.push({ holding: h, value: r.value, cap: r.cap, perHour: r.perHour, fullIn: r.fullIn, state: r.state, ...(r.landPerHour > 0 ? { villagePerHour: r.villagePerHour, landPerHour: r.landPerHour } : {}) });
   }
-  return { resource, name: RESOURCES[resource], total: rows.reduce((a, r) => a + r.value, 0), perHour: rows.reduce((a, r) => a + r.perHour, 0), rows };
+  // (food-net-caravan: the sum is the net one too; the land's part — one village pays it — is carried for the words)
+  const land = rows.find(r => r.landPerHour > 0);
+  const sum = (k) => Math.round(rows.reduce((a, r) => a + (r[k] ?? r.perHour), 0) * 1000) / 1000;
+  return { resource, name: RESOURCES[resource], total: rows.reduce((a, r) => a + r.value, 0), perHour: land ? sum('perHour') : rows.reduce((a, r) => a + r.perHour, 0), rows,
+    ...(land ? { villagePerHour: sum('villagePerHour'), landPerHour: land.landPerHour } : {}) };
 }
 
 /** Every resource of the viewer's holdings in one list (the phone's strip shows one): `[breakdown]`. */
-export function allBreakdowns(holdings, now) {
+export function allBreakdowns(holdings, now, landOf = null) {
   const seen = new Set();
   for (const h of holdings ?? []) for (const r of resourceModel(h, now)) seen.add(r.resource);
-  return RESOURCE_ORDER.filter(r => seen.has(r)).map(r => resourceBreakdown(holdings, r, now));
+  return RESOURCE_ORDER.filter(r => seen.has(r)).map(r => resourceBreakdown(holdings, r, now, landOf));
 }
 
 /** The popover for every resource: one row each, a press opens that one's breakdown. */
@@ -213,18 +226,19 @@ export function renderAllBreakdowns(list) {
     <button type="button" class="btn small pop-x" data-act="res-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>
     <ul class="list res-rows">${list.map(b => html`<li class="${b.rows.some(r => r.state === 'full') ? 'res-full' : ''}"><button type="button" class="res-row" data-act="res-open" data-r="${b.resource}">
       <span class="res-row-name">${icon(RESOURCE_ICON[b.resource] ?? 'crate', `res-ic res-c-${b.resource}`)} ${b.name}</span><span>${fmtNum(b.total)}</span>
-      <span class="muted">${L`毎時 ${signedResourceRate(b.perHour)}`}</span><span class="muted">${b.rows.some(r => r.state === 'full') ? L`満杯` : ''}</span></button></li>`)}</ul>`;
+      <span class="muted">${b.landPerHour > 0 ? html`${L`毎時 ${signedNet(b.perHour)}`}${landPart(b)}` : L`毎時 ${signedResourceRate(b.perHour)}`}</span><span class="muted">${b.rows.some(r => r.state === 'full') ? L`満杯` : ''}</span></button></li>`)}</ul>`;
 }
 
 /** The breakdown popover's markup. */
 export function renderBreakdown(b) {
   if (!b) return '';
-  return html`<div class="res-pop-head"><strong>${b.name}</strong> <span>${L`合計 ${fmtNum(b.total)} · 毎時 ${signedResourceRate(b.perHour)}`}</span>
+  return html`<div class="res-pop-head"><strong>${b.name}</strong> <span>${b.landPerHour > 0 ? html`${L`合計 ${fmtNum(b.total)} · 毎時 ${signedNet(b.perHour)}`}${landPart(b)}` : L`合計 ${fmtNum(b.total)} · 毎時 ${signedResourceRate(b.perHour)}`}</span>
     <button type="button" class="btn small pop-x" data-act="res-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>
     <ul class="list res-rows">${b.rows.map(r => html`<li class="res-${r.state}"><button type="button" class="res-row" data-act="goto" data-p="${r.holding.p}" data-q="${r.holding.q}">
       <span class="res-row-name">${holdingName(r.holding)}</span>
-      <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${L`毎時 ${signedResourceRate(r.perHour)}`}</span>
+      <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${r.landPerHour > 0 ? html`${L`毎時 ${signedNet(r.perHour)}`}${landPart(r)}` : L`毎時 ${signedResourceRate(r.perHour)}`}</span>
       <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : ''}</span></button></li>`)}</ul>
+    ${b.landPerHour > 0 ? html`<p class="muted res-land-note">${L`「土地」は、あなたの土地の維持費です。最初の村の食料から、ターンごとに払われます。`}</p>` : ''}
     <p class="muted">${L`増える量は、建物と村のまわりの土地で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
 

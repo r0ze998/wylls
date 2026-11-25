@@ -186,6 +186,7 @@ import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, departMargin, planRoute, e
 import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
+import { landUpkeepMilli } from './landfood.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
 import { said, worded, reworded } from './hud/words.mjs';
@@ -1175,8 +1176,8 @@ function renderResPop(now) {
   }
   if (!el) return;
   el.hidden = false;
-  if (FS.resOpen === '*') { el.setAttribute('aria-label', L`資源`); setHtmlIfChanged(el, hud.renderAllBreakdowns(hud.allBreakdowns(FS.holdings ?? [], now))); return; }
-  const b = hud.resourceBreakdown(FS.holdings ?? [], FS.resOpen, now);
+  if (FS.resOpen === '*') { el.setAttribute('aria-label', L`資源`); setHtmlIfChanged(el, hud.renderAllBreakdowns(hud.allBreakdowns(FS.holdings ?? [], now, h => landUpkeepMilli(FS, h)))); return; }
+  const b = hud.resourceBreakdown(FS.holdings ?? [], FS.resOpen, now, h => landUpkeepMilli(FS, h));
   el.setAttribute('aria-label', b.name);
   setHtmlIfChanged(el, hud.renderBreakdown(b));
 }
@@ -2849,7 +2850,7 @@ function renderHudTick(now) {
   if (body && body.dataset.urgency !== edge) body.dataset.urgency = edge;
   const strip = $('res-strip');
   if (strip) {
-    const tokens = FS.mode === 'play' ? hud.resourceModel(settledHolding(hud.activeHolding(FS), now ?? 0), now ?? 0) : [];
+    const tokens = FS.mode === 'play' ? hud.resourceModel(settledHolding(hud.activeHolding(FS), now ?? 0), now ?? 0, { land: landUpkeepMilli(FS, hud.activeHolding(FS)) }) : [];
     strip.hidden = !tokens.length;
     // the room left of the dial: more tokens as the strip widens
     const w = globalThis.innerWidth ?? 1440;

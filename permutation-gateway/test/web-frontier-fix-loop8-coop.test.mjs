@@ -98,5 +98,12 @@ test('LP8-3 the send: an unloaded ① destination\'s tile is read first; a villa
   assert.ok(send.includes('if (dst.coop && Number.isInteger(dst.coopGen) && Number(r.holding.gen) !== dst.coopGen) return s1Refused('));
   assert.doesNotMatch(send, /fogNow|fog\.|vision/, 'no vision rule is read or changed by the send');
   const s1 = readFileSync(new URL('../../permutation-server/web/frontier/screens/s1.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(s1, /fogNow|fog\.|vision/, 'the caravan form reads no vision rule: it lists places, it does not draw land');
+  // (food-net-caravan, owner 2026-11-25 21:22 Q-LP17-4 — the behaviour change is the point: OTHER players' places are
+  //  now listed only when of the viewer's nation or in sight, through map/fog.mjs viewTile in `otherPlaceOffered`.
+  //  A ① destination is still the request's published place and passes no sight rule: the loop that adds it never
+  //  asks otherPlaceOffered, and the form still reads no fog view or vision source itself)
+  assert.doesNotMatch(s1, /fogNow|vision/, 'the caravan form reads no fog view and no vision source: it lists places, it does not draw land');
+  assert.ok(s1.includes("import { viewTile, fogActive } from '../map/fog.mjs';"), 'the one sight question it asks: is this tile in sight now');
+  const coopLoop = s1.slice(s1.indexOf('for (const c of coopDestinations(FS)) {'), s1.indexOf('const prov = h ? FS.provinces'));
+  assert.ok(coopLoop.length > 0 && !/otherPlaceOffered|viewTile/.test(coopLoop), 'a ① destination is listed whatever is in sight');
 });
