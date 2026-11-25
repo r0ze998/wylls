@@ -205,7 +205,14 @@ pub(crate) fn start(p: &Pubkey, a: &[AccountInfo], x: &wix::StartResearch) -> R<
         return Err(FrontierError::TooManyAccounts.into());
     }
     let now = prologue::now()?;
-    let hdr = prologue::season(season_ai, p, Some(&RULESET_HASH), &[S::STATUS_RUNNING], now.ts)?;
+    // (a seeded Season before its genesis too: a new world may start research at its genesis, bell 0)
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&RULESET_HASH),
+        &crate::proc::map::LAND_STATUS,
+        now.ts,
+    )?;
     super::require_wide_season(season_ai)?;
     let stored_authority: [u8; 32] = Ro(&season_ai.try_borrow_data()?).arr(S::AUTHORITY)?;
     if key(authority) != stored_authority {
@@ -216,7 +223,7 @@ pub(crate) fn start(p: &Pubkey, a: &[AccountInfo], x: &wix::StartResearch) -> R<
         Some(ResearchRule::V1) => ResearchRule::V1,
         _ => return Err(FrontierError::BadData.into()),
     };
-    let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
+    let now_bell = hdr.bell(now.ts).unwrap_or(0);
     if x.start_bell < now_bell || x.start_bell >= hdr.end_bell {
         return Err(FrontierError::BadData.into());
     }

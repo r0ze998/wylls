@@ -617,6 +617,14 @@ pub async fn prepare_with(
         let (summary, rim) =
             crate::wide_land::grow(&state, &a, &upgrade, &payer, &homes, send, advance_to).await?;
         crate::wide_land::wide_metadata(&mut metadata, &summary);
+        // (TEST-ONLY research, world goal ②, owner 2026-11-25 08:56: started at the genesis, bell 0, by the Season
+        //  authority — every nation from 0 science at the same bell, Q-RS-3 (b); the crank is `wide_research::run`)
+        send(
+            &state,
+            &[&upgrade],
+            &[crate::wide_research::start_ix(&a, upgrade.pubkey())],
+            "WideStartResearch",
+        )?;
         homes.extend(rim);
     }
     // (TEST-ONLY local rules: the centre free; its ring-1 provinces opened, never PlaceHome targets: the program's
