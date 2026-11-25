@@ -1342,6 +1342,15 @@ fn ruleset_hash_binds_versions_and_catalog() {
                 !previews.iter().any(|(_, p)| *p == m),
                 "preview module {m} is not behind its feature"
             );
+            // Research (world goal ②) is chosen per world by its record's
+            // rule byte, as territory by its trailer byte: never a hash
+            // input (plan 02-research-plan §4.4). With no research record
+            // (every village mask 0) every kernel is bit-identical.
+            if m == "research" {
+                assert!(!names.contains(&m), "research is bound to a hash");
+                previous = line;
+                continue;
+            }
             assert!(
                 names.contains(&m),
                 "module {m} has no KERNEL_VERSIONS entry"

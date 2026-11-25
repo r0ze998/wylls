@@ -594,6 +594,40 @@ mod tests {
         assert_eq!(Receipt::decode(&r.to_bytes()), Some(r));
     }
 
+    /// Pinned for the JS mirror (web/frontier/flocalplay-research.mjs, test
+    /// web-frontier-research.test.mjs pins the same strings).
+    #[test]
+    fn seeds_are_pinned_for_the_js_mirror() {
+        assert_eq!(world_seed().as_bytes(), b"weed9a37491f1b6cb789f30a8a718917");
+        assert_eq!(nation_seed(0).as_bytes(), b"wkf23f021f1c9e2a9e225e935ffc2430");
+        assert_eq!(nation_seed(5).as_bytes(), b"wkcef1b317c4e9e2088f4326567f1ba9");
+    }
+
+    /// The offsets the JS views read (flocalplay-research.mjs decoders; the
+    /// test fixtures of web-frontier-research.test.mjs).
+    #[test]
+    fn layout_offsets_are_pinned_for_the_js_mirror() {
+        use nation_research as N;
+        use research_world as W;
+        assert_eq!(
+            (W::RULE, W::PAUSED, W::START_BELL, W::ERA, W::START_TS, W::ERA_BELL, W::FIRST_BELL, W::FIRST_NATIONS, W::KNOWN_BY, W::LEARNED),
+            (18, 19, 52, 56, 60, 68, 80, 144, 160, 208)
+        );
+        assert_eq!(
+            (N::RULE, N::FACTION, N::KNOWN, N::PLEDGED, N::FIRST_PLEDGE_BELL, N::LEARNED_BELL, N::TOTAL, N::PLEDGES),
+            (18, 19, 52, 56, 120, 184, 248, 256)
+        );
+        assert_eq!(
+            frontier_abi_holding_rsv(),
+            1258,
+            "the village mask (flocalplay-research.mjs HOLDING_RESEARCH_OFFSET)"
+        );
+    }
+
+    fn frontier_abi_holding_rsv() -> usize {
+        crate::v2::layout::player::holding::RSV_1258
+    }
+
     #[test]
     fn addresses_differ_per_nation() {
         let s: [Seed; NATIONS as usize] = core::array::from_fn(|f| nation_seed(f as u8));

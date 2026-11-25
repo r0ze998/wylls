@@ -17,6 +17,8 @@ import { decodeAccount, layoutOf } from '../../client/src/frontier/codec.mjs';
 import { profileForSeason } from '../../client/src/frontier/profile.mjs';
 import { Deriver } from './achievements.mjs';
 import { FLAG_KEEPS_DEFAULTS, FLAG_KEEPS_RULESET, FLAG_KEEPS_RULESET_V1, GOAL_KINDS, NATIONS, WORLD_GOALS_KIND, WORLD_GOALS_VERSION, keepFromProvince, pointsOf, simulatedVault, splitPrize, step, units } from './world-goals.mjs';
+import { RESEARCH_DEFAULTS, RESEARCH_RULESET, receiptsOfLogs, researchStep, settleFirst, viewOf } from './world-research.mjs';
+import { decodeNationResearch, decodeResearchWorld, nationResearchAddress, researchWorldAddress } from '../../../permutation-server/web/frontier/flocalplay-research.mjs';
 
 export const WORLD_GOALS_MODE = FLAG_KEEPS_RULESET;
 /** The words `--world-goals` takes: the ruleset, and its older name (scripts written before the v2 count; the judge is the same one). */
@@ -106,6 +108,27 @@ export function chainReader({ call, programId, seasonId, herald, fetchImpl = glo
       }
       return out.sort((a, b) => (a.wallet < b.wallet ? -1 : 1));
     },
+    /**
+     * World goal ② (research): the world's research record and the six nations', or null when research was never
+     * started in this world (no record).
+     */
+    async research() {
+      const at = [researchWorldAddress(A.season, A.programId), ...Array.from({ length: NATIONS }, (_, f) => nationResearchAddress(A.season, A.programId, f))];
+      const [w, ...ns] = await many(at);
+      const world = w ? decodeResearchWorld(w) : null;
+      if (!world) return null;
+      return { world, nations: ns.map(b => (b ? decodeNationResearch(b) : null)), addresses: at };
+    },
+    /** The PSR1 receipts of every transaction that wrote a nation's research record (newest 1,000), oldest first. */
+    async researchReceipts(address) {
+      const sigs = ((await call('getSignaturesForAddress', [address, { limit: 1000, commitment: 'confirmed' }])) ?? []).filter(s => !s.err).map(s => s.signature).reverse();
+      const out = [];
+      for (const sig of sigs) {
+        const t = await call('getTransaction', [sig, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }]);
+        if (t && !t.meta?.err) out.push(...receiptsOfLogs(t.meta?.logMessages ?? []));
+      }
+      return out;
+    },
     /** The ledger reader of achievements.mjs (Deriver). */
     io: {
       account,
@@ -159,6 +182,9 @@ export async function openWorldGoals({ dir, stateDir = dir, meta, heraldPort, pa
   const world = { program: meta.program, seasonId: String(meta.season_id) };
   const kept = await readJson(file);
   let state = kept && kept.world?.program === world.program && kept.world?.seasonId === world.seasonId ? kept.state ?? null : null;
+  // (world goal ②: the research judge's own kept state — its settled world firsts)
+  let rstate = kept && kept.world?.program === world.program && kept.world?.seasonId === world.seasonId ? kept.research ?? null : null;
+  let research = null;
   let last = null, error = null, busy = false, stopped = false;
   const tick = async () => {
     if (busy || stopped) return;
@@ -167,6 +193,29 @@ export async function openWorldGoals({ dir, stateDir = dir, meta, heraldPort, pa
       const g = await reader.season();
       const bell = await reader.bell();
       if (bell === null) { error = 'BeforeGenesis'; return; }
+      // (world goal ②, research: judged before the keeps and whatever they say — a world first is settled once)
+      try {
+        const rr = await reader.research();
+        if (rr) {
+          const st = researchStep(rstate, rr);
+          let hist = st.state.history;
+          if (st.fresh.length) {
+            const ops = (await readJson(path.join(dir, 'operators.json')))?.wallets ?? [];
+            const ext = (await readJson(path.join(dir, 'externals.json')))?.wallets ?? [];
+            const members = await reader.members();
+            const byCitizen = new Map(members.map(m => [reader.addresses.citizen(m.wallet), m.wallet]));
+            const citizenWallet = c => byCitizen.get(base58(c)) ?? null;
+            for (const first of st.fresh) {
+              const receipts = [];
+              for (const n of first.nations) receipts.push(...await reader.researchReceipts(rr.addresses[1 + n]));
+              const paidOut = hist.reduce((a, h) => a + BigInt(h.prize.paid), 0n);
+              hist = [...hist, JSON.parse(jsonOut(settleFirst({ first, receipts, members, operators: ops, externals: ext, paidOut, citizenWallet, rules: RESEARCH_DEFAULTS })))];
+            }
+          }
+          rstate = { history: hist };
+          research = { rr, posting: st.posting, firsts: st.firsts, problems: st.problems };
+        } else research = null;
+      } catch (e) { research = research ? { ...research, error: String(e?.code ?? e?.message ?? e).slice(0, 200) } : null; }
       const { keeps, provinces } = await reader.keeps();
       if (!keeps.length) { error = 'NoKeeps'; return; }
       const r = step(state, { bell, keeps, genesisSeed: g.seed }, rules);
@@ -175,25 +224,27 @@ export async function openWorldGoals({ dir, stateDir = dir, meta, heraldPort, pa
         const ops = (await readJson(path.join(dir, 'operators.json')))?.wallets ?? [];
         const ext = (await readJson(path.join(dir, 'externals.json')))?.wallets ?? [];
         const paidOut = (state?.history ?? []).reduce((a, h) => a + BigInt(h.prize.paid), 0n);
-        const entry = await settle({ achieved: r.achieved, reader, provinces, members: await reader.members(), operators: ops, externals: ext, paidOut, rules });
+        // (design 01 §7.2: with research judged in this world, the hegemony vault is 80 % of the prize, science 20 %)
+        const frules = research ? { ...rules, prize: { ...rules.prize, hegemonyBps: RESEARCH_DEFAULTS.prize.hegemonyBpsWithScience } } : rules;
+        const entry = await settle({ achieved: r.achieved, reader, provinces, members: await reader.members(), operators: ops, externals: ext, paidOut, rules: frules });
         next = { ...next, history: [...(next.history ?? []), JSON.parse(jsonOut(entry))] };
       }
       state = next;
       last = { bell, keeps, progress: r.progress, at: (deps.now ?? Date.now)(), genesisRound: g.round };
       error = null;
-      await fs.writeFile(file + '.tmp', jsonOut({ v: 1, kind: WORLD_GOALS_KIND, ruleset: FLAG_KEEPS_RULESET, world, rules, state }));
+      await fs.writeFile(file + '.tmp', jsonOut({ v: 1, kind: WORLD_GOALS_KIND, ruleset: FLAG_KEEPS_RULESET, world, rules, state, ...(rstate ? { research: rstate } : {}) }));
       await fs.rename(file + '.tmp', file);
     } catch (e) { error = String(e?.code ?? e?.message ?? e).slice(0, 200); } finally { busy = false; }
   };
   const timer = deps.noTimer ? null : setInterval(() => { tick(); }, every);
   timer?.unref?.();
   if (!deps.noTimer) tick();
-  const answer = () => answerOf({ meta, rules, state, last, error });
+  const answer = (viewer = null) => answerOf({ meta, rules, state, last, error, research: research ? { ...research, history: rstate?.history ?? [] } : null, viewer });
   return Object.freeze({ answer, tick, ports: Object.freeze([heraldPort, ...(pairPort !== null ? [pairPort] : [])]), stop: () => { stopped = true; if (timer) clearInterval(timer); } });
 }
 
 /** The public answer (`GET …/goals/state`). */
-export function answerOf({ meta, rules, state, last, error }) {
+export function answerOf({ meta, rules, state, last, error, research = null, viewer = null }) {
   const cur = state?.rounds?.at(-1) ?? null;
   const byKey = new Map((last?.keeps ?? []).map(k => [`${k.p},${k.q}`, k]));
   const flags = (cur?.flags ?? []).map(f => {
@@ -211,7 +262,10 @@ export function answerOf({ meta, rules, state, last, error }) {
     effects: { money: 'none', chain: 'none' },
     bell: last?.bell ?? null, error,
     rules: { perNation: rules.perNation, need: rules.need, holdBells: rules.holdBells, memberBells: rules.memberBells, contribution: rules.contribution, prize: rules.prize },
-    goals: GOAL_KINDS.map(g => ({ id: g.id, kind: g.kind, live: g.live })),
+    goals: GOAL_KINDS.map(g => ({ id: g.id, kind: g.kind, live: g.live || (g.id === 'world-first-tech' && !!research) })),
+    // (world goal ②: null in a world where research never started. Q-RS-9 (1) (b): the pledged totals only for `?nation=`)
+    research: research ? { ruleset: RESEARCH_RULESET, posting: research.posting, firsts: research.firsts, problems: research.problems, ...(research.error ? { error: research.error } : {}),
+      view: viewOf(research.rr.world, research.rr.nations, viewer), viewer, history: research.history } : null,
     flagKeeps: cur ? { round: cur.round, postedBell: cur.postedBell, seed: cur.seed, hash: cur.hash, need: cur.need, holdBells: cur.holdBells, flags, progress: (last?.progress ?? []).map(x => ({ nation: x.nation, held: x.held, own: x.own, captured: x.captured, capturedLong: x.capturedLong, need: x.need, reachAt: x.reachAt })) } : null,
     achievements: state?.history ?? [],
   }));
@@ -226,7 +280,15 @@ export function answerWorldGoals(req, res, { entry, rest, origin }) {
   if (o !== undefined && o !== origin) return reply(res, 403, { error: 'OriginDenied' });
   if (req.method !== 'GET' && req.method !== 'HEAD') return reply(res, 405, { error: 'MethodNotAllowed' });
   if (rest !== '/goals/state') return reply(res, 404, { error: 'NotFound' });
-  return reply(res, 200, entry.answer());
+  // (world goal ②: `?nation=<0-5>` — the asking nation's research totals, Q-RS-9 (1) (b); anything else is refused)
+  let viewer = null;
+  const q = String(req.url ?? '').split('?')[1];
+  if (q !== undefined) {
+    const m = /^nation=([0-5])$/.exec(q);
+    if (!m) return reply(res, 400, { error: 'BadQuery' });
+    viewer = Number(m[1]);
+  }
+  return reply(res, 200, entry.answer(viewer));
 }
 
 /** Parse the launcher's TEST-only overrides: `--flag-keeps-hold <bells>`, `--flag-keeps-need <n>`, `--flag-keeps-member <bells>`. */
