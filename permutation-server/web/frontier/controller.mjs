@@ -456,9 +456,14 @@ const territoryRefusalText = pc => (pc === 29 ? L`このターンはもう1マ�
   : pc === 43 ? L`土地の維持費（本拠地の食料）が払えていないので、新しいマスは取れません。本拠地に食料が戻ると、また取れます。払えないまま24ターンたつと、遠いマスから1ターンに1つずつ手放されます。`
   : pc === 21 ? L`鉱石が足りません。1マスは鉱石 10 で、持っているマス1つごとに 2% 高くなります（本拠地の蔵から払います）。`
   : null);
-const researchRefused = ans => {
+const researchRefused = (ans, { apply = false } = {}) => {
   const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
-  if (researchRefusalText(pc)) failed({ ...ans, text: () => researchRefusalText(pc) });
+  // (verify-pr232: AlreadyDone (52) to an apply means the village already has its nation's techs — the runner or keeper
+  //  delivers them every turn —, not "your nation already knows this tech")
+  const text = apply && pc === 52 ? () => L`国が覚えた技術の効果は、もうこの村に届いています（毎ターンの見回りが先に届けました）。` : researchRefusalText(pc) ? () => researchRefusalText(pc) : null;
+  // (a refused pledge is not sent again by 「もう一度」: it needs its two presses again, with the amount shown first)
+  if (text) failed({ ...ans, text, ...(apply ? {} : { retry: false }) });
+  else if (!apply && ans && ans.ok === false) failed({ ...ans, retry: false });
 };
 const territoryRefused = ans => {
   const pc = ans && ans.ok === false ? Number(ans.programCode) : NaN;
@@ -4654,7 +4659,7 @@ export const ACTIONS = {
     const h = activeHolding(FS), me = FS.citizen?.faction;
     if (!h || !Number.isInteger(me)) return;
     const t = await act('ResearchApply', { v: { holding: { p: h.p, q: h.q, site: h.site }, nation: me }, fields: {}, say: () => L`国が覚えた技術の効果が、この村に届きました。` });
-    researchRefused(t ?? (FS.notice?.ok === false ? FS.notice : null));
+    researchRefused(t ?? (FS.notice?.ok === false ? FS.notice : null), { apply: true });
     invalidate('panel');
     return t;
   },

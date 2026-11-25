@@ -4506,6 +4506,9 @@ export function w4Bind(name, value) {
 export const SENDS = Object.freeze(new Set(['wide-claim', 'territory-tile', 'harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
   // S1 (screens/s1.mjs)
   's1-vault', 's1-structure', 's1-raid', 's1-raid-open', 's1-vote', 's1-seize', 's1-siege', 's1-expel', 's1-readmit',
+  // (world goal ②, research — verify-pr232: without these the refusal toast named the PREVIOUS send ("Build has not
+  //  started") and its 「もう一度」 re-ran that one: a second building instead of the research order)
+  'research-pledge', 'research-apply',
   // (orders of the prototype rule "banners": to the sample world only)
   'proto-raise', 'proto-dress', 'proto-tend', 'proto-take', 'proto-pull', 'proto-strike']));
 /** Send the refused action once more, as it was (`FS.lastAct`: its name and data, or a form's name and values). */
