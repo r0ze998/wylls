@@ -5,7 +5,7 @@
 //! | op | handler | who | what |
 //! |---|---|---|---|
 //! | 0xDA op 7 WideClaimTile | [`claim_tile_as`] | the player (wallet or NFT resident) | settles the claimer's upkeep from the first home (refused while unpaid), judges the claim (one unowned non-keep tile of an opened wide province of a territory world, within reach of the home, a nation-land province or the claimer's own land, one per turn), burns the ore from the first home, records the tile and its distance to the claimer's nearest village |
-//! | 0xDC op 12 WideTerritorySettle | [`settle`] | anyone | settles upkeep from the first home: paid (the food taken) or unpaid since this bell (nothing taken) |
+//! | 0xDC op 12 WideTerritorySettle | [`settle`] | anyone | settles upkeep from the first home: paid (the food taken) or unpaid since this bell (what the home holds taken, at most the owed amount: Q-LP17-1 (b), NOT decided by r0ze) |
 //! | 0xDC op 13 WideTerritoryDecay | [`decay`] | anyone | after 24 unpaid turns, one tile of the farthest distance returns to unowned, one per turn; the summary settled this second |
 //! | 0xDC op 14 WideTerritoryConquer | [`conquer`] | anyone | after a keep capture (the province's recorded captor, at the keep's current generation, the keep held by the captor's nation), every tile of one non-teammate owner moves to the captor; both summaries settled this second |
 //!

@@ -12804,6 +12804,139 @@ mod territory_tests {
         );
     }
 
+    /// Q-LP17-1 option (b) (**NOT decided by r0ze**; draft "NOT FOR MERGE
+    /// until r0ze answers Q-LP17-1"): loop-play17's case on the program. A
+    /// new village (40 food/h) holds threshold + 7 tiles near home (48 for
+    /// 40 food/h: 1.19× its food); its barn runs dry once; from then on
+    /// NOBODY touches its store — only the village's own production and
+    /// the keeper's settle each turn. Before (b) the shortfall turn took
+    /// nothing, so the next turn's production plus the untouched rest paid
+    /// a whole turn and cleared `unpaid_since` (loop-play17: unpaid about
+    /// one turn in seven at 47–48 tiles, released 0). Now a short turn
+    /// takes the store, the territory stays unpaid, the farthest tile
+    /// returns 24 turns later and then one a turn until the village feeds
+    /// the rest, and it is paid again.
+    #[test]
+    fn short_upkeep_takes_the_store_and_the_land_shrinks_to_what_the_food_feeds() {
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let (home, _) = t.home(&a);
+        let food_rate = rd_i64(&home.try_borrow_data().unwrap(), H::store(0) + AC::RATE);
+        let per_tile = TERRITORY_V1.kernel.upkeep.flat;
+        let fits = (food_rate / per_tile) as u32;
+        let want = fits + 8;
+        let set_store = |home: &AccountInfo<'static>, r: usize, v: i64, ts: i64| {
+            let mut hd = home.try_borrow_mut_data().unwrap();
+            let o = H::store(r);
+            put(&mut hd, o + AC::VALUE, &v.to_le_bytes());
+            if rd_i64(&hd, o + AC::CAP) < v {
+                put(&mut hd, o + AC::CAP, &v.to_le_bytes());
+            }
+            put(&mut hd, o + AC::T0, &ts.to_le_bytes());
+            put(&mut hd, o + AC::FRAC, &0i64.to_le_bytes());
+        };
+        let home_c = WideCoord::checked(RIM.p as i64, RIM.q as i64).unwrap();
+        let mut free: Vec<(WideCoord, u8)> = vec![];
+        for q in [0i64, -1, -2, -3] {
+            let at = c(129, q);
+            assert!(home_c.distance(at) <= 3);
+            free.extend(t.free_tiles(at).into_iter().map(|x| (at, x)));
+        }
+        assert!(free.len() as u32 >= want);
+        // claim `want` tiles, one a turn, paid all along (food and ore plenty)
+        let mut bell = 2u32;
+        let mut owned: Vec<(WideCoord, u8)> = vec![];
+        while (owned.len() as u32) < want {
+            let ts = t.w.at(bell, 5);
+            set_store(&home, 0, 1_000_000 * MILLI, ts);
+            set_store(&home, 3, 1_000_000 * MILLI, ts);
+            let (at, tile) = free[owned.len()];
+            assert_eq!(t.claim(&a, WALLET_A, at, tile, None), Ok(()));
+            assert_eq!(t.settle(&a), Ok(()));
+            owned.push((at, tile));
+            bell += 1;
+        }
+        assert_eq!(t.tplayer_rec(&a).tiles, want);
+        assert!(
+            (want as i64) * per_tile > food_rate,
+            "{want} tiles × {per_tile} over {food_rate} milli/h"
+        );
+        // the barn runs dry once (food spent on buildings and troops)
+        let ts = t.w.at(bell, 5);
+        set_store(&home, 0, 0, ts);
+        bell += 1;
+        // from here only the village's production and the keeper's settle
+        let mut since = None;
+        let mut releases: Vec<u32> = vec![];
+        let mut paid_again = None;
+        for _ in 0..80 {
+            t.w.at(bell, 5);
+            assert_eq!(t.settle(&a), Ok(()));
+            let pl = t.tplayer_rec(&a);
+            match (since, pl.unpaid_since) {
+                (None, Some(s)) => {
+                    since = Some(s);
+                    assert_eq!(s, bell, "unpaid from the first short turn");
+                    assert_eq!(t.store(&a, 0), 0, "a short turn takes the store");
+                }
+                (Some(s), Some(s2)) => {
+                    assert_eq!(s2, s, "stays unpaid: the next turn alone does not clear it");
+                    // (the stored value is the store settled at the write:
+                    // the turn's production, taken whole)
+                    assert_eq!(t.store(&a, 0), 0, "each short turn takes the store");
+                }
+                (Some(_), None) => {
+                    paid_again = Some(bell);
+                    break;
+                }
+                (None, None) => {}
+            }
+            if let Some(s) = since {
+                if bell >= s + 24 {
+                    let far = pl.farthest_bucket().unwrap() as u8;
+                    let i = owned
+                        .iter()
+                        .rposition(|(at, x)| {
+                            t.tprov_rec(*at).owner[*x as usize] != 0
+                                && t.tprov_rec(*at).dist[*x as usize] == far
+                        })
+                        .unwrap();
+                    let (dat, dtile) = owned.remove(i);
+                    assert_eq!(t.decay(&a, dat, dtile), Ok(()), "bell {bell}");
+                    releases.push(bell);
+                } else {
+                    let (dat, dtile) = owned[owned.len() - 1];
+                    assert_eq!(t.decay(&a, dat, dtile), Err(E::TooEarly as u32));
+                }
+            }
+            bell += 1;
+        }
+        let since = since.expect("goes unpaid");
+        assert_eq!(
+            releases.first(),
+            Some(&(since + 24)),
+            "the first tile 24 turns later"
+        );
+        for w in releases.windows(2) {
+            assert_eq!(w[1], w[0] + 1, "one a turn while unpaid");
+        }
+        let pl = t.tplayer_rec(&a);
+        assert!(
+            paid_again.is_some(),
+            "paid again once the food feeds the land"
+        );
+        assert_eq!(
+            pl.tiles, fits,
+            "the land the village feeds: ⌊{food_rate} / {per_tile}⌋"
+        );
+        assert_eq!(pl.released, want - fits);
+        println!(
+            "Q-LP17-1 (b): {want} tiles at {food_rate} milli-food/h: unpaid since bell {since}, released {} (bells {:?}), paid again at bell {:?}, {} tiles left",
+            pl.released, releases, paid_again, pl.tiles
+        );
+    }
+
     #[test]
     fn a_captor_with_a_summary_conquers_again_in_the_keepers_shape() {
         let _g = begin();

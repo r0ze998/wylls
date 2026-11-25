@@ -487,13 +487,16 @@ this section describes what the program does today, and none of it is a promise 
      decision Q-CUF-1 (b), 11-25 12:04: thirty times the first numbers; with those the land went unpaid only past about
      1,200 tiles, and with the ×10 of Q-LP15-1 (b) past about 120).
    - The village screen's "Per hour" column does not include land upkeep.
-6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
+6. **When the food cannot pay.** The food in your first village is taken (all of it, never more than the upkeep owed),
+   and your land counts as unpaid from that turn (draft upkeep-decay-prep, Q-LP17-1 (b), **not decided by r0ze**;
+   before it nothing was taken, so the next turn's food paid a whole turn and the land never stayed unpaid):
    - at once: you cannot claim tiles (the refusal is in the table below);
    - after 24 unpaid turns (**4 minutes at ×60**, 16 minutes at `--speed 15`; **4 hours at 1×**): your **farthest** tile
      goes back to unowned, **one tile each turn** (one every 10 s at ×60; one every 10 minutes at 1×), for as long as it
      stays unpaid. A tile under one of your villages can be let go too (open question VQ-4);
-   - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit. The
-     food missed meanwhile is not charged later (open question VQ-5).
+   - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit.
+     Each short turn takes the stores, so in practice it ends when the village makes at least as much food a turn as the
+     land costs a turn (fewer tiles, or more food). The food missed meanwhile is not charged later (open question VQ-5).
    - **The card warns you** (territory-card), under the land line, for as long as the chain's record says unpaid:
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
      (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.".

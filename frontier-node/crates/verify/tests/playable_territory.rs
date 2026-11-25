@@ -2,8 +2,9 @@
 //! `territory` role) on the devnet `.so` that world 3 runs
 //! (verifier-territory, 2026-11-25).
 //!
-//! One recording of the devnet-playable `.so` of upkeep-x30 (sha256
-//! db85913c…9a5f, 3,517,472 B: world 3's first `.so` 31acbb59 — the binary
+//! One recording of the devnet-playable `.so` of upkeep-decay-prep (sha256
+//! 245ce1ab…0d34, 3,517,568 B: Q-LP17-1 (b), NOT decided by r0ze, over
+//! upkeep-x30's db85913c…9a5f, 3,517,472 B; that one over world 3's first `.so` 31acbb59 — the binary
 //! the devnet upgrade of 2026-11-25 05:26 deployed — plus owner Q-VT-1 (b),
 //! a captor's second conquest lands (conquest-upkeep-fix, 3d143093), and
 //! Q-CUF-1 (b), land upkeep ×30 of the decided numbers (replacing the ×10
@@ -34,6 +35,9 @@
 //!    a bell, a refused second claim in the same bell, a distance-2 claim,
 //!    an own-land witness claim), WideClaimSite filed on A's own tile (the
 //!    village rule T-6), keeper settles (paid; a second in the same second).
+//! 5a. **Declared**: A's home makes 0.6 food/h net, store empty. REAL: the
+//!    short settle that makes A unpaid, and the next turn's settle that
+//!    takes the turn's food and leaves A unpaid (Q-LP17-1 (b)).
 //! 5. **Declared** starvation of A's home (food 0, the kernel's maximum food
 //!    upkeep: what P18 declares, VQ-1). REAL: the settle that makes A unpaid,
 //!    a refused claim, 24 bells later settle + decay, the FARTHEST first,
@@ -85,9 +89,11 @@ const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
 /// The devnet-playable `.so` world 3 is to be created on: world 3's first
 /// `.so` 31acbb59 (main `ca317418` … `ee081238`) + conquest-upkeep-fix
-/// (Q-VT-1 (b) conquest flags) + upkeep-x30 (Q-CUF-1 (b) land upkeep ×30).
-const TERRITORY_SHA256: &str = "db85913cbcda7eb4ec076602360acd963c9b8b05487f3927a1c87b8722419a5f";
-const SO_GZ: &str = "devnet-playable-db85913c.so.gz";
+/// (Q-VT-1 (b) conquest flags) + upkeep-x30 (Q-CUF-1 (b) land upkeep ×30)
+/// = db85913c, + upkeep-decay-prep (Q-LP17-1 (b), **NOT decided by r0ze**:
+/// a short settle takes what the home holds and stays unpaid) = 245ce1ab.
+const TERRITORY_SHA256: &str = "245ce1abcdb48d59aaec9e74eb571f5316e89302b02ae877bd3976b9245d0d34";
+const SO_GZ: &str = "devnet-playable-245ce1ab.so.gz";
 const WHOLE: &str = "playable-territory-whole.json.gz";
 const RULES: wr::RuleBytes = wr::RuleBytes {
     keep_holder: KeepHolderRule::NeutralTerritoryV1 as u8,
@@ -548,7 +554,7 @@ fn tiles_of(pd: &[u8]) -> (Vec<u8>, Vec<(u8, u8)>) {
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so of world 3: set PSF_PLAYABLE_SO (sha256 db85913c…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so of world 3: set PSF_PLAYABLE_SO (sha256 245ce1ab…), run with --ignored"]
 fn record_playable_territory() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
@@ -994,6 +1000,63 @@ fn record_playable_territory() {
         "keeper: WideTerritorySettle A again in the same second",
     );
 
+    // ---- 5a. Q-LP17-1 (b) (NOT decided by r0ze): A's home declared to make
+    // 0.6 food/h net (its troop food upkeep raised to production − 600
+    // milli/h), the store empty, so every turn's production is below the
+    // turn's land upkeep. REAL: the settle that makes A unpaid, and the next
+    // turn's settle (which reads no declared account) that TAKES the turn's
+    // production (100 milli) and leaves A unpaid — before (b) it took
+    // nothing.
+    next_bell(&mut r);
+    {
+        let hk = home_of(ma);
+        let mut acc = r.c.account(&hk).expect("A's home");
+        let now = r.c.unix_timestamp();
+        let rd = |d: &[u8], o: usize| i64::from_le_bytes(d[o..o + 8].try_into().unwrap());
+        let prod = rd(&acc.data, H::PRODUCTION);
+        assert!(prod > 600, "A's home makes food: {prod}");
+        let so = H::store(0);
+        acc.data[so + AC::VALUE..so + AC::VALUE + 8].copy_from_slice(&0i64.to_le_bytes());
+        acc.data[so + AC::RATE..so + AC::RATE + 8].copy_from_slice(&600i64.to_le_bytes());
+        acc.data[so + AC::T0..so + AC::T0 + 8].copy_from_slice(&now.to_le_bytes());
+        acc.data[so + AC::FRAC..so + AC::FRAC + 8].copy_from_slice(&0i64.to_le_bytes());
+        let u = H::UPKEEP;
+        acc.data[u..u + 8].copy_from_slice(&(prod - 600).to_le_bytes());
+        r.put(
+            hk.to_bytes(),
+            acc,
+            "A's first home makes 0.6 food/h net, store empty (Q-LP17-1 (b))",
+        );
+    }
+    let tp = |r: &Rec, m: &Member| {
+        TerritoryPlayer::read(&r.data(&adr(wtr::player_address(&ctx, &m.citizen))).unwrap())
+            .unwrap()
+    };
+    let food = |r: &Rec| {
+        let d = r.data(&home_of(ma)).unwrap();
+        let o = H::store(0) + AC::VALUE;
+        i64::from_le_bytes(d[o..o + 8].try_into().unwrap())
+    };
+    r.send(
+        &[&keeper],
+        &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))],
+        "keeper: WideTerritorySettle A (short: unpaid)",
+    );
+    let short_since = tp(&r, ma).unpaid_since.expect("A unpaid on the short turn");
+    assert!(tp(&r, ma).upkeep_per_hour().unwrap() > 600);
+    next_bell(&mut r);
+    r.send(
+        &[&keeper],
+        &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))],
+        "keeper: WideTerritorySettle A (short again: the turn's food taken, still unpaid)",
+    );
+    assert_eq!(
+        tp(&r, ma).unpaid_since,
+        Some(short_since),
+        "still unpaid since the first short turn"
+    );
+    assert_eq!(food(&r), 0, "the short turn took the turn's production");
+
     // ---- 5. Declared starvation of A's home; REAL unpaid, then decay.
     next_bell(&mut r);
     {
@@ -1015,11 +1078,7 @@ fn record_playable_territory() {
         &[t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma))],
         "keeper: WideTerritorySettle A (unpaid)",
     );
-    let tp = |r: &Rec, m: &Member| {
-        TerritoryPlayer::read(&r.data(&adr(wtr::player_address(&ctx, &m.citizen))).unwrap())
-            .unwrap()
-    };
-    assert!(tp(&r, ma).unpaid_since.is_some(), "A unpaid");
+    assert_eq!(tp(&r, ma).unpaid_since, Some(short_since), "A unpaid");
     next_bell(&mut r);
     assert!(!r.try_send(
         &[&ma.wallet],
@@ -2017,6 +2076,55 @@ fn verify_pr228_upkeep_off_by_one_either_way_fails() {
             show(&f)
         );
     }
+}
+
+/// Q-LP17-1 (b) (NOT decided by r0ze): the short settle that read no
+/// declared account took the turn's food and left A unpaid. Forged so that
+/// the home KEPT its food (the old all-or-nothing outcome), or so that the
+/// summary went paid: both FAIL.
+#[test]
+fn qlp17_a_short_settle_that_kept_the_food_or_went_paid_fails() {
+    let base = whole();
+    let t = settles_alone(&base)
+        .into_iter()
+        .find(|&t| {
+            let ks = &ixs_of(&base, t)[0].1;
+            !reads_declared(&base, t)
+                && base.txs[t].post.iter().any(|(k, _)| k.to_bytes() == ks[4])
+                && base.txs[t].post.iter().any(|(k, a)| {
+                    k.to_bytes() == ks[2]
+                        && a.as_ref().is_some_and(|a| {
+                            TerritoryPlayer::read(&a.data).is_ok_and(|p| p.unpaid_since.is_some())
+                        })
+                })
+        })
+        .expect("a short settle that charged the home and stayed unpaid");
+    let ks = ixs_of(&base, t)[0].1.clone();
+    let (home, player) = (ks[4], ks[2]);
+    let mut kept = base.clone();
+    edit_post(&mut kept, t, &home, |a| {
+        let o = H::store(0) + AC::VALUE;
+        let v = i64::from_le_bytes(a.data[o..o + 8].try_into().unwrap()) + 100;
+        a.data[o..o + 8].copy_from_slice(&v.to_le_bytes());
+    });
+    let f = vwl(&kept);
+    assert!(
+        fails_at(&f, &kept, t, "WideReplayMismatch", "re-run"),
+        "kept: {:#?}",
+        show(&f)
+    );
+    let mut paid = base.clone();
+    edit_post(&mut paid, t, &player, |a| {
+        let mut pl = TerritoryPlayer::read(&a.data).unwrap();
+        pl.unpaid_since = None;
+        pl.write(&mut a.data).unwrap();
+    });
+    let f = vwl(&paid);
+    assert!(
+        fails_at(&f, &paid, t, "WideReplayMismatch", "re-run"),
+        "paid: {:#?}",
+        show(&f)
+    );
 }
 
 /// verify-pr228: the verdict is deterministic: the same archive judged twice

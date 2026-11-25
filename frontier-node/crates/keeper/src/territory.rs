@@ -8,7 +8,9 @@
 //! only when someone sends the permissionless cranks:
 //!
 //! 1. **upkeep** — 0xDC op 12 WideTerritorySettle charges the food owed since the last settle from the first home
-//!    (all or nothing); a home that cannot pay makes the territory *unpaid since this bell* (claims refused). Land
+//!    (when the home cannot pay it all, what it holds is taken: Q-LP17-1 (b), upkeep-decay-prep, NOT decided by r0ze);
+//!    a home that cannot pay makes the territory *unpaid since this bell* (claims refused) until one settle pays a
+//!    whole turn. Land
 //!    nobody settles is never charged and never becomes unpaid, so it could never decay;
 //! 2. **decay** — after 24 unpaid bells, 0xDC op 13 WideTerritoryDecay lets go one tile of the farthest distance per
 //!    bell (it needs the settle in the same second: one transaction, settle then decay; a separate settle first, so

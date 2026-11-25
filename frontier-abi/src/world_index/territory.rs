@@ -7,7 +7,7 @@
 //! | T-2 reach also from teammates' villages, anywhere; exclaves OK | [`ReachSource`]: the first home, a wide province that is the nation's land (`reach::is_nation_land`: a nation-mate's or own village, a won keep), or a province where the claimer already owns a tile |
 //! | T-3 instant claim in ore, cost rises with holdings, 1 per turn, first tx wins | [`judge_claim`] over [`TerritoryParams`] (`permutation_rules::frontier::territory`), the summary's per-bell counter; the tile's owner field is the race |
 //! | T-4 upkeep in food from the home village, 2 food/h per province + 1 food/h per province of distance beyond 3 | [`TerritoryPlayer::upkeep_per_hour`] (count × flat + Σ distance excess × per_distance), [`settle_upkeep`] charging the home holding |
-//! | T-5 unpaid: claims stop; after 24 turns the farthest land returns, one step per turn | [`settle_upkeep`] marks `unpaid_since`; [`may_decay`] + the distance histogram name the farthest bucket |
+//! | T-5 unpaid: claims stop; after 24 turns the farthest land returns, one step per turn | [`settle_upkeep`] takes what the home holds on a short turn and marks `unpaid_since` (Q-LP17-1 (b), undecided); [`may_decay`] + the distance histogram name the farthest bucket |
 //! | T-7 others' land only by conquest | a claim of an owned tile is `Owned`; only [`transfer_tile`] (conquest) moves a tile between players |
 //!
 //! **Numbers are config.** The rule a world plays is one byte, the
@@ -623,7 +623,8 @@ impl TerritoryPlayer {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UpkeepSettle {
     /// Milli-units of the upkeep resource to take from the home village
-    /// (0 when unpaid: nothing is taken from a store that cannot cover it).
+    /// (when unpaid: what the store holds, at most the owed amount —
+    /// Q-LP17-1 (b)).
     pub charge: Milli,
     /// The settle could pay.
     pub paid: bool,
@@ -631,10 +632,23 @@ pub struct UpkeepSettle {
 
 /// Settles upkeep from `paid_to` to `now_ts` against `available`
 /// milli-units of the upkeep resource in the home village (settled to
-/// now). All or nothing: the owed amount (with the carried remainder) is
-/// charged when the store covers it, and upkeep is paid; otherwise nothing
-/// is taken, the period is forfeited, and upkeep is unpaid since the
-/// first bell it fell short (T-5). The clock always moves to `now_ts`.
+/// now). When the store covers the owed amount (with the carried
+/// remainder) — and, while unpaid, one turn's upkeep too — it is charged
+/// and upkeep is paid. Otherwise **what the store holds is taken** (at most
+/// the owed amount), the rest of the period is forgiven (TQ-11 / VQ-5: no
+/// debt), and upkeep stays unpaid since the first bell it fell short (T-5).
+/// The clock always moves to `now_ts`.
+///
+/// **Q-LP17-1 option (b), NOT decided by r0ze** (draft PR "NOT FOR MERGE
+/// until r0ze answers Q-LP17-1"): before it the shortfall turn took
+/// nothing, so the next turn's production alone (one turn of a village's
+/// food) paid a whole turn again and cleared `unpaid_since`; a territory
+/// whose upkeep was up to ~23× its village's food never stayed unpaid for
+/// the 24-turn grace and never decayed (loop-play17: 73 tiles at 1.8× the
+/// food, released 0 in 120 turns). Taking the store on a short turn leaves
+/// the next turn only that turn's production, so the counter keeps running
+/// while upkeep exceeds the food and the land shrinks to what the food
+/// supports.
 pub fn settle_upkeep(
     pl: &mut TerritoryPlayer,
     now_ts: i64,
@@ -673,12 +687,17 @@ pub fn settle_upkeep(
         pl.unpaid_since = None;
         Ok(UpkeepSettle { charge, paid: true })
     } else {
-        pl.remainder = 0;
+        // Q-LP17-1 (b): take what is there (never more than is owed). The
+        // sub-unit remainder is kept only when the whole period was taken
+        // (still unpaid then only for the one-turn reserve).
+        let have = available.max(0);
+        let take = charge.min(have);
+        pl.remainder = if take == charge { rem } else { 0 };
         if pl.unpaid_since.is_none() {
             pl.unpaid_since = Some(now_bell);
         }
         Ok(UpkeepSettle {
-            charge: 0,
+            charge: take,
             paid: false,
         })
     }
@@ -1085,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn upkeep_settles_exactly_and_goes_unpaid_all_or_nothing() {
+    fn upkeep_settles_exactly_and_takes_what_is_there_when_short() {
         let mut pl = player(3);
         // one tile: 990 milli/h (Q-CUF-1 ×30; ×1 thirty tiles made 990)
         pl.add_tile(0).unwrap();
@@ -1106,12 +1125,13 @@ mod tests {
                 .charge;
         }
         assert_eq!(total, 990);
-        // short of food: nothing taken, unpaid since this bell
+        // short of food: what the store holds is taken (Q-LP17-1 (b)),
+        // unpaid since this bell
         let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 2, 7, 10).unwrap();
         assert_eq!(
             s,
             UpkeepSettle {
-                charge: 0,
+                charge: 10,
                 paid: false
             }
         );
@@ -1155,6 +1175,137 @@ mod tests {
             }
         );
         assert_eq!(pl.unpaid_since, None);
+    }
+
+    #[test]
+    fn a_short_turn_takes_the_store_and_the_next_turn_alone_does_not_clear_it() {
+        // Q-LP17-1 (b). 73 tiles: 72,270 milli-food/h, 12,045 a turn.
+        let mut pl = player(5);
+        for _ in 0..73 {
+            pl.add_tile(1).unwrap();
+        }
+        // a turn short: the 5,000 in store are taken, unpaid since bell 1
+        let s = settle_upkeep(&mut pl, 1_600, 1, 5_000).unwrap();
+        assert_eq!(
+            s,
+            UpkeepSettle {
+                charge: 5_000,
+                paid: false
+            }
+        );
+        assert_eq!((pl.unpaid_since, pl.remainder), (Some(1), 0));
+        // the next turn the store holds only that turn's food (40 food/h →
+        // 6,666): taken, still unpaid since bell 1 (before: nothing taken,
+        // and 6,666 + the earlier 5,000 ≥ one turn cleared it)
+        let s = settle_upkeep(&mut pl, 2_200, 2, 6_666).unwrap();
+        assert_eq!((s.charge, s.paid, pl.unpaid_since), (6_666, false, Some(1)));
+        // a negative store reads as empty: nothing taken
+        let s = settle_upkeep(&mut pl, 2_800, 3, -5).unwrap();
+        assert_eq!((s.charge, s.paid), (0, false));
+        // a whole turn paid ends it
+        let s = settle_upkeep(&mut pl, 3_400, 4, 1_000_000).unwrap();
+        assert_eq!((s.charge, s.paid, pl.unpaid_since), (12_045, true, None));
+        // never more than is owed: owed 0 in the same second, reserve short
+        pl.unpaid_since = Some(4);
+        let s = settle_upkeep(&mut pl, 3_400, 4, 7_000).unwrap();
+        assert_eq!((s.charge, s.paid), (0, false));
+    }
+
+    /// The loop-play17 case end to end in the pure kernel: a village making
+    /// 40 food/h (the starting village) holding 73 tiles near home (upkeep
+    /// 72.27 food/h, 1.8× its food), settled once a turn (the keeper's
+    /// default `territory_settle_bells` 1) with a decay attempt after each
+    /// settle. Under the old all-or-nothing settle the territory flipped
+    /// unpaid → paid every other turn and released nothing (loop-play17:
+    /// released 0 in 120 turns). Under Q-LP17-1 (b) it stays unpaid from the
+    /// first short turn, tiles return one a turn from 24 turns later, and the
+    /// land settles at what the food supports: 40 tiles (39.6 food/h).
+    #[test]
+    fn seventy_three_tiles_at_1_8x_food_release_after_24_unpaid_turns() {
+        const FOOD_PER_HOUR: i128 = 40_000; // milli
+        let mut provs = [
+            TerritoryProvince::new(9, TerritoryRule::V1, world(), coord(130, 0), 30, [2; 32]),
+            TerritoryProvince::new(9, TerritoryRule::V1, world(), coord(131, 0), 30, [3; 32]),
+        ];
+        let mut pl = player(6);
+        let mut n = 0;
+        'fill: for p in provs.iter_mut() {
+            for t in 0..PROVINCE_TILES as u8 {
+                if n == 73 {
+                    break 'fill;
+                }
+                if t == p.keep_tile {
+                    continue;
+                }
+                // distances 0..=3: no excess, the flat 990 a tile
+                let ok = ClaimOk {
+                    cost: 0,
+                    dist: (n % 4) as u8,
+                };
+                apply_claim(p, &mut pl, t, ok, 0).unwrap();
+                n += 1;
+            }
+        }
+        assert_eq!(pl.tiles, 73);
+        assert_eq!(pl.upkeep_per_hour(), Some(72_270));
+        // the store: 510 food at the start (loop-play17's barn), the
+        // village's food accrued exactly, minus every charge
+        let start: i128 = 510_000;
+        let mut charged: i128 = 0;
+        let mut first_unpaid = None;
+        let mut releases = Vec::new();
+        let mut paid_again = Vec::new();
+        for bell in 1..=200u32 {
+            let ts = 1_000 + 600 * bell as i64;
+            let made = FOOD_PER_HOUR * (ts as i128 - 1_000) / HOUR;
+            let store = start + made - charged;
+            let s = settle_upkeep(&mut pl, ts, bell, store as Milli).unwrap();
+            assert!(
+                s.charge as i128 <= store.max(0),
+                "never more than the store"
+            );
+            charged += s.charge as i128;
+            if first_unpaid.is_none() && pl.unpaid_since.is_some() {
+                first_unpaid = Some(bell);
+            }
+            if first_unpaid.is_some() && pl.unpaid_since.is_none() {
+                paid_again.push(bell);
+            }
+            if may_decay(&pl, bell) {
+                let b = pl.farthest_bucket().unwrap() as u8;
+                let (pi, t) = provs
+                    .iter()
+                    .enumerate()
+                    .find_map(|(pi, p)| {
+                        (0..PROVINCE_TILES)
+                            .find(|&i| p.owner[i] == pl.citizen_tag && p.dist[i] == b)
+                            .map(|i| (pi, i as u8))
+                    })
+                    .unwrap();
+                apply_decay(&mut provs[pi], &mut pl, t, bell).unwrap();
+                releases.push(bell);
+            }
+        }
+        let since = first_unpaid.expect("73 tiles at 1.8x food go unpaid");
+        // the 510 food carry it a while: 510 / (72.27 − 40) h ≈ 15.8 h = 94 turns
+        assert_eq!(since, 95);
+        // the first tile returns 24 turns after it went unpaid, then one a
+        // turn, every turn, until the food carries the rest
+        assert_eq!(releases.first(), Some(&(since + 24)));
+        for w in releases.windows(2) {
+            assert_eq!(w[1], w[0] + 1, "one tile a turn, no gap");
+        }
+        assert_eq!(pl.tiles, 40, "settles at what 40 food/h supports");
+        assert_eq!(pl.released, 33);
+        assert_eq!(releases.len(), 33);
+        assert_eq!(pl.unpaid_since, None, "paid again once it fits");
+        // no flip-flop: from the first short turn it stays unpaid until the
+        // last tile it cannot carry is gone, then stays paid
+        let last = *releases.last().unwrap();
+        assert_eq!(paid_again.first(), Some(&(last + 1)));
+        assert_eq!(paid_again.len() as u32, 200 - last);
+        // the farthest first: every tile left is at distance ≤ the last released
+        assert!(pl.upkeep_per_hour().unwrap() <= 40_000);
     }
 
     #[test]
