@@ -567,7 +567,7 @@ test('the caravan form offers other players\' villages and storehouses after the
   assert.match(html, /<optgroup label="あなたの場所">/);
   assert.match(html, /<optgroup label="ほかの人の場所">/);
   assert.match(html, /ウォレットで署名して送ります/);
-  assert.match(html, /<option value="1" selected>/, 'the default is one of the viewer\'s own places');
+  assert.match(html, /<option value="1" data-key="holding:1:0:s2" selected>/, 'the default is one of the viewer\'s own places');
   // the viewer's village and another's in the same province (1, 0) are told apart by their tiles
   assert.match(html, /村（1, 0 · マス 20）<\/option>/);
   assert.match(html, /村（1, 0 · マス 5） · /);
