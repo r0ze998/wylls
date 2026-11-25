@@ -146,6 +146,7 @@ workstreams/03-composability/mcp/test/context.test.mjs
 workstreams/03-composability/mcp/test/external-resident.test.mjs
 workstreams/03-composability/mcp/test/fate.test.mjs
 workstreams/03-composability/mcp/test/local-play-readonly.test.mjs
+workstreams/03-composability/mcp/test/local-play-territory.test.mjs
 workstreams/03-composability/mcp/test/lost-answer.test.mjs
 workstreams/03-composability/mcp/test/owner.test.mjs
 workstreams/03-composability/mcp/test/play.test.mjs
@@ -400,6 +401,7 @@ permutation-gateway/test/web-frontier-wide-herald-lag.test.mjs
 permutation-gateway/test/web-frontier-wide-holding-ui.test.mjs
 permutation-gateway/test/web-frontier-wide-land-map.test.mjs
 permutation-gateway/test/web-frontier-world-growth.test.mjs
+permutation-gateway/test/web-frontier-world-not-open-hud.test.mjs
 permutation-gateway/test/web-frontier-world-sparse.test.mjs
 permutation-gateway/test/web-frontier-world.test.mjs
 permutation-gateway/test/web-frontier-ws07-agent.test.mjs
@@ -500,6 +502,7 @@ workstreams/13-citizens/test/live-owner-mode.test.mjs
 workstreams/13-citizens/test/live-resident-state.test.mjs
 workstreams/13-citizens/test/local-plan.test.mjs
 workstreams/13-citizens/test/local-resident.test.mjs
+workstreams/13-citizens/test/local-territory.test.mjs
 workstreams/13-citizens/test/local-wide.test.mjs
 workstreams/13-citizens/test/longrun.test.mjs
 workstreams/13-citizens/test/ports.test.mjs

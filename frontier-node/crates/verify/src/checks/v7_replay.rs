@@ -70,10 +70,10 @@ fn land_claim_writes(cx: &Ctx, tx: &crate::world::Tx, k: &crate::world::Key) -> 
     {
         let pv = cx.f.params.as_ref().map(|p| p.program_version);
         super::v0_coverage::playable(pv)
-            && tx.ixs.len() == 1
-            && ((tx.ixs[0].tag() == Some(frontier_abi::land_preview::TAG_CLAIM_LAND_YIELD)
+            && ((tx.ixs.len() == 1
+                && tx.ixs[0].tag() == Some(frontier_abi::land_preview::TAG_CLAIM_LAND_YIELD)
                 && tx.ixs[0].key(4) == Some(*k))
-                || (vwl_owns(cx, tx) && tx.ixs[0].writes(k)))
+                || (vwl_owns(cx, tx) && tx.ixs.iter().any(|ix| ix.writes(k))))
     }
     #[cfg(not(feature = "playable-lane"))]
     {
@@ -86,13 +86,14 @@ fn land_claim_writes(cx: &Ctx, tx: &crate::world::Tx, k: &crate::world::Key) -> 
 /// re-judges (the wide claims write a legacy anchor Holding: WideClaimSite
 /// touches it, pays the settler cost and logs its HARVEST). VWL re-runs the
 /// whole transaction and compares every program account it lists, so the
-/// Holding and its record are VWL's, not this check's.
+/// Holding and its record are VWL's, not this check's. Player territory
+/// (verifier-territory): WideClaimTile and the keeper's upkeep settles touch
+/// the first home, charge it and log its HARVEST the same way, and VWL
+/// re-runs the keeper's multi-instruction territory transactions whole
+/// (`v0_coverage::vwl_tx`).
 fn vwl_owns(cx: &Ctx, tx: &crate::world::Tx) -> bool {
     let pv = cx.f.params.as_ref().map(|p| p.program_version);
-    super::v0_coverage::playable(pv)
-        && tx.ixs.len() == 1
-        && tx.ixs[0].tag().is_some_and(super::v0_coverage::is_wide_tag)
-        && super::v0_coverage::vwl_judged(&tx.ixs[0].data)
+    super::v0_coverage::playable(pv) && super::v0_coverage::vwl_tx(tx)
 }
 
 /// The instruction of `tx` outside ABI v2 that may write `k` and that V0

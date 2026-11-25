@@ -31,6 +31,11 @@ async function get(f, url, { binary = false, timeoutMs = 12_000 } = {}) {
   } catch {
     return fail('network');
   }
+  // (page-not-open-yet: the herald's own name for its refusal — its `{ok: false, code}` body — rides along as `refusal`;
+  //  `code` stays by the status, as before, so no reader's handling changes unless it asks for the name: season() below)
+  //  (an answer without a readable body — a proxy's page, or nothing — has no name: null)
+  const refusal = r.ok ? null : await Promise.resolve().then(() => r.json()).then(j => (typeof j?.code === 'string' && /^[A-Za-z0-9]{1,40}$/.test(j.code) ? j.code : null), () => null);
+  if (refusal) return { ...fail(r.status === 404 ? 'NotFound' : r.status === 425 ? 'TooEarly' : `HTTP${r.status}`, `HTTP ${r.status}`, r.status), refusal };
   if (!r.ok) return fail(r.status === 404 ? 'NotFound' : r.status === 425 ? 'TooEarly' : `HTTP${r.status}`, `HTTP ${r.status}`, r.status);
   try {
     return binary ? { ok: true, bytes: new Uint8Array(await r.arrayBuffer()) } : { ok: true, json: await r.json() };
@@ -457,9 +462,13 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
     },
     /** Pin the season (and, for the `me` key checks, its recomputed addresses: faddr.seasonAddresses). */
     pin(id, addresses = null) { pinned = String(id); addrs = addresses; },
-    /** GET /h/season: the record, with the Season account decoded and checked. */
+    /**
+     * GET /h/season: the record, with the Season account decoded and checked. Before the world is created the herald
+     * refuses with 503 `NoSeasonYet`: that comes back by its name (world-not-open.mjs), not as `HTTP503`.
+     */
     async season() {
       const r = await get(f, `${root}/h/season`);
+      if (!r.ok && r.refusal === 'NoSeasonYet') return { ...r, code: 'NoSeasonYet' };
       if (!r.ok) return r;
       return guard(() => {
         const j = r.json;

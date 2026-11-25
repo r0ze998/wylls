@@ -20,6 +20,7 @@ import { parseWideInventory } from '../../../../permutation-server/web/frontier/
 import { seasonAddresses } from '../../../../permutation-server/web/frontier/faddr.mjs';
 import { RESOURCE_ORDER } from '../../../../permutation-server/web/frontier/resources.mjs';
 import { createWideMarch, borderTargets } from '../../../../permutation-gateway/src/frontier/local-play-operator-wide-march.mjs';
+import { villageSite } from './territory.mjs';
 
 /** The order name the resident's journal gives the rim → wide expedition (the page's depart route, not a local act). */
 export const EXPEDITION = 'Expedition';
@@ -100,6 +101,19 @@ export function claimCost(obs) {
 export function claimOrder(obs, st) {
   const tried = new Set(st.wide?.triedClaims ?? []);
   const w = obs.wideLand;
+  // (ws13-territory, #209 T-6: in a world with player territory a village stands on the claimer's OWN tile — the claim
+  //  names the target's territory record (`territory: true`, never a reach witness) and the program refuses NotOwner
+  //  otherwise. The site is chosen with its tile (territory.mjs villageSite); a site whose tile is not mine yet gives no
+  //  order but `tileFirst`: the tile is claimed first (brain.mjs, one claim a turn), as the page's card does in two presses.
+  //  Territory not read in a wide world: no claim is made on a guess.)
+  if (obs.territory && obs.territory.on !== false) {
+    if (obs.territory.on !== true) return { why: obs.territory.why ?? 'whether this world has player territory is not read' };
+    const s = villageSite(obs.territory, st, new Map(w.targets.map(t => [`${t.p},${t.q}`, Array.isArray(t.free) ? t.free : null])));
+    if (s.why) return { why: s.why };
+    if (!s.mine) return { why: `the tile of site ${s.site} at ${s.p},${s.q} (tile ${s.tile}) is not mine yet: a village stands on my own land, the tile first`, tileFirst: s };
+    const holding = { p: obs.holding.p, q: obs.holding.q, site: obs.holding.site }, target = { p: String(s.p), q: String(s.q) };
+    return { site: `${target.p},${target.q},${s.site}`, order: { name: WIDE_CLAIM, v: { holding, target, territory: true }, fields: { site: s.site, slot: w.slot } } };
+  }
   const sitesOf = t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, s) => s));
   const next = w.targets.flatMap(t => sitesOf(t).map(site => ({ t, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
   if (!next) return { why: 'every free site within reach was tried' };
@@ -111,7 +125,9 @@ export function claimOrder(obs, st) {
  * WIDE_LIMITS.savePatienceBells → an order that would spend `spend` (by resource index) below that cost waits. → why, or null.
  */
 export function saveHold(obs, st, spend, limits = WIDE_LIMITS) {
-  if (!spend || !obs?.wideLand || claimNotDue(obs, st, limits) || claimSettling(obs, st, limits) || !claimOrder(obs, st).order) return null;
+  if (!spend || !obs?.wideLand || claimNotDue(obs, st, limits) || claimSettling(obs, st, limits)) return null;
+  const co = claimOrder(obs, st);
+  if (!co.order && !co.tileFirst) return null;   // (ws13-territory: a site whose tile is being claimed first is saved for too)
   const cost = claimCost(obs);
   if (cost.affordable) return null;
   const rate = (obs.stores ?? []).map(s => s.perHour), have = (obs.stores ?? []).map(s => s.value);

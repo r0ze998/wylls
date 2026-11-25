@@ -83,7 +83,7 @@ import { OUTPOST_ACT, OUTPOST_HOLDING_BYTES } from '../../../permutation-server/
 import { WIDE_VILLAGE_ACTS, WIDE_ROSTER_BYTES, wideVillageAccounts } from '../../../permutation-server/web/frontier/flocalplay-wide-host.mjs';
 import { worldIdOf, ringPosition } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { RENT_CONTEXT_SCHEMA, clusterRentAnswer } from '../../../permutation-server/web/frontier/frent.mjs';
-import { TERRITORY_CLAIM, TERRITORY_PROVINCE_BYTES, TERRITORY_PLAYER_BYTES, territoryProvinceAddress, territoryPlayerAddress, decodeTerritoryPlayer } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { TERRITORY_CLAIM, TERRITORY_PROVINCE_BYTES, TERRITORY_PLAYER_BYTES, territoryProvinceAddress, territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { wideProvinceAddress } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 
 /** The commands a devnet page sends itself (the first village, its economy, the wide claim). */
@@ -94,6 +94,9 @@ export const DEVNET_ACT_COMMANDS = Object.freeze(['Join', 'PlaceHome', 'Harvest'
 /** devnet-territory-dev: the context of a tile claim — the blockhash, the cluster's rent of the two territory records, whether
  * each is there, whether the target's wide province is, and the claimer's tiles (the ore price of the next one). */
 export const DEVNET_TERRITORY_CONTEXT_SCHEMA = 'frontier-devnet-play-territory-context-v1';
+// (territory-card, owner Q-PDT-1 (a)) the village card's own-land line: {schema, wallet} → the wallet's own territory summary
+// as read (tiles, Σ excess distance, unpaid and since which bell); ONE getMultipleAccounts of one address, nothing kept.
+export const DEVNET_LAND_SUMMARY_SCHEMA = 'frontier-devnet-play-territory-summary-v1';
 /** devnet-p17: the context of a wide village's act — the blockhash, the cluster's rent of the wide roster, and whether it is there. */
 export const DEVNET_WIDE_VILLAGE_CONTEXT_SCHEMA = 'frontier-devnet-play-wide-village-context-v1';
 /** devnet-p17: a wide holding as the submit checks it (fwide.mjs: size, magic, the Season id at 8, the owner Citizen at 72). */
@@ -238,6 +241,20 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       province_rent: String(provinceRent), province_present: ours(tp), player_rent: String(playerRent), player_present: summary !== null,
       wide_province_present: ours(wp), tiles: summary === null ? 0 : summary.tiles, unpaid: summary === null ? false : summary.unpaid };
   };
+  /** territory-card: the wallet's own territory summary (DEVNET_LAND_SUMMARY_SCHEMA). One read, nothing kept. */
+  const landSummary = async body => {
+    check(exact(body, ['schema', 'wallet']) && address(body.wallet));
+    const citizen = A.of('Citizen', { wallet: body.wallet });
+    const got = await ask('getMultipleAccounts', [[territoryPlayerAddress(A.season, cfg.programId, citizen)], { encoding: 'base64', commitment: 'confirmed' }]);
+    const rows = got.result?.value, slot = got.result?.context?.slot;
+    if (!Array.isArray(rows) || rows.length !== 1 || !Number.isSafeInteger(slot) || slot < 0) fail('LocalActRpcUnavailable');
+    const pl = localActAccountOf(rows[0]);
+    const s = pl !== null && pl.owner === cfg.programId ? decodeTerritoryPlayer(Uint8Array.from(pl.bytes)) : null;
+    // (the record must name this wallet's Citizen: the seed says so; a record of another tag is answered as absent)
+    const mine = s !== null && s.citizenTag === citizenTagOf(citizen) ? s : null;
+    return { schema: DEVNET_LAND_SUMMARY_SCHEMA, wallet: body.wallet, context_slot: String(slot), player_present: mine !== null, tiles: mine?.tiles ?? 0,
+      excess_sum: String(mine?.excessSum ?? 0), unpaid: mine?.unpaid ?? false, unpaid_since: mine?.unpaid ? mine.unpaidSince : null };
+  };
   /** devnet-p17: the wide holding as read — this program's, of this Season, the Citizen's own (refused before the send otherwise). */
   const wideHoldingCheck = (row, citizenAt) => {
     const h = localActAccountOf(row);
@@ -261,6 +278,7 @@ export function createDevnetPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, 
       if (exact(body, ['schema']) && body.schema === DEVNET_ACT_INFO_SCHEMA) return this.info();
       if (body?.schema === DEVNET_WIDE_VILLAGE_CONTEXT_SCHEMA) return wideVillageContext(body);
       if (body?.schema === DEVNET_TERRITORY_CONTEXT_SCHEMA) return territoryContext(body);
+      if (body?.schema === DEVNET_LAND_SUMMARY_SCHEMA) return landSummary(body);
       // (rent-live-rest: the cluster's rent of one Holding — the village ticket's escrow — for the page's preview;
       //  one getMinimumBalanceForRentExemption, nothing kept: web/frontier/frent.mjs)
       if (exact(body, ['schema']) && body.schema === RENT_CONTEXT_SCHEMA) return clusterRentAnswer(ask, () => fail('LocalActRpcUnavailable'));

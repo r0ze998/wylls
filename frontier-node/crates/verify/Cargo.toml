@@ -62,8 +62,9 @@ wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 # WideConsumeRingSeed / WideOpenProvince), the wide claims (WideClaimSite
 # wallet form / WideSettleTicket / WideFinalize), the season-end WideClose
 # of a ticket record, a holding and a province, the wide economy and
-# garrison (wallet forms), WideMuster (wallet form) and WideResolve (the
-# bell, with the wide keep capture) by VWL, the expedition dispatch envelope (the expedition wrapper
+# garrison (wallet forms), WideMuster (wallet form), WideResolve (the
+# bell, with the wide keep capture) and player territory (WideClaimTile,
+# WideTerritorySettle / Decay / Conquer, #209) by VWL, the expedition dispatch envelope (the expedition wrapper
 # and the Free City conquest, kinds 0-18) by VX, re-executed by the pinned `.so` in LiteSVM
 # (`--program-so`), with every legacy OpenProvince (D-verify-pr89-3), an archive
 # WITHOUT post-states re-executed from genesis by VG (with the chain's balances,

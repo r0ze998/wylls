@@ -39,6 +39,8 @@ import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from '.
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
 import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
+// (territory-card, owner Q-PDT-1 (a): the viewer's own territory summary, read-only, for the village card's land line)
+import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -2026,6 +2028,8 @@ export function applyMeResult(me) {
       FS.sessionProblem = m.ok ? null : m.code;
     }
     refreshDelegation().catch(e => console.error('frontier delegation:', e));
+    // (territory-card: the viewer's own land for the village card — tiles, next price, upkeep, unpaid; not awaited)
+    refreshOwnLand().catch(e => console.error('frontier own land:', e));
     // An unchanged successful poll may replace decoded account objects while an
     // inspection is still reading. Retain it only if its complete identity still
     // resolves after adoption. Owner/generation/issuance changes fail closed.
@@ -4041,6 +4045,59 @@ async function setSession({ replace = null } = {}) {
     ...(handed ? { say: () => takenBackNote(handed) } : {}), after: landed });
 }
 
+// ------------------------------------------------------------------ own land (territory-card, owner 2026-11-25 Q-PDT-1 (a))
+/**
+ * The viewer's OWN territory summary for the village card's land line (screens/holding.mjs wideClaimModel `land`):
+ * tiles, next price, upkeep, unpaid. FOG RULE: only the record at the address of the viewer's own Citizen is asked
+ * for, and an answer naming another Citizen's tag is dropped — nobody else's land is read here. Display only: one
+ * read-only account read through the play relay (a local wide world: the wide read; a devnet territory world: the
+ * gateway's land summary), nothing signed, nothing sent. `FS.ownLand = {world, citizen, player | null, at}` — `player`
+ * null is "no record yet" (no tile ever claimed); a failed read keeps the last answer of the same world and Citizen.
+ */
+const OWN_LAND_EVERY_MS = 10_000, OWN_LAND_EVERY_DEVNET_MS = 60_000;
+// (a read that failed or was not understood — a devnet gateway older than the land summary answers LocalActInvalid —
+//  is not asked again at every own poll: after 10 s in a local world, after 5 minutes on devnet)
+const OWN_LAND_RETRY_MS = 10_000, OWN_LAND_RETRY_DEVNET_MS = 300_000;
+const OWN_LAND_READ = 'frontier-local-play-act-wide-read-v1';
+let ownLandBusy = false, ownLandRetryAt = 0;
+async function refreshOwnLand({ force = false } = {}) {
+  const pin = io.pinned(), local = !!localPlay?.wideLand, dev = !local && !!devnetTerritoryNow();
+  if (!(local || dev) || !FS.wallet || !FS.citizen || !pin) { if (FS.ownLand) { FS.ownLand = undefined; invalidate('panel'); } return; }
+  const citizen = viewerCitizen(), world = providerWorld();
+  if (FS.ownLand && (FS.ownLand.citizen !== citizen || FS.ownLand.world !== world)) FS.ownLand = undefined;
+  if (ownLandBusy || (!force && FS.ownLand && Date.now() - FS.ownLand.at < (local ? OWN_LAND_EVERY_MS : OWN_LAND_EVERY_DEVNET_MS))) return;
+  if (!force && Date.now() < ownLandRetryAt) return;
+  // (no relay to ask yet — the local gate shut, the devnet wallet not connected —: not a failed read, asked again at the next poll)
+  const g = local ? localDepartGate() : devnetGate();
+  if (g?.ok !== true) return;
+  ownLandBusy = true;
+  let answered = false;
+  try {
+    let player;
+    if (local) {
+      const at = territoryPlayerAddress(pin.addresses.season, pin.programId, citizen);
+      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: OWN_LAND_READ, addresses: [at] });
+      if (!Array.isArray(j?.accounts) || j.accounts.length !== 1) return;
+      player = j.accounts[0] ? decodeTerritoryPlayer(rightsB64(j.accounts[0].data_b64)) : null;
+      if (j.accounts[0] && (!player || player.citizenTag !== citizenTagOf(citizen))) return;
+    } else {
+      const ctx = await localAct.postLocalAct(g.relay, localAct.DEVNET_ACT_CONTEXT_PATH, { schema: devnetTerritory.LAND_SUMMARY_SCHEMA, wallet: FS.wallet.address });
+      if (!devnetTerritory.landSummaryOk(ctx, FS.wallet.address)) return;
+      player = devnetTerritory.landOfSummary(ctx);
+    }
+    if (viewerCitizen() !== citizen || providerWorld() !== world) return;
+    FS.ownLand = { world, citizen, player, at: Date.now() };
+    answered = true;
+    invalidate('panel');
+  } catch {
+    // (a gateway older than the land summary, or a relay that did not answer: the card keeps what it had — no line at
+    //  all the first time; asked again after OWN_LAND_RETRY_MS / OWN_LAND_RETRY_DEVNET_MS)
+  } finally {
+    ownLandBusy = false;
+    ownLandRetryAt = answered ? 0 : Date.now() + (local ? OWN_LAND_RETRY_MS : OWN_LAND_RETRY_DEVNET_MS);
+  }
+}
+
 // ------------------------------------------------------------------ ② rights (TEST-ONLY, a coexist local world only)
 /** Whether this page plays a coexist local world (flocalplay-lane.mjs: selected once the gate verified its Season). */
 const rightsLaneOn = () => !!localPlay && localLane() === COEXIST_LANE;
@@ -4649,6 +4706,8 @@ export const ACTIONS = {
     const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
     territoryRefused(ans);
     if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
+    // (territory-card: the card's tile count, next price and upkeep follow the claim — and a refusal for unpaid upkeep shows its line)
+    refreshOwnLand({ force: true }).catch(() => {});
     if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
     invalidate('panel');
     return t;
@@ -4696,6 +4755,7 @@ export const ACTIONS = {
         const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
         const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
         territoryRefused(ans);
+        refreshOwnLand({ force: true }).catch(() => {});
         if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
         if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
         if (!already) return t;
@@ -5253,4 +5313,31 @@ export function onReread(f) { if (typeof f === 'function') rereadHooks.push(f); 
 async function revealTick() {
   if (!herald || !FS.clock || !FS.wallet || !(FS.book ?? []).some(e => e.state !== 'settled' && e.state !== 'failed')) return;
   await refreshMarches();
+}
+
+// ------------------------------------------------------------------ territory on the map (territory-map, owner 2026-11-25 items 3/5/6)
+import { territoryProvinceAddress as territoryMapProvince, citizenTagOf as territoryMapTag } from './flocalplay-territory.mjs';
+const TERRITORY_MAP_READ = 'frontier-local-play-act-wide-read-v1';
+/**
+ * The map's territory reads of a local wide world (map/territorytiles.mjs mountTerritoryTiles `reads`): `{read(addresses)
+ * → [Uint8Array | null] | null, province(p, q) → the territory province record's address, ownTag}` — or null (no local
+ * wide world, no wallet or Citizen, no play relay). The read is the relay's read-only account read (at most 16
+ * addresses, program-owned accounts only): nothing is signed or sent. Which tiles the map then SHOWS is the fog's
+ * (territorytiles.mjs territoryLand): the viewer's own always, another player's only in sight.
+ */
+export function territoryMapReads() {
+  if (!localPlay?.wideLand || !localPlay?.seasonAddress || !localPlay?.programId || !FS.wallet || !FS.citizen) return null;
+  const g = localDepartGate();
+  if (!g?.ok) return null;
+  let ownTag = null;
+  try { ownTag = territoryMapTag(viewerCitizen()); } catch { return null; }
+  const { seasonAddress, programId } = localPlay;
+  return {
+    ownTag,
+    province: (p, q) => territoryMapProvince(seasonAddress, programId, p, q),
+    read: async addresses => {
+      const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: TERRITORY_MAP_READ, addresses });
+      return Array.isArray(j?.accounts) ? j.accounts.map(a => (a ? rightsB64(a.data_b64) : null)) : null;
+    },
+  };
 }

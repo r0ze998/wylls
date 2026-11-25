@@ -27,6 +27,7 @@ import { followLocalAct, LOCAL_ACT_CONTEXT_PATH } from '../../../../permutation-
 import { localDepartStatus, postLocalDepart, LOCAL_DEPART_STATUS_PATH, LOCAL_DEPART_STATUS_SCHEMA } from '../../../../permutation-server/web/frontier/flocalplay-depart.mjs';
 import { fromBase64 } from '../../../../permutation-server/web/sdk/bytes.mjs';
 import { createWideEyes, EXPEDITION } from './wide.mjs';
+import { createTerritoryEyes } from './territory.mjs';
 import { parseTransaction } from '../../../../permutation-server/web/sdk/solana-tx.mjs';
 import { encode } from '../../../../permutation-server/web/sdk/base58.mjs';
 import { bellOf } from '../../../../permutation-gateway/src/frontier/local-play-operator-policy.mjs';
@@ -104,6 +105,10 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   };
   const wideEyes = wide ? createWideEyes({ herald, identity, wideTargets: found.world.wideLand.targets ?? [], read: wideRead, fetch: originFetch, getJson }) : null;
   if (wideEyes) out('world', { what: 'wide-orders', targets: (found.world.wideLand.targets ?? []).length, orders: 'WideClaim, WideTrain/WideMuster/WideDepart, Expedition (the page\'s own; one action per turn)' });
+  // (ws13-territory: its own land and the tiles it could claim, in a wide world — the herald's captures and its own relay's
+  //  read-only account read; whether the world plays player territory is read from the land itself)
+  const territoryEyes = wide ? createTerritoryEyes({ herald, identity, read: wideRead, getJson }) : null;
+  if (territoryEyes) out('world', { what: 'territory', orders: 'TerritoryClaim (a single tile: the site of my next village first, then growth at my own pace; one claim a turn, one action a turn)' });
   let lastObs = null;
   const observe = async () => { const x = await observeRaw(); if (!x.unreadable) lastObs = x; return x; };
   // the signing step: the page's own signer, and the signature saved (onSigned) before submitLocalAct's one submit
@@ -142,10 +147,14 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   let misses = 0, quietSince = null, round = 0;
   for (; !stop.signal.aborted && (o.rounds === 0 || round < o.rounds); round++) {
     let r;
-    try { r = await localStep({ store, observe, send, follow, bellNow, halted, log: out, plan, wide: wideEyes }); } catch (e) { r = { did: 'error' }; out('error', { why: String(e?.stack ?? e).slice(0, 400) }); }
+    try { r = await localStep({ store, observe, send, follow, bellNow, halted, log: out, plan, wide: wideEyes, territory: territoryEyes }); } catch (e) { r = { did: 'error' }; out('error', { why: String(e?.stack ?? e).slice(0, 400) }); }
     if (r.did === 'unreadable' || r.did === 'error') { if (++misses >= 20) { out('stop', { why: 'world-gone' }); break; } } else misses = 0;
     // (quiet steps — asleep or blocked — are logged once per turn, not every round)
     if (r.did === 'blocked' || r.did === 'asleep') { if (quietSince !== r.bell) { quietSince = r.bell; out('quiet', { bell: r.bell, did: r.did, why: r.why ?? `asleep until turn ${r.until}` }); } }
+    if (mcp && lastObs?.holding && round % 10 === 0 && mcp.tools.some(t => t.name === 'get_territory_status')) {
+      try { const v = await mcp.call('get_territory_status'); const t = v.value ?? {}; out('mcp', { tool: 'get_territory_status', round, isError: v.isError, on: t.on ?? null, ...(t.own ? { tiles: t.own.tiles, nextClaimOre: t.own.nextClaimOre, upkeepFoodPerHour: t.own.upkeepFoodPerHour, unpaid: t.own.unpaid, canAskNow: t.claim?.canAskNow ?? null, provinces: (t.provinces ?? []).length } : { why: t.why ?? t.error?.message ?? null }) }); }
+      catch (e) { out('mcp', { tool: 'get_territory_status', round, outcome: 'failed', why: String(e?.message ?? e).slice(0, 120) }); }
+    }
     if (mcp && lastObs?.holding && round % 10 === 0) {
       try { const v = await mcp.call('get_village_status'); out('mcp', { tool: 'get_village_status', round, isError: v.isError, stores: (v.value?.village?.stores ?? []).slice(0, 6).map(s => `${s.resource}:${s.have}`) }); }
       catch (e) { out('mcp', { tool: 'get_village_status', round, outcome: 'failed', why: String(e?.message ?? e).slice(0, 120) }); }

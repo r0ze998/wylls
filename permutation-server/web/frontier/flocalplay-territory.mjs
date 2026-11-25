@@ -36,13 +36,14 @@ const SYSTEM = '11111111111111111111111111111111';
 
 /**
  * The numbers of territory rule V1 (frontier-abi TERRITORY_V1; DECIDED by the owner 2026-11-24 13:15, inbox
- * 2026-11-24-1315-territory-numbers-decided.md TQ-1..TQ-5): upkeep per tile 33 milli-food/h + 16 milli-food/h per province of distance beyond 3 from
+ * 2026-11-24-1315-territory-numbers-decided.md TQ-1..TQ-5; upkeep ×30 by Q-CUF-1 (b), owner 2026-11-25 12:04, replacing the ×10 of Q-LP15-1 (b)): upkeep per tile 990
+ * milli-food/h + 480 milli-food/h per province of distance beyond 3 from
  * the nearest own village (home included), fixed at the claim; a claim costs 10 ore + 2 % per tile owned; reach 3 provinces from the home, a nation
  * land province or a province where the claimer owns a tile; 1 claim per turn; unpaid upkeep blocks claims, then after
  * 24 turns the farthest tile returns, one per turn.
  */
 export const TERRITORY_V1 = Object.freeze({
-  upkeep: Object.freeze({ flat: 33, perRank: 0, perDistance: 16, freeDistance: 3 }),
+  upkeep: Object.freeze({ flat: 990, perRank: 0, perDistance: 480, freeDistance: 3 }),
   cost: Object.freeze({ base: 10, perOwnedBps: 200 }),
   range: 3,
   claimsPerTurn: 1,
@@ -186,6 +187,26 @@ export function decodeTerritoryPlayer(bytes) {
     // (upkeep per hour in milli-food: tiles × flat + per_distance × Σ excess; V1 has no per-rank term)
     upkeepMilliPerHour: tiles * u.flat + u.perDistance * Number(excess),
   };
+}
+
+/**
+ * (territory-card, owner 2026-11-25 08:56 Q-PDT-1 (a): display only) What the village card says of the viewer's OWN land,
+ * from the viewer's own territory summary `player` (decodeTerritoryPlayer; null = no record yet: no tile ever claimed)
+ * at bell `nowBell`, with the program's numbers:
+ *   tiles                the tiles owned (TILES)
+ *   nextOre              the ore of the next claim (claimCostV1: whole ore, the kernel's rounding down)
+ *   upkeepMilliPerHour   milli-food per hour (TerritoryPlayer::upkeep_per_hour: tiles × TERRITORY_V1.upkeep.flat + perDistance × Σ excess)
+ *   unpaid               the record's unpaid flag (set and cleared by a settle — a claim or the world's keeper/runner)
+ *   turnsLeft            while unpaid: the turns until the first tile is let go — decay_after_bells (24) minus the bells
+ *                        since `unpaidSince` (kernel unpaid_effect: released once `late >= grace`), never below 0
+ *   letting              unpaid, the grace over and a tile left: one tile a turn returns, the farthest first
+ */
+export function ownLandView(player, nowBell) {
+  const tiles = Number(player?.tiles ?? 0), unpaid = !!player?.unpaid && Number.isInteger(player?.unpaidSince);
+  const grace = TERRITORY_V1.decayAfterBells;
+  const late = unpaid ? Math.max(0, Math.trunc(Number(nowBell) || 0) - player.unpaidSince) : 0;
+  return Object.freeze({ tiles, nextOre: claimCostV1(tiles), upkeepMilliPerHour: Number(player?.upkeepMilliPerHour ?? 0), unpaid,
+    turnsLeft: unpaid ? Math.max(0, grace - late) : null, letting: unpaid && late >= grace && tiles > 0 });
 }
 
 /** The Citizen tag the records name an owner by: the first 8 bytes of the Citizen address, little-endian. */

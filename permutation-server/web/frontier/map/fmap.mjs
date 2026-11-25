@@ -42,7 +42,7 @@ import { visibleProvinces } from './viewport.mjs';
 export { visibleProvinces } from './viewport.mjs';
 import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
-import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaExtent, seaField, seaResFar } from './cloudsea.mjs';
+import { CloudSea, DRIFT_SPEED, SEA_BAKES, SEA_DRAWN, seaExtent, seaField, seaResFar } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, centreReach, chartZoomMin, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
@@ -80,6 +80,7 @@ import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
 // the wide land (rings 129+, the herald's recorded wide world) on this map and its chart: map/wideland.mjs
 import { paintWideLand, paintWideTags, wideLevel, cellsIn, holdersInView } from './wideland.mjs';
+import { paintTerritoryTiles, paintFarKeeps } from './territorytiles.mjs';
 import { paintWideMarks, paintWideNames } from './widemarks.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
 import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
@@ -2524,7 +2525,8 @@ export class FrontierMap {
     const diving = !!this.dive && !this.dive.calm && (!!prep || this.cam.moving);
     const seaZoom = diving ? this.cam.view.zoom * DIVE.sea0 : this.cam.moving ? Math.min(this.cam.tween?.from?.zoom ?? z, this.cam.view.zoom) : z;
     const sea = (g, part) => {
-      if (coarse) return { pending: 0, rough: 0, seen: false };
+      // (SEA_DRAWN off: no cloud is laid at all, the sheet's bare paper lies past the opened land; map/cloudsea.mjs)
+      if (coarse || !SEA_DRAWN) return { pending: 0, rough: 0, seen: false };
       // (cloud is soft: it is made for the screen's own pixels, not for the finer ground canvas of a screen of one device px per px)
       const r = this.sea.paint(g, { box: seen, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part, bakes: rush ? SEA_BAKES * 3 : SEA_BAKES, budget: prep === 'ask' ? -1 : prep ? DIVE.sea : null });
       if (r.pending) { pending += r.pending; this.dirty = true; }
@@ -2563,7 +2565,7 @@ export class FrontierMap {
       // (while the zoom travels the sea's drifting light is left out of the kept picture, which lasts a second: the
       // light is half the sea's cost)
       const zooming = this.cam.moving && Math.abs(Math.log(this.cam.drawn.zoom / this.cam.view.zoom)) > 1e-4;
-      const r = this.sea.paint(g, { box: a.box, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null });
+      const r = SEA_DRAWN ? this.sea.paint(g, { box: a.box, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null }) : { pending: 0, rough: 0 };
       rough += r.rough ?? 0;
       return { whole: this.art.misses === had && !r.pending && cells.length === 0 };
     } }) : null;
@@ -2585,11 +2587,21 @@ export class FrontierMap {
     // the recorded wide land (rings 129+, map/wideland.mjs): over the cloud sea that lies past the opened rings, at this
     // frame's level of detail; a place the record does not list stays cloud (unknown, not land)
     const wideLand = src.wideLand?.count ? src.wideLand : null;
-    if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse) }); }
+    // (territory-map, owner 2026-11-25 items 5/6: over the land, under the villages' marks, the tiles players own coloured
+    //  tile by tile with their nation's border round them — map/territorytiles.mjs)
+    const overLand = c => paintTerritoryTiles(c, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), view: quad ?? corners });
+    if (wideLand) { ctx.setTransform(...world); globalThis.__frontierTrace?.('scene: wide land'); this.wideDrawn = paintWideLand(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), overLand }); }
     // (verify-pr205: and the holders of the drawn land that stands in the picture — the canvas paints a margin past the
     //  screen, the tilted board more; the page's key names only colours the player can see: `shown`)
     if (this.wideDrawn) this.wideDrawn.shown = holdersInView(cellsIn(wideLand, seen), quad ?? corners);
     else this.wideDrawn = null;
+    // (territory-map: who holds a province is its keep's icon — from far painted here, nearer map/widemarks.mjs. The
+    //  page's key then names the nations whose TILES are in the picture, `nations`, and `keeps` those whose keep is)
+    if (this.wideDrawn && wideLand) {
+      this.wideDrawn.farKeeps = paintFarKeeps(ctx, wideLand, { seen, zoom: z, level: wideLevel(lod, coarse), viewer: src.viewerFaction ?? survey?.faction ?? null });
+      this.wideDrawn.nations = this.wideDrawn.territory?.nations ?? [];
+      this.wideDrawn.keeps = [...new Set(cellsIn(wideLand, seen).filter(c => c.holderKnown !== false && Number.isInteger(c.keep?.holder) && c.keep.holder < 6).map(c => c.keep.holder))].sort((a, b) => a - b);
+    }
     // the marks of the viewer's stage, on the land: the home wedge while there is no village yet; the rim of the village's own land
     const waiting = limited && Number.isInteger(survey.faction) && ['joined', 'ticket', 'refugee'].includes(survey.stage);
     // the season's first-home placement (home.mjs seasonPlace, in the source as `place`): the home region the map

@@ -254,8 +254,9 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
       on the map, until "Endpoint derived from the route" is a wide-land province (ring 129 or more). Only the provinces the map draws
       are open (at first the strip of rings 129–131; more opens later around villages and won keeps). When the road ends on an unopened one, the card says at once "The end province P,Q is not open in this world … The nearest open province is … (N provinces away).".
       A road is at most 32 steps and may enter at most 4 provinces; the card counts both ("27/32 · 4/4 entered provinces").
-      At the limit more presses add nothing and no line says so (loop-play16 LP16-6): a keep farther than that is out
-      of an expedition's reach.
+      At the limit more presses add nothing and the card does not say why (loop-play16 LP16-6; only the map's line for
+      screen readers says "The geometric route is limited to 32 steps and 4 entered provinces." after a press on the map): a keep
+      farther than that is out of an expedition's reach.
    2. "Check terrain and time". "A host cannot march onto mountains or water (N)" means step N is impassable: "Undo step" or "Clear route"
       and draw another road (the card draws roads without looking at terrain). A passable road shows
       "Proposed arrival range: turns A–B" and the button that fills in the arrival turn (step 3). The card scrolls its newest result
@@ -325,7 +326,8 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    "Wide-land host (test)". Pressing "Next step (wide land)" goes one step at a time: train spearmen → muster a
    host → march on the next province's keep. **Press once per step, then wait** (three presses in all).
    - **A new wide village starts with empty stores.** Until it has saved the first step's cost (100 Spearmen: Food 60 ·
-     Ore 20 · Gold 10; it makes 4 ore an hour, so about 30 turns after it stands) the press is refused with
+     Ore 20 · Gold 10; a village makes at least 4 ore an hour, more beside hills, mountains or iron, so at most about
+     30 turns after it stands) the press is refused with
      "The wide-land village's step has not gone through yet. Not enough resources or balance.". The card does not say what is
      short or when to press again, and this village's screen shows the stores only as recorded when it was read: wait
      and press again (loop-play16 LP16-2: refused at turn 288, trained at turn 296, village requested at turn 257).
@@ -414,13 +416,18 @@ this section describes what the program does today, and none of it is a promise 
 
 1. Open your **rim village** ("Village" in the bottom bar) and scroll to the card "Found a village on the wide land (test)".
    The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
-   buttons, "Claim a tile" and "Found a village here".
+   buttons, "Claim a tile" and "Found a village here". Above the rows the card says what you own (territory-card):
+   "**Your land**: tiles owned: N · next tile: N ore · land upkeep: N food per hour" — your own land only, read from the
+   chain about every 10 s and right after a claim.
    - **The card does not list every province in reach**: at most 4 near your first village and at most 6 reached through
      your nation's land. As more land opens, or once you found a village, the rows can change, and a province you
      claimed in before (or whose keep you are taking) can leave the list although the rule still allows a claim there
-     (loop-play16 LP16-1; owner question Q-LP16-1).
-2. Press **"Claim a tile"** on a row. It can be pressed when the village holds 10 ore or more, whatever the village cost
-   line above says (with less, every "Claim a tile" is off and the card says "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."). One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
+     (loop-play16 LP16-1). This is what the page does today; the owner decided on 2026-11-25 (Q-LP16-1 (b)) that such
+     provinces are to stay on the card, and that change is not in yet.
+2. Press **"Claim a tile"** on a row. It can be pressed when the village holds the ore of the next tile (the "next tile"
+   number of the land line; 10 for your first tiles), whatever the village cost line above says. With less, every
+   "Claim a tile" is off and the card says why: "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."
+   or, from the fifth tile on, "You have less ore than the next tile costs (N), so "Claim a tile" cannot be pressed for now.". One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
    says "Tile N of the wide land (P, Q) is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
    - You do not choose the tile: the page takes the lowest-numbered tile of the province that is not a village site, not
      the keep's tile and not already yours (a province has 61 tiles, numbered 0–60).
@@ -442,12 +449,14 @@ this section describes what the program does today, and none of it is a promise 
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
      (loop-play15, #223; before, that row and its button were gone).
 5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
-   - 0.033 food an hour for each tile;
-   - plus 0.016 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
+   - 0.99 food an hour for each tile;
+   - plus 0.48 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
      a wide village of yours). It is measured once, when you claim the tile, and does not change later.
-   - Examples: 10 tiles near home cost 0.33 food an hour; 100 tiles 3.3; one tile 5 provinces from your nearest village
-     costs 0.033 + 2 × 0.016 = 0.065. A starting village makes about 40 food an hour, so land upkeep is small until you
-     hold very many tiles (the owner's open question VQ-1).
+   - Examples: 10 tiles near home cost 9.9 food an hour; 100 tiles 99; one tile 5 provinces from your nearest village
+     costs 0.99 + 2 × 0.48 = 1.95. A starting village makes about 40 food an hour, so 41 tiles near home cost more than
+     it makes (claiming them takes 558 ore in all), and sooner if you spend your food on troops and buildings (owner
+     decision Q-CUF-1 (b), 11-25 12:04: thirty times the first numbers; with those the land went unpaid only past about
+     1,200 tiles, and with the ×10 of Q-LP15-1 (b) past about 120).
    - The village screen's "Per hour" column does not include land upkeep.
 6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
    - at once: you cannot claim tiles (the refusal is in the table below);
@@ -456,11 +465,15 @@ this section describes what the program does today, and none of it is a promise 
      stays unpaid. A tile under one of your villages can be let go too (open question VQ-4);
    - it ends when the first village's stores again hold at least one turn's land upkeep at the keeper's next visit. The
      food missed meanwhile is not charged later (open question VQ-5).
-   - **The page shows no warning for this**: no count of your tiles, no upkeep line, no "unpaid" sign. The only sign is a
-     refused "Claim a tile". In play today it does not happen: the program charges no food for troops (the
-     rule that large hosts eat food is in the simulator only; loop-play15, owner question Q-LP15-1), so a village's food
-     does not fall and land upkeep stays far below what a village makes. In verify-pr206-209's hour of play at ×60 and in
-     loop-play15 nobody went unpaid; this part is checked by the program's tests, not seen in a live world.
+   - **The card warns you** (territory-card), under the land line, for as long as the chain's record says unpaid:
+     "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
+     (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.".
+     The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
+     owner question Q-LP15-1), so a village's food falls only by what you spend: with no other spending it takes about
+     41 tiles near home (one claim a turn: 41 turns or more) before land upkeep passes a starting village's 40 food an
+     hour. In verify-pr206-209's hour of play at ×60 and in loop-play15 (both at the old, thirty-times-smaller numbers)
+     nobody went unpaid; this part is checked by the program's tests and P18, and the warning lines by the page's tests,
+     not seen in a live world.
 7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
    nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
    and so does a tile with a village on it. The keeper moves them within about a turn; the page says nothing about it.
@@ -475,7 +488,7 @@ are the program's general sentence for that error, which does not always fit (fr
 |---|---|---|
 | A second tile claim in the same turn | "You already claimed a tile this turn. It is one tile a turn: press again next turn." | wait for the next turn |
 | Land upkeep unpaid | "Your land upkeep (food from your first village) is unpaid, so you cannot claim a new tile. Once your first village has food again you can. After 24 unpaid turns your farthest tiles are let go, one a turn." | get food into the first village, wait a turn |
-| Not enough ore (the button opens at 10 ore, the price can be higher: the table above) | "Not enough ore. A tile costs 10 ore, plus 2 % for each tile you own (paid from your first village's stores)." | wait for ore |
+| Not enough ore (rare now: the button is off below the next tile's price) | "Not enough ore. A tile costs 10 ore, plus 2 % for each tile you own (paid from your first village's stores)." | wait for ore |
 | Another player owns that tile | "That site is taken." | press again: the page tries the next tile |
 | The tile is yours already (the page had lost track of it) | "Already done." | press again: the page remembers it and goes on |
 | The province is out of reach | "Outpost requirements are not met. Check your town and province control." | pick a nearer row |
@@ -483,15 +496,16 @@ are the program's general sentence for that error, which does not always fit (fr
 | The province could not be read | "No tile can be claimed in this province (a world without player land, or the province could not be read)." | press again |
 | A village too near another village of the province (second press of "Found a village here") | "That site is reserved (rings 0 and 1)." | press again: the page names the next site; its tile has to be claimed first |
 
-**What you do not see yet.** The map draws no tiles and no player borders (owner question T-9), and no card lists the
-tiles you own or the next price: count your claims yourself, or read the ore that left the stores. The card's own
+**What you do not see yet.** The map draws no tiles and no player borders (owner question T-9): the card's land line
+gives the count, the next price and the upkeep, but not where the tiles are. The card's own
 paragraph ("Your land: "Claim a tile" makes one tile of that province yours at once (10 ore, +2 % per tile you own, one tile a turn). …")
 states the rules in short. The card's last line, "A request is decided at the end of the turn (by lot if someone else chose the same place).",
 is about villages; a tile claim is instant.
 
 **The AI residents** claim tiles too (the same rules and prices): the tile under each village they found, and one more
 from time to time while they save for the next village (verify-pr206-209, ×60, `--ai 4`: 52 tiles after about 180
-turns, none refused). Under the fog you see none of it.
+turns, none refused). Under the fog you see none of it. An external resident run with workstream ⑬'s client (§11)
+claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
 days without an order, longer than the test world takes orders (§4).
@@ -608,12 +622,12 @@ page end to end (kept world, ②⑨⑩, ① → ⑮, `--wide` with both captures
 LP13-5 and LP13-6 (English wording) are fixed by #207 and the others by #208 (verify-pr208 played them in English and
 Japanese), except what is listed below: the march card's cut line (part of LP13-12) and siege lines other than your own
 nation's (part of LP13-3). None is a rules question. loop-play14's LP14-1 … 15 are fixed by #216, #217 and #218
-(verify-pr217 and verify-pr218 played them). New with player land (#209): the first two rows of the table (two more were fixed by #223: the refusal sentences, and the tile rows that went missing with a village of your own in the province or with 3 villages).
+(verify-pr217 and verify-pr218 played them). New with player land (#209): the first row of the table (fixed since: by #223 the refusal sentences and the tile rows that went missing with a village of your own in the province or with 3 villages; by territory-card the missing tile count, next price, upkeep and "unpaid" warning, and the "Claim a tile" button that opened at 10 ore whatever the price).
 
 | Where | What happens on main | Workaround now |
 |---|---|---|
-| Your own land (`--wide`) | the page shows no tile count, no next price, no upkeep and no "unpaid" warning; the map draws no tiles or player borders (owner question T-9) | count your claims (§4.1) |
-| Your own land (`--wide`) | "Claim a tile" opens at 10 ore although the next tile costs more once you own 5 tiles (11, 12, …): pressed with too little ore it is refused "Not enough ore. A tile costs 10 ore, plus 2 % for each tile you own (paid from your first village's stores)." | wait for the ore of the table in §4.1 |
+| Your own land (`--wide`) | the map draws no tiles or player borders (owner question T-9): the card's land line says how many tiles you own, not where they are | read the count on the card (§4.1) |
+| Your own land (`--wide`) | a tile claim on a village that was only just placed is refused "The village is not confirmed yet." until the village has done one thing (the chain confirms it lazily; territory-card saw it live) | press "Harvest" once, then claim |
 | March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
@@ -847,6 +861,13 @@ The world's operator gives it no privilege and never sees its key. The page show
    read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. It runs as long as
    the script (across worlds: when a world's time runs out it waits for the next one) and stops with everything on Ctrl-C.
 
+   In a `--wide` world the server has one more read tool, **`get_territory_status`** (ws13-territory): the connected
+   resident's own land (§4.1) as that player sees it — its tiles, the next claim's price in ore, its upkeep in food per
+   hour, whether upkeep is unpaid, the claims used this turn, and for each province a claim can reach its tiles as
+   own / free / taken / unseen. Fog of war (§5): free and taken are said only for tiles in the resident's sight; a tile
+   out of sight is `unseen` (it may be free or another player's). The server still sends nothing: this tool's extra
+   read is the page's own read-only account read on the world's relay.
+
 3. Press start in your page as usual, then start the resident (it waits for your world if it is early):
 
    ```sh
@@ -868,6 +889,14 @@ The world's operator gives it no privilege and never sees its key. The page show
      --key /path/to/resident.json --dir /abs/path/resident-state [--goal village-first|surplus-use] [--nation 0-5] \
      [--mcp http://127.0.0.1:<port>/mcp]
    ```
+
+   In a `--wide` world this resident also plays **its own land** (§4.1, the same rules and prices as you): before it
+   claims a wide village it claims the tile under that village's site (`"order":"TerritoryClaim"` in its log; one claim
+   a turn, and its one action a turn), then the village on its own tile, and afterwards one more tile next to its land
+   from time to time. It buys such a growth tile only from ore it does not need — the ore beyond its build plan, its
+   reserve and one training hundred — at most one every 6 turns, up to 24 tiles, and only while its land's upkeep
+   stays within a tenth of its first village's food per hour. (These four are the resident's own pace, not rules of the
+   world: the operator AI residents buy a tile whenever the ore covers it, and in loop-play15 they then failed to train.)
 
    Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
    resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.

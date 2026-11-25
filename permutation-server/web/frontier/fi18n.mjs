@@ -262,6 +262,7 @@ const CLIENT_TEXT = {
   GateUnavailable: () => L`中継サーバーが招待の鍵を持っていません`,
   InvitesUnavailable: () => L`招待を扱えません`,
   WorldUnavailable: () => L`世界の記録を読めません`,
+  NoSeasonYet: () => L`世界はまだ開いていません`,   // (the herald's 503 before the world is created: world-not-open.mjs)
   // the prize pool (テストUSDC; relay routes/prize.mjs)
   NoPrizePool: () => L`この世界に賞金プールはありません`,
   PrizeUnavailable: () => L`賞金プールをまだ読めません`,

@@ -20,15 +20,20 @@
 //!    keeps of the first extra tile's province AND of the wide village's province set held by that nation with that
 //!    home as the recorded captor (`land::set_captor`, a new keep generation). REAL, keeper A: WideTerritoryConquer moves
 //!    the page's tile in the first province to the captor (its summary created from keeper A's payer); the village's
-//!    tile stays with its village (no conquest is even planned there).
+//!    tile stays with its village (no conquest is even planned there). Then (conquest-upkeep-fix, owner Q-VT-1 (b)) the
+//!    SAME captor's host takes the second tile's province: keeper A's settle(page) + settle(captor) + conquer, the
+//!    captor Citizen writable in that message, LANDS (world 3's first `.so` 31acbb59 refused it BadAccount).
 //! 4. **Declared** starvation: the first home's food store 0 and its food upkeep the kernel's maximum (stands in for an
-//!    army the stores cannot feed: VQ-1, land upkeep alone never bites). REAL, keeper A: the next settle makes the land
+//!    army the stores cannot feed: VQ-1; land upkeep alone bites only past 41 tiles of a new village since Q-CUF-1 (b) ×30,
+//!    more claims than this offline run makes — the program's host test pins that). REAL, keeper A: the next settle makes the land
 //!    unpaid; REAL, the page: 「1マス取る」 is refused before anything is signed (JA and EN); then the clock past 24
-//!    unpaid bells — REAL, keeper A: WideTerritoryDecay, the FARTHEST tile first, one a bell, until none is left.
+//!    unpaid bells — REAL, keeper A: WideTerritoryDecay of the last tile (the village's; the farthest-first order of
+//!    several tiles is pinned by the program's host tests and verify/tests/playable_territory.rs).
 //!
 //! Asserted on chain: every page transaction one signature, the wallet fee payer; the wallet's lamports per claim equal
 //! the preview; the ore burned equals the preview; the records' owners; the keeper's writes by kind (feed), and its
-//! `/v1/status` territory counters. No verifier pass: the verifier does not know the territory ops yet (gap G4).
+//! `/v1/status` territory counters, and (verify-pr228) the verifier over the whole world with the deployed `.so`: no
+//! FAIL (VWL re-runs every territory op, verifier-territory; tampers in `verify/tests/playable_territory.rs`).
 use super::*;
 use frontier_abi::layout::player::accrual as AC;
 use frontier_abi::world_index::territory::{self as wtr, TerritoryPlayer, TerritoryProvince};
@@ -147,6 +152,51 @@ fn territory_rows(r: &Run<'_>, since: u64, page_wallet: &Address) -> Value {
             json!({"landed": ok, "failed": bad, "max_cu_landed": max_cu_ok, "max_cu_any": max_cu})
         ))
         .collect::<serde_json::Map<_, _>>())
+}
+
+/// (conquest-upkeep-fix) Every LANDED transaction after `since` with a WideTerritoryConquer: its program instructions
+/// by name, whether the conquest's `captor_citizen` (account 6) is writable in the message, and its compute units.
+fn conquer_txs(r: &Run<'_>, since: u64) -> Vec<Value> {
+    let mut out = vec![];
+    for l in r.lock().feed(0, usize::MAX, Some(&r.c.program)) {
+        if l.slot <= since || l.err.is_some() {
+            continue;
+        }
+        let Ok(t) = fclient::tx::from_wire(&l.wire) else {
+            continue;
+        };
+        let m = &t.message;
+        let (nrs, nros, nrou) = (
+            m.header.num_required_signatures as usize,
+            m.header.num_readonly_signed_accounts as usize,
+            m.header.num_readonly_unsigned_accounts as usize,
+        );
+        let n = m.account_keys.len();
+        let writable =
+            |i: usize| i < nrs.saturating_sub(nros) || (i >= nrs && i < n.saturating_sub(nrou));
+        let mut names = vec![];
+        let mut captor_w = None;
+        for i in &m.instructions {
+            if m.account_keys.get(i.program_id_index as usize) != Some(&r.c.program) {
+                continue;
+            }
+            match wix::WideCommand::decode(&i.data) {
+                Ok(wix::WideCommand::TerritorySettle(_)) => names.push("settle"),
+                Ok(wix::WideCommand::TerritoryConquer(_)) => {
+                    names.push("conquer");
+                    captor_w = i.accounts.get(6).map(|k| writable(*k as usize));
+                }
+                _ => names.push("other"),
+            }
+        }
+        if captor_w.is_some() {
+            out.push(
+                json!({"signature": l.signature.to_string(), "instructions": names,
+                "captor_citizen_writable": captor_w, "compute_units": l.units}),
+            );
+        }
+    }
+    out
 }
 
 fn player_of(r: &Run<'_>, citizen: &Address) -> Option<TerritoryPlayer> {
@@ -523,6 +573,66 @@ pub(super) async fn phase(
         vp3.owner[vtile as usize], p3.citizen_tag,
         "the village's tile stays with its village"
     );
+    let first_conquest_txs = conquer_txs(r, since);
+
+    // 3b. (conquest-upkeep-fix, owner Q-VT-1 (b)) the SAME nation's host from the same home takes the second tile's
+    //     province. The captor has a summary now, so keeper A sends settle(page) + settle(captor) + conquer in ONE
+    //     transaction: the captor Citizen is writable in that message. World 3's first `.so` 31acbb59 refused it
+    //     BadAccount every time (D-verifier-territory-1); the fixed `.so` must land it.
+    let x2 = WideCoord::checked(
+        claims[1]["target"][0].as_i64().unwrap(),
+        claims[1]["target"][1].as_i64().unwrap(),
+    )
+    .unwrap();
+    let t2 = claims[1]["tile"].as_u64().unwrap() as usize;
+    assert!(
+        x2 != x1 && x2 != village,
+        "the second tile's province is a third province: {x2:?} {x1:?} {village:?}"
+    );
+    let g2 = declare_capture(r, x2, cnation, chome, cgen);
+    let since2 = r.lock().slot();
+    let b = r.bell();
+    r.advance_exact(genesis_ts + 600 * (b as i64 + 1) + 30);
+    r.run_until(
+        2.0,
+        240,
+        "keeper A moves the page's tile of the second captured province to the same captor",
+        |r| {
+            province_of(r, x2).is_some_and(|tp| {
+                player_of(r, &ccit).is_some_and(|c| tp.owner[t2] == c.citizen_tag)
+            })
+        },
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let conquest2 = territory_rows(r, since2, &w);
+    assert_eq!(conquest2["conquer/keeper"]["landed"], 1, "{conquest2:#}");
+    assert_eq!(
+        conquest2
+            .get("conquer/keeper")
+            .and_then(|x| x["failed"].as_u64())
+            .unwrap_or(0),
+        0,
+        "the second conquest never refused: {conquest2:#}"
+    );
+    let second_conquest_txs = conquer_txs(r, since2);
+    assert_eq!(second_conquest_txs.len(), 1, "{second_conquest_txs:#?}");
+    assert_eq!(
+        second_conquest_txs[0]["instructions"],
+        json!(["settle", "settle", "conquer"]),
+        "the keeper's shape: {second_conquest_txs:#?}"
+    );
+    assert_eq!(
+        second_conquest_txs[0]["captor_citizen_writable"], true,
+        "the captor Citizen writable in that message: {second_conquest_txs:#?}"
+    );
+    let p3 = player_of(r, &citizen).unwrap();
+    let cap = player_of(r, &ccit).unwrap();
+    assert_eq!(
+        p3.tiles, 1,
+        "both captured provinces' tiles moved; the village's stays"
+    );
+    assert_eq!(cap.tiles, 2, "both transfers landed to the same captor");
 
     // 4. Declared starvation → unpaid → the page's claim refused → decay after 24 bells, farthest first.
     declare_starved(r, home);
@@ -545,51 +655,41 @@ pub(super) async fn phase(
         "nothing signed or sent: {refusal:#}"
     );
     let before = player_of(r, &citizen).unwrap();
-    // the farthest of the two remaining tiles goes first
-    let tp_x2 = {
-        let x2 = WideCoord::checked(
-            claims[1]["target"][0].as_i64().unwrap(),
-            claims[1]["target"][1].as_i64().unwrap(),
-        )
-        .unwrap();
-        (x2, claims[1]["tile"].as_u64().unwrap() as usize)
-    };
-    let d_x2 = province_of(r, tp_x2.0).unwrap().dist[tp_x2.1];
+    assert_eq!(
+        before.tiles, 1,
+        "the village's tile only (both others conquered)"
+    );
     let d_v = vp3.dist[vtile as usize];
     let since = r.lock().slot();
     let grace = 24u32;
     r.advance_exact(genesis_ts + 600 * ((unpaid_since + grace) as i64) + 30);
-    r.run_until(2.0, 240, "keeper A's first decay", |r| {
-        player_of(r, &citizen).is_some_and(|p| p.tiles == before.tiles - 1)
-    })
-    .await;
-    let first_gone = if d_x2 >= d_v {
-        province_of(r, tp_x2.0).unwrap().owner[tp_x2.1] == 0
-    } else {
-        province_of(r, village).unwrap().owner[vtile as usize] == 0
-    };
-    assert!(
-        first_gone,
-        "the farthest tile first (dist x2 {d_x2}, village tile {d_v})"
-    );
-    let b = r.bell();
-    r.advance_exact(genesis_ts + 600 * (b as i64 + 1) + 30);
-    r.run_until(2.0, 240, "keeper A's second decay, a bell later", |r| {
+    r.run_until(2.0, 240, "keeper A's decay after the grace", |r| {
         player_of(r, &citizen).is_some_and(|p| p.tiles == 0)
     })
     .await;
+    assert_eq!(
+        province_of(r, village).unwrap().owner[vtile as usize],
+        0,
+        "the last tile returned"
+    );
     let decay = territory_rows(r, since, &w);
-    assert_eq!(decay["decay/keeper"]["landed"], 2, "{decay:#}");
+    assert_eq!(decay["decay/keeper"]["landed"], 1, "{decay:#}");
     let pend = player_of(r, &citizen).unwrap();
     assert_eq!(
         pend.released,
-        before.released + 2,
-        "two tiles released by decay"
+        before.released + 1,
+        "the tile released by decay"
     );
     // keeper A's own word
     run(r);
     tokio::time::sleep(Duration::from_secs(4)).await;
     let status = territory_of(&keeper_status(ti.keeper_api, &ti.token));
+    // (verify-pr228) the verifier over the whole world as the chain recorded it, re-executing with the `.so` this run
+    // deployed: every claim / settle / decay / conquest re-run by VWL; no FAIL (the capture and the starvation are
+    // declared patches: UNVERIFIABLE at the transactions that read them, as documented).
+    let (so, so_sha256, _, _) = crate::territory_so().expect("OPERATOR_TERRITORY_SO");
+    let verifier = r.judge_season_so("p18", so, so_sha256);
+    assert_eq!(verifier["fails"], 0, "the verifier: {verifier:#}");
     std::fs::write(sync.join("go-end"), "end").unwrap();
     let all = territory_rows(r, since0, &w);
     json!({
@@ -597,10 +697,12 @@ pub(super) async fn phase(
         "village": {"p": village.p(), "q": village.q(), "site": village_site, "tile": vtile},
         "claims": claims,
         "settles": settles,
-        "captor": {"citizen": ccit.to_string(), "nation": cnation, "home": [chome.0, chome.1, chome.2], "keep_gens": [g1, gv]},
-        "conquest": conquest, "after_conquest": {"page_tiles": p3.tiles, "captor_tiles": cap.tiles},
+        "captor": {"citizen": ccit.to_string(), "nation": cnation, "home": [chome.0, chome.1, chome.2], "keep_gens": [g1, gv, g2]},
+        "conquest": conquest, "conquest_txs": first_conquest_txs,
+        "second_conquest": conquest2, "second_conquest_txs": second_conquest_txs,
+        "after_conquest": {"page_tiles": p3.tiles, "captor_tiles": cap.tiles},
         "unpaid_since_bell": unpaid_since, "page_refusal": refusal,
-        "decay": decay, "dist": {"second_tile": d_x2, "village_tile": d_v},
-        "territory_ops_by_kind": all, "keeper_status_territory": status,
+        "decay": decay, "dist": {"village_tile": d_v},
+        "territory_ops_by_kind": all, "keeper_status_territory": status, "verifier": verifier,
     })
 }
