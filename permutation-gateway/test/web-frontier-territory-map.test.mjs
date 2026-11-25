@@ -186,6 +186,29 @@ test('the border follows the tiles tile by tile: a side is rim where the next ti
   assert.equal(across.byKey.get('1,0').geo[0].rim.length, 5, 'one border round both, across the province edge');
 });
 
+test('a captured keep moves the loser\'s tiles (#209 transfer_tiles): the next read redraws them as the captor\'s, one border round all', async () => {
+  // (live, 2026-11-25: the runner's territory duty refused the conquest — Q-VT-1, InstructionError Custom(2) — so the
+  //  transfer itself could not be seen on main's program; what the map does with the records after it is pinned here)
+  const land = landOf([cell(0, 0)]);
+  const before = new Map([['0,0', ownersOf({ [C]: ME, [E]: ASTER_TAG, [tileAt(2, 0)]: ASTER_TAG })]]);
+  const after = new Map([['0,0', ownersOf({ [C]: ME, [E]: ME, [tileAt(2, 0)]: ME })]]);
+  const tagNation = new Map([[ASTER_TAG, ASTER]]);
+  const b = territoryLand(land, { owners: before, tagNation, ownTag: ME, viewer: VIEWER, fogged: true, seen: () => true });
+  assert.deepEqual([b.territory.mine, b.territory.nations], [1, [ASTER, VIEWER]]);
+  const a = territoryLand(land, { owners: after, tagNation, ownTag: ME, viewer: VIEWER, fogged: true, seen: () => false });
+  assert.deepEqual([a.territory.mine, a.territory.nations], [3, [VIEWER]], 'now the viewer\'s: shown out of sight too');
+  assert.deepEqual(a.byKey.get('0,0').geo.map(g => g.rim.length), [5, 4, 5], 'one border round the three');
+  // the reader tells the map of the change once
+  let changes = 0, owners = before; const timers = [];
+  const r = mountTerritoryTiles({ reads: () => ({ ownTag: ME, province: () => 'A', read: async x => x.map(() => record(owners.get('0,0'))) }), candidates: () => ['0,0'], onChange: () => changes++, setTimer: f => { timers.push(f); return 1; }, clearTimer: () => {} });
+  await timers.shift()();
+  owners = after;
+  await timers.shift()();
+  assert.equal(changes, 2);
+  assert.deepEqual(r.now().owners.get('0,0').filter(t => t === ME).length, 3);
+  r.stop();
+});
+
 test('painted: each owned tile in its nation\'s land colour, the border band and a dark seam near, the wash only from far; under the villages\' marks', () => {
   const land = territoryLand(landOf([cell(0, 0)]), { owners: new Map([['0,0', ownersOf({ [C]: ME, [E]: ME, 0: ASTER_TAG })]]), tagNation: new Map([[ASTER_TAG, ASTER]]), ownTag: ME, viewer: VIEWER });
   const near = recorder();
