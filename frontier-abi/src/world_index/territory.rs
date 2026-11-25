@@ -107,12 +107,13 @@ pub struct TerritoryV1 {
 
 /// The numbers of [`TerritoryRule::V1`] (**decided** 2026-11-24 13:15, TQ-1 … TQ-5):
 ///
-/// - upkeep (T-4, TQ-1 (a); **×10** by Q-LP15-1 (b), owner 2026-11-25
-///   09:33): 330 milli-food/h per tile (10 × the decided 33 = the owner's
-///   2 food/h per province ÷ 61 tiles rounded up; a whole province 20.13
-///   food/h), plus 160 milli-food/h per tile per province beyond 3 (10 ×
-///   the decided 16 = 1 food/h per province ÷ 61 rounded down); the same
-///   formula and rounding, every number ten times. The distance is
+/// - upkeep (T-4, TQ-1 (a); **×30** by Q-CUF-1 (b), owner 2026-11-25
+///   12:04, replacing the ×10 of Q-LP15-1 (b) 09:33): 990 milli-food/h per
+///   tile (30 × the decided 33 = the owner's 2 food/h per province ÷ 61
+///   tiles rounded up; a whole province 60.39 food/h), plus 480
+///   milli-food/h per tile per province beyond 3 (30 × the decided 16 = 1
+///   food/h per province ÷ 61 rounded down); the same formula and
+///   rounding, every number thirty times. The distance is
 ///   province steps from the tile's province to the owner's nearest OWN
 ///   village (home included), fixed at the claim (TQ-2);
 /// - cost (T-3, TQ-3): 10 ore + 2 % per tile owned;
@@ -125,9 +126,9 @@ pub struct TerritoryV1 {
 pub const TERRITORY_V1: TerritoryV1 = TerritoryV1 {
     kernel: TerritoryParams {
         upkeep: UpkeepCurve {
-            flat: 330,
+            flat: 990,
             per_rank: 0,
-            per_distance: 160,
+            per_distance: 480,
             free_distance: 3,
         },
         cost: ClaimCost {
@@ -997,19 +998,19 @@ mod tests {
 
     #[test]
     fn v1_upkeep_is_the_owner_numbers_per_tile() {
-        // 61 tiles near home: 61 × 330 = 20,130 milli-food/h ≈ 20 food/h per
-        // province (Q-LP15-1 (b): ×10 the decided 61 × 33 = 2,013).
+        // 61 tiles near home: 61 × 990 = 60,390 milli-food/h ≈ 60 food/h per
+        // province (Q-CUF-1 (b): ×30 the decided 61 × 33 = 2,013).
         let mut pl = player(1);
         for _ in 0..61 {
             pl.add_tile(2).unwrap();
         }
-        assert_eq!(pl.upkeep_per_hour(), Some(20_130));
-        // the same 61 tiles 5 provinces away: + 61 × 160 × 2 = 19,520 (≈ 2 × 10 food/h).
+        assert_eq!(pl.upkeep_per_hour(), Some(60_390));
+        // the same 61 tiles 5 provinces away: + 61 × 480 × 2 = 58,560 (≈ 2 × 30 food/h).
         let mut far = player(2);
         for _ in 0..61 {
             far.add_tile(5).unwrap();
         }
-        assert_eq!(far.upkeep_per_hour(), Some(20_130 + 19_520));
+        assert_eq!(far.upkeep_per_hour(), Some(60_390 + 58_560));
         // equal to the kernel's per-cell sum over the same distances
         let dists: Vec<u32> = (0..61).map(|_| 5).collect();
         assert_eq!(
@@ -1086,25 +1087,25 @@ mod tests {
     #[test]
     fn upkeep_settles_exactly_and_goes_unpaid_all_or_nothing() {
         let mut pl = player(3);
-        // one tile: 330 milli/h (Q-LP15-1 ×10; before, ten tiles made 330)
+        // one tile: 990 milli/h (Q-CUF-1 ×30; ×1 thirty tiles made 990)
         pl.add_tile(0).unwrap();
-        // 330 milli/h; 100 s → 9.1666 milli, remainder carried
+        // 990 milli/h; 100 s → 27.5 milli, remainder carried
         let s = settle_upkeep(&mut pl, 1_100, 1, 1_000_000).unwrap();
         assert_eq!(
             s,
             UpkeepSettle {
-                charge: 9,
+                charge: 27,
                 paid: true
             }
         );
-        // settling every 100 s for an hour totals exactly 330
+        // settling every 100 s for an hour totals exactly 990
         let mut total = s.charge;
         for k in 2..=36 {
             total += settle_upkeep(&mut pl, 1_000 + 100 * k, 1, 1_000_000)
                 .unwrap()
                 .charge;
         }
-        assert_eq!(total, 330);
+        assert_eq!(total, 990);
         // short of food: nothing taken, unpaid since this bell
         let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 2, 7, 10).unwrap();
         assert_eq!(
@@ -1129,11 +1130,11 @@ mod tests {
             }
         );
         assert_eq!(pl.unpaid_since, Some(7));
-        // nor does a store below one turn's upkeep (330 milli/h → 55 a turn)
-        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3 + 1, 9, 54).unwrap();
+        // nor does a store below one turn's upkeep (990 milli/h → 165 a turn)
+        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3 + 1, 9, 164).unwrap();
         assert!(!s.paid);
         assert_eq!(pl.unpaid_since, Some(7));
-        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3 + 1, 9, 55).unwrap();
+        let s = settle_upkeep(&mut pl, 1_000 + 3_600 * 3 + 1, 9, 165).unwrap();
         assert_eq!(
             s,
             UpkeepSettle {
@@ -1149,7 +1150,7 @@ mod tests {
         assert_eq!(
             s,
             UpkeepSettle {
-                charge: 330,
+                charge: 990,
                 paid: true
             }
         );
@@ -1257,7 +1258,7 @@ mod tests {
         assert_eq!(kt::claim_cost(&TERRITORY_V1.kernel.cost, 100), Some(30));
         assert_eq!(
             kt::cell_upkeep(&TERRITORY_V1.kernel.upkeep, 0, 8),
-            Some(1_130)
+            Some(3_390)
         );
     }
 
