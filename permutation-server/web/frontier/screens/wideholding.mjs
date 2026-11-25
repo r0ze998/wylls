@@ -278,7 +278,7 @@ export function wideHostSayText(say) {
  */
 export function wideStoresShortText(say) {
   const cost = (say?.cost ?? []).map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(' · ');
-  return L`広い土地の村の蔵が、槍兵 ${fmtNum(Number(say?.n ?? 100))} の訓練の費用（${cost}）にまだ足りません。出したばかりの村の蔵は空から始まり、時間ごとに少しずつたまります（鉱山のない村の鉱石は1時間に 4）。10 ターンほど待ってから、もう一度「次の一手（広い土地）」を押してください。`;
+  return L`広い土地の村の蔵が、槍兵 ${fmtNum(Number(say?.n ?? 100))} の訓練の費用（${cost}）にまだ足りません。出したばかりの村の蔵は空から始まり、時間ごとに少しずつたまります（鉱山のない村の鉱石は1時間に 4）。30 ターンほど待ってから、もう一度「次の一手（広い土地）」を押してください。`;
 }
 /** Where the last wide march is (its `phase`), in the page's words. */
 function marchLine(m, at) {

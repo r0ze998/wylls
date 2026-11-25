@@ -70,9 +70,9 @@ export function landTileLines(info, { viewer = null, nameOf = f => String(f) } =
   if (!info) return [];
   const out = [];
   const mine = info.owner !== null && info.owner === viewer;
-  if (info.owner === null) out.push({ text: L`どの国の土地でもない空き地（領土の試験）`, tone: '' });
-  else if (info.village) out.push({ text: mine ? L`あなたの国の村の土地（領土の試験）` : L`${nameOf(info.owner)}の村の土地（領土の試験）`, tone: mine ? 'you' : '' });
-  else out.push({ text: mine ? L`あなたの国が持つ土地（領土の試験）` : L`${nameOf(info.owner)}が持つ土地（領土の試験）`, tone: mine ? 'you' : '' });
+  if (info.owner === null) out.push({ text: L`どの国の土地でもない空き地（耕地の試験）`, tone: '' });
+  else if (info.village) out.push({ text: mine ? L`あなたの国の村の土地（耕地の試験）` : L`${nameOf(info.owner)}の村の土地（耕地の試験）`, tone: mine ? 'you' : '' });
+  else out.push({ text: mine ? L`あなたの国が持つ土地（耕地の試験）` : L`${nameOf(info.owner)}が持つ土地（耕地の試験）`, tone: mine ? 'you' : '' });
   const c = info.count;
   if (c?.kind === 'take') out.push({ text: c.by === viewer ? L`あなたの国が奪取中：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン` : L`${nameOf(c.by)}が奪取中：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン`, tone: mine ? 'bad' : c.by === viewer ? 'you' : '' });
   else if (c?.kind === 'fade') out.push({ text: L`国の土地から切り離され減っています：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン`, tone: mine ? 'bad' : '' });

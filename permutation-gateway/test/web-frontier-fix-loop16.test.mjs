@@ -111,12 +111,12 @@ test('Q-LP16-3 (a): the village\'s worked land is "Fields" / 「耕地」, not "
 test('LP16-2 / LP16-7: a wide village short of stores says the cost and when to press again; a memory-only world that lost its launcher is not said to resume', () => {
   const say = { kind: 'wait', wait: 'stores', n: 100, cost: trainingCost(0, 100, 4) };
   setLang('ja');
-  assert.match(wideStoresShortText(say), /槍兵 100 の訓練の費用（食料 60 · 鉱石 20 · 金 10）にまだ足りません。.*10 ターンほど待ってから、もう一度「次の一手（広い土地）」を押してください。/);
+  assert.match(wideStoresShortText(say), /槍兵 100 の訓練の費用（食料 60 · 鉱石 20 · 金 10）にまだ足りません。.*30 ターンほど待ってから、もう一度「次の一手（広い土地）」を押してください。/);
   assert.match(launcherLostText({ kept: false }), /この世界は終わりました。保存されない世界なので、続きからは始められません。/);
   assert.match(launcherLostText(), /保存した世界は続きから/);
   setLang('en');
   try {
-    assert.match(wideStoresShortText(say), /do not cover training 100 Spearmen yet \(Food 60 · Ore 20 · Gold 10\)\. A new village starts with empty stores.*Wait about 10 turns, then press "Next step \(wide land\)" again\./);
+    assert.match(wideStoresShortText(say), /do not cover training 100 Spearmen yet \(Food 60 · Ore 20 · Gold 10\)\. A new village starts with empty stores.*Wait about 30 turns, then press "Next step \(wide land\)" again\./);
     assert.match(launcherLostText({ kept: false }), /this world has ended: it is not a kept world, so it cannot be continued\./);
     assert.doesNotMatch(launcherLostText({ kept: false }), /a kept world resumes/);
     assert.match(launcherLostText({ kept: true }), /a kept world resumes/);
