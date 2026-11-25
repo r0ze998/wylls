@@ -31,7 +31,7 @@ import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
-import { TERRITORY_V1, ownLandView } from '../flocalplay-territory.mjs';
+import { TERRITORY_V1, ownLandView, tileStillMine } from '../flocalplay-territory.mjs';
 import { solText } from '../fdevnet-outpost.mjs';
 import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
@@ -131,10 +131,11 @@ export function wideClaimModel(FS, m) {
   //  「この州に取れるマスは残っていません。」. The row's button is shut, with those words, once the PAGE knows the province is
   //  full: every tile that is not a village site or the keep's has an owner in what the map's territory read keeps —
   //  the viewer's own tiles always, another player's only in sight (app.mjs FS.territoryTilesNow; nothing the fog hides
-  //  is used: a tile whose owner the page may not know counts as free) — or is one this page claimed in this visit.
+  //  is used: a tile whose owner the page may not know counts as free) — or is one this page claimed in this visit
+  //  and the read has not shown let go since (flocalplay-territory.mjs tileStillMine).
   //  A race (the last tile taken since the read) is still answered by the press: controller.mjs 'territory-tile')
   const tnow = territory && typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null;
-  const noFree = t => provinceFull(terrOf(t), tnow?.owners?.get?.(`${t.p},${t.q}`) ?? null, i => !!FS.ui?.ownTiles?.[`${t.p},${t.q},${i}`]);
+  const noFree = t => provinceFull(terrOf(t), tnow?.owners?.get?.(`${t.p},${t.q}`) ?? null, i => tileStillMine(FS.ui?.ownTiles, t.p, t.q, i, tnow));
   // (fix-loop18, LP18-8: the first village's food no longer grows — the net rate the stores show is 0 or below — while
   //  upkeep is still paid from the store: one line says another tile cannot be paid from what the village makes. The
   //  button stays — the rule takes the claim —; unpaid upkeep has its own lines above)

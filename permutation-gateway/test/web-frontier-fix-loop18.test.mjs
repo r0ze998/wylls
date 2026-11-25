@@ -187,6 +187,32 @@ test('LP18-4: the full province\'s "Claim a tile" is shut with the reason; the o
   try { assert.equal(L`この州に取れるマスは残っていません。`, 'No tile is left to claim in this province.'); } finally { setLang('ja'); }
 });
 
+test('LP18-4 (live): tiles let go for unpaid upkeep are free again — the page\'s claim memory gives way to a newer read', () => {
+  const ago = Date.now() - 20 * 60_000;   // claimed 20 minutes ago (the claim's time is kept: controller.mjs `[key]: Date.now()`)
+  const memory = Object.fromEntries(owners(ME).map((t, i) => [i, t]).filter(([, t]) => t !== null).map(([i]) => [`-66,-63,${i}`, ago]));
+  // the read after the release: 9 tiles no longer the viewer's
+  const freed = [10, 11, 12, 13, 14, 15, 16, 17, 18];
+  const now = { rev: 2, owners: new Map([['-66,-63', owners(ME, freed)]]), known: null, ownTag: ME, read: ['-66,-63'], at: Date.now() };
+  assert.equal(T.tileStillMine(memory, -66, -63, 10, now), false, 'let go since the claim: free');
+  assert.equal(T.tileStillMine(memory, -66, -63, 20, now), true, 'still the viewer\'s in the read');
+  assert.equal(T.tileStillMine({ ...memory, '-66,-63,10': true }, -66, -63, 10, now), false, 'an older page\'s `true`: the read wins');
+  assert.equal(T.tileStillMine({ '-66,-63,10': Date.now() }, -66, -63, 10, now), true, 'claimed just now, the read may predate it: the memory holds');
+  assert.equal(T.tileStillMine(memory, -66, -63, 10, { ...now, read: [] }), true, 'the read does not cover the province: the memory, as before');
+  assert.equal(T.tileStillMine(memory, -66, -63, 10, null), true, 'no read at all: as before');
+  assert.equal(T.tileStillMine(memory, -66, -63, 3, now), false, 'never claimed');
+  // the card: the province is no longer "full", its button opens again
+  const w = wideClaimModel(cardWorld({ ownLand: ownLand({ tiles: 49 }), ui: { ownTiles: memory }, territoryTilesNow: () => now }), { holding: home, have });
+  assert.equal(w.targets.find(t => `${t.p},${t.q}` === '-66,-63').noFree, false);
+  const full = wideClaimModel(cardWorld({ ownLand: ownLand({ tiles: 58 }), ui: { ownTiles: memory }, territoryTilesNow: () => ({ ...now, owners: new Map([['-66,-63', owners(ME)]]) }) }), { holding: home, have });
+  assert.equal(full.targets.find(t => `${t.p},${t.q}` === '-66,-63').noFree, true);
+  // the presses use the same rule ("Claim a tile" and the first press of "Found a village here")
+  const ctl = web('frontier/controller.mjs');
+  assert.ok(ctl.includes('for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !tileStillMine(mine, target.p, target.q, i, tnow)) { tile = i; break; }'));
+  assert.ok(ctl.includes("if (!tileStillMine(mineTiles, target.p, target.q, tile, typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null)) {"));
+  assert.equal((ctl.match(/ownTiles: \{ \.\.\.(mine|mineTiles), \[key\]: Date\.now\(\) \}/g) ?? []).length, 2);
+  assert.doesNotMatch(ctl, /\[key\]: true \}/);
+});
+
 test('LP18-8: net food at 0 or below — the card says another tile cannot be paid from what the village makes', () => {
   const FLAT = Number(/flat: (\d+),/.exec(rust('frontier-abi/src/world_index/territory.rs'))[1]);
   assert.equal(FLAT, 990);

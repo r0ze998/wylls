@@ -38,7 +38,7 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
-import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
+import { territoryOfRoute, nearerOwnVillage, tileStillMine } from './flocalplay-territory.mjs';
 // (territory-card, owner Q-PDT-1 (a): the viewer's own territory summary, read-only, for the village card's land line)
 import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf, heraldTerritoryPlayer } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
@@ -4758,7 +4758,9 @@ export const ACTIONS = {
     const mine = FS.ui?.ownTiles ?? {}, triedKey = `t:${target.p},${target.q}`, from = num(FS.ui?.wideTried?.[triedKey] ?? 0);
     const blocked = new Set([...terr.siteTiles, terr.keepTile]);
     let tile = null;
-    for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !mine[`${target.p},${target.q},${i}`]) { tile = i; break; }
+    // (fix-loop18: a remembered tile the territory read shows let go since is free again — flocalplay-territory.mjs tileStillMine)
+    const tnow = typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null;
+    for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !tileStillMine(mine, target.p, target.q, i, tnow)) { tile = i; break; }
     // (fix-loop18, LP18-4: the card shuts the button once it knows the province is full — screens/holding.mjs
     //  provinceFull; this answer stays for the press that raced it, without 「もう一度」: the same press finds no tile again)
     if (tile === null) return failed({ code: 'NoFreeTile', retry: false, text: L`この州に取れるマスは残っていません。` });
@@ -4774,7 +4776,7 @@ export const ACTIONS = {
     const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
     const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
     territoryRefused(ans);
-    if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
+    if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: Date.now() } };
     // (territory-card: the card's tile count, next price and upkeep follow the claim — and a refusal for unpaid upkeep shows its line)
     refreshOwnLand({ force: true }).catch(() => {});
     if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
@@ -4808,7 +4810,7 @@ export const ACTIONS = {
       // the next press — the tile yours — the village on it, naming the territory record (flocalplay-wide.mjs)
       const tile = terr.siteTiles[site], key = `${target.p},${target.q},${tile}`;
       const mineTiles = FS.ui?.ownTiles ?? {};
-      if (!mineTiles[key]) {
+      if (!tileStillMine(mineTiles, target.p, target.q, tile, typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null)) {
         // (owner TQ-2: the upkeep distance is from the NEAREST own village — an own wide village nearer than home is named)
         const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
         const rw = reach ?? reachD;
@@ -4825,7 +4827,7 @@ export const ACTIONS = {
         const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
         territoryRefused(ans);
         refreshOwnLand({ force: true }).catch(() => {});
-        if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
+        if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: Date.now() } }; invalidate('panel'); }
         if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
         if (!already) return t;
       }
