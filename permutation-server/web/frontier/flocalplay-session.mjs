@@ -147,7 +147,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       : L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
     fold.textContent = folded ? L`詳しく見る` : L`たたむ`;
     fold.setAttribute?.('aria-expanded', folded ? 'false' : 'true');
-    if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = world === 'ended' ? worldEndedText({ kept: persisted }) : world === 'lost' ? launcherLostText() : keeperText(answer, { kept: persisted }); said.textContent = t ?? ''; said.hidden = t === null; }
+    if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = world === 'ended' ? worldEndedText({ kept: persisted }) : world === 'lost' ? launcherLostText({ kept: persisted }) : keeperText(answer, { kept: persisted }); said.textContent = t ?? ''; said.hidden = t === null; }
     if (pairs) { pairCheck.textContent = pairAsking ? L`確認しています…` : L`二人の対戦の国と砦を確認`; const t = pairGuideText(pairAnswer); pairSaid.textContent = t ?? ''; pairSaid.hidden = t === null; }
   };
   const paint = () => {

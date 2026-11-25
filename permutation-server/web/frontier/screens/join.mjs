@@ -156,6 +156,7 @@ export function renderNations(FS) {
     ${nationFull(FS) ? fallbackNation(FS, busy) : ''}
     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.localPlay ? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS.devnetPlay ? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
+    ${FS.localPlay?.aiNear ? html`<p class="nc-note nc-ai-near">${L`起動オプション --ai-near：あなたの最初の村が建つと、AIの住民が1人、いちばん近いほかの国に入り、近くに村を出します（その1人は、上の「AIあり」の印には入っていません）。`}</p>` : ''}
     ${renderWorldLines(FS)}
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;

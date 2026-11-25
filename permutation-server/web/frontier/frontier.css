@@ -1261,6 +1261,9 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .bn-field { justify-self: stretch; display: grid; gap: 1px; padding: 6px 6px calc(var(--tail) + 9px); box-shadow: inset 0 1px 0 rgba(250,232,176,.5); background: linear-gradient(180deg, rgba(0,0,0,.3), rgba(0,0,0,0) 6px), linear-gradient(90deg, rgba(0,0,0,.26) 0, rgba(0,0,0,0) 8%, rgba(255,255,255,.07) 21%, rgba(0,0,0,.15) 35%, rgba(0,0,0,0) 47%, rgba(255,255,255,.06) 61%, rgba(0,0,0,.17) 77%, rgba(0,0,0,0) 90%, rgba(0,0,0,.28) 100%), var(--tex-cloth, none) 0 0 / 48px 48px, var(--bn-d, #333); }
 .bn-name { font: 700 var(--t3)/1.3 var(--display); letter-spacing: .1em; color: #fff8e6; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
 .bn-creed { font-size: var(--t1); line-height: 1.35; font-weight: 650; color: #f7dea0; }
+/* (fix-loop16, owner Q-LP16-4 (a)) a nation with an AI resident in a local world: a small plate under the creed; the chosen nation's line says what it means */
+.bn-ai { justify-self: center; margin-top: 2px; padding: 0 6px; border-radius: 8px; font-size: var(--t1); line-height: 1.5; font-weight: 700; letter-spacing: .02em; color: #1d1608; background: #f1d98c; box-shadow: 0 0 0 1px rgba(0,0,0,.45); white-space: nowrap; }
+.nc-ai { display: block; }
 /* the chosen banner's mark: a small brass seal by its crest (the lift, the shadow and the rim say it too) */
 .bn-mark { position: absolute; top: -13px; left: calc(50% + 9px); display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle at 50% 30%, #fff0bf, #d9b44a 70%, #8d7028); color: #2a1e06; box-shadow: 0 0 0 1.5px #1d1608, 0 2px 4px rgba(0,0,0,.5); }
 .bn-mark .ic { width: 12px; height: 12px; }

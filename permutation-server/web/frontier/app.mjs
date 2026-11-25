@@ -297,7 +297,8 @@ function renderChip() {
     // (B5: a world confirmed ended is not "behind" — the banner says that it ended)
     const v = FS.worldEnded ? endedBannerView({ kept: FS.worldEnded.paused === true }) : staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
     // B21: the launcher cannot be reached (stopped): said in a plain line; an ended world's own banner stays first
-    if (!FS.worldEnded && FS.launcherLost) Object.assign(v, launcherLostBannerView());
+    // (fix-loop16, LP16-7: a wide world and a capture demo are memory-only — a stopped start service ended them for good)
+    if (!FS.worldEnded && FS.launcherLost) Object.assign(v, launcherLostBannerView({ kept: FS.localPlay?.wideLand || FS.localPlay?.clockScale ? false : undefined }));
     // (page-not-open-yet) the world is not created yet: said here, calmly, with when it opens — never on the red line
     if (FS.notOpen && !FS.season && !FS.worldEnded && !FS.launcherLost) Object.assign(v, notOpenBannerView(FS.notOpen));
     if (banner.dataset && (banner.dataset.notOpen === '1') !== !!v.notOpen) { if (v.notOpen) banner.dataset.notOpen = '1'; else delete banner.dataset.notOpen; }
