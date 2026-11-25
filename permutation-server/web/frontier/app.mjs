@@ -46,7 +46,7 @@ import { createSurveyor } from './map/survey.mjs';
 // the local test world's fog of war (map/fog.mjs: LOCAL_FOG is its one switch)
 import { mountWideLegend } from './map/widelegend.mjs';
 import { FOG_RULES, LOCAL_FOG, createFogger, fogActive, fogModeOf, fogMemoryKey, nationAnchors, nationSources, viewClash, viewTile, wideLandUnitless } from './map/fog.mjs';
-import { mountTerritoryTiles, territoryLand, tagNations, territoryCandidates, ownTileAnchors } from './map/territorytiles.mjs';
+import { mountTerritoryTiles, territoryLand, tagNations, territoryCandidates, ownTileAnchors, createTerritoryMemory, territoryMemoryKey, rememberTerritory, rememberedOf } from './map/territorytiles.mjs';
 import { territoryMapReads } from './controller.mjs';
 import { surveyInput } from './map/viewer.mjs';
 import { fxNow, setBlankChart } from './map/chart.mjs';   // (milliseconds on the effects clock; the fog of war's plain paper)
@@ -887,11 +887,13 @@ function surveyNow() {
   const fog = fogActive(FS);
   if (fog) deps.push(wideLandRaw?.land?.() ?? null, FS.conquest?.control ?? null, ...FS.overviews.values());
   // (territory-map, owner 2026-11-25 item 3: a new read of the viewer's own tiles — they see themselves — is a new survey)
-  if (fog) deps.push(territoryRef?.now?.().rev ?? 0);
+  if (fog) deps.push(territoryRef?.now?.().ownRev ?? 0);
   if (FS.survey && deps.length === surveyDeps.length && deps.every((x, i) => x === surveyDeps[i])) return FS.survey;
   surveyDeps = deps;
   FS.survey = surveyor({ ...surveyInput(FS, { terrainOf: terrainRef, ready: viewerKnown || !!FS.land, scope: scope() || null }), ...(fog ? fogSurveyExtras() : {}) });
   fogUpdate();
+  // (territory-map-2: the territory reader keeps only what is in sight — a new sight is read again soon)
+  if (fog) territorySightChanged();
   // land that comes out of the chart now is told once on the effects bus (a shimmer: fx/stage.mjs)
   let newest = -Infinity;
   for (const t0 of FS.survey.reveals?.values?.() ?? []) if (t0 > newest) newest = t0;
@@ -969,19 +971,57 @@ function tagNationsNow() {
   return map;
 }
 const territoryShown = new WeakMap();
-/** The shown wide land with the tiles' owners on it (kept per land and territory/survey revision). */
+/**
+ * (territory-map-2, owner 2026-11-25 12:04 Q-TM-1 (b)) The owners of other players' tiles as the viewer last saw them,
+ * kept per world and player on this device beside the fog's last-known records (map/fog.mjs; the key is the fog's own
+ * under 'ps-fterr:'). Written only from tiles in sight (territorytiles.mjs rememberTerritory), when the territory read or
+ * the survey changes; read out of sight, drawn faded.
+ */
+const territoryMemory = createTerritoryMemory();
+let territoryMemoryAt = '';
+function territoryMemoryNow(t, fogged) {
+  const sc = scope() || null, w = FS.wallet?.address ?? null;
+  territoryMemory.use(fogged && sc && w ? territoryMemoryKey(fogMemoryKey(sc, w, fogModeOf(FS) === 'devnet' ? FS.pin?.addresses?.season ?? null : null)) : null);
+  if (!fogged || !t) return territoryMemory;
+  const survey = FS.survey, at = `${territoryMemory.rev()}|${t.rev}|${survey?.rev ?? 0}`;
+  if (at === territoryMemoryAt || !survey) return territoryMemory;
+  if (rememberTerritory(territoryMemory, { owners: t.owners, read: t.read ?? [], known: t.known ?? null, ownTag: t.ownTag, seen: (p, q, tile) => survey.levelOf(p, q, tile) === 3 })) territoryMemory.save();
+  territoryMemoryAt = `${territoryMemory.rev()}|${t.rev}|${survey.rev}`;
+  return territoryMemory;
+}
+/** The shown wide land with the tiles' owners on it (kept per land and territory/survey/memory revision). */
 function withTerritory(land) {
   const t = territoryRef?.now?.() ?? null;
-  if (!land?.cells || !t?.owners?.size) return land;
   const fogged = !!FS.fog?.on, hidden = !fogged && fogActive(FS);
-  const key = `${t.rev}|${fogged ? FS.survey?.rev ?? 0 : 'open'}|${hidden}|${FS.citizen?.faction ?? ''}`;
+  const mem = territoryMemoryNow(t, fogged);
+  if (!land?.cells || (!t?.owners?.size && !(fogged && mem.size()))) return land;
+  const key = `${t?.rev ?? 0}|${fogged ? FS.survey?.rev ?? 0 : 'open'}|${hidden}|${FS.citizen?.faction ?? ''}|${fogged ? mem.rev() : ''}`;
   const hit = territoryShown.get(land);
   if (hit && hit.key === key) return hit.out;
   const survey = FS.survey;
-  const out = territoryLand(land, { owners: t.owners, tagNation: tagNationsNow(), ownTag: t.ownTag, viewer: FS.citizen?.faction ?? null, fogged, hidden,
-    seen: (p, q, tile) => !!survey && survey.levelOf(p, q, tile) === 3 });
+  const out = territoryLand(land, { owners: t?.owners ?? new Map(), tagNation: tagNationsNow(), ownTag: t?.ownTag ?? null, viewer: FS.citizen?.faction ?? null, fogged, hidden,
+    seen: (p, q, tile) => !!survey && survey.levelOf(p, q, tile) === 3, remembered: k => rememberedOf(mem, k), known: t?.known ?? null });
   territoryShown.set(land, { key, out });
   return out;
+}
+/**
+ * (territory-map-2: no leak through the data path) Whether the page may keep who owns tile `tile` of (p, q) now — the
+ * reader's `keep` (the viewer's own tiles are kept by the reader itself): without the fog, every tile; under the fog,
+ * a tile in sight now (L3); a fogged page with no vision yet, none.
+ */
+function territoryKeep(p, q, tile) {
+  if (FS.fog?.on) return FS.survey?.levelOf?.(p, q, tile) === 3;
+  return !fogActive(FS);
+}
+/** The survey changed: what is in sight may have — read again soon (at most every 2 s), so a tile coming into sight is known. */
+let territorySightAt = 0, territorySightTimer = null, territorySightRev = null;
+function territorySightChanged() {
+  const rev = FS.survey?.rev ?? null;
+  if (!territoryRef || rev === territorySightRev) return;
+  territorySightRev = rev;
+  if (territorySightTimer) return;
+  const wait = Math.max(0, territorySightAt + 2000 - Date.now());
+  territorySightTimer = setTimeout(() => { territorySightTimer = null; territorySightAt = Date.now(); territoryRef?.reload?.(); }, wait);
 }
 /** The provinces whose territory record is read: the viewer's tiles' reach first, then the land in sight (none pre-join). */
 function territoryCandidatesNow({ ownAt = [] } = {}) {
@@ -5212,7 +5252,8 @@ export async function boot() {
     // (territory-map: and the tiles players own laid on what the map shows — the viewer's own always, others' in sight)
     if (wideLandRef) { const shown = wideLandRef.land; wideLandRef = { ...wideLandRef, land: () => withTerritory(shown()) }; }
     // (territory-map: the tiles players own — a local wide world's page only; read-only, nothing is sent)
-    if (cfg.localPlay && !territoryRef) try { territoryRef = mountTerritoryTiles({ reads: territoryMapReads, candidates: territoryCandidatesNow, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier territory:', e); }
+    // (territory-map-2, Q-TM-4 (c): read from the herald, so a devnet territory world's page draws them too — controller.mjs territoryMapReads)
+    if (!territoryRef) try { territoryRef = mountTerritoryTiles({ reads: territoryMapReads, candidates: territoryCandidatesNow, keep: territoryKeep, onChange: () => mapRef?.invalidate() }); } catch (e) { console.error('frontier territory:', e); }
     // (devnet play, devnet gap P1: the opened wide provinces a wide claim may name — the herald's record, unfogged. Under
     //  the devnet fog (fog-devnet) nothing of it is SHOWN: fdevnetplay.mjs wideTargetsOf keeps each opened province's
     //  coordinates and ring only — the ring's opening is public geometry, as the open rings on the chart — never a holder,

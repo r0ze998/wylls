@@ -57,6 +57,10 @@ pub mod views;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wide;
 pub mod wide_keeps;
+/// (territory-map-2, owner Q-TM-4 (c)) The captured territory province
+/// records, served as `/h/world/wide/territory`; with `wide`.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide_territory;
 pub mod world;
 pub mod ws;
 

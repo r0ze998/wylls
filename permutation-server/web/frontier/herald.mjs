@@ -49,13 +49,15 @@ async function get(f, url, { binary = false, timeoutMs = 12_000 } = {}) {
  * `WideWorldUnavailable` is that, never `HTTP503`), a missing route is `NotFound`, an abort is `Aborted`. The
  * caller's `signal` wins over the timeout. Used by the recorded wide world only (`get` above is unchanged).
  */
-async function getCoded(f, url, { signal = null, timeoutMs = 12_000, maxBytes = null } = {}) {
+async function getCoded(f, url, { signal = null, timeoutMs = 12_000, maxBytes = null, etag = null } = {}) {
   let r;
   try {
-    r = await f(url, { cache: 'no-store', signal: signal ?? AbortSignal.timeout?.(timeoutMs) });
+    // (territory-map-2: `etag` — the ETag of the answer the caller holds — asks again with If-None-Match; a 304 is `{ok, notModified}`)
+    r = await f(url, { cache: 'no-store', signal: signal ?? AbortSignal.timeout?.(timeoutMs), ...(etag ? { headers: { 'if-none-match': etag } } : {}) });
   } catch (e) {
     return fail(signal?.aborted || e?.name === 'AbortError' ? 'Aborted' : 'network');
   }
+  if (etag && r.status === 304) return { ok: true, notModified: true, etag };
   let json = null;
   try {
     if (maxBytes === null) json = await r.json();
@@ -87,7 +89,7 @@ async function getCoded(f, url, { signal = null, timeoutMs = 12_000, maxBytes = 
     return fail(code, `HTTP ${r.status}`, r.status);
   }
   if (json === null || typeof json !== 'object') return fail('BadBody', 'the herald answered something unreadable', r.status);
-  return { ok: true, json };
+  return { ok: true, json, etag: r.headers?.get?.('etag') ?? null };
 }
 
 // ------------------------------------------------------------------ small LRU
@@ -324,6 +326,7 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
   const root = String(base).replace(/\/+$/, '');
   const cache = new Lru(cacheSize);
   let pinned = seasonId === null ? null : String(seasonId);
+  let territoryMemo = null;   // (wideTerritory: the last answer and its ETag)
   let addrs = null;
   const guard = fn => { try { return { ok: true, ...fn() }; } catch (e) { return fail(e.code ?? 'BadRecord', e.message); } };
 
@@ -441,6 +444,20 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
         if (new Set(coords).size !== coords.length) return fail('RoutePlaces');
         return await getCoded(f, `${root}/h/world/wide/route?at=${encodeURIComponent(coords.join(';'))}`, { signal, maxBytes: 64 * 1024 });
       } catch { return fail('RoutePlaces'); }
+    },
+    /**
+     * (territory-map-2, owner Q-TM-4 (c)) GET /h/world/wide/territory: the captured territory province records' owned
+     * tiles (herald wide_territory.rs) — public chain data; what a player is SHOWN is the page's fog
+     * (map/territorytiles.mjs). Asked again with the last answer's ETag: an unchanged world answers 304 and the last
+     * answer is returned (`notModified`). A herald without the route: `NotFound` (older build) or `WideWorldUnavailable`.
+     */
+    async wideTerritory({ signal = null } = {}) {
+      const r = await getCoded(f, `${root}/h/world/wide/territory`, { signal, maxBytes: 4 * 1024 * 1024, etag: territoryMemo?.etag ?? null });
+      if (r.ok && r.notModified && territoryMemo) return { ok: true, json: territoryMemo.json, notModified: true };
+      if (r.ok && r.json) territoryMemo = r.etag ? { etag: r.etag, json: r.json } : null;
+      // (a request with If-None-Match that did not get through — a cross-origin preflight refused —: ask plainly next time)
+      if (!r.ok && r.code === 'network') territoryMemo = null;
+      return r.ok ? { ok: true, json: r.json } : r;
     },
     /** Separate read-only index observations. Never a map/capture verification. */
     async wideIndexStatus({ signal = null, pins = {} } = {}) {

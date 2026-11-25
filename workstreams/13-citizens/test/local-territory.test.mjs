@@ -30,8 +30,8 @@ function village({ stores = [500, 500, 300, 200, 0, 200, 0, 0], reserve = 0, pro
     production: production.map(x => BigInt(x * 1000)), upkeep: Array(8).fill(0n), queue: [], reserve: [reserve, 0, 0, 0, 0, 0, 0, 0], transit: [] };
 }
 /** A fake world: A in my sight (sites on tiles 5, 20, 50 — 50 has another nation's village), B out of it (sites 5, 40). */
-function world({ mine = {}, others = {}, player = null, aSites = [{ tile: 5 }, { tile: 20 }, { tile: 50, state: 1, faction: 2 }] } = {}) {
-  const w = fakeTerritoryWorld();
+function world({ mine = {}, others = {}, player = null, aSites = [{ tile: 5 }, { tile: 20 }, { tile: 50, state: 1, faction: 2 }], heraldTerritory = false } = {}) {
+  const w = fakeTerritoryWorld({ heraldTerritory });
   const me = w.tagOf(WALLET), other = w.tagOf(OTHER);
   w.capture(A.p, A.q, captureBytes({ sites: aSites, keepTile: 30, keepHolder: 3 }));
   w.capture(B.p, B.q, captureBytes({ sites: [{ tile: 5 }, { tile: 40 }], keepTile: 30, keepHolder: 1 }));
@@ -106,6 +106,21 @@ test('TR2 fog: free / taken are said only for tiles in my sight; out of it a til
   // nothing about any other wallet's summary is read: only my own player record's address was asked
   const { territoryPlayerAddress } = await import('../../../permutation-server/web/frontier/flocalplay-territory.mjs');
   assert.ok(!w.calls.asked.includes(territoryPlayerAddress(w.addresses.season, PROGRAM, w.citizenOf(OTHER))));
+});
+
+test('TR2h (territory-map-2, Q-TM-4 (c)) the province records come from the herald\'s territory route: the same view, and the relay is asked for my own record only', async () => {
+  const spec = { mine: { '-65,-65': [12], '-65,-64': [5, 6] }, others: { '-65,-64': [8], '-65,-65': [13, 44] }, player: { excess: 3 } };
+  const viaRelay = world(spec), viaHerald = world({ ...spec, heraldTerritory: true });
+  const a = await viewOf(viaRelay), b = await viewOf(viaHerald);
+  const { reads: ra, ...va } = a, { reads: rb, ...vb } = b;
+  assert.deepEqual(vb, va, 'the same player view, fog included');
+  assert.equal(viaHerald.calls.territory, 1, 'one territory read a view');
+  assert.equal(rb.herald, 1);
+  assert.equal(rb.records, 0);
+  const { territoryPlayerAddress } = await import('../../../permutation-server/web/frontier/flocalplay-territory.mjs');
+  assert.deepEqual(viaHerald.calls.asked, [territoryPlayerAddress(viaHerald.addresses.season, PROGRAM, viaHerald.citizenOf(WALLET))], 'the relay: my own record only');
+  assert.ok(ra.records > 0 && viaRelay.calls.asked.length > 1, 'a herald without the route: the relay reads the records as before');
+  assert.deepEqual(b.own.list.map(x => [x.tile, x.upkeepDistance]), [[12, 1], [5, 1], [6, 1]].sort((x, y) => a.own.list.findIndex(l => l.tile === x[0]) - a.own.list.findIndex(l => l.tile === y[0])), 'the record\'s dist comes through');
 });
 
 test('TR3 unpaid upkeep: said with the turn it began and the turn tiles start to return; a claim cannot be asked', async () => {
