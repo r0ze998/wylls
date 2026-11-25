@@ -111,13 +111,15 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   TEST key (never given to this script) and joins the next world like a newcomer: the player's own
                   funding amount, a relay pinned to its wallet, a public world proxy of its own; same rules, same
                   refusals, no AI mark on the page. With it the ③ MCP server for the world starts READ-ONLY on
-                  loopback (127.0.0.1, after the world's ports; only read tools, a link is the resident's own wallet).
+                  loopback (127.0.0.1, after the world's ports; only read tools, a link is the resident's own wallet;
+                  in a --wide world also get_territory_status: its own land, tiles and upkeep, under its fog).
                   Reference resident: workstreams/03-composability/mcp/examples/external-resident/ (README "plug in
                   your own AI"). Workstream ⑬'s resident is another client of the same path, and its own option
                   --plan lets ④'s plan store run multi-turn plans (workstreams/13-citizens/resident/local/client.mjs;
                   PLAY-LOCAL §11). Kept worlds, --demo, --wide (a rim first village by request, FileTicket, as the
                   page's; workstream ⑬'s resident also sends the wide land's orders there: wide claim, wide village
-                  train / muster / march, expedition), --ai, --random-map, --coexist, --resume; not --two
+                  train / muster / march, expedition, and the single-tile claim of its own land — the tile of its
+                  next village's site first), --ai, --random-map, --coexist, --resume; not --two
   --no-mcp        with --external: do not start the read-only MCP server
   --no-coop-board do not attach workstream 01's co-op board (requests across nations; launcher option
                   --coop-board ws01-board-v1, on by default) and its ⑮ titles card. With the board, Village → Trade and defences (村 → 交易と防備) →
@@ -438,7 +440,8 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
 # (the read-only MCP server reads the first world slot's first external resident's public proxy: its own /h/* and /gw)
 MCP_HERALD="http://localhost:$EXT_BASE"
 mcp_env() {
-  printf '%s\n' WYLLS_MCP_TEST_AS=1 "WYLLS_MCP_PORT=$MCP_PORT" WYLLS_MCP_HOST=127.0.0.1 "WYLLS_MCP_HERALD=$MCP_HERALD" "WYLLS_MCP_RELAY=$MCP_HERALD/gw"
+  # (ws13-territory: the page origin lets get_territory_status make the page's own read-only account read on that relay)
+  printf '%s\n' WYLLS_MCP_TEST_AS=1 "WYLLS_MCP_PORT=$MCP_PORT" WYLLS_MCP_HOST=127.0.0.1 "WYLLS_MCP_HERALD=$MCP_HERALD" "WYLLS_MCP_RELAY=$MCP_HERALD/gw" "WYLLS_MCP_PAGE_ORIGIN=http://localhost:$PORT"
 }
 
 CO_SO_DIR="$ROOT/permutation-frontier/target/deploy-localnet-coexist-sbf"
@@ -758,8 +761,9 @@ for _ in $(seq 1 120); do
 done
 [ -n "$URL" ] || { err "ランチャーが 60 秒以内に応答しませんでした。ログ: $LOG" "the launcher did not answer within 60 s. Log: $LOG"; finish 8; }
 if [ "$MCP" = 1 ]; then
-  # (TEST-ONLY ③: the read-only local-play MCP server, loopback only, for the external residents; it only GETs the
-  #  world's public proxy, so it may start before a world exists and answers once the world is up)
+  # (TEST-ONLY ③: the read-only local-play MCP server, loopback only, for the external residents; it only reads the
+  #  world's public proxy — GETs, and for get_territory_status the page's read-only account read —, so it may start
+  #  before a world exists and answers once the world is up)
   MLOG="$DATA/mcp-$RUN_ID.log"
   MENV=(); while IFS= read -r a; do MENV+=("$a"); done < <(mcp_env)
   env "${MENV[@]}" node "$MCP_BIN" >"$MLOG" 2>&1 &
