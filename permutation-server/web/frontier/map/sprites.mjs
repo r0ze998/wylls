@@ -53,6 +53,7 @@ import { OPEN_PASS } from './labelpass.mjs';
 import { RELIEF, paintMountainShadow, paintWoodFloor, reliefSprite, woodOf } from './relief.mjs';
 import { paintBlend, paintSwell, paintShores, forgetShores, spriteColour, waterLoops, clipOutside } from './groundblend.mjs';
 import { landUse, paintLandUse } from './landuse.mjs';
+import { SEA_DRAWN } from './cloudsea.mjs';
 
 /** The tile view's land is painted as one country (map/groundblend.mjs: blended kinds of land, whole coasts); `?country=0` shows the hexagons as they were. */
 const SHORES_DRAWN = !/[?&]country=0(?:&|$)/.test(globalThis.location?.search ?? '');
@@ -745,7 +746,7 @@ export class SpriteArt {
       const state = e.rec ? overviewArtKey(e.rec) + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
       stale = !!this.farStale(e);
       // (the cloud sea is pale from the first frame: while its sprites are on their way the table must not show through as a dark hole)
-      if (e.fog === 'unopened') { const o = this.outline(e.p, e.q); if (o?.fill) { ctx.fillStyle = '#dfe4e3'; ctx.fill(o.fill); } }
+      if (SEA_DRAWN && e.fog === 'unopened') { const o = this.outline(e.p, e.q); if (o?.fill) { ctx.fillStyle = '#dfe4e3'; ctx.fill(o.fill); } }
       const b = this.farBitmap(e, { res, dpr, terrainAt, fogAt, alliedPairs, stateKey: `${state}|${e.territoryMode ? `${e.territory?.owners?.join(',') ?? '?'}:${survey?.province(e.p, e.q)?.sig ?? ''}` : ''}`, canPaint, survey });
       if (!b) {
         deferred++;

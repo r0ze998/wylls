@@ -488,9 +488,15 @@ states the rules in short. The card's last line, "A request is decided at the en
 is about villages; a tile claim is instant.
 
 **The AI residents** claim tiles too (the same rules and prices): the tile under each village they found, and one more
-from time to time while they save for the next village (verify-pr206-209, ×60, `--ai 4`: 52 tiles after about 180
-turns, none refused). Under the fog you see none of it. An external resident run with workstream ⑬'s client (§11)
-claims tiles too: its next village's site first, then growth at its own slower pace.
+from time to time while they save for the next village. They **keep ore back for their troops** first (ai-ore-reserve,
+owner 2026-11-25): a tile is claimed only when the ore pays it and still leaves one training batch (100 Spearmen: 20
+ore), plus the troops their next host still lacks; while a keep of their own nation near them is under attack they
+claim no tile at all; and once they have a host's worth of troops (300), tiles and training take turns. They also no
+longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
+village stood, against the same world without the change (verify-pr236, land upkeep ×30): training refused 0 (before
+274), 54 trainings landed (24), 17 marches on keeps (1), 6 rim keeps taken (0), 30 tiles claimed (79), 4 wide villages
+(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see none of the tiles. An external resident run with workstream ⑬'s
+client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
 days without an order, longer than the test world takes orders (§4).
@@ -880,8 +886,11 @@ The world's operator gives it no privilege and never sees its key. The page show
    a turn, and its one action a turn), then the village on its own tile, and afterwards one more tile next to its land
    from time to time. It buys such a growth tile only from ore it does not need — the ore beyond its build plan, its
    reserve and one training hundred — at most one every 6 turns, up to 24 tiles, and only while its land's upkeep
-   stays within a tenth of its first village's food per hour. (These four are the resident's own pace, not rules of the
-   world: the operator AI residents buy a tile whenever the ore covers it, and in loop-play15 they then failed to train.)
+   stays within a tenth of its first village's food per hour. The tile under its next village's site is bought once the
+   first village's ore pays it and still leaves one training hundred (30 ore for the first tile). (These are the
+   resident's own pace, not rules of the world. The operator AI residents keep ore back for their troops too since
+   ai-ore-reserve, §4.1; in loop-play15, before that, they bought a tile whenever the ore covered it and then failed
+   to train.)
 
    Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
    resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.
