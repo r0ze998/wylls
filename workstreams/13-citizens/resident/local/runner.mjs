@@ -9,6 +9,8 @@
 //                                  (`order`: the journal's order name — an Expedition is read on the depart route)
 //   wide                           (optional, a local wide-land world: wide.mjs createWideEyes) `look(obs, st)` → the wide
 //                                  land as the resident sees it this turn (obs.wideLand), read after the reconcile
+//   territory                      (optional, a local wide-land world: territory.mjs createTerritoryEyes) `look(obs, st)` →
+//                                  the resident's own land and the tiles it could claim (obs.territory), read before `wide`
 //   bellNow()                      the chain's turn after the send (the later turn books the action, as the operator
 //                                  residents book theirs: local-play-operator-residents.mjs)
 //   halted()                       the operator's halt file (resident.mjs charter.haltFile): a pause, results still read
@@ -19,6 +21,7 @@
 //                                  submit, and its outcome after. Without a plan (no village yet, the cap) the brain
 //                                  decides as before.
 import { localCandidates, decideLocal, noteOutcome, seenOf, trackVillage, villageOre, refusedForResources, LOCAL_LIMITS, BELLS_PER_DAY } from './brain.mjs';
+import { territorySeen } from './territory.mjs';
 import { blockedWhy, beginLine, openLines, enterWorld, prune, OPEN_LINE_MS } from './journal.mjs';
 
 /** Relay codes that prove nothing reached the chain for a passing reason: no hold, the turn stays open. */
@@ -26,7 +29,7 @@ export const PASSING = Object.freeze(new Set(['LocalActNoAnswer', 'LocalActFaile
 
 const fieldsFor = order => (order.name === 'Join' ? { ...order.fields, session_expiry: BigInt(order.fields.session_expiry) } : order.fields);
 
-export async function localStep({ store, observe, send, follow, bellNow, halted = () => false, log = () => {}, provider = null, limits = LOCAL_LIMITS, nowMs = () => Date.now(), plan = null, wide = null }) {
+export async function localStep({ store, observe, send, follow, bellNow, halted = () => false, log = () => {}, provider = null, limits = LOCAL_LIMITS, nowMs = () => Date.now(), plan = null, wide = null, territory = null }) {
   const st = store.state;
   const obs = await observe();
   if (!obs || obs.unreadable) { log('observe', { outcome: 'unreadable', why: obs?.unreadable ?? 'no answer' }); return { did: 'unreadable' }; }
@@ -39,7 +42,7 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
     try { r = await follow(l.signature, l.order); } catch { r = null; }
     if (r === 'landed' || r === 'failed') {
       line.state = r; line.settledBy = 'follow';
-      noteOutcome(st, { kind: l.kind, order: { name: l.order, fields: l.fields }, ...(l.site ? { site: l.site } : {}), ...(l.meta ? { meta: l.meta } : {}) }, r, { bell: obs.bell, limits });
+      noteOutcome(st, { kind: l.kind, order: { name: l.order, fields: l.fields }, ...(l.site ? { site: l.site } : {}), ...(l.meta ? { meta: l.meta } : {}) }, r, { bell: l.kind === 'tile' ? l.bell : obs.bell, limits });
       log('reconcile', { line: l.key, order: l.order, outcome: r, signature: l.signature });
     } else if (nowMs() - (line.signedAtMs ?? 0) >= OPEN_LINE_MS) {
       line.state = 'expired-unknown'; log('reconcile', { line: l.key, order: l.order, outcome: 'expired-unknown', why: 'no landing seen within the blockhash life; never sent again', signature: l.signature });
@@ -61,11 +64,18 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
     }
   }
   // (external-wide-orders: the wide land, read once per turn and memory change — reads only, nothing is sent)
+  if (territory && obs.holding) {
+    try { obs.territory = await territory.look(obs, st); } catch (e) { obs.territory = { on: null, why: `territory look failed: ${String(e?.message ?? e).slice(0, 160)}` }; }
+    const seenT = obs.territory ? JSON.stringify(territorySeen(obs.territory)) : null;
+    if (seenT && st.territorySeen !== seenT) { st.territorySeen = seenT; log('territory', { what: 'seen', bell: obs.bell, ...territorySeen(obs.territory) }); }
+  }
   if (wide && obs.holding) {
     try { obs.wideLand = await wide.look(obs, st); } catch (e) { obs.wideLand = null; log('wide', { what: 'look-failed', why: String(e?.message ?? e).slice(0, 200) }); }
     const seen = obs.wideLand ? JSON.stringify(seenOf(obs).wide).replace(/[0-9]+/g, '#') : null;   // (said when it changes, not each turn's numbers)
     if (seen && st.wideSeen !== seen) { st.wideSeen = seen; log('wide', { what: 'seen', bell: obs.bell, ...seenOf(obs).wide }); }
   }
+  // (ws13-territory: the resident's own land and the tiles it could claim — reads only; before the wide land's look, whose
+  //  claim order needs it in a world with player territory)
   store.save();
   if (halted()) { log('stop', { why: 'halted-by-operator', bell: obs.bell }); return { did: 'halted' }; }
   if (st.decisions >= limits.maxTurns) { log('stop', { why: 'max-turns', decisions: st.decisions }); return { did: 'max-turns' }; }
@@ -79,7 +89,10 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   const c = localCandidates(obs, st, { limits });
   if (st.day.acts >= limits.actionsPerDay) c.candidates.forEach(x => { x.held = [...(x.held ?? []), `the day's ${limits.actionsPerDay} actions are used`]; });
   let planned = null;
-  if (plan) {
+  // (ws13-territory: the tile of my next village's site is the brain's own order, not a plan step — workstream 04's plan
+  //  store knows no TerritoryClaim —: when it can be asked this turn, the plan is not asked for a step and stays as it is)
+  const siteTile = c.candidates.find(x => x.kind === 'tile' && x.meta?.purpose === 'site' && !x.held) ?? null;
+  if (plan && !siteTile) {
     let p;
     try { p = await plan.next({ obs, mem: st }); } catch (e) { p = { wait: `plan store: ${e.code ?? ''} ${String(e.message ?? e).slice(0, 160)}` }; }
     st.planActive = !p.none;
@@ -87,7 +100,8 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
     if (p.use && st.day.acts >= limits.actionsPerDay) { store.save(); return { did: 'plan-wait', bell: obs.bell, why: `the day's ${limits.actionsPerDay} actions are used` }; }
     if (p.use) planned = p.use;
   }
-  const d = planned ? { choice: planned.cand.id, by: 'ws04-plan', why: `${planned.plan} step ${planned.idx + 1}/${planned.of}: ${planned.cand.why}` } : decideLocal({ candidates: c.candidates, obs }, provider);
+  const d = planned ? { choice: planned.cand.id, by: 'ws04-plan', why: `${planned.plan} step ${planned.idx + 1}/${planned.of}: ${planned.cand.why}` }
+    : plan && siteTile ? { choice: siteTile.id, by: 'ws13-territory', why: siteTile.why } : decideLocal({ candidates: c.candidates, obs }, provider);
   st.decisions += 1;
   const summary = c.candidates.map(x => ({ id: x.id, score: Math.round(x.score * 100) / 100, ...(x.held ? { held: x.held } : {}) }));
   if (d.choice === 'wait') {
@@ -137,7 +151,7 @@ export async function localStep({ store, observe, send, follow, bellNow, halted 
   //  route — holds that order as a refusal does; another order may still go in this turn)
   const holdNotSent = line.state === 'not-sent' && r.holdNotSent === true;
   if (r.signature && line.signature && r.signature !== line.signature) log('warning', { why: 'the relay named another signature than the one saved', saved: line.signature, relay: r.signature });
-  if (outcome !== 'refused-turn-used') noteOutcome(st, cand, holdNotSent ? 'refused' : line.state === 'unknown' ? 'unknown' : outcome, { bell: obs.bell, code: r.code ?? null, limits, resources: refusedForResources(r), obs });
+  if (outcome !== 'refused-turn-used') noteOutcome(st, cand, holdNotSent ? 'refused' : line.state === 'unknown' ? 'unknown' : outcome, { bell: obs.bell, code: r.code ?? null, limits, resources: refusedForResources(r), obs, programCode: Number.isInteger(r.programCode) ? r.programCode : null });
   if (planned) {
     const outcome4 = line.state === 'refused' && r.code === 'ResidentAlreadyActed' ? 'not-sent' : line.state;
     try { await plan.settle(planned, { outcome: outcome4, signature: line.signature ?? null, code: r.code ?? null, bookedBell: line.signature ? st.lastActBell : null }); }
