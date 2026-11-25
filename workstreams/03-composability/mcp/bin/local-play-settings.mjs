@@ -12,6 +12,14 @@ export function localPlaySettings(env = {}) {
   const loop = u => { try { const x = new URL(u); return x.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(x.hostname); } catch { return false; } };
   if (!loop(s.herald) || !loop(s.relay)) return { error: 'WYLLS_MCP_HERALD / WYLLS_MCP_RELAY: loopback http only (a local TEST world)' };
   if (!/\/gw$/.test(s.relay)) return { error: 'WYLLS_MCP_RELAY: the world proxy\'s /gw (e.g. http://localhost:41412/gw)' };
-  return s;
+  // (ws13-territory) WYLLS_MCP_PAGE_ORIGIN: the launcher page's origin. With it get_territory_status is offered: its one
+  // extra read is the page's own read-only account read on the world's relay, which the world proxy takes only from that origin.
+  let pageOrigin = null;
+  if (env.WYLLS_MCP_PAGE_ORIGIN !== undefined && env.WYLLS_MCP_PAGE_ORIGIN !== '') {
+    let u = null; try { u = new URL(env.WYLLS_MCP_PAGE_ORIGIN); } catch { u = null; }
+    if (!u || !loop(env.WYLLS_MCP_PAGE_ORIGIN) || u.origin !== env.WYLLS_MCP_PAGE_ORIGIN) return { error: 'WYLLS_MCP_PAGE_ORIGIN: the launcher page\'s loopback origin, nothing after the port (e.g. http://localhost:41920)' };
+    pageOrigin = u.origin;
+  }
+  return { ...s, pageOrigin };
 }
 

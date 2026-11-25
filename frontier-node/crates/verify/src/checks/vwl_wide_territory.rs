@@ -42,8 +42,11 @@
 //!   record at its address, then `apply_decay` (due after the grace, one a
 //!   bell, the farthest bucket first).
 //! * **WideTerritoryConquer (0xDC op 14)** `[payer] [season] [province]
-//!   [territory_province w] [loser_player w] [captor_holding] [captor_citizen]
-//!   [captor_player w] [system]`: the province's recorded captor at the
+//!   [territory_province w] [loser_player w] [captor_holding] [captor_citizen
+//!   r|w] [captor_player w] [system]` (the captor Citizen writable or not:
+//!   the keeper's settle of the captor in the same transaction makes it
+//!   writable; conquest-upkeep-fix, owner Q-VT-1 (b); the flags rule is
+//!   `wix::TERRITORY_CONQUER`'s, as the program's): the province's recorded captor at the
 //!   keep's current generation; the captor home at its address and
 //!   generation; its owner the captor Citizen, whose nation holds the keep;
 //!   the loser no teammate; both summaries settled in this second (the

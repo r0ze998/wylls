@@ -95,7 +95,9 @@ export function wideSteps(obs, mem, { limits = PLAN_LIMITS } = {}) {
     const troops = Math.min(HOST_TROOPS.max, Math.floor(reserve0 / 100) * 100, 300);
     return [step('Muster', `a host of ${troops} for an expedition into the wide land`, { unit: 0, troops, tile: obs.holding.tile }, { reserveAtLeast: troops }), step(EXPEDITION, 'the new host marches into the wide land')];
   }
-  if (!claimNotDue(obs, mem) && !claimSettling(obs, mem) && claimOrder(obs, mem).order) {
+  // (ws13-territory: a site whose tile is claimed first — the brain's own tile claim, not a plan step — is a claim due too)
+  const co = !claimNotDue(obs, mem) && !claimSettling(obs, mem) ? claimOrder(obs, mem) : {};
+  if (co.order || co.tileFirst) {
     const c = coverable(obs, claimCost(obs).need);
     // (a provisional first village with the cost in the stores: the owner's touch first — the lazy final flip)
     if (claimNotFinal(obs) && !Object.keys(c.short).length) return [step('Harvest', 'the owner\'s touch: the program flips my provisional village to final on my own next action'), step('WideClaim', `claim wide land (slot ${obs.wideLand.slot})`)];
@@ -227,7 +229,7 @@ export function checkWideStep(step, obs, mem, { patience = 36 } = {}) {
   if (step.name === 'WideClaim') {
     const no = claimNotDue(obs, mem); if (no) return { replan: no };
     const settling = claimSettling(obs, mem); if (settling) return { wait: settling };
-    const o = claimOrder(obs, mem); if (!o.order) return { replan: o.why };
+    const o = claimOrder(obs, mem); if (!o.order) return o.tileFirst ? { wait: o.why } : { replan: o.why };
     // (the provisional → final flip is LAZY: the program applies it in the prologue of the owner's own next action
     //  (frontier-abi prologue.rs finality_due / apply_finality). A plan that only saves never acts, so the village never
     //  flips — live run2, provisional 250+ turns. Not final and untouched for a while: the plan is remade with a Harvest

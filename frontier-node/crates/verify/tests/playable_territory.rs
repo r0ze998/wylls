@@ -2,10 +2,12 @@
 //! `territory` role) on the devnet `.so` that world 3 runs
 //! (verifier-territory, 2026-11-25).
 //!
-//! One recording of the devnet-playable `.so` built from `origin/main`
-//! `ee081238` (sha256 31acbb59…19e7, 3,517,472 B: the binary the devnet
-//! upgrade of 2026-11-25 deployed; #221 changed no program byte since
-//! `ca317418`) in the in-process LiteSVM chain (`localnet::Chain`), made by
+//! One recording of the devnet-playable `.so` of conquest-upkeep-fix
+//! (sha256 3d143093…aaf4, 3,517,472 B: world 3's first `.so` 31acbb59 —
+//! the binary the devnet upgrade of 2026-11-25 05:26 deployed — plus owner
+//! Q-VT-1 (b), a captor's second conquest lands, and Q-LP15-1 (b), land
+//! upkeep ×10; re-recorded, the shapes below unchanged except step 6) in
+//! the in-process LiteSVM chain (`localnet::Chain`), made by
 //! `record_playable_territory` (ignored; needs the artefact). The feed is
 //! unfiltered (every writable account's post-state, wallets included) and
 //! every `set_account` patch is DECLARED (`Input::declared`), so the whole
@@ -38,8 +40,10 @@
 //! 6. **Declared** capture: the keep of B's province held by C's nation,
 //!    captor C's rim home at a new keep generation (P18's declaration; the
 //!    wide Resolve writes it on a real capture, `vwl_wide_march.rs`). REAL:
-//!    settle B + conquer (C's summary created from the keeper's payer), then
-//!    settle A + settle C + conquer.
+//!    settle B + conquer (C's summary created from the keeper's payer); a
+//!    refused settle A + conquer two seconds later (the captor not settled
+//!    in this second); then the keeper's shape settle A + settle C +
+//!    conquer, which lands (Q-VT-1 (b); refused BadAccount on 31acbb59).
 //!
 //! Run the recorder:
 //! `PSF_PLAYABLE_SO=/abs/permutation_frontier.so PLAYABLE_WIDE_DUMP=/abs/dir \
@@ -78,9 +82,11 @@ use verify_core::{Finding, Severity, Verdict};
 
 const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
-/// The devnet-playable `.so` of world 3 (main `ca317418` … `ee081238`).
-const TERRITORY_SHA256: &str = "31acbb59757f0c9fe52ca3a6fbda73f76ac957d5be2aef0a8a113843916819e7";
-const SO_GZ: &str = "devnet-playable-31acbb59.so.gz";
+/// The devnet-playable `.so` world 3 is to be created on: world 3's first
+/// `.so` 31acbb59 (main `ca317418` … `ee081238`) + conquest-upkeep-fix
+/// (Q-VT-1 (b) conquest flags, Q-LP15-1 (b) land upkeep ×10).
+const TERRITORY_SHA256: &str = "3d14309357332821f2d433f2070a18548932cb1685cd34e493a8b3dfee4baaf4";
+const SO_GZ: &str = "devnet-playable-3d143093.so.gz";
 const WHOLE: &str = "playable-territory-whole.json.gz";
 const RULES: wr::RuleBytes = wr::RuleBytes {
     keep_holder: KeepHolderRule::NeutralTerritoryV1 as u8,
@@ -541,7 +547,7 @@ fn tiles_of(pd: &[u8]) -> (Vec<u8>, Vec<(u8, u8)>) {
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so of world 3: set PSF_PLAYABLE_SO (sha256 31acbb59…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so of world 3: set PSF_PLAYABLE_SO (sha256 3d143093…), run with --ignored"]
 fn record_playable_territory() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");
@@ -1085,43 +1091,35 @@ fn record_playable_territory() {
         ],
         "keeper: settle B + WideTerritoryConquer p1 (C's summary created)",
     );
+    // A conquest whose captor was not settled in this second (C's summary
+    // was settled by the conquest above, seconds ago) is refused
+    // OutOfOrder: both summaries must be settled in the same second.
+    let t_now = r.c.unix_timestamp();
+    r.advance_to(t_now + 2);
+    assert!(!r.try_send(
+        &[&keeper],
+        &[
+            t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma)),
+            t_conquer(&a, keeper.pubkey(), p1, &ma.citizen, ch, &mc.citizen),
+        ],
+        "settle A + WideTerritoryConquer p1 without the captor's settle (refused OutOfOrder)",
+    ));
     // The keeper's shape for a captor that already has a summary
     // (`keeper/src/territory.rs`: settle loser + settle captor + conquer in
-    // ONE transaction) is refused BadAccount: the captor's settle lists the
-    // captor Citizen writable, and the conquest's spec takes it read-only
-    // (`TERRITORY_CONQUER` `captor_citizen` Wr::R on a Kind account,
-    // `check_flags`). D-verifier-territory-1. Archived as refused.
-    assert!(!r.try_send(
+    // ONE transaction): the captor's settle lists the captor Citizen
+    // writable, so the conquest sees it writable. Lands since
+    // conquest-upkeep-fix (owner Q-VT-1 (b), `TERRITORY_CONQUER`
+    // `captor_citizen` Wr::Either); on world 3's first `.so` 31acbb59 it
+    // was refused BadAccount every time (D-verifier-territory-1).
+    r.send(
         &[&keeper],
         &[
             t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma)),
             t_settle(&a, keeper.pubkey(), &mc.citizen, home_of(mc)),
             t_conquer(&a, keeper.pubkey(), p1, &ma.citizen, ch, &mc.citizen),
         ],
-        "keeper's shape: settle A + settle C + WideTerritoryConquer p1 (refused BadAccount)",
-    ));
-    // What lands: the captor's settle alone, then settle A + conquer in the
-    // same second (the captor's `paid_to == now`).
-    let mut landed = false;
-    for _ in 0..12 {
-        r.send(
-            &[&keeper],
-            &[t_settle(&a, keeper.pubkey(), &mc.citizen, home_of(mc))],
-            "keeper: WideTerritorySettle C (the captor, alone)",
-        );
-        if r.try_send(
-            &[&keeper],
-            &[
-                t_settle(&a, keeper.pubkey(), &ma.citizen, home_of(ma)),
-                t_conquer(&a, keeper.pubkey(), p1, &ma.citizen, ch, &mc.citizen),
-            ],
-            "settle A + WideTerritoryConquer p1 (the captor settled this second)",
-        ) {
-            landed = true;
-            break;
-        }
-    }
-    assert!(landed, "{:#?}", r.log);
+        "keeper's shape: settle A + settle C + WideTerritoryConquer p1 (the captor's second conquest)",
+    );
     let tprov1 =
         TerritoryProvince::read(&r.data(&adr(wtr::province_address(&ctx, p1))).unwrap()).unwrap();
     let ctag = tp(&r, mc).citizen_tag;
@@ -1473,10 +1471,10 @@ fn the_honest_territory_world_has_no_fail_and_every_territory_tx_is_judged() {
             passed += 1;
         }
     }
-    assert!(
-        passed >= 10,
-        "{passed} territory transactions PASS outright"
-    );
+    // 9 since conquest-upkeep-fix: the keeper's second-conquest shape lands
+    // in one transaction, so the recording no longer holds the lone captor
+    // settles of the old same-second retry (31acbb59)
+    assert!(passed >= 9, "{passed} territory transactions PASS outright");
     // every Unverifiable finding of the world is a declared patch showing
     let other: Vec<_> = rep
         .findings
@@ -1775,30 +1773,50 @@ fn a_village_off_the_claimers_land_fails() {
     );
 }
 
-/// The keeper's refused shape (settle loser + settle captor + conquer in one
-/// transaction, D-verifier-territory-1) forged as landed: the conquest's
-/// captor Citizen is writable in that message, which the program's account
-/// table refuses: FAIL.
+/// The conquest refused because the captor was not settled in this second
+/// (settle loser + conquer only, two seconds after the captor's summary was
+/// last settled) forged as landed: FAIL.
 #[test]
-fn the_keepers_refused_conquest_shape_forged_as_landed_fails() {
+fn a_conquest_without_the_captors_settle_forged_as_landed_fails() {
     let mut inp = whole();
     let t = (0..inp.txs.len())
         .find(|&t| {
             inp.txs[t].err.is_some() && {
                 let ixs = ixs_of(&inp, t);
-                ixs.len() == 3
-                    && matches!(cmd(&ixs[2].0), Some(wix::WideCommand::TerritoryConquer(_)))
+                ixs.len() == 2
+                    && matches!(cmd(&ixs[1].0), Some(wix::WideCommand::TerritoryConquer(_)))
             }
         })
-        .expect("the refused keeper-shape conquest");
+        .expect("the refused conquest without the captor's settle");
     inp.txs[t].err = None;
     inp.txs[t].code = None;
     let f = vwl(&inp);
     assert!(
-        fails_at(&f, &inp, t, "WideAccounts", "account flags"),
+        fails_at(&f, &inp, t, "WideRule", "not settled in this second"),
         "{:#?}",
         show(&f)
     );
+}
+
+/// Q-VT-1 (b), conquest-upkeep-fix: the keeper's shape for a captor that
+/// already has a summary (settle loser + settle captor + conquer in ONE
+/// transaction, the captor Citizen writable in that message) LANDED on the
+/// fixed `.so`, and VWL judges it (no FAIL at it; the captor's tiles moved).
+#[test]
+fn the_keepers_second_conquest_shape_landed_and_passes() {
+    let inp = whole();
+    let t = (0..inp.txs.len())
+        .find(|&t| {
+            inp.txs[t].err.is_none() && {
+                let ixs = ixs_of(&inp, t);
+                ixs.len() == 3
+                    && matches!(cmd(&ixs[2].0), Some(wix::WideCommand::TerritoryConquer(_)))
+            }
+        })
+        .expect("the landed keeper-shape conquest");
+    let f = vwl(&inp);
+    assert!(!f.iter().any(|x| x.fail()), "{:#?}", show(&f));
+    assert!(inp.txs[t].err.is_none());
 }
 
 /// The world as a public RPC would serve world 3's archive (no post-states,

@@ -430,12 +430,13 @@ this section describes what the program does today, and none of it is a promise 
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
      (loop-play15, #223; before, that row and its button were gone).
 5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
-   - 0.033 food an hour for each tile;
-   - plus 0.016 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
+   - 0.33 food an hour for each tile;
+   - plus 0.16 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
      a wide village of yours). It is measured once, when you claim the tile, and does not change later.
-   - Examples: 10 tiles near home cost 0.33 food an hour; 100 tiles 3.3; one tile 5 provinces from your nearest village
-     costs 0.033 + 2 × 0.016 = 0.065. A starting village makes about 40 food an hour, so land upkeep is small until you
-     hold very many tiles (the owner's open question VQ-1).
+   - Examples: 10 tiles near home cost 3.3 food an hour; 100 tiles 33; one tile 5 provinces from your nearest village
+     costs 0.33 + 2 × 0.16 = 0.65. A starting village makes about 40 food an hour, so about 120 tiles near home cost more
+     than it makes, and sooner if you spend your food on troops and buildings (owner decision Q-LP15-1 (b), 11-25: the
+     old numbers, a tenth of these, only went unpaid past about 1,200 tiles).
    - The village screen's "Per hour" column does not include land upkeep.
 6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
    - at once: you cannot claim tiles (the refusal is in the table below);
@@ -485,7 +486,8 @@ claim no tile at all; and once they have a host's worth of troops (300), tiles a
 longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
 village stood, against the same world without the change: training refused 0 (before 286), 52 trainings landed (24),
 14 marches on keeps (2), 7 rim keeps and 1 wide-land keep taken (0 and 0), 21 tiles claimed (82), 4 wide villages
-(4). So the AI nations now own less land and fight more. Under the fog you see none of the tiles.
+(4). So the AI nations now own less land and fight more. Under the fog you see none of the tiles. An external resident run with workstream ⑬'s
+client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
 days without an order, longer than the test world takes orders (§4).
@@ -841,6 +843,13 @@ The world's operator gives it no privilege and never sees its key. The page show
    read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. It runs as long as
    the script (across worlds: when a world's time runs out it waits for the next one) and stops with everything on Ctrl-C.
 
+   In a `--wide` world the server has one more read tool, **`get_territory_status`** (ws13-territory): the connected
+   resident's own land (§4.1) as that player sees it — its tiles, the next claim's price in ore, its upkeep in food per
+   hour, whether upkeep is unpaid, the claims used this turn, and for each province a claim can reach its tiles as
+   own / free / taken / unseen. Fog of war (§5): free and taken are said only for tiles in the resident's sight; a tile
+   out of sight is `unseen` (it may be free or another player's). The server still sends nothing: this tool's extra
+   read is the page's own read-only account read on the world's relay.
+
 3. Press start in your page as usual, then start the resident (it waits for your world if it is early):
 
    ```sh
@@ -862,6 +871,14 @@ The world's operator gives it no privilege and never sees its key. The page show
      --key /path/to/resident.json --dir /abs/path/resident-state [--goal village-first|surplus-use] [--nation 0-5] \
      [--mcp http://127.0.0.1:<port>/mcp]
    ```
+
+   In a `--wide` world this resident also plays **its own land** (§4.1, the same rules and prices as you): before it
+   claims a wide village it claims the tile under that village's site (`"order":"TerritoryClaim"` in its log; one claim
+   a turn, and its one action a turn), then the village on its own tile, and afterwards one more tile next to its land
+   from time to time. It buys such a growth tile only from ore it does not need — the ore beyond its build plan, its
+   reserve and one training hundred — at most one every 6 turns, up to 24 tiles, and only while its land's upkeep
+   stays within a tenth of its first village's food per hour. (These four are the resident's own pace, not rules of the
+   world: the operator AI residents buy a tile whenever the ore covers it, and in loop-play15 they then failed to train.)
 
    Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
    resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.

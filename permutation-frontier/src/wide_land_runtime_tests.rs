@@ -12672,6 +12672,220 @@ mod territory_tests {
         assert_eq!(conquer(&mut t), Err(E::TooEarly as u32));
     }
 
+    /// Q-VT-1 (b) (owner 2026-11-25 09:33, conquest-upkeep-fix): a captor
+    /// that already has a territory summary conquers again. The keeper
+    /// settles that captor in the SAME transaction (settle loser + settle
+    /// captor + conquer); the captor's WideTerritorySettle takes its Citizen
+    /// (and first home) writable, and a transaction's writability is per
+    /// account, so the conquest sees the captor Citizen writable. That must
+    /// land: with `captor_citizen` read-only (`Wr::R`) every second conquest
+    /// by the same captor was refused BadAccount (D-verifier-territory-1).
+    /// Q-LP15-1 (b) (owner 2026-11-25 09:33, conquest-upkeep-fix): land
+    /// upkeep ×10 BITES in play. The first home keeps the food production
+    /// the program's own PlaceHome gave a new village; the player spends
+    /// each turn's food elsewhere the moment upkeep is paid (troops,
+    /// buildings: its food store back to 0, the production unchanged), and
+    /// claims one tile a turn near home while the keeper settles every
+    /// turn. Upkeep goes unpaid at the first turn whose upkeep passes the
+    /// village's food production — at ⌊production / 330⌋ + 1 tiles (×1 it
+    /// took ten times as many: about 1,200 tiles for a new village); claims
+    /// stop; 24 unpaid turns later the farthest tile returns, and the land
+    /// is paid again at what the village feeds.
+    #[test]
+    fn land_upkeep_x10_goes_unpaid_past_the_homes_food_production() {
+        let _g = begin();
+        let mut t = T::new();
+        let a = t.a.clone_member();
+        let (home, _) = t.home(&a);
+        let food_rate = rd_i64(&home.try_borrow_data().unwrap(), H::store(0) + AC::RATE);
+        let per_tile = TERRITORY_V1.kernel.upkeep.flat;
+        assert_eq!(per_tile, 330, "Q-LP15-1 (b): ×10 the decided 33");
+        assert!(food_rate > 0, "a new village makes food: {food_rate}");
+        let threshold = (food_rate / per_tile) as u32 + 1;
+        // a store set at `ts` (the production rate kept): food spent, ore plenty
+        let set_store = |home: &AccountInfo<'static>, r: usize, v: i64, ts: i64| {
+            let mut hd = home.try_borrow_mut_data().unwrap();
+            let o = H::store(r);
+            put(&mut hd, o + AC::VALUE, &v.to_le_bytes());
+            if rd_i64(&hd, o + AC::CAP) < v {
+                put(&mut hd, o + AC::CAP, &v.to_le_bytes());
+            }
+            put(&mut hd, o + AC::T0, &ts.to_le_bytes());
+            put(&mut hd, o + AC::FRAC, &0i64.to_le_bytes());
+        };
+        // tiles within the home's reach (3 provinces), nearest province first
+        let home_c = WideCoord::checked(RIM.p as i64, RIM.q as i64).unwrap();
+        let mut free: Vec<(WideCoord, u8)> = vec![];
+        for q in [0i64, -1, -2, -3] {
+            let at = c(129, q);
+            assert!(home_c.distance(at) <= 3);
+            free.extend(t.free_tiles(at).into_iter().map(|x| (at, x)));
+        }
+        assert!(
+            free.len() as u32 > threshold,
+            "{} tiles in reach for a threshold of {threshold}",
+            free.len()
+        );
+        let mut bell = 2u32;
+        let ts = t.w.at(bell, 5);
+        set_store(&home, 0, 0, ts);
+        let mut owned: Vec<(WideCoord, u8)> = vec![];
+        let unpaid_at = loop {
+            let ts = t.w.at(bell, 5);
+            set_store(&home, 3, 1_000_000 * MILLI, ts);
+            let (at, tile) = free[owned.len()];
+            let claimed = t.claim(&a, WALLET_A, at, tile, None);
+            // the keeper's settle of this turn
+            assert_eq!(t.settle(&a), Ok(()));
+            let pl = t.tplayer_rec(&a);
+            if pl.unpaid_since.is_some() {
+                assert_eq!(
+                    claimed,
+                    Err(E::NotEligible as u32),
+                    "the claim of the turn upkeep went unpaid is refused"
+                );
+                // this turn's food spent too (left alone, two turns of
+                // food cover a turn's upkeep and the land is paid again)
+                set_store(&home, 0, 0, ts);
+                break pl.tiles;
+            }
+            assert_eq!(claimed, Ok(()), "bell {bell}: {} tiles", owned.len());
+            owned.push((at, tile));
+            // the turn's food spent elsewhere
+            set_store(&home, 0, 0, ts);
+            bell += 1;
+            assert!(bell < 2 + 400, "never unpaid");
+        };
+        assert_eq!(
+            unpaid_at, threshold,
+            "unpaid at the first turn upkeep ({unpaid_at} × {per_tile}) passes the food production {food_rate} milli/h"
+        );
+        // ×1 (33 a tile) the same village paid ten times the land
+        assert!((unpaid_at as i64) * 33 <= food_rate);
+        let unpaid_since = t.tplayer_rec(&a).unpaid_since.unwrap();
+        // unpaid: no claim; the food still spent each turn; 24 turns later
+        // the farthest tile returns (all at distance 1 here: any of the
+        // farthest bucket — the decay judges it)
+        let (at, tile) = free[owned.len()];
+        let mut b = bell + 1;
+        while b < unpaid_since + 24 {
+            let ts = t.w.at(b, 5);
+            assert_eq!(
+                t.claim(&a, WALLET_A, at, tile, None),
+                Err(E::NotEligible as u32)
+            );
+            assert_eq!(t.settle(&a), Ok(()));
+            assert_eq!(t.tplayer_rec(&a).unpaid_since, Some(unpaid_since));
+            set_store(&home, 0, 0, ts);
+            b += 1;
+        }
+        let ts = t.w.at(b, 5);
+        let _ = ts;
+        assert_eq!(t.settle(&a), Ok(()));
+        let far = t.tplayer_rec(&a).farthest_bucket().unwrap() as u8;
+        let (dat, dtile) = *owned
+            .iter()
+            .rev()
+            .find(|(at, x)| t.tprov_rec(*at).dist[*x as usize] == far)
+            .unwrap();
+        assert_eq!(t.decay(&a, dat, dtile), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).tiles, unpaid_at - 1);
+        assert_eq!(t.tprov_rec(dat).owner[dtile as usize], 0);
+        // what the village feeds: paid again a turn later
+        let ts = t.w.at(b + 1, 5);
+        let _ = ts;
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.tplayer_rec(&a).unpaid_since, None, "paid again");
+        println!(
+            "Q-LP15-1 bite: food production {food_rate} milli/h; unpaid at {unpaid_at} tiles (bell {unpaid_since}); x1 would need {} tiles",
+            food_rate / 33 + 1
+        );
+    }
+
+    #[test]
+    fn a_captor_with_a_summary_conquers_again_in_the_keepers_shape() {
+        let _g = begin();
+        let mut t = T::new();
+        let (a, b) = (t.a.clone_member(), t.b.clone_member());
+        let (p1, p2) = (c(129, 0), c(129, -1));
+        t.w.at(2, 5);
+        let t1 = t.free_tiles(p1)[0];
+        assert_eq!(t.claim(&a, WALLET_A, p1, t1, None), Ok(()));
+        t.w.at(3, 5);
+        let t2 = t.free_tiles(p2)[0];
+        assert_eq!(t.claim(&a, WALLET_A, p2, t2, None), Ok(()));
+        let gen_b = t.w.w.holding(RIM, 1).try_borrow_data().unwrap()[H::GEN];
+        // B's host from B's first home takes `at`'s keep (what WideResolve records)
+        let capture = |t: &mut T, at: WideCoord| {
+            let ai = t.w.province(at);
+            let mut pd = ai.try_borrow_mut_data().unwrap();
+            let mut k = read_keep(&pd).unwrap().unwrap();
+            k.holder = b.faction;
+            k.changes += 1;
+            k.gen += 1;
+            frontier_abi::conquest_model::write_keep(&mut pd, &k).unwrap();
+            assert!(wl2::set_captor(
+                &mut pd,
+                &wl2::KeepCaptor {
+                    home: WideCoord::checked(RIM.p as i64, RIM.q as i64).unwrap(),
+                    site: 1,
+                    gen: gen_b,
+                    keep_gen: k.gen,
+                }
+            ));
+        };
+        // `merged`: B's Citizen and home writable, as in the keeper's
+        // message once B's settle precedes the conquest
+        let conquer = |t: &mut T, at: WideCoord, merged: bool| {
+            let (bh, _) = t.home(&b);
+            let accts = vec![
+                t.w.w.payer.clone(),
+                t.w.w.season.clone(),
+                with_writable(&t.w.province(at), false),
+                t.tprov(at),
+                t.tplayer(&a),
+                with_writable(&bh, merged),
+                with_writable(&b.citizen, merged),
+                t.tplayer(&b),
+                t.w.w.system.clone(),
+            ];
+            code(run_tx(&accts, &wix::TerritoryConquer.to_bytes()))
+        };
+        let tag_a = rd_u64(&a.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
+        let tag_b = rd_u64(&b.citizen.try_borrow_data().unwrap(), C::CITIZEN_TAG);
+        // the first conquest: B has no summary yet (created here); B's
+        // Citizen read-only, as the keeper sends it then — still lands
+        t.w.at(4, 5);
+        capture(&mut t, p1);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(conquer(&mut t, p1, false), Ok(()));
+        assert_eq!(t.tprov_rec(p1).owner[t1 as usize], tag_b);
+        assert_eq!(t.tplayer_rec(&b).tiles, 1);
+        // the second conquest by the same captor, the keeper's shape
+        t.w.at(5, 5);
+        capture(&mut t, p2);
+        assert_eq!(t.settle(&a), Ok(()));
+        // the captor not settled in this second: still refused
+        assert_eq!(conquer(&mut t, p2, true), Err(E::OutOfOrder as u32));
+        assert_eq!(t.settle(&b), Ok(()));
+        let citizen_before = b.citizen.try_borrow_data().unwrap().to_vec();
+        assert_eq!(conquer(&mut t, p2, true), Ok(()), "Q-VT-1: lands");
+        // the conquest writes nothing into the captor's Citizen
+        assert_eq!(
+            b.citizen.try_borrow_data().unwrap().to_vec(),
+            citizen_before
+        );
+        assert_eq!(t.tprov_rec(p2).owner[t2 as usize], tag_b);
+        assert_ne!(t.tprov_rec(p2).owner[t2 as usize], tag_a);
+        assert_eq!(t.tplayer_rec(&b).tiles, 2);
+        assert_eq!(t.tplayer_rec(&a).tiles, 0);
+        // nothing left to move
+        t.w.at(6, 5);
+        assert_eq!(t.settle(&a), Ok(()));
+        assert_eq!(t.settle(&b), Ok(()));
+        assert_eq!(conquer(&mut t, p2, true), Err(E::TooEarly as u32));
+    }
+
     #[test]
     fn the_territory_world_has_no_idle_home_release() {
         let _g = begin();
