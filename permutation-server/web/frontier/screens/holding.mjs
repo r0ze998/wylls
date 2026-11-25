@@ -31,7 +31,7 @@ import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
-import { TERRITORY_V1 } from '../flocalplay-territory.mjs';
+import { TERRITORY_V1, ownLandView } from '../flocalplay-territory.mjs';
 import { solText } from '../fdevnet-outpost.mjs';
 import { unreadHostPlaces } from './host.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
@@ -91,8 +91,14 @@ export function wideClaimModel(FS, m) {
   //  LOCAL wide worlds only: the devnet page's wallet-paid tile claim (#221) has not been played with these rows)
   const own = territory && local ? claimTargets({ p: h.p, q: h.q }, opened, lands).filter(t => held.has(`${String(t.p)},${String(t.q)}`) && terrOf(t)).map(t => ({ ...t, site: 0, territory: true, own: true })) : [];
   if (!targets.length && !own.length) return null;
+  // (territory-card, owner 2026-11-25 Q-PDT-1 (a), display only: the viewer's OWN land as its territory summary says —
+  //  controller refreshOwnLand, `FS.ownLand` of this world and Citizen —: tiles, the next tile's ore, upkeep per hour,
+  //  and while upkeep is unpaid the turns left before tiles are let go. Unread yet: no line, the old card)
+  const land = territory && FS.ownLand && Object.hasOwn(FS.ownLand, 'player') ? ownLandView(FS.ownLand.player, FS.nowBell ?? 0) : null;
+  // (the button is off below the NEXT tile's price too — it opened at 10 ore whatever the price, and the claim was then refused)
+  const tilePrice = land ? land.nextOre : TERRITORY_V1.cost.base;
   return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t) })), own, need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous,
-    territory, tileShort: ore < TERRITORY_V1.cost.base, devnet: !local && !!FS?.devnetTerritory, preview: !local && FS?.devnetTerritory && FS.tilePreview?.step === 'preview' ? FS.tilePreview : null };
+    territory, tileShort: ore < TERRITORY_V1.cost.base, land, tilePrice, tilePriceShort: ore >= TERRITORY_V1.cost.base && ore < tilePrice, tileOff: ore < tilePrice, devnet: !local && !!FS?.devnetTerritory, preview: !local && FS?.devnetTerritory && FS.tilePreview?.step === 'preview' ? FS.tilePreview : null };
 }
 /** (devnet-territory-dev) The tile claim's cost preview on a devnet territory world (fdevnet-territory.mjs): ore from the
  * first home's store, SOL from the wallet (the records the claim creates + the fee); the next press signs and sends. */
@@ -109,6 +115,21 @@ function tilePreviewBlock(pv, busy) {
     <button type="button" class="btn small" data-act="${act}"${raw(data)} ${raw(busy ? 'disabled' : '')}>${L`署名して取る`}</button>
     <button type="button" class="btn small ghost" data-act="territory-tile-cancel">${L`やめる`}</button></div>`;
 }
+/** (territory-card) Upkeep in food per hour from milli-food per hour: up to three decimals (one tile is 0.033). */
+const upkeepText = milli => fmtNum(milli / 1000, { maximumFractionDigits: 3 });
+/**
+ * (territory-card, owner Q-PDT-1 (a)) The card's lines about the viewer's own land: tiles owned, the next tile's price
+ * (whole ore), upkeep per hour (food from the first village), and while upkeep is unpaid a warning with the turns left
+ * until tiles are let go.
+ */
+export function ownLandBlock(land) {
+  if (!land) return '';
+  return html`<p id="hp-own-land"><strong>${L`あなたの土地`}</strong>: ${L`持っているマス ${fmtNum(land.tiles)}`} · ${L`次の1マス: 鉱石 ${fmtNum(land.nextOre)}`} · ${L`土地の維持費: 食料 ${upkeepText(land.upkeepMilliPerHour)}/時`}</p>
+    ${land.unpaid ? html`<p id="hp-own-land-unpaid" role="status"><span class="blocked">${land.letting
+      ? L`土地の維持費（本拠地の食料）が払えていません。遠いマスから1ターンに1つずつ手放されています。本拠地に食料が戻ると止まります。`
+      : land.tiles > 0 ? L`土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。あと ${fmtNum(land.turnsLeft)} ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。`
+        : L`土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。本拠地に食料が戻ると、また取れます。`}</span></p>` : ''}`;
+}
 function wideClaimCard(FS, m, busy) {
   const w = wideClaimModel(FS, m);
   if (!w) return '';
@@ -117,12 +138,14 @@ function wideClaimCard(FS, m, busy) {
     ${cardHead({ id: 'hp-wide-h', ic: 'flag', title: L`広い土地に村を出す（テスト）` })}
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
     <p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>
+    ${ownLandBlock(w.land)}
+    ${w.tilePriceShort ? html`<p class="muted"><span class="blocked">${L`鉱石が次の1マスの値段（${fmtNum(w.tilePrice)}）に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span></span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
     ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
-      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileShort ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}</span>
+      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
     ${tilePreviewBlock(w.preview, busy)}

@@ -188,6 +188,26 @@ export function decodeTerritoryPlayer(bytes) {
   };
 }
 
+/**
+ * (territory-card, owner 2026-11-25 08:56 Q-PDT-1 (a): display only) What the village card says of the viewer's OWN land,
+ * from the viewer's own territory summary `player` (decodeTerritoryPlayer; null = no record yet: no tile ever claimed)
+ * at bell `nowBell`, with the program's numbers:
+ *   tiles                the tiles owned (TILES)
+ *   nextOre              the ore of the next claim (claimCostV1: whole ore, the kernel's rounding down)
+ *   upkeepMilliPerHour   milli-food per hour (TerritoryPlayer::upkeep_per_hour: tiles × 33 + 16 × Σ excess)
+ *   unpaid               the record's unpaid flag (set and cleared by a settle — a claim or the world's keeper/runner)
+ *   turnsLeft            while unpaid: the turns until the first tile is let go — decay_after_bells (24) minus the bells
+ *                        since `unpaidSince` (kernel unpaid_effect: released once `late >= grace`), never below 0
+ *   letting              unpaid, the grace over and a tile left: one tile a turn returns, the farthest first
+ */
+export function ownLandView(player, nowBell) {
+  const tiles = Number(player?.tiles ?? 0), unpaid = !!player?.unpaid && Number.isInteger(player?.unpaidSince);
+  const grace = TERRITORY_V1.decayAfterBells;
+  const late = unpaid ? Math.max(0, Math.trunc(Number(nowBell) || 0) - player.unpaidSince) : 0;
+  return Object.freeze({ tiles, nextOre: claimCostV1(tiles), upkeepMilliPerHour: Number(player?.upkeepMilliPerHour ?? 0), unpaid,
+    turnsLeft: unpaid ? Math.max(0, grace - late) : null, letting: unpaid && late >= grace && tiles > 0 });
+}
+
 /** The Citizen tag the records name an owner by: the first 8 bytes of the Citizen address, little-endian. */
 export function citizenTagOf(citizen) {
   const b = Uint8Array.from(decode(citizen));
