@@ -5325,21 +5325,57 @@ async function revealTick() {
 
 // ------------------------------------------------------------------ territory on the map (territory-map, owner 2026-11-25 items 3/5/6)
 import { territoryProvinceAddress as territoryMapProvince, citizenTagOf as territoryMapTag } from './flocalplay-territory.mjs';
+import { heraldTerritoryOwners, TERRITORY_UNCHANGED } from './map/territorytiles.mjs';
 const TERRITORY_MAP_READ = 'frontier-local-play-act-wide-read-v1';
+/** (territory-map-2) Set once this page's herald has said it serves no territory route: a local world then reads through its relay. */
+let territoryHeraldOff = false;
 /**
- * The map's territory reads of a local wide world (map/territorytiles.mjs mountTerritoryTiles `reads`): `{read(addresses)
- * → [Uint8Array | null] | null, province(p, q) → the territory province record's address, ownTag}` — or null (no local
- * wide world, no wallet or Citizen, no play relay). The read is the relay's read-only account read (at most 16
- * addresses, program-owned accounts only): nothing is signed or sent. Which tiles the map then SHOWS is the fog's
- * (territorytiles.mjs territoryLand): the viewer's own always, another player's only in sight.
+ * (verify-pr240) The ETag of the last territory answer the reader took, and the sight it was taken under. The herald
+ * client keeps no answer, so a 304 only says "the same as the last one you filtered": it is asked for only while the
+ * sight (survey revision, fog, viewer, world) is the one the last full answer was filtered with — a new sight asks for
+ * the whole answer again, so a tile coming into sight is known without the page ever holding the tiles out of it.
+ */
+let territoryEtag = null, territoryEtagSight = null;
+/**
+ * The map's territory reads (map/territorytiles.mjs mountTerritoryTiles `reads`), or null (no wide world with player
+ * territory, no wallet or Citizen). (territory-map-2, owner 2026-11-25 12:04 Q-TM-4 (c)) The herald publishes the
+ * territory records: `{all(), ownTag}` reads `GET /h/world/wide/territory` (one GET for the world, ETag-revalidated;
+ * herald.mjs wideTerritory) — in a local wide world and on a devnet territory world alike. Only when that herald serves
+ * no such route (an older build: NotFound / WideWorldUnavailable) does a local world fall back to its relay's read-only
+ * account read (`{read(addresses), province(p, q), ownTag}`, at most 16 addresses, program-owned accounts only);
+ * a devnet page then reads nothing. Nothing is signed or sent. Which tiles the map then SHOWS is the fog's
+ * (territorytiles.mjs territoryLand): the viewer's own always, another player's in sight, or faded as last seen.
  */
 export function territoryMapReads() {
-  if (!localPlay?.wideLand || !localPlay?.seasonAddress || !localPlay?.programId || !FS.wallet || !FS.citizen) return null;
-  const g = localDepartGate();
-  if (!g?.ok) return null;
+  const local = !!(localPlay?.wideLand && localPlay?.seasonAddress && localPlay?.programId);
+  const pin = io.pinned();
+  const dev = !local && !localPlay && !!pin && !!devnetTerritoryNow();
+  if (!(local || dev) || !FS.wallet || !FS.citizen) return null;
   let ownTag = null;
   try { ownTag = territoryMapTag(viewerCitizen()); } catch { return null; }
-  const { seasonAddress, programId } = localPlay;
+  const seasonAddress = local ? localPlay.seasonAddress : pin.addresses?.season ?? null, programId = local ? localPlay.programId : pin.programId ?? null;
+  if (herald?.wideTerritory && !territoryHeraldOff) {
+    return {
+      ownTag,
+      all: async ({ fresh = false } = {}) => {
+        const sight = `${ownTag}|${seasonAddress}|${programId}|${!!FS.fog?.on}|${FS.survey?.rev ?? ''}`;
+        const r = await herald.wideTerritory({ etag: !fresh && territoryEtagSight === sight ? territoryEtag : null });
+        if (!r?.ok) {
+          if (r?.code === 'NotFound' || r?.code === 'WideWorldUnavailable') territoryHeraldOff = true;
+          // (a request with If-None-Match that did not get through — a cross-origin preflight refused —: ask plainly next time)
+          territoryEtag = null; territoryEtagSight = null;
+          return null;
+        }
+        if (r.notModified) return TERRITORY_UNCHANGED;
+        const out = heraldTerritoryOwners(r.json, { seasonAddress, ...(programId ? { program: programId } : {}) });
+        territoryEtag = out && r.etag ? r.etag : null; territoryEtagSight = territoryEtag ? sight : null;
+        return out;
+      },
+    };
+  }
+  if (!local) return null;
+  const g = localDepartGate();
+  if (!g?.ok) return null;
   return {
     ownTag,
     province: (p, q) => territoryMapProvince(seasonAddress, programId, p, q),

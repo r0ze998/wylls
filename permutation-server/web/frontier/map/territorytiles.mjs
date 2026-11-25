@@ -7,10 +7,14 @@
 //   3  Q-LP15-3 (b) / Q-W13T-2 (b) the viewer's own tiles are always in view (not hidden by the fog of war).
 //
 // Where the owners come from: the territory province record of a wide province ('wn', 672 B, 'PSFXWTN1'; frontier-abi
-// world_index/territory.rs TerritoryProvince: OWNER @104, 61 × u64 Citizen tags, 0 = nobody). The herald serves no
-// territory record (ws13-territory), so a local test world's page reads them through its play relay's read-only account
-// read (`frontier-local-play-act-wide-read-v1`, at most 16 addresses a request, program-owned accounts only, NOTHING is
-// signed or sent) — the same read the village card (territory-card) and the wide host already use.
+// world_index/territory.rs TerritoryProvince: OWNER @104, 61 × u64 Citizen tags, 0 = nobody). (territory-map-2, owner
+// 2026-11-25 12:04 Q-TM-4 (c)) The herald publishes them: `GET /h/world/wide/territory` (herald wide_territory.rs: every
+// captured record with an owned tile, as tile → Citizen tag; one answer per change, shared by every viewer, ETag/gzip).
+// The page reads that (`heraldTerritoryOwners`). Only a herald without the route (an older build: 404 / 503
+// WideWorldUnavailable) sends a local test world's page back to its play relay's read-only account read
+// (`frontier-local-play-act-wide-read-v1`, at most 16 addresses a request, program-owned accounts only, NOTHING is signed
+// or sent). The page keeps only the provinces `territoryCandidates` names (its tiles' reach, the land in sight) of what
+// it read, as before; the rest of the answer is dropped on arrival.
 //
 // Whose nation a tag is: a record names an owner by Citizen tag only (the first 8 bytes of the Citizen address, LE).
 // The page learns tag → nation from what it already has: the captured wide villages (Holding OWNER_CITIZEN @72, FACTION
@@ -20,7 +24,12 @@
 // FOG (map/fog.mjs, presentation only — every account is public on the chain): the viewer's own tiles are always drawn
 // (decision 3) and give sight of THEMSELVES (the tile, not its neighbours: `ownTileAnchors`, radius 0 — "always in view
 // (not hidden by fog)" says the tile itself; a wider sight would be a new rule, not asked); another player's tile is
-// drawn only while that tile is in sight now (survey level L3). Nothing of another player's land is remembered.
+// drawn while that tile is in sight now (survey level L3) — and (territory-map-2, owner 2026-11-25 12:04 Q-TM-1 (b)) a
+// tile seen before keeps the owner it had when it was last in sight, drawn FADED (map/fog.mjs "last-known": what the
+// viewer saw is kept, the live record only in sight). The memory is written only from tiles in sight
+// (`rememberTerritory`), kept per world and player on this device beside the fog's own (`territoryMemoryKey`), and a
+// tile in sight again shows its owner now (free → forgotten). Never-seen tiles stay hidden. The viewer's own tiles are
+// always current, so they are never remembered; a remembered tile the live record now names as the viewer's is dropped.
 //
 // Look (#205's national border, per tile): each owned tile washed in its nation's land colour, and round the union of a
 // nation's tiles its colour band with a dark seam on the edge, inside its land (wideland.mjs nationBands — the same
@@ -31,6 +40,8 @@ import { project, hexPoints } from '../../map.mjs';
 import { tileHex, ringOf, PROVINCE_TILES } from '../fgeo.mjs';
 import { NATION_LAND, NATION_DARK } from '../palette.mjs';
 import { L3 } from './survey.mjs';
+import { createFogMemory } from './fog.mjs';
+import { heraldTerritoryRecords } from '../flocalplay-territory.mjs';
 import { paintKeepMark } from './keeps.mjs';
 import { nationBands, cellsIn, cellGrow, PATH_CHUNK } from './wideland.mjs';
 
@@ -38,12 +49,18 @@ import { nationBands, cellsIn, cellGrow, PATH_CHUNK } from './wideland.mjs';
 export const TERRITORY_PROVINCE_BYTES = 672, OWNERS_AT = 104;
 /** The relay's read-only account read (gateway local-play-act.mjs LOCAL_ACT_WIDE_READ_SCHEMA / _MAX). */
 export const TERRITORY_READ_SCHEMA = 'frontier-local-play-act-wide-read-v1', TERRITORY_READ_MAX = 16;
+/** The herald's territory route (herald wide_territory.rs), and the largest answer the page takes (bytes). */
+export const TERRITORY_HERALD_PATH = '/h/world/wide/territory', TERRITORY_HERALD_MAX_BYTES = 4 * 1024 * 1024;
+/** How a remembered (last-seen, out of sight now) tile is drawn: its wash and border at these fractions of a current one's. */
+export const FADED = Object.freeze({ wash: 0.4, band: 0.4 });
 /** How often the land is read again (ms; a claim is at most one a turn, a turn at ×60 is 10 s), and the most provinces a read asks for. */
 export const TERRITORY_POLL_MS = 10_000, TERRITORY_MAX_PROVINCES = 160;
 /** How far (provinces) a claim reaches from a village or an owned tile (TERRITORY_V1.range): where the viewer's tiles can be. */
 export const CLAIM_REACH = 3;
 /** The value of a tile no one owns (or whose owner is not shown), and of one whose owner's nation is not known. */
 export const NOBODY = -1, UNKNOWN_NATION = 6;
+/** (verify-pr240) What `reads().all()` answers when the herald said 304: the world is as the last answer the reader took. */
+export const TERRITORY_UNCHANGED = Object.freeze({ unchanged: true });
 /** The colours of a player's land whose nation is not known. */
 export const UNKNOWN_LAND = '#9a9a92', UNKNOWN_DARK = '#4a4a44';
 /** The look of the tiles by level of detail (CSS px): `wash` the owned tile's fill alpha, `band`/`seam` the border's. */
@@ -67,6 +84,17 @@ export function territoryOwners(bytes) {
   const out = [];
   for (let i = 0; i < PROVINCE_TILES; i++) { const t = u64le(bytes, OWNERS_AT + 8 * i); out.push(t === 0n ? null : t.toString()); }
   return out;
+}
+
+const DEC_TAG = /^[1-9]\d{0,19}$/;
+/**
+ * The herald's territory answer (`GET /h/world/wide/territory`, herald wide_territory.rs) → Map "p,q" → 61 owners (Citizen
+ * tags as decimal strings, null = nobody), or null when it is not one (flocalplay-territory.mjs heraldTerritoryRecords:
+ * a wrong version, season, world or program — `pins` as far as the page knows them —, a tag or tile out of range).
+ */
+export function heraldTerritoryOwners(json, pins = {}) {
+  const recs = heraldTerritoryRecords(json, pins);
+  return recs ? new Map([...recs].map(([k, r]) => [k, r.owners])) : null;
 }
 
 /**
@@ -112,32 +140,84 @@ export function territoryCandidates({ cells = [], ownAt = [], anchors = [], sigh
 
 /**
  * Keeps the territory of the provinces `candidates()` names read in the background: `{now(), reload(), stop()}`.
- * `reads()` → `{read(addresses) → [Uint8Array | null], province(p, q) → address, ownTag}` or null (no local wide world, no
- * Citizen yet: nothing is read and the land is forgotten). `now()` → `{rev, owners: Map key → [tag | null] × 61, ownTag,
- * ownAt: [key], at}`. A read that fails keeps the last answer. `onChange()` runs when what was read changed. Never throws;
- * never signs or sends.
+ * `reads()` → `{all({fresh}) → Map key → owners | TERRITORY_UNCHANGED | null, ownTag}` (the herald's route: one GET for
+ * the whole world, of which only the candidates are kept and the answer dropped; TERRITORY_UNCHANGED — a 304 — keeps
+ * the state when the candidates and viewer are the same, else the whole answer is asked for again with `fresh`), or `{read(addresses) → [Uint8Array | null], province(p, q) → address, ownTag}` (the relay's
+ * account read, 16 a request), or null (no wide world, no Citizen yet: nothing is read and the land is forgotten).
+ * `now()` → `{rev, ownRev, owners: Map key → [tag | null] × 61, known, ownTag, ownAt: [key], read: [key], at}` (`read`:
+ * the provinces the last answer covered). A read that fails keeps the last answer. `onChange()` runs when what was
+ * read changed. Never throws; never signs or sends.
+ *
+ * (territory-map-2: no leak through the data path) `keep(p, q, tile, tag)` — the page's fog: whether the viewer may
+ * know who owns that tile now (in sight) — filters every answer as it arrives: the state keeps the owner of the
+ * viewer's own tiles and of the tiles `keep` admits, and nothing of the others (null, as a free tile). `known` (Map key
+ * → [tile]) names the tiles whose owner — or freedom — the state knows; without `keep` (no fog) every tile is known
+ * and `known` is null. The page reloads when its sight changes, so a tile coming into sight is read within moments.
  */
-export function mountTerritoryTiles({ reads = () => null, candidates = () => [], onChange = () => {}, setTimer = (f, ms) => setTimeout(f, ms), clearTimer = t => clearTimeout(t), everyMs = TERRITORY_POLL_MS } = {}) {
-  let state = { rev: 0, owners: new Map(), ownTag: null, ownAt: [], at: 0, read: 0 }, timer = null, stopped = false, busy = false, sig = '';
+export function mountTerritoryTiles({ reads = () => null, candidates = () => [], keep = null, onChange = () => {}, setTimer = (f, ms) => setTimeout(f, ms), clearTimer = t => clearTimeout(t), everyMs = TERRITORY_POLL_MS } = {}) {
+  // (`ownRev` moves only when the viewer's own tiles do — they are the survey's anchors, item 3 —; `rev` on any change)
+  let state = { rev: 0, ownRev: 0, owners: new Map(), known: null, ownTag: null, ownAt: [], read: [], at: 0 }, timer = null, stopped = false, busy = false, again = false, sig = '', ownSig = '';
   const later = ms => { if (stopped) return; if (timer) clearTimer(timer); timer = setTimer(tick, ms); };
-  const publish = (owners, ownTag, read) => {
+  /** One province's raw owners as the state may keep them: `{kept, known}`. */
+  const admit = (k, o, ownTag) => {
+    const [p, q] = k.split(',').map(Number), kept = new Array(PROVINCE_TILES).fill(null), known = [];
+    for (let i = 0; i < PROVINCE_TILES; i++) {
+      const t = o?.[i] ?? null;
+      let ok = t !== null && !!ownTag && t === ownTag;
+      if (!ok) { if (typeof keep !== 'function') ok = true; else { try { ok = !!keep(p, q, i, t); } catch { ok = false; } } }
+      if (ok) { known.push(i); kept[i] = t; }
+    }
+    return { kept, known };
+  };
+  const publish = (owners, ownTag, read = [], known = null) => {
     const ownAt = [...owners].filter(([, o]) => ownTag && o.includes(ownTag)).map(([k]) => k).sort();
-    const s = `${ownTag}|${[...owners].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, o]) => `${k}:${o.map(t => t ?? '').join(',')}`).join(';')}`;
+    const ks = known ? [...known].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, l]) => `${k}:${l.join('.')}`).join(';') : '*';
+    const s = `${ownTag}|${[...read].sort().join(';')}|${ks}|${[...owners].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, o]) => `${k}:${o.map(t => t ?? '').join(',')}`).join(';')}`;
     if (s === sig) { state = { ...state, at: Date.now(), read }; return; }
     sig = s;
-    state = { rev: state.rev + 1, owners, ownTag, ownAt, at: Date.now(), read };
+    const os = `${ownTag}|${ownAt.map(k => `${k}:${owners.get(k).map((t, i) => (t === ownTag ? i : '')).join(',')}`).join(';')}`;
+    const ownRev = os === ownSig ? state.ownRev : state.ownRev + 1;
+    ownSig = os;
+    state = { rev: state.rev + 1, ownRev, owners, known, ownTag, ownAt, at: Date.now(), read };
     try { onChange(); } catch { /* the page's own */ }
   };
+  const take = (keys, rawOf, ownTag) => {
+    const owners = new Map(), known = typeof keep === 'function' ? new Map() : null;
+    for (const k of keys) {
+      const o = rawOf(k);
+      const a = admit(k, Array.isArray(o) && o.length === PROVINCE_TILES ? o : null, ownTag);
+      if (a.kept.some(t => t !== null)) owners.set(k, a.kept);
+      if (known && a.known.length) known.set(k, a.known);
+    }
+    publish(owners, ownTag, keys, known);
+  };
   async function tick() {
-    if (stopped || busy) return;
+    if (stopped) return;
+    if (busy) { again = true; return; }
     busy = true;
     try {
       let r = null;
       try { r = reads(); } catch { r = null; }
-      if (!r) { if (state.owners.size || state.ownTag) { sig = ''; state = { rev: state.rev + 1, owners: new Map(), ownTag: null, ownAt: [], at: 0, read: 0 }; onChange(); } return; }
+      if (!r) { if (state.owners.size || state.ownTag) { sig = ''; ownSig = ''; state = { rev: state.rev + 1, ownRev: state.ownRev + 1, owners: new Map(), known: null, ownTag: null, ownAt: [], read: [], at: 0 }; onChange(); } return; }
       let keys = [];
       try { keys = candidates({ ownAt: state.ownTag === r.ownTag ? state.ownAt : [] }) ?? []; } catch { keys = []; }
       const owners = new Map();
+      if (typeof r.all === 'function') {
+        // (the herald's whole answer: only the candidates are kept — the land neither within the viewer's reach nor in sight is dropped here)
+        let all = await r.all();
+        if (stopped) return;
+        if (all === TERRITORY_UNCHANGED) {
+          // (verify-pr240: nothing of the answer is held anywhere but in this state, filtered — "unchanged" is enough only
+          //  for the same provinces and viewer; else the whole answer again, filtered under today's fog)
+          const same = state.ownTag === (r.ownTag ?? null) && keys.length === state.read.length && keys.every((k, i) => k === state.read[i]);
+          if (same) { state = { ...state, at: Date.now() }; return; }
+          all = await r.all({ fresh: true });
+          if (stopped) return;
+        }
+        if (!(all instanceof Map)) return; // (a failed read keeps the last answer)
+        take(keys, k => all.get(k) ?? null, r.ownTag ?? null);
+        return;
+      }
       for (let i = 0; i < keys.length; i += TERRITORY_READ_MAX) {
         const part = keys.slice(i, i + TERRITORY_READ_MAX);
         const addrs = part.map(k => { const [p, q] = k.split(','); return r.province(p, q); });
@@ -146,8 +226,8 @@ export function mountTerritoryTiles({ reads = () => null, candidates = () => [],
         if (!Array.isArray(got) || got.length !== part.length) return; // (a failed read keeps the last answer)
         part.forEach((k, j) => { const o = got[j] ? territoryOwners(got[j]) : null; if (o && o.some(t => t !== null)) owners.set(k, o); });
       }
-      publish(owners, r.ownTag ?? null, keys.length);
-    } catch { /* the relay did not answer: the last answer stays */ } finally { busy = false; later(everyMs); }
+      take(keys, k => owners.get(k) ?? null, r.ownTag ?? null);
+    } catch { /* the relay did not answer: the last answer stays */ } finally { busy = false; later(again ? 0 : everyMs); again = false; }
   }
   later(0);
   return {
@@ -172,56 +252,104 @@ export function ownTileAnchors(owners, ownTag) {
   return out;
 }
 
+// ------------------------------------------------------------------ last-seen owners (territory-map-2, Q-TM-1 (b))
+/** The device storage key of the viewer's remembered tile owners in one world: the fog's own key (map/fog.mjs
+ * fogMemoryKey — world, season and wallet) under its own prefix. null: nothing is stored (memory lasts as long as the page). */
+export const territoryMemoryKey = fogKey => (typeof fogKey === 'string' && fogKey.startsWith('ps-ffog:') ? `ps-fterr:${fogKey.slice('ps-ffog:'.length)}` : null);
+/** The memory of last-seen owners: map/fog.mjs createFogMemory (`use(key)`, `get(pk)`, `put(pk, snap)`, `save()`), a
+ * province's snapshot `{o: [[tile, tag], ...]}` — the tiles of OTHER players the viewer last saw owned there. */
+export const createTerritoryMemory = opts => createFogMemory(opts);
+/** A province's remembered owners from `mem` → Map tile → tag (empty when none). */
+export const rememberedOf = (mem, key) => new Map((mem?.get?.(key)?.o ?? []).filter(x => Array.isArray(x) && Number.isInteger(x[0]) && x[0] >= 0 && x[0] < PROVINCE_TILES && typeof x[1] === 'string' && DEC_TAG.test(x[1])));
+
+/**
+ * Writes what the viewer sees now into the memory (pure but for `mem`): for each province the last answer covered
+ * (`read`, `owners` as mountTerritoryTiles' state), each tile in sight now (`seen(p, q, tile)`, survey L3) is
+ * remembered with its owner now, or forgotten when it is free; a tile out of sight is left as it was. The viewer's own
+ * tiles (`ownTag`) are always drawn as they are now, so they are never remembered (and a remembered tile now the
+ * viewer's is dropped). `known` (the reader's: Map key → [tile], or null = all) — a tile in sight now that the last
+ * answer did not know (it came into sight since) is left as it was until the next read. → whether the memory changed.
+ */
+export function rememberTerritory(mem, { owners = new Map(), read = [], ownTag = null, seen = () => false, known = null } = {}) {
+  if (!mem?.put) return false;
+  let changed = false;
+  for (const k of new Set([...read, ...owners.keys()])) {
+    const [p, q] = String(k).split(',').map(Number);
+    if (!Number.isInteger(p) || !Number.isInteger(q)) continue;
+    const raw = owners.get(k) ?? null, m = rememberedOf(mem, k), before = JSON.stringify([...m].sort((a, b) => a[0] - b[0]));
+    const kn = known ? new Set(known.get(k) ?? []) : null;
+    for (let i = 0; i < PROVINCE_TILES; i++) {
+      const t = raw?.[i] ?? null;
+      if (t !== null && t === ownTag) { m.delete(i); continue; }
+      if (!seen(p, q, i) || (kn && !kn.has(i))) continue;
+      if (t === null) m.delete(i); else m.set(i, t);
+    }
+    const o = [...m].sort((a, b) => a[0] - b[0]);
+    if (JSON.stringify(o) === before || (!o.length && !mem.get(k))) continue;
+    if (mem.put(k, { o })) changed = true;
+  }
+  return changed;
+}
+
 /**
  * The land with its tiles' owners as the viewer may see them (pure): each cell of `land` (the wide land the map shows,
- * fogged under the fog) gets `tiles` ([NOBODY | nation 0–5 | UNKNOWN_NATION] × 61) and `mine` (the tiles the viewer
- * owns); the land gets `territory` `{tiles, mine, nations}` (counts) and `geo` (the tiles' hexes and rim sides by cell,
- * for paintTerritoryTiles). `fogged`: whether the fog is on; `seen(p, q, tile)` whether a tile is in sight now. The
- * viewer's own tiles are always shown; another's only in sight (and never under a fog page that has no vision yet:
- * `hidden`). Cells without an owned tile shown are passed as they are.
+ * fogged under the fog) gets `tiles` ([NOBODY | nation 0–5 | UNKNOWN_NATION] × 61), `mine` (the tiles the viewer
+ * owns) and `faded` (the tiles drawn from memory); the land gets `territory` `{tiles, mine, faded, nations}` (counts)
+ * and `geo` (the tiles' hexes and rim sides by cell, for paintTerritoryTiles). `fogged`: whether the fog is on;
+ * `seen(p, q, tile)` whether a tile is in sight now. The viewer's own tiles are always shown; another's in sight now,
+ * and under the fog, out of sight, the owner it had when last seen (`remembered(key)` → Map tile → tag: Q-TM-1 (b)),
+ * faded; never under a fog page that has no vision yet (`hidden`). `known` (the reader's, Map key → [tile] or null =
+ * all): a tile in sight that the last answer does not know yet shows its memory until it is read. Cells without an
+ * owned tile shown are passed as they are.
  */
-export function territoryLand(land, { owners = null, tagNation = new Map(), ownTag = null, viewer = null, fogged = false, hidden = false, seen = () => true } = {}) {
-  if (!land?.cells || !owners?.size) return land;
+export function territoryLand(land, { owners = null, tagNation = new Map(), ownTag = null, viewer = null, fogged = false, hidden = false, seen = () => true, remembered = null, known = null } = {}) {
+  const recall = fogged && !hidden && typeof remembered === 'function' ? remembered : null;
+  if (!land?.cells || (!owners?.size && !recall)) return land;
   const hexes = new Map(); // hexKey → nation (the union per nation, across provinces)
   const hk = (q, r) => `${q},${r}`;
   const shown = new Map(); // cell key → {tiles, mine}
-  let nTiles = 0, nMine = 0;
+  let nTiles = 0, nMine = 0, nFaded = 0;
   const nations = new Set();
   for (const c of land.cells) {
-    const o = owners.get(c.key);
-    if (!o) continue;
-    const tiles = new Array(PROVINCE_TILES).fill(NOBODY), mine = [];
+    const o = owners?.get(c.key) ?? null, mem = recall ? recall(c.key) : null, kn = known ? new Set(known.get(c.key) ?? []) : null;
+    if (!o && !mem?.size) continue;
+    const tiles = new Array(PROVINCE_TILES).fill(NOBODY), mine = [], faded = [];
     let any = false;
     for (let i = 0; i < PROVINCE_TILES; i++) {
-      const t = o[i];
-      if (t === null || t === undefined) continue;
-      const own = !!ownTag && t === ownTag;
-      if (!own && (hidden || (fogged && !seen(c.p, c.q, i)))) continue;
+      let t = o?.[i] ?? null, stale = false;
+      const own = t !== null && !!ownTag && t === ownTag;
+      if (!own && (hidden || (fogged && (!seen(c.p, c.q, i) || (kn && !kn.has(i)))))) {
+        // (out of sight: the owner when last seen, faded — never the record now; a tile never seen has none)
+        t = mem?.get(i) ?? null;
+        if (t === null || t === ownTag) continue;
+        stale = true;
+      } else if (t === null) continue;
       const n = own && nation(viewer) ? viewer : tagNation.get(t) ?? UNKNOWN_NATION;
       tiles[i] = nation(n) ? n : UNKNOWN_NATION;
       if (own) { mine.push(i); nMine++; }
+      if (stale) { faded.push(i); nFaded++; }
       const h = tileHex(c.p, c.q, i);
       hexes.set(hk(h.q, h.r), tiles[i]);
       nations.add(tiles[i]); nTiles++; any = true;
     }
-    if (any) shown.set(c.key, { tiles, mine });
+    if (any) shown.set(c.key, { tiles, mine, faded });
   }
   if (!shown.size) return land;
   const cells = land.cells.map(c => {
     const s = shown.get(c.key);
     if (!s) return c;
     // (each owned tile's hex in world px, and the sides of it where the land beyond is not the same nation's: the rim)
-    const geo = [];
+    const geo = [], fadedSet = new Set(s.faded);
     s.tiles.forEach((n, i) => {
       if (n === NOBODY) return;
       const h = tileHex(c.p, c.q, i), at = project(h.q, h.r), corners = hexPoints(at.x, at.y), rim = [];
       SIDE_STEP.forEach(([dq, dr], k) => { if (hexes.get(hk(h.q + dq, h.r + dr)) !== n) rim.push({ a: corners[k], b: corners[(k + 1) % 6] }); });
-      geo.push({ tile: i, nation: n, x: at.x, y: at.y, cx: c.x, cy: c.y, corners, rim });
+      geo.push({ tile: i, nation: n, faded: fadedSet.has(i), x: at.x, y: at.y, cx: c.x, cy: c.y, corners, rim });
     });
-    return { ...c, tiles: s.tiles, mine: s.mine, geo };
+    return { ...c, tiles: s.tiles, mine: s.mine, faded: s.faded, geo };
   });
   const byKey = new Map(cells.map(c => [c.key, c]));
-  return Object.freeze({ ...land, cells, byKey, territory: Object.freeze({ tiles: nTiles, mine: nMine, nations: [...nations].sort((a, b) => a - b) }), key: `${land.key}|tt:${nTiles}:${nMine}` });
+  return Object.freeze({ ...land, cells, byKey, territory: Object.freeze({ tiles: nTiles, mine: nMine, faded: nFaded, nations: [...nations].sort((a, b) => a - b) }), key: `${land.key}|tt:${nTiles}:${nMine}:${nFaded}` });
 }
 
 const landOf = n => (nation(n) ? NATION_LAND[n] : UNKNOWN_LAND);
@@ -243,31 +371,34 @@ const groupCache = new WeakMap();
  * `level` (wideland.mjs wideLevel): each tile washed in its nation's land colour, and (at the province and tile views)
  * each nation's border round the union of its tiles — its colour band and a dark seam, inside its land. From far the
  * cells are enlarged about their centre (wideland.mjs cellGrow), the tiles with them. `view` (the picture's world
- * corners, as wideland.mjs holdersInView) names the nations whose tiles stand in the picture: the legend's.
- * → `{tiles, fills, nations, mine}`.
+ * corners, as wideland.mjs holdersInView) names the nations whose tiles stand in the picture: the legend's. A tile
+ * drawn from memory (last seen, out of sight now: Q-TM-1 (b)) is painted at FADED of a current one's wash and border.
+ * → `{tiles, fills, nations, mine, faded}` (`faded`: remembered tiles in the picture).
  */
 export function paintTerritoryTiles(ctx, land, { seen, zoom = 1, level = 'world', view = null } = {}) {
   const look = TILE_LOOK[level];
-  if (!ctx?.fill || !look || !land?.territory) return { tiles: 0, fills: 0, nations: [], mine: 0 };
+  if (!ctx?.fill || !look || !land?.territory) return { tiles: 0, fills: 0, nations: [], mine: 0, faded: 0 };
   const cells = cellsIn(land, seen).filter(c => c.geo?.length);
-  if (!cells.length) return { tiles: 0, fills: 0, nations: [], mine: 0 };
+  if (!cells.length) return { tiles: 0, fills: 0, nations: [], mine: 0, faded: 0 };
   const grow = level === 'chart' || level === 'world' ? cellGrow(zoom) : 1, z = Math.max(zoom, 1e-9);
   let groups = groupCache.get(land);
   if (!groups) { groups = new Map(); groupCache.set(land, groups); }
   const gk = cells.map(c => c.key).join(';');
   let by = groups.get(gk);
   if (!by) {
+    // (one group per nation and freshness: a nation's current tiles, then its remembered ones — the rims are the union's)
     by = new Map();
-    for (const c of cells) for (const g of c.geo) { if (!by.has(g.nation)) by.set(g.nation, []); by.get(g.nation).push(g); }
+    for (const c of cells) for (const g of c.geo) { const k = g.nation * 2 + (g.faded ? 1 : 0); if (!by.has(k)) by.set(k, []); by.get(k).push(g); }
     if (groups.size > 4) groups.clear();
     groups.set(gk, by);
   }
-  let fills = 0, tiles = 0, mine = 0;
+  let fills = 0, tiles = 0, mine = 0, faded = 0;
   const inView = new Set();
   const inside = Array.isArray(view) && view.length >= 3 ? (x, y) => insideConvex(view, x, y) : () => true;
   ctx.save();
-  for (const [n, group] of [...by].sort((a, b) => a[0] - b[0])) {
-    ctx.fillStyle = landOf(n); ctx.globalAlpha = look.wash;
+  for (const [gk2, group] of [...by].sort((a, b) => a[0] - b[0])) {
+    const n = gk2 >> 1, old = (gk2 & 1) === 1;
+    ctx.fillStyle = landOf(n); ctx.globalAlpha = look.wash * (old ? FADED.wash : 1);
     for (let i = 0; i < group.length; i += PATH_CHUNK) {
       ctx.beginPath();
       for (const g of group.slice(i, i + PATH_CHUNK)) {
@@ -278,9 +409,13 @@ export function paintTerritoryTiles(ctx, land, { seen, zoom = 1, level = 'world'
       ctx.fill(); fills++;
     }
     tiles += group.length;
-    for (const g of group) if (!inView.has(n) && inside(g.x, g.y)) inView.add(n);
+    for (const g of group) {
+      const vis = inside(g.x, g.y);
+      if (vis && !inView.has(n)) inView.add(n);
+      if (vis && old) faded++;
+    }
     if (look.band > 0) {
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = old ? FADED.band : 1;
       for (const [style, width] of [[landOf(n), look.band], [darkOf(n), look.seam]]) {
         if (!(width > 0)) continue;
         const quads = bandsOf(group, width / z, gk);
@@ -296,7 +431,7 @@ export function paintTerritoryTiles(ctx, land, { seen, zoom = 1, level = 'world'
   ctx.globalAlpha = 1;
   ctx.restore();
   for (const c of cells) mine += c.mine?.length ?? 0;
-  return { tiles, fills, nations: [...inView].sort((a, b) => a - b), mine };
+  return { tiles, fills, nations: [...inView].sort((a, b) => a - b), mine, faded };
 }
 /** Whether the world point (x, y) lies inside the convex polygon `poly` ([{x, y}], either winding). */
 function insideConvex(poly, x, y) {

@@ -541,10 +541,15 @@ village stood, against the same world without the change (verify-pr236, land upk
 274), 54 trainings landed (24), 17 marches on keeps (1), 6 rim keeps taken (0), 30 tiles claimed (79), 4 wide villages
 (4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see none of the tiles. Each AI resident also **builds one mine first** (ai-early-mine, owner 2026-11-25 17:58): its village's first command is the
 same Build a player has (food 40, wood 80, stone 20; +6 ore an hour), once; not while a keep of its nation near it is
-under attack. Measured the same way (×60, `--ai 4`, 38.5 minutes after the player's village stood, same map, with and
-without the mine): ore an hour of the four AI villages 46 in all (before 22), 89 trainings landed (53), 21 marches on
-keeps (17), 9 keeps changed hands (7), 63 tiles claimed (31), **0 wide villages (4)** — with ore no longer short, the
-food goes to troops (60 a training) and the next village's cost is not saved in that time (open question Q-AEM-1). An external resident run with workstream ⑬'s
+under attack. And **until its first wide-land village is built it keeps no more than one host (300 troops)** (owner
+2026-11-25 20:03): at 300 troops — at home, in its hosts and on the march — it stops training, so its food and gold are
+saved for the village; it trains again only to replace troops it lost. Once the village is claimed it trains freely.
+Measured (verify-pr241; ×60, `--ai 4`, same map, with and without the two changes; 38.5 minutes after the player's
+village stood, in brackets the world without them): ore an hour of the four AI villages +6 each (48 in all against 22),
+39 trainings landed (52), 14 marches on keeps (17), 7 keeps changed hands (8), 92 tiles claimed (20), 1 wide village
+(3). At 54 minutes: 3 wide villages (4), the first about 30 minutes after the player's village (24), 2 wide-land keeps
+taken (0), 99 tiles (26), 53 trainings (64). With the mine alone and no troop limit the AI residents founded no wide
+village in that time. The AI's many tiles slow its saving: each tile's upkeep is paid in food. An external resident run with workstream ⑬'s
 client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game

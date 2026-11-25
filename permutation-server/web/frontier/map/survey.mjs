@@ -135,6 +135,20 @@ export function buildSurvey({ ringsOpen = 1, seeded = null, showAll = false, anc
     return tiles.get(hexKey(q, r)) ?? (open(q, r) ? L1 : L0);
   };
   const provinces = new Map();
+  // the provinces a surveyed tile lies in or next to (made once, on the first ask): any other open province has nothing
+  // surveyed in it or on its rim, so it is the chart without reading its 61 tiles and their rims (a whole world's far
+  // view asks this of every province, again each time the survey is made anew: fix-opening-view-perf)
+  let touched = null;
+  const touchedOf = () => {
+    if (touched) return touched;
+    touched = new Set();
+    for (const k of tiles.keys()) {
+      const h = keyHex(k), at = locate(h.q, h.r);
+      touched.add(`${at.p},${at.q}`);
+      for (const [dq, dr] of DIRECTIONS) { const n = locate(h.q + dq, h.r + dr); touched.add(`${n.p},${n.q}`); }
+    }
+    return touched;
+  };
   const province = (p, q) => {
     const pk = `${p},${q}`;
     const hit = provinces.get(pk);
@@ -142,6 +156,7 @@ export function buildSurvey({ ringsOpen = 1, seeded = null, showAll = false, anc
     let v;
     if (!provOpen(p, q)) v = { kind: 'cloud', max: L0, min: L0, sig: '0', sig2: '0' };
     else if (showAll) v = { kind: 'sight', max: L3, min: L3, sig: '3', sig2: '3' };
+    else if (!touchedOf().has(pk)) v = { kind: 'chart', max: L1, min: L1, sig: '1', sig2: '1' };
     else {
       let max = L1, min = L3, near = false, rim = L3, sig = '', sig2 = '';
       for (let i = 0; i < PROVINCE_TILES; i++) {
