@@ -53,3 +53,25 @@ export function tilePreviewFresh(pv, { wallet, target, tile, now = Date.now() })
 
 /** The decided per-tile upkeep (milli-food per hour) at distance `dist`, for the preview's line. */
 export const tileUpkeepMilli = dist => TERRITORY_V1.upkeep.flat + TERRITORY_V1.upkeep.perDistance * Math.max(0, dist - TERRITORY_V1.upkeep.freeDistance);
+
+/**
+ * (territory-card, owner Q-PDT-1 (a)) The viewer's own land for the village card on a devnet territory world: the
+ * gateway's read-only word (POST /gw/f/devnet-play/act/context, LAND_SUMMARY_SCHEMA, `{schema, wallet}`) — ONE read of
+ * the wallet's own territory summary, nothing signed, nothing kept. A gateway older than this answers LocalActInvalid:
+ * the card then shows no land line, as before.
+ */
+export const LAND_SUMMARY_SCHEMA = 'frontier-devnet-play-territory-summary-v1';
+const u32ok = v => Number.isSafeInteger(v) && v >= 0 && v <= 0xffffffff;
+/** The gateway's land summary `ctx` for `wallet`, checked (false when any field is missing or of another wallet). */
+export function landSummaryOk(ctx, wallet) {
+  return !!ctx && typeof ctx === 'object' && ctx.schema === LAND_SUMMARY_SCHEMA && ctx.wallet === wallet && typeof ctx.player_present === 'boolean'
+    && u32ok(ctx.tiles) && typeof ctx.excess_sum === 'string' && /^(0|[1-9][0-9]{0,15})$/.test(ctx.excess_sum) && typeof ctx.unpaid === 'boolean'
+    && (ctx.unpaid ? u32ok(ctx.unpaid_since) : ctx.unpaid_since === null) && (ctx.player_present || (ctx.tiles === 0 && ctx.excess_sum === '0' && !ctx.unpaid));
+}
+/** A checked land summary as the record view `ownLandView` reads (null: no record yet). */
+export function landOfSummary(ctx) {
+  if (!ctx.player_present) return null;
+  const u = TERRITORY_V1.upkeep;
+  return Object.freeze({ tiles: ctx.tiles, unpaid: ctx.unpaid, unpaidSince: ctx.unpaid ? ctx.unpaid_since : null, excessSum: Number(ctx.excess_sum),
+    upkeepMilliPerHour: ctx.tiles * u.flat + u.perDistance * Number(ctx.excess_sum) });
+}
