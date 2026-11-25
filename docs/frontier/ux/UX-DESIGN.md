@@ -42,7 +42,7 @@ Nothing here is a rule of the game and nothing is secret: every account is publi
 
 | Level | Meaning | Drawn as |
 |---|---|---|
-| L0 cloud sea | ring not opened (the land does not exist yet) | existing cloud and bank sprites |
+| L0 cloud sea | ring not opened (the land does not exist yet) | ~~existing cloud and bank sprites~~ **bare paper of the sheet since 2026-11-25** (owner: no clouds round the map's edge; `map/cloudsea.mjs` `SEA_DRAWN = false`, the legend row reads 未開 / "Not open yet"). Wherever this document or §11.3 speaks of the cloud sea as drawn, read bare paper. |
 | L1 chart | opened ring, never in the viewer's sight | parchment with a sepia hex lattice and small drawn terrain glyphs (mountain, forest, water, plain) from the public ring seeds; **no** villages, hosts, names, nation wash, borders, battle marks |
 | L2 surveyed | seen before, not in sight now | the painted tile, muted (saturation about 0.35, brightness about 0.7); villages with nation and tier; no hosts of other players, no live activity |
 | L3 in sight | within sight of the viewer's villages and hosts now | everything, alive |

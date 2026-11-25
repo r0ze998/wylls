@@ -42,7 +42,7 @@ import { visibleProvinces } from './viewport.mjs';
 export { visibleProvinces } from './viewport.mjs';
 import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
-import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaExtent, seaField, seaResFar } from './cloudsea.mjs';
+import { CloudSea, DRIFT_SPEED, SEA_BAKES, SEA_DRAWN, seaExtent, seaField, seaResFar } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, centreReach, chartZoomMin, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
@@ -2525,7 +2525,8 @@ export class FrontierMap {
     const diving = !!this.dive && !this.dive.calm && (!!prep || this.cam.moving);
     const seaZoom = diving ? this.cam.view.zoom * DIVE.sea0 : this.cam.moving ? Math.min(this.cam.tween?.from?.zoom ?? z, this.cam.view.zoom) : z;
     const sea = (g, part) => {
-      if (coarse) return { pending: 0, rough: 0, seen: false };
+      // (SEA_DRAWN off: no cloud is laid at all, the sheet's bare paper lies past the opened land; map/cloudsea.mjs)
+      if (coarse || !SEA_DRAWN) return { pending: 0, rough: 0, seen: false };
       // (cloud is soft: it is made for the screen's own pixels, not for the finer ground canvas of a screen of one device px per px)
       const r = this.sea.paint(g, { box: seen, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part, bakes: rush ? SEA_BAKES * 3 : SEA_BAKES, budget: prep === 'ask' ? -1 : prep ? DIVE.sea : null });
       if (r.pending) { pending += r.pending; this.dirty = true; }
@@ -2564,7 +2565,7 @@ export class FrontierMap {
       // (while the zoom travels the sea's drifting light is left out of the kept picture, which lasts a second: the
       // light is half the sea's cost)
       const zooming = this.cam.moving && Math.abs(Math.log(this.cam.drawn.zoom / this.cam.view.zoom)) > 1e-4;
-      const r = this.sea.paint(g, { box: a.box, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null });
+      const r = SEA_DRAWN ? this.sea.paint(g, { box: a.box, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null }) : { pending: 0, rough: 0 };
       rough += r.rough ?? 0;
       return { whole: this.art.misses === had && !r.pending && cells.length === 0 };
     } }) : null;
