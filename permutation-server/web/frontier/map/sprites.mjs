@@ -64,8 +64,10 @@ export const ORE_RADIUS = 2;
 export const ORE_TERRAIN_MAX = 30;
 
 const BASE = new URL('../art/', import.meta.url);
-/** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. */
-export const FAR_RES = Object.freeze([0.1, 0.2, 0.36, 0.56, 0.8, 1]);
+/** The far bitmaps' resolutions (device px per world px) and their cache budget in pixels. (0.03 and 0.05: the opening
+ * world view of a 129-ring world shows about 13,800 provinces at zoom 0.02; made at 0.1, the smallest step before, only
+ * 3,029 of them fitted the budget and the rest were painted again every frame — fix-opening-view-perf.) */
+export const FAR_RES = Object.freeze([0.03, 0.05, 0.1, 0.2, 0.36, 0.56, 0.8, 1]);
 export const FAR_PIXELS = 24_000_000;
 /** The ground bitmaps of the tile view: their cache budget in pixels, and how many may be painted in one frame. */
 export const GROUND_PIXELS = 12_000_000;
@@ -184,8 +186,39 @@ export function paintControlWash(ctx, entries, outlineOf, lod = 'world') {
   ctx.restore();
 }
 
+/** How far (world px, between province centres) a realm can reach from a province with a holding or a held tile:
+ * two rings of provinces (a site's reach, 4 tiles, and the pocket next to it, stay inside the first one). */
+export const REALM_REACH = 2.05 * PROVINCE_CIRCUMRADIUS * Math.sqrt(3);
+/**
+ * The far entries a realm can touch: the provinces with a holding (a settled site with a nation's owner) or a held
+ * territory tile, and every province within REALM_REACH of one. The rest have nothing to wash, rim or close, so
+ * buildRealms leaves them out and draws the same picture; with none at all (the world view before joining: nothing
+ * surveyed, 11,280 provinces) it reads no tile at all. (The world view of a big world asks for every province at
+ * once; reading the 61 tiles of each whenever the view moved held the opening's view at 2 frames a second.)
+ */
+export function realmNeighbourhood(entries) {
+  const seeds = [];
+  for (const e of entries) {
+    let held = false;
+    if (e.rec && e.sites) for (let j = 0; j < e.sites.length && !held; j++) held = e.rec.sites?.[j] === 1 && e.rec.owners?.[j] < 6;
+    if (!held && e.territoryMode && e.territory?.owners) for (const f of e.territory.owners) if (Number.isInteger(f) && f >= 0 && f < 6) { held = true; break; }
+    if (held) seeds.push(provincePixel(e.p, e.q));
+  }
+  if (!seeds.length) return [];
+  const cell = new Map(), at = (x, y) => `${Math.floor(x / REALM_REACH)},${Math.floor(y / REALM_REACH)}`;
+  for (const c of seeds) { const k = at(c.x, c.y); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(c); }
+  const r2 = REALM_REACH * REALM_REACH;
+  return entries.filter(e => {
+    const c = provincePixel(e.p, e.q), gx = Math.floor(c.x / REALM_REACH), gy = Math.floor(c.y / REALM_REACH);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const s of cell.get(`${gx + dx},${gy + dy}`) ?? []) if ((s.x - c.x) ** 2 + (s.y - c.y) ** 2 <= r2) return true;
+    return false;
+  });
+}
+
 /** The realms of a set of far entries: per faction a fill path and a border path, and the holdings' marks. */
-export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = {}) {
+export function buildRealms(all, { grow = 0, levelAt = null, own = null } = {}) {
+  // (only the entries a realm can touch: the picture is the same, map/sprites.mjs realmNeighbourhood)
+  const entries = realmNeighbourhood(all);
   // `own`: a Set "P,Q,tile" of the viewer's own villages: they keep their mark; their land is the viewer's own, painted
   // in its true size by map/ownland.mjs (a quarter of the colour and one rim). Here it belongs to the nation's realm
   // without being washed or rimmed a second time: the realm's wash stops at it and the realm's rim does not run
@@ -269,6 +302,23 @@ export function buildRealms(entries, { grow = 0, levelAt = null, own = null } = 
 }
 
 export const farRes = pxPerWorld => FAR_RES.find(r => r >= pxPerWorld * 0.85) ?? FAR_RES[FAR_RES.length - 1];
+/** The side (device px) of a far bitmap made at `res` (sprites.mjs farBitmap: the province and a tile's reach round it). */
+export const farSize = res => Math.max(8, Math.ceil(2 * (PROVINCE_CIRCUMRADIUS * 1.08 + RADIUS * 1.6) * res));
+/** Steps below FAR_RES that only a view too big for FAR_PIXELS falls back to (farResFor). */
+export const FAR_RES_FALLBACK = Object.freeze([0.015, 0.02]);
+/**
+ * The step for a far view of `count` bitmaps: farRes, or the largest smaller step at which `count` bitmaps fit
+ * FAR_PIXELS. (A view whose bitmaps do not fit drops and paints them again every frame: the opening world view of a
+ * 129-ring world on a screen of 2 device px per CSS px wants step 0.05 for its ~14,200 provinces, ~29M px against 24M, and stayed
+ * at 0.6 frames a second — verify-pr239. Like a tile renderer that lowers its detail when its memory budget is spent,
+ * e.g. CesiumJS's memory-adjusted screen space error.)
+ */
+export function farResFor(pxPerWorld, count = 0) {
+  const steps = [...FAR_RES_FALLBACK, ...FAR_RES];
+  let i = steps.indexOf(farRes(pxPerWorld));
+  while (i > 0 && count * farSize(steps[i]) ** 2 > FAR_PIXELS) i--;
+  return steps[i];
+}
 /** How much a far bitmap made for zoom `z` (CSS px per world px) softens its ground: 1 from afar, almost 0 next to the tile view. */
 export const farSoftness = z => { const k = Math.max(0, Math.min(1, (0.46 - z) / 0.28)); return 0.08 + 0.92 * k * k * (3 - 2 * k); };
 /** Sprite sets by tile radius (px); anchor = the tile centre on the ground plane. */
@@ -506,7 +556,7 @@ export class SpriteArt {
     if (typeof document === 'undefined' && typeof OffscreenCanvas === 'undefined') return null;
     const c = provincePixel(e.p, e.q);
     const half = PROVINCE_CIRCUMRADIUS * 1.08 + RADIUS * 1.6;
-    const size = Math.max(8, Math.ceil(2 * half * res));
+    const size = farSize(res);
     const box = { x: c.x - half, y: c.y - half, w: 2 * half, h: 2 * half };
     const canvas = () => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(size, size) : Object.assign(document.createElement('canvas'), { width: size, height: size }));
     const world = g => g.setTransform(res, 0, 0, res, (half - c.x) * res, (half - c.y) * res);
@@ -703,7 +753,11 @@ export class SpriteArt {
     const svOf = e => (limited && e.fog !== 'unopened' ? survey.province(e.p, e.q) : null);
     // `passing`: the camera is on its way through this zoom: a province that has any bitmap keeps it for now,
     // and what must be painted is painted for `resZoom` (the further of here and where the camera is going)
-    const res = farRes(resZoom * dpr);
+    // (the step all of them fit FAR_PIXELS at: a province surveyed in part keeps two bitmaps, its land and the copy
+    // with the survey over it)
+    let count = 0;
+    for (const e of entries) count += svOf(e)?.kind === 'mixed' ? 2 : 1;
+    const res = farResFor(resZoom * dpr, count);
     const t0 = now();
     let deferred = 0;
     let stale = false;

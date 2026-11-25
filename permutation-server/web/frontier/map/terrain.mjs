@@ -3,7 +3,7 @@
 // `generate_province`) from its ring's seed, exactly as the program does.
 // The module loads only when a tile-LOD frame first asks for terrain (web
 // design §10: the wasm loads lazily; province LOD works without it); every
-// answer is cached (LRU, 256 provinces, §11). A missing module or seed
+// answer is cached (LRU, TERRAIN_CACHE below; design §11 still says 64). A missing module or seed
 // gives null, and the map stays at province detail for that province.
 import { kernel as loadKernel, TERRAIN } from '../wasm.mjs';
 import { kernelFile } from '../fconquest.mjs';
@@ -17,11 +17,15 @@ import { ringOf } from '../fgeo.mjs';
  * found its answer gone and made it again (11,829 asks a frame). 1,024 holds all of the widest ring.
  *
  * A map frame that asks for MORE than this (a full world of many rings, seen from far) is not served by the number
- * alone: what a frame asks for is not dropped while that frame, or the one after it, still stands (`terrainOf.frame`),
- * so the store grows past TERRAIN_CACHE for as long as such frames are drawn, up to TERRAIN_CACHE_MAX. Only a frame
- * that asks for more than TERRAIN_CACHE_MAX provinces can still drop and make again; no view of the map does today.
+ * alone: what the last two frames asked for (`terrainOf.frame`) is not dropped, by an ask inside a frame or outside
+ * one, so the store grows past TERRAIN_CACHE for as long as such frames are drawn: up to TERRAIN_CACHE_MAX, or up to
+ * what those two frames asked for, whichever is more, but never past TERRAIN_CACHE_CEIL. Only a frame that asks for
+ * more than TERRAIN_CACHE_CEIL provinces can still drop and make again. (The opening world view of a 129-ring world
+ * asks for about 13,800 provinces: kept at 8,192, every frame dropped and made terrain again, 0.3 frames a second —
+ * fix-opening-view-perf. The far view is never wider than the coarse chart's edge, map/fmap.mjs COARSE_CHART_PX:
+ * about 41,000 provinces on a 1280×800 page.)
  */
-export const TERRAIN_CACHE = 1024, TERRAIN_CACHE_MAX = 8192;
+export const TERRAIN_CACHE = 1024, TERRAIN_CACHE_MAX = 8192, TERRAIN_CACHE_CEIL = 65536;
 /**
  * Inside one frame of the map (`terrainOf.frame()`, called by map/fmap.mjs draw; over when the frame's task ends): new
  * terrain is made for TERRAIN_FRAME_MS at most, and for TERRAIN_FRAME_MIN provinces at least. A province past that
@@ -46,6 +50,8 @@ export function createTerrain({ now = () => globalThis.performance?.now?.() ?? D
   // (which frame asked for a province last: `serial` counts the map's frames; -1 outside one)
   const askedIn = new Map();
   let serial = 0, waited = 0;
+  // (how many provinces this frame and the last one asked for: the store keeps at least that many)
+  let askedNow = 0, askedLast = 0;
   // (the frame's budget: `frame` is non-null from terrainOf.frame() until the microtask after it, the end of that task)
   let frame = null, again = false;
   const ensure = () => {
@@ -55,6 +61,7 @@ export function createTerrain({ now = () => globalThis.performance?.now?.() ?? D
   };
   const terrainOf = (p, q) => {
     const key = `${p},${q}`;
+    if (frame && askedIn.get(key) !== serial) askedNow++;
     if (cache.has(key)) { const v = cache.get(key); cache.delete(key); cache.set(key, v); if (frame) askedIn.set(key, serial); return v; }
     if (!k) { ensure(); return null; }
     const seed = seedOf(ringOf(p, q));
@@ -77,12 +84,17 @@ export function createTerrain({ now = () => globalThis.performance?.now?.() ?? D
     if (frame) askedIn.set(key, serial);
     // the least recently asked for goes first; never one this frame or the last one asked for (it would be made
     // again at once, and the next would go in its place: a frame that asks for more than `limit` never ends)
-    if (cache.size > limit) {
-      const hard = cache.size > Math.max(limit, TERRAIN_CACHE_MAX);
+    // (`room`: `limit` more than the last two frames asked for, so an ask from outside a frame keeps its own answers
+    // too; `cap`: past it the oldest goes whoever asked for it)
+    const framed = askedNow + askedLast, cap = Math.max(limit, Math.min(TERRAIN_CACHE_CEIL, Math.max(TERRAIN_CACHE_MAX, framed))), room = Math.min(cap, limit + framed);
+    if (cache.size > room) {
+      const hard = cache.size > cap;
       for (const old of cache.keys()) {
-        if (cache.size <= limit) break;
+        if (cache.size <= room) break;
         if (old === key) break;
-        if (!hard && frame && (askedIn.get(old) ?? -1) >= serial - 1) continue;
+        // (an ask from outside a frame — a panel, the viewer's own land — keeps them too: dropping the far view's
+        // provinces under it emptied the store to TERRAIN_CACHE, and the next frame made them all again)
+        if (!hard && (askedIn.get(old) ?? -Infinity) >= serial - 1) continue;
         cache.delete(old); askedIn.delete(old);
         if (hard) break;
       }
@@ -91,7 +103,7 @@ export function createTerrain({ now = () => globalThis.performance?.now?.() ?? D
   };
   terrainOf.status = () => (k ? 'ready' : failed ? 'unavailable' : 'loading');
   /** A frame of the map begins: until this task ends, new terrain is made within the frame's budget. */
-  terrainOf.frame = () => { if (frame) return; serial++; frame = { made: 0, spent: 0 }; Promise.resolve().then(() => { frame = null; }); };
+  terrainOf.frame = () => { if (frame) return; serial++; askedLast = askedNow; askedNow = 0; frame = { made: 0, spent: 0 }; Promise.resolve().then(() => { frame = null; }); };
   /** How many asks so far had no answer only because their frame had made its share (a picture painted across one is not final). */
   terrainOf.waited = () => waited;
   /** (tests) How many provinces are kept. */
