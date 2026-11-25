@@ -104,7 +104,7 @@ export default {
   '足りない {0}': n => plural(n, '{0} short', '{0} short'),
   '建設中 {0}/{1}': 'Building {0}/{1}',
   '建設中': 'Under way',
-  '訓練はすぐに終わり、兵は控えに入ります': 'Training is immediate: the troops join the reserve',
+  '訓練はすぐに終わり、兵は控えに入ります': 'Training is instant; the troops join the reserve',
   '控えの兵を軍勢にして、州のマスに集めます': 'Turn reserve troops into a host and form it on a tile of the province',
   '{0}が満杯：これ以上は増えません。使いましょう': '{0} full: nothing more is stored. Spend it',
   '前の収穫から {0}（上の数字にもう入っています）。押すと蔵の記録に納めます': 'Since the last harvest: {0} (already counted in the numbers above). Press to write it into the stores\' record',

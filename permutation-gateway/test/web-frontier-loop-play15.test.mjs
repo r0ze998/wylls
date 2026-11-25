@@ -76,7 +76,7 @@ test('verify-pr223: a tile button that is off for lack of ore says so on the car
   assert.equal(wideClaimModel(world(), { holding: home, have: have.map((v, i) => (i === ore ? 9 : v)) }).tileShort, true);
   assert.equal(wideClaimModel(world(), { holding: home, have: have.map((v, i) => (i === ore ? 10 : v)) }).tileShort, false);
   const src = web('frontier/screens/holding.mjs');
-  assert.match(src, /\$\{w\.territory && w\.tileShort \? html`<p class="muted"><span class="blocked">\$\{L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`\}<\/span><\/p>` : ''\}/);
+  assert.match(src, /\$\{w\.territory && w\.tileShort \? html`<p class="muted"><span class="blocked" id="hp-tile-why-ore">\$\{L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`\}<\/span><\/p>` : ''\}/);
   setLang('en');
   try { assert.equal(L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`, 'You have less than 10 ore, so "Claim a tile" cannot be pressed for now.'); } finally { setLang('ja'); }
 });
