@@ -130,6 +130,28 @@ export function homesOf(lines) {
 }
 
 const ring = (p, q) => Math.max(Math.abs(p), Math.abs(q), Math.abs(p + q));
+
+/**
+ * (fix-loop16, owner 2026-11-25 12:04 Q-LP16-2 (b)) `--near` (launcher `--operator-near operator-near-v1`, play-local
+ * `--ai-near`), TEST-ONLY, wide worlds: resident 0 joins no nation until the PLAYER has a first village, then takes the
+ * village site of ANOTHER nation that is nearest to it — so tiles of another nation come to stand within an
+ * expedition's reach of the player's start (loop-play16: the AI-free nations' rim sites neighbour only each other, and
+ * no other nation's tile was ever within the road's 4 provinces). No rule changes: the choice of a nation and a site.
+ */
+export const OPERATOR_NEAR_MODE = 'operator-near-v1';
+const hexDistance = (a, b) => { const dp = a.p - b.p, dq = a.q - b.q; return Math.max(Math.abs(dp), Math.abs(dq), Math.abs(dp + dq)); };
+/**
+ * The near resident's choice (pure): among `homes` (`[{p, q, nation}]`, homesOf) of every nation but the player's
+ * (`playerFaction`), the province nearest to the player's village `village` `{p, q}` — ties: the lower nation, then p, q.
+ * → `{nation, p, q, distance}`, or null (no village yet, or no home of another nation).
+ */
+export function nearChoice(homes, village, playerFaction) {
+  const v = village && Number.isSafeInteger(Number(village.p)) && Number.isSafeInteger(Number(village.q)) ? { p: Number(village.p), q: Number(village.q) } : null;
+  if (!v || !Number.isInteger(playerFaction)) return null;
+  const best = (homes ?? []).filter(h => h.nation !== playerFaction).map(h => ({ nation: h.nation, p: h.p, q: h.q, distance: hexDistance(h, v) }))
+    .sort((a, b) => a.distance - b.distance || a.nation - b.nation || a.p - b.p || a.q - b.q)[0];
+  return best ? Object.freeze(best) : null;
+}
 /** Every heartland site of `faction`, nearest ring first (`outward`: farthest first, the wide world's rim), then by place: `[{p, q, site}]` (sites 0-11; the program decides which exist). */
 export function homeCandidates(homes, faction, { outward = false } = {}) {
   return (homes ?? []).filter(h => h.nation === faction)
@@ -222,7 +244,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
     const tried = new Set(memory.triedHomes);
     // (wide play: a filed rim request is settled by the world's runner at its turn's end: wait for it)
     if ((memory.ticketUntil ?? 0) > memory.decisions) return { wait: true, why: 'a rim village request is waiting for its turn to settle' };
-    const next = (memory.war ? warHomeCandidates(homes, view.faction, memory.index) : homeCandidates(homes, view.faction, { outward: !!wide })).find(h => !tried.has(`${h.p},${h.q},${h.site}`));
+    // (fix-loop16, `--near`: the chosen province beside the player's village first, site by site; then the usual order)
+    const nearFirst = memory.near?.home && view.faction === memory.near.home.nation ? Array.from({ length: 12 }, (_, site) => ({ p: memory.near.home.p, q: memory.near.home.q, site })) : [];
+    const next = [...nearFirst, ...(memory.war ? warHomeCandidates(homes, view.faction, memory.index) : homeCandidates(homes, view.faction, { outward: !!wide }))].find(h => !tried.has(`${h.p},${h.q},${h.site}`));
     if (!next) return { wait: true, why: 'no untried heartland site of this nation' };
     // (wide play: past the heartland — a settled rim province — a first village is a one-site request, FileTicket: the
     //  program's PlaceHome names no province past the Season's base r_max)

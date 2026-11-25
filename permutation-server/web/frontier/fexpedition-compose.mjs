@@ -212,14 +212,16 @@ export function editOutbound(fs, ctx, action, value) {
   if (!s?.source) return false;
   if (action === 'step') {
     if (!/^[0-5]$/.test(String(value))) return false;
-    if (s.directions.length >= 32) { s.error = 'PathTooLong'; return false; }
+    // (fix-loop16, LP16-6: `stepRefused` — the step the road's limit refused; `error` is worked out again at every draw
+    //  (rebuild), so the refusal was never on the card: more presses did nothing and no line said why)
+    if (s.directions.length >= 32) { s.error = 'PathTooLong'; s.stepRefused = 'PathTooLong'; return false; }
     const directions = [...s.directions, Number(value)];
     // Refuse a fifth entered province without replacing the last sound geometric route.
     try { traceWideDirections({ world: s.source.world, origin: s.source.origin, directions }); }
-    catch (e) { s.review = null; s.error = e.code ?? 'RouteGeometry'; return false; }
-    s.directions = directions;
-  } else if (action === 'undo') s.directions = s.directions.slice(0, -1);
-  else if (action === 'reset') s.directions = [];
+    catch (e) { s.review = null; s.error = e.code ?? 'RouteGeometry'; if (s.error === 'PathTooLong' || s.error === 'PathProvinces') s.stepRefused = s.error; return false; }
+    s.directions = directions; s.stepRefused = null;
+  } else if (action === 'undo') { s.directions = s.directions.slice(0, -1); s.stepRefused = null; }
+  else if (action === 'reset') { s.directions = []; s.stepRefused = null; }
   else if (action === 'arriveBell') s.arriveBell = String(value);
   else if (action === 'stance' && /^[0-3]$/.test(String(value))) s.stance = Number(value);
   else if (action === 'retreat' && RETREAT_CHOICES.some(x => x.id === value)) s.retreat = value;

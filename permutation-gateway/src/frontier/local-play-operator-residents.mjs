@@ -46,7 +46,7 @@ import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mj
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf, wideMarchDue } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf, wideMarchDue, nearChoice } from './local-play-operator-policy.mjs';
 import { createWideMarch } from './local-play-operator-wide-march.mjs';
 import { createWideHost } from './local-play-operator-wide-host.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
@@ -168,7 +168,7 @@ export function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i += 2) {
     const k = argv[i]?.startsWith('--') ? argv[i].slice(2) : null;
-    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide', 'lane', 'goals'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
+    if (!k || !['count', 'relay-ports', 'herald', 'homes', 'cadence-ms', 'max-acts', 'max-refusals', 'min-gap-ms', 'nations', 'keys-dir', 'war', 'wide', 'lane', 'goals', 'near'].includes(k) || o[k] !== undefined || argv[i + 1] === undefined) throw new Error(`bad argument ${argv[i]}`);
     o[k] = argv[i + 1];
   }
   if (o.war !== undefined && o.war !== OPERATOR_WAR_MODE) throw new Error(`--war must be exactly ${OPERATOR_WAR_MODE}`);
@@ -198,7 +198,9 @@ export function parseArgs(argv) {
     if (!Array.isArray(wide) || !wide.length || wide.length > 4096 || !wide.every(t => t && /^-?[0-9]{1,19}$/.test(String(t.p)) && /^-?[0-9]{1,19}$/.test(String(t.q)))) throw new Error('--wide');
     wide = Object.freeze(wide.map(t => Object.freeze({ p: String(t.p), q: String(t.q) })));
   }
-  return { count, ports, herald: o.herald, homes, war, ...(o.goals !== undefined ? { goals: o.goals } : {}), ...(o.lane !== undefined ? { lane: o.lane } : {}), ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
+  // (fix-loop16, `--near <the player's PUBLIC address>`, TEST-ONLY, only with `--wide` and without `--nations`: nearChoice)
+  if (o.near !== undefined && (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(o.near) || !wide || nations)) throw new Error('--near');
+  return { count, ports, herald: o.herald, homes, war, ...(o.near !== undefined ? { near: o.near } : {}), ...(o.goals !== undefined ? { goals: o.goals } : {}), ...(o.lane !== undefined ? { lane: o.lane } : {}), ...(wide ? { wide } : {}), ...(nations ? { nations } : {}), ...(o['keys-dir'] !== undefined ? { keysDir: o['keys-dir'] } : {}), cadenceMs: num('cadence-ms', D.cadenceMs), maxActs: num('max-acts', D.maxActs), maxRefusals: num('max-refusals', D.maxRefusals), minGapMs: num('min-gap-ms', D.minGapMs) };
 }
 
 /** PR #62's relay answer: this resident already acted in this bell (re-exported from resident-turns.mjs). */
@@ -241,6 +243,19 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   if (!war) {
     const allow = r.budget.allow(t, turnBell);
     if (!allow.ok) return { resident: r.index, wallet: r.key.address, step: 'budget', outcome: allow.stopped ? 'stopped' : 'later', why: allow.why };
+  }
+  // (fix-loop16, `--near`: this resident has no nation until the player's first village is seen; then nearChoice names
+  //  its nation and its province, and its claims head toward the player's village)
+  if (r.memory.near && !r.memory.near.home) {
+    let theirs = null;
+    try { const pm = await deps.read(r.memory.near.wallet); theirs = deps.view ? deps.view(pm) : residentView(pm, (kind, bytes) => decodePrefix(kind, bytes, { profile: 2 })); } catch { theirs = null; }
+    const c = theirs?.holding ? nearChoice(homes, theirs.holding, theirs.faction) : null;
+    if (!c) return { resident: r.index, wallet: r.key.address, step: 'near', outcome: 'wait', why: 'waiting for the player\'s first village (joins the nearest other nation then)', test_only: true };
+    r.memory.near.home = { nation: c.nation, p: c.p, q: c.q };
+    r.memory.faction = c.nation;
+    r.memory.heading = { toward: { p: String(theirs.holding.p), q: String(theirs.holding.q) } };
+    return { resident: r.index, wallet: r.key.address, step: 'near', outcome: 'chosen', nation: c.nation, home: `${c.p},${c.q}`, player_village: `${theirs.holding.p},${theirs.holding.q}`, distance: c.distance,
+      why: `the nearest village site of another nation is ${c.distance} province(s) from the player's village: join that nation and ask for that site`, test_only: true };
   }
   let me;
   try { me = await deps.read(r.key.address); } catch (e) { return { resident: r.index, wallet: r.key.address, step: 'read', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 80) }; }
@@ -431,7 +446,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
   for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(s, () => { summary(s); stop.abort(s); });
   let keys;
   try { keys = Array.from({ length: o.count }, (_, index) => (o.keysDir ? keptTestKey(o.keysDir, index) : memoryTestKey())); } catch (e) { process.stderr.write(`operator residents: ${e.message}\n`); return 64; }
-  residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: createResidentMemory(index, o.nations?.[index], { war: o.war }),
+  residents = Array.from({ length: o.count }, (_, index) => ({ index, key: keys[index], port: o.ports[index], memory: { ...createResidentMemory(index, o.nations?.[index], { war: o.war }), ...(o.near && index === 0 ? { near: { wallet: o.near, home: null } } : {}) },
     budget: createOperatorBudget({ maxActs: o.maxActs, maxRefusals: o.maxRefusals, minGapMs: o.minGapMs }), identity: null, rulesetHash: null }));
   residents.forEach(r => { r.signer = pageShapedSigner(r.key); r.origin = `http://127.0.0.1:${r.port}`; });
   print(JSON.stringify({ schema: OPERATOR_RESIDENTS_SCHEMA, mode: OPERATOR_RESIDENTS_MODE, test_only: true, keys: o.keysDir ? 'TEST keys kept in the persisted world\'s private keys dir (0600 files, 0700 dir); never printed' : 'memory-only TEST keys, made by this process, never written', wallets: residents.map(r => r.key.address), ...(o.war ? { war: OPERATOR_WAR_MODE } : {}) }));
@@ -450,7 +465,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     }
   }
   if (stop.signal.aborted) return 0;
-  print(JSON.stringify({ step: 'ready', residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, relay: r.origin, faction: r.memory.faction })) }));
+  print(JSON.stringify({ step: 'ready', residents: residents.map(r => ({ resident: r.index, wallet: r.key.address, relay: r.origin, faction: r.memory.near && !r.memory.near.home ? null : r.memory.faction, ...(r.memory.near ? { near: true } : {}) })) }));
   const posts = new Map(residents.map(r => [r.origin, relayPost(globalThis.fetch, a => { r.lastRefusal = a; })]));
   const postFor = r => posts.get(r.origin);
   const deps = {

@@ -109,8 +109,8 @@ test('the territory line counts only this village\'s province and states the bon
   setLang('en');
   try {
     const t = String(renderLandChip({ claimed: 3, tiles: 4, bonusPct: 6 }));
-    assert.match(t, /Claimed in this province: 3 tiles · production \+6%/);
-    assert.match(String(renderLandChip({ claimed: 1, tiles: 8, bonusPct: 0.16 })), /Claimed in this province: 1 tile · production \+0\.16%/);
+    assert.match(t, /Fields in this province: 3 tiles · production \+6%/);
+    assert.match(String(renderLandChip({ claimed: 1, tiles: 8, bonusPct: 0.16 })), /Fields in this province: 1 tile · production \+0\.16%/);
     assert.doesNotMatch(t, /[\u3040-\u30ff\u4e00-\u9fff]/, 'no Japanese in the English line');
     assert.doesNotMatch(t, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
   } finally { setLang('ja'); }
@@ -131,18 +131,18 @@ test('land claimed in other provinces the map has loaded is said apart, and the 
   assert.match(ja, /ほかの州 3 マス/);
   assert.match(ja, /data-land-far="3"/);
   assert.match(ja, /title="地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。"/);
-  assert.doesNotMatch(ja, /この州で獲得/, 'no home line without a home record');
+  assert.doesNotMatch(ja, /この州の耕地/, 'no home line without a home record');
   assert.equal(renderLandChip(null, { tiles: 0, provinces: 0 }), '', 'nothing anywhere: no chip');
   // village land out there is not "claimed"; the home province never counts as elsewhere
   const province = { siteMirror: [{ state: 1, faction: 0 }] };
   FS.provinces.set('2,0', { province, land: parseLand(record({ owners: { 30: 0, 31: 0 }, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
   assert.deepEqual(landElsewhere(FS, h, 0), far, 'home is not elsewhere');
   const both = String(renderLandChip(landSummary(FS, h, 0), far));
-  assert.ok(both.indexOf('この州で獲得') >= 0 && both.indexOf('この州で獲得') < both.indexOf('ほかの州'), 'home line first, then the far part');
+  assert.ok(both.indexOf('この州の耕地') >= 0 && both.indexOf('この州の耕地') < both.indexOf('ほかの州'), 'home line first, then the far part');
   setLang('en');
   try {
     const en = String(renderLandChip(landSummary(FS, h, 0), far));
-    assert.match(en, /Claimed in this province: 1 tile · production \+2%/);
+    assert.match(en, /Fields in this province: 1 tile · production \+2%/);
     assert.match(en, /Other provinces: 3 tiles/);
     // eb6cebe9 reworded the tooltip to say what the chip counts (only the provinces the map has loaded)
     assert.match(en, /title="Counts only the other provinces the map has loaded \(test world\)\. It can change as you move the map\."/);
@@ -174,13 +174,13 @@ test('the chip says what the land bonus pays in an hour, by the program\'s own y
   FS.provinces.set('2,0', { province, land: parseLand(record({ owners: { 30: 0, 31: 0, 32: 0, 33: 0 }, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
   const s = landSummary(FS, { p: 2, q: 0, production: town }, 0);
   assert.deepEqual(s, { claimed: 3, tiles: 4, bonusPct: 6, perHour: 11 });
-  assert.match(String(renderLandChip(s)), /この州で獲得 3 マス · 生産 \+6%（毎時 \+11）/);
+  assert.match(String(renderLandChip(s)), /この州の耕地 3 マス · 生産 \+6%（毎時 \+11）/);
   assert.doesNotMatch(String(renderLandChip({ ...s, perHour: 0 })), /毎時/);
   assert.doesNotMatch(String(renderLandChip({ ...s, perHour: null })), /毎時/);
   setLang('en');
   try {
     const en = String(renderLandChip(s));
-    assert.match(en, /Claimed in this province: 3 tiles · production \+6% \(\+11\/h\)/);
+    assert.match(en, /Fields in this province: 3 tiles · production \+6% \(\+11\/h\)/);
     assert.doesNotMatch(en, /[\u3040-\u30ff\u4e00-\u9fff]/);
   } finally { setLang('ja'); }
 });

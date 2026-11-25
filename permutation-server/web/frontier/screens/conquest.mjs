@@ -370,7 +370,7 @@ export function renderReach(FS) {
   // (the keeps to defend come first, under their own heading; then the other nations' keeps under theirs)
   return html`<section class="conquest-reach hpanel" aria-labelledby="conquest-reach-title">
     ${defends.length || far.length ? html`<h4 class="kr-defend-title" id="conquest-defend-title">${L`他国が占拠を進めている、あなたの国の砦`}</h4><ul class="list kr-rows kr-rows-defend" aria-labelledby="conquest-defend-title">${defends.map(defendRow)}${far.map(farRow)}</ul>` : ''}
-    ${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4><ul class="list kr-rows kr-rows-held" aria-labelledby="conquest-held-title">${held.map(heldRow)}${wideHeld.map(wideRow)}</ul>` : ''}
+    ${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている砦（自分の国のもの以外）`}</h4><ul class="list kr-rows kr-rows-held" aria-labelledby="conquest-held-title">${held.map(heldRow)}${wideHeld.map(wideRow)}</ul>` : ''}
     <h4 id="conquest-reach-title">${L`あなたの軍が届く他国の砦`}</h4>
     ${!r ? html`<p class="muted">${L`届く砦を調べています…`}</p>` : !r.ok ? html`<p class="muted">${clientText(r.code)}</p>` : html`
       ${r.home ? (waits.length ? html`${renderWaits(FS, waits)}<p class="muted">${L`そのあいだは、村からの道のりで調べています。`}</p>` : html`<p class="muted">${L`出発できる戦闘部隊がいないため、村からの道のりで調べています。`}</p>`) : ''}

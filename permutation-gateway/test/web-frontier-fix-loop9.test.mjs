@@ -314,6 +314,6 @@ test('LP9-2 (国と領土, live finding): a wide keep the expedition holds is li
   assert.deepEqual(expeditionKeeps({ marches: [exp({ outcome: 'taken' })] }), [], 'taken: the nation\'s own keep now');
   assert.deepEqual(expeditionKeeps({ marches: [exp(null)] }), [], 'not followed (not on a keep)');
   const c = src('screens/conquest.mjs');
-  assert.ok(c.includes('${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている他国の砦`}</h4>'));
+  assert.ok(c.includes('${held.length || wideHeld.length ? html`<h4 class="kr-held-title" id="conquest-held-title">${L`あなたの軍勢が着いている砦（自分の国のもの以外）`}</h4>'));
   assert.equal(typeof renderReach, 'function');
 });

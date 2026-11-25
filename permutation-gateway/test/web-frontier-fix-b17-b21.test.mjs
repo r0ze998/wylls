@@ -279,7 +279,7 @@ test('B21: the banner\'s plain line in both languages; the page wires it beside 
   assert.doesNotMatch(launcherLostText(), JP);
   assert.equal(endedBannerView().ended, true);
   const app = src('app.mjs');
-  assert.match(app, /    if \(!FS\.worldEnded && FS\.launcherLost\) Object\.assign\(v, launcherLostBannerView\(\)\);/, 'an ended world\'s own banner stays first');
+  assert.match(app, /    if \(!FS\.worldEnded && FS\.launcherLost\) Object\.assign\(v, launcherLostBannerView\(\{ kept: FS\.localPlay\?\.wideLand \|\| FS\.localPlay\?\.clockScale \? false : undefined \}\)\);/, 'an ended world\'s own banner stays first');
   assert.match(app, /launcherWatch = createLauncherWatch\(\{ onLost: \(\) => launcherLost\(true\), onBack: \(\) => launcherLost\(false\) \}\);/);
   assert.match(app, /  if \(r\.ok\) launcherWatch\?\.readOk\(\);/);
   assert.equal(app.split('readFailed(').length - 1, 1, 'the launcher is still asked from one place only, after a failed read');
