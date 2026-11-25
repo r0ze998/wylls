@@ -480,7 +480,8 @@ is about villages; a tile claim is instant.
 
 **The AI residents** claim tiles too (the same rules and prices): the tile under each village they found, and one more
 from time to time while they save for the next village (verify-pr206-209, ×60, `--ai 4`: 52 tiles after about 180
-turns, none refused). Under the fog you see none of it.
+turns, none refused). Under the fog you see none of it. An external resident run with workstream ⑬'s client (§11)
+claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
 days without an order, longer than the test world takes orders (§4).
@@ -836,6 +837,13 @@ The world's operator gives it no privilege and never sees its key. The page show
    read tools, and a link is the resident's own (its wallet signs the link statement). `--no-mcp` leaves it off. It runs as long as
    the script (across worlds: when a world's time runs out it waits for the next one) and stops with everything on Ctrl-C.
 
+   In a `--wide` world the server has one more read tool, **`get_territory_status`** (ws13-territory): the connected
+   resident's own land (§4.1) as that player sees it — its tiles, the next claim's price in ore, its upkeep in food per
+   hour, whether upkeep is unpaid, the claims used this turn, and for each province a claim can reach its tiles as
+   own / free / taken / unseen. Fog of war (§5): free and taken are said only for tiles in the resident's sight; a tile
+   out of sight is `unseen` (it may be free or another player's). The server still sends nothing: this tool's extra
+   read is the page's own read-only account read on the world's relay.
+
 3. Press start in your page as usual, then start the resident (it waits for your world if it is early):
 
    ```sh
@@ -857,6 +865,14 @@ The world's operator gives it no privilege and never sees its key. The page show
      --key /path/to/resident.json --dir /abs/path/resident-state [--goal village-first|surplus-use] [--nation 0-5] \
      [--mcp http://127.0.0.1:<port>/mcp]
    ```
+
+   In a `--wide` world this resident also plays **its own land** (§4.1, the same rules and prices as you): before it
+   claims a wide village it claims the tile under that village's site (`"order":"TerritoryClaim"` in its log; one claim
+   a turn, and its one action a turn), then the village on its own tile, and afterwards one more tile next to its land
+   from time to time. It buys such a growth tile only from ore it does not need — the ore beyond its build plan, its
+   reserve and one training hundred — at most one every 6 turns, up to 24 tiles, and only while its land's upkeep
+   stays within a tenth of its first village's food per hour. (These four are the resident's own pace, not rules of the
+   world: the operator AI residents buy a tile whenever the ore covers it, and in loop-play15 they then failed to train.)
 
    Its decisions go to `<dir>/decisions.jsonl` (one JSON line per step) and its memory to `<dir>/state.json`. A restarted
    resident follows its last order by its signature and never acts twice in a turn. `touch <dir>/HALT` pauses it.

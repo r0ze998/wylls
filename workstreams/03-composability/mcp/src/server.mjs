@@ -13,7 +13,7 @@ import { AGENT_PRICE_NOT_READ, prepareNotice } from './confirm.mjs';
 import { LocalReceiptPort, assertReceiptPort, WS04_UNQUERYABLE, readViaOf, ws04ActAfterRead, ws04ActAfterFailedRead } from './receipt-port.mjs';
 import { budgetOf, refusalOf } from './budget-port.mjs';
 import { KINDS, SETTLE_OUTCOME, RAID_CHOICE, caravanEvent, cargoOf, placeOfLog } from './events.mjs';
-import { COOP_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, READ_ONLY_INSTRUCTIONS, TOOLS } from './tools.mjs';
+import { COOP_TOOL, TERRITORY_TOOL, REQUEST_ID, RUN_ID, SERVER_INSTRUCTIONS, READ_ONLY_INSTRUCTIONS, TOOLS } from './tools.mjs';
 import { toolNamed, unknownToolText } from './dispatch.mjs';
 
 import { PROTOCOL_VERSIONS } from './protocol.mjs'; // (2026-11-20) its own module: the public server imports it without this graph
@@ -870,15 +870,37 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return fail(code, String(r.why ?? r.status), { retryable, cooperation: r });
   }
 
+  /**
+   * get_territory_status (ws13-territory; only on the read-only local-play server with the page origin): the owner's own
+   * land as that player sees it (local-play-territory.mjs). No arguments; reads only.
+   */
+  const territoryOn = readOnly && game.territoryRead === true && typeof game.territory === 'function';
+  async function territory(principal, args) {
+    if (args !== undefined && args !== null && (typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length)) return fail('BadRequest', 'get_territory_status takes no arguments: the owner is this connection\'s');
+    let t;
+    try { t = await game.territory(principal); } catch (e) { return gameFail(e); }
+    const v = t.view, milli = n => (Number.isFinite(n) ? n / 1000 : null);
+    const head = { owner: principal.owner, asOf: new Date(t.now * 1000).toISOString(), turn: v.bell ?? null, firstHome: { p: t.home.p, q: t.home.q, site: t.home.site }, wideVillages: t.villages };
+    if (v.on !== true) return ok({ ...head, on: v.on, why: v.why });
+    return ok({ ...head, on: true, rule: v.rule,
+      own: { tiles: v.own.tiles, where: v.own.list.map(x => ({ p: x.p, q: x.q, tile: x.tile, upkeepFoodPerHour: milli(x.upkeepMilliFoodPerHour) })), whereComplete: v.own.listComplete,
+        nextClaimOre: v.own.nextClaimOre, firstHomeOre: t.ore === null ? null : Math.floor(t.ore), upkeepFoodPerHour: milli(v.own.upkeepMilliFoodPerHour), firstHomeFoodPerHour: t.foodPerHour,
+        unpaid: v.own.unpaid, unpaidSinceTurn: v.own.unpaidSinceBell, tilesReturnFromTurn: v.own.decayFromBell, claimsThisTurn: v.own.claimsThisTurn, claimsPerTurn: v.own.claimsPerTurn },
+      claim: { canAskNow: t.claim.ok, why: t.claim.why },
+      provinces: v.provinces.map(x => ({ p: x.p, q: x.q, provincesFromFirstHome: x.distance, reach: x.reach, tileUpkeepFoodPerHour: milli(x.tileUpkeepMilliFoodPerHour), upkeepFromVillage: x.upkeepVillage,
+        keepTile: x.keepTile, own: x.own, free: x.free, taken: x.taken, unseen: x.unseen, sites: x.sites })),
+      fog: 'free / taken are said only for tiles in the owner\'s sight; unseen tiles may be free or another player\'s. Own tiles and the land\'s layout (sites, the keep\'s tile) are always said.' });
+  }
+
   const all = { get_connection: connection, get_village_status: status, check_resource_shortfall: shortfall, prepare_caravan: prepare, send_caravan: send, get_operation_status: opStatus, get_run_status: runStatus, list_operations: listOps,
-    ...(coop ? { get_cooperation_status: cooperation } : {}) };
+    ...(coop ? { get_cooperation_status: cooperation } : {}), ...(territoryOn ? { get_territory_status: territory } : {}) };
   // (2026-11-18, ⑤ option B) `readOnly`: the observation server of a local-play world (bin/wylls-mcp-local-play.mjs).
   // Only tools annotated readOnlyHint, and not prepare_caravan (a plan for a send this server cannot make), are listed
   // AND dispatched: a write tool's name is an unknown tool there. Off (the default): every tool, as before.
   const readable = t => t.annotations?.readOnlyHint === true && t.name !== 'prepare_caravan';
-  const tools = readOnly ? Object.fromEntries(Object.entries(all).filter(([n]) => readable([...TOOLS, COOP_TOOL].find(t => t.name === n) ?? {}))) : all;
+  const tools = readOnly ? Object.fromEntries(Object.entries(all).filter(([n]) => readable([...TOOLS, COOP_TOOL, TERRITORY_TOOL].find(t => t.name === n) ?? {}))) : all;
   // What tools/list answers agrees with what tools/call dispatches: the cooperation tool only when it is on.
-  const listed = readOnly ? Object.freeze((coop ? [...TOOLS, COOP_TOOL] : TOOLS).filter(readable)) : coop ? Object.freeze([...TOOLS, COOP_TOOL]) : TOOLS;
+  const listed = readOnly ? Object.freeze([...(coop ? [...TOOLS, COOP_TOOL] : TOOLS), ...(territoryOn ? [TERRITORY_TOOL] : [])].filter(readable)) : coop ? Object.freeze([...TOOLS, COOP_TOOL]) : TOOLS;
 
   /** One JSON-RPC message for `principal` (null: unauthenticated) → the response (null for a notification). */
   async function handle(msg, principal) {

@@ -15,7 +15,7 @@ person's session key — is **not built**.
 | Piece | Who runs it | What it does |
 |---|---|---|
 | `permutation-gateway/src/frontier/local-play-launcher.mjs --external-residents <address>[,<address>]` | the world's operator | admits up to two **public addresses**; each new world gives each one the newcomer set-up a second person gets: the player's own funding amount (fees and rent only), a relay pinned to that wallet (payer = actor = sole signer), and a public world proxy of its own |
-| `bin/wylls-mcp-local-play.mjs` | the world's operator | the ③ MCP server, **read-only**: only `wylls.read`, only read tools, a link is the resident's own (`agentId` = owner), nothing is sent anywhere but GETs to the world's public proxy |
+| `bin/wylls-mcp-local-play.mjs` | the world's operator | the ③ MCP server, **read-only**: only `wylls.read`, only read tools, a link is the resident's own (`agentId` = owner), nothing goes anywhere but reads of the world's public proxy (GETs; in a `--wide` world `get_territory_status` also uses the page's read-only account read on the relay: the resident's own land, tiles and upkeep, other tiles only in its sight) |
 | `examples/external-resident/agent.mjs` | **you** | the reference resident: key → discover → observe (herald + MCP) → decide → sign → submit → follow |
 | `examples/external-resident/rule.mjs` | **you** | the "mind": a fixed offline rule. **Replace this with your own AI.** |
 
