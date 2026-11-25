@@ -717,6 +717,12 @@ pub(super) async fn phase(
         before.released + 1,
         "the tile released by decay"
     );
+    // the page after the decay (upkeep-decay-prep): its own land read shows 0 tiles; stills of the card and the map
+    let after_decay = driver_step(sync, alive, "after-decay", json!({}), 360).await;
+    assert_eq!(
+        after_decay["own"]["tiles"], 0,
+        "the page shows the land gone: {after_decay:#}"
+    );
     // keeper A's own word
     run(r);
     tokio::time::sleep(Duration::from_secs(4)).await;
@@ -739,6 +745,7 @@ pub(super) async fn phase(
         "second_conquest": conquest2, "second_conquest_txs": second_conquest_txs,
         "after_conquest": {"page_tiles": p3.tiles, "captor_tiles": cap.tiles},
         "unpaid_since_bell": unpaid_since, "page_refusal": refusal,
+        "after_decay_page": after_decay,
         "qlp17_b": {"land_upkeep_milli_per_hour": land, "home_net_food_milli_per_hour": net, "short_bells_still_unpaid": short_bells, "food_taken_milli_approx": taken},
         "decay": decay, "dist": {"village_tile": d_v},
         "territory_ops_by_kind": all, "keeper_status_territory": status, "verifier": verifier,
