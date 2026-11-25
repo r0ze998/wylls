@@ -21,8 +21,9 @@ first wide village (#236, #241 → §4.1), and `--ai-near` puts one beside you (
 plays its own land (#227 → §11); what loop-play15 and loop-play16 found is fixed (#223, #225, #237 → §3 step 6, §4, §4.1,
 §12); the first, whole-world view of the map is fast again (#239). What is left: §8.
 When the food cannot pay a turn's land upkeep, the food the first village holds is now taken and the land stays unpaid
-(#243, owner decision Q-LP17-1 (b) → §4.1 step 6). Open when this was written, and so not described here: #245 (three
-page fixes, and more guide text for that rule: how it goes turn by turn, and the refusal table).
+(#243, owner decision Q-LP17-1 (b) → §4.1 step 6; how it goes turn by turn and the refusal table: #245). Also #245: the
+Train form says a part hundred costs a whole hundred, a tile claim refused for the turn limit or unpaid upkeep has no
+"Try again", and the join card says its two deadlines to ten minutes ("about 1 h 40 min left").
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
@@ -506,7 +507,6 @@ this section describes what the program does today, and none of it is a promise 
 6. **When the food cannot pay.** The food in your first village is taken (all of it, never more than the upkeep owed),
    and your land counts as unpaid from that turn (owner decision Q-LP17-1 (b), 11-25 21:22;
    before it nothing was taken, so the next turn's food paid a whole turn and the land never stayed unpaid):
-
    - at once: you cannot claim tiles (the refusal is in the table below);
    - after 24 unpaid turns (**4 minutes at ×60**, 16 minutes at `--speed 15`; **4 hours at 1×**): your **farthest** tile
      goes back to unowned, **one tile each turn** (one every 10 s at ×60; one every 10 minutes at 1×), for as long as it
@@ -520,9 +520,16 @@ this section describes what the program does today, and none of it is a promise 
      The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
      owner question Q-LP15-1), so a village's food falls only by what you spend: with no other spending it takes about
      41 tiles near home (one claim a turn: 41 turns or more) before land upkeep passes a starting village's 40 food an
-     hour. In verify-pr206-209's hour of play at ×60 and in loop-play15 (both at the old, thirty-times-smaller numbers)
-     nobody went unpaid; this part is checked by the program's tests and P18, and the warning lines by the page's tests,
-     not seen in a live world.
+     hour.
+   - **How it goes** (the program's own test of loop-play17's case: 73 tiles near home, a village that makes 40 food
+     an hour, 510 food in its stores). The land costs 72.27 food an hour, so the stores fall and are empty after 94
+     turns. From turn 95 the land is unpaid, every turn: each turn's new food is taken and is not enough. From turn 119
+     (24 turns later) one tile goes back each turn, 33 in all. At 40 tiles (39.6 food an hour) the village pays a whole
+     turn again, and it stops. Before Q-LP17-1 (b) the same land flipped between unpaid and paid every other turn and
+     lost no tile.
+   - Seen live: the warning and the refusal on a real page in loop-play17 (EN and JA, under the rule before (b));
+     the whole course under (b) — unpaid at every turn, the release after 24 turns, the card and the map with the
+     tiles gone — in #243's P18 run on a local chain. Not played by hand at ×60 under (b) yet.
 7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
    nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
    and so does a tile with a village on it. The keeper moves them (verify-pr234: in the turn of the capture). Since #233 this also works when the same player's
@@ -532,13 +539,15 @@ this section describes what the program does today, and none of it is a promise 
    question VQ-3).
 
 **When a press is refused.** A refused tile claim is answered in the claim's own words for the first three rows (#223;
-read on a live page, JA and EN, in verify-pr223, but for the unpaid one, which cannot be reached in play); the other rows
+read on a live page, JA and EN: the first and third in verify-pr223, the unpaid one in loop-play17). The first two
+carry no "Try again" button (fix-loop17): in the same turn that press could only be refused again, so use the card's
+"Claim a tile" in the next turn, or once the land is paid. The other rows
 are the program's general sentence for that error, which does not always fit (from the code):
 
 | What happened | The notice says | What to do |
 |---|---|---|
 | A second tile claim in the same turn | "You already claimed a tile this turn. It is one tile a turn: press again next turn." | wait for the next turn |
-| Land upkeep unpaid | "Your land upkeep (food from your first village) is unpaid, so you cannot claim a new tile. Once your first village has food again you can. After 24 unpaid turns your farthest tiles are let go, one a turn." | get food into the first village, wait a turn |
+| Land upkeep unpaid | "Your land upkeep (food from your first village) is unpaid, so you cannot claim a new tile. Once your first village has food again you can. After 24 unpaid turns your farthest tiles are let go, one a turn." | get the first village to hold a whole turn's land upkeep when the keeper next looks (more food an hour, or fewer tiles: step 6), then claim again |
 | Not enough ore (rare now: the button is off below the next tile's price) | "Not enough ore. A tile costs 10 ore, plus 2 % for each tile you own (paid from your first village's stores)." | wait for ore |
 | Another player owns that tile | "That site is taken." | press again: the page tries the next tile |
 | The tile is yours already (the page had lost track of it) | "Already done." | press again: the page remembers it and goes on |

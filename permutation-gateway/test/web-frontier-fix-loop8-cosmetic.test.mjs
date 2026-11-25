@@ -136,8 +136,9 @@ test('LP8-10b: a jittery herald no longer swings the pace; the join line holds',
   const lo = Math.min(...rates), hi = Math.max(...rates);
   assert.ok(lo > RATE * 0.9 && hi < RATE * 1.1, `pace stays within 10 % of ×60 (${lo.toFixed(1)}–${hi.toFixed(1)})`);
   // (the time left shrinks as the world goes on; it never jumps to another scale: 「約 69 分」 or 「約 3 時間」 between hours)
-  for (const l of lines) assert.match(l, /^[12] 時間$|^\d+ 分$/);
-  const hours = lines.map(l => (/時間/.test(l) ? Number(l.split(' ')[0]) * 60 : Number(l.split(' ')[0])));
+  // (fix-loop17 LP17-7: between an hour and a half and two days the time left is said to ten minutes — 「1 時間 40 分」)
+  for (const l of lines) assert.match(l, /^[12] 時間( [1-5]0 分)?$|^\d+ 分$/);
+  const hours = lines.map(l => { const m = /^(\d+) 時間(?: (\d+) 分)?$/.exec(l); return m ? Number(m[1]) * 60 + Number(m[2] ?? 0) : Number(l.split(' ')[0]); });
   for (let i = 1; i < hours.length; i++) assert.ok(hours[i] <= hours[i - 1], `never goes back up: ${lines[i - 1]} → ${lines[i]}`);
 });
 

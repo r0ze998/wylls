@@ -153,6 +153,8 @@ export default {
   "資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。": "Resources change every hour, even while the game is closed (production minus upkeep). A harvest only writes what is there now into the stores' record.",
   "現在の維持費（毎時）": "Current upkeep per hour",
   "訓練の費用": "Training cost",
+  // (fix-loop17 LP17-5: the rule charges per started hundred — permutation-rules catalog.rs train, div_ceil(100))
+  "費用は100人ごとです。100人に満たない分も100人分かかります（10人でも100人分）。": "The cost is per hundred: a part hundred costs a whole hundred (10 troops cost as much as 100).",
   "1〜30,000人で人数を決めてください。": "Choose between 1 and 30,000 troops.",
   "いま訓練できる人数 {0}（一隊の上限まで）": "You can afford {0} troops (up to one host’s limit)",
   "編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。": "A new host can act once this turn has ended, its seals have been opened and the turn is resolved.",
@@ -815,6 +817,8 @@ export default {
   '{0} 分': n => plural(Number(String(n).replace(/,/g, '')), '{0} minute', '{0} minutes'),
   '{0} 時間': n => plural(Number(String(n).replace(/,/g, '')), '{0} hour', '{0} hours'),
   '{0} 日': n => plural(Number(String(n).replace(/,/g, '')), '{0} day', '{0} days'),
+  // (fix-loop17 LP17-7: a time left between 1.5 hours and 2 days, to ten minutes — "about 1 h 40 min left")
+  '{0} 時間 {1} 分': '{0} h {1} min',
   'ゲーム内の {0}（この世界では実時間で約 {1}）': '{0} of game time (in this world about {1} of real time)',
   '参加の受付は第{0}ターンで締め切られました。': 'Joining closed at turn {0}.',
   '参加の受付は第{0}ターンまで（あと約 {1}）。': 'Joining is open until turn {0} (about {1} left). ',

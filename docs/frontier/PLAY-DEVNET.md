@@ -87,6 +87,11 @@ Good to know:
   after that.
 - A second village or a wide-land village takes a day or more of harvests (a second village, on the wide land:
   food 800, wood 800, stone 400, gold 200).
+- **Your own land** (tile claims from the village screen, paid in ore, with land upkeep in food) follows
+  [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1. In real time: when the first village's food cannot pay a turn's land upkeep, the
+  food it holds is taken and the land is unpaid; no tile can be claimed; after 24 unpaid turns (4 hours) the farthest
+  tile goes back, one every turn (10 minutes), until the village pays a whole turn again (owner decision Q-LP17-1 (b),
+  2026-11-25; devnet gets this rule with the program update planned before the world is created).
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
 - Until the world is created the page has no world to show. It says “The world is not open yet. …”, with when it
