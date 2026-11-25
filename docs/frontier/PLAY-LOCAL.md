@@ -493,9 +493,9 @@ owner 2026-11-25): a tile is claimed only when the ore pays it and still leaves 
 ore), plus the troops their next host still lacks; while a keep of their own nation near them is under attack they
 claim no tile at all; and once they have a host's worth of troops (300), tiles and training take turns. They also no
 longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
-village stood, against the same world without the change: training refused 0 (before 286), 52 trainings landed (24),
-14 marches on keeps (2), 7 rim keeps and 1 wide-land keep taken (0 and 0), 21 tiles claimed (82), 4 wide villages
-(4). So the AI nations now own less land and fight more. Under the fog you see none of the tiles. An external resident run with workstream ⑬'s
+village stood, against the same world without the change (verify-pr236, land upkeep ×30): training refused 0 (before
+274), 54 trainings landed (24), 17 marches on keeps (1), 6 rim keeps taken (0), 30 tiles claimed (79), 4 wide villages
+(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see none of the tiles. An external resident run with workstream ⑬'s
 client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
