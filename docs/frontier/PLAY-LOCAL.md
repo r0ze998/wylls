@@ -38,7 +38,7 @@ The script installs nothing. If something is missing it prints the name and how 
 | git, python3 | macOS standard | `xcode-select --install` if absent |
 | Free disk | 20 GiB or more for the first build | |
 
-The first build fetches crates over the network. While you play, the keeper reads public drand randomness over HTTPS.
+The first build fetches crates over the network. When the world starts (its first seed) and while you play, it reads public drand randomness over HTTPS.
 
 ## 2. One command
 
@@ -87,7 +87,7 @@ Options:
 | `--no-coop-board` | leave out the ① co-op board and ⑮'s "Titles and records" card (attached by default, §13) | |
 | `--no-world-goals` | do not judge the world goals: no "World goals" card and no gold pennants (the flag-keeps judge is on by default, §14) | `--flag-keeps-hold` `--flag-keeps-need` |
 | `--flag-keeps-hold N` | TEST only: how many turns a flag keep must be held, 1–100000 (default 144 = 24 hours of the chain clock; §14) | `--no-world-goals` |
-| `--flag-keeps-need N` | TEST only: how many **captured** flag keeps one nation must hold, 1–12 (default: half of the flag keeps, rounded up; never more than the other nations' flag keeps; §14) | `--no-world-goals` |
+| `--flag-keeps-need N` | TEST only: how many **captured** flag keeps one nation must hold, 1–12 (default: half of the flag keeps, rounded up; never more than all the flag keeps less the most one nation held when they were posted, so it can be 0; §14) | `--no-world-goals` |
 | `--speed N` | the clock of `--demo` / `--wide`, 10–60 (default 60) | a kept world |
 | `--minutes N` | minutes until the world's processes stop, 15–240 (default 90). A `--wide` world stops then too. To play `--wide` to the end use `--minutes 240` (§4) | |
 | `--port BASE` | the page's port (default 41920). It uses 22 ports from BASE (14 with `--ai 0`); `--external` takes 8 more and the MCP server 1 (with the defaults the MCP server is on 41950, with `--ai 0` on 41942; none with `--no-mcp`). All within 41000–41999 and clear of 41904–41907 and 41970 | |
@@ -529,7 +529,7 @@ this section describes what the program does today, and none of it is a promise 
      lost no tile.
    - Seen live: the warning and the refusal on a real page in loop-play17 (EN and JA, under the rule before (b));
      the whole course under (b) — unpaid at every turn, the release after 24 turns, the card and the map with the
-     tiles gone — in #243's P18 run on a local chain. Not played by hand at ×60 under (b) yet.
+     tiles gone — in #243's P18 run on a local chain. Since then seen in live worlds too (verify-pr243, loop-play18: the release one tile a turn on a real page).
 7. **Losing and winning land by a keep.** When a nation takes a wide province's keep, the tiles that players of **other**
    nations own in that province go to the owner of the army that took it. Tiles of that army owner's nation-mates stay,
    and so does a tile with a village on it. The keeper moves them (verify-pr234: in the turn of the capture). Since #233 this also works when the same player's
@@ -572,7 +572,7 @@ claim no tile at all; and once they have a host's worth of troops (300), tiles a
 longer ask for a training their stores cannot pay. Measured at ×60, `--ai 4`, about 39 minutes after the player's
 village stood, against the same world without the change (verify-pr236, land upkeep ×30): training refused 0 (before
 274), 54 trainings landed (24), 17 marches on keeps (1), 6 rim keeps taken (0), 30 tiles claimed (79), 4 wide villages
-(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So the AI nations now own less land and fight more. Under the fog you see their tiles only where you have sight (§5). Each AI resident also **builds one mine first** (ai-early-mine, owner 2026-11-25 17:58): its village's first command is the
+(4); after an hour 1 wide-land keep was taken too (0), and no AI resident's upkeep was unpaid in either world. So with that change alone the AI nations owned less land and fought more (the saving below gives them more land again). Under the fog you see their tiles only where you have sight (§5). Each AI resident also **builds one mine first** (ai-early-mine, owner 2026-11-25 17:58): its village's first command is the
 same Build a player has (food 40, wood 80, stone 20; +6 ore an hour), once; not while a keep of its nation near it is
 under attack. And **until its first wide-land village is built it saves for it** (owner 2026-11-25 20:03 and 22:28): it
 keeps no more than one host (300 troops — at home, in its hosts and on the march; it trains again only to replace troops it
@@ -638,7 +638,7 @@ view (fog-devnet; runbook §7 P5).
 
    The same address opens; press "Start the world (a kept world resumes)" and you are back in your village.
    If you stopped with a march out, the page no longer knows its sealed destination (it is revealed on the arrival turn):
-   the guide at the top right says "Guide 4/7 See the marches" and "Your host is out on a march. Its destination stays sealed until its arrival turn, N. …" (fix-loop12).
+   the guide at the top right says "Guide 4/7 See the marches" and "Your host is out on a march. Its destination stays sealed until its arrival turn, N. …" (fix-loop12), or, when the page sees no host of yours in any province, "There is no host at the village now. …" with "See the march's result".
 - `--demo` and `--wide` worlds are not kept. Close the browser tab after a stop. **Do not reload the page** while
   playing them (the test key lives in memory only; you could not get back into that world).
 - After a `git pull` that changes the program, the old world cannot continue. The script says so; start again with `--fresh`.
@@ -675,7 +675,7 @@ view (fog-devnet; runbook §7 P5).
 | Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, "Check again"; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet ("Review what will be sent" → "Sign with the wallet and send"; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
-| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | not on devnet yet (the program on devnet is older; a new devnet world is the owner's decision) |
+| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | built, not played there yet: the new devnet world's profile opens every wide keep unowned (preset `S1_DEVNET_TERRITORY`, keep holder `NeutralTerritoryV1`, `scripts/devnet/devnet-new-world-profile.json`); the devnet world is not created yet |
 | Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | built, not played there yet: the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221, checked on a local chain by P18); the devnet world is not created yet |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |

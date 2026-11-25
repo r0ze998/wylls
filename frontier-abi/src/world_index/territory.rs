@@ -6,7 +6,7 @@
 //! | T-1 the unit is **one tile** | [`TerritoryProvince`]: one owner per tile of a wide province (61), by Citizen tag |
 //! | T-2 reach also from teammates' villages, anywhere; exclaves OK | [`ReachSource`]: the first home, a wide province that is the nation's land (`reach::is_nation_land`: a nation-mate's or own village, a won keep), or a province where the claimer already owns a tile |
 //! | T-3 instant claim in ore, cost rises with holdings, 1 per turn, first tx wins | [`judge_claim`] over [`TerritoryParams`] (`permutation_rules::frontier::territory`), the summary's per-bell counter; the tile's owner field is the race |
-//! | T-4 upkeep in food from the home village, 2 food/h per province + 1 food/h per province of distance beyond 3 | [`TerritoryPlayer::upkeep_per_hour`] (count × flat + Σ distance excess × per_distance), [`settle_upkeep`] charging the home holding |
+//! | T-4 upkeep in food from the home village, 990 milli-food/h per tile + 480 milli-food/h per tile per province of distance beyond 3 (the decided 2 food/h per province + 1 food/h per province of distance ÷ 61 tiles, ×30 by Q-CUF-1 (b); [`TERRITORY_V1`]) | [`TerritoryPlayer::upkeep_per_hour`] (count × flat + Σ distance excess × per_distance), [`settle_upkeep`] charging the home holding |
 //! | T-5 unpaid: claims stop; after 24 turns the farthest land returns, one step per turn | [`settle_upkeep`] takes what the home holds on a short turn and marks `unpaid_since` (Q-LP17-1 (b), r0ze 2026-11-25 21:22); [`may_decay`] + the distance histogram name the farthest bucket |
 //! | T-7 others' land only by conquest | a claim of an owned tile is `Owned`; only [`transfer_tile`] (conquest) moves a tile between players |
 //!
@@ -16,7 +16,7 @@
 //! `rules::KeepHolderRule::territory`). [`TerritoryRule::V1`]'s numbers
 //! ([`TERRITORY_V1`]) are **decided** (owner answers 2026-11-24 13:15 JST to
 //! inbox `2026-11-24-1225-territory-impl-questions.md`, TQ-1 … TQ-8); a later
-//! change is a new candidate byte, never a reinterpretation of a stored one.
+//! change is a new candidate byte (one exception: Q-LP17-1 (b) changed V1).
 //!
 //! **Records.** Both are new with-seed accounts under provisional tags; no
 //! existing layout changes.
@@ -62,7 +62,7 @@ const TURN_SECS: i128 = 600;
 
 // ------------------------------------------------------------ the rule
 
-/// The territory rule a world plays (byte 22 of the rules configuration,
+/// The territory rule a world plays (set with keep-holder byte 18 = 4,
 /// copied into every wide province's trailer byte `RSV_53`). Byte 0 = no
 /// territory: every territory instruction refuses `NotImplemented` and
 /// wide villages keep #206's rules.

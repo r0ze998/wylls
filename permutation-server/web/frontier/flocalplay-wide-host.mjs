@@ -131,7 +131,7 @@ const E = Object.freeze({ ID: 0, FACTION: 8, UNIT: 9, TILE: 10, STATE: 11, TROOP
 const H = Object.freeze({ GEN: 69, TILE: 70, STATE: 71, FACTION: 112, HOST_SEQ: 132, RESERVE: 720 });
 const dv = b => new DataView(b.buffer, b.byteOffset, b.byteLength);
 
-/** A wide province's cursor, entries (live ones) and keep, from its account bytes. */
+/** A wide province's cursor, entries (live ones) and keep, from its account bytes (an entry's `troops` is in milli-troops, as recorded). */
 export function readWideProvince(bytes) {
   const v = dv(bytes);
   check(bytes.length >= PV.KEEP + 16, 'WideProvinceBytes');

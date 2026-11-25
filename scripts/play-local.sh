@@ -46,7 +46,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
   --ai N          operator AI residents in the world, 0-4 (default 2; --resume keeps the kept world's number).
                   They are AT WAR by default (TEST-only launcher option --operator-war): besides building and
                   training they muster hosts and march on other nations' reachable keeps (siege, capture), one
-                  action per resident per turn, in every world (kept, --random-map, --wide, --demo)
+                  action per resident per turn, in every world (kept, --random-map, --wide, --demo; in --wide these
+                  marches go to ordinary-land keeps, and wide-land keeps get their expeditions and wide-village marches)
   --ai-peaceful   the AI residents do not march on keeps: they build, harvest, train and muster (in a --wide world
                   they still take rim and wide-land villages and send expeditions)
   --ai-near       with --wide and --ai 1-4 (TEST-ONLY launcher option --operator-near; off by default): ONE of the AI
@@ -64,7 +65,8 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   (a stop ends it for good; not resumable; not with --resume or --wide)
   --speed N       with --demo or --wide: the compressed TEST clock, 10-60 (default 60: a turn is 10 s; the faster
                   the clock, the further a loaded machine's provinces trail the chain: try 15 to watch a war)
-  --minutes N     the world's life in minutes, 15-240 (default 90; use 240 to play --wide to the end)
+  --minutes N     the world's life in minutes, 15-240 (default 90; use 240 to play --wide to the end); a world
+                  can stop sooner when its logs reach the launcher's size limit (stopped.json: output-limit)
   --port BASE     the page's port; the world takes BASE+4 onwards (default 41920; all within 41000-41999):
                   22 ports from BASE (14 with --ai 0), 8 more with --external and 1 for its MCP server.
                   The browser keeps a kept world's key per address, so --resume uses the kept world's port.
@@ -74,10 +76,10 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   browser's language; its top-right button switches 日本語 ⇄ English.
   --fresh         start a brand-new kept world (the default without --resume)
   --resume        reopen the last kept world: the same chain, village and AI residents (same browser, same port)
-  --wide          the WIDE version (TEST-ONLY launcher option --wide-land): the world's Season is the devnet wide
+  --wide          the WIDE version (TEST-ONLY launcher option --wide-land): the world's settings are the devnet wide
                   preset S1_DEVNET_WIDE_7D, and during its setup the program's own instructions grow the map one ring
-                  per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131, with
-                  one test participant per nation. Its Season frees the centre (rings 0-1 ordinary land) and every
+                  per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131 (108 provinces at first), with
+                  one test participant per nation. These settings free the centre (rings 0-1 ordinary land) and every
                   nation gets real homes on the rim: the page files your first village on the rim, and from it the village
                   screen's "Found a village on the wide land" (「広い土地に村を出す」) claims wide land (AI residents do the same). Then a TEST clock of
                   ×--speed (default 60, 10-60): a rim village saves the cost the claim card shows (the program's price:

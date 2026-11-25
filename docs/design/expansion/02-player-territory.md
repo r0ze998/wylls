@@ -149,4 +149,4 @@ Options and recommendations: the inbox file named at the top.
 5. Keeper: add a territory role (settle each summary once a turn, settle+decay when due, settle+settle+conquer after a
    capture; builders in `keeper::widelane::territory`); the local runner's `itest::wide_territory` is the model.
 6. Gateway devnet act list: add `TerritoryClaim` (DEVNET_ACT_NAMES) so the page can claim tiles there.
-7. Verifier: the four ops are not replayed yet (gap); a run with territory activity will show them as unknown.
+7. Verifier: the four ops are re-run and compared byte for byte by VWL part 6 (`frontier-node/crates/verify/src/checks/vwl_wide_territory.rs`, verifier-territory 2026-11-25).

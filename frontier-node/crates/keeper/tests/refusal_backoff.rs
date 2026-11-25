@@ -5,7 +5,7 @@
 //! so the program answers `BadAccount` to every batch of region 0, for good.
 //! The same run twice:
 //!
-//! - **before**: the old engine's schedule (2, 4, … slots capped at 1,024,
+//! - **before**: the new engine with the old engine's parameters (2, 4, … slots capped at 1,024,
 //!   no pass gate, no group breaker: `refusal_max_slots = 1024`,
 //!   `refusal_max_passes = 0`, `refusal_group_min = 0`);
 //! - **after**: the keeper.toml defaults (9,000 slots, 64 passes, group 4).
