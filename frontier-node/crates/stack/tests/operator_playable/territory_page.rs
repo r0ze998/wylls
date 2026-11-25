@@ -23,7 +23,7 @@
 //!    tile stays with its village (no conquest is even planned there). Then (conquest-upkeep-fix, owner Q-VT-1 (b)) the
 //!    SAME captor's host takes the second tile's province: keeper A's settle(page) + settle(captor) + conquer, the
 //!    captor Citizen writable in that message, LANDS (world 3's first `.so` 31acbb59 refused it BadAccount).
-//! 4. **Declared** short food (upkeep-decay-prep, Q-LP17-1 (b), NOT decided by r0ze): the first home makes food at
+//! 4. **Declared** short food (upkeep-decay-prep, Q-LP17-1 (b), r0ze 2026-11-25 21:22): the first home makes food at
 //!    1/1.8 of its land's upkeep, store empty (loop-play17's 73 tiles at 1.8×; land upkeep alone bites only past 41
 //!    tiles of a new village since Q-CUF-1 (b) ×30, more claims than this offline run makes — the program's host test
 //!    pins that). REAL, keeper A: the next settle makes the land unpaid; REAL, the page: 「1マス取る」 is refused before
@@ -384,7 +384,7 @@ fn declare_capture(
     keep.gen
 }
 
-/// Declared (Q-LP17-1 (b), upkeep-decay-prep; NOT decided by r0ze): the first home makes food at `net` milli/h — its
+/// Declared (Q-LP17-1 (b), upkeep-decay-prep; r0ze 2026-11-25 21:22): the first home makes food at `net` milli/h — its
 /// troop food upkeep raised to production − `net` — and its store is empty. loop-play17's shape: the land's upkeep
 /// above what the village makes (here 1.8×), nothing else touching the store.
 fn declare_short(r: &mut Run<'_>, home: Address, net: i64) {

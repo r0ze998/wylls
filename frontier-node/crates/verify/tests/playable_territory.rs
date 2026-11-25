@@ -3,7 +3,7 @@
 //! (verifier-territory, 2026-11-25).
 //!
 //! One recording of the devnet-playable `.so` of upkeep-decay-prep (sha256
-//! 245ce1ab…0d34, 3,517,568 B: Q-LP17-1 (b), NOT decided by r0ze, over
+//! 245ce1ab…0d34, 3,517,568 B: Q-LP17-1 (b), r0ze 2026-11-25 21:22, over
 //! upkeep-x30's db85913c…9a5f, 3,517,472 B; that one over world 3's first `.so` 31acbb59 — the binary
 //! the devnet upgrade of 2026-11-25 05:26 deployed — plus owner Q-VT-1 (b),
 //! a captor's second conquest lands (conquest-upkeep-fix, 3d143093), and
@@ -90,7 +90,7 @@ const PROGRAM_VERSION: u16 = 0x4804;
 /// The devnet-playable `.so` world 3 is to be created on: world 3's first
 /// `.so` 31acbb59 (main `ca317418` … `ee081238`) + conquest-upkeep-fix
 /// (Q-VT-1 (b) conquest flags) + upkeep-x30 (Q-CUF-1 (b) land upkeep ×30)
-/// = db85913c, + upkeep-decay-prep (Q-LP17-1 (b), **NOT decided by r0ze**:
+/// = db85913c, + upkeep-decay-prep (Q-LP17-1 (b), r0ze 2026-11-25 21:22:
 /// a short settle takes what the home holds and stays unpaid) = 245ce1ab.
 const TERRITORY_SHA256: &str = "245ce1abcdb48d59aaec9e74eb571f5316e89302b02ae877bd3976b9245d0d34";
 const SO_GZ: &str = "devnet-playable-245ce1ab.so.gz";
@@ -1000,7 +1000,7 @@ fn record_playable_territory() {
         "keeper: WideTerritorySettle A again in the same second",
     );
 
-    // ---- 5a. Q-LP17-1 (b) (NOT decided by r0ze): A's home declared to make
+    // ---- 5a. Q-LP17-1 (b) (r0ze 2026-11-25 21:22): A's home declared to make
     // 0.6 food/h net (its troop food upkeep raised to production − 600
     // milli/h), the store empty, so every turn's production is below the
     // turn's land upkeep. REAL: the settle that makes A unpaid, and the next
@@ -2078,7 +2078,7 @@ fn verify_pr228_upkeep_off_by_one_either_way_fails() {
     }
 }
 
-/// Q-LP17-1 (b) (NOT decided by r0ze): the short settle that read no
+/// Q-LP17-1 (b) (r0ze 2026-11-25 21:22): the short settle that read no
 /// declared account took the turn's food and left A unpaid. Forged so that
 /// the home KEPT its food (the old all-or-nothing outcome), or so that the
 /// summary went paid: both FAIL.

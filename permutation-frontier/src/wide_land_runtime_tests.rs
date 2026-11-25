@@ -12804,9 +12804,8 @@ mod territory_tests {
         );
     }
 
-    /// Q-LP17-1 option (b) (**NOT decided by r0ze**; draft "NOT FOR MERGE
-    /// until r0ze answers Q-LP17-1"): loop-play17's case on the program. A
-    /// new village (40 food/h) holds threshold + 7 tiles near home (48 for
+    /// Q-LP17-1 option (b) (owner decision 2026-11-25 21:22): loop-play17's
+    /// case on the program. A new village (40 food/h) holds fits + 8 tiles near home (48 for
     /// 40 food/h: 1.19× its food); its barn runs dry once; from then on
     /// NOBODY touches its store — only the village's own production and
     /// the keeper's settle each turn. Before (b) the shortfall turn took

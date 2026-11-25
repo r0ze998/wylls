@@ -488,7 +488,7 @@ this section describes what the program does today, and none of it is a promise 
      1,200 tiles, and with the ×10 of Q-LP15-1 (b) past about 120).
    - The village screen's "Per hour" column does not include land upkeep.
 6. **When the food cannot pay.** The food in your first village is taken (all of it, never more than the upkeep owed),
-   and your land counts as unpaid from that turn (draft upkeep-decay-prep, Q-LP17-1 (b), **not decided by r0ze**;
+   and your land counts as unpaid from that turn (owner decision Q-LP17-1 (b), 11-25 21:22;
    before it nothing was taken, so the next turn's food paid a whole turn and the land never stayed unpaid):
    - at once: you cannot claim tiles (the refusal is in the table below);
    - after 24 unpaid turns (**4 minutes at ×60**, 16 minutes at `--speed 15`; **4 hours at 1×**): your **farthest** tile

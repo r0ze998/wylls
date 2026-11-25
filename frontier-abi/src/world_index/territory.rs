@@ -7,7 +7,7 @@
 //! | T-2 reach also from teammates' villages, anywhere; exclaves OK | [`ReachSource`]: the first home, a wide province that is the nation's land (`reach::is_nation_land`: a nation-mate's or own village, a won keep), or a province where the claimer already owns a tile |
 //! | T-3 instant claim in ore, cost rises with holdings, 1 per turn, first tx wins | [`judge_claim`] over [`TerritoryParams`] (`permutation_rules::frontier::territory`), the summary's per-bell counter; the tile's owner field is the race |
 //! | T-4 upkeep in food from the home village, 2 food/h per province + 1 food/h per province of distance beyond 3 | [`TerritoryPlayer::upkeep_per_hour`] (count × flat + Σ distance excess × per_distance), [`settle_upkeep`] charging the home holding |
-//! | T-5 unpaid: claims stop; after 24 turns the farthest land returns, one step per turn | [`settle_upkeep`] takes what the home holds on a short turn and marks `unpaid_since` (Q-LP17-1 (b), undecided); [`may_decay`] + the distance histogram name the farthest bucket |
+//! | T-5 unpaid: claims stop; after 24 turns the farthest land returns, one step per turn | [`settle_upkeep`] takes what the home holds on a short turn and marks `unpaid_since` (Q-LP17-1 (b), r0ze 2026-11-25 21:22); [`may_decay`] + the distance histogram name the farthest bucket |
 //! | T-7 others' land only by conquest | a claim of an owned tile is `Owned`; only [`transfer_tile`] (conquest) moves a tile between players |
 //!
 //! **Numbers are config.** The rule a world plays is one byte, the
@@ -639,8 +639,8 @@ pub struct UpkeepSettle {
 /// debt), and upkeep stays unpaid since the first bell it fell short (T-5).
 /// The clock always moves to `now_ts`.
 ///
-/// **Q-LP17-1 option (b), NOT decided by r0ze** (draft PR "NOT FOR MERGE
-/// until r0ze answers Q-LP17-1"): before it the shortfall turn took
+/// **Q-LP17-1 option (b)**, decided by r0ze 2026-11-25 21:22 (shipped before world 3
+/// as devnet upgrade #3): before it the shortfall turn took
 /// nothing, so the next turn's production alone (one turn of a village's
 /// food) paid a whole turn again and cleared `unpaid_since`; a territory
 /// whose upkeep was up to ~23× its village's food never stayed unpaid for
