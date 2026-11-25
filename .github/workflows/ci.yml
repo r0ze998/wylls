@@ -225,6 +225,13 @@ jobs:
       - name: Workstream 01 board English tests (key-free)
         working-directory: .
         run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy test/coop.lang.test.mjs
+      # test-gaps-2: every other key-free test of the ① board — requests, deliveries and their verdict (coop/ws04.mjs
+      # fulfilmentOf: "fulfilled" / "not-reached" never claimed against the true amounts, coop.delivery-test-gaps), the
+      # supply model, placement, conditions, joint counts and their fuzz tests (207 tests the two steps above never ran).
+      # The same runner and guard: a file listed in node-key-tests.txt (the board's signing tests) is never run here.
+      - name: Workstream 01 board, requests and delivery tests (key-free)
+        working-directory: .
+        run: scripts/ci/node-keyfree.sh workstreams/01-national-strategy 'test/*.test.mjs'
       # The six-nation recording tool (scripts/demo/sixnation): its pure part — argument parsing, the refusal of any
       # non-TEST cluster, the seed's choices, the launcher's command line, the summary and the grid. No world is started.
       - name: Six-nation recording tool tests (key-free)
@@ -451,6 +458,9 @@ jobs:
           cargo test --locked -p permutation-rules --features capacity-preview
           # territory preview (owner Q-2): the kernel and its committed vectors (the page/AI copy checks the same file)
           cargo test --locked -p permutation-rules --features territory-preview territory
+          # (test-gaps-2: includes capacity::custody_address_vectors_tests — the ⑨ pool/job, ⑩ lot and ② grant addresses
+          #  with their generation, and the two lanes, written to frontier-abi/vectors/custody-addresses.txt and checked
+          #  current; the page's builders replay the file in web-frontier-custody-test-gaps / -rights-test-gaps)
           cargo test --locked -p frontier-abi --features capacity-preview
           cargo test --locked -p permutation-frontier --features capacity-preview
           cargo test --locked -p permutation-frontier --features custody-preview
@@ -497,6 +507,14 @@ jobs:
           # revision, served tiles and summary bytes = the captured chain records, #240/#242) compile only with
           # `wide-world-experimental`, so the line above never ran them. In-memory folds and handlers, no listener, no key.
           cargo test --locked -p herald --features wide-world-experimental --lib
+          # test-gaps-2: ② rights' Grant fold (/h/grants: every record into its Grant, parties and places, orphans,
+          # the checkpoint, the Province scope) compiles only with `rights-records`; the lines above never ran it.
+          cargo test --locked -p herald --features rights-records --lib
+          # test-gaps-2: the verifier's ⑩ custody check V26 (history, instruction replay incl. the caravans' DepositLot /
+          # WithdrawLot / SettleCustody / ReconcileLot, state audit: a seized vault's open lot is never PASS) and ② VR
+          # (the Grant's records, option A's station = the grantee's Vault). Literal and recorded fixtures, unsigned
+          # wire bytes with placeholder signatures: no key is generated, derived or signed. They ran nowhere before.
+          cargo test --locked -p verify --test custody --test custody_history --test custody_replay --test custody_replay_caravans --test custody_state --test rights_replay
           # fix-herald-gw-502: the /gw relay proxy when the relay answers early
           # and resets (429 kept, one write, no re-send). Loopback fakes only.
           cargo test --locked -p herald --test gw_relay_reset

@@ -196,14 +196,10 @@ permutation-gateway/test/frontier-expedition-prepare.test.mjs
 permutation-gateway/test/frontier-goal-prize.test.mjs
 permutation-gateway/test/frontier-local-play-act-instance.test.mjs
 permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
-permutation-gateway/test/frontier-local-play-coexist-lane.test.mjs
-permutation-gateway/test/frontier-local-play-coop-board.test.mjs
-permutation-gateway/test/frontier-local-play-custody.test.mjs
 permutation-gateway/test/frontier-local-play-expansion-reach-relay.test.mjs
 permutation-gateway/test/frontier-local-play-external-launcher.test.mjs
 permutation-gateway/test/frontier-local-play-fresh-map.test.mjs
 permutation-gateway/test/frontier-local-play-launcher.test.mjs
-permutation-gateway/test/frontier-local-play-losses.test.mjs
 permutation-gateway/test/frontier-local-play-natural.test.mjs
 permutation-gateway/test/frontier-local-play-operator-goals-fog.test.mjs
 permutation-gateway/test/frontier-local-play-operator-launcher.test.mjs
@@ -265,7 +261,6 @@ permutation-gateway/test/web-frontier-expedition-reveal.test.mjs
 permutation-gateway/test/web-frontier-expedition-reverse.test.mjs
 permutation-gateway/test/web-frontier-expedition-route-read.test.mjs
 permutation-gateway/test/web-frontier-expedition-route.test.mjs
-permutation-gateway/test/web-frontier-external-session.test.mjs
 permutation-gateway/test/web-frontier-first-battle.test.mjs
 permutation-gateway/test/web-frontier-first-village-ui.test.mjs
 permutation-gateway/test/web-frontier-firstminute.test.mjs
@@ -279,7 +274,6 @@ permutation-gateway/test/web-frontier-fix-loop12.test.mjs
 permutation-gateway/test/web-frontier-fix-loop16.test.mjs
 permutation-gateway/test/web-frontier-fix-loop5.test.mjs
 permutation-gateway/test/web-frontier-fix-loop7.test.mjs
-permutation-gateway/test/web-frontier-fix-loop8-coop.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8-cosmetic.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8-labels.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8.test.mjs
@@ -368,7 +362,6 @@ permutation-gateway/test/web-frontier-ready-again.test.mjs
 permutation-gateway/test/web-frontier-recorded.test.mjs
 permutation-gateway/test/web-frontier-rent-live.test.mjs
 permutation-gateway/test/web-frontier-resident.test.mjs
-permutation-gateway/test/web-frontier-rights.test.mjs
 permutation-gateway/test/web-frontier-route-bounded.test.mjs
 permutation-gateway/test/web-frontier-rules-vectors.test.mjs
 permutation-gateway/test/web-frontier-s1-capture-lock.test.mjs

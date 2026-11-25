@@ -807,3 +807,8 @@ mod tests {
         }
     }
 }
+
+/// (test-gaps-2) ⑨/⑩ pool, job and lot addresses with their generation: the shared vectors the page replays.
+#[cfg(test)]
+#[path = "custody_address_vectors_tests.rs"]
+mod custody_address_vectors_tests;
