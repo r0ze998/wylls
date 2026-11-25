@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import * as T from '../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import * as LF from '../../permutation-server/web/frontier/landfood.mjs';
 import * as hud from '../../permutation-server/web/frontier/hud/hud.mjs';
-import { wideClaimModel, ownLandBlock, provinceFull } from '../../permutation-server/web/frontier/screens/holding.mjs';
+import { wideClaimModel, ownLandBlock, provinceFull, claimPins } from '../../permutation-server/web/frontier/screens/holding.mjs';
 import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
 import * as FOG from '../../permutation-server/web/frontier/map/fog.mjs';
 import * as C from '../../permutation-server/web/frontier/controller.mjs';
@@ -211,6 +211,18 @@ test('LP18-4 (live): tiles let go for unpaid upkeep are free again — the page\
   assert.ok(ctl.includes("if (!tileStillMine(mineTiles, target.p, target.q, tile, typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null)) {"));
   assert.equal((ctl.match(/ownTiles: \{ \.\.\.(mine|mineTiles), \[key\]: Date\.now\(\) \}/g) ?? []).length, 2);
   assert.doesNotMatch(ctl, /\[key\]: true \}/);
+});
+
+test('verify-pr247 (live): a province whose remembered tiles were all let go is no longer pinned "you own tiles here"', () => {
+  // live 11-26 turn 402: the one tile claimed in (66,-129) was released for unpaid upkeep; the read covered (66,-129)
+  // and showed none of the viewer's tiles there, yet the row still said 「あなたのマスがある州」 from the claim memory
+  const ago = Date.now() - 20 * 60_000;
+  const ui = { ownTiles: { '66,-129,0': ago, '65,-129,2': ago } };
+  const read = { rev: 3, owners: new Map([['65,-129', Array.from({ length: 61 }, (_, i) => (i === 2 ? ME : null))]]), known: null, ownTag: ME, read: ['65,-129', '66,-129'], at: Date.now() };
+  assert.deepEqual([...claimPins({ ui, territoryTilesNow: () => read })], [['65,-129', 'tiles']]);
+  assert.deepEqual([...claimPins({ ui })].sort(), [['65,-129', 'tiles'], ['66,-129', 'tiles']], 'no read: the memory, as before');
+  assert.deepEqual([...claimPins({ ui: { ownTiles: { '66,-129,0': Date.now() } }, territoryTilesNow: () => read })], [['66,-129', 'tiles']], 'claimed just now: the memory holds');
+  assert.ok(web('frontier/screens/holding.mjs').includes('if (m && tileStillMine(FS.ui.ownTiles, m[1], m[2], m[3], tnow)) pins.set(`${m[1]},${m[2]}`, \'tiles\');'));
 });
 
 test('LP18-8: net food at 0 or below — the card says another tile cannot be paid from what the village makes', () => {

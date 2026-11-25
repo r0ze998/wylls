@@ -52,13 +52,17 @@ import { landUpkeepMilli, withLand, signedNet, landPart } from '../landfood.mjs'
 /**
  * (fix-loop16, Q-LP16-1 (b)) The provinces whose rows the wide claim card never drops: Map "p,q" → 'tiles' (this player
  * owns a tile there: the page's own memory of the tile claims that landed in this visit, `FS.ui.ownTiles`, keys
- * "p,q,tile"), 'siege' (a host of this player is taking that province's keep: a kept expedition's followed hold that
+ * "p,q,tile", while the territory read has not shown it let go since: tileStillMine), 'siege' (a host of this player is taking that province's keep: a kept expedition's followed hold that
  * is not lost — flocalplay-expedition.mjs expeditionHoldsOf — or the wide village's host marching on or holding it —
  * `FS.ui.wideHostSay`) or 'keep' (that hold ended with the keep taken). 'siege' / 'keep' win over 'tiles'. Display only: nothing is read from the chain here.
  */
 export function claimPins(FS) {
   const pins = new Map();
-  for (const k of Object.keys(FS?.ui?.ownTiles ?? {})) { const m = /^(-?\d+),(-?\d+),\d+$/.exec(k); if (m && FS.ui.ownTiles[k]) pins.set(`${m[1]},${m[2]}`, 'tiles'); }
+  // (verify-pr247: a remembered tile the territory read shows let go since pins nothing — live, a province whose only
+  //  tile was released for unpaid upkeep still said 「あなたのマスがある州」; the same rule as the card and the presses,
+  //  flocalplay-territory.mjs tileStillMine)
+  const tnow = typeof FS?.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null;
+  for (const k of Object.keys(FS?.ui?.ownTiles ?? {})) { const m = /^(-?\d+),(-?\d+),(\d+)$/.exec(k); if (m && tileStillMine(FS.ui.ownTiles, m[1], m[2], m[3], tnow)) pins.set(`${m[1]},${m[2]}`, 'tiles'); }
   // ('keep': the hold ended with the keep taken — the row says 「奪った」, not 「奪っている」)
   const siege = (to, taken = false) => { if (to && to.p !== undefined && to.q !== undefined) pins.set(`${String(to.p)},${String(to.q)}`, taken ? 'keep' : 'siege'); };
   for (const h of expeditionHoldsOf(FS ?? {}).values()) if (h?.to && h.outcome !== 'lost' && !Number.isInteger(h.keepLostAt)) siege(h.to, h.outcome === 'taken');
