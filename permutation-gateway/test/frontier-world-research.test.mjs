@@ -37,6 +37,9 @@ test('fog (Q-RS-9 (1) (b)): known techs are public; the totals only for the aski
   const me = J.viewOf(r.world, r.nations, 3);
   assert.deepEqual(me.techs[0].mine, { known: false, pledged: 200, cost: 240, left: 40, learnedBell: null, refusal: null });
   assert.equal(me.techs[4].mine.refusal, 'EraClosed');
+  // Q-VR232-1 (a): on the bell nation 0 learned as the world first, its learn does not discount the tech yet
+  assert.equal(J.viewOf(r.world, r.nations, 3, { bell: 4 }).techs[0].mine.cost, 300);
+  assert.equal(J.viewOf(r.world, r.nations, 3, { bell: 5 }).techs[0].mine.cost, 240);
   // the AI's choice: the least left to pay, then the lower id
   assert.equal(J.aiTechOf(me).id, 0);
   assert.equal(J.aiTechOf(J.viewOf(r.world, r.nations, 5)).id, 0, 'all equal for a fresh nation but the discounted one');

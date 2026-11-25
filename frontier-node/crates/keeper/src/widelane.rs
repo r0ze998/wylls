@@ -884,7 +884,7 @@ pub mod research {
         let mut out = vec![];
         for n in v.nations.iter().flatten() {
             for t in 0..TECH_COUNT as u8 {
-                let others = w.others_knowing(t, n.faction);
+                let others = w.others_discounting(t, n.faction, bell);
                 if kr::judge_settle(p, t, w.era, &n.view(), others).is_ok() {
                     out.push(Step::Settle {
                         faction: n.faction,

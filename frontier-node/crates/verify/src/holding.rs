@@ -180,6 +180,18 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
 /// program writes it once, at founding or capture, from the season's
 /// timers (`permutation-frontier/src/proc/holding.rs` `write_holding`,
 /// MC §3.9).
+/// Roads (Q-RI-1 (a)): the techs in effect for a host or caravan of nation
+/// `faction` leaving the Holding of bytes `d` (the program's
+/// `proc::holding::departing_techs`: the `RSV_1258` mask gated by the
+/// departing nation; 0 when the bytes are short).
+pub fn departing_techs(d: &[u8], faction: u8) -> u16 {
+    let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+    match (d.get(o), d.get(o + 1)) {
+        (Some(&a), Some(&b)) => research::VillageResearch::from_le([a, b]).effective(faction),
+        _ => 0,
+    }
+}
+
 pub fn write(d: &mut [u8], h: &KHolding, now: i64) -> Result<(), String> {
     use frontier_abi::layout::header as HDR;
     let v2 = d.get(HDR::LAYOUT_VERSION..HDR::LAYOUT_VERSION + 2) == Some(&2u16.to_le_bytes()[..]);
@@ -759,6 +771,27 @@ pub fn founded(
 #[cfg(test)]
 mod intro_tests {
     use super::*;
+    #[test]
+    fn departing_techs_follow_the_programs_gate() {
+        // roads (Q-RI-1 (a)): the RSV_1258 mask gated by the departing nation
+        let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+        let mut d = vec![0u8; o + 2];
+        assert_eq!(departing_techs(&d, 0), 0);
+        d[o..o + 2].copy_from_slice(&research::VillageResearch::new(1 << 3, 2, true).to_le());
+        assert_eq!(departing_techs(&d, 2), 1 << 3);
+        assert_eq!(departing_techs(&d, 3), 0);
+        assert_eq!(departing_techs(&d[..o + 1], 2), 0, "short bytes");
+        assert_eq!(
+            research::march_secs(
+                &research::RESEARCH_V1,
+                departing_techs(&d, 2),
+                10_000,
+                6_000
+            ),
+            5_700
+        );
+    }
+
     #[test]
     fn intro_build_replay_consumes_exactly_one_persisted_entitlement() {
         let now = 1_800_000_000;

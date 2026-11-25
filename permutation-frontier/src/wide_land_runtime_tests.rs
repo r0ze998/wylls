@@ -13194,8 +13194,10 @@ mod research_tests {
         assert_eq!(r.pledge(&a, tech::MASONRY, 900), Ok(()));
         assert!(r.store(&a, SCI) >= before - 299 * MILLI);
         assert!(r.store(&a, SCI) < before - 298 * MILLI + 1_000);
-        // b learns in the same bell: a tie
+        // b learns in the same bell at the full price (Q-VR232-1 (a): a's
+        // learn does not discount it before the next bell): a tie
         assert_eq!(r.pledge(&b, tech::MASONRY, 500), Ok(()));
+        assert_eq!(r.nation_rec(b.faction).pledged[1], 300);
         let w = r.world_rec();
         let both = (1u8 << a.faction) | (1u8 << b.faction);
         assert_eq!(w.first_bell[tech::MASONRY as usize], 5);
@@ -13248,6 +13250,46 @@ mod research_tests {
             r.settle(b.faction, tech::AGRICULTURE),
             Err(E::AlreadyDone as u32)
         );
+    }
+
+    #[test]
+    fn a_same_bell_tie_needs_the_undiscounted_price() {
+        // Q-VR232-1 (a) (owner 2026-11-25 12:04): b, 251 of 300, cannot
+        // reach a's learn bell with the catch-up price (240); it learns on the
+        // next bell, not first.
+        let _g = begin();
+        let mut r = R::new();
+        r.w.at(2, 10);
+        let (a, b) = (r.a.clone_member(), r.b.clone_member());
+        assert_eq!(r.start_as(AUTHORITY, 1, 2), Ok(()));
+        r.w.at(4, 0);
+        for m in [&a, &b] {
+            assert_eq!(r.pledge(m, tech::AGRICULTURE, 1), Ok(()));
+        }
+        r.fill(&a, 1_000 * MILLI);
+        r.fill(&b, 1_000 * MILLI);
+        r.w.at(5, 0);
+        assert_eq!(r.pledge(&b, tech::AGRICULTURE, 250), Ok(()));
+        assert_eq!(r.pledge(&a, tech::AGRICULTURE, 299), Ok(()));
+        // same bell: the settle is not due (cost still 300) …
+        assert_eq!(
+            r.settle(b.faction, tech::AGRICULTURE),
+            Err(E::TooEarly as u32)
+        );
+        // … and a pledge is taken at the full price: 10 → 261, no learn
+        assert_eq!(r.pledge(&b, tech::AGRICULTURE, 10), Ok(()));
+        let n = r.nation_rec(b.faction);
+        assert_eq!((n.pledged[0], n.known & 1), (261, 0));
+        let w = r.world_rec();
+        assert_eq!(w.first_nations[0], 1u8 << a.faction);
+        assert_eq!(w.known_by[0], 1u8 << a.faction);
+        // the next bell: 240, settle learns, not first
+        r.w.at(6, 0);
+        assert_eq!(r.settle(b.faction, tech::AGRICULTURE), Ok(()));
+        let w = r.world_rec();
+        assert_eq!(w.first_nations[0], 1u8 << a.faction, "b was later");
+        assert_eq!(w.first_bell[0], 5);
+        assert_eq!(r.nation_rec(b.faction).learned_bell[0], 6);
     }
 
     #[test]

@@ -7,7 +7,9 @@
 //! | decision | here |
 //! |---|---|
 //! | §5.2 the twelve techs, eras, prerequisites, base costs | [`TECHS`] |
-//! | Q-RS-1 (a) all four era-1 techs; "+5 %" speed = −5 % time; roads built last | [`ResearchParams::roads_travel_bps`]; the roads effect is **not wired yet** ([`ROADS_EFFECT_LIVE`] = false, open question Q-RI-1) |
+//! | Q-RS-1 (a) all four era-1 techs; "+5 %" speed = −5 % time; roads built last | [`ResearchParams::roads_travel_bps`] |
+//! | Q-RI-1 (a) (owner 2026-11-25 12:04) roads learnable now and its effect live: −5 % march and caravan time through the existing speed knob | [`speed_bps`], [`march_secs`] |
+//! | Q-VR232-1 (a) (owner 2026-11-25 12:04) a same-bell tie only at the undiscounted price | `frontier_abi::world_index::research::ResearchWorld::others_discounting` |
 //! | Q-RS-2 (a) production multipliers in (farming +10 % food) | [`food_rate`] (the holding kernel's `net_rate`) |
 //! | Q-RS-3 (b) only science made after the research start counts | [`VillageResearch::REBASED`], [`rebased_science`] |
 //! | Q-RS-4 (a) no headcount factor (factor 1) | [`HeadcountRule::None`] |
@@ -139,12 +141,6 @@ pub const TECHS: [Tech; TECH_COUNT] = [
         key: "administration",
     },
 ];
-
-/// The roads effect (travel time −5 %) is not wired into the march and
-/// caravan clocks yet (Q-RS-1 (a): "roads last"; open question Q-RI-1 asks
-/// whether to keep roads learnable meanwhile or switch to (b)). The page
-/// says so on the card.
-pub const ROADS_EFFECT_LIVE: bool = false;
 
 /// How the cost scales with the nation's size (design 01 §5.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -504,14 +500,28 @@ pub fn train_cost(p: &ResearchParams, techs: u16, cost: [Milli; RESOURCES]) -> [
     c
 }
 
-/// Travel seconds with roads (−5 %, rounded down). Not wired yet
-/// ([`ROADS_EFFECT_LIVE`]).
-pub const fn travel_secs(p: &ResearchParams, techs: u16, secs: i64) -> i64 {
-    if ROADS_EFFECT_LIVE && has(techs, tech::ROADS) {
-        scale_down(secs, p.roads_travel_bps)
+/// Roads (Q-RI-1 (a), owner 2026-11-25 12:04): the speed knob a march or a
+/// caravan already has — the doctrine's `travel_bps` (marches) or
+/// `caravan_time_bps` (caravans) — scaled by (1 − 5 %), rounded down, for a
+/// host or caravan leaving a village whose techs in effect include roads.
+/// Any other village: the knob unchanged. The effect is read from the
+/// origin village's `RSV_1258` mask when the time is computed (a march's
+/// Reveal, a caravan's Send), gated by the departing host's nation
+/// ([`VillageResearch::effective`]).
+pub const fn speed_bps(p: &ResearchParams, techs: u16, bps: Bps) -> Bps {
+    if has(techs, tech::ROADS) {
+        (bps as u64 * (BPS_ONE - p.roads_travel_bps) as u64 / BPS_ONE as u64) as Bps
     } else {
-        secs
+        bps
     }
+}
+
+/// A march's travel seconds over `raw` path seconds: the doctrine's
+/// `travel_secs` with its `travel_bps` through [`speed_bps`]
+/// (`raw × bps / 10,000`, rounded down; exactly `Doctrine::travel_secs`
+/// without roads).
+pub const fn march_secs(p: &ResearchParams, techs: u16, travel_bps: Bps, raw: u64) -> u64 {
+    raw * speed_bps(p, techs, travel_bps) as u64 / BPS_ONE as u64
 }
 
 /// Q-RS-3 (b): the science (milli) a village may keep at its first touch
@@ -691,8 +701,22 @@ mod tests {
         assert_eq!(t[Resource::Ore as usize], 18_000);
         assert_eq!(t[Resource::Food as usize], 100_000);
         assert_eq!(train_cost(P, 0, c), c);
-        // roads not wired yet
-        assert_eq!(travel_secs(P, 1 << tech::ROADS, 6_000), 6_000);
+        // roads (Q-RI-1 (a)): the speed knob × 0.95, rounded down
+        let rd = 1 << tech::ROADS;
+        assert_eq!(speed_bps(P, rd, BPS_ONE), 9_500);
+        assert_eq!(speed_bps(P, rd, 7_500), 7_125);
+        assert_eq!(speed_bps(P, rd, 8_000), 7_600);
+        assert_eq!(speed_bps(P, 0, 7_500), 7_500);
+        assert_eq!(speed_bps(P, 0b0111, BPS_ONE), BPS_ONE);
+        assert_eq!(march_secs(P, rd, BPS_ONE, 6_000), 5_700);
+        assert_eq!(march_secs(P, rd, 7_500, 6_001), 4_275);
+        assert_eq!(march_secs(P, 0, BPS_ONE, 6_001), 6_001);
+        for d in super::super::doctrine::DOCTRINES_V3.iter() {
+            for raw in [0u64, 1, 599, 6_000, 86_399] {
+                assert_eq!(march_secs(P, 0, d.travel_bps, raw), d.travel_secs(raw));
+                assert!(march_secs(P, rd, d.travel_bps, raw) <= d.travel_secs(raw));
+            }
+        }
     }
 
     #[test]

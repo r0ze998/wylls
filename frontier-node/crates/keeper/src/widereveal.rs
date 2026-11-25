@@ -881,8 +881,27 @@ pub fn plan_reveal(
     let unit = tri!(unit_from_u8(t.unit).ok_or(Block::Unreadable("transit")));
     let raw = tri!(walk(&plain, t.origin, &lands, is_cavalry(unit)));
     let doctrine = tri!(of_faction_v3(t.faction).ok_or(Block::Unreadable("transit")));
-    let secs = tri!(u32::try_from(doctrine.travel_secs(raw as u64))
-        .map_err(|_| Block::Overflow("travel seconds")));
+    // roads (Q-RI-1 (a)): the host's village's techs for its nation, as the
+    // handler reads them (`proc::holding::departing_techs` / `march_secs`)
+    let techs = {
+        let o = frontier_abi::v2::layout::player::holding::RSV_1258;
+        match (hd.get(o), hd.get(o + 1)) {
+            (Some(&a), Some(&b)) => {
+                permutation_rules::frontier::research::VillageResearch::from_le([a, b])
+                    .effective(t.faction)
+            }
+            _ => 0,
+        }
+    };
+    let secs = tri!(
+        u32::try_from(permutation_rules::frontier::research::march_secs(
+            &permutation_rules::frontier::research::RESEARCH_V1,
+            techs,
+            doctrine.travel_bps,
+            raw as u64,
+        ))
+        .map_err(|_| Block::Overflow("travel seconds"))
+    );
     if check_arrival_bell(season.genesis_ts, t.depart_ts, secs, arrive).is_err() {
         return Step::Done(Err(Block::ArrivalBell));
     }

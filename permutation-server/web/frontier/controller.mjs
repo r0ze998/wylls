@@ -9,6 +9,7 @@
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { mergeDonorReturns } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
+import { withRoads, holdingTechs } from './flocalplay-research.mjs';
 import { createPollLoop } from './poll-loop.mjs';
 import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
@@ -3154,9 +3155,12 @@ async function setDestination(dest) {
     if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
     // (the route, the earliest turn and the arrival turn are worked out first and set together: a throw between them
     //  no longer leaves a route beside an arrival turn that was not made from it)
-    const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
+    // (world goal ② roads, Q-RI-1 (a): a host leaving a village that has roads marches 5 % faster — the route's secs
+    //  carry it, so every later earliest turn of this draft, and its send's, is the same one)
+    const route = withRoads(r.route, holdingTechs(c.holding ? holdingByRef(FS.holdings, c.holding) : activeHolding(FS), FS.citizen?.faction ?? c.host?.faction));
+    const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: route.secs });
     const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
-    c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
+    c.route = route; c.earliest = earliest; c.arriveBell = arrive;
     checkRouteOpen(c, dest, r.route);
   } catch (e) {
     console.error('frontier route:', e);

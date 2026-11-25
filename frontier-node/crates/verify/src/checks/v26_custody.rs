@@ -1633,6 +1633,9 @@ struct Send<'a> {
     citizen: &'a [u8],
     seq: u32,
     src: super::v23_caravans::Place,
+    /// Roads (Q-RI-1 (a)): the techs in effect in the source village for
+    /// the sender's nation (0 for a vault).
+    src_techs: u16,
     dst: super::v23_caravans::Place,
     cargo: [i64; 8],
     steps: u8,
@@ -1721,6 +1724,7 @@ fn send_route(c: &ReplayCase, s: &Send) -> Result<(), RouteNot> {
         s.steps,
         &s.path,
         faction,
+        s.src_techs,
         &super::v24_structures::Walker::of(&st, season, &s.citizen_key, faction),
         caravan_id(tag, s.seq),
         at,
@@ -2114,12 +2118,23 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                     Err(_) => return bad("its data does not decode".into()),
                 },
             };
+            let mut src_techs = 0u16;
             let route_src = if kind == Ix::DepositLot {
-                match key(4)
-                    .and_then(|k| (c.before)(&k))
-                    .and_then(|d| super::v23_caravans::live_place(&d))
+                let sb = key(4).and_then(|k| (c.before)(&k));
+                match sb
+                    .as_ref()
+                    .and_then(|d| super::v23_caravans::live_place(d))
                 {
-                    Some((p, owner)) if owner == citizen_key => p,
+                    Some((p, owner)) if owner == citizen_key => {
+                        if p.kind == PLC::KIND_HOLDING {
+                            if let (Some(d), Some(&f)) =
+                                (sb.as_ref(), citizen.get(frontier_abi::v2::layout::player::citizen::FACTION))
+                            {
+                                src_techs = crate::holding::departing_techs(d, f);
+                            }
+                        }
+                        p
+                    }
                     Some(_) => return bad("its source is not the signer's own place".into()),
                     None => {
                         return Replayed::Partial(format!(
@@ -2137,6 +2152,7 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                 citizen: &citizen,
                 seq,
                 src: route_src,
+                src_techs,
                 dst: route_dst,
                 cargo,
                 steps,
@@ -2609,6 +2625,7 @@ mod send_route_tests {
             (ProvinceCoord::new(3, -2), 9),
             steps,
             &path,
+            0,
             0,
             &super::super::v24_structures::Walker::of(&w, &SEASON, &OWNER, 0),
             caravan_id(0xB2, SEQ),

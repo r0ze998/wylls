@@ -160,6 +160,26 @@ impl ResearchWorld {
         m.count_ones()
     }
 
+    /// Other nations than `faction` whose knowledge of tech `t` discounts it
+    /// for a pledge or settle at `bell` (the catch-up count, Q-RS-5 (a)).
+    ///
+    /// Q-VR232-1 (a) (owner 2026-11-25 12:04): a same-bell tie for the
+    /// world first is only for nations that paid the undiscounted price, so
+    /// the nations that learned `t` as the world's first **at this very
+    /// bell** do not count yet — a nation that completes on the same bell
+    /// pays the full cost and ties; from the next bell they discount. (A
+    /// later, non-first learner at the same bell still counts: the world
+    /// record keeps no per-nation bell, and such a learn moves no world
+    /// first or prize.)
+    pub fn others_discounting(&self, t: u8, faction: u8, bell: u32) -> u32 {
+        let i = t as usize;
+        let mut m = self.known_by.get(i).copied().unwrap_or(0) & !(1u8 << faction);
+        if self.first_bell.get(i).copied() == Some(bell) {
+            m &= !self.first_nations[i];
+        }
+        m.count_ones()
+    }
+
     /// Records nation `faction` learning tech `t` at `bell`; returns
     /// whether it is (one of) the world's first, and the era step (the new
     /// era) when the nation's knowledge `known_after` advances the world.
@@ -595,6 +615,17 @@ mod tests {
         assert_eq!(w.first_nations[0], 0b10100);
         assert_eq!(w.known_by[0], 0b10110);
         assert_eq!(w.others_knowing(0, 2), 2);
+        // Q-VR232-1 (a): at the first bell the tied firsts do not discount
+        // (nation 1, a later learner, does)
+        assert_eq!(w.others_discounting(0, 3, 150), 1);
+        assert_eq!(w.others_discounting(0, 3, 151), 3);
+        assert_eq!(w.others_discounting(0, 2, 152), 2);
+        assert_eq!(w.others_discounting(5, 3, 150), 0);
+        let mut f = ResearchWorld::new(9, ResearchRule::V1, world(), 100, 60_000, [1; 32]);
+        f.learn(0, 2, 150, 0b1).unwrap();
+        assert_eq!(f.others_discounting(0, 4, 150), 0, "same bell: full price");
+        assert_eq!(f.others_discounting(0, 4, 151), 1, "next bell: −20 %");
+        assert_eq!(f.others_discounting(0, 2, 151), 0, "never itself");
         assert_eq!(
             w.learn(0, 2, 160, 0b1),
             Err(ResearchError::Rule(ResearchRefusal::Known))

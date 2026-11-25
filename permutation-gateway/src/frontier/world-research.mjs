@@ -17,7 +17,7 @@
 //   fog       Q-RS-9 (1) (b): every nation's KNOWN techs and the world-first records are public; the pledged totals
 //             ("how far") are given for the asking nation only (`viewOf(…, nation)`), the flag keeps' line.
 import { createHash } from 'node:crypto';
-import { NATIONS, TECHS, RESEARCH_V1, TECH_COUNT, costV1, refusalOf, decodeResearchReceipt } from '../../../permutation-server/web/frontier/flocalplay-research.mjs';
+import { NATIONS, TECHS, RESEARCH_V1, TECH_COUNT, costV1, othersDiscounting, refusalOf, decodeResearchReceipt } from '../../../permutation-server/web/frontier/flocalplay-research.mjs';
 import { FLAG_KEEPS_DEFAULTS, splitPrize, units } from './world-goals.mjs';
 
 export const RESEARCH_RULESET = 'research-v1';
@@ -70,16 +70,15 @@ export function firstsOf(world, nations) {
  * techs: [{id, key, era, open, firstBell, firstNations, knownBy, mine?: {known, pledged, cost, left, learnedBell,
  * refusal}}]}`.
  */
-export function viewOf(world, nations, viewer = null) {
+export function viewOf(world, nations, viewer = null, { bell = null } = {}) {
   const mine = isNation(viewer) ? nations[viewer] : null;
   return {
     era: world.era, eraBell: world.eraBell, startBell: world.startBell, paused: world.paused, rule: world.rule, openEras: RESEARCH_V1.openEras,
-    roadsEffectLive: RESEARCH_V1.roadsEffectLive,
     techs: TECHS.map(t => {
       const w = world.techs[t.id];
       const row = { id: t.id, key: t.key, era: t.era, open: t.era <= world.era && t.era <= RESEARCH_V1.openEras, firstBell: w.firstBell, firstNations: w.firstNations, knownBy: w.knownBy };
       if (mine) {
-        const others = w.knownBy.filter(n => n !== viewer).length;
+        const others = othersDiscounting(w, viewer, bell);
         const cost = costV1(t.id, others), m = mine.techs[t.id];
         row.mine = { known: m.known, pledged: m.pledged, cost, left: m.known ? 0 : Math.max(0, cost - m.pledged), learnedBell: m.learnedBell, refusal: refusalOf(t.id, world.era, mine.known) };
       }

@@ -20,6 +20,7 @@
 // sight, are "unknown" and named as such, never guessed.
 import { fastestPath, stepSecsOf, landsWanted, BPS_ONE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from '../../../permutation-server/web/frontier/fcaravan.mjs';
 import { bellAt, bellStart } from '../../../permutation-server/web/frontier/clock.mjs';
+import { speedBpsWith } from '../../../permutation-server/web/frontier/flocalplay-research.mjs';
 import { watchOf, structuresIn, avoidingPalisades, caravanWatch, stepTiles, wear, wearBps } from './s1walk.mjs';
 
 /** caravan.rs SLOT_TILES: the most turns a caravan may stand in one Province. */
@@ -78,15 +79,17 @@ export const wornCargo = (cargo, bps) => cargo.map(c => (c > 0 ? wear(c, bps) : 
  * send may take to land), provinces: Map "p,q" → decoded Province,
  * sight(p, q, tile) → 0..3 (3: the viewer sees who stands there), ownHost(entry) →
  * whether a host is the viewer's own (else its nation's other villages' hosts are
- * only "possibly" domestic raiders)}`.
+ * only "possibly" domestic raiders), techs (the research techs in effect in the
+ * sending village: roads shortens the walk, 0 by default)}`.
  */
 export function caravanPreview(from, to, cargo, world) {
-  const { lands, structures = [], stances = null, faction, expelled = false, genesisTs, now, margin = 90, provinces = new Map(), sight = () => 0, ownHost = null } = world;
+  const { lands, structures = [], stances = null, faction, expelled = false, genesisTs, now, margin = 90, provinces = new Map(), sight = () => 0, ownHost = null, techs = 0 } = world;
   const watchAt = (p, q) => watchOf(structuresIn(structures, p, q), stances, faction, expelled);
   const raw = fastestPath(from, to, lands);
   const road = fastestPath(from, to, avoidingPalisades(lands, watchAt));
   if (!road || !road.dirs.length) return { ok: false, why: raw?.dirs?.length ? 'OnlyThroughPalisade' : 'NoRoad', limits: { steps: MAX_PATH_STEPS, provinces: MAX_PATH_PROVINCES } };
-  const bps = CARAVAN_TIME_BPS[faction] ?? BPS_ONE;
+  // (world goal ② roads, Q-RI-1 (a): `world.techs` — the techs in effect in the sending village — × 0.95 on the knob)
+  const bps = speedBpsWith(techs | 0, CARAVAN_TIME_BPS[faction] ?? BPS_ONE);
   const onRoad = road.provinces.map(pc => lands.find(l => l.p === pc.p && l.q === pc.q)).filter(Boolean);
   const secs = stepSecsOf(from, road.dirs, onRoad, bps);
   const steps = stepTiles(from, road.dirs).map((s, i) => ({ ...s, atSecs: secs[i] }));

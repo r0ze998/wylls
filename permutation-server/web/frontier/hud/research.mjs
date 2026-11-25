@@ -7,7 +7,7 @@
 import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
-import { TECHS } from '../flocalplay-research.mjs';
+import { TECHS, costV1 } from '../flocalplay-research.mjs';
 
 const nation = f => Number.isInteger(f) && f >= 0 && f < 6;
 const int = x => Number.isSafeInteger(x);
@@ -51,10 +51,9 @@ function techRow(t, view, me, bell) {
   if (t.mine) {
     mine = t.mine.known
       ? html`<span class="tech-mine known" data-known="1">${L`あなたの国は覚えました`}</span>`
-      : html`<span class="tech-mine" data-pledged="${t.mine.pledged}" data-cost="${t.mine.cost}"><meter min="0" max="${t.mine.cost}" value="${Math.min(t.mine.pledged, t.mine.cost)}"></meter> ${L`あなたの国 ${fmtNum(t.mine.pledged)} / ${fmtNum(t.mine.cost)}`}${t.knownBy.some(n => n !== me) ? html` <small class="muted">${L`（ほかの国が覚えたので安くなっています）`}</small>` : ''}</span>`;
+      : html`<span class="tech-mine" data-pledged="${t.mine.pledged}" data-cost="${t.mine.cost}"><meter min="0" max="${t.mine.cost}" value="${Math.min(t.mine.pledged, t.mine.cost)}"></meter> ${L`あなたの国 ${fmtNum(t.mine.pledged)} / ${fmtNum(t.mine.cost)}`}${t.mine.cost < costV1(t.id, 0) ? html` <small class="muted">${L`（ほかの国が覚えたので安くなっています）`}</small>` : ''}</span>`;
   }
-  const roads = t.key === 'roads' && view.roadsEffectLive === false ? html` <small class="muted" data-effect="not-live">${L`効果はまだ動いていません（準備中）`}</small>` : '';
-  return html`<li class="goal-tech${t.firstNations.includes(me) ? ' mine' : ''}" data-tech="${t.key}" data-first-bell="${t.firstBell ?? ''}"><b>${techName(t.key)}</b> · <small>${techEffect(t.key)}</small>${roads}<br><small class="muted">${first}${known ? ` · ${known}` : ''}</small>${mine ? html`<br>${mine}` : ''}</li>`;
+  return html`<li class="goal-tech${t.firstNations.includes(me) ? ' mine' : ''}" data-tech="${t.key}" data-first-bell="${t.firstBell ?? ''}"><b>${techName(t.key)}</b> · <small>${techEffect(t.key)}</small><br><small class="muted">${first}${known ? ` · ${known}` : ''}</small>${mine ? html`<br>${mine}` : ''}</li>`;
 }
 
 /** The research part of the card for an answer `g` (the world goals' judge), '' when research never started. */
@@ -66,7 +65,7 @@ export function renderResearch(FS, g) {
   const state = v.paused ? html`<p class="warn" data-research="paused">${L`研究は止まっています（運営の安全弁）。覚えた技術と効果はそのままです`}</p>`
     : int(bell) && bell < v.startBell ? html`<p class="muted" data-research="soon">${L`研究はターン ${fmtNum(v.startBell)} に始まります。それまでに作った科学は差し出せません（始まった後に作った科学だけが数えられます）`}</p>` : '';
   const head = html`<h4 class="goal-research-title">${L`世界初の技術（学術）：時代 ${fmtNum(v.era)}`}</h4>`;
-  const rule = html`<p class="muted small">${L`村の科学を国の研究に差し出し（村のカード）、費用に届いた国がその技術を覚えます。世界で最初に覚えた国が「世界初」です（同じターンなら同点）。ほかの国が覚えた技術は、1 国につき 20% 安くなります（最大 60%）。国が同じ時代の技術を 3 つ覚えると、次の時代が開きます`}</p>`;
+  const rule = html`<p class="muted small">${L`村の科学を国の研究に差し出し（村のカード）、費用に届いた国がその技術を覚えます。世界で最初に覚えた国が「世界初」です（同じターンに割引なしの費用を払い終えた国は同点）。ほかの国が前のターンまでに覚えた技術は、1 国につき 20% 安くなります（最大 60%）。国が同じ時代の技術を 3 つ覚えると、次の時代が開きます`}</p>`;
   const later = v.techs.some(t => !t.open) ? html`<p class="muted small">${L`時代 2・3 の技術は準備中です（この世界では、まだ差し出せません）`}</p>` : '';
   const mine = r.history.filter(h => nation(me) && h.nations.includes(me));
   const hist = r.history.length ? html`<ul class="goal-research-firsts">${[...r.history].reverse().slice(0, 6).map(h => {

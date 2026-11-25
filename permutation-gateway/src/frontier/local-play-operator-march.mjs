@@ -21,6 +21,7 @@ import { kernelRulesetFor } from '../../../permutation-server/web/frontier/floca
 import { conquestEnabled, kernelFile, keepFromProvince } from '../../../permutation-server/web/frontier/fconquest.mjs';
 import { reachableKeeps } from '../../../permutation-server/web/frontier/fkeepreach.mjs';
 import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMargin, DEPART_STAMINA, freeTransitSlot } from '../../../permutation-server/web/frontier/fmarch.mjs';
+import { withRoads, holdingTechs } from '../../../permutation-server/web/frontier/flocalplay-research.mjs';
 import { sealMarch, checkBeacon } from '../../../permutation-server/web/frontier/seal.mjs';
 import { seasonClock, bellAt } from '../../../permutation-server/web/frontier/clock.mjs';
 import { hostsIn, actionBlocks } from '../../../permutation-server/web/frontier/fland.mjs';
@@ -296,8 +297,10 @@ export async function openMarch(origin, wallet, { fetch: f = (...a) => globalThi
 export async function sendWarMarch(r, snap, eyes, { post } = {}) {
   const w = eyes.world, k = eyes.kernel();
   const { row, host, province } = snap.march;
-  const route = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: w.blocked ?? [] });
-  if (!route.ok) return { ok: false, step: 'route', code: route.code };
+  const planned = planRoute(k, { from: { p: row.origin.p, q: row.origin.q, tile: row.origin.tile }, to: { p: row.p, q: row.q, tile: row.tile }, unit: host.unit, seeds: w.seeds, blocked: w.blocked ?? [] });
+  if (!planned.ok) return { ok: false, step: 'route', code: planned.code };
+  // (world goal ② roads, Q-RI-1 (a): a village with roads marches 5 % faster — as the page's composer)
+  const route = { ...planned, route: withRoads(planned.route, holdingTechs(snap.holding)) };
   // (the chain's time now, as the page's chain clock extrapolates it from its last sample at the measured rate)
   const nowSecs = () => w.now + Math.max(0, (Date.now() - w.sampledAt) / 1000) * (w.rate ?? 1);
   const margin = departMargin(w.rate ?? 1);

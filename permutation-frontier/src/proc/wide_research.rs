@@ -439,7 +439,7 @@ pub(crate) fn pledge_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Pledge, auth: &A
     rebase(&mut h, &mut m, &w, now.ts);
     let balance = kr::whole(h.stores[SCI].value);
     let prm = w.rule.params();
-    let others = w.others_knowing(x.tech, faction);
+    let others = w.others_discounting(x.tech, faction, now_bell);
     let ok = kr::judge_pledge(prm, x.tech, w.era, &n.view(), others, x.amount, balance)
         .map_err(refusal_err)?;
     let mut cost = [0i64; RESOURCES];
@@ -499,7 +499,7 @@ pub(crate) fn settle(p: &Pubkey, a: &[AccountInfo], x: &wix::ResearchSettle) -> 
         Ro(&d).u8(wre::nation_research::FACTION)?
     };
     let mut n = nation_rec(nation_ai, p, &ctx, &w, faction)?;
-    let others = w.others_knowing(x.tech, faction);
+    let others = w.others_discounting(x.tech, faction, now_bell);
     let c =
         kr::judge_settle(w.rule.params(), x.tech, w.era, &n.view(), others).map_err(refusal_err)?;
     learn(&mut w, &mut n, x.tech, now_bell, c, key(payer))?;

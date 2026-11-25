@@ -28,7 +28,37 @@ test('V1 numbers: costs by era, −20 % per other nation up to 3, the era step a
   assert.equal(R.refusalOf(3, 1, 0), null);
   assert.equal(R.eraAfter(1, 0b0111), 2);
   assert.equal(R.eraAfter(1, 0b0011), 1);
-  assert.equal(R.RESEARCH_V1.roadsEffectLive, false);
+  assert.equal('roadsEffectLive' in R.RESEARCH_V1, false, 'roads is live (Q-RI-1 (a), owner 2026-11-25 12:04)');
+});
+
+test('roads (Q-RI-1 (a)) mirrors research::speed_bps / march_secs: the speed knob × 0.95, rounded down', () => {
+  const RD = 1 << 3;
+  assert.equal(R.speedBpsWith(RD, 10_000), 9_500);
+  assert.equal(R.speedBpsWith(RD, 7_500), 7_125, 'the kernel test row');
+  assert.equal(R.speedBpsWith(RD, 8_000), 7_600, 'B Tide caravans');
+  assert.equal(R.speedBpsWith(0b0111, 10_000), 10_000, 'the other techs move no clock');
+  assert.equal(R.roadsSecs(RD, 6_000), 5_700);
+  assert.equal(R.roadsSecs(0, 6_001), 6_001);
+  const route = { dirs: [1, 2], secs: 1_201 };
+  assert.deepEqual(R.withRoads(route, RD), { dirs: [1, 2], secs: 1_140, rawSecs: 1_201 });
+  assert.equal(R.withRoads(route, 0), route);
+  // the gate: the village's stored nation must be the departing one (a captured village plays without them)
+  const h = Object.defineProperty({ faction: 2 }, 'researchMask', { value: { techs: RD, nation: 2, rebased: true }, enumerable: false });
+  assert.equal(R.holdingTechs(h), RD);
+  assert.equal(R.holdingTechs(h, 4), 0);
+  assert.equal(R.holdingTechs({ faction: 2 }), 0);
+  // never below the program's march time (the planner's secs carry no doctrine bias; every doctrine's is ≤ 1.0)
+  for (const bps of [10_000, 7_500]) for (const raw of [599, 6_000, 86_399])
+    assert.ok(R.roadsSecs(RD, raw) >= Math.floor((raw * R.speedBpsWith(RD, bps)) / 10_000));
+});
+
+test('Q-VR232-1 (a): a same-bell tie only at the undiscounted price — the world firsts of THIS bell do not discount yet', () => {
+  const row = { firstBell: 150, firstNations: [2, 4], knownBy: [1, 2, 4] };
+  assert.equal(R.othersDiscounting(row, 3, 150), 1, 'nation 1 learned later and counts; the tied firsts do not');
+  assert.equal(R.othersDiscounting(row, 3, 151), 3);
+  assert.equal(R.othersDiscounting(row, 2, 151), 2, 'never itself');
+  assert.equal(R.othersDiscounting(row, 3), 3, 'no bell: the live count');
+  assert.equal(R.othersDiscounting({ firstBell: null, firstNations: [], knownBy: [] }, 0, 5), 0);
 });
 
 test('the effects mirror the kernel (masonry −10 % time, bronze −10 % ore, agriculture +10 % food, rounded down)', () => {

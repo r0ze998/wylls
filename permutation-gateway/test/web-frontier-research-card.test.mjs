@@ -32,7 +32,8 @@ test('the answer stays a good world-goals answer and the card shows the research
   assert.match(card, /data-era="1"/);
   assert.match(text(card), /世界初：/);
   assert.match(text(card), /あなたの国 200 \/ 240/, 'the discounted cost for the viewer (one nation knows it)');
-  assert.match(text(card), /効果はまだ動いていません/, 'roads: not wired yet');
+  assert.doesNotMatch(text(card), /効果はまだ動いていません/, 'roads is live (Q-RI-1 (a))');
+  assert.match(text(card), /同じターンに割引なしの費用を払い終えた国は同点/, 'Q-VR232-1 (a) in the rule line');
   assert.match(text(card), /時代 2・3 の技術は準備中/);
 });
 

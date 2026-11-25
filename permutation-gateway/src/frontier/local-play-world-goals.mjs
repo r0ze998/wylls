@@ -265,7 +265,7 @@ export function answerOf({ meta, rules, state, last, error, research = null, vie
     goals: GOAL_KINDS.map(g => ({ id: g.id, kind: g.kind, live: g.live || (g.id === 'world-first-tech' && !!research) })),
     // (world goal ②: null in a world where research never started. Q-RS-9 (1) (b): the pledged totals only for `?nation=`)
     research: research ? { ruleset: RESEARCH_RULESET, posting: research.posting, firsts: research.firsts, problems: research.problems, ...(research.error ? { error: research.error } : {}),
-      view: viewOf(research.rr.world, research.rr.nations, viewer), viewer, history: research.history } : null,
+      view: viewOf(research.rr.world, research.rr.nations, viewer, { bell: last?.bell ?? null }), viewer, history: research.history } : null,
     flagKeeps: cur ? { round: cur.round, postedBell: cur.postedBell, seed: cur.seed, hash: cur.hash, need: cur.need, holdBells: cur.holdBells, flags, progress: (last?.progress ?? []).map(x => ({ nation: x.nation, held: x.held, own: x.own, captured: x.captured, capturedLong: x.capturedLong, need: x.need, reachAt: x.reachAt })) } : null,
     achievements: state?.history ?? [],
   }));

@@ -417,6 +417,27 @@ pub fn research_of(d: &[u8]) -> R<u16> {
     Ok(m.effective(r.u8(H::FACTION)?))
 }
 
+/// Roads (Q-RI-1 (a), owner 2026-11-25 12:04): the techs in effect for a
+/// host or caravan of nation `faction` leaving the Holding of bytes `d` —
+/// its `RSV_1258` mask gated by the **departing** nation (a march keeps its
+/// own nation's knowledge after a capture of its village rewrote the
+/// village's faction; 0 for every holding research never touched).
+pub fn departing_techs(d: &[u8], faction: u8) -> R<u16> {
+    Ok(research_mask(d)?.effective(faction))
+}
+
+/// A march's travel seconds over `raw` path seconds for a host leaving a
+/// village with `techs` in effect: the doctrine's travel bias through the
+/// roads knob (`research::march_secs`; `Doctrine::travel_secs` without
+/// roads).
+pub fn march_secs(
+    doctrine: &permutation_rules::frontier::doctrine::Doctrine,
+    techs: u16,
+    raw: u64,
+) -> u64 {
+    research::march_secs(&research::RESEARCH_V1, techs, doctrine.travel_bps, raw)
+}
+
 /// The research mask bytes of a Holding (raw, not gated).
 pub fn research_mask(d: &[u8]) -> R<research::VillageResearch> {
     let r = Ro(d);

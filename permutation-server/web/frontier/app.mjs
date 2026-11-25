@@ -185,6 +185,7 @@ import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, departMargin, planRoute, e
 import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
+import { withRoads, holdingTechs } from './flocalplay-research.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
 import { said, worded, reworded } from './hud/words.mjs';
@@ -1304,7 +1305,9 @@ function routeTo(A, to) {
   if (!r.ok) return { ok: false, code: r.code };
   // Time keeps moving even within one turn. Only the path is cached; the
   // arrival is recalculated from the current clock, rate and lead window.
-  const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
+  // (roads, Q-RI-1 (a): the acting village's techs shorten the walk as the composer's draft does)
+  const secs = withRoads(r.route, holdingTechs(hud.activeHolding(FS), FS.citizen?.faction)).secs;
+  const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs }) : null;
   return { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
 }
 

@@ -429,6 +429,12 @@ fn send<'a>(
     expect_key(first, &pl.ctx.province(src.p as i32, src.q as i32))?;
     let owner_tag = pl.pc.citizen_tag;
     let id = caravan_id(owner_tag, seq);
+    // Roads (Q-RI-1 (a)): a caravan leaving a village carries its techs.
+    let techs = if src.kind == PL::KIND_HOLDING {
+        super::holding::departing_techs(&src_ai.try_borrow_data()?, faction)?
+    } else {
+        0
+    };
     let (arrive, runs, last_bell, worn) = cvn::route(
         p,
         &pl.ctx,
@@ -440,6 +446,7 @@ fn send<'a>(
         steps,
         path,
         faction,
+        techs,
         &Owner::of(season_ai, citizen)?,
         id,
         provinces,

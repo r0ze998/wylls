@@ -56,8 +56,8 @@ export const TECHS = Object.freeze([
  * (Q-RS-7 (a)); −20 % per other nation that knows the tech, at most 3 (Q-RS-5 (a): the count at each pledge); no
  * headcount factor (Q-RS-4 (a)); the world's era steps when a nation knows 3 techs of it; V1 opens era 1 only (Q-RS-6
  * (a)); only science made after the start counts (Q-RS-3 (b)); 1 point per 10 science (Q-RS-10 (d)). Effects in bps:
- * agriculture food +10 %, masonry build time −10 %, bronze training ore −10 %, roads travel −5 % (NOT WIRED YET:
- * `roadsEffectLive` false — Q-RI-1).
+ * agriculture food +10 %, masonry build time −10 %, bronze training ore −10 %, roads march and caravan time −5 % (Q-RI-1 (a),
+ * owner 2026-11-25 12:04: live, through the existing speed knob — `speedBpsWith`, `roadsSecs`).
  */
 export const RESEARCH_V1 = Object.freeze({
   eraCost: Object.freeze([300, 800, 2000]),
@@ -70,7 +70,6 @@ export const RESEARCH_V1 = Object.freeze({
   masonryBuildBps: 1000,
   bronzeOreBps: 1000,
   roadsTravelBps: 500,
-  roadsEffectLive: false,
   sciencePerPoint: 10,
 });
 
@@ -82,6 +81,17 @@ export function costV1(t, others) {
   const k = Math.min(Math.max(0, others | 0), RESEARCH_V1.discountMaxNations);
   const keep = Math.max(0, 10_000 - RESEARCH_V1.discountBpsPerNation * k);
   return Math.ceil((base * keep) / 10_000);
+}
+
+/**
+ * How many other nations discount a tech for `nation` at `bell` (the program's `ResearchWorld::others_discounting`):
+ * every other nation that knows it, except — Q-VR232-1 (a), owner 2026-11-25 12:04 — the nations that learned it as the
+ * world's first at this very bell (a same-bell tie is only for nations that paid the undiscounted price). `row` is a
+ * decoded world record's tech row `{firstBell, firstNations, knownBy}`; `bell` null/undefined = the live count.
+ */
+export function othersDiscounting(row, nation, bell = null) {
+  const same = bell !== null && bell !== undefined && row?.firstBell === bell;
+  return (row?.knownBy ?? []).filter(n => n !== nation && !(same && (row.firstNations ?? []).includes(n))).length;
 }
 
 /** Why tech `t` cannot be pledged by a nation knowing `known` in world era `era` (the program's order), or null. */
@@ -115,6 +125,20 @@ export const effectiveTechs = (mask, faction) => (mask && mask.nation === factio
 /** Masonry: a build's seconds (rounded down); bronze: a training cost's ore (milli, rounded down); agriculture: food. */
 export const buildSecsWith = (techs, secs) => (techs & b(1) ? Math.floor((secs * (10_000 - RESEARCH_V1.masonryBuildBps)) / 10_000) : secs);
 export const trainOreWith = (techs, ore) => (techs & b(2) ? Math.floor((ore * (10_000 - RESEARCH_V1.bronzeOreBps)) / 10_000) : ore);
+/**
+ * Roads (Q-RI-1 (a)): a speed knob — the doctrine's march `travel_bps` or caravan `caravan_time_bps` — × 0.95, rounded
+ * down, for a host or caravan leaving a village whose techs in effect include roads (the kernel's research::speed_bps).
+ */
+export const speedBpsWith = (techs, bps) => (techs & b(3) ? Math.floor((bps * (10_000 - RESEARCH_V1.roadsTravelBps)) / 10_000) : bps);
+/**
+ * A route's seconds as the page reads them with roads (the planner's secs carry no doctrine bias — every doctrine's is
+ * ≤ 1.0 — so this is never below the program's research::march_secs: the earliest turn it gives is one the chain takes).
+ */
+export const roadsSecs = (techs, secs) => (techs & b(3) ? Math.floor((secs * (10_000 - RESEARCH_V1.roadsTravelBps)) / 10_000) : secs);
+/** A planner route with roads applied to its secs (`rawSecs` keeps the planner's own), or the route unchanged. */
+export const withRoads = (route, techs) => (route && Number.isFinite(route.secs) && (techs & b(3)) ? { ...route, secs: roadsSecs(techs, route.secs), rawSecs: route.secs } : route);
+/** The techs in effect for a host leaving holding `h` (the herald's decoded holding, its non-enumerable researchMask). */
+export const holdingTechs = (h, faction = h?.faction) => effectiveTechs(h?.researchMask ?? null, faction);
 export const foodRateWith = (techs, prod) => (techs & b(0) ? prod + Math.floor((prod * RESEARCH_V1.agricultureFoodBps) / 10_000) : prod);
 
 // ---------------------------------------------------------------- addresses
