@@ -38,7 +38,7 @@ import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
-import { territoryOfRoute, nearerOwnVillage } from './flocalplay-territory.mjs';
+import { territoryOfRoute, nearerOwnVillage, tileStillMine } from './flocalplay-territory.mjs';
 // (territory-card, owner Q-PDT-1 (a): the viewer's own territory summary, read-only, for the village card's land line)
 import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf, heraldTerritoryPlayer } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
@@ -3934,7 +3934,9 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
     ? s1Refused(L`準備の間に、世界・ウォレット・選んでいる村のどれかが変わりました。隊商は送っていません。もう一度確かめてから送ってください。`) : { ok: false, code: 'S1PrepChanged', sent: false });
   let dst = m.destinations[dstIndex];
   const problem = caravanProblem(from, dst, cargo);
-  if (problem === 'NoPlace') return s1Refused(L`出発地と行き先を選んでください`);
+  // (fix-loop18, LP18-2: the field can now stand on "(choose a destination)"; the retry would send the same empty
+  //  choice again — no 「もう一度」, as for the list that changed)
+  if (problem === 'NoPlace') return failed({ code: 'S1Refused', retry: false, text: L`出発地と行き先を選んでください` });
   if (problem === 'CapturePending') return failed({ code: 'CapturePending' });
   if (problem === 'SamePlace') return s1Refused(L`出発地と行き先が同じです`);
   if (problem === 'NoCargo') return s1Refused(L`運ぶものを入れてください`);
@@ -4025,7 +4027,9 @@ function s1CaravanFromForm(f) {
   if (chosen && placeKey(s1VillageModel(FS).destinations[dstIndex]) !== chosen) {
     // (the field shows the list as it is now: a second press sends to what it shows)
     if (f?.elements?.picked) f.elements.picked.value = '';
-    return Promise.resolve(s1Refused(L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。`));
+    // (fix-loop18, LP18-3: no 「もう一度」 on this toast — the retry sent the same form again, with the place that left
+    //  the list, and could only be refused the same way (loop-play18 stills 016/017); the words already say what to do)
+    return Promise.resolve(failed({ code: 'S1Refused', retry: false, text: L`行き先の一覧が変わりました（見えなくなった場所は行き先から外れます）。隊商は送っていません。行き先を選び直してください。` }));
   }
   const at = s1PlanAtSend({ srcIndex, dstIndex });
   return s1Caravan(srcIndex, dstIndex, Array.from({ length: 8 }, (_, i) => Math.max(0, Math.trunc(formNum(f, `c${i}`) || 0)))).then(r => s1PlanDone(at, r));
@@ -4754,8 +4758,12 @@ export const ACTIONS = {
     const mine = FS.ui?.ownTiles ?? {}, triedKey = `t:${target.p},${target.q}`, from = num(FS.ui?.wideTried?.[triedKey] ?? 0);
     const blocked = new Set([...terr.siteTiles, terr.keepTile]);
     let tile = null;
-    for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !mine[`${target.p},${target.q},${i}`]) { tile = i; break; }
-    if (tile === null) return failed({ code: 'NoFreeTile', text: L`この州に取れるマスは残っていません。` });
+    // (fix-loop18: a remembered tile the territory read shows let go since is free again — flocalplay-territory.mjs tileStillMine)
+    const tnow = typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null;
+    for (let i = Math.max(0, from); i < 61; i++) if (!blocked.has(i) && !tileStillMine(mine, target.p, target.q, i, tnow)) { tile = i; break; }
+    // (fix-loop18, LP18-4: the card shuts the button once it knows the province is full — screens/holding.mjs
+    //  provinceFull; this answer stays for the press that raced it, without 「もう一度」: the same press finds no tile again)
+    if (tile === null) return failed({ code: 'NoFreeTile', retry: false, text: L`この州に取れるマスは残っていません。` });
     const home = { p: h.p, q: h.q, site: h.site }, key = `${target.p},${target.q},${tile}`;
     const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
     // (devnet-territory-dev: on devnet the first press is the cost preview — ore + SOL —, the next one signs and sends)
@@ -4768,7 +4776,7 @@ export const ACTIONS = {
     const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
     const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
     territoryRefused(ans);
-    if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: true } };
+    if ((t && t.ok !== false) || already) FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [key]: Date.now() } };
     // (territory-card: the card's tile count, next price and upkeep follow the claim — and a refusal for unpaid upkeep shows its line)
     refreshOwnLand({ force: true }).catch(() => {});
     if (taken || already) FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [triedKey]: tile + 1 } };
@@ -4802,7 +4810,7 @@ export const ACTIONS = {
       // the next press — the tile yours — the village on it, naming the territory record (flocalplay-wide.mjs)
       const tile = terr.siteTiles[site], key = `${target.p},${target.q},${tile}`;
       const mineTiles = FS.ui?.ownTiles ?? {};
-      if (!mineTiles[key]) {
+      if (!tileStillMine(mineTiles, target.p, target.q, tile, typeof FS.territoryTilesNow === 'function' ? FS.territoryTilesNow() : null)) {
         // (owner TQ-2: the upkeep distance is from the NEAREST own village — an own wide village nearer than home is named)
         const vill = nearerOwnVillage(home, target, fwide.wideSlots(FS).filter(e => e.holding).map(e => ({ p: e.holding.p, q: e.holding.q, site: e.holding.site })));
         const rw = reach ?? reachD;
@@ -4819,7 +4827,7 @@ export const ACTIONS = {
         const taken = !!ans && ans.ok === false && !already && (pc === 11 || /SiteTaken/.test(why));
         territoryRefused(ans);
         refreshOwnLand({ force: true }).catch(() => {});
-        if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: true } }; invalidate('panel'); }
+        if ((t && t.ok !== false) || already) { FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mineTiles, [key]: Date.now() } }; invalidate('panel'); }
         if (taken) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
         if (!already) return t;
       }

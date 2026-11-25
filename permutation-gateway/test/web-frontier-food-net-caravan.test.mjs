@@ -101,7 +101,8 @@ test('the top bar, its hover text and the popovers show the net food of the firs
     const food = tokens.find(r => r.resource === 'Food');
     assert.deepEqual([food.perHour, food.villagePerHour, food.landPerHour, food.fullIn], [-32.27, 40, 72.27, null], 'net; a store that falls is never "full in"');
     assert.equal(tokens.find(r => r.resource === 'Wood').landPerHour, undefined);
-    assert.equal(hud.resourceTitle(food), 'Food 11 / 2,000 · −32.27 per hour (village +40 · land −72.27)');
+    // (fix-loop18 LP18-7: a falling store now says when it is empty at this rate)
+    assert.equal(hud.resourceTitle(food), 'Food 11 / 2,000 · −32.27 per hour (village +40 · land −72.27) · Empty in 20:28');
     const strip = String(hud.renderStrip(tokens));
     assert.match(strip, /<span class="res-rate res-rate-land">−32\.27\/h \(land −72\.27\)<\/span>/);
     assert.match(strip, /<span class="res-rate">\+30\/h<\/span>/, 'wood as before');
@@ -124,7 +125,7 @@ test('the top bar, its hover text and the popovers show the net food of the firs
     assert.deepEqual(hud.resourceBreakdown(fs.holdings, 'Food', 0), { resource: 'Food', name: 'Food', total: 22, perHour: 60, rows: b.rows.map((r, i) => ({ holding: r.holding, value: 11, cap: 2000, perHour: i ? 20 : 40, fullIn: r.holding === home ? hud.resourceModel(home, 0)[0].fullIn : hud.resourceModel(second, 0)[0].fullIn, state: 'ok' })) }, 'no landOf: as before');
     setLang('ja');
     const ja = hud.resourceModel(home, 0, { land: of(home) });
-    assert.equal(hud.resourceTitle(ja[0]), '食料 11 / 2,000 · 毎時 −32.27（村 +40 · 土地 −72.27）');
+    assert.equal(hud.resourceTitle(ja[0]), '食料 11 / 2,000 · 毎時 −32.27（村 +40 · 土地 −72.27） · 空になるまで 20:28');
     assert.match(String(hud.renderStrip(ja)), /−32\.27\/時（土地 −72\.27）/);
     assert.match(String(hud.renderBreakdown(hud.resourceBreakdown(fs.holdings, 'Food', 0, of))), /「土地」は、あなたの土地の維持費です。最初の村の食料から、ターンごとに払われます。/);
   } finally { setLang('ja'); }
@@ -309,7 +310,9 @@ test('a redraw keeps the chosen PLACE, not its index; a chosen place that left t
   assert.equal(cur.picked.value, 'holding:5:0:s0');
   // the markup: every destination option names its place; the field for the chosen place is there, empty
   const html = String(SCR.renderS1Village(fogWorld()));
-  assert.match(html, /<option value="0" data-key="holding:0:0:s0" >村（0, 0）<\/option><option value="1" data-key="holding:1:0:s2" selected>/);
+  // (fix-loop18 LP18-2: the village in hand is the form's only start here, so it is no longer listed as a destination)
+  assert.match(html, /<optgroup label="あなたの場所"><option value="1" data-key="holding:1:0:s2" selected>/);
+  assert.doesNotMatch(html, /<option value="0" data-key="holding:0:0:s0"/);
   assert.match(html, /<input type="text" name="picked" value="" hidden tabindex="-1" aria-hidden="true" autocomplete="off">/);
   const app = web('frontier/app.mjs');
   assert.ok(app.includes("if (dst) { if (dst.form?.elements?.picked) dst.form.elements.picked.value = dst.selectedOptions?.[0]?.dataset?.key ?? ''; return; }"), 'a change of the field writes the place chosen');

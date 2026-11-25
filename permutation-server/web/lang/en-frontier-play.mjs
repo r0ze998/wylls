@@ -2014,7 +2014,13 @@ export default {
   "持っているマス {0}": "tiles owned: {0}",
   "次の1マス: 鉱石 {0}": "next tile: {0} ore",
   "土地の維持費: 食料 {0}/時": "land upkeep: {0} food per hour",
-  "土地の維持費（本拠地の食料）が払えていません。遠いマスから1ターンに1つずつ手放されています。本拠地に食料が戻ると止まります。": "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village has food again.",
+  // (fix-loop18, LP18-9: "has food again" was not the rule — the village made food every turn and tiles were still let
+  //  go until one turn's food covered one turn's upkeep; frontier-abi world_index/territory.rs settle_upkeep)
+  "土地の維持費（本拠地の食料）が払えていません。遠いマスから1ターンに1つずつ手放されています。本拠地の毎ターンの食料が土地の維持費に足りるようになると止まります。": "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village makes enough food for your land each turn.",
+  // (fix-loop18, LP18-2 / LP18-7 / LP18-8)
+  "（行き先を選んでください）": "(choose a destination)",
+  "空になるまで {0}": "Empty in {0}",
+  "食料の増え方はもう 0 以下です（{0}/時）。次の1マスの維持費は、本拠地が毎ターン作る食料では払えません。": "Your food no longer grows ({0}/h): the food your first village makes each turn cannot pay for another tile.",
   // (verify-pr231: "1 more turn", not "1 more turns")
   "土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。あと {0} ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。": n => plural(n, "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for {0} more turn, your farthest tiles are let go, one per turn.", "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for {0} more turns, your farthest tiles are let go, one per turn."),
   "土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。本拠地に食料が戻ると、また取れます。": "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. Once your first village has food again, you can claim again.",
