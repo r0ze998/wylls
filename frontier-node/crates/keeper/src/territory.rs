@@ -15,7 +15,8 @@
 //!    that a home that can pay again is charged even when the decay is then refused — verify-pr206-209);
 //! 3. **conquest** — after a keep capture (the captor the wide Resolve stamped into the province trailer, at the
 //!    keep's current generation, its nation still holding the keep), 0xDC op 14 WideTerritoryConquer moves every tile
-//!    of one non-teammate owner of that province to the captor (both summaries settled in the same transaction).
+//!    of one non-teammate owner of that province to the captor (both summaries settled in the same transaction; a
+//!    captor's second and later conquests land since conquest-upkeep-fix, owner Q-VT-1 (b)).
 //!
 //! The local runner's duty (`itest::wide_territory`, TEST only) does the same in play-local worlds; this role is its
 //! devnet counterpart. Both plan with the ONE pure planner [`crate::widelane::territory::plan`].

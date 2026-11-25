@@ -537,7 +537,11 @@ pub mod territory {
     }
 
     /// 0xDC op 14 WideTerritoryConquer: `[payer s,w] [season r] [province r] [territory_province w]
-    /// [loser_player w] [captor_holding r] [captor_citizen r] [captor_player w] [system]`.
+    /// [loser_player w] [captor_holding r] [captor_citizen r|w] [captor_player w] [system]`. Listed read-only here;
+    /// when the captor already has a summary the role puts the captor's WideTerritorySettle before it in the same
+    /// transaction, which makes that Citizen (and its first home) writable in the message — accepted by the program
+    /// since conquest-upkeep-fix (owner Q-VT-1 (b), `wix::TERRITORY_CONQUER` `captor_citizen` `Wr::Either`; the
+    /// world-3 `.so` 31acbb59 refused it BadAccount, D-verifier-territory-1).
     pub fn conquer(
         a: &Addresses,
         payer: Address,

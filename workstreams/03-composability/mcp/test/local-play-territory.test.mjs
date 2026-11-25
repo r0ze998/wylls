@@ -118,7 +118,7 @@ test('T3 the owner\'s land: own tiles, the next price, upkeep, this turn\'s clai
   const v = t.view;
   assert.equal(v.on, true);
   assert.equal(v.bell, BELL);
-  assert.deepEqual([v.own.tiles, v.own.nextClaimOre, v.own.upkeepMilliFoodPerHour, v.own.unpaid, v.own.claimsThisTurn], [1, 10, 33, false, 1]);
+  assert.deepEqual([v.own.tiles, v.own.nextClaimOre, v.own.upkeepMilliFoodPerHour, v.own.unpaid, v.own.claimsThisTurn], [1, 10, 330, false, 1]);
   assert.deepEqual(v.own.list.map(x => `${x.p},${x.q},${x.tile}`), ['-65,-64,5']);
   assert.equal(t.ore, 200);
   assert.deepEqual(t.claim, { ok: false, why: ['this turn\'s claim is used (1 a turn)'] });
@@ -156,13 +156,13 @@ test('T4 the tool\'s answer over MCP: whole units, the fog said, a claim possibl
     const r = await client(s, tok.access_token).tool('get_territory_status');
     assert.equal(r.isError, false, JSON.stringify(r.structuredContent));
     const x = r.structuredContent;
-    assert.deepEqual([x.on, x.turn, x.own.tiles, x.own.nextClaimOre, x.own.firstHomeOre, x.own.upkeepFoodPerHour, x.own.firstHomeFoodPerHour, x.own.unpaid, x.own.claimsThisTurn, x.own.claimsPerTurn], [true, BELL, 1, 10, 200, 0.033, 40, false, 0, 1]);
+    assert.deepEqual([x.on, x.turn, x.own.tiles, x.own.nextClaimOre, x.own.firstHomeOre, x.own.upkeepFoodPerHour, x.own.firstHomeFoodPerHour, x.own.unpaid, x.own.claimsThisTurn, x.own.claimsPerTurn], [true, BELL, 1, 10, 200, 0.33, 40, false, 0, 1]);
     assert.deepEqual(x.claim, { canAskNow: true, why: [] });
-    assert.deepEqual(x.own.where, [{ p: '-65', q: '-64', tile: 5, upkeepFoodPerHour: 0.033 }]);
+    assert.deepEqual(x.own.where, [{ p: '-65', q: '-64', tile: 5, upkeepFoodPerHour: 0.33 }]);
     assert.equal(x.rule.claimsPerTurn, 1);
     assert.deepEqual(x.provinces.map(p => `${p.p},${p.q}`), ['-65,-64', '-65,-65']);
     assert.deepEqual(x.provinces[0].reach, { kind: 'home' });
-    assert.equal(x.provinces[0].tileUpkeepFoodPerHour, 0.033);
+    assert.equal(x.provinces[0].tileUpkeepFoodPerHour, 0.33);
     assert.match(x.fog, /only for tiles in the owner's sight/);
     assert.ok(!JSON.stringify(x).includes(fw.tagOf(OTHER)), 'no other player\'s tag is in the answer');
   } finally { await s.close(); }
