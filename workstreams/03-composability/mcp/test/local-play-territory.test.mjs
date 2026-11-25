@@ -167,3 +167,15 @@ test('T4 the tool\'s answer over MCP: whole units, the fog said, a claim possibl
     assert.ok(!JSON.stringify(x).includes(fw.tagOf(OTHER)), 'no other player\'s tag is in the answer');
   } finally { await s.close(); }
 });
+
+test('territory-map (owner 2026-11-25 item 3, Q-W13T-2 (b)): an own tile is in sight itself — what stands on it is told; a neighbour stays unseen', async () => {
+  const { provinceTiles } = await import('../src/local-play-territory.mjs');
+  // site 0 on tile 5 (a village) is the player's own tile, site 1 on tile 40 is not; no sight anchor reaches either
+  const cap = { siteTiles: [5, 40], siteStates: [1, 0], siteFactions: [3, 7], keepTile: 30 };
+  const owners = Array.from({ length: 61 }, (_, i) => (i === 5 ? '7' : i === 6 ? '9' : null));
+  const r = provinceTiles(cap, { owners }, '7', () => false);
+  assert.deepEqual(r.own, [5]);
+  assert.ok(r.unseen.includes(6) && !r.taken.includes(6), 'another player\'s tile beside it is not named');
+  assert.equal(r.sites[0].village, true, 'the own tile is in view: its village is told');
+  assert.equal(r.sites[1].village, null, 'out of sight: not told');
+});
