@@ -488,10 +488,14 @@ this section describes what the program does today, and none of it is a promise 
      it makes (claiming them takes 558 ore in all), and sooner if you spend your food on troops and buildings (owner
      decision Q-CUF-1 (b), 11-25 12:04: thirty times the first numbers; with those the land went unpaid only past about
      1,200 tiles, and with the ×10 of Q-LP15-1 (b) past about 120).
-   - The village screen's "Per hour" column does not include land upkeep.
+   - The first village's food rate is shown after land upkeep, with the land's part beside it: with 73 tiles near home
+     and a village that makes 40, the top bar and the village screen's "Per hour" column read "−32.27/h (land −72.27)"
+     (the top bar shows rates on a window at least 1,600 px wide; its hover text and the resource list always do:
+     "Food 11 / 2,000 · −32.27 per hour (village +40 · land −72.27)"). The amount in store is the record's, as before.
 6. **When the food cannot pay.** The food in your first village is taken (all of it, never more than the upkeep owed),
    and your land counts as unpaid from that turn (owner decision Q-LP17-1 (b), 11-25 21:22;
    before it nothing was taken, so the next turn's food paid a whole turn and the land never stayed unpaid):
+
    - at once: you cannot claim tiles (the refusal is in the table below);
    - after 24 unpaid turns (**4 minutes at ×60**, 16 minutes at `--speed 15`; **4 hours at 1×**): your **farthest** tile
      goes back to unowned, **one tile each turn** (one every 10 s at ×60; one every 10 minutes at 1×), for as long as it
@@ -573,6 +577,12 @@ view (fog-devnet; runbook §7 P5).
   follow the same rule (keep news your own nation is in is always shown). Other nations' map moments ("New village of …",
   a host setting out, an arrival, a camp gone) play only where their tile is in sight now, and the march card's
   "Nearby destinations" lists camps only on tiles you have surveyed.
+- **"Send a caravan" destinations** (owner decision Q-LP17-4, 11-25 21:22): the list holds your own places, your
+  nation's villages and storehouses, and other villages and storehouses that are in sight now — nothing seen before or
+  never seen (it used to name every village of every province the page had read, with province and tile). The form says
+  so. A place that goes out of sight leaves the list; if that happens between drawing the form and pressing "Send a
+  caravan", nothing is sent ("The destination list has changed … Choose the destination again."). "① Request
+  destination" (§13) stays listed whatever is in sight: the requester published that place on the board.
 - In a fog world the map's "Records" view (every recorded province) and the links to the spectator page (the legend's and
   the settings' "Spectator page") are **not shown**, from the first picture on (fog-devnet).
 - One switch per mode in `permutation-server/web/frontier/map/fog.mjs`: `LOCAL_FOG` (local test worlds) and
