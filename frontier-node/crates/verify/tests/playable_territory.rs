@@ -2,11 +2,12 @@
 //! `territory` role) on the devnet `.so` that world 3 runs
 //! (verifier-territory, 2026-11-25).
 //!
-//! One recording of the devnet-playable `.so` of conquest-upkeep-fix
-//! (sha256 3d143093…aaf4, 3,517,472 B: world 3's first `.so` 31acbb59 —
-//! the binary the devnet upgrade of 2026-11-25 05:26 deployed — plus owner
-//! Q-VT-1 (b), a captor's second conquest lands, and Q-LP15-1 (b), land
-//! upkeep ×10; re-recorded, the shapes below unchanged except step 6) in
+//! One recording of the devnet-playable `.so` of upkeep-x30 (sha256
+//! db85913c…9a5f, 3,517,472 B: world 3's first `.so` 31acbb59 — the binary
+//! the devnet upgrade of 2026-11-25 05:26 deployed — plus owner Q-VT-1 (b),
+//! a captor's second conquest lands (conquest-upkeep-fix, 3d143093), and
+//! Q-CUF-1 (b), land upkeep ×30 of the decided numbers (replacing the ×10
+//! of Q-LP15-1 (b)); re-recorded, the shapes below unchanged) in
 //! the in-process LiteSVM chain (`localnet::Chain`), made by
 //! `record_playable_territory` (ignored; needs the artefact). The feed is
 //! unfiltered (every writable account's post-state, wallets included) and
@@ -84,9 +85,9 @@ const SEASON_ID: u64 = 9;
 const PROGRAM_VERSION: u16 = 0x4804;
 /// The devnet-playable `.so` world 3 is to be created on: world 3's first
 /// `.so` 31acbb59 (main `ca317418` … `ee081238`) + conquest-upkeep-fix
-/// (Q-VT-1 (b) conquest flags, Q-LP15-1 (b) land upkeep ×10).
-const TERRITORY_SHA256: &str = "3d14309357332821f2d433f2070a18548932cb1685cd34e493a8b3dfee4baaf4";
-const SO_GZ: &str = "devnet-playable-3d143093.so.gz";
+/// (Q-VT-1 (b) conquest flags) + upkeep-x30 (Q-CUF-1 (b) land upkeep ×30).
+const TERRITORY_SHA256: &str = "db85913cbcda7eb4ec076602360acd963c9b8b05487f3927a1c87b8722419a5f";
+const SO_GZ: &str = "devnet-playable-db85913c.so.gz";
 const WHOLE: &str = "playable-territory-whole.json.gz";
 const RULES: wr::RuleBytes = wr::RuleBytes {
     keep_holder: KeepHolderRule::NeutralTerritoryV1 as u8,
@@ -547,7 +548,7 @@ fn tiles_of(pd: &[u8]) -> (Vec<u8>, Vec<(u8, u8)>) {
 }
 
 #[test]
-#[ignore = "needs the devnet-playable .so of world 3: set PSF_PLAYABLE_SO (sha256 3d143093…), run with --ignored"]
+#[ignore = "needs the devnet-playable .so of world 3: set PSF_PLAYABLE_SO (sha256 db85913c…), run with --ignored"]
 fn record_playable_territory() {
     let so_path = std::env::var("PSF_PLAYABLE_SO").expect("PSF_PLAYABLE_SO");
     let so = std::fs::read(&so_path).expect("the artefact");

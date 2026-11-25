@@ -126,7 +126,7 @@ function wideClaimCard(FS, m, busy) {
       <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
     ${tilePreviewBlock(w.preview, busy)}
-    ${w.territory ? html`<p class="muted">${L`自分の土地：「1マス取る」はその州のマスを1つ、すぐ自分の土地にします（鉱石 10、持っているマス1つごとに +2%、1ターンに1マス）。村は自分のマスの上にだけ建ち、「ここに村を出す」は1回目でその場所のマスを取り、2回目で村を出します。土地の維持費は本拠地の食料から払います（1マス 0.33/時、自分の村から3州より遠いと1州ごとに +0.16/時）。払えないと新しく取れず、24ターン後から遠いマスが1ターンに1つずつ手放されます。`}</p>` : ''}
+    ${w.territory ? html`<p class="muted">${L`自分の土地：「1マス取る」はその州のマスを1つ、すぐ自分の土地にします（鉱石 10、持っているマス1つごとに +2%、1ターンに1マス）。村は自分のマスの上にだけ建ち、「ここに村を出す」は1回目でその場所のマスを取り、2回目で村を出します。土地の維持費は本拠地の食料から払います（1マス 0.99/時、自分の村から3州より遠いと1州ごとに +0.48/時）。払えないと新しく取れず、24ターン後から遠いマスが1ターンに1つずつ手放されます。`}</p>` : ''}
     <p class="muted">${L`申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。`}</p></section>`;
 }
 
