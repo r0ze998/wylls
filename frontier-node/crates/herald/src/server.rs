@@ -315,6 +315,10 @@ pub fn router(app: Shared) -> Router {
         .route("/h/world/wide/page", get(world_wide_page))
         .route("/h/world/wide/route", get(world_wide_route))
         .route("/h/world/wide/territory", get(world_wide_territory))
+        .route(
+            "/h/world/wide/territory/player/{citizen}",
+            get(world_wide_territory_player),
+        )
         .route("/h/overview/{ring}/{file}", get(overview))
         .route("/h/roster/{ring}/latest.bin", get(roster))
         .route("/h/province/{pq}/{bell}", get(province))
@@ -644,7 +648,46 @@ async fn world_wide_territory(State(app): State<Shared>, h: HeaderMap) -> Respon
             }
         }
     };
-    let (gz, body, etag) = (&entry.0, &entry.1, &entry.2);
+    etag_answer(&h, &entry.0, &entry.1, &entry.2)
+}
+
+/// `/h/world/wide/territory/player/{citizen}` (`wide_territory.rs`,
+/// player-territory-records, owner 2026-11-25 18:50 Q-TM2-1): ONE Citizen's
+/// captured territory summary (tiles, upkeep clock, unpaid, next claim
+/// price), with the territory route's cache rules (`max-age=5`, ETag, gzip,
+/// `If-None-Match` → 304). Built per request: one account lookup.
+#[cfg(feature = "wide-world-experimental")]
+async fn world_wide_territory_player(
+    State(app): State<Shared>,
+    Path(citizen): Path<String>,
+    h: HeaderMap,
+) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
+    let Ok(citizen) = citizen.parse::<solana_address::Address>() else {
+        return err(StatusCode::BAD_REQUEST, "BadCitizen");
+    };
+    let body = {
+        let f = read_fold(&app);
+        match crate::wide_territory::player_json(&f, &citizen.to_bytes()) {
+            Ok(v) => serde_json::to_vec(&v).unwrap_or_default(),
+            Err(e) => return err(wide_status(e), e.code()),
+        }
+    };
+    let etag = format!("\"{}\"", &hex::encode(Sha256::digest(&body))[..32]);
+    let gz = if accepts_gzip(&h) {
+        crate::files::gzip(&body)
+    } else {
+        vec![]
+    };
+    etag_answer(&h, &gz, &body, &etag)
+}
+
+/// A shared public JSON answer with its ETag (`max-age=5`): 304 when
+/// `If-None-Match` names it, else the gzip body when the client takes gzip.
+#[cfg(feature = "wide-world-experimental")]
+fn etag_answer(h: &HeaderMap, gz: &[u8], body: &[u8], etag: &str) -> Response {
     let cache = "public, max-age=5";
     if h.get(header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
@@ -653,7 +696,7 @@ async fn world_wide_territory(State(app): State<Shared>, h: HeaderMap) -> Respon
         return (
             StatusCode::NOT_MODIFIED,
             [
-                (header::ETAG, etag.clone()),
+                (header::ETAG, etag.to_string()),
                 (header::CACHE_CONTROL, cache.into()),
             ],
         )
@@ -663,13 +706,13 @@ async fn world_wide_territory(State(app): State<Shared>, h: HeaderMap) -> Respon
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::CACHE_CONTROL, cache)
-        .header(header::ETAG, etag.as_str())
+        .header(header::ETAG, etag)
         .header(header::VARY, "Accept-Encoding");
-    let out = if accepts_gzip(&h) {
+    let out = if accepts_gzip(h) {
         r = r.header(header::CONTENT_ENCODING, "gzip");
-        gz.clone()
+        gz.to_vec()
     } else {
-        body.clone()
+        body.to_vec()
     };
     r.body(Body::from(out))
         .unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "Internal"))
@@ -718,6 +761,11 @@ async fn world_wide_route(State(_app): State<Shared>) -> Response {
 
 #[cfg(not(feature = "wide-world-experimental"))]
 async fn world_wide_territory(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
+}
+
+#[cfg(not(feature = "wide-world-experimental"))]
+async fn world_wide_territory_player(State(_app): State<Shared>) -> Response {
     err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
 }
 
