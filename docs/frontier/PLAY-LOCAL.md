@@ -253,6 +253,9 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    1. Draw the road one step at a time with the direction buttons ("East", "North-east", "North-west", "West", "South-west", "South-east") or the dashed tiles
       on the map, until "Endpoint derived from the route" is a wide-land province (ring 129 or more). Only the provinces the map draws
       are open (at first the strip of rings 129–131; more opens later around villages and won keeps). When the road ends on an unopened one, the card says at once "The end province P,Q is not open in this world … The nearest open province is … (N provinces away).".
+      A road is at most 32 steps and may enter at most 4 provinces; the card counts both ("27/32 · 4/4 entered provinces").
+      At the limit more presses add nothing and no line says so (loop-play16 LP16-6): a keep farther than that is out
+      of an expedition's reach.
    2. "Check terrain and time". "A host cannot march onto mountains or water (N)" means step N is impassable: "Undo step" or "Clear route"
       and draw another road (the card draws roads without looking at terrain). A passable road shows
       "Proposed arrival range: turns A–B" and the button that fills in the arrival turn (step 3). The card scrolls its newest result
@@ -321,6 +324,11 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
 4. **A march inside the wide land (wide → wide)**: open the village of step 2; it has the card
    "Wide-land host (test)". Pressing "Next step (wide land)" goes one step at a time: train spearmen → muster a
    host → march on the next province's keep. **Press once per step, then wait** (three presses in all).
+   - **A new wide village starts with empty stores.** Until it has saved the first step's cost (100 Spearmen: Food 60 ·
+     Ore 20 · Gold 10; it makes 4 ore an hour, so about 30 turns after it stands) the press is refused with
+     "The wide-land village's step has not gone through yet. Not enough resources or balance.". The card does not say what is
+     short or when to press again, and this village's screen shows the stores only as recorded when it was read: wait
+     and press again (loop-play16 LP16-2: refused at turn 288, trained at turn 296, village requested at turn 257).
    - Pressing the bottom bar's tabs ("Village", "Hosts", "Marches", "Nation & territory", "More", "Map") or the settings under "More" no longer makes the
      card forget its march (#173). A page reload still forgets it (§6).
    - The card's wait goes on when you close this wide village's screen and open the rim village or another tab (#184,
@@ -407,6 +415,10 @@ this section describes what the program does today, and none of it is a promise 
 1. Open your **rim village** ("Village" in the bottom bar) and scroll to the card "Found a village on the wide land (test)".
    The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
    buttons, "Claim a tile" and "Found a village here".
+   - **The card does not list every province in reach**: at most 4 near your first village and at most 6 reached through
+     your nation's land. As more land opens, or once you found a village, the rows can change, and a province you
+     claimed in before (or whose keep you are taking) can leave the list although the rule still allows a claim there
+     (loop-play16 LP16-1; owner question Q-LP16-1).
 2. Press **"Claim a tile"** on a row. It can be pressed when the village holds 10 ore or more, whatever the village cost
    line above says (with less, every "Claim a tile" is off and the card says "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."). One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
    says "Tile N of the wide land (P, Q) is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
@@ -991,7 +1003,10 @@ At ×60 there are only about 20 s between stopping and deciding, so `scripts/pla
   seconds at ×15) left in the turn. Steps: B forms a host on that tile first (village screen "Form a host", choose the tile on the
   board). When the turn the caravan stood there has resolved, B taps the tile, opens the host card's ⓘ (the tile panel) and
   presses "Stop the caravan (until turn N)" → "You stopped the caravan. …", then "Take it home" or "Burn it" in the same panel (six turns
-  from the turn it stood there). A is told "The N ore on its way to storage was taken on the road." (or "… was burned on the road.") and presses
+  from the turn it stood there). It works at ×60 too (loop-play16: B's host on tile 20 from turn 27, A's "Store ore" on
+  turn 31, the offer on B's tile panel from turn 33, "until turn 37"): the host has to stand on that tile already in
+  the turn the caravan is sent, and the offer shows about 2 turns after the send, once the province has resolved past it.
+  A is told "The N ore on its way to storage was taken on the road." (or "… was burned on the road.") and presses
   "Check the ledger" (ReconcileLot) to free the room. A taken caravan goes to B's village; B delivers it with the ② card's
   "Caravan you took" → "Deliver the caravan" (the ore goes into B's village). While it is still on its way the ② card lists it under "Caravans you took (on their way to your village)" with "Arrives on turn N. …", and the map tag says its arrival turn (a short road home arrives at once and shows only under "Caravans that have arrived": in verify-pr162 it showed there the turn after the take, map tag "Raided caravan arrives turn 108"). A burned one goes on empty; A delivers it with "Deliver the ore".
 - **A storehouse seized**: the other player forms a host on the storehouse tile (none of the owner's hosts may stand there),
