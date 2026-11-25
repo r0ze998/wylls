@@ -5459,7 +5459,7 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], x: &wix::Reveal) -> R<()> {
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
     // roads (Q-RI-1 (a)): the host's village's techs for the host's nation
     let techs = super::holding::departing_techs(&holding.try_borrow_data()?, t.faction)?;
-    let secs = u32::try_from(super::holding::march_secs(&doctrine, techs, raw as u64))
+    let secs = u32::try_from(super::holding::march_secs(doctrine, techs, raw as u64))
         .map_err(|_| OVERFLOW)?;
     if check_arrival_bell(hdr.genesis_ts, t.depart_ts, secs, arrive).is_err() {
         return Err(FrontierError::ArrivalBell.into());

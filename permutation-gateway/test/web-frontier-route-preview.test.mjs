@@ -5,6 +5,7 @@
 // source is the section between the two comments below (reviewed with this test).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { withRoads, holdingTechs } from '../../permutation-server/web/frontier/flocalplay-research.mjs';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { createRouteCache } from '../../permutation-server/web/frontier/map/routecache.mjs';
@@ -85,6 +86,8 @@ function pagePlanner() {
     palisadeHexesOf: fs => fs.blocked,
     planRoute: (k, a) => { calls++; return a.seeds.some(s => s.ring === 5) ? { ok: true, route: { secs: 1320, hexes: a.blocked.map(h => ({ q: h.q + 1, r: h.r })) } } : { ok: false, code: 'NoPath' }; },
     earliestBell: (k, { departTs, secs }) => Math.ceil((departTs + secs) / 600),
+    // (world goal ② roads: the acting village's techs — none here; the real helpers)
+    withRoads, holdingTechs, hud: { activeHolding: () => null },
     departMargin: rate => Math.max(90, rate * 2),
     arrivalWindow: (season, now, early) => ({ min: Math.max(now + season.minLead, early) }),
     marchCard: { routeHexes: c => c.route.hexes },

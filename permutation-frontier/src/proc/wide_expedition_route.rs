@@ -245,7 +245,7 @@ pub(super) fn inspect(
     // roads (Q-RI-1 (a)): the host's village's techs for the host's nation
     let techs = crate::proc::holding::departing_techs(&hd, t.faction)?;
     let travel_secs = u32::try_from(crate::proc::holding::march_secs(
-        &doctrine,
+        doctrine,
         techs,
         raw_secs as u64,
     ))
@@ -320,7 +320,7 @@ pub(super) fn inspect_reverse(
     // roads (Q-RI-1 (a)): the host's village's techs for the host's nation
     let techs = crate::proc::holding::departing_techs(&holding.try_borrow_data()?, t.faction)?;
     let travel_secs = u32::try_from(crate::proc::holding::march_secs(
-        &doctrine,
+        doctrine,
         techs,
         raw_secs as u64,
     ))

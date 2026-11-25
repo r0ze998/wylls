@@ -3157,10 +3157,10 @@ async function setDestination(dest) {
     //  no longer leaves a route beside an arrival turn that was not made from it)
     // (world goal ② roads, Q-RI-1 (a): a host leaving a village that has roads marches 5 % faster — the route's secs
     //  carry it, so every later earliest turn of this draft, and its send's, is the same one)
-    const route = withRoads(r.route, holdingTechs(c.holding ? holdingByRef(FS.holdings, c.holding) : activeHolding(FS), FS.citizen?.faction ?? c.host?.faction));
-    const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: route.secs });
+    r.route = withRoads(r.route, holdingTechs(c.holding ? holdingByRef(FS.holdings, c.holding) : activeHolding(FS), FS.citizen?.faction ?? c.host?.faction));
+    const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
     const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
-    c.route = route; c.earliest = earliest; c.arriveBell = arrive;
+    c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
     checkRouteOpen(c, dest, r.route);
   } catch (e) {
     console.error('frontier route:', e);

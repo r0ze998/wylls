@@ -912,7 +912,7 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     )?;
     crate::heap::trace_checkpoint(0x5110);
     let doctrine = of_faction(tr.faction).ok_or(BAD_ACCOUNT)?;
-    let secs = u32::try_from(super::holding::march_secs(&doctrine, tr.techs, raw as u64))
+    let secs = u32::try_from(super::holding::march_secs(doctrine, tr.techs, raw as u64))
         .map_err(|_| OVERFLOW)?;
     if check_arrival_bell(hdr.genesis_ts, tr.depart_ts, secs, arrive).is_err() {
         return Err(FrontierError::ArrivalBell.into());
