@@ -34,6 +34,8 @@ use serde_json::{json, Value};
 
 #[path = "operator_playable/rim.rs"]
 mod rim;
+#[path = "operator_playable/watch.rs"]
+mod watch;
 
 /// P3's ports (RPC, its WebSocket at +1, drand-replay +2, keeper API +3, herald +5); P4 takes [`P4_PORT_BASE`].
 /// `OPERATOR_PLAYABLE_PORT_BASE` / `OPERATOR_RIM_PORT_BASE` move them.
@@ -81,6 +83,9 @@ const P17_PORT_BASE: u16 = 41_500;
 /// P18's (devnet-territory-dev; `OPERATOR_PAGE_TERRITORY_PORT_BASE` moves them): as P7 (+6/+7 gateway, +8 inspection),
 /// inside the run's brief range 41610–41649.
 const P18_PORT_BASE: u16 = 41_620;
+/// PWATCH's (world3-verifier-watch; `OPERATOR_WATCH_PORT_BASE` moves them): RPC +0/+1, drand +2, keeper API +3,
+/// herald +5, inside the run's brief range 41700–41749 (P7's default base: set the variable to run both at once).
+const PWATCH_PORT_BASE: u16 = 41_700;
 /// PCAP's (devnet-72bell-pair; `OPERATOR_PAGE_CAPTURE_PORT_BASE` moves them): as P9 (+6/+7 gateway, +8 inspection).
 const PCAP_PORT_BASE: u16 = 41_780;
 /// PPAIR's (devnet-72bell-pair; `OPERATOR_PAGE_PAIR_PORT_BASE` moves them): as P9.
@@ -1061,6 +1066,28 @@ async fn p18_the_page_plays_player_territory_on_the_new_devnet_so_offline() {
     .await;
 }
 
+/// PWATCH (world3-verifier-watch, item ⑯): the read-only verifier watch `scripts/devnet/verify-watch.mjs` over a LOCAL
+/// world-3 replica: the committed new-world profile and the deployed `.so` (`OPERATOR_TERRITORY_SO`, 245ce1ab…), the
+/// operator's setup, keeper A with the territory role, a test participant's Join + first home (TEST keys only); three
+/// watch cycles over JSON-RPC (first pull, incremental pull, a busy world) judged PASS/UNVERIFIABLE with no FAIL, then
+/// three tampers that must FAIL (`operator_playable/watch.rs`). `OPERATOR_WATCH=1` and `OPERATOR_TERRITORY_SO` only;
+/// `FRONTIER_VERIFY_BIN` (default: this profile's frontier-verify, built with `verify/playable-lane` and the `pull`
+/// subcommand), `OPERATOR_WATCH_MAX_RPS` (default 2, the devnet cap).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pwatch_the_verifier_watch_judges_a_world3_replica_offline() {
+    if std::env::var("OPERATOR_WATCH").ok().as_deref() != Some("1") || territory_so().is_none() {
+        eprintln!(
+            "pwatch: skipped (set OPERATOR_WATCH=1 and OPERATOR_TERRITORY_SO=<the devnet .so>)"
+        );
+        return;
+    }
+    playable_season(
+        ports("OPERATOR_WATCH_PORT_BASE", PWATCH_PORT_BASE),
+        Mode::Watch,
+    )
+    .await;
+}
+
 /// PEND (devnet-end-season, D-dress-6): P5's season (keeper A's rim, a rim village, keeper A's wide ring 129 and a
 /// settled wide village), then its END with `frontier-operator end-season` as r0ze would run it on devnet: refused
 /// before the end bell, EndSeason at it, every CloseProvince / wide province close and CloseSeason part after
@@ -1090,6 +1117,8 @@ enum Mode {
     PageWideActs,
     /// P18 (devnet-territory-dev): P7 on the NEW `.so` in a territory world, keeper A's `territory` role.
     PageTerritory,
+    /// PWATCH (world3-verifier-watch): P3 in P18's territory world, then the read-only verifier watch.
+    Watch,
     /// P8 (devnet-page-war): the rim world of P4, keeper A with the play roles, and a legacy war (muster, sealed
     /// Depart onto a keep, reveal, clash, capture, return) by a test participant.
     War,
@@ -1130,7 +1159,9 @@ enum Mode {
 
 async fn playable_season(pt: Ports, mode: Mode) {
     use fclient::abi::status as st;
-    let rim_run = !matches!(mode, Mode::Setup | Mode::Versioned);
+    let rim_run = !matches!(mode, Mode::Setup | Mode::Versioned | Mode::Watch);
+    // (P18 / PWATCH: the new world's profile and the NEW .so)
+    let territory_world = matches!(mode, Mode::PageTerritory | Mode::Watch);
     let tag = match mode {
         Mode::Setup => "p3",
         Mode::Rim => "p4",
@@ -1140,6 +1171,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         Mode::Page => "p7",
         Mode::PageWideActs => "p17",
         Mode::PageTerritory => "p18",
+        Mode::Watch => "pwatch",
         Mode::War => "p8",
         Mode::Flood => "pgwf",
         Mode::PageWar => "p9",
@@ -1191,7 +1223,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         GENESIS_ROUND
     };
     // (P18: the NEW .so of the commit under test)
-    let (so, so_sha256, so_program_hash, so_elf_len) = if mode == Mode::PageTerritory {
+    let (so, so_sha256, so_program_hash, so_elf_len) = if territory_world {
         territory_so().expect("OPERATOR_TERRITORY_SO")
     } else {
         let (a, b, c) = devnet_build(mode == Mode::Conquest);
@@ -1233,7 +1265,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         .expect("bind the RPC ports");
     let url = node.url();
     let key = write_key(&dir, "authority.json", &authority);
-    let prof = if mode == Mode::PageTerritory {
+    let prof = if territory_world {
         territory_profile(&dir, &program.to_string(), &authority.pubkey().to_string())
     } else {
         finite_playable_profile(
@@ -1478,6 +1510,8 @@ async fn playable_season(pt: Ports, mode: Mode) {
             Mode::PageTerritory => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"territory\""
             }
+            // (PWATCH: the rim world's duties and `territory`: traffic for the watch, no wide rings to steer)
+            Mode::Watch => "\"beacon\", \"rings\", \"fold\", \"tickets\", \"territory\"",
             // (PEND: P5's roles and the legacy war's `close`/`claims`, so keeper A's own closes meet the season's end)
             Mode::End => {
                 "\"beacon\", \"rings\", \"fold\", \"tickets\", \"wide-tickets\", \"close\", \"claims\""
@@ -1500,7 +1534,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         },
         rim = match mode {
             Mode::Setup | Mode::Versioned => String::new(),
-            Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
+            Mode::Rim | Mode::War | Mode::PageWar | Mode::PageWarHome | Mode::PageWarFog | Mode::PageOutpost | Mode::Watch => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
             // (PGWF: P8's keeper A as it is, `feed = "rpc"` with its default 150 ms pacer, the ONE pacer every duty shares;
             //  the runbook's 250 ms is too slow for this test's ×10–×40 clock even without a flood, fix-gw-highs report)
             Mode::Flood => format!("rim_per_wedge = {}\n", rim::PER_WEDGE),
@@ -1662,7 +1696,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
     // (P18: the new world's keep holder, NeutralTerritoryV1 = 4, from the committed profile)
     assert_eq!(
         operator::wide::rules_of(&rules.data),
-        Some(if mode == Mode::PageTerritory {
+        Some(if territory_world {
             operator::wide::ours_for(Some(4))
         } else {
             operator::wide::ours()
@@ -2128,6 +2162,67 @@ async fn playable_season(pt: Ports, mode: Mode) {
     } else {
         None
     };
+    // PWATCH: devnet's program also carries other seasons' transactions (world 2's AnnounceSeason / AbortSeason, world
+    // 1's abort): the same program announces a season 2 here (the operator, its own record), so the watch's archive of
+    // every program signature holds a foreign season's transaction too.
+    let foreign_season = if mode == Mode::Watch {
+        let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&prof).unwrap()).unwrap();
+        v["operator"]["seasonId"] = json!(2);
+        let p2 = dir.join("profile-season2.json");
+        std::fs::write(&p2, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        let t2 = (lock().unix_timestamp() + 2 * 86_400 + 3_600).to_string();
+        let rec2 = dir.join("operator-record-season2.jsonl");
+        let r = op(args(&[
+            "--profile",
+            p2.to_str().unwrap(),
+            "--rpc",
+            &url,
+            "--authority",
+            k,
+            "--t-create-min",
+            &t2,
+            "--yes-send",
+            "--i-have-r0ze-approval",
+            "--approved-sha256",
+            so_sha256,
+            "--record",
+            rec2.to_str().unwrap(),
+        ]))
+        .await;
+        assert_eq!(r.code, operator::EXIT_WAITING, "{}\n{}", r.stdout, r.stderr);
+        let l = landed_lines(&r.stdout);
+        assert!(
+            l.iter().any(|x| x.starts_with("landed     AnnounceSeason")),
+            "{}",
+            r.stdout
+        );
+        Some(l)
+    } else {
+        None
+    };
+    // PWATCH: the read-only verifier watch over this world (keeper A still running).
+    let watch_summary = if mode == Mode::Watch {
+        Some(
+            watch::run(watch::Ctx {
+                state: state.clone(),
+                program,
+                url: url.clone(),
+                dir: dir.clone(),
+                repo: repo_root(),
+                verify_bin: sibling_bin("FRONTIER_VERIFY_BIN", "frontier-verify"),
+                so: PathBuf::from(std::env::var("OPERATOR_TERRITORY_SO").unwrap()),
+                so_sha256,
+                max_rps: std::env::var("OPERATOR_WATCH_MAX_RPS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(2.0),
+                keeper: &mut keeper.0,
+            })
+            .await,
+        )
+    } else {
+        None
+    };
     drop(herald);
 
     // Every program transaction on this chain: name, payer, CU, fee, lamports (the keeper's included).
@@ -2177,7 +2272,7 @@ async fn playable_season(pt: Ports, mode: Mode) {
         "operator_records": records, "join": join.json(), "place_home": place.json(), "wallet_v0": wallet_v0,
         "home": {"p": hp, "q": hq, "site": site, "nation": nation},
         "herald_season": season_view, "herald_me_holdings": me["holdings"].as_array().map(|h| h.len()),
-        "rings_opened": rings_opened(), "status": status(), "rim": rim_summary,
+        "rings_opened": rings_opened(), "status": status(), "rim": rim_summary, "watch": watch_summary, "foreign_season": foreign_season,
         "program_transactions": all, "failed_transactions": failed.len(),
     });
     if let Ok(d) = std::env::var("OPERATOR_EVIDENCE_DIR") {

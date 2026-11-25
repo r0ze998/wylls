@@ -5,6 +5,8 @@
 //! frontier-verify [tamper] --fixture FILE [options]
 //! frontier-verify [tamper] --program ID --season N --archive DIR (--finals FILE | --rpc URL) [options]
 //! frontier-verify [tamper] --program ID --season N --rpc URL [--localnet] [options]
+//! frontier-verify pull --program ID --season N --rpc URL --data DIR [--rpc-min-gap-ms N]
+//!                      (read-only: archive the new transactions, write DIR/finals.json; src/pull.rs)
 //!
 //! options: --test-key | --quicknet-pk HEX   the pinned drand key (default: quicknet)
 //!          --ruleset HEX                    expected ruleset hash (default: this build's)
@@ -63,6 +65,10 @@ use std::path::PathBuf;
 
 use verify_core::input::{self, hex_arr, Config, Input};
 
+// world3-verifier-watch: `frontier-verify pull`, the read-only archive step of
+// a scheduled watch (scripts/devnet/verify-watch.mjs).
+mod pull;
+
 fn usage(msg: &str) -> ! {
     eprintln!("frontier-verify: {msg}\n");
     eprintln!(
@@ -96,6 +102,10 @@ fn main() {
         }
     }
     let mut a = std::env::args().skip(1).peekable();
+    if a.peek().is_some_and(|x| x == "pull") {
+        a.next();
+        pull::main(a);
+    }
     let tamper = a.peek().is_some_and(|x| x == "tamper");
     if tamper {
         a.next();
