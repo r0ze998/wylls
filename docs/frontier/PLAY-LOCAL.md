@@ -430,12 +430,13 @@ this section describes what the program does today, and none of it is a promise 
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
      (loop-play15, #223; before, that row and its button were gone).
 5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
-   - 0.033 food an hour for each tile;
-   - plus 0.016 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
+   - 0.33 food an hour for each tile;
+   - plus 0.16 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
      a wide village of yours). It is measured once, when you claim the tile, and does not change later.
-   - Examples: 10 tiles near home cost 0.33 food an hour; 100 tiles 3.3; one tile 5 provinces from your nearest village
-     costs 0.033 + 2 × 0.016 = 0.065. A starting village makes about 40 food an hour, so land upkeep is small until you
-     hold very many tiles (the owner's open question VQ-1).
+   - Examples: 10 tiles near home cost 3.3 food an hour; 100 tiles 33; one tile 5 provinces from your nearest village
+     costs 0.33 + 2 × 0.16 = 0.65. A starting village makes about 40 food an hour, so about 120 tiles near home cost more
+     than it makes, and sooner if you spend your food on troops and buildings (owner decision Q-LP15-1 (b), 11-25: the
+     old numbers, a tenth of these, only went unpaid past about 1,200 tiles).
    - The village screen's "Per hour" column does not include land upkeep.
 6. **When the food cannot pay.** Nothing is taken, and your land counts as unpaid from that turn:
    - at once: you cannot claim tiles (the refusal is in the table below);

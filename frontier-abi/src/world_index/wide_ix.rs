@@ -2420,8 +2420,16 @@ pub const TERRITORY_DECAY: &[Group] = &[one(&[
 
 /// WideTerritoryConquer: `[payer s,w] [season r] [province r]
 /// [territory_province w] [loser_player w] [captor_holding r]
-/// [captor_citizen r] [captor_player w] [system]`; both summaries settled
+/// [captor_citizen r|w] [captor_player w] [system]`; both summaries settled
 /// in this second (the captor's may be created here).
+///
+/// `captor_citizen` is [`Wr::Either`] (conquest-upkeep-fix, owner Q-VT-1 (b)
+/// 2026-11-25 09:33): the conquest never writes it, but a captor that
+/// already has a summary is settled by a WideTerritorySettle earlier in the
+/// SAME transaction, which takes that Citizen writable, and a transaction's
+/// writability is per account, not per instruction. With `Wr::R` every
+/// second conquest by the same captor was refused BadAccount
+/// (D-verifier-territory-1).
 pub const TERRITORY_CONQUER: &[Group] = &[one(&[
     s("payer", Acc::Wallet, true, Wr::W),
     s("season", Acc::Kind(K::Season), false, Wr::R),
@@ -2429,7 +2437,7 @@ pub const TERRITORY_CONQUER: &[Group] = &[one(&[
     s("territory_province", WIDE, false, Wr::W),
     s("loser_player", WIDE, false, Wr::W),
     s("captor_holding", WIDE, false, Wr::R),
-    s("captor_citizen", Acc::Kind(K::Citizen), false, Wr::R),
+    s("captor_citizen", Acc::Kind(K::Citizen), false, Wr::Either),
     s("captor_player", WIDE, false, Wr::W),
     s("system", Acc::System, false, Wr::R),
 ])];
