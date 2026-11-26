@@ -325,3 +325,11 @@ test('verify-pr272: the wide card and the food ledger blocks carry different ids
   // and the ledger copy stands only where the wide-land card (which carries it under the land line) is not shown
   assert.match(web('frontier/screens/holding.mjs'), /landPerHour > 0\) && !wideClaimModel\(FS, m\) \? ownLandHorizonBlock\(m\.horizon, \{ id: 'hp-land-food-horizon'/);
 });
+
+test('verify-pr272: the English horizon texts keep the play screen\'s banned words out (web-frontier-cards BANNED_EN, local-only there)', () => {
+  const BANNED_EN = /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport|season/i;
+  const src = web('lang/en-frontier.mjs');
+  const block = src.slice(src.indexOf('// land-logistics-horizon'));
+  assert.ok(block.length > 100);
+  assert.doesNotMatch(block, BANNED_EN);
+});
