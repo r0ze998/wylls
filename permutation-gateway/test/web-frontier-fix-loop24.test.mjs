@@ -292,6 +292,9 @@ test('flicker: what the panel said stands until new data is in (steadyWaitModel)
   const withReport = { key: st1.keep.key, bell: 50, model: { timers: [{ id: 'report', kind: 'report', at: 1 }], suggestions: [], soonest: null } };
   assert.deepEqual(waitPanel.steadyWaitModel(caughtUp, withReport, empty).shown.timers.map(t => t.kind), ['report']);
   assert.deepEqual(waitPanel.steadyWaitModel(waitFS({ resolvedNext: 53, bell: 53 }), withReport, empty).shown.timers, [], 'not past a turn');
+  // (verify-pr270: the report's hold reaches the second turn change — --wide --ai 4 ×60 — and no further; the others one)
+  assert.deepEqual(waitPanel.steadyWaitModel(waitFS({ resolvedNext: 52, bell: 52 }), withReport, empty).shown.timers.map(t => t.kind), ['report']);
+  assert.deepEqual(waitPanel.steadyWaitModel(waitFS({ resolvedNext: 50, bell: 52 }), st1.keep, empty).shown.timers, [], 'a host timer is held one turn only');
   assert.ok(src('app.mjs').includes('const st = waitPanel.steadyWaitModel(F, F === FS ? waitSteady : null, waitPanel.waitModel(F, { offer }));'));
 });
 

@@ -166,7 +166,11 @@ export function steadyWaitModel(FS, prev, model) {
   // (a march's report just came: its row left the list and its host is on the way home, not yet a standing host with a
   //  timer of its own — the panel said 「いま待っているものはありません」 for a few seconds then, --wide ×60)
   const marchGap = (prev?.model?.timers ?? []).some(t => t.kind === 'report');
-  if (prev && prev.key === key && prev.model?.timers?.length && Number.isInteger(bell) && Number.isInteger(prev.bell) && bell - prev.bell <= 1 && (behind || lostRows || marchGap)) {
+  // (verify-pr270: that moment can span two turn changes — the march row gone late in its report's turn, the host read
+  //  again in the turn after next —: live, --wide --ai 4 ×60, 4.5 s of 「いま待っているものはありません」 at the second change.
+  //  The report's hold reaches one turn further; the others stay at one)
+  const span = marchGap ? 2 : 1;
+  if (prev && prev.key === key && prev.model?.timers?.length && Number.isInteger(bell) && Number.isInteger(prev.bell) && bell - prev.bell <= span && (behind || lostRows || marchGap)) {
     return { shown: { ...model, timers: prev.model.timers, soonest: prev.model.soonest }, keep: prev };
   }
   return { shown: model, keep: { key, bell, model } };
