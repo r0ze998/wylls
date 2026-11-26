@@ -159,14 +159,14 @@ pub fn text_problem(t: &str) -> Option<&'static str> {
 
 /// Top-level names a "word.tld" is read as a link with (generic ones and the countries most used for short links).
 const TLDS: &[&str] = &[
-    "com", "net", "org", "io", "gg", "me", "co", "xyz", "app", "dev", "info", "biz", "ru",
-    "cn", "uk", "de", "fr", "tv", "ly", "link", "site", "online", "top", "club", "shop", "live",
-    "store", "tech", "pro", "fun", "icu", "vip", "win", "bid", "page", "art", "cc", "ws", "to",
-    "sh", "ai", "gl", "us", "eu", "kr", "tw", "hk", "sg", "in", "br", "es", "it", "nl", "pl", "ch",
-    "se", "no", "fi", "au", "ca", "mx", "ar", "id", "ph", "vn", "th", "my", "nz", "ie", "be", "at",
-    "dk", "cz", "pt", "gr", "tr", "ua", "za", "edu", "gov", "mil", "int", "mobi", "name", "one",
-    "world", "space", "website", "click", "email", "cloud", "today", "news", "blog", "game",
-    "games", "lol", "su",
+    "com", "net", "org", "io", "gg", "me", "co", "xyz", "app", "dev", "info", "biz", "ru", "cn",
+    "uk", "de", "fr", "tv", "ly", "link", "site", "online", "top", "club", "shop", "live", "store",
+    "tech", "pro", "fun", "icu", "vip", "win", "bid", "page", "art", "cc", "ws", "to", "sh", "ai",
+    "gl", "us", "eu", "kr", "tw", "hk", "sg", "in", "br", "es", "it", "nl", "pl", "ch", "se", "no",
+    "fi", "au", "ca", "mx", "ar", "id", "ph", "vn", "th", "my", "nz", "ie", "be", "at", "dk", "cz",
+    "pt", "gr", "tr", "ua", "za", "edu", "gov", "mil", "int", "mobi", "name", "one", "world",
+    "space", "website", "click", "email", "cloud", "today", "news", "blog", "game", "games", "lol",
+    "su",
 ];
 
 /// The text as a link reader would see it: full-width ASCII folded, look-alike full stops made `.`, invisible
