@@ -93,7 +93,10 @@ value; no in-game key is made).”
    march-first guide of eight steps (a nearby barbarian camp before the keeps; owner decision 2026-11-26, Q-PT-2), the
    “While you wait” panel (verify a real battle or a practice battle in this browser within minutes; Q-PT-1, Q-PT-3),
    the “World goals” card (below), “Claim a tile” turned off while land upkeep is unpaid, and notifications outside the
-   page with a calendar file. They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, step 7), §4.1 and §15. The devnet page gets them only when its page files are
+   page with a calendar file. Also newer than the devnet page: the guide's first camp chosen among camps that fight and that
+   your host can reach (#265, #273), wait times on your own clock and a keep forecast that counts a tired arrival (#267),
+   a provisional village that says when it can be confirmed (#268), and the nation chat (#263; the devnet herald has no
+   chat either). They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, steps 6 and 7), §4.1, §15 and §16. The devnet page gets them only when its page files are
    updated, and that has not been decided yet. Until then the page works as written in this guide.
 
 Good to know:
@@ -118,9 +121,8 @@ Good to know:
 - **A new village is “Provisional” at first** (shown beside its name). While it is, “Claim a tile” still shows its cost
   and “Sign and claim”, but the claim is then refused with “The village is not confirmed yet.” (nothing is sent and
   nothing is paid). The program confirms the village on your own next act there once its turn's villages are placed:
-  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). Since #268 the
-  village card, the guide and "While you wait" say when the village can be confirmed and offer "Harvest to confirm your
-  village" once it can; harvest once before you claim your first tile.
+  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). The devnet page does
+  not say this (the page on main does since #268, step 4), so harvest once before you claim your first tile.
 - Your land line (“Your land: tiles owned: …”) is read every 60 seconds on devnet, and once right after a claim. That
   read can come before the world's record has the claim, so the count can stay at the old number for up to a minute.
 - **One row of [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 is not on the devnet page:** once you have a village on the wide
@@ -140,9 +142,9 @@ Good to know:
 - **World goals (decision of 2026-11-26): not on the devnet page today.** The devnet page has no “World goals” card, and no
   judge of the goals runs for the devnet world. Both are merged on main (#260) and wait for the page update of step 4
   and for the judge to be started; neither is decided yet. What main's card says on a devnet world: until the goals are
-  judged, “Planned — not judged yet” and the goal in words (capture a neutral keep or a Free City in the wide land and
-  hold it for 144 turns, 24 hours); that Free Cities cannot be taken yet in this world (the devnet program has no Free
-  City conquest); once a judge runs, “Being judged” with your nation's flag keeps, the flag keeps in sight, and how many
+  judged, “Planned — not judged yet” and the goal in words (capture a neutral keep in the wide land and hold it for 144
+  turns, 24 hours); Free Cities on a line of their own, “Free Cities: not yet possible in this world (they count as flag
+  keeps once they can be taken)” (the devnet program has no Free City conquest; wording of #267); once a judge runs, “Being judged” with your nation's flag keeps, the flag keeps in sight, and how many
   each nation took or holds. The judging would run off chain (no money, nothing written to the chain), from what the
   chain already records about each keep. No money is paid for a goal.
 

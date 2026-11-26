@@ -190,6 +190,7 @@ import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
 import { landUpkeepMilli } from './landfood.mjs';
+import { horizonHudLine } from './landhorizon.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
 import * as notify from './hud/notify.mjs';
@@ -1243,6 +1244,8 @@ function renderResPop(now) {
   el.hidden = false;
   if (FS.resOpen === '*') { el.setAttribute('aria-label', L`資源`); setHtmlIfChanged(el, hud.renderAllBreakdowns(hud.allBreakdowns(FS.holdings ?? [], now, h => landUpkeepMilli(FS, h)))); return; }
   const b = hud.resourceBreakdown(FS.holdings ?? [], FS.resOpen, now, h => landUpkeepMilli(FS, h));
+  const hz = b && b.landPerHour > 0 ? holdingScreen.horizonFromFS(FS) : null;
+  if (b && hz) b.horizonLine = horizonHudLine(hz, hz.rate);
   el.setAttribute('aria-label', b.name);
   setHtmlIfChanged(el, hud.renderBreakdown(b));
 }
