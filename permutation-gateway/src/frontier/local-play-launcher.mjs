@@ -888,6 +888,15 @@ export const WORLD_POST_ROUTES = Object.freeze([
 /** The reads beside the herald's public `/h/*`: the relay's public pins. */
 export const WORLD_GET_ROUTES = Object.freeze(['/gw/f/local-play/info']);
 export const WORLD_WS_ROUTE = '/h/ws';
+/**
+ * The herald's nation chat (frontier-node/crates/herald/src/chat.rs; owner Q-PT-11 (a)): the page's three JSON POSTs —
+ * every one signed by the player's wallet or carrying a wallet-signed read token, checked by the herald — and its live
+ * socket. Its operator paths (`/h/chat/admin/*`) are not here: they are the operator's, on the herald's own loopback port.
+ */
+export const WORLD_CHAT_POST_ROUTES = Object.freeze(['/h/chat/post', '/h/chat/read', '/h/chat/report']);
+export const WORLD_CHAT_WS_ROUTE = '/h/chat/ws';
+/** The chat's one public read (whether it is on, the world it signs for, its limits): no message in it. */
+export const WORLD_CHAT_INFO_ROUTE = '/h/chat/info';
 /** The request target as `{path, query}` when it is a plain origin-form path (no dot or empty segment, no escape), else null. */
 export function worldTarget(url) {
   if (typeof url !== 'string' || url.length > 2048) return null;
@@ -909,7 +918,9 @@ export function createWorldProxy({ port, targetPort, launcherPort, relayPort = n
     if (!here(req) || (origin !== undefined && !known)) return answer(res, 403, { error: 'WorldOriginDenied' });
     if (known) res.setHeader('access-control-allow-origin', origin);
     const target = worldTarget(req.url); if (!target) return answer(res, 400, { error: 'BadWorldPath' });
-    const read = target.path.startsWith('/h/') || WORLD_GET_ROUTES.includes(target.path), write = WORLD_POST_ROUTES.includes(target.path);
+    const write = WORLD_POST_ROUTES.includes(target.path) || WORLD_CHAT_POST_ROUTES.includes(target.path);
+    // (a chat POST is a write, never a read: `/h/chat/*` is not passed on as a GET — its socket is the upgrade below)
+    const read = !write && (!target.path.startsWith('/h/chat/') || target.path === WORLD_CHAT_INFO_ROUTE) && (target.path.startsWith('/h/') || WORLD_GET_ROUTES.includes(target.path));
     if (!read && !write) return answer(res, 404, { error: 'WorldRouteDenied' });
     if (req.method === 'OPTIONS') {
       // (a preflight exists only for a write: the page's reads are simple requests)
@@ -945,10 +956,12 @@ export function createWorldProxy({ port, targetPort, launcherPort, relayPort = n
     const refuse = (status, text) => socket.end(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     socket.on('error', () => {});
     if (!here(req) || !origins.has(req.headers.origin)) return refuse(403, 'Forbidden');
-    if (req.method !== 'GET' || req.url !== WORLD_WS_ROUTE || String(req.headers.upgrade).toLowerCase() !== 'websocket') return refuse(404, 'Not Found');
+    // (the herald's diff socket, or its nation chat socket — whose first message must be a wallet-signed read token)
+    const route = [WORLD_WS_ROUTE, WORLD_CHAT_WS_ROUTE].find(r => r === req.url);
+    if (req.method !== 'GET' || !route || String(req.headers.upgrade).toLowerCase() !== 'websocket') return refuse(404, 'Not Found');
     const upstream = net.connect(targetPort, '127.0.0.1', () => {
       const keep = ['upgrade', 'connection', 'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-protocol'].filter(k => typeof req.headers[k] === 'string');
-      upstream.write(`GET ${WORLD_WS_ROUTE} HTTP/1.1\r\nHost: 127.0.0.1:${targetPort}\r\n` + keep.map(k => `${k}: ${req.headers[k]}\r\n`).join('') + '\r\n');
+      upstream.write(`GET ${route} HTTP/1.1\r\nHost: 127.0.0.1:${targetPort}\r\n` + keep.map(k => `${k}: ${req.headers[k]}\r\n`).join('') + '\r\n');
       if (head.length) upstream.write(head); socket.pipe(upstream).pipe(socket);
     });
     for (const s of [socket, upstream]) { sockets.add(s); s.on('close', () => sockets.delete(s)); }
@@ -1294,7 +1307,10 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     if (second !== null) launch('relay-b', process.execPath, [path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(second, pairPorts.relay)]);
     // (no --web: the page is the launcher's own; a world serves records and the relay, never a second copy of the page)
     // (a natural world has no synthetic account to seed: its herald folds the real transactions only)
-    launch('herald', c.herald, ['--data', path.join(home ?? dir, 'herald'), '--program', meta.program, '--season', String(meta.season_id), '--rpc', meta.rpc_url, '--listen', `127.0.0.1:${internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', ...(natural ? [] : ['--local-play-metadata', path.join(dir, 'metadata.json')]), '--relay', `127.0.0.1:${relay}`, ...(HERALD_OUTPUT_MODES.includes(c.heraldOutput) ? ['--output', c.heraldOutput] : [])]);
+    // (nation chat, TEST-ONLY local worlds: the herald keeps the world's messages beside its own data; no operator token — a
+    //  local world's operator reads `chat/reports.json` there. A herald built before the chat ignores the flag.)
+    const chatArgs = ['--chat-dir', path.join(home ?? dir, 'chat')];
+    launch('herald', c.herald, ['--data', path.join(home ?? dir, 'herald'), '--program', meta.program, '--season', String(meta.season_id), '--rpc', meta.rpc_url, '--listen', `127.0.0.1:${internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', ...chatArgs, ...(natural ? [] : ['--local-play-metadata', path.join(dir, 'metadata.json')]), '--relay', `127.0.0.1:${relay}`, ...(HERALD_OUTPUT_MODES.includes(c.heraldOutput) ? ['--output', c.heraldOutput] : [])]);
     proxy = createWorldProxy({ port: herald, targetPort: internalHerald, launcherPort: c.port });
     await new Promise((resolve, reject) => { proxy.once('error', reject); proxy.listen(herald, '127.0.0.1', resolve); });
     if (second !== null) {

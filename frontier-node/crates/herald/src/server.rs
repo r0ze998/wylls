@@ -18,7 +18,9 @@
 //! `X-Content-Type-Options: nosniff`, and a CSP — the web design §12 policy
 //! for `/frontier/*`, `default-src 'none'; frame-ancestors 'none'`
 //! elsewhere. `/h/*` answers carry `Access-Control-Allow-Origin: *` (public
-//! data; the page's loopback `?herald=` override reads them cross-origin).
+//! data; the page's loopback `?herald=` override reads them cross-origin) —
+//! except the nation chat's `/h/chat/*` (`crate::chat`: a nation's private
+//! messages, POST reads with a wallet-signed token), which carries none.
 //!
 //! **`/gw/*`** is the relay's public listener (§8.3) on this origin, as
 //! `permutation-server/src/play/proxy.rs`: GET/POST/OPTIONS only, a safe
@@ -113,6 +115,8 @@ pub struct App {
     pub local_play: Option<Value>,
     /// The hosts `Host` (and a WS `Origin`) may name (B13).
     pub hosts: HostPolicy,
+    /// Nation chat (`crate::chat`; `--chat-dir`), or `None`: every `/h/chat/*` path answers 404 ChatOff.
+    pub chat: Option<Arc<crate::chat::Chat>>,
     cache: Mutex<LiveCache>,
     /// Open sockets per client address ([`WS_PER_CLIENT`]).
     ws_clients: Mutex<std::collections::HashMap<IpAddr, usize>>,
@@ -294,6 +298,7 @@ impl App {
             ws_stats: Arc::new(WsStats::default()),
             local_play: None,
             hosts: HostPolicy::default(),
+            chat: None,
             cache: Mutex::new(LiveCache::default()),
             ws_clients: Mutex::new(std::collections::HashMap::new()),
         }
@@ -334,6 +339,8 @@ pub fn router(app: Shared) -> Router {
         // MC hook: the conquest read paths (CONQUEST-CONTRACT §4.5, §8.4)
         .merge(crate::cqroutes::mount())
         // MC hook end
+        // nation chat (owner Q-PT-11 (a) / Q-PT-12; off without --chat-dir: 404 ChatOff)
+        .merge(crate::chat::mount())
         .route("/", get(|| async { redirect("/frontier/") }))
         .route("/frontier", get(|| async { redirect("/frontier/") }))
         .route("/frontier/", get(web))
@@ -394,7 +401,8 @@ async fn security_headers(req: Request, next: Next) -> Response {
         header::CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(csp),
     );
-    if path.starts_with("/h/") {
+    // (nation chat answers are a nation's private messages: never readable cross-origin)
+    if path.starts_with("/h/") && !path.starts_with("/h/chat/") {
         h.insert(
             header::ACCESS_CONTROL_ALLOW_ORIGIN,
             HeaderValue::from_static("*"),
