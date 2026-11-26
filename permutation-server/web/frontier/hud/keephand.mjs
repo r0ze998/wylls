@@ -266,7 +266,7 @@ export function hostsSeenOnTile(FS, p, q, tile) {
 export function oddsText(o, unit) {
   if (!o) return null;
   // (fix-loop22: hosts on the tile — the order card's forecast weighs them, this list cannot)
-  if (o.odds === 'hosts') return { word: L`軍勢あり`, line: L`${o.hosts.map(h => L`${factionName(h.faction)} ${fmtNum(h.troops)}`).join(L`、`)} がマスにいます。勝ち目は命令の予測で` };
+  if (o.odds === 'hosts') return { word: L`軍勢あり`, line: L`${o.hosts.map(h => `${factionName(h.faction)} ${fmtNum(h.troops)}`).join(L`、`)} がマスにいます。勝ち目は命令の予測で` };
   const word = o.odds === 'good' ? L`十分` : o.odds === 'even' ? L`五分` : L`足りない`;
   if (o.tired) return { word, line: L`疲れて着く（体力 ${fmtNum(o.stamina)}）。${o.odds === 'good' ? L`それでも残れる見込み` : L`体力を回復してから`}` };
   const line = o.odds === 'good' ? L`着いたターンに残れる見込み` : o.need ? L`${unitCount(UNIT_ORDER[unit], o.need)} 以上で十分` : L`この兵種では届かない`;

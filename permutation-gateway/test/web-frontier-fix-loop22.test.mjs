@@ -255,3 +255,35 @@ test('fix-loop22 the forecast follows the destination\'s record: made again (old
   assert.ok(app.includes("if (!stale) { c.forecast = { key, pending: true }; invalidate('panel'); }"), 'no "calculating…" flash at a re-read');
   assert.ok(app.includes('...(made !== null ? { rev: made } : {})'));
 });
+
+// ------------------------------------------------------------------ verify-pr267 (independent check of #267)
+test('verify-pr267 a host pushed home (state 2, stamina 54) is told by its stamina wait, not "stands and can march from turn N"', () => {
+  // the live --demo bounce: a 100-Spearmen march withdrew (retreat "half") and came back on turn 20 with 54 stamina,
+  // fromBell 21; the panel said 「整列し、ターン 22 から進軍できます」 and the host could depart from turn 40
+  const s = fs({ bell: 20, at: 5, entries: [entry({ troops: 100000, state: 2, fromBell: 21, staminaValue: 54, staminaBell: 20, readyBell: 21 })] });
+  const timers = WP.waitModel(s).timers.filter(x => x.id.startsWith('host:'));
+  assert.equal(timers.length, 1, JSON.stringify(timers));
+  // (deliberate-break check: without standsShort the timer is 'hostForms' for turn 22)
+  assert.equal(timers[0].kind, 'hostMarch');
+  assert.equal(timers[0].turn, 20 + DEPART_STAMINA - 54);
+  assert.equal(timers[0].stamina, 54);
+  assert.equal(timers[0].at, bellStart(GEN, 40));
+  setLang('en');
+  assert.match(plain(WP.timerLine(s, timers[0])), /^100 Spearmen are regaining stamina and can march again from turn 40: /);
+  // a newly formed host (full stamina) keeps its forming timer
+  const f = fs({ bell: 0, at: 14, entries: [entry({ state: 2, fromBell: 1, staminaBell: 0 })] });
+  assert.equal(WP.waitModel(f).timers.find(x => x.id.startsWith('host:')).kind, 'hostForms');
+  assert.equal(WP.standsShort(f, { stamina: 120, readyBell: 1 }, 2), null);
+  // one that will have 74 by the turn it stands keeps it too
+  assert.equal(WP.standsShort(s, { stamina: 70, readyBell: 21 }, 24), null);
+  assert.deepEqual(WP.standsShort(s, { stamina: 70, readyBell: 21 }, 22), { turn: 24, stamina: 70 });
+});
+
+test('verify-pr267 the keep list\'s "Hosts there" line asks for no missing English (it logged [lang] no English for: "{0} {1}")', async () => {
+  const { missingKeys } = await import('../../permutation-server/web/lang.mjs');
+  setLang('en');
+  const t = KH.oddsText({ odds: 'hosts', hosts: [{ faction: 1, troops: 229 }, { faction: 4, troops: 12 }] }, 0);
+  assert.match(t.line, /229, .* 12 on the tile/);
+  // (deliberate-break check: wrapping "faction troops" in L again records the key "{0} {1}")
+  assert.ok(!missingKeys().includes('{0} {1}'), JSON.stringify(missingKeys()));
+});
