@@ -339,3 +339,37 @@ test('verify-pr272: the projection reports the store now (not where it stopped s
   assert.equal(h.stockMilli, 283_000);
   assert.equal(h.beyondTurns, MAX_STEPS);
 });
+
+import { alignLandClock, holdHorizon } from '../../permutation-server/web/frontier/landhorizon.mjs';
+
+test('verify-pr272: the food read and the land read a keeper pass apart (seen live ×60, 46 tiles)', () => {
+  // a keeper settle pays the village in the same transaction: food checkpoint t0 == paidTo
+  assert.deepEqual(alignLandClock(1_000, 1_000), { paidTo: 1_000, consistent: true });
+  // food read older than the land settle: its charge is not in the food yet — charged again from t0
+  assert.deepEqual(alignLandClock(1_600, 1_000), { paidTo: 1_000, consistent: true });
+  // land read older (or the player acted): not consistent
+  assert.deepEqual(alignLandClock(1_000, 1_600), { paidTo: 1_000, consistent: false });
+  assert.deepEqual(alignLandClock(null, 5), { paidTo: null, consistent: true });
+  assert.deepEqual(alignLandClock(7, undefined), { paidTo: 7, consistent: true });
+  // the live samples (verify-pr272 hz.jsonl): turn 334, food 38.995 at t0 = paidTo 1785834152 → unpaid at turn 376
+  // (the chain set unpaid_since 377: its keeper settles a turn behind)
+  const base = { productionMilliPerHour: 40_000, upkeepMilliPerHour: 45_540, tiles: 46, hist: [46] };
+  // (the page passes the store at now: + 163 s of 40 food/h since t0)
+  const ok = projectHorizon({ ...base, stockMilli: 38_995 + Math.floor((40_000 * 163) / 3600), paidTo: 1785834152, remainder: 720, nowTs: 1785834315, nowBell: 334 });
+  assert.equal(334 + ok.turnsUntilUnpaid, 376);
+  const key = 'k|46|45540|-|40000';
+  assert.equal(holdHorizon(ok, { consistent: true, key, bell: 334 }), ok);
+  // turn 336: the food already paid a later settle (37.075 at t0 ≈ 1785835424, + 435 s to now) but the land record
+  // still says paidTo 1785834776 — projected as is, that settle's charge is taken twice (the page showed 367, 9 turns
+  // early); held, it counts down from the consistent one
+  const raced = projectHorizon({ ...base, stockMilli: 37_075 + Math.floor((40_000 * 435) / 3600), paidTo: 1785834776, remainder: 2880, nowTs: 1785835859, nowBell: 336 });
+  assert.ok(336 + raced.turnsUntilUnpaid <= 376 - 7, String(336 + raced.turnsUntilUnpaid));
+  const shown = holdHorizon(raced, { consistent: false, key, bell: 336 });
+  assert.equal(336 + shown.turnsUntilUnpaid, 376);
+  assert.equal(shown.turnsUntilRelease, ok.turnsUntilRelease - 2);
+  // a changed land (a new tile) shows the fresh projection at once
+  assert.equal(holdHorizon(raced, { consistent: false, key: 'k|47|46530|-|40000', bell: 336 }), raced);
+  // and the card's source wires both
+  assert.match(web('frontier/screens/holding.mjs'), /alignLandClock\(player\.paidTo, payer\.stores\?\.\[RESOURCE_ORDER\.indexOf\('Food'\)\]\?\.t0\)/);
+  assert.match(web('frontier/screens/holding.mjs'), /holdHorizon\(proj, \{ consistent: clock\.consistent, key, bell: FS\.nowBell \?\? 0 \}\)/);
+});

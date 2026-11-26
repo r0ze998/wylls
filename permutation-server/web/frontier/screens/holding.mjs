@@ -43,7 +43,7 @@ import { expeditionHoldsOf } from '../flocalplay-expedition.mjs';
 import { wideSlots } from '../fwide.mjs';
 import { outpostCard } from './outpostcard.mjs';
 import { landUpkeepMilli, withLand, signedNet, landPart, landPayer } from '../landfood.mjs';
-import { projectHorizon, otherVillageNote, horizonLead, horizonStatusLines } from '../landhorizon.mjs';
+import { projectHorizon, otherVillageNote, horizonLead, horizonStatusLines, alignLandClock, holdHorizon } from '../landhorizon.mjs';
 
 /**
  * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) The village screen's wide-land card in a local
@@ -238,12 +238,14 @@ export function horizonFromFS(FS) {
   const food = storesAt(settled(payer, now), now, RESOURCE_ORDER).find(s => s.resource === 'Food');
   if (!food) return null;
   const census = villageCensus(FS, payer, now);
+  // (verify-pr272: the food's checkpoint against the land's clock — the two reads can be a keeper pass apart)
+  const clock = alignLandClock(player.paidTo, payer.stores?.[RESOURCE_ORDER.indexOf('Food')]?.t0);
   const proj = projectHorizon({
     stockMilli: Math.round(Number(food.value) * 1000),
     productionMilliPerHour: Math.round(Number(food.perHour) * 1000),
     capMilli: Math.round(Number(food.cap ?? 2000) * 1000),
     upkeepMilliPerHour: Number(player.upkeepMilliPerHour ?? 0),
-    paidTo: player.paidTo,
+    paidTo: clock.paidTo,
     remainder: Number(player.remainder ?? 0),
     unpaidSince: player.unpaidSince ?? null,
     nowTs: now,
@@ -251,7 +253,8 @@ export function horizonFromFS(FS) {
     tiles: Number(player.tiles),
     hist: player.hist,
   });
-  return { ...proj, ...census, rate: termsRate(), caravansOff: caravansOff(FS) };
+  const key = `${FS.ownLand?.citizen ?? ''}|${player.tiles}|${player.upkeepMilliPerHour}|${player.unpaidSince ?? '-'}|${proj.productionMilliPerHour}`;
+  return { ...holdHorizon(proj, { consistent: clock.consistent, key, bell: FS.nowBell ?? 0 }), ...census, rate: termsRate(), caravansOff: caravansOff(FS) };
 }
 
 export function ownLandHorizonBlock(h, opts = {}) {

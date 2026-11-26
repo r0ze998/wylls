@@ -248,6 +248,43 @@ export function projectHorizon({
 }
 
 /**
+ * (verify-pr272, seen live at ×60) The page reads the first village and the land record separately, so one can be a
+ * keeper pass newer than the other. A keeper settle pays the village in the same transaction, which leaves the food's
+ * checkpoint (`foodT0`, chain seconds) equal to the land's `paidTo`:
+ *   foodT0 < paidTo — the food read predates the last land settle: its charge is not in the food yet, so it is charged
+ *                     again from foodT0 (returns that clock; else the projection was a whole charge too late);
+ *   foodT0 > paidTo — the land read predates it (or the player acted since: the two look the same), so
+ *                     `consistent` is false and holdHorizon keeps the last consistent answer (else a whole charge was
+ *                     taken twice: 9 turns early on a 46-tile land, flickering with the right answer every few seconds).
+ */
+export function alignLandClock(paidTo, foodT0) {
+  const p = paidTo == null ? null : toInt(paidTo), t = Number(foodT0);
+  if (p == null || !Number.isFinite(t)) return { paidTo: p, consistent: true };
+  if (t < p) return { paidTo: Math.trunc(t), consistent: true };
+  return { paidTo: p, consistent: t === p };
+}
+
+let held = null;
+/**
+ * The projection to show: `h` when the two reads agree (remembered with `key` — the land and the food rate it was
+ * made for — and `bell`); otherwise the remembered one counted down by the turns since, while `key` is unchanged
+ * (a new tile, a new rate or an unpaid flip shows `h` at once).
+ */
+export function holdHorizon(h, { consistent = true, key = '', bell = 0 } = {}) {
+  if (!h) return h;
+  if (consistent) { held = { key, bell: toInt(bell), h }; return h; }
+  if (!held || held.key !== key) return h;
+  const d = Math.max(0, toInt(bell) - held.bell);
+  const down = v => (v == null ? v : Math.max(0, v - d));
+  const o = held.h;
+  return {
+    ...h,
+    sustainable: o.sustainable, unpaidAlready: o.unpaidAlready, letting: o.letting, beyondTurns: o.beyondTurns,
+    turnsUntilUnpaid: down(o.turnsUntilUnpaid), turnsUntilRelease: down(o.turnsUntilRelease), turnsUntilPaid: down(o.turnsUntilPaid),
+  };
+}
+
+/**
  * Time wording for `turns` at clock `rate` (1 = natural 10 min/turn, 60 =
  * a ×60 TEST world, null = a fast clock whose pace is not known yet).
  * Natural clock: game time = real time, said once. Faster: both.
