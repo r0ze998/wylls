@@ -1196,11 +1196,13 @@ When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcom
 - Titles and records only: nothing is added to the world goals, score or prize (owner decision ⑮ B; the
   decisions of 2026-11-24 also keep cooperation out of the “world goals”).
 - The other title earnable now is P-raider ("Raider of foreign caravans": took goods from another nation's caravans; raids at home do not count), which has nothing to do with requests.
-  - The raid must take at least the minimum of one resource: 100 food, wood, stone or ore, 10 arms or 20 gold (`rulesets.mjs` `minQty`).
+  - What you took from foreign caravans, added up per resource over all your raids, must reach the minimum in at least one
+    resource: 100 food, wood, stone or ore, 10 arms or 20 gold (`rulesets.mjs` `minQty`, `goals.mjs` raider).
   - A foreign caravan is raided only in the clash, and a caravan joins a province's clash only while that province has fewer than
     12 garrisons (villages and Free Cities on its sites, the bandit camp, manned forts; contract `S1-1B-CONTRACT.md` §3.5,
-    `clash_model::build_v2`). A caravan on a site's tile is sheltered. In the fixed map Aster's home province (-1, 2) has
-    12 villages, so no caravan is ever raided there (loop-play20 LP20-3 tried exactly that).
+    `clash_model::build_v2`). A caravan on a site's tile is sheltered. In a `--demo` world (fixed map) Aster's home province (-1, 2)
+    fills with 12 villages in the first turns, so no caravan is ever raided there (loop-play20 LP20-3 tried exactly
+    that); a `--wide` world does not put those villages there.
   - A route that works in `--coexist --demo --two` with A = Aster, B = Borealis (caravan-raid-investigate, ×60): B makes a
     request on the board, A accepts and sends Wood 120 to "① Request destination: village (-2, 2 · tile 6)"; B reads the
     caravan's tiles in (-2, 2) and musters 100 Spearmen on one of them before the caravan stands there; B's tile panel offers
