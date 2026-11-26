@@ -8,8 +8,10 @@
 // file moves the same events instead of adding copies (SEQUENCE grows with the time it was made).
 //
 // Times are about: a turn's end, a lost battle or a lagging world can move them; the description says so. A chain
-// time becomes a wall time by the page's chain clock (clock.mjs ChainClock: `rate` chain seconds per wall second — 1
-// on a real cluster, ×N in a fast local world); a world whose clock stands has no times to write.
+// time becomes a wall time exactly as the wait panel says it (screens/shell.mjs `wallOf`, at the world's pace —
+// seasonterms `termsRate`: 1 at the natural clock, ×N in a fast local world, the launcher's stated pace while the
+// measured one is not known); a world whose clock stands, or a fast clock whose pace is not known yet, has no times to
+// write (fix-tg3, owner-default Q-TG3-3: "never a guess", fix-loop8 LP8-10).
 import { L, fmtNum, lang, inEachLang } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
 import { bellStart, bellEnd } from '../clock.mjs';
@@ -19,26 +21,34 @@ import { keepFromProvince } from '../fconquest.mjs';
 import { ownLandView } from '../flocalplay-territory.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { provinceName } from './place.mjs';
+import { reportEtaAt } from './firstbattle.mjs';
+import { wallOf } from '../screens/shell.mjs';
+import { termsRate } from '../seasonterms.mjs';
 
-/** A march's report is read about this long (chain seconds) after its arrival turn ends (anchor + window + margin, clock.mjs). */
-export const REPORT_LAG_SECS = 90;
 /** Each event is a short block in the calendar. */
 export const EVENT_MINUTES = 10;
 export const CAL_KINDS = Object.freeze(['hostReady', 'marchArrival', 'reportDue', 'keepHold', 'keepFall', 'upkeep']);
 
-/** The wall time (ms) of chain time `t`, or null when the page's clock cannot say (none yet, or the world stands). */
+/**
+ * The wall time (ms) of chain time `t`, or null when the page cannot say: no chain "now" yet, the world's clock stands,
+ * or a fast clock's pace is not known (the wait panel's `wallOf`, from this page's chain "now").
+ */
 export function wallMsOf(FS, t, nowMs = Date.now()) {
   const c = FS?.chain;
   const chainNow = typeof c?.now === 'function' ? c.now() : null;
-  const rate = Number(c?.rate ?? 1);
-  if (!Number.isFinite(chainNow) || !Number.isFinite(t) || !(rate > 0)) return null;
-  return Math.round(nowMs + ((t - chainNow) * 1000) / rate);
+  if (!Number.isFinite(chainNow) || !Number.isFinite(t) || !(Number(c?.rate ?? 1) > 0)) return null;
+  const w = wallOf(t, chainNow, nowMs);
+  return w === null ? null : Math.round(w * 1000);
 }
 
-/** Why there are no times: 'noClock' (not read yet), 'stopped' (the world's clock stands), or null. */
+/**
+ * Why there are no times: 'noClock' (not read yet), 'stopped' (the world's clock stands), 'paceUnknown' (a fast clock
+ * whose pace is still being measured, and no stated pace: the wait panel says no clock time then either), or null.
+ */
 export function calendarBlocked(FS) {
   if (!FS?.clock || typeof FS?.chain?.now !== 'function' || !Number.isFinite(FS.chain.now())) return 'noClock';
   if (!(Number(FS.chain.rate ?? 1) > 0) || FS.worldEnded) return 'stopped';
+  if (termsRate() === null) return 'paceUnknown';
   return null;
 }
 
@@ -79,7 +89,10 @@ export function calendarEvents(FS, { nowMs = Date.now() } = {}) {
     if (!k) continue;
     const to = () => provinceName(FS, m.dest.p, m.dest.q);
     if (arrive > bell) add('marchArrival', k, arrive, bellStart(g, arrive), () => L`Wylls：進軍が${to()}に着きます`, () => L`あなたの進軍が、ターン ${fmtNum(arrive)} に${to()}へ着きます。${about()}`);
-    add('reportDue', k, arrive, bellEnd(g, arrive) + REPORT_LAG_SECS, () => L`Wylls：${to()}への進軍の報告`, () => L`ターン ${fmtNum(arrive)} に着く進軍の結果と戦いの報告が、このころ届きます。${about()}`);
+    // (fix-tg3, owner-default Q-TG3-2 (a): the wait panel's own figure — firstbattle reportEtaAt: the turn's end, the
+    //  reveal window, the seed margin and the keeper's minute — not a calendar-only 90 s, which was ~10½ min early)
+    const due = reportEtaAt(FS.clock, arrive);
+    if (due !== null) add('reportDue', k, arrive, due, () => L`Wylls：${to()}への進軍の報告`, () => L`ターン ${fmtNum(arrive)} に着く進軍の結果と戦いの報告が、このころ届きます。${about()}`);
   }
   // a keep in a province the page holds: the viewer's nation is taking it, or holds it under a contest
   const faction = FS.citizen?.faction;

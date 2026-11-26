@@ -10,6 +10,7 @@ import * as notify from '../../permutation-server/web/frontier/hud/notify.mjs';
 import * as cal from '../../permutation-server/web/frontier/hud/calendar.mjs';
 import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { BELL_SECS } from '../../permutation-server/web/frontier/clock.mjs';
+import { setTermsPace } from '../../permutation-server/web/frontier/seasonterms.mjs';
 
 const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url);
 const src = f => readFileSync(new URL(f, WEB), 'utf8');
@@ -223,7 +224,9 @@ function fixtureFS({ rate = 1, bell = 100 } = {}) {
   const entries = [{ id, state: 1, unit: 0, tile: 5, troops: 200_000, staminaValue: 20, staminaBell: bell, readyBell: 0, pendOp: 0, fromBell: 0 }];
   const province = { p: 1, q: 0, entries, layoutVersion: 2, resolvedNext: bell, keep: { tile: 30, holder: 3, troops: 1, flags: 0, consolidatedUntilBell: 0, contender: 0, progress: 2, required: 6 } };
   return {
-    clock: { genesisTs: G },
+    // (fix-tg3: the page's season clock carries its reveal window and seed margin — clock.mjs seasonClock — which the
+    //  report time reads: firstbattle reportEtaAt)
+    clock: { genesisTs: G, window: () => 600, margin: 60 },
     chain: { now: () => chainNow, rate },
     nowBell: bell,
     citizen: { faction: 0 },
@@ -246,13 +249,16 @@ test('the calendar: the player\'s own timers from the page\'s state, wall times 
   assert.equal(arrival.startMs, nowMs + ((G + 103 * BELL_SECS) - chainNow) * 1000);
   assert.equal(arrival.uid, 'marchArrival-h77@wylls.invalid', 'one UID per subject: a newer file moves the event');
   const report = evs.find(e => e.kind === 'reportDue');
-  assert.equal(report.startMs, nowMs + ((G + 104 * BELL_SECS + cal.REPORT_LAG_SECS) - chainNow) * 1000);
+  // (fix-tg3, Q-TG3-2 (a): the wait panel's figure — the turn's end + window 600 + margin 60 + the keeper's 60 s)
+  assert.equal(report.startMs, nowMs + ((G + 104 * BELL_SECS + 600 + 60 + 60) - chainNow) * 1000);
   const host = evs.find(e => e.kind === 'hostReady');
   const DEPART = 10 + 2 * 32; // fmarch DEPART_STAMINA with MAX_PATH_STEPS 32
   assert.ok(host.bell >= 100 + (DEPART - 20) - 40 && host.bell > 100, 'rests until it can make the longest march');
   for (let i = 1; i < evs.length; i++) assert.ok(evs[i].startMs >= evs[i - 1].startMs, 'soonest first');
-  // a fast local world: 60 chain seconds a wall second
+  // a fast local world: 60 chain seconds a wall second (fix-tg3: the page's pace, seasonterms termsRate — the wait panel's)
+  setTermsPace(() => 60);
   const fast = cal.calendarEvents(fixtureFS({ rate: 60 }), { nowMs });
+  setTermsPace(() => 1);
   const fa = fast.find(e => e.kind === 'marchArrival');
   assert.equal(fa.startMs, nowMs + Math.round(((G + 103 * BELL_SECS) - chainNow) * 1000 / 60));
   // a stopped world: no times
