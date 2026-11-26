@@ -31,17 +31,27 @@ test('on an S1 season the map\'s guide points where the drawer\'s step does, nev
 });
 
 test('the S1 guide\'s build step marks the village; its march and hold steps mark nothing on the map (the drawer names the keep)', () => {
+  // (pt-first-battle, owner 2026-11-26 Q-PT-2 "march first": a fresh village trains first; the build step comes once
+  //  the first march is out — and it still marks the village)
   const unbuilt = world(4, { holdings: [village({ queue: [] })] });
-  assert.equal(objectiveModel(unbuilt).id, 'build');
-  assert.deepEqual(guideTarget(unbuilt) && [guideTarget(unbuilt).kind, guideTarget(unbuilt).tile], ['build', 30]);
+  assert.equal(objectiveModel(unbuilt).id, 'train');
+  assert.deepEqual(guideTarget(unbuilt) && [guideTarget(unbuilt).kind, guideTarget(unbuilt).tile], ['train', 30]);
+  const afterCamp = world(4, { holdings: [village({ queue: [] })], marches: [{ entry: { arriveBell: 105 }, facts: { pipeline: 'pending' }, dest: { p: 1, q: 2, tile: 40 } }] });
+  assert.equal(objectiveModel(afterCamp).id, 'build');
+  assert.deepEqual(guideTarget(afterCamp) && [guideTarget(afterCamp).kind, guideTarget(afterCamp).tile], ['build', 30]);
   const trained = world(4, { holdings: [village({ reserve: [200, 0, 0, 0, 0, 0, 0, 0] })] });
   assert.equal(objectiveModel(trained).id, 'muster');
   assert.equal(guideTarget(trained)?.kind, 'muster');
   // a host formed: the drawer's step is the march on a keep; the map marks no camp
   const host = { id: hostId({ p: 0, q: 2, site: 0, gen: 1, seq: 1 }), faction: 1, unit: 0, troops: 200_000, tile: 30, state: 1, fromBell: 1, staminaValue: 100, staminaBell: 1, pendOp: 0 };
   const marching = world(4, { holdings: [village({ reserve: [0, 0, 0, 0, 0, 0, 0, 0] })], provinces: new Map([['0,2', { province: { ...home, entries: [host] } }], ['1,2', { province: camp }]]) });
-  assert.equal(objectiveModel(marching).id, 'march');
+  // (march first: the camp step comes before the keep. These camps carry no defender count, so none is a known winnable
+  //  camp: the drawer offers the map's march and the map still marks nothing)
+  assert.equal(objectiveModel(marching).id, 'camp');
   assert.equal(guideTarget(marching), null);
+  const pastCamp = { ...marching, ui: { ...marching.ui, dismissed: [...marching.ui.dismissed, 'ob:skip:camp'] } };
+  assert.equal(objectiveModel(pastCamp).id, 'march');
+  assert.equal(guideTarget(pastCamp), null);
 });
 
 test('an M1 season keeps its own guide on the map (the camp for the first march)', () => {

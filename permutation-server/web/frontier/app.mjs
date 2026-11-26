@@ -68,6 +68,8 @@ const rosterRingsNow = () => { const counts = worldNow().ringProvinces; return s
 import { readOverviews, forgetOverviewRefusals, ringMissMarks } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
+import * as waitPanel from './hud/waitpanel.mjs';
+import { battleOffer } from './hud/firstbattle.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
@@ -472,7 +474,23 @@ function moreFolds(FS) {
 export function restMarkup(FS) {
   // (without a village the plate carries its own one button: no second prompt beside it; the wide pips stand with the
   // plate here as they do in the desktop rail — hud/hud.mjs renderRest is the one composition for both widths)
-  return hud.renderRest(FS, { next: holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', todoMax: 8 });
+  return hud.renderRest(FS, { next: holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', todoMax: 8, wait: waitMarkup(FS) });
+}
+
+/**
+ * (pt-first-battle, owner 2026-11-26 15:48 Q-PT-13) The "While you wait" panel (hud/waitpanel.mjs) of store `F`: the
+ * viewer's own timers and suggestions, and the battle it may check now (hud/firstbattle.mjs battleOffer) — its own
+ * resolved clashes, else the newest clash the fog lets it read (`clashHere`, the rule every report link obeys), else a
+ * practice battle. '' without a village.
+ */
+function waitMarkup(F = FS) {
+  if (F?.mode !== 'play' || !hud.activeHolding(F)) return '';
+  let offer = null;
+  try {
+    const visible = F === FS ? reportScreen.clashesFrom(shownChronicle() ?? [], 12).filter(c => clashHere(c.p, c.q, c.bell)) : [];
+    offer = battleOffer({ own: myReports(F), visible });
+  } catch { offer = null; }
+  try { return waitPanel.renderWaitPanel(F, waitPanel.waitModel(F, { offer })); } catch (e) { console.error('frontier wait panel:', e); return ''; }
 }
 
 /**
@@ -2827,9 +2845,13 @@ function seenBell() {
   const t = FS.chain?.seen?.() ?? null;
   return FS.clock && t !== null ? bellAt(FS.clock.genesisTs, t) : null;
 }
+// (pt-first-battle) the "While you wait" panel's times are drawn again every few seconds of the viewer's time, not per frame
+const WAIT_REDRAW_MS = 10_000;
+let waitDrawnAt = 0;
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
   tickTurn();
+  if (FS.mode === 'play' && Date.now() - waitDrawnAt > WAIT_REDRAW_MS) { waitDrawnAt = Date.now(); invalidate('rail'); }
   if (FS.mode === 'play') { const lr = landRevision(); if (lr !== landSeen) { const had = landSeen !== null; landSeen = lr; if (had) mapRef?.invalidate(); } }
   if (FS.dialOpen) renderDialPop(now);
   if (instantHomeEnabled(FS.season)) {
@@ -3362,10 +3384,28 @@ function syncStack(el, items) {
  * it has one place, the "next thing" button of the top strip (renderHudTick; UX design 11.11), and on the
  * map only the ivory ring on the ground marks its tile (the canvas's label makes way: `guideChip`).
  */
+let waitRefocus = false;
+/**
+ * (pt-first-battle) The "While you wait" control that has the keyboard focus, as a selector that finds it again in new
+ * markup ('.waitp-tab' or a suggestion by its `data-wait-suggest`), or null. The panel's times change as the turns pass,
+ * so its markup is replaced while a keyboard user is on it; the focus must not fall to the page.
+ */
+const waitFocusSel = () => {
+  const a = globalThis.document?.activeElement;
+  if (!a?.closest?.('.waitp')) return null;
+  return a.classList?.contains('waitp-tab') ? '.waitp-tab' : a.dataset?.waitSuggest ? `[data-wait-suggest="${String(a.dataset.waitSuggest).replace(/[^\w-]/g, '')}"]` : '.waitp-tab';
+};
+const waitRefocusTo = sel => { if (!sel) return; const d = globalThis.document; if (d?.activeElement?.closest?.('.waitp')) return; d?.querySelector?.(`.waitp ${sel}`)?.focus?.({ preventScroll: true }); };
 function renderRail() {
   const small = phone();
   const el = $('rail');
-  if (el) { setHtmlIfChanged(el, small ? '' : hud.renderRail(FS, { todoOpen: !!FS.todoOpen })); el.hidden = small || !el.firstElementChild; }
+  const focusSel = waitFocusSel() ?? (waitRefocus ? '.waitp-tab' : null);
+  waitRefocus = false;
+  if (el) { setHtmlIfChanged(el, small ? '' : hud.renderRail(FS, { todoOpen: !!FS.todoOpen, wait: waitMarkup(FS) })); el.hidden = small || !el.firstElementChild; }
+  // (pt-first-battle: the key the person was on — the fold's, or a suggestion — has the focus again in the new markup; on a
+  //  phone the sheet is drawn by the panel's own pass, so the same is asked again on the next frame)
+  waitRefocusTo(focusSel);
+  if (focusSel) globalThis.requestAnimationFrame?.(() => waitRefocusTo(focusSel));
   const ob = $('objective');
   if (ob && !ob.hidden) ob.hidden = true;
   renderProvinces();
@@ -4541,6 +4581,8 @@ async function verifyReport() {
     kernelRuleset: FS.season?.rulesetHash ? kernelRulesetFor(FS.season.rulesetHash) : null });
   rep.verifying = false;
   if (FS.report === rep) { rep.verify = v; invalidate('panel'); }
+  // (pt-first-battle: the first 「一致」 this browser saw is kept, so the "While you wait" panel stops offering a battle to check)
+  if (v?.result === 'match' && FS.mode === 'play' && !(FS.ui?.dismissed ?? []).includes(FLAG.verified)) { setFlag(FLAG.verified); invalidate('rail'); }
 }
 
 const retreatChoiceOf = bps => (RETREAT_CHOICES.find(c => c.bps === (bps ?? 0))?.id ?? 'never');
@@ -4575,6 +4617,17 @@ async function runPractice({ reroll = false } = {}) {
   if (phone()) globalThis.requestAnimationFrame?.(() => $('panel-body')?.querySelector?.('.pr-result')?.scrollIntoView?.({ block: 'start', behavior: calm() ? 'auto' : 'smooth' }));
 }
 
+/** (pt-first-battle) Recompute the practice result in this browser (screens/practice.mjs recheckPractice): practice only. */
+async function recheckPractice() {
+  const st = FS.practice;
+  if (!st?.result?.ok) return;
+  let k;
+  try { k = await seasonKernel(); FS.practiceError = null; } catch (e) { FS.practiceError = e?.code ?? 'NoWasm'; invalidate('panel'); return; }
+  if (FS.practice !== st) return;
+  st.recheck = practiceScreen.recheckPractice(k, st.result);
+  if (st.recheck.result === 'match' && FS.pin && FS.mode === 'play') { setFlag(FLAG.practiceMatch); invalidate('rail'); } else invalidate('panel');
+}
+
 /** The wave-4 actions (data-act). */
 export const W4_ACTIONS = {
   'report-open': d => openReport(num(d.p), num(d.q), num(d.bell)),
@@ -4590,6 +4643,11 @@ export const W4_ACTIONS = {
     invalidate('panel');
   },
   'practice-reroll': () => runPractice({ reroll: true }),
+  // (pt-first-battle, Q-PT-3: no real battle may be opened yet) the practice battle, labelled so, and its recompute
+  'practice-first': () => { const st = practiceScreen.practiceState({ faction: FS.citizen?.faction, scenario: 'camp' }); st.firstBattle = true; FS.report = null; FS.practice = st; invalidate('panel'); },
+  'practice-recheck': () => recheckPractice(),
+  // (the fold redraws the rail — or the phone's sheet —: the key keeps the focus, refocused once the new markup stands)
+  'wait-toggle': () => { const sc = scope(); const v = waitPanel.waitOpen(FS) ? 'closed' : 'open'; FS.ui = sc ? saveUiOver(sc, { waitPanel: v }) : { ...(FS.ui ?? {}), waitPanel: v }; waitRefocus = true; invalidate('rail', 'panel'); },
   'ob-seen': d => { if (FLAG[d.flag]) setFlag(FLAG[d.flag]); },
   'ob-skip': d => setFlag(FLAG.skip(String(d.step))),
   'ob-dismiss': () => setFlag(FLAG.dismissed),

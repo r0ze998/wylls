@@ -12,7 +12,7 @@ export const TABS = Object.freeze(['map', 'holding', 'hosts', 'marches', 'more']
 // `lastTicketBell`: the bell the last ticket was filed at (integ-W6 review: a
 // ticket can end between two polls without the page seeing it open, so the
 // offer also counts it as seen `TICKET_SEEN_BELLS` after the filing bell).
-export const DEFAULTS = Object.freeze({ v: 1, fog: true, lod: 'world', tab: 'map', dismissed: [], lastTicket: null, ticketSeen: true, lastTicketBell: null, autoPan: false, battleFx: 'normal', guide: 'all', effects: 'full' });
+export const DEFAULTS = Object.freeze({ v: 1, fog: true, lod: 'world', tab: 'map', dismissed: [], lastTicket: null, ticketSeen: true, lastTicketBell: null, autoPan: false, battleFx: 'normal', guide: 'all', effects: 'full', waitPanel: 'open' });
 
 /** `ps-fui:<cluster>:<program>:<season>`. */
 export const uiKey = ({ cluster, programId, seasonId }) => `${UI_PREFIX}${cluster}:${programId}:${seasonId}`;
@@ -52,6 +52,8 @@ export function loadUi(storage, key) {
     guide: ['all', 'warn', 'off'].includes(v.guide) ? v.guide : DEFAULTS.guide,
     // how much may move (fx/motion.mjs): the calmer of this and the system's reduced-motion setting is used
     effects: ['full', 'reduced', 'off'].includes(v.effects) ? v.effects : DEFAULTS.effects,
+    // (pt-first-battle, Q-PT-13) the "While you wait" panel, folded or open (hud/waitpanel.mjs); shown either way
+    waitPanel: ['open', 'closed'].includes(v.waitPanel) ? v.waitPanel : DEFAULTS.waitPanel,
   };
 }
 
