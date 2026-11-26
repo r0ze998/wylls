@@ -72,12 +72,17 @@ const hexDist = (a, b) => { const dq = a.q - b.q, dp = a.p - b.p; return (Math.a
  */
 export const CAMP_GARRISON_CAP = 12;
 
-/** The holdings standing in decoded Province `pr` (the rule's garrisons: site mirrors in state 1 among `siteCount`). */
+/**
+ * The site garrisons standing in decoded Province `pr`, as the rule counts them before the camp: site mirrors among
+ * `siteCount` in state 1 (a holding) or 5 (a v2 genesis Free City — clash_model.rs `v2_garrison_state`,
+ * world_index/resolve.rs; state 5 never occurs in a v1 Province). (verify-pr265: Free Cities were missed.)
+ */
+const SITE_HOLDING = 1, SITE_FREE_CITY = 5;
 export function garrisonsIn(pr) {
   const m = Array.isArray(pr?.siteMirror) ? pr.siteMirror : [];
   const n = Math.min(Number.isInteger(pr?.siteCount) ? pr.siteCount : m.length, CAMP_GARRISON_CAP);
   let k = 0;
-  for (let i = 0; i < n; i++) if (m[i]?.state === 1) k++;
+  for (let i = 0; i < n; i++) if (m[i]?.state === SITE_HOLDING || m[i]?.state === SITE_FREE_CITY) k++;
   return k;
 }
 

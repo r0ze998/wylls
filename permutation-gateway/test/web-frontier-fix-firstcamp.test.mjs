@@ -55,6 +55,13 @@ test('campFights: a standing camp fights only while fewer than 12 holdings stand
   // only holdings (state 1) are garrisons: reserved (4), released (3) and free sites are not
   assert.equal(FB.campFights(pv(12, 4)), true);
   assert.equal(FB.campFights(pv(12, 3)), true);
+  // (verify-pr265) a v2 genesis Free City (state 5) is a garrison too (clash_model.rs v2_garrison_state, world_index
+  // resolve.rs): 12 Free Cities, or 7 holdings + 5 Free Cities, keep the camp out; 6 + 5 = 11 lets it in
+  assert.equal(FB.garrisonsIn(pv(12, 5)), 12);
+  assert.equal(FB.campFights(pv(12, 5)), false);
+  const mixed = k => ({ siteCount: 12, siteMirror: mirror(12).map((m, i) => ({ ...m, state: i < k ? 1 : i < k + 5 ? 5 : 0 })), camp: { state: 1, tile: 33, troops: 217 } });
+  assert.equal(FB.campFights(mixed(7)), false);
+  assert.equal(FB.campFights(mixed(6)), true);
   // sites past siteCount do not exist
   assert.equal(FB.garrisonsIn(pv(12, 1, { siteCount: 8 })), 8);
   // a beaten camp (state 0, until the daily check places a new one) never fights
