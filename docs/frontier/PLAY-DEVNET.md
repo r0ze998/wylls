@@ -92,8 +92,8 @@ value; no in-game key is made).”
 4. **Not on the devnet page today.** The page code on main has newer parts that the devnet page does not have yet: the
    march-first guide of eight steps (a nearby barbarian camp before the keeps; owner decision 2026-11-26, Q-PT-2), the
    “While you wait” panel (verify a real battle or a practice battle in this browser within minutes; Q-PT-1, Q-PT-3),
-   the “World goals” card (below), and “Claim a tile” turned off while land upkeep is unpaid. They are described in
-   [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, step 7) and §4.1. The devnet page gets them only when its page files are
+   the “World goals” card (below), “Claim a tile” turned off while land upkeep is unpaid, and notifications outside the
+   page with a calendar file. They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, step 7), §4.1 and §15. The devnet page gets them only when its page files are
    updated, and that has not been decided yet. Until then the page works as written in this guide.
 
 Good to know:
