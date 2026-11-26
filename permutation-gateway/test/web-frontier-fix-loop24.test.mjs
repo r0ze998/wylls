@@ -83,15 +83,15 @@ test('BREAK-3: a keep march read once without its destination is still told when
   assert.deepEqual(s2.marches.get('7').dest, d, 'the destination stays with the same march');
   const s3 = snapAt(76, [row(76, { dest: null, facts: { pipeline: 'resolved' } })], s2);
   const told = feed.diffFeed(s2, s3);
-  const rs = told.find(x => x.id === 'rs:7');
+  const rs = told.find(x => x.id === 'rs:7@74');
   assert.ok(rs, 'the report line is told');
-  assert.deepEqual(notify.noticeOf(rs), { kind: 'report', key: 'report:7' }, '…and it is a "Battle report ready" event');
+  assert.deepEqual(notify.noticeOf(rs), { kind: 'report', key: 'report:7@74' }, '…and it is a "Battle report ready" event');
   // the row gone in the same poll its turn ended: told by the "row gone" path, with the kept destination
   const gone = feed.diffFeed(s2, snapAt(76, [], s2));
-  assert.equal(gone.filter(x => x.id === 'rs:7').length, 1);
+  assert.equal(gone.filter(x => x.id === 'rs:7@74').length, 1);
   // deliberate break: a snapshot made without the previous one (the destination not carried) tells nothing
   const s2b = snapAt(75, [row(75, { dest: null, facts: { pipeline: 'revealing' } })], null);
-  assert.equal(feed.diffFeed(s2b, snapAt(76, [], s2b)).filter(x => x.id === 'rs:7').length, 0);
+  assert.equal(feed.diffFeed(s2b, snapAt(76, [], s2b)).filter(x => x.id === 'rs:7@74').length, 0);
   // a later march of the same host to elsewhere starts afresh (the kept destination belongs to arrival turn 74 only)
   const later = snapAt(80, [{ ...row(80, { dest: null }), transit: { slot: 0, state: 1, hostId: '7', arriveBell: 90 } }], s3);
   assert.equal(later.marches.get('7').dest, null);
@@ -103,10 +103,10 @@ test('BREAK-3: every own report kind is a "Battle report ready" event — a quie
   const exp = st => ({ entry: null, transit: null, dest: { p: -128, q: 66, tile: 3 }, expedition: { host: '55', arriveBell: 40, stage: st, dest: { p: -128, q: 66, tile: 3 } }, facts: { nowBell: 41, pipeline: null } });
   const a = snapAt(41, [exp('arrived')], null), b = snapAt(42, [exp('resolved')], a);
   assert.equal(b.marches.get('55').pipeline, 'resolved');
-  const told = feed.diffFeed(a, b).filter(x => x.id === 'rs:55');
+  const told = feed.diffFeed(a, b).filter(x => x.id === 'rs:55@40');
   assert.equal(told.length, 1, 'the expedition\'s result is told once');
   assert.equal(notify.noticeOf(told[0]).kind, 'report');
-  assert.equal(feed.diffFeed(b, snapAt(43, [exp('settled')], b)).filter(x => x.id === 'rs:55').length, 0, 'not twice');
+  assert.equal(feed.diffFeed(b, snapAt(43, [exp('settled')], b)).filter(x => x.id === 'rs:55@40').length, 0, 'not twice');
 });
 
 test('BREAK-3/4: a province in a notification is said one way — 「州 x,y」 / "Province x,y" — and a keep as its keep', () => {
@@ -293,4 +293,40 @@ test('flicker: what the panel said stands until new data is in (steadyWaitModel)
   assert.deepEqual(waitPanel.steadyWaitModel(caughtUp, withReport, empty).shown.timers.map(t => t.kind), ['report']);
   assert.deepEqual(waitPanel.steadyWaitModel(waitFS({ resolvedNext: 53, bell: 53 }), withReport, empty).shown.timers, [], 'not past a turn');
   assert.ok(src('app.mjs').includes('const st = waitPanel.steadyWaitModel(F, F === FS ? waitSteady : null, waitPanel.waitModel(F, { offer }));'));
+});
+
+// ------------------------------------------------------------------ verify-pr270: found live on the PR head
+test('verify-pr270: a host\'s SECOND march is told too — its lines are the march\'s (host @ arrival turn), not the host\'s', () => {
+  setLang('en');
+  const d1 = { p: 1, q: -2, tile: 50 }, d2 = { p: -1, q: 1, tile: 50 };
+  const mk = (arriveBell, dest, pipeline) => ({ entry: null, transit: { slot: 0, state: 1, hostId: '7', arriveBell }, dest, facts: { pipeline } });
+  // the host's first march (the camp), told; then the same host's keep march (loop-play24 BREAK-3: 353 Spearmen after the camp)
+  const a = snapAt(54, [mk(55, d1, null)], null), b = snapAt(57, [mk(55, d1, 'resolved')], a);
+  const first = feed.diffFeed(a, b).filter(x => x.id.startsWith('rs:'));
+  assert.deepEqual(first.map(x => x.id), ['rs:7@55']);
+  const c = snapAt(60, [], b), e = snapAt(70, [mk(74, d2, null)], c), f = snapAt(76, [mk(74, d2, 'resolved')], e);
+  const second = feed.diffFeed(e, f).filter(x => x.id.startsWith('rs:'));
+  assert.deepEqual(second.map(x => x.id), ['rs:7@74'], 'the second march has a line of its own');
+  // the feed keeps both (pushFeed drops a known id) and the notices tell both ("Battle report ready" twice, a report each)
+  const list = feed.pushFeed(feed.pushFeed([], first), second);
+  assert.equal(list.filter(x => x.id.startsWith('rs:7')).length, 2, 'deliberate break: with `rs:${host}` the second line is dropped here');
+  assert.notEqual(notify.noticeOf(first[0]).key, notify.noticeOf(second[0]).key);
+  // the same march's result line and its "result to collect" line are still ONE event
+  assert.equal(notify.noticeOf({ id: feed.marchLineId('st', '7', 74), kind: 'march' }).key, notify.noticeOf(second[0]).key);
+});
+
+test('verify-pr270: a host whose march has arrived (transit not settled yet) shows its own rest, not "Nothing to wait for"', () => {
+  setLang('en');
+  const FS = waitFS({ resolvedNext: 56, bell: 57, readyBell: 56, stamina: 5 });
+  const h = FS.holdings[0], id = FS.provinces.get('1,0').province.entries[0].id;
+  h.transit = [{ slot: 0, state: 2, hostId: id, arriveBell: 55, sealRoot: '' }];
+  const m = waitPanel.waitModel(FS);
+  const hostT = m.timers.filter(t => t.id.startsWith('host:'));
+  assert.equal(hostT.length, 1, JSON.stringify(m.timers));
+  assert.equal(hostT[0].kind, 'hostMarch');
+  assert.equal(hostT[0].turn, 57 + 74 - 5, 'short of stamina: from the turn it has the 74 a departure takes');
+  assert.doesNotMatch(String(waitPanel.renderWaitPanel(FS, m, { open: true })), /Nothing to wait for/);
+  // before its arrival turn has passed it is a march, not a rest (the report line above says it)
+  h.transit[0].arriveBell = 58;
+  assert.equal(waitPanel.waitModel(FS).timers.filter(t => t.id.startsWith('host:')).length, 0);
 });

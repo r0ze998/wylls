@@ -58,6 +58,13 @@ export const KEEP_NEWS_BELLS = 6;
 
 // (fix-loop24: a kept expedition's row — wide land — has no book entry and, once its marker is gone, no transit: its own host)
 const marchKey = m => String(m.entry?.host ?? m.transit?.hostId ?? m.expedition?.host ?? '');
+/**
+ * (verify-pr270) The id of a line about ONE march: its host and its arrival turn, `rs:<host>@<turn>` (`rv:` its seal opened,
+ * `rs:` its result, `st:` its result to collect). The id was the host's alone, and the feed (pushFeed) and the notices
+ * (hud/notify.mjs, `report:<host…>`) tell an id once: a host's second march — loop-play24's keep march, sent by the host
+ * that had taken the camp — got no line and no "Battle report ready". hud/notify.mjs keys the event by what follows the prefix.
+ */
+export const marchLineId = (prefix, host, arrive) => `${prefix}:${host}@${Number.isInteger(arrive) ? arrive : ''}`;
 /** (fix-loop24) A march row's arrival turn: the book's, the transit's, else a kept expedition's. */
 export const marchArrive = m => m.entry?.arriveBell ?? m.transit?.arriveBell ?? m.expedition?.arriveBell ?? null;
 /** (fix-loop24) A march row's stage as the feed reads it: a kept expedition resolved or settled on chain is `resolved`. */
@@ -205,16 +212,16 @@ function diffFeedNow(prev, next) {
     const was = prev.marches.get(k);
     const d = m.dest;
     if (!was) continue;
-    if (!was.revealed && m.revealed && d) out.push({ id: `rv:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の封が開けられました` });
+    if (!was.revealed && m.revealed && d) out.push({ id: marchLineId('rv', k, m.bell), kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の封が開けられました` });
     if (was.pipeline !== 'resolved' && m.pipeline === 'resolved' && d) {
       // (the place by the name it had before the turn was resolved: a camp that this very clash cleared is still
       // "the camp" in the line that tells of it. With no engagement in the record nobody stood there: the host
       // simply arrived, and no battle is staged for it)
       const name = named(was.destNames, was.destName) ?? destOf(m), quiet = next.fights?.get(`${d.p},${d.q},${m.bell}`) === 0;
-      if (quiet) out.push({ id: `rs:${k}`, kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(m.bell)} の到着）` });
-      else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`${name}の衝突が決着しました（ターン ${fmtNum(m.bell)} の到着）` });
+      if (quiet) out.push({ id: marchLineId('rs', k, m.bell), kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(m.bell)} の到着）` });
+      else out.push({ id: marchLineId('rs', k, m.bell), kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`${name}の衝突が決着しました（ターン ${fmtNum(m.bell)} の到着）` });
     }
-    if (!was.settle && m.settle && d) out.push({ id: `st:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の結果を受け取れます` });
+    if (!was.settle && m.settle && d) out.push({ id: marchLineId('st', k, m.bell), kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の結果を受け取れます` });
   }
   // (fix-loop22, LP22-4: a march whose row left the page's list in the same poll its turn was resolved — a march to a
   //  province the viewer holds no village in is read only while its transit stands — was told by nobody: the keep march
@@ -223,8 +230,8 @@ function diffFeedNow(prev, next) {
   for (const [k, was] of prev.marches) {
     if (next.marches.has(k) || was.pipeline === 'resolved' || !was.dest || !Number.isInteger(was.bell) || !Number.isInteger(bell) || bell <= was.bell) continue;
     const d = was.dest, name = named(was.destNames, was.destName) ?? noticeProvince(d.p, d.q), quiet = next.fights?.get(`${d.p},${d.q},${was.bell}`) === 0;
-    if (quiet) out.push({ id: `rs:${k}`, kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(was.bell)} の到着）` });
-    else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: was.bell }, mine: true, text: L`${name}の衝突が決着しました（ターン ${fmtNum(was.bell)} の到着）` });
+    if (quiet) out.push({ id: marchLineId('rs', k, was.bell), kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(was.bell)} の到着）` });
+    else out.push({ id: marchLineId('rs', k, was.bell), kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: was.bell }, mine: true, text: L`${name}の衝突が決着しました（ターン ${fmtNum(was.bell)} の到着）` });
   }
   for (const c of next.clashes) {
     if (prev.clashes.has(c)) continue;

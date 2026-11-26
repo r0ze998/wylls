@@ -76,7 +76,11 @@ export function waitModel(FS, { offer = null } = {}) {
     if (back) { timers.push({ id: `host:${w.id}`, kind: 'hostMarch', at: at(FS, back.turn), turn: back.turn, unit: w.unit, troops: w.troops, stamina: back.stamina }); continue; }
     if (forming) { timers.push({ id: `host:${w.id}`, kind: 'hostForms', at: forming.at, turn: forming.turn, unit: w.unit, troops: w.troops, stamina: null }); continue; }
     // (fix-loop24: a standing host whose province is still settling the new turn: its own rest, as before the turn changed)
-    if (w.why === 'settling') {
+    // (verify-pr270: likewise a host whose march has arrived — its report is out — while its village's transit record is
+    //  not settled yet (keephand.mjs waitOf `march`, `arrived`): for that turn it was no timer at all, and the panel said
+    //  「いま待っているものはありません」 of a host short of stamina (live, --demo ×60: stamina 5, ready from turn 126).
+    //  It may not depart before its own ready turn and stamina anyway: say that wait, from its own record)
+    if (w.why === 'settling' || (w.why === 'march' && w.arrived)) {
       const r = rows.find(x => String(x.id) === String(w.id));
       const sw = r && r.state === 1 ? settledWait(FS, r) : null;
       if (sw) timers.push({ id: `host:${w.id}`, kind: 'hostMarch', at: at(FS, sw.turn), turn: sw.turn, unit: w.unit, troops: w.troops, stamina: sw.stamina ?? null });

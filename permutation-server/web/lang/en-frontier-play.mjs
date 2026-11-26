@@ -478,8 +478,8 @@ export default {
   '砦の履歴': 'Keep history', '第{0}ターンから：{1}が保持': 'From turn {0}: held by {1}',
   '第{0}ターン：{1}が{2}から奪取': 'Turn {0}: {1} took it from {2}', '守備兵 {0}': '{0} defenders',
   '前の支配国': 'Previous holder', '第{0}ターンに交代': 'changed hands on turn {0}',
-  'この戦いは州 {0},{1} の砦をめぐるものです：いまの保持者 {2}。{3}が包囲中：{4}/{5} ターン（すべて満たすと奪取）': 'This clash was over the keep of province {0},{1}: held now by {2}. {3} has besieged it for {4} of the {5} turns a capture takes',
-  'この戦いは州 {0},{1} の砦をめぐるものです：いまの保持者 {2}': 'This clash was over the keep of province {0},{1}: held now by {2}',
+  'この戦いは州 {0},{1} の砦をめぐるものです：いまの保持者 {2}。{3}が包囲中：{4}/{5} ターン（すべて満たすと奪取）': 'This clash was over the keep of Province {0},{1}: held now by {2}. {3} has besieged it for {4} of the {5} turns a capture takes',
+  'この戦いは州 {0},{1} の砦をめぐるものです：いまの保持者 {2}': 'This clash was over the keep of Province {0},{1}: held now by {2}',
   '第{0}ターンに {1} が {2} から奪った': '{1} took it from {2} at turn {0}', '砦を見る': 'See the keep',
   '進軍と来襲': 'Marches and attacks', '村と建設': 'Villages and building',
   'お知らせ': 'Notifications', '絞り込み': 'Filter', 'まだお知らせはありません': 'No notifications yet',
@@ -1252,8 +1252,8 @@ export default {
   '{0}で、ほかの国どうしの戦いがありました（ターン {1}）': 'Other nations fought in {0} (turn {1})',
   // ---- a clash of the viewer's own host where it stands, told from its record (map/ownclash.mjs; the take of 2026-10-11:
   // the second turn of a march on a keep), and the line under the battle's verdict (fx/battle.mjs)
-  '州 {0},{1} の砦の守備兵を、あなたの軍勢が破りました。軍勢は砦のマスを押さえています（ターン {2}）': 'Your host beat the last defenders of the keep of province {0},{1} and now holds the keep\'s tile (turn {2})',
-  '州 {0},{1} の砦の守備兵と、あなたの軍勢が戦いました。守備兵は残り {2}（ターン {3}）': 'Your host fought the defenders of the keep of province {0},{1}: {2} of them are left (turn {3})',
+  '州 {0},{1} の砦の守備兵を、あなたの軍勢が破りました。軍勢は砦のマスを押さえています（ターン {2}）': 'Your host beat the last defenders of the keep of Province {0},{1} and now holds the keep\'s tile (turn {2})',
+  '州 {0},{1} の砦の守備兵と、あなたの軍勢が戦いました。守備兵は残り {2}（ターン {3}）': 'Your host fought the defenders of the keep of Province {0},{1}: {2} of them are left (turn {3})',
   '{0}で、あなたの軍勢が戦いました（ターン {1}・{2} 兵を失いました）': 'At {0} your host fought (turn {1}; {2} troops lost)',
   '砦の守備兵を破りました。{0}の軍勢が砦のマスを押さえています': 'The keep\'s defenders are beaten. {0}\'s host now holds the keep\'s tile',
   // ---- the prize pool (test USDC on the local test chain; screens/prize.mjs, fprize.mjs)
