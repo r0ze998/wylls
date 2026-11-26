@@ -1,6 +1,7 @@
 # Play it locally and check it yourself (TEST only, one command)
 
-How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
+How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
+(its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
 Matches main as of 2026-11-26 (through #244 and #243). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
@@ -117,8 +118,11 @@ move only once its turn is settled: about 17 minutes later).
 
 1. **Join**: "Start the world (a kept world resumes)" (with `--demo`: "Start a new world") → "Choose a nation" → pick a flag, then
    press "Join (nation)". The first village is placed for you. No key card and no wallet prompt appears.
-2. **Village**: "This is your village." means it worked. Look at "Ore +2" above the map. A village with
-   "No ore from the land" can only grow to about 600 troops.
+2. **Village**: "This is your village." means it worked. The bar above the map shows a number per good, as many as fit
+   (in a 1280-px-wide window: food, wood, stone and ore with "2 more" at first, only food and wood with "4 more" once the
+   "Fields" chip joins the bar); "N more" (or any number in the bar) opens "Resources", every good with its rate
+   (e.g. "Ore" "+4 per hour"; loop-play21, verify-pr255). A village with
+   "No ore from the land" can only grow to about 600 troops (on the standard map every auto-placed first village in loop-play21 was one: 4 of 4).
 3. **Build**: "Choose your first building" → the farm's "Build". It finishes in about one (in-game) minute.
 4. **Train**: "Train" in the bottom bar → "Max 500" → "Train 500 Spearmen". It finishes at once.
 5. **Muster**: "Form a host" in the bottom bar (or the guide at the top right when it says "Form a host") → "All" (the whole reserve when the order goes, including a training batch that lands after the card opened; fix-loop9 LP9-5) →
@@ -132,9 +136,13 @@ move only once its turn is settled: about 17 minutes later).
    says "Check your host's readiness" or "See the keeps in reach", the host is mustered.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
-   Each row says when a march sent now would arrive, in the order card's words: "13 tiles · 3 provinces · arrives turn 36 (in about 28 s on the test clock)"
+   The card the guide opens, "March on a keep · N keeps in reach", gives each row's arrival as "Turn 22 · arrival (13 tiles)"; the
+   order card then says the wait, "Turn 23 · in about 32 s on the test clock" (loop-play21). The keep rows under "Nation & territory"
+   say both in one line: "13 tiles · 3 provinces · arrives turn 36 (in about 28 s on the test clock)"
    (at the natural clock "… arrives turn 6 (in about 48 min)"). A march arrives when its arrival turn begins, so this is longer than the walk itself
    (before fix-loop15 the row said the walk's time, "about 40 min", beside an order card saying "in about 48 min": loop-play15 LP15-9).
+   The arrival turn can move on by one or two while the card is open or the send waits for the province (loop-play21: row turn 22,
+   card turn 23, "It arrives on turn 24" after the wait).
    While the province is settling, the same order is sent once, as soon as it can be. "The first march" means it left.
    - In a kept world that has just started (a turn is 10 min), a press at the start of turn 2 shows "Finding the keeps you can reach…"
      and "In a world that has just started, the list of keeps in reach appears once the first turn's results are all in (a few minutes)." until the world's first
@@ -161,7 +169,8 @@ move only once its turn is settled: about 17 minutes later).
      The host is at the village, the guide goes back to "Guide 4/7", and "Try again" reopens the march card: press
      "Send this order" again (#193, #200; verify-pr193 and verify-pr200 played both in English and Japanese). What is
      left: once the 2 minutes are over, no button asks again (§8.1).
-7. **Check the clash**: on the arrival turn "Clash … A clash was resolved" appears. "Report" → "Verify in this browser";
+7. **Check the clash**: a turn or two after the arrival turn the notice "The clash on the (place) is resolved (arrivals of turn N)"
+   appears, with "View" and "Report". "Report" → "Verify in this browser";
    "Match: the outcome recomputed in this browser is the chain's record" means it was recomputed and agrees.
    The same in a `--coexist` world (it answered "Could not check (a record is missing)" there until fix-loop14, LP14-4).
    A report whose record does not say what was left of a side — an older turn of a host standing on a keep's tile:
@@ -498,7 +507,8 @@ say so.
      "You already have 3 villages." and its rows keep "Claim a tile" only).
    - A province where a wide village of yours stands stays on the card as its own row, "Province (P, Q) your village stands here",
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
-     (loop-play15, #223; before, that row and its button were gone).
+     (loop-play15, #223; before, that row and its button were gone). Local worlds only: the devnet page leaves this row
+     out today, so there the province of your wide village has no row at all (PLAY-DEVNET.md §5).
 5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
    - 0.99 food an hour for each tile;
    - plus 0.48 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
@@ -694,11 +704,11 @@ view (fog-devnet; runbook §7 P5).
 |---|---|---|
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
 | Centre | **none** (the world's own rule byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
-| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
+| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | also from a Hamlet: the devnet world's preset `S1_DEVNET_TERRITORY` is built on the wide preset `S1_DEVNET_WIDE_7D` (0 since #104); `S1_LOCAL_7D` from a Town (1) |
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, "Check again"; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet ("Review what will be sent" → "Sign with the wallet and send"; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
-| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | built, not played there yet: the new devnet world's profile opens every wide keep unowned (preset `S1_DEVNET_TERRITORY`, keep holder `NeutralTerritoryV1`, `scripts/devnet/devnet-new-world-profile.json`); the devnet world is not created yet |
-| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | built, not played there yet: the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221, checked on a local chain by P18); the devnet world is not created yet |
+| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | in the devnet world created on 2026-11-26: every wide keep starts unowned (preset `S1_DEVNET_TERRITORY`, keep holder `NeutralTerritoryV1`, `scripts/devnet/devnet-new-world-profile.json`), and the program on devnet has #206 (updated 2026-11-25 and 2026-11-26). Played end to end on a local chain with that world's own build (world3-local-replica, 2026-11-26) |
+| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | in the devnet world created on 2026-11-26, with the unpaid-upkeep rule of #243 (§4.1 step 6): the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221). The row "your village stands here" (§4.1 step 4) is not on the devnet page. Played on a local chain with that world's own build (world3-local-replica, 2026-11-26) |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
