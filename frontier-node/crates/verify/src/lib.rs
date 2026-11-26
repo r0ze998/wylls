@@ -271,7 +271,9 @@ pub fn verify(input: &Input) -> Report {
     #[cfg(feature = "playable-lane")]
     let r = if !cfg!(feature = "mutate-vg") && genesis::applies(input) {
         let d = genesis::derive(input);
-        vg_exact = d.ran && d.findings.is_empty();
+        // (a WARN is no finding against the season: genesis::ClockRule's
+        // ClockFromEffects note)
+        vg_exact = d.ran && d.findings.iter().all(|f| f.severity == Severity::Warn);
         if d.ran {
             vg_fails = d.findings.iter().filter(|f| f.fail()).count();
         }

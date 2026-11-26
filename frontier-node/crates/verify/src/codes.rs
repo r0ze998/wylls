@@ -67,6 +67,10 @@ pub const REEXEC_REFUSED: &str = "ReExecRefused";
 /// VX: the re-execution's log lines or program-owned post-states are not
 /// the archive's.
 pub const REEXEC_MISMATCH: &str = "ReExecMismatch";
+/// WARN (VG, verifier-clock-fix): transactions re-executed at a Clock one
+/// second below the RPC's `blockTime`, the only one that reproduces their
+/// recorded effects (`genesis::ClockRule`).
+pub const CLOCK_FROM_EFFECTS: &str = "ClockFromEffects";
 /// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
 pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
