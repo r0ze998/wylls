@@ -61,7 +61,7 @@ export default {
   '板に届いたか分からない（{0}）。読み直した表示で確かめてください': 'Whether it reached the board is not known ({0}). Check the reloaded view',
   '受け付けられなかった：{0}': 'Not accepted: {0}',
   '板に届いたか分からない（HTTP {0}）。読み直した表示で確かめてください': 'Whether it reached the board is not known (HTTP {0}). Check the reloaded view',
-  '{0}。費用（S1）：{1}。ほかの人から：{2}［仮］。報酬はない。': '{0^}. Cost (S1): {1}. From others: {2} [provisional]. There is no reward.',
+  '{0}。費用：{1}。ほかの人から：{2}［仮］。報酬はない。': '{0^}. Cost: {1}. From others: {2} [provisional]. There is no reward.',
   '（{0}）の貯蔵庫：': ' ({0}), storehouse: ',
   '）の貯蔵庫：': '), storehouse: ',
   '{0}（数えた入荷量の下限。資源ごと。合計しない）': '{0} (lower bound of the counted amount taken in; per resource; not summed)',

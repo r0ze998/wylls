@@ -1221,6 +1221,13 @@ body, up to axum's 2 MiB default (audit L-11). Set `client_max_body_size 64k;` a
 | — | ③ MCP servers | not started by anything; loopback only. The public one is default OFF and r0ze's decision (`workstreams/03-composability/mcp/PUBLIC-EXPOSURE.md` §7, §9); the owner one is never public |
 | 419xx and others | local-play services (launcher, runner RPC with time control, local relay, world proxy, `--external` MCP) | TEST only: never start `scripts/play-local.sh` or a `frontier-localnet` on the public host |
 
+**The live devnet host (2026-11) runs the same four on ports 100 higher: keeper A's API on 41150**, herald 41140,
+gateway 41130 (operator) / 41133 (public) — `scripts/devnet/health.mjs` (`ports`) reads those. r0ze's 11-26 10:52 answers did not settle the port; the
+record was "follow the code (live 41150)". The values in this runbook (steps 5–7 and the table above) are
+still 41050/41040/41030/41033 because `scripts/devnet/preflight-checks.mjs` requires them (`cfg.keeper` wants
+`api = "127.0.0.1:41050"`; `ep.ports` probes 41040/41050/41030/41033 by default — pass `--private-ports 41140,41150,41130,41133`
+for the live host). Which set the repo should hold everywhere is open (owner-answers-ui report, Q-OAU-1).
+
 Also never public: the key files of steps 2 and 5 (`keeper.seed`, `keeper.token`, the relay's seed and invite
 secret, `FRONTIER_OPERATOR_TOKEN`) and the directories `keeper-a/`, `relay/`, `herald/`. Everything under
 `--web DIR` is served: point it at `permutation-server/web` and nothing wider, and keep no key file below it.

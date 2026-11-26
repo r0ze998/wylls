@@ -162,7 +162,7 @@ export function seenFlag(FS, f) {
 function flagRow(raw, g, FS) {
   const me = FS?.citizen?.faction;
   const f = seenFlag(FS, raw);
-  if (f.seen === 'never') return html`<li class="goal-flag unseen" data-flag="${f.p},${f.q}" data-seen="never"><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · <small class="muted">${L`この州の砦は、まだ見ていません。`}</small></li>`;
+  if (f.seen === 'never') return html`<li class="goal-flag unseen" data-flag="${f.p},${f.q}" data-seen="never"><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 ${f.p},${f.q}`}</button> · <small class="muted">${L`この州の砦は、まだ見ていません。`}</small></li>`;
   const held = nation(f.holder) ? factionName(f.holder) : L`持ち主なし`;
   const long = f.longAt !== null && g.bell !== null && f.longAt <= g.bell;
   const left = f.longAt !== null && g.bell !== null && !long ? f.longAt - g.bell : null;
@@ -171,7 +171,7 @@ function flagRow(raw, g, FS) {
   const start = nation(f.holder) && f.holder === f.nation;
   const state = start ? (f.holder === me ? L`初めからあなたの国の旗の砦です（達成には数えません）` : L`初めからこの国の旗の砦です（達成には数えません）`) : long ? L`保持の時間を満たした` : left !== null ? L`満たすまで あと ${turnsText(left)}` : '';
   const contest = nation(f.contender) ? html` <span class="warn">${L`${factionName(f.contender)}が包囲中 ${fmtNum(f.progress)} / ${fmtNum(f.required)}`}</span>` : '';
-  return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}" data-seen="${f.seen}"${int(f.lostAt) ? html` data-lost-at="${f.lostAt}"` : ''}><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 (${f.p}, ${f.q})`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${int(f.lostAt) ? L`あなたの国が失ったとき（第${fmtNum(f.lostAt)}ターン）の持ち主です` : f.seen === 'memory' ? L`前に見たときの持ち主です` : state}</small>${contest}</li>`;
+  return html`<li class="goal-flag${f.holder === me ? ' mine' : ''}" data-flag="${f.p},${f.q}" data-seen="${f.seen}"${int(f.lostAt) ? html` data-lost-at="${f.lostAt}"` : ''}><button type="button" class="link" data-act="goto" data-p="${f.p}" data-q="${f.q}">${L`州 ${f.p},${f.q}`}</button> · ${L`持ち主 ${held}`}${f.holder === me ? html` <span class="mine-mark">${L`（あなたの国）`}</span>` : ''} · <small class="muted">${int(f.lostAt) ? L`あなたの国が失ったとき（第${fmtNum(f.lostAt)}ターン）の持ち主です` : f.seen === 'memory' ? L`前に見たときの持ち主です` : state}</small>${contest}</li>`;
 }
 
 function achievementMarkup(a, FS) {
@@ -240,7 +240,7 @@ export function render(FS, b) {
   const done = [...g.achievements].reverse();
   const ach = done.length ? html`<ol class="goal-achievements">${done.slice(0, 4).map(a => achievementMarkup(a, FS))}</ol>` : '';
   return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-round="${fk?.round ?? 0}">${head}${goals}${body}${ach}
-    <p class="muted small">${L`賞金はまだ払われません（試算です）。お金もチェーンも動きません`}</p></section>`;
+    <p class="muted small">${L`世界の目標の賞金は、まだ払われません（出ている金額は試算です）。お金もチェーンも動きません`}</p></section>`;
 }
 
 /** The latest read (null before the first). */

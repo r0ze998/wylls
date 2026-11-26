@@ -53,7 +53,7 @@ opens `http://localhost:41920/` in the browser. The first build takes about 3 mi
 scripts/play-local.sh                 # a kept world (a turn is 10 min; stop it and continue with --resume)
 scripts/play-local.sh --demo          # the 15-minute capture demo (×60, a turn is 10 s; not kept)
 scripts/play-local.sh --wide          # the wide version (the rim and the wide land; ×60; not kept) → §4
-scripts/play-local.sh --coexist --demo --two   # ② rights (stock swap), the whole loop for two (×60; not kept) → §10 (⑨/⑩: §12, ① requests: §13)
+scripts/play-local.sh --coexist --demo --two   # ② rights (Vault), the whole loop for two (×60; not kept) → §10 (⑨/⑩: §12, ① requests: §13)
 scripts/play-local.sh --demo --external <address>   # admit an external AI resident (×60; not kept) → §11
 ```
 
@@ -256,8 +256,8 @@ the first page's world; two at a time, a third is refused with `WorldLimit`; ver
    the cost — the program's price, for a second village "Cost (from the village's stores): Food 800 · Wood 800 · Stone 400 · Gold 200" — and the
    candidate provinces. Once the stores hold that amount, "Found a village here" can be pressed (until then the card says
    "Short: …" and the button is off). **It takes two presses** (#209: a village stands only on your own tile). The first
-   press claims the site's tile, at once, for ore (10 at first; §4.1): "That tile of the wide land (P, Q) is now your land. Press again to put a village on it.".
-   The second press files the village: "A village was requested on the wide land (P, Q). It is decided at the end of the turn.".
+   press claims the site's tile, at once, for ore (10 at first; §4.1): "That tile of wide-land province P,Q is now your land. Press again to put a village on it.".
+   The second press files the village: "A village was requested in wide-land province P,Q. It is decided at the end of the turn.".
    A tile claim is one a turn: if you pressed "Claim a tile" in this turn already, the first press is refused (§4.1,
    "When a press is refused"); press again next turn. The claim is decided at the end of the turn and the village is drawn on the map
    with your nation's sigil. Right after the claim the same card already quotes the next (third) village's cost,
@@ -474,7 +474,7 @@ say so.
 "No ore from the land" makes much less.)
 
 1. Open your **rim village** ("Village" in the bottom bar) and scroll to the card "Found a village on the wide land (test)".
-   The card is on the first village's screen only. Each row is one province: "Province (P, Q)", "Village site N", then two
+   The card is on the first village's screen only. Each row is one province: "Province P,Q", "Village site N", then two
    buttons, "Claim a tile" and "Found a village here". Above the rows the card says what you own (territory-card):
    "**Your land**: tiles owned: N · next tile: N ore · land upkeep: N food per hour" — your own land only, read about
    every 10 s in a local world (every 60 s on devnet) and right after a claim. The page reads it from the world's herald (`/h/world/wide/territory/player/<your
@@ -488,7 +488,7 @@ say so.
    number of the land line; 10 for your first tiles), whatever the village cost line above says. With less, every
    "Claim a tile" is off and the card says why: "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."
    or, from the fifth tile on, "You have less ore than the next tile costs (N), so "Claim a tile" cannot be pressed for now.". One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
-   says "Tile N of the wide land (P, Q) is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
+   says "One tile of wide-land province P,Q is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
    - You do not choose the tile: the page takes the lowest-numbered tile of the province that is not a village site, not
      the keep's tile and not already yours (a province has 61 tiles, numbered 0–60).
    - **One tile a turn**, for all provinces together. Wait for the next turn (10 s at ×60) and press again.
@@ -505,7 +505,7 @@ say so.
    - Two villages of one province need at least one free village site between them (the program counts a village on a
      site within 3 tiles as too near), and you hold 3 villages at most (the rim village and two more; then the card says
      "You already have 3 villages." and its rows keep "Claim a tile" only).
-   - A province where a wide village of yours stands stays on the card as its own row, "Province (P, Q) your village stands here",
+   - A province where a wide village of yours stands stays on the card as its own row, "Province P,Q your village stands here",
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
      (loop-play15, #223; before, that row and its button were gone). Local worlds only: the devnet page leaves this row
      out today, so there the province of your wide village has no row at all (PLAY-DEVNET.md §5).
@@ -539,6 +539,9 @@ say so.
    - **The card warns you** (territory-card), under the land line, for as long as the chain's record says unpaid:
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
      (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village makes enough food for your land each turn.".
+     While it shows, every "Claim a tile" is off (owner decision 11-26 10:52) with the line "Land upkeep is unpaid, so "Claim a tile" cannot be pressed for now."
+     The card follows the chain's record (read every 10 s in a local world, once a minute on devnet), so the button can stay off for that long after
+     the food is back (a claim settles upkeep first, so the rule would already take it then: owner question Q-TC-1, now decided this way).
      The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
      owner question Q-LP15-1), so a village's food falls only by what you spend: with no other spending it takes about
      41 tiles near home (one claim a turn: 41 turns or more) before land upkeep passes a starting village's 40 food an
@@ -643,6 +646,10 @@ view (fog-devnet; runbook §7 P5).
   it is the form's only start; with nothing of your own to send to, the field starts on "(choose a destination)" —
   another player's place is never chosen for you. "① Request
   destination" (§13) stays listed whatever is in sight: the requester published that place on the board.
+  - **Caravans are sent only in a `--coexist` world** (owner decision Q-LP18-1 (a), 11-26 10:52): every other local world,
+    `--wide` included, refuses every caravan. There the form says so above its fields, "Caravans cannot be sent in this
+    world. The lists below are for reading only.", and "Send a caravan" is off (the line is the button's description for
+    screen readers). The lists stay readable.
 - In a fog world the map's "Records" view (every recorded province) and the links to the spectator page (the legend's and
   the settings' "Spectator page") are **not shown**, from the first picture on (fog-devnet).
 - One switch per mode in `permutation-server/web/frontier/map/fog.mjs`: `LOCAL_FOG` (local test worlds) and
@@ -706,7 +713,7 @@ view (fog-devnet; runbook §7 P5).
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
 | AI residents | yes (at war by default) | none (local only; runbook §7 P4) |
-| ② rights (stock swap) | `--coexist` worlds only (§10) | not in it |
+| ② rights (Vault) | `--coexist` worlds only (§10) | not in it |
 | ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
 | External AI residents (⑬ / ⑤B), the read-only MCP server, `--plan` (④) | `--external` worlds only (§11) | none (admission of external residents and the MCP server are undecided) |
 | ① co-op board, ⑮ title "Answered a request" | board and card in every world (`--no-coop-board` leaves them out); a caravan can deliver only in `--coexist` worlds (§13). No effect on winning, score or prize | none |
@@ -874,10 +881,10 @@ Small ones (nothing blocks play):
 - "ports in use": choose another `--port` (e.g. `--port 41450`), or stop the earlier world.
 - Report through a GitHub Issue (r0ze998/wylls), with a screenshot and the folder above.
 
-## 10. Play ② rights (stock swap) (`--coexist`, TEST-only)
+## 10. Play ② rights (Vault) (`--coexist`, TEST-only)
 
-This is owner decision ② A: the owner of a workshop village grants a "stock swap" right to another player's storehouse
-in the same province. The grantee swaps its own ore and wood for arms the workshop has made, and takes those arms out
+This is owner decision ② A (the stock swap became the facility Vault; the page's card is "Rights (Vault)"): the owner of a
+workshop village grants a right to another player's storehouse in the same province. The grantee swaps its own ore and wood for arms the workshop has made, and takes those arms out
 **only by caravan**. Only a wallet can issue a right.
 
 ```bash
@@ -916,9 +923,9 @@ Steps (the quoted texts are the English page's buttons and texts):
    screen's "Trade and defences" → "Send a caravan"). Check that "From" is your village and "Destination" the storehouse, type the
    wood and ore, "Send a caravan". One arm takes 2 ore and 1 wood (e.g. 20 wood + 40 ore for up to 20 arms).
 5. **B: deliver the arrived caravan**: a local test world has nobody delivering caravans. The village screen's
-   "Rights (stock swap)" card shows "Caravans that have arrived (you deliver them)". At first it says "Waiting for the province it crossed (P, Q) to settle past its arrival turn N. Then it can be delivered (a few turns)." and has no button (#130). A turn or two later
+   "Rights (Vault)" card shows "Caravans that have arrived (you deliver them)". At first it says "Waiting for the province it crossed, P,Q, to settle past its arrival turn N. Then it can be delivered (a few turns)." and has no button (#130). A turn or two later
    "Deliver the caravan" appears: press it ("The caravan was delivered"; the fee comes back. In verify-pr133 both deliveries took one press).
-6. **A: issue the right**: the village screen's "Rights (stock swap)" → open "Issue a right", choose B's storehouse under
+6. **A: issue the right**: the village screen's "Rights (Vault)" → open "Issue a right", choose B's storehouse under
    "Workshop village and the other player's storehouse", set "Number of swaps" (default 3), "Most arms" (30) and "Days valid" (1), and press
    "Issue a right" (25 gold from the workshop village). A's card shows "A right you issued Active … swaps 0 / 3 · arms 0 / 30".
    - "No other player's storehouse is visible in your workshop village's province. …": B's storehouse is not there yet, or is in another
@@ -1189,7 +1196,7 @@ road is at most 32 tiles and 4 provinces).
    only the place the requester published on the board; the land around it stays out of sight (fog unchanged). Enter
    the amounts → "Send a caravan" → "A caravan to another player is signed with your wallet…" → "The caravan has set out".
 4. **B**: reload the board → "Link caravan #0 (Wood 20, Stone 20) to this request" → "linked. Only final arrivals are counted".
-5. When it arrives, B's "Rights (stock swap)" card shows "Deliver the caravan" under "Caravans that have arrived (you deliver them)" (after the
+5. When it arrives, B's "Rights (Vault)" card shows "Deliver the caravan" under "Caravans that have arrived (you deliver them)" (after the
    provinces on the way have settled past the arrival turn; tens of seconds at ×60). Press it → "The caravan was delivered".
 6. The board's "Caravans and arrivals" row says "Arrived (final) · Arrived: Wood 20 or more, Stone 20 or more (from the rules) · Fulfilled" and the request
    reads "Fulfilment of the request: Reached the amount asked (proven by the lower bound of the counted amount)". After a partial delivery it says "Did not reach the amount asked (everything finished; proven by the upper bound)", but the request stays "Open"; deliver and link the rest and it turns to "Reached the amount asked".

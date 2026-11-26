@@ -446,8 +446,8 @@ test('page: the card shows the four goals, the flag keeps, the viewer\'s progres
   assert.match(s, /あなたの国：奪った旗の砦 1 \/ 必要 3、うち 0 が保持の時間を満たした/);
   assert.match(s, /ほかの国の旗の砦を あと 2 個奪って/);
   assert.match(s, /第 1 回：ほかの国から奪った旗の砦 3 個を、.*旗の砦は全部で 3 個。初めから自分の国にある旗の砦は数えません/);
-  assert.match(s, /州 \(-1, 1\) · 持ち主 .*（あなたの国） · 初めからあなたの国の旗の砦です（達成には数えません）/);
-  assert.match(s, /州 \(2, -1\) · 持ち主 \S+ · 初めからこの国の旗の砦です（達成には数えません）/);
+  assert.match(s, /州 -1,1 · 持ち主 .*（あなたの国） · 初めからあなたの国の旗の砦です（達成には数えません）/);
+  assert.match(s, /州 2,-1 · 持ち主 \S+ · 初めからこの国の旗の砦です（達成には数えません）/);
   assert.match(s, /満たすまで あと 104 ターン/, 'the captured flag keep (taken at 60) has the timer');
   assert.match(s, /\S+ 奪った 1（満たした 0）/);
   assert.doesNotMatch(s, /シーズン/);
@@ -476,7 +476,7 @@ test('page: the card shows the four goals, the flag keeps, the viewer\'s progres
   assert.match(s, /まだどの国も、ほかの国の旗の砦を奪っていません/);
   setLang('en');
   s = text(UI.render(FS0, b));
-  assert.match(s, /No prize is paid yet/);
+  assert.match(s, /World goals pay no prize yet \(any amount shown is an estimate\)/); // (owner-answers-ui, Q-EUA2-1)
   assert.doesNotMatch(s, /[぀-ヿ一-鿿]/, 'no Japanese left in English');
   setLang('ja');
   // another world, a 404, an answer that claims an effect: nothing / not shown

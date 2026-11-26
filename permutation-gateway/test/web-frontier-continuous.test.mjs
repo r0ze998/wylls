@@ -120,12 +120,12 @@ test('a continuing world shows territorial history without awarding a prize or a
   const standings = { metric: 'province-bells', bell: 200, rows: Array.from({ length: 6 }, (_, faction) => ({ faction, provinces: 2, provinceBells: '100' })) };
   const html = String(renderStandings({ mode: 'play', nowBell: 200, season: { programVersion: 4, endBell: NO_END, bellSecs: 600, conquestParams: { continuous: 1 } }, conquest: { standings }, citizen: { faction: 0 } }));
   assert.match(html, /国の領土と支配記録/);
-  assert.match(html, /賞金の成果基準は未決定です/);
+  assert.match(html, /記録だけで、これで勝ち負けや賞金は決まりません/); // (owner-answers-ui, Q-EUA2-1: reworded for a continuous world)
   assert.doesNotMatch(html, /シーズンの結果|確定した得点|の勝利/);
   setLang('en');
   try {
     const english = String(renderStandings({ mode: 'play', nowBell: 200, season: { programVersion: 4, endBell: NO_END, bellSecs: 600, conquestParams: { continuous: 1 } }, conquest: { standings }, citizen: { faction: 0 } }));
-    assert.match(english, /Prize outcome criteria are not decided yet/);
+    assert.match(english, /It is a record only: it decides no winner and no prize/);
     assert.doesNotMatch(english.replace(/<[^>]*>/g, ''), /[぀-ヿ㐀-鿿]/);
   } finally {
     setLang('ja');

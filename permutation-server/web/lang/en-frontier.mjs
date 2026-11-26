@@ -7,9 +7,9 @@ import { plural, cap, inText, atPlace } from './helpers.mjs';
 export default {
   // Original-host expedition inspection: reads and proposed roles only.
   '遠征を確認': 'Inspect expedition',
-  'この軍勢を P,Q で確認します。移動や命令は行いません。': 'Check this host at P,Q. No movement or orders.',
+  '入力した州（P, Q）でこの軍勢を確認します。移動や命令は行いません。': 'Check this host at a province you enter (P, Q). No movement or orders.',
   'この村が発行した軍勢の番号で確認します。現在地や生存を意味しません。': 'Inspect an issued host reference from this village. It does not claim the host is alive or at a location.',
-  'この軍勢を P,Q で確認': 'Check this host at P,Q',
+  '入力した州（P, Q）でこの軍勢を確認': 'Check this host at a province you enter (P, Q)',
   '読み取り専用です。P,Q は確認する場所であり、行き先でも現在地の証明でもありません。': 'Read only. P,Q is the place to check, not a destination or proof of the current location.',
   'この村が発行した軍勢の番号を入力してください。番号 0 も有効です。これは現在地や生存の証明ではありません。': 'Enter a host sequence issued by this village. Sequence 0 is valid. This is not proof of location or survival.',
   '軍勢の発行番号': 'Issued host sequence',
