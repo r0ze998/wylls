@@ -189,6 +189,8 @@ test('the permission is asked only from the player\'s press, never on load', asy
   assert.equal(asks.length, 1);
   assert.match(asks[0], /'notify-enable': async \(\) =>/);
   assert.match(src('hud/notify.mjs'), /Notification\.permission !== 'default'\) return/);
+  // (verify-pr262: the card reads the browser's permission as it is now, not the answer kept from the press)
+  assert.match(app, /const st = typeof globalThis\.Notification === 'function' \? globalThis\.Notification\.permission : \(FS\.notifyPermission \?\? 'unsupported'\);/);
   // a stub browser: asking when already decided does not prompt
   let prompted = 0;
   const g = { Notification: Object.assign(function () {}, { permission: 'denied', requestPermission: async () => { prompted++; return 'granted'; } }) };

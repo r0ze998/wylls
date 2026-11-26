@@ -3913,7 +3913,9 @@ function notifyTest() {
 }
 /** The "More" drawer's card: the browser's notices per event, and the calendar file of the player's own timers. */
 function notifyMarkup(FS) {
-  const st = FS.notifyPermission ?? globalThis.Notification?.permission ?? 'unsupported';
+  // (the browser's permission as it is now, not as it was at the press: a permission changed later in the site settings —
+  //  denied → allowed — showed the old "refused" text while notices already went out; verify-pr262)
+  const st = typeof globalThis.Notification === 'function' ? globalThis.Notification.permission : (FS.notifyPermission ?? 'unsupported');
   const on = notifyPrefs.enabled, refused = st === 'unsupported' || st === 'denied';
   const evs = calendar.calendarEvents(FS), blocked = calendar.calendarBlocked(FS);
   const when = e => { try { return new Date(e.startMs).toLocaleString(lang() === 'en' ? 'en' : 'ja', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
