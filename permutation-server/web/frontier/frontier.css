@@ -2749,6 +2749,43 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
   html[lang="en"] .next-row-t strong { font-size: 15px; letter-spacing: 0; }
 }
 
+/* ------------------------------------------------------------------ nation chat (hud/nationchat.mjs; owner Q-PT-11 (a)) */
+.strip-r .nchat-toggle { position: relative; width: auto; min-width: 36px; padding: 0 6px; gap: 4px; display: inline-flex; align-items: center; color: var(--hud-ink); font: 650 var(--t1)/1 var(--ui); }
+.nchat-toggle-label { white-space: nowrap; }
+.nchat-badge { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--ember); color: #fff; font: 700 11px/16px var(--ui); text-align: center; }
+.nchat-panel { position: fixed; z-index: 40; top: calc(var(--strip) + 8px); right: var(--edge); width: min(380px, calc(100vw - 2 * var(--edge))); max-height: calc(100vh - var(--strip) - 24px); display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--brass-lo); border-radius: 10px; background: var(--card); color: var(--ink); font: 400 var(--t2)/1.45 var(--ui); box-shadow: var(--shadow); }
+.nchat-panel[hidden] { display: none; }
+.nchat-head { display: flex; align-items: center; gap: 8px; }
+.nchat-title { flex: 1; margin: 0; font: 700 var(--t3)/1.2 var(--ui); }
+.nchat-title:focus { outline: none; }
+.nchat-close { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--ink-rule); border-radius: 8px; background: none; color: var(--ink); cursor: pointer; }
+.nchat-rules { font-size: var(--t1); color: var(--ink-2); }
+.nchat-rules summary, .nchat-muted summary { cursor: pointer; font-weight: 650; color: var(--ink); }
+.nchat-rules ul, .nchat-muted ul { margin: 4px 0 0; padding-left: 18px; }
+.nchat-gate p { margin: 4px 0; }
+.nchat-gate[hidden], .nchat-log[hidden], .nchat-form[hidden], .nchat-empty[hidden], .nchat-muted[hidden] { display: none; }
+.nchat-open, .nchat-send, .nchat-report-go { min-height: 36px; padding: 0 12px; border: 1px solid var(--brass-lo); border-radius: 8px; background: linear-gradient(180deg, #fbe9b4, var(--you) 42%, #dcb862); color: #1b2a18; font: 700 var(--t2)/1 var(--ui); cursor: pointer; }
+.nchat-log { flex: 1 1 auto; min-height: 80px; overflow: auto; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ink-soft); border-bottom: 1px solid var(--ink-soft); }
+.nchat-msg { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding: 6px 2px; border-bottom: 1px solid var(--ink-soft); }
+.nchat-msg[data-own] .nchat-who { color: #6a4f12; }
+.nchat-who { font-weight: 650; font-size: var(--t1); }
+.nchat-turn { font-size: var(--t1); color: var(--ink-2); text-align: right; }
+.nchat-text { grid-column: 1 / -1; margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nchat-acts { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
+.nchat-acts button, .nchat-report-no, .nchat-unmute { min-height: 28px; padding: 0 8px; border: 1px solid var(--ink-rule); border-radius: 6px; background: none; color: var(--ink-2); font: 600 var(--t1)/1 var(--ui); cursor: pointer; }
+.nchat-reportbox { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; padding: 6px; border-radius: 6px; background: var(--paper); }
+.nchat-empty { margin: 8px 0; color: var(--ink-2); }
+.nchat-form { display: grid; gap: 4px; }
+.nchat-label { font-weight: 650; font-size: var(--t1); }
+.nchat-form textarea { width: 100%; box-sizing: border-box; min-height: 52px; resize: vertical; padding: 6px 8px; border: 1px solid var(--ink-rule); border-radius: 6px; background: #fff; color: var(--ink); font: 400 var(--t2)/1.4 var(--ui); }
+.nchat-row { display: flex; align-items: center; gap: 8px; }
+.nchat-hint { flex: 1; font-size: var(--t1); color: var(--ink-2); }
+.nchat-count { font-size: var(--t1); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.nchat-count.over { color: #a3261a; font-weight: 700; }
+.nchat-status { min-height: 1.2em; margin: 0; font-size: var(--t1); color: var(--ink); }
+.nchat-panel button:focus-visible, .nchat-panel textarea:focus-visible, .nchat-panel select:focus-visible, .nchat-panel summary:focus-visible, .nchat-log:focus-visible { outline: 2px solid #1d5fa8; outline-offset: 2px; }
+@media (max-width: 759px) { .nchat-toggle-label { display: none; } .nchat-panel { top: calc(var(--strip) + 4px); left: var(--edge); width: auto; } }
+
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
@@ -2823,3 +2860,4 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
   .panel[data-doc="wide"] .report.doc .versus-band { margin-bottom: var(--s2); padding: var(--s2) var(--s3); }
   .panel[data-doc="wide"] .report.doc .report-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 var(--s1); }
 }
+

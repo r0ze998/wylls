@@ -312,6 +312,11 @@ const CLIENT_TEXT = {
   WalletError: () => L`ウォレットのエラーです`,
   NoWallet: () => L`ウォレットが接続されていません`,
   NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
+  // nation chat (hud/nationchat.mjs; its own codeText says these too)
+  ChatOff: () => L`この世界では、国の話し合いは開いていません。`,
+  WalletRefused: () => L`ウォレットで署名されませんでした`,
+  NoNation: () => L`国に加わると話せます`,
+  NoClockYet: () => L`世界の時計がまだ読めません。少し待ってください`,
   // Q16-3: the registered key is another holder's (③'s courier, an agent, another device): nothing was replaced
   // (round 2, the agent page's hand-over check: fagent.mjs handOverCheck)
   DelegationUnread: () => L`チェーン上の委任を読めませんでした。何も送っていません。`,
