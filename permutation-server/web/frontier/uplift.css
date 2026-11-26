@@ -78,6 +78,11 @@
 /* (food-net-caravan, owner Q-LP17-2) the first village's food: the net rate, the land's part on its own line under it
    (one line was wider than the column and pushed every rate out of the card); a net rate below zero in the loss ink */
 .ledger-land { display: block; font-size: var(--t1); font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+#hp-own-land-horizon { margin: var(--s2) 0 0; }
+#hp-own-land-horizon p { margin: 0 0 var(--s1); }
+#hp-own-land-horizon p:last-child { margin-bottom: 0; }
+.res-land-horizon { margin-top: var(--s1); }
+
 .ledger-net-neg { color: var(--bad); }
 
 /* ---- the send track: each step a state (wait while under way, done once past) */

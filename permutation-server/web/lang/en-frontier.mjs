@@ -1094,4 +1094,27 @@ export default {
   // rights-play (TEST-ONLY, a coexist local world): ② rights' relay refusals (fi18n.mjs)
   '権利を出すことと取り消すことは、あなたのウォレットだけができます。代理の住民からは送れません。送っていません。': 'Only your wallet can issue or revoke a right; a delegated resident cannot send it. Nothing was sent.',
   'この権利は、いまこの命令に使えません（ないか、相手や場所が違います）。送っていません。': 'This right cannot be used for this order now (it is not there, or names another player or place). Nothing was sent.',
+
+  // land-logistics-horizon (display only; Fuller World Game measure as tiles and turns)
+  '{0} ターン（約 {1}）': (n, t) => (Number(String(n).replace(/,/g, '')) === 1 ? '{0} turn (about {1})' : '{0} turns (about {1})'),
+  '{0} ターン（ゲーム内で約 {1}）': (n, t) => (Number(String(n).replace(/,/g, '')) === 1 ? '{0} turn (about {1} of game time)' : '{0} turns (about {1} of game time)'),
+  '{0} ターン（ゲーム内で約 {1}、この世界では実時間で約 {2}）': (n, g, r) => (Number(String(n).replace(/,/g, '')) === 1 ? '{0} turn (about {1} of game time, in this world about {2} of real time)' : '{0} turns (about {1} of game time, in this world about {2} of real time)'),
+  '2村目以降の食料は、ここに含めていません。本拠地に送らない限り、土地の維持費には使えません。': 'Food from your other villages is not included here. It cannot pay land upkeep unless it is sent to your first village.',
+  '2村目以降の食料は、本拠地に送らない限り、土地の維持費には使えません。': 'Food from your other villages cannot pay land upkeep unless it is sent to your first village.',
+  '2村目以降の食料は、ここに含めていません。本拠地に送らない限り、土地の維持費には使えません。この世界では隊商を送れません。': 'Food from your other villages is not included here. It cannot pay land upkeep unless it is sent to your first village. In this world you cannot send a caravan.',
+  '2村目以降の食料は、本拠地に送らない限り、土地の維持費には使えません。この世界では隊商を送れません。': 'Food from your other villages cannot pay land upkeep unless it is sent to your first village. In this world you cannot send a caravan.',
+  'この食料で土地を何マス、何ターン先まで支えられるか': 'How many tiles this food can support, and for how many turns',
+  'いまの土地は、この食料の生産で維持できます。': 'Your current land can be supported indefinitely by this food production.',
+  '土地は未払いで、手放しが始まっています。': 'Land upkeep is unpaid, and tiles are already being let go.',
+  '土地は未払いです。手放しまで {0}。': 'Land upkeep is unpaid. Tiles start being let go in {0}.',
+  '今の支払いで未払いが始まります。': 'This payment will leave the land unpaid.',
+  '未払いまで {0}。手放しまで {1}。': 'Unpaid in {0}. Tiles start being let go in {1}.',
+  'いまの土地は、この食料の生産で維持できます。いまの距離なら、あと {0} マスまで維持できます（最大 {1} マス）。': 'Your current land can be supported indefinitely by this food production. At the current distance you can support {0} more tiles (up to {1} tiles).',
+  'いまの土地は、この食料の生産で維持できます。いまの距離なら、これ以上マスを増やしても維持できません。': 'Your current land can be supported indefinitely by this food production. At the current distance you cannot support any more tiles.',
+  'すでに未払いです。いちばん遠いマスの手放しが始まっています。': 'Upkeep is already unpaid. Your farthest tiles are being let go.',
+  'すでに未払いです。このままなら、土地の手放しは {0} 後に始まります。': 'Upkeep is already unpaid. If nothing changes, tiles start being let go in {0}.',
+  '今の支払いで未払いが始まります。土地の手放しは、その 24 ターン後（{0} 後）に始まります。': 'This payment will leave the land unpaid. Tiles start being let go 24 turns after that (in {0}).',
+  'このままなら、未払いは {0} 後に始まります。土地の手放しは、その 24 ターン後（{1} 後）に始まります。': 'If nothing changes, upkeep goes unpaid in {0}. Tiles start being let go 24 turns after that (in {1}).',
+  '物流の見通し': 'Logistics horizon',
+  'バックミンスター・フラーの World Game では、富とは「いまの資源・技術・物流で、何人を何日先まで支えられるか」です。このゲームに人口はないので、ここでは「最初の村のいまの食料で、土地を何マス、何ターン先まで支えられるか」を出します。数字は、プログラムが土地の維持費を払うときと同じ計算です。2村目以降の食料は、本拠地に送らない限り含まれません。兵の食料の維持費は、いまのプログラムでは取られていないので、この数字には入っていません。': 'In Buckminster Fuller\'s World Game, wealth is "how many people, for how many forward days, we are now technically organized to cope with" — present resources, technique and logistics. This game has no population, so the card shows how many land tiles the first village\'s food can support, and for how many turns. The numbers are the same calculation the program uses when it settles land upkeep. Food from a second village is not included unless it is sent to the first. Troop food upkeep is not charged by the live program today, so it is not in this figure.',
 };

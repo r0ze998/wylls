@@ -236,7 +236,7 @@ export function decodeTerritoryPlayer(bytes) {
   for (let i = 0; i < 64; i++) hist.push(u16(bytes, 176 + 2 * i));
   return {
     rule: bytes[18], unpaid: bytes[19] === 1, citizenTag: u64(bytes, 84).toString(), faction: bytes[129], tiles,
-    excessSum: Number(excess), paidTo: Number(i64(bytes, 104)), unpaidSince: bytes[19] === 1 ? u32(bytes, 120) : null,
+    excessSum: Number(excess), paidTo: Number(i64(bytes, 104)), remainder: Number(u64(bytes, 112)), unpaidSince: bytes[19] === 1 ? u32(bytes, 120) : null,
     lastClaimBell: u32(bytes, 124), claimsInBell: bytes[128], lastDecayBell: u32(bytes, 132), released: u32(bytes, 136),
     claimed: u32(bytes, 140), hist,
     // (upkeep per hour in milli-food: tiles × flat + per_distance × Σ excess; V1 has no per-rank term)

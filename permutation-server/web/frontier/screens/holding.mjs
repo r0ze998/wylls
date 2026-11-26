@@ -13,7 +13,7 @@
 // lags (NotResident).
 import { s1On } from '../fs1.mjs';
 import { localLane, COEXIST_LANE } from '../flocalplay-lane.mjs';
-import { renderS1Village } from './s1.mjs';
+import { renderS1Village, caravansOff } from './s1.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
@@ -29,7 +29,7 @@ import { termButton } from '../hud/glossary.mjs';
 import { row, dueHtml } from './shell.mjs';
 import { villageConfirm } from '../hud/provisional.mjs';
 import { countdown } from '../clock.mjs';
-import { realTail } from '../seasonterms.mjs';
+import { realTail, termsRate } from '../seasonterms.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { renderVillageOrders } from './villageorders.mjs';
 import { hostsIn } from '../fland.mjs';
@@ -42,7 +42,8 @@ import { claimTargets, settlerCost, mergeOpened, nationLandsOfCells } from '../f
 import { expeditionHoldsOf } from '../flocalplay-expedition.mjs';
 import { wideSlots } from '../fwide.mjs';
 import { outpostCard } from './outpostcard.mjs';
-import { landUpkeepMilli, withLand, signedNet, landPart } from '../landfood.mjs';
+import { landUpkeepMilli, withLand, signedNet, landPart, landPayer } from '../landfood.mjs';
+import { projectHorizon, otherVillageNote, horizonLead, horizonStatusLines } from '../landhorizon.mjs';
 
 /**
  * (TEST-ONLY wide play, LOCAL play only: owner t379u 「広い版がんばれ」) The village screen's wide-land card in a local
@@ -199,6 +200,72 @@ export function ownLandBlock(land) {
 }
 /** (en-ui-audit-2, a11y) A "Claim a tile" button names the card's lines that say why it is off or refused (ore short of
  * 10 / of the next tile's price, land upkeep unpaid), so a screen reader hears the reason with the button. */
+
+/**
+ * (land-logistics-horizon, display only) How far the first village's food
+ * supports the land, from settle_upkeep (b). Rendered after ownLandBlock so
+ * the existing land lines stay byte-for-byte.
+ */
+export function villageCensus(FS, payer, now) {
+  const seen = new Map();
+  const add = h => {
+    if (!h) return;
+    const k = `${h.p},${h.q},${h.site ?? 0}`;
+    if (!seen.has(k)) seen.set(k, h);
+  };
+  for (const h of FS?.holdings ?? []) add(h);
+  try { for (const e of wideSlots(FS) ?? []) if (e?.holding) add(e.holding); } catch { /* inventory unread */ }
+  const payerKey = payer ? `${payer.p},${payer.q},${payer.site ?? 0}` : '';
+  let otherFoodMilli = 0, otherProdMilliPerHour = 0;
+  for (const v of seen.values()) {
+    if (`${v.p},${v.q},${v.site ?? 0}` === payerKey) continue;
+    try {
+      const food = storesAt(settled(v, now), now, RESOURCE_ORDER).find(s => s.resource === 'Food');
+      if (!food) continue;
+      otherFoodMilli += Math.round(Number(food.value) * 1000);
+      otherProdMilliPerHour += Math.round(Number(food.perHour) * 1000);
+    } catch { /* a captured wide village may not settle like the first home */ }
+  }
+  return { villageCount: seen.size, otherFoodMilli, otherProdMilliPerHour };
+}
+
+/** The first village's food vs land upkeep, or null when there is no land to support. */
+export function horizonFromFS(FS) {
+  const payer = landPayer(FS);
+  const player = FS?.ownLand?.player;
+  if (!payer || !player || !(Number(player.tiles) > 0) || !(Number(player.upkeepMilliPerHour) > 0)) return null;
+  const now = Number(FS.chain?.now?.() ?? 0);
+  const food = storesAt(settled(payer, now), now, RESOURCE_ORDER).find(s => s.resource === 'Food');
+  if (!food) return null;
+  const census = villageCensus(FS, payer, now);
+  const proj = projectHorizon({
+    stockMilli: Math.round(Number(food.value) * 1000),
+    productionMilliPerHour: Math.round(Number(food.perHour) * 1000),
+    capMilli: Math.round(Number(food.cap ?? 2000) * 1000),
+    upkeepMilliPerHour: Number(player.upkeepMilliPerHour ?? 0),
+    paidTo: player.paidTo,
+    remainder: Number(player.remainder ?? 0),
+    unpaidSince: player.unpaidSince ?? null,
+    nowTs: now,
+    nowBell: FS.nowBell ?? 0,
+    tiles: Number(player.tiles),
+    hist: player.hist,
+  });
+  return { ...proj, ...census, rate: termsRate(), caravansOff: caravansOff(FS) };
+}
+
+export function ownLandHorizonBlock(h, opts = {}) {
+  if (!h || !(h.tiles > 0) || !(h.upkeepMilliPerHour > 0)) return '';
+  const rate = opts.rate;
+  const cue = otherVillageNote(opts);
+  const status = horizonStatusLines(h, rate);
+  if (!status.length) return '';
+  return html`<div class="hp-own-land-horizon" id="hp-own-land-horizon">
+    <p>${horizonLead()}${termButton('horizon')}</p>
+    ${status.map(s => html`<p>${s}</p>`)}
+    ${cue ? html`<p class="muted">${cue}</p>` : ''}</div>`;
+}
+
 export const tileWhy = w => {
   const ids = [w.tilePriceShort && 'hp-tile-why-price', w.territory && w.tileShort && 'hp-tile-why-ore', w.land?.unpaid && 'hp-tile-why-unpaid', w.land?.unpaid && 'hp-own-land-unpaid'].filter(Boolean);
   return ids.length ? ` aria-describedby="${ids.join(' ')}"` : '';
@@ -206,6 +273,7 @@ export const tileWhy = w => {
 function wideClaimCard(FS, m, busy) {
   const w = wideClaimModel(FS, m);
   if (!w) return '';
+  const hz = w.horizon ?? horizonFromFS(FS);
   // (territory-card: with three villages there is no next village — no village cost line, only the land and its tile rows)
   const cost = w.need.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(' · ');
   return html`<section class="vcard" id="hp-wide" aria-labelledby="hp-wide-h">
@@ -213,6 +281,7 @@ function wideClaimCard(FS, m, busy) {
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
     ${w.full ? '' : html`<p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked" id="hp-wide-short">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>`}
     ${ownLandBlock(w.land)}
+    ${ownLandHorizonBlock(hz, { rate: termsRate(), villageCount: hz?.villageCount, otherFoodMilli: hz?.otherFoodMilli, otherProdMilliPerHour: hz?.otherProdMilliPerHour, caravansOff: caravansOff(FS) })}
     ${w.foodStalled ? html`<p class="muted" id="hp-own-land-stalled"><span class="blocked">${L`食料の増え方はもう 0 以下です（${signedNet(w.foodStalled.perHour)}/時）。次の1マスの維持費は、本拠地が毎ターン作る食料では払えません。`}</span></p>` : ''}
     ${w.tilePriceShort ? html`<p class="muted"><span class="blocked" id="hp-tile-why-price">${L`鉱石が次の1マスの値段（${fmtNum(w.tilePrice)}）に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.land?.unpaid ? html`<p class="muted"><span class="blocked" id="hp-tile-why-unpaid">${L`土地の維持費が払えていないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
@@ -371,6 +440,7 @@ export function holdingModel(FS) {
     offers: buildCards(h, stores, { now, faction, province: env?.province ?? null, workshop: workshopOffered(FS) }),
     promotion: promo ? { ...promo, short: promo.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) } : null,
     queue: queueNow(h, now), slots: queueSlots(h.tier),
+    horizon: horizonFromFS(FS),
   };
 }
 
@@ -611,6 +681,7 @@ export function render(FS) {
     <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(actionBusy || m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
       <span class="muted">${full.length ? L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : L`資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。`}</span></div>
     ${m.stores.some(s => s.landPerHour > 0) ? html`<p class="muted" id="hp-land-food">${L`食料の毎時は、あなたの土地の維持費を引いたあとの量です（「土地」がその分。ターンごとにこの村の食料から払われます）。`}</p>` : ''}
+    ${m.stores.some(s => s.landPerHour > 0) ? ownLandHorizonBlock(m.horizon, { rate: termsRate(), villageCount: m.horizon?.villageCount, otherFoodMilli: m.horizon?.otherFoodMilli, otherProdMilliPerHour: m.horizon?.otherProdMilliPerHour, caravansOff: caravansOff(FS) }) : ''}
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const queueName = q => queueItemLabel(q.q);
