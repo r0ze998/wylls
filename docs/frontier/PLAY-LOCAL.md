@@ -539,6 +539,15 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
    every 10 s in a local world (every 60 s on devnet) and right after a claim. The page reads it from the world's herald (`/h/world/wide/territory/player/<your
    Citizen>`, the chain's record as the herald recorded it), and asks the play relay only when that herald has no such
    route.
+   Under that line the card also says how many tiles this food can support, and for how many turns: if the first
+   village's food production covers the land, that the land is sustainable and how many more tiles at the current
+   distance would still be; if not, both when unpaid upkeep starts and when tiles start being let go (24 turns after
+   unpaid starts), in turns and in game time, with real time in parentheses on a faster clock. Food in a second village
+   is not counted unless it is sent to the first (and on a `--wide` local world you cannot send a caravan). The numbers
+   are the same settle the program uses. This game has no population, so the measure is tiles and turns — after
+   Buckminster Fuller's World Game ("how many people, for how many forward days, we are now technically organized to
+   cope with"). The same note sits in the food row of the resource HUD, and on the first village's food ledger when
+   the village has no wide-land card. "?" opens the glossary term "Logistics horizon".
    The card lists at most 4 provinces near your first village and 6 reached through your nation's land, nearest first, so
    a province in reach can be missing and rows change as land opens. A province where you own a tile ("you own tiles
    here") or whose keep your host is taking ("your host is taking this keep") or has taken ("your host took this keep")
