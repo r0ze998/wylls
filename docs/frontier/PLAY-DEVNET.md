@@ -118,8 +118,9 @@ Good to know:
 - **A new village is “Provisional” at first** (shown beside its name). While it is, “Claim a tile” still shows its cost
   and “Sign and claim”, but the claim is then refused with “The village is not confirmed yet.” (nothing is sent and
   nothing is paid). The program confirms the village on your own next act there once its turn's villages are placed:
-  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). The page does not
-  say this, so harvest once before you claim your first tile.
+  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). Since #268 the
+  village card, the guide and "While you wait" say when the village can be confirmed and offer "Harvest to confirm your
+  village" once it can; harvest once before you claim your first tile.
 - Your land line (“Your land: tiles owned: …”) is read every 60 seconds on devnet, and once right after a claim. That
   read can come before the world's record has the claim, so the count can stay at the old number for up to a minute.
 - **One row of [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 is not on the devnet page:** once you have a village on the wide

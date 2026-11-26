@@ -27,6 +27,7 @@ import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { span, NEAR_FULL_SECS } from '../hud/hud.mjs';
 import { termButton } from '../hud/glossary.mjs';
 import { row, dueHtml } from './shell.mjs';
+import { villageConfirm } from '../hud/provisional.mjs';
 import { countdown } from '../clock.mjs';
 import { realTail } from '../seasonterms.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
@@ -260,6 +261,13 @@ export function provisionalNote(FS, h) {
   // (the time says what it is: how long from now, then the clock; `dueHtml`)
   // (fix-loop22: only with the chain's "now" — the time is said on the viewer's wall clock from it, never as the chain's clock)
   const now = FS?.chain?.now?.() ?? null;
+  // (fix-provisional-guide: once the page sees the cohort closed, the time is the village's own final_ts — the card said
+  //  "in about 3 h 43 min at the latest" while the rule allowed it in 16 min — and past it, that an action confirms it
+  //  (loop-play23 BREAK-2: the village stays provisional after the time until the player acts))
+  let c = null;
+  try { c = h?.state === 1 ? villageConfirm(FS, h) : null; } catch { c = null; }
+  if (c?.state === 'waiting' && !c.latest) return Lh`同じターンの申し込みはすべて決まりました。${dueHtml(c.at, now)}から確定できます。その時刻を過ぎたら、収穫などの行動をひとつすると確定します。`;
+  if (c?.state === 'due' || c?.state === 'past') return L`いま確定できます。収穫などの行動をひとつすると確定します。`;
   return by && Number.isFinite(now) && by > now ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, now)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
 }
 

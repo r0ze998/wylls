@@ -2980,7 +2980,9 @@ function renderHudTick(now) {
     const steps = $('next-steps');
     if (steps) { steps.hidden = nx?.kind !== 'guide'; const t = L`ガイドの手順を見る`; if (steps.getAttribute('aria-label') !== t) { steps.setAttribute('aria-label', t); steps.title = t; } }
     // (the count of other things is part of what the prompt says: it stood at 「ほか 2」 beside a to-do tab of 3)
-    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}|${nx.more}` : '';
+    // (verify-pr268: the tooltip is part of the key — the provisional village's confirm time rides it and stayed at the
+    //  first render's 「遅くとも約 3 時間 32 分」 after the Province copy came in and the time was 2 minutes)
+    const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}|${nx.hint ?? ''}|${nx.more}` : '';
     if (nx && attn.dataset.key !== key) {
       for (const k of Object.keys(attn.dataset)) delete attn.dataset[k];
       Object.assign(attn.dataset, Object.fromEntries(Object.entries(nx.data).map(([k, v]) => [k, String(v)])), { key, act: nx.act, next: nx.kind });

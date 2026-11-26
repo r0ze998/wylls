@@ -23,6 +23,7 @@ import { queueSlots } from './rulebook.mjs';
 import { FLAG } from '../onboarding.mjs';
 import { conquestFacts } from '../screens/conquestguide.mjs';
 import { ownLandView } from '../flocalplay-territory.mjs';
+import { villageConfirm, confirmPending } from './provisional.mjs';
 
 /** How many suggestions the panel lists at most. */
 export const WAIT_SUGGESTIONS = 3;
@@ -101,15 +102,24 @@ export function waitModel(FS, { offer = null } = {}) {
     const left = Math.max(0, x.holding.required - x.holding.progress);
     timers.push({ id: 'hold', kind: 'hold', at: at(FS, (FS.nowBell ?? 0) + left), p: x.holding.p, q: x.holding.q, progress: x.holding.progress, required: x.holding.required });
   }
+  // 5 (fix-provisional-guide, loop-play23 BREAK-1) the provisional village: when it can be confirmed (hud/provisional.mjs —
+  //  the program's finality_due), and once that time has passed, that the next action confirms it. The panel said
+  //  「いま待っているものはありません」 beside 「控えの兵を軍勢にする」, which could not be pressed for hours
+  let vc = null;
+  try { vc = villageConfirm(FS); } catch { vc = null; }
+  if (vc) timers.push({ id: 'village', kind: vc.state === 'waiting' ? 'villageWait' : vc.state === 'unknown' ? 'villageWaitUnknown' : 'villageNow', at: vc.state === 'waiting' ? vc.at : null, latest: !!vc.latest });
   // suggestions, from the same records
   const suggestions = [];
+  // (the confirming action first, once it confirms: a Harvest needs no final village)
+  if (vc && (vc.state === 'due' || vc.state === 'past')) suggestions.push({ id: 'confirm', act: 'harvest', data: {} });
   if (offer && !flags.has(FLAG.verified)) {
     if (offer.kind === 'real') suggestions.push({ id: 'verify', act: 'report-open', data: { p: offer.p, q: offer.q, bell: offer.bell }, mine: !!offer.mine });
     else if (!flags.has(FLAG.practiceMatch)) suggestions.push({ id: 'practice', act: 'practice-first', data: {} });
   }
   if (ready && !due) suggestions.push({ id: 'march', act: 'tab', data: { tab: 'hosts' }, unit: ready.unit, troops: ready.troops });
   const reserve = [0, 1, 2, 3, 4, 5].reduce((a, u) => a + Number(h.reserve?.[u] ?? 0), 0);
-  if (!rows.length && reserve >= 100) suggestions.push({ id: 'muster', act: 'cg-go', data: { pop: 'muster' } });
+  // (no "Form a host" while the village cannot form one yet: the program refuses Muster NotFinal)
+  if (!rows.length && reserve >= 100) { if (!confirmPending(vc)) suggestions.push({ id: 'muster', act: 'cg-go', data: { pop: 'muster' } }); }
   else if (!rows.length && !(FS.marches ?? []).length) suggestions.push({ id: 'train', act: 'cg-go', data: { pop: 'train' } });
   const now = FS.chain?.now?.() ?? 0;
   const busy = (h.queue ?? []).filter(q => q && q.kind === 1 && Number(q.doneAt) > now).length;
@@ -195,18 +205,22 @@ export function timerLine(FS, t) {
     case 'hostReady': return html`${L`${who(t)} の軍勢は、いま進軍できます。`}`;
     case 'upkeep': return html`${L`土地 ${fmtNum(t.tiles)} マスの維持費：毎時 食料 ${fmtNum(t.perHour)}（払えています）`}`;
     case 'upkeepUnpaid': return html`${L`土地の維持費が払えていません。手放し始めるまで：`}<strong>${due || L`まもなく`}</strong>`;
+    case 'villageWait': return html`${t.latest ? L`あなたの村は仮の村です。確定できるのは遅くとも` : L`あなたの村は仮の村です。確定できるのは`}<strong>${due}</strong>${L`から。その時刻を過ぎたら、収穫などの行動をひとつすると確定し、軍勢を編成できます。`}`;
+    case 'villageWaitUnknown': return html`${L`あなたの村は仮の村です。確定できるのは遅くとも申し込みから約 4 時間後で、そのあと行動をひとつすると確定します。`}`;
+    case 'villageNow': return html`${L`あなたの村は、いま確定できます：`}<strong>${L`次の行動（収穫など）をひとつすると確定します`}</strong>`;
     case 'hold': return html`${L`${provinceName(FS, t.p, t.q, { own: false })}の砦のマス：${fmtNum(t.progress)} / ${fmtNum(t.required)} ターン保っています。州が手に入るのは`}<strong>${due}</strong>`;
     default: return '';
   }
 }
 
-const SUGGEST_ICON = { verify: 'check', practice: 'swords', march: 'banner', muster: 'ranks', train: 'helmet', build: 'hammer' };
+const SUGGEST_ICON = { confirm: 'grain', verify: 'check', practice: 'swords', march: 'banner', muster: 'ranks', train: 'helmet', build: 'hammer' };
 /** One suggestion's words: `{label, note}`. */
 export function suggestionText(s) {
   switch (s.id) {
     case 'verify': return { label: L`本物の戦いを、このブラウザで確かめる`, note: s.mine ? L`あなたの戦いの報告を開き、「このブラウザで確かめる」で計算し直すと「一致」が出ます。` : L`見えている場所の戦いの報告を開き、「このブラウザで確かめる」で計算し直すと「一致」が出ます。` };
     case 'practice': return { label: L`練習の戦いで「計算し直す」を試す`, note: L`まだ開ける本物の戦いがありません。練習の戦い（チェーンの記録ではありません）で、計算し直して同じ結果になることを確かめられます。` };
     case 'march': return { label: L`軍勢を進軍させる`, note: L`${who(s)} の軍勢が出発できます。` };
+    case 'confirm': return { label: L`収穫して村を確定する`, note: L`確定できる時刻を過ぎました。収穫で村が確定し、軍勢を編成できるようになります。` };
     case 'muster': return { label: L`控えの兵を軍勢にする`, note: L`控えの兵を一つの軍勢にまとめます。` };
     case 'train': return { label: L`兵を訓練する`, note: L`訓練はすぐに終わり、兵は村の控えに入ります。` };
     case 'build': return { label: L`建物を建てる`, note: L`建物の空きがあります。建物は毎時の産出を増やします。` };

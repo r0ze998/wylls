@@ -501,8 +501,8 @@ this section describes what the program does today, and none of it is a promise 
 A new village is "Provisional" at first: "Claim a tile" can still be pressed, and the press is then refused: the notice says
 "That did not work" with "The village is not confirmed yet." (nothing is sent; on devnet the press first shows the cost and
 "Sign and claim", and the refusal comes after you sign, PLAY-DEVNET.md). The program confirms the village on your own next
-act there once its turn's villages are placed (in world3-local-replica one "Harvest" did it at once); the page does not
-say so.
+act there once its turn's villages are placed (in world3-local-replica one "Harvest" did it at once). Since #268 the village card, the guide and "While you
+wait" say when it can be confirmed and offer "Harvest to confirm your village" once it can.
 (In verify-pr206-209's world the rim village made 26 ore an hour; an hour is one minute at ×60. A village with
 "No ore from the land" makes much less.)
 
@@ -871,8 +871,8 @@ Small ones (nothing blocks play):
   minute against the chain's 6). The keeper loop resolves the other provinces' and the sieges' turns in
   same-block batches. The standings' "Province-hour reference record through turn N." is the slowest province's turn: a few turns behind
   the turn bar (before: up to hundreds, e.g. turn 251 at turn 495).
-- **A rim village that stays "Provisional village"** is confirmed by one action of your own (e.g. "Harvest"), not at the
-  "… at the latest" time the screen states.
+- **A rim village that stays "Provisional village"** is confirmed by one action of your own (e.g. "Harvest") after the time
+  the screen states, not at that time by itself (the screen says so since #268).
 - **The AI residents spend many turns on refused sends** (e.g. training the stores cannot pay). They look slow; it is
   by the rules. An AI no longer stops after 256 sends (#117; loop-play6: about 3,000 sends, none refused by the relay).
 - **Pressing too often can no longer lock a world out (#117).** The launcher's relay remembers at most 256 commands per
