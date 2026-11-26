@@ -18,7 +18,7 @@ import { DEPART_STAMINA } from '../fmarch.mjs';
 import { keepFromProvince } from '../fconquest.mjs';
 import { ownLandView } from '../flocalplay-territory.mjs';
 import { holdingName } from '../people/ui.mjs';
-import { noticeProvince } from './place.mjs';
+import { noticeKeep } from './place.mjs';
 import { destPlace, marchArrive } from './feed.mjs';
 
 /** A march's report is read about this long (chain seconds) after its arrival turn ends (anchor + window + margin, clock.mjs). */
@@ -93,8 +93,8 @@ export function calendarEvents(FS, { nowMs = Date.now() } = {}) {
       const left = Number(k.requiredBells) - Number(k.progress);
       if (!(left > 0)) continue;
       const done = k.asOfBell + left;
-      if (k.contender === faction) add('keepHold', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${noticeProvince(k.p, k.q)}の砦を取り終えます`, () => L`あなたの国が攻めている${noticeProvince(k.p, k.q)}の砦は、守りきられなければターン ${fmtNum(done)} の終わりに取れます（早くてこの時刻）。${about()}`);
-      else if (k.holder === faction) add('keepFall', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${noticeProvince(k.p, k.q)}の砦が落ちるかもしれません`, () => L`${factionName(k.contender)}が攻めている${noticeProvince(k.p, k.q)}の砦は、守らなければターン ${fmtNum(done)} の終わりに奪われます（早くてこの時刻）。${about()}`);
+      if (k.contender === faction) add('keepHold', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${noticeKeep(k.p, k.q)}を取り終えます`, () => L`あなたの国が攻めている${noticeKeep(k.p, k.q)}は、守りきられなければターン ${fmtNum(done)} の終わりに取れます（早くてこの時刻）。${about()}`);
+      else if (k.holder === faction) add('keepFall', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${noticeKeep(k.p, k.q)}が落ちるかもしれません`, () => L`${factionName(k.contender)}が攻めている${noticeKeep(k.p, k.q)}は、守らなければターン ${fmtNum(done)} の終わりに奪われます（早くてこの時刻）。${about()}`);
     }
   }
   // land upkeep unpaid: when tiles start to be let go
