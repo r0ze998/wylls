@@ -46,13 +46,16 @@ import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mj
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
-import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf, wideMarchDue, nearChoice } from './local-play-operator-policy.mjs';
+import { OPERATOR_RESIDENTS_MODE, OPERATOR_RESIDENTS_SCHEMA, OPERATOR_RESIDENTS_MAX, OPERATOR_NATIONS_MAX, OPERATOR_DEFAULTS, parseOperatorNations, createResidentMemory, createOperatorBudget, decideNext, noteOutcome, residentView, bellOf, wideMarchDue, nearChoice, pruneOwnTiles } from './local-play-operator-policy.mjs';
 import { createWideMarch } from './local-play-operator-wide-march.mjs';
 import { createWideHost } from './local-play-operator-wide-host.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { createWideLandReader, expansionTargets, headingOf, withTerritory } from './local-play-operator-expansion.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
+import { citizenTagOf } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { ownLandOf, cachedFor } from './local-play-operator-land.mjs';
+export { ownLandOf, cachedFor } from './local-play-operator-land.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 
 /**
@@ -67,6 +70,10 @@ export function oreAt(holding, secs) {
 /** The village's stores (whole units by resource index) at `secs`, or null when unreadable (ai-ore-reserve: what a Train needs). */
 export function storesNow(holding, secs) {
   try { return Number.isSafeInteger(secs) ? storesAt(holding, secs, RESOURCE_ORDER).map(x => Number(x.value)) : null; } catch { return null; }
+}
+/** The village's food per hour in milli-food at `secs`, or null when unreadable (Q-LP19-1 (a): its food surplus). */
+export function foodMilliPerHourAt(holding, secs) {
+  try { const x = Number.isSafeInteger(secs) ? storesAt(holding, secs, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Food')]?.perHour : null; return Number.isFinite(x) ? Math.round(x * 1000) : null; } catch { return null; }
 }
 export function coversSettlerCost(holding, secs, holdingsN) {
   try {
@@ -233,6 +240,8 @@ export function spentBell(nowBell, deps) {
  * send and follow. → the line to print. `bell`: the bell of this round (`bellOf`), or null (then nothing is sent).
  * `deps` (tests): `read(wallet)`, `submit(order, ctx)`, `follow(signature)`, `now()` (ms), `nowSecs()`.
  */
+/** Whether the resident plays a territory world (a target carries territory facts, or it owns a tile already). */
+const territoryWorld = (targets, memory) => (memory.ownTiles ?? []).length > 0 || (Array.isArray(targets) && targets.some(t => t?.territory));
 export async function residentTurn(r, { homes, deps, bell = null, wideTargets = null }) {
   const t = deps.now();
   // (a war resident's bell is the one its eyes read this round — the same chain clock —; its budget is asked after the
@@ -282,6 +291,13 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
     //  Insufficient (Custom 21) live; the resident's own record of its wide villages counts too)
     const wideHeld = Math.max(Number.isInteger(view?.wide) ? view.wide : 0, (r.memory.wideVillages ?? []).length);
     wide = { targets, canClaim: !!v && Number.isSafeInteger(secs) && coversSettlerCost(v.decoded, secs, 1 + wideHeld), ore: oreAt(v?.decoded, secs), stores: storesNow(v?.decoded, secs) };
+    // (owner-answers-logic, Q-LP19-1 (a): its own land — the food surplus a far target is weighed against — and the tiles
+    //  the world let go leave its memory; pruneOwnTiles / landTooDear in the policy)
+    if (v && territoryWorld(targets, r.memory)) {
+      const own = await ownLandOf({ citizen: me?.citizen?.address, foodMilliPerHour: foodMilliPerHourAt(v.decoded, secs), rememberedTiles: (r.memory.ownTiles ?? []).length, deps });
+      if (own.land) wide.land = own.land;
+      if (own.records) { const dropped = pruneOwnTiles(r.memory, own.records, citizenTagOf(me.citizen.address)); if (dropped.length) r.tilesDropped = dropped; }
+    }
     // (only when a claim is due: the herald's capture of the nearest targets names their free sites — one read, at most 4)
     if (wide.canClaim && wide.targets.length && deps.route) {
       try {
@@ -339,7 +355,10 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling, army: snap.army, threatened: snap.threatened } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
+    ...(wide?.land ? { land: { food_per_hour: wide.land.foodMilliPerHour / 1000, upkeep_per_hour: wide.land.upkeepMilliPerHour / 1000, tiles: wide.land.tiles, remembered: (r.memory.ownTiles ?? []).length } } : {}),
+    ...(r.tilesDropped ? { tiles_dropped: r.tilesDropped } : {}), ...(d.dear ? { dear: d.dear } : {}),
     ...(snap ? { bell: nowBell, reserve: snap.reserve, hosts: snap.hostCount, ready: snap.ready, ...(snap.threatened ? { threatened: true } : {}), ...(Number.isFinite(wide?.ore) ? { ore: wide.ore } : {}), ...(snap.goals ? { goals: snap.goals } : {}) } : {}) };
+  r.tilesDropped = null;
   if (d.wait) { noteOutcome(r.memory, d, 'wait'); return { resident: r.index, wallet: r.key.address, step: 'decide', outcome: 'wait', why: d.why, seen }; }
   if (war) {
     // (one action per resident per turn, owner Q16-2: a war resident that acted this turn waits for the next)
@@ -474,6 +493,9 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     season: () => getJson(`${o.herald}/h/season`),
     read: wallet => getJson(`${o.herald}/h/me/${wallet}`),
     route: places => getJson(`${o.herald}/h/world/wide/route?at=${encodeURIComponent(places.map(t => `${t.p},${t.q}`).join(';'))}`),
+    // (Q-LP19-1 (a): its own territory summary; the territory tiles only when a tile was let go — shared, kept 20 s)
+    territoryPlayer: citizen => getJson(`${o.herald}/h/world/wide/territory/player/${citizen}`),
+    territoryTiles: cachedFor(20_000, () => getJson(`${o.herald}/h/world/wide/territory`, 6000)),
     submit: (order, r) => submitLocalAct(order, { allowed: () => ({ ok: true, relay: r.origin }), identity: () => r.identity, rulesetHash: () => r.rulesetHash, signer: () => r.signer, post: postFor(r) }),
     follow: (signature, r) => followLocalAct(signature, { origin: r.origin, still: () => !stop.signal.aborted, post: postFor(r), tries: 20, every: 1000 }),
   };

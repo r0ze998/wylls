@@ -19,6 +19,7 @@ import { COEXIST_LANE, PLAIN_LANE } from '../../permutation-server/web/frontier/
 import { seasonAddresses, seasonPda, citizenTag } from '../../permutation-server/web/frontier/faddr.mjs';
 import { TAGS as TAGS_V2 } from '../../permutation-server/web/sdk/frontier/abi-v2-tags.mjs';
 import { parseTransaction } from '../client/src/solana-tx.mjs';
+import { short } from '../../permutation-server/web/util.mjs';
 import { PREVIEW_INTENTS } from './fixtures/custody-intents.mjs';
 
 const w = n => encode(new Uint8Array(32).fill(n));
@@ -224,6 +225,18 @@ test('custody: the depositor sees its own lot and offers; the keeper sees what i
   const html = String(renderCustody(world({ lots: [lotEntry(VAULT_YOU, ME, { held: 12000 })] })));
   assert.match(html, /data-form="lot-withdraw"/); assert.match(html, /data-form="lot-deposit"/); assert.doesNotMatch(html, /9000|THEM/);
   assert.equal(String(renderCustody({ custody: undefined })), '');
+});
+
+// (verify-pr256, owner 2026-11-26 answer 8 / Q-TG2-1: the keeper's lot list now shows a lot whose depositor has no village
+// in the Province any more — its nation is not read there, so the row names the depositor by a short address, never "#null")
+test('custody: a kept lot whose depositor has no village in the Province is named by its short address, not "#null"', () => {
+  const gone = world({ lots: [lotEntry(VAULT_ME, THEM, { held: 20000 })], holdings: [H(ME, 4), H(YOU, 7)] });
+  const m = custodyModel(gone);
+  assert.equal(m.keptLots.length, 1); assert.equal(m.keptLots[0].depositor, null); assert.equal(m.keptLots[0].held, 20);
+  const html = String(renderCustody(gone));
+  assert.ok(html.includes(`${short(THEM)} の鉱石（マス 30）`), html.slice(0, 400)); assert.doesNotMatch(html, /#null|#undefined/);
+  // with its village there, the nation as before
+  assert.match(String(renderCustody(world({ lots: [lotEntry(VAULT_ME, THEM, { held: 20000 })] }))), /の鉱石（マス 30）/);
 });
 
 test('custody losses: a seized storehouse (reconcile, then forfeit) and a custody caravan taken on the road are told to the depositor; the keeper hears of its own', () => {

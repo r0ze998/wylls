@@ -609,6 +609,13 @@ these changes; in brackets the world without them): the four AI wide villages st
 hands (10), 4 wide-land keeps taken (1). No AI resident's upkeep was unpaid in either world. With the mine alone and no
 saving the AI residents founded no wide village in that time. An external resident run with workstream ⑬'s
 client (§11) claims tiles too: its next village's site first, then growth at its own slower pace.
+Neither kind of AI takes **land it cannot feed** (owner 2026-11-26 10:52, Q-LP19-1 (a); no rule change): a village site
+reached through its nation's land (a nation-mate's village far away) is skipped when that site's tile would cost more upkeep
+an hour than its village's food surplus — the distance part counts from its nearest own village, so a site on the far side
+of the world is skipped. Before (loop-play19, verify of this change on the same map): the Borealis AI took a tile 259
+provinces from its village, its land cost 122.94 food an hour against 40 made, it was unpaid for 24 turns and lost the tile;
+with the change it skipped that site and had 15 tiles, paid, at the same turn. A tile let go for unpaid upkeep also leaves
+the AI's own count of its tiles (its 24-tile limit and its next site choice).
 
 **An idle first village is not taken away** in a `--wide` world: the rule that frees a long-idle village needs 7 game
 days without an order, longer than the test world takes orders (§4).
@@ -1207,7 +1214,9 @@ road is at most 32 tiles and 4 provinces).
 
 When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcomes/src/rulesets.mjs`):
 - You **delivered with your own caravan** to a request of **someone of another nation**, and that request **reached its
-  requested amount** (the board's proof by the lower bound of what it counted).
+  requested amount** (the board's proof by the lower bound of what it counted). Every counted delivery counts toward the
+  amount, also those of the requester's own nation (owner decision 2026-11-26, Q-TG2-2): A asks for 20 wood, C of A's nation
+  delivers 15 and B of another nation 5 → the request reached its amount and B earns the title; C earns nothing.
 - Not earned by: answering "Accept" alone, a partial delivery to a request that did not reach its amount, a request of someone of
   your own nation, your own request (the board refuses that in the first place).
 - Titles and records only: nothing is added to the world goals, score or prize (owner decision ⑮ B; the

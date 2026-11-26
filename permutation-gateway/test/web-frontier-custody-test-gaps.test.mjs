@@ -209,15 +209,19 @@ test('pools: a fresh page (nothing known) finds a captured workshop village\'s p
   assert.equal(checked, 300);
 });
 
-// D-test-gaps-2-1 (found writing the properties above; NOT fixed here — tests only, reported to r0ze): the keeper's
-// reads of its OWN storehouse are made from the players who have a village in that Province NOW (lotReadPlan `others`).
-// A depositor whose village there was captured after it deposited still owns its lot in the keeper's storehouse, but a
-// fresh keeper page (nothing known yet: a new session) never reads it, so the keeper's card does not show goods it
-// holds. A page that read the lot before keeps it (`known`). Kept as a todo (it reports, it does not fail CI) until the
-// owner says whether the keeper must see such a lot (inbox 2026-11-26 test-gaps-2).
-test('lots: a fresh keeper page reads the lot of a depositor who has since lost its village in that Province (D-test-gaps-2-1)', { todo: 'D-test-gaps-2-1: lotReadPlan reads the keeper\'s own lots only for current villagers' }, () => {
+// D-test-gaps-2-1 (found writing the properties above), FIXED by owner-answers-logic (owner 2026-11-26 10:52 answer 8 /
+// Q-TG2-1: the keeper sees every lot in its own storehouse, also a depositor's whose village there was captured or left):
+// the keeper's reads of its OWN storehouse were made only from the players who have a village in that Province NOW
+// (lotReadPlan `others`), so a fresh keeper page never read such a depositor's lot. Now the page also asks the relay's
+// read-only lot list of its own storehouse and reads what it names (`listed`, flocalplay-custody.mjs listedLots — kept
+// only when the lot's own bytes derive the address; frontier-local-play-custody-lot-list.test.mjs pins the relay, the
+// check and the controller).
+test('lots: a fresh keeper page reads the lot of a depositor who has since lost its village in that Province (D-test-gaps-2-1)', () => {
   const vault = { p: 3, q: -2, tile: 22, gen: 1, ownerCitizen: 'citA', faction: 0 };
+  const holdings = [{ p: 3, q: -2, site: 1, gen: 1, ownerCitizen: 'citA' }];
   // citB deposited while it had a village here; its village was captured since (it is no longer among the holdings)
-  const plan = C.lotReadPlan({ vaults: [vault], holdings: [{ p: 3, q: -2, site: 1, gen: 1, ownerCitizen: 'citA' }], viewer: 'citA' });
-  assert.ok(plan.some(e => e.owner === 'citB'), 'the keeper never reads citB\'s lot in its own storehouse');
+  assert.ok(!C.lotReadPlan({ vaults: [vault], holdings, viewer: 'citA' }).some(e => e.owner === 'citB'), 'by the villagers alone: not read');
+  // the storehouse's lot list names citB's lot (listedLots' answer for it)
+  const plan = C.lotReadPlan({ vaults: [vault], holdings, viewer: 'citA', listed: [{ vault, owner: 'citB' }] });
+  assert.ok(plan.some(e => e.owner === 'citB' && e.vault.gen === 1), 'the keeper reads citB\'s lot in its own storehouse');
 });
