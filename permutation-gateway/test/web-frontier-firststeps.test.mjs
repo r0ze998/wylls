@@ -117,7 +117,8 @@ test('the guide keeps "Form a host" current until the host stands, and leads som
   assert.ok(['tab', 'cg-go'].includes(o.go.act));
   assert.notEqual(o.go.data.pop, 'muster', 'the press is not "form a host" again');
   const stood = world({ bell: 2, entries: [entry()], resolvedNext: 1 });
-  assert.equal(conquestGuide(stood).current, 'march');
+  // (pt-first-battle, owner 2026-11-26 Q-PT-2 "march first": a standing host goes to a nearby camp first)
+  assert.equal(conquestGuide(stood).current, 'camp');
 });
 
 test('the march answer is the local-play contract\'s FS.localMarch alone; a closed world points at no march', () => {
@@ -137,6 +138,14 @@ test('the march answer is the local-play contract\'s FS.localMarch alone; a clos
   assert.match(F.marchClosedText({ localPlay: {}, localMarch: { open: false, reason: 'LocalMarchHeld' } }), /will not be sent again/);
   // the guide on a local world whose answer is closed: the host stands, the press opens training or the keeps — never a march
   const local = world({ bell: 2, entries: [entry()], resolvedNext: 1, extra: { localPlay: {}, localMarch: { open: false, reason: 'LocalMarchNotReady', capability: true, ready: false, held: [] } } });
+  // (pt-first-battle) the camp step first: the same words, and the press skips the step — never a march
+  const c = conquestObjective(local);
+  assert.equal(c.id, 'camp');
+  assert.match(c.text, /^Your host of 100 Spearmen stands\. Marching from this page is not available in this world now\. You can skip this step/);
+  assert.deepEqual(c.go.data, { step: 'camp' });
+  assert.equal(c.go.act, 'ob-skip');
+  // past the camp step and a building: the keep step, as before
+  local.ui = { dismissed: ['ob:skip:camp'] }; local.holdings = [HOME({ queue: [{ kind: 1, item: 0, doneAt: 5000n }] })];
   const o = conquestObjective(local);
   assert.equal(o.id, 'march');
   assert.match(o.text, /^Your host of 100 Spearmen stands\. Marching from this page is not available in this world now\. /);
@@ -198,9 +207,16 @@ test('"Form a host" with an empty reserve right after the first host reads as do
 test('the guide does not fall back to "build" while the only host is out on a march (no host in any read record)', () => {
   const away = world({ bell: 27, entries: [], resolvedNext: 27, extra: { marches: [{ host: String(HID), dest: { p: 2, q: 0, tile: 31 }, entry: { host: String(HID), state: 1, arriveBell: 26 }, transit: null, facts: { pipeline: 'arrived' } }] } });
   assert.equal(hostRows(away).length, 0, 'the fixture: no host in any read record');
+  // (pt-first-battle, Q-PT-2 "march first": the first march is out, so the building is the step now — while it walks,
+  //  with when its report is due — not a fall back to the start; once built, the keep's march, as before)
+  const g0 = conquestGuide(away);
+  assert.equal(g0.current, 'build', `the first march is out: build while it walks (${g0.current})`);
+  assert.equal(g0.n, 4);
+  assert.match(conquestObjective(away).text, /^最初の進軍が向かっています。報告は.+に出る見込みです。待つあいだに、村を選び/);
+  away.holdings = [HOME({ queue: [{ kind: 1, item: 0, doneAt: 5000n }] })];
   const g = conquestGuide(away);
   assert.equal(g.current, 'march', `the guide stays at the march (${g.current})`);
-  assert.equal(g.n, 4);
+  assert.equal(g.n, 5);
   const none = world({ bell: 27, entries: [], resolvedNext: 27 });
   assert.notEqual(conquestGuide(none).current, 'march', 'with no march either, no host is assumed');
 });

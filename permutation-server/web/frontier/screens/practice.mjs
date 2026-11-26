@@ -26,7 +26,7 @@ import { retreatBps } from '../fmarch.mjs';
 import { STANCES as STANCE_TEXT, UNITS as UNIT_TEXT, factionName } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
-import { resolveArgs, outcomeRows, renderRows, renderSides, summaryOf, verdictOf, stamp, codeText, campId, NEUTRAL, SITES, STORAGE } from './report.mjs';
+import { resolveArgs, outcomeRows, renderRows, renderSides, summaryOf, verdictOf, stamp, codeText, campId, NEUTRAL, SITES, STORAGE, encodeClashArgs, decodeClashArgs } from './report.mjs';
 import { icon } from '../hud/icons.mjs';
 import { stancePicks, retreatPicks, retreatLine } from '../hud/marchcard.mjs';
 import { fold, label, chip } from './parts.mjs';
@@ -205,6 +205,21 @@ export function runScenario(kernel, st, seed) {
 }
 
 /**
+ * (pt-first-battle, owner 2026-11-26 15:48 Q-PT-3: a practice battle when no real one may be opened yet) Recompute a
+ * practice result in this browser from its own kernel input and seed — encoded again, resolved again — and compare the
+ * outcome's digest with the one the practice record shows: `{result: 'match' | 'mismatch' | 'unchecked', digest, recorded,
+ * why?}`. This shows that the same inputs and seed always give the same result; it is not a chain record and is never
+ * said to be one.
+ */
+export function recheckPractice(kernel, r) {
+  if (!r?.ok || !r.args || typeof r.digest !== 'string') return { result: 'unchecked', digest: null, recorded: r?.digest ?? null, why: 'NoPracticeRecord' };
+  let again;
+  try { again = resolveArgs(kernel, decodeClashArgs(encodeClashArgs(r.args))); } catch (e) { return { result: 'unchecked', digest: null, recorded: r.digest, why: e?.code ?? 'BadArgs' }; }
+  if (!again?.ok) return { result: 'unchecked', digest: null, recorded: r.digest, why: again?.why ?? 'Kernel' };
+  return { result: again.digest === r.digest ? 'match' : 'mismatch', digest: again.digest, recorded: r.digest };
+}
+
+/**
  * "What if" on a verified report: the report's kernel input with the
  * viewer's own arrivals (`mine(id)`) given `stance` and `retreat` (bps or
  * null), resolved with the report's seed. `{ok, base: {outcome}, alt: {args,
@@ -256,7 +271,7 @@ export function render(st, { kernelError = null, closable = false } = {}) {
   const controls = new Set(sc.controls);
   const r = st.result;
   return html`<section aria-labelledby="practice-title" class="practice doc${r ? ' has-result' : ''}">
-    <header class="doc-head"><span class="doc-titles"><h3 id="practice-title">${L`練習モード`}</h3><span class="c-sub">${L`練習はこのブラウザの中だけで動き、何も送らず、何も得ません。結果はこのブラウザの外には保存されません。`}</span></span>
+    <header class="doc-head"><span class="doc-titles"><h3 id="practice-title">${L`練習モード`}</h3><span class="c-sub">${L`練習はこのブラウザの中だけで動き、何も送らず、何も得ません。結果はこのブラウザの外には保存されません。`}</span>${st.firstBattle ? html`<span class="c-sub pr-first" data-first-battle="1">${L`練習の戦い（チェーンの記録ではありません）：「衝突を試す」を押し、結果の下の「このブラウザで計算し直す」で、同じ結果になることを確かめます。`}</span>` : ''}</span>
       ${closable ? html`<button type="button" class="btn small quiet" data-act="practice-close">${L`閉じる`}</button>` : ''}</header>
     <div class="doc-cols doc-cols-3">
       <div class="doc-col pr-scenes">
@@ -297,7 +312,26 @@ function renderResult(st, r) {
     ${bot.length ? html`<p class="muted">${L`相手の構え：${bot.join(' / ')}`}</p>` : ''}
     ${r.displaced.length ? html`<p>${L`到着が多すぎて村へ押し戻された軍勢（損失なし）：${r.displaced.map(f => fmtNum(Math.floor(f.troops / MILLI))).join(' / ')}`}</p>` : ''}
     ${r.routed.map(f => html`<p class="warn">${L`封が開けられなかった到着：兵 ${fmtNum(Math.floor(f.troops / MILLI))} → ${fmtNum(Math.floor(f.after / MILLI))}、体力 0、チップは戻りません`}</p>`)}
-    <p class="muted">${L`これは練習です。本番の結果ではありません。`}</p></div>`;
+    <p class="muted">${L`これは練習です。本番の結果ではありません。`}</p></div>
+    ${renderRecheck(st, r)}`;
+}
+
+/**
+ * (pt-first-battle) The practice record and its recompute: the seed and the result's digest this browser produced, the
+ * press that resolves the same inputs again, and the verdict — 「一致（練習）」 — always with the words that it is not a
+ * chain record.
+ */
+function renderRecheck(st, r) {
+  const c = st.recheck && st.recheck.recorded === r.digest ? st.recheck : null;
+  const verdict = c ? html`<p class="notice ${c.result === 'match' ? 'ok' : c.result === 'mismatch' ? 'error' : 'unchecked'}" role="status" data-practice-recheck="${c.result}">${c.result === 'match'
+    ? html`<span class="rep-match">${L`一致（練習）`}</span><span>${L`計算し直した結果は、この練習の記録と同じです。同じ入力からは、いつも同じ結果になります。`}</span>`
+    : c.result === 'mismatch' ? L`不一致（練習）：計算し直した結果が練習の記録と違います` : L`計算し直せませんでした（${codeText(c.why)}）`}</p>` : '';
+  return html`<section class="pr-recheck" aria-labelledby="pr-recheck-title"><h4 class="pr-h" id="pr-recheck-title">${L`練習の記録を計算し直す`}</h4>
+    <p class="muted">${L`練習の戦いです。チェーンの記録ではありません。本物の戦いは、報告の「このブラウザで確かめる」でチェーンの記録と照合できます。`}</p>
+    <details class="report-proof fold" data-fold="pr-proof"><summary><span class="fold-sum">${L`検証の詳細`}</span>${icon('chevron', 'fold-mark')}</summary><div class="fold-body">
+      <dl class="facts"><div class="row"><dt>${L`練習のくじ`}</dt><dd><code>${String(r.seedHex ?? '').slice(0, 16)}</code></dd></div>
+      <div class="row"><dt>${L`練習の結果の要約`}</dt><dd><code>${String(r.digest ?? '').slice(0, 16)}</code></dd></div></dl></div></details>
+    <div class="actions"><button type="button" class="btn" data-act="practice-recheck">${icon('check')}${L`このブラウザで計算し直す`}</button></div>${verdict}</section>`;
 }
 
 function renderWhatIf(st, kernelError) {

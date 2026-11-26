@@ -81,8 +81,19 @@ value; no in-game key is made).”
    devnet your wallet signs each command itself, so it asks twice. The second comes once the page sees your join,
    which can take tens of seconds (“Waiting for the record…”; no need to press again. If it has not shown after
    180 seconds, press “Check again”; nothing is sent twice).
-3. Harvest, build and train in the village, muster a host and march on a keep. The screens work as in the local
-   version, so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 is your guide.
+3. **March first** (owner decision 2026-11-26, Q-PT-2): train troops, muster a host, then raid the nearest barbarian camp
+   your host can beat — the guide's “Raid a nearby barbarian camp” fills it into the march card —, and build while that
+   march walks; keeps come after. The screens work as in the local version, so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (steps
+   4, 5, 5a, 3, 6) is your guide. In real time the host stands one turn after the muster turn is settled (10–20 minutes) and
+   the report of a march comes at the earliest about 30–40 minutes after it leaves (two turns' walk at least, then the
+   seals' window and the seed, about 12 minutes); the guide and the “While you wait” panel say when (“Your battle report
+   (arrival on turn N): in about … (around 15:41)”). So your own first report is about an hour after you join.
+4. **Check a battle yourself before that** (Q-PT-1, Q-PT-3): the “While you wait” panel at the bottom left offers
+   “Verify a real battle in this browser” — your own clash, or the newest clash in a place you can see now — and the
+   report's “Verify in this browser” shows “Match”. With no such battle yet it offers a practice battle (not a chain
+   record) and its “Recompute in this browser”. The panel is built from your own records only, can be folded, and reads
+   nothing new from the chain. (This panel and the march-first guide arrive on the devnet page when its page files are
+   next updated; until then the page has the earlier guide.)
 
 Good to know:
 

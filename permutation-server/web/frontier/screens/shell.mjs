@@ -52,6 +52,18 @@ export function dueHtml(t, now = null) {
   if (clockPace() !== 1) return html`${Lh`あと${about}`}${realTail(left)}`;
   return Lh`あと${about}（${timeHtml(t)} ごろ）`;
 }
+/**
+ * (pt-first-battle) `dueHtml` as plain text, for a sentence that is also a tooltip or a screen reader's name: 「あと約 52 分
+ * （15:41 ごろ）」; on a faster clock the world's length and its real length, never the wall clock.
+ */
+export function dueText(t, now = null) {
+  const left = Number.isFinite(now) ? Number(t) - now : NaN;
+  if (!(left > 0)) return L`${clockTime(t).local} ごろ`;
+  const mins = Math.max(1, Math.round(left / 60));
+  const about = mins < 60 ? L`約 ${fmtNum(mins)} 分` : L`約 ${Math.floor(mins / 60)}時間${mins % 60}分`;
+  if (clockPace() !== 1) return `${L`あと${about}`}${realTail(left)}`;
+  return L`あと${about}（${clockTime(t).local} ごろ）`;
+}
 /** How fast the world's clock runs against the viewer's (1 on a real cluster): the page sets it (`setClockPace`). */
 let clockPace = () => 1;
 export function setClockPace(fn) { clockPace = typeof fn === 'function' ? () => { try { const r = Number(fn()); return Number.isFinite(r) ? r : 1; } catch { return 1; } } : () => 1; }
