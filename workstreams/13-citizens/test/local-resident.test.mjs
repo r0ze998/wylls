@@ -301,6 +301,33 @@ test('LW2 a landed rim request is waited for (no second request), its site never
   enterWorld(m, 'other'); assert.equal(m.ticket, null);
 });
 
+test('LW2b (LP20-4) a rim request lost to a nation-mate ends the wait as soon as my citizen record shows no open request, never before its turn can have settled', () => {
+  const homes = [{ p: -65, q: -63, site: 9, ticket: true }, { p: 65, q: 63, site: 11, ticket: true }];
+  const m = mem();
+  const at = (bell, landStage, h = homes) => localCandidates({ bell, nowSecs: NOW, joined: true, faction: 3, holding: null, homes: h, wide: true, landStage }, m);
+  noteOutcome(m, { kind: 'home', order: { name: WIDE_HOME_ORDER, fields: { sites: [{ p: -65, q: -63, site: 8 }] } } }, 'landed', { bell: 155 });
+  // (the request is open: the wait holds, as before)
+  assert.equal(localRule(at(160, 'ticket')).choice, 'wait');
+  // (a record read in the turn after the filing that shows no request may not have seen it land yet: still waiting)
+  assert.equal(localRule(at(156, 'joined')).choice, 'wait');
+  // (the runner settled it and I have no village: the next untried site now, not at turn 227)
+  assert.equal(localRule(at(166, 'joined')).choice, 'home:-65,-63,9');
+  // (an observer that does not say the stage keeps the timer)
+  assert.equal(localRule(at(166, null)).choice, 'wait');
+  assert.equal(localRule(at(155 + TICKET_WAIT_BELLS, null)).choice, 'home:-65,-63,9');
+});
+
+test('LW2c (LP20-4) the observer says the citizen\'s land stage when it has no village (the same /h/me answer)', async () => {
+  const NO = 0xffffffff;
+  const citizen = (ticketBell) => ({ faction: 3, ticketEscrow: '0', ticketBell, ticketNext: 0, ticketSites: [{ p: -65, q: -63, site: 8 }] });
+  let c = citizen(155);
+  const herald = { season: async () => ({ ok: true, season: { genesisTs: NOW - 600, programVersion: 1, seasonId: 11 } }), me: async () => ({ ok: true, citizen: c, holdings: [] }), pin() {} };
+  const obs = createObserver({ base: 'http://127.0.0.1:41551', wallet: 'MINE', wide: true, deps: { herald, getJson: async () => ({ live: [0, NOW] }), publicHomes: async () => [], publicWideHomes: async () => [] } });
+  assert.equal((await obs()).landStage, 'ticket');
+  c = citizen(NO);
+  assert.equal((await obs()).landStage, 'joined');
+});
+
 test('LW3 the observer of a wide world reads the outward candidates once per turn (public reads only)', async () => {
   const calls = [];
   const herald = { season: async () => ({ ok: true, season: { genesisTs: NOW - 600, programVersion: 1, seasonId: 11 } }), me: async () => ({ ok: true, citizen: { faction: 3 }, holdings: [] }), pin() {} };

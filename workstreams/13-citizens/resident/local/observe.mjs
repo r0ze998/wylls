@@ -75,7 +75,10 @@ export function createObserver({ base, wallet, wide = false, identity = null, de
         reads.push('/h/province/* (own nation, home sites)');
         try { homes = await homesOf(base, faction); } catch { homes = []; }
       }
-      return { ...base0, joined: true, faction, holding: null, homes };
+      // (LP20-4: the citizen's own land stage — 'ticket' while a rim request is open, 'joined' once it has ended without a
+      //  village — read from the same /h/me answer as the holdings, so the two never disagree)
+      let landStage = null; try { landStage = landState(me.citizen).stage; } catch { landStage = null; }
+      return { ...base0, joined: true, faction, holding: null, homes, landStage };
     }
     const tile = Number(raw.tile);
     const holding = { p: Number(raw.p), q: Number(raw.q), site: Number(raw.site), ...(Number.isInteger(tile) && tile >= 0 && tile <= 60 ? { tile } : {}) };
