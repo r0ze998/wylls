@@ -38,7 +38,7 @@ export function drawerMerit() {
   if (!m) return html`<div class="eyebrow">MERIT</div><h2>${L`功績`}</h2><p class="desc">${L`観戦中は表示されません。`}</p>`;
   const share = pr?.nationShare?.[S.myCiv] ?? 0, eq = pr?.equalEach?.[S.myCiv] ?? 0;
   const max = Math.max(1, ...MERIT_BARS.map(b => m.merit[b]));
-  return html`${v.over ? claimCard(v) : ''}<div class="eyebrow">${L`MERIT · 功績と見込み`}</div><h2>${v.over ? L`世界の終了時の配分 ${usdc(m.projectedPayout)} USDC` : L`今終わったら ${usdc(m.projectedPayout)} USDC`}</h2>
+  return html`${v.over ? claimCard(v) : ''}<div class="eyebrow">${L`MERIT · 功績と見込み`}</div><h2>${v.over ? L`最後の集計での配分 ${usdc(m.projectedPayout)} USDC` : L`今終わったら ${usdc(m.projectedPayout)} USDC`}</h2>
     <p class="drawer-intro">${L`勢力の取り分は ${usdc(share)} USDC。その${equalSharePct(v)}%は活動したメンバーで均等（1人 ${usdc(eq)}・上限は参加費の半分）、残りは功績の比で、勢力が点を取った道の功績ほど重く分けます。活動したメンバー＝${activityWindows(v)}区間のうち${m.windowsNeeded}区間以上で命令・献策・支持・投票をした人（あなた：${m.activeWindows}区間${m.active ? ' ✓' : ''}）。`}</p>
     <div class="section-title">${L`あなたの功績 · 合計 ${m.merit.total.toFixed(1)}`}</div>
     ${MERIT_BARS.map(b => html`<div class="meter"><span>${T.MERIT_JA[b]} ${m.merit[b].toFixed(1)}</span><div class="bar"><i style="width:${(100 * m.merit[b] / max).toFixed(0)}%"></i></div></div>`)}

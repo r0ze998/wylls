@@ -147,12 +147,12 @@ export function renderRights(FS) {
     const d = { seq: c.seq, kind, dp: c.dst.p, dq: c.dst.q, at, gen: c.dst.gen ?? 0, path: c.provinces.map(x => `${x.p}_${x.q}`).join('.'), ...(c.ownerTag ? { owner: c.ownerTag } : {}) };
     // (fix-loop6, LP6-14: not offered while a crossed province has not settled past the arrival — it said so only after a refused press)
     return html`<li data-caravan="${c.seq}">${icon('scroll')}${c.ownerTag ? html`${chip(L`奪った隊商`, 'warn')} ` : ''}${kind === 'vault' ? L`貯蔵庫（${c.dst.p}, ${c.dst.q} · マス ${at}）へ` : villageTo(FS, c.dst, at)} <span class="muted">${cargoText(c.cargo)}</span>
-      ${c.settled === false ? html`<span class="muted rights-deliver-wait" role="status">${L`通った州（${c.waitP}, ${c.waitQ}）の決着が到着のターン ${fmtNum(c.waitBell)} を過ぎるのを待っています。過ぎると届けられます（数ターン）。`}</span>`
+      ${c.settled === false ? html`<span class="muted rights-deliver-wait" role="status">${L`通った州 ${c.waitP},${c.waitQ} の決着が到着のターン ${fmtNum(c.waitBell)} を過ぎるのを待っています。過ぎると届けられます（数ターン）。`}</span>`
         : html`<span class="actions">${btn('rights-deliver', d, L`隊商を届ける`)}</span>`}</li>`;
   })}</ul><p class="muted">${L`この試験世界には隊商を届ける係がいないので、着いた自分の隊商は自分で届けます（手数料は戻ります）。`}</p>` : '';
   const onWay = (m.takenOnWay ?? []).length ? html`${label(L`奪った隊商（あなたの村へ向かっています）`)}<ul class="list rights-taken">${m.takenOnWay.map(c => html`<li data-taken="${c.seq}">${icon('scroll')}${chip(L`奪った隊商`, 'warn')} <span class="muted">${cargoText(c.cargo)}</span> ${Number.isInteger(c.arriveBell) ? L`ターン ${fmtNum(c.arriveBell)} に着きます。着いたら、ここで届けられます。` : L`着くターンはまだ読めていません。着いたら、ここで届けられます。`}</li>`)}</ul>` : '';
   return html`<section class="vcard vcard-folds rights-card" id="hp-rights" aria-labelledby="rights-title" data-rights-read="${m.read}">
-    ${cardHead({ id: 'rights-title', ic: 'scroll', title: L`権利（在庫の交換）` })}
+    ${cardHead({ id: 'rights-title', ic: 'scroll', title: L`権利（保管庫）` })}
     ${readNote}${list}${onWay}${deliver}
     <div class="actions">${btn('rights-read', {}, L`権利の一覧を読み直す`)}</div>
     ${fold('rights-issue', html`${icon('scroll')}${L`権利を出す`}`, issue)}

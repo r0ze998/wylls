@@ -66,6 +66,13 @@ export const turnLine = () => { const r = rate(); return r === null ? L`ゲー�
  *  guide said "hold 72 turns" and never how long that is (12 hours at the natural clock). */
 export const turnsLine = n => { const r = rate(), g = Math.max(0, Number(n) || 0) * BELL_SECS; return r === null ? L`ゲーム内で約 ${spanWords(g)}` : r > 1 ? L`この世界の実時間で約 ${spanWords(g / r)}` : L`約 ${spanWords(g)}`; };
 
+/**
+ * (owner-answers-ui, owner 2026-11-26 10:52 Q-EUA2-4 = Q-EUA-1 A) A game-time length said with its real length on a
+ * faster clock: 「（実時間で約 10 秒）」 after "8:53" at ×60. Nothing at the natural clock or while the pace is not known
+ * (fix-loop8, LP8-10: never a guess). `secs` are chain (game) seconds.
+ */
+export const realTail = secs => { const r = rate(), s = Number(secs); return r !== null && r > 1 && Number.isFinite(s) && s > 0 ? L`（実時間で約 ${spanWords(s / r)}）` : ''; };
+
 /** The season's deadlines: `{join: {bell, closed, realLeft}, end: {bell, ended, realLeft}}`, or null without a season or clock
  *  (`realLeft` null while a fast clock's pace is not known yet). */
 export function deadlines(FS) {

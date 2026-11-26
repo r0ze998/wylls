@@ -147,7 +147,7 @@ const myNation = () => Number($('nation').value);
 function renderJoint() {
   const rows = view.joint;
   $('joint').querySelector('.body').innerHTML = `
-    <div class="note">${esc(cfg.goals[goalId].what)}。費用（S1）：${esc(needText(cfg.goals[goalId].cost))}。ほかの人から：${esc(needText(cfg.goals[goalId].fromOthers))}［仮］。報酬はない。</div>
+    <div class="note">${esc(cfg.goals[goalId].what)}。費用：${esc(needText(cfg.goals[goalId].cost))}。ほかの人から：${esc(needText(cfg.goals[goalId].fromOthers))}［仮］。報酬はない。</div>
     ${rows.length ? rows.map(j => `
       <div class="req" data-host="${esc(j.host)}" data-goal="${esc(j.goalId)}">
         <div><b>${esc(short(j.host))}</b>（${j.hostNation === null ? `<span class="warn">国籍未検証</span>` : esc(nationName(j.hostNation))}）の貯蔵庫：

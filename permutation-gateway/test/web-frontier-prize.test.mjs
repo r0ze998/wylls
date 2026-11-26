@@ -78,7 +78,7 @@ test('⑰ settlement windows: the join terms say the window\'s end turn, not the
   assert.match(ja, /この世界は終わりません/);
   assert.match(ja, /賞金の区切り0が終わる第2,016ターン/);
   assert.doesNotMatch(ja, /季節の終わり/);
-  assert.match(plain(renderJoinTerms(fs({ prize: pool() }))), /世界の終わり/, 'a legacy season keeps its sentence');
+  assert.match(plain(renderJoinTerms(fs({ prize: pool() }))), /時間の上限（ローカルの試験だけの上限）に来たときに1回だけ集計/, 'a legacy pool keeps its own sentence (owner-answers-ui, Q-EUA2-1: the test world\'s time limit, not "the end of the world")');
   setLang('en');
   const en = plain(renderJoinTerms(fs({ prize: pool(w) })));
   assert.match(en, /This world does not end/);

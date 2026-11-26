@@ -19,6 +19,7 @@ import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang, onLangChange } from '../../lang.mjs';
 import { factionName, failureText } from '../fi18n.mjs';
 import { countdown } from '../clock.mjs';
+import { realTail } from '../seasonterms.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { icon } from '../hud/icons.mjs';
 
@@ -47,7 +48,8 @@ export function dueHtml(t, now = null) {
   const about = mins < 60 ? L`約 ${fmtNum(mins)} 分` : L`約 ${Math.floor(mins / 60)}時間${mins % 60}分`;
   // (a clock that runs fast — a local stack, the sample world — is not the viewer's clock: the time on the wall is
   // left out and the length is said as the world's own, as every other duration on the page is)
-  if (clockPace() !== 1) return Lh`あと${about}`;
+  // (owner-answers-ui, Q-EUA2-4: and its real length — seasonterms realTail; nothing while the pace is not known)
+  if (clockPace() !== 1) return html`${Lh`あと${about}`}${realTail(left)}`;
   return Lh`あと${about}（${timeHtml(t)} ごろ）`;
 }
 /** How fast the world's clock runs against the viewer's (1 on a real cluster): the page sets it (`setClockPace`). */

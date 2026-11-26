@@ -37,6 +37,7 @@ import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussour
 import { renderRights } from './rights.mjs';
 import { renderCustody } from './custody.mjs';
 import { viewTile, fogActive } from '../map/fog.mjs';
+import { COEXIST_LANE, localLane } from '../flocalplay-lane.mjs';
 
 // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
 /** structure::KIND_*. */
@@ -694,6 +695,11 @@ export function renderS1Read(FS) {
 }
 
 export const caravanWatchOf = FS => { let w = watches.get(FS); if (!w) { w = createCaravanWatch(); watches.set(FS, w); } return w; };
+/**
+ * (owner-answers-ui, Q-LP18-1 (a)) Whether caravans cannot be sent from this page at all: local play whose lane does not
+ * carry SendCaravan (only the --coexist lane does: flocalplay-act.mjs COEXIST_LOCAL_LANE, controller.mjs localOrderRoute).
+ */
+export const caravansOff = FS => !!FS?.localPlay && localLane() !== COEXIST_LANE;
 export function renderS1Village(FS) {
   const m = s1VillageModel(FS);
   if (!m.holding) return '';
@@ -766,7 +772,12 @@ export function renderS1Village(FS) {
   const dstOption = (d, i) => html`<option value="${i}" data-key="${placeKey(d)}" ${raw(i === firstDst ? 'selected' : '')}>${placeWord(d)}${d.other && Number.isInteger(d.faction) ? ` · ${factionName(d.faction)}` : ''}</option>`;
   const ownDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => !d.other), otherDst = m.destinations.map((d, i) => [d, i]).filter(([d]) => d.other);
   const ownListed = ownDst.filter(([d]) => dstListed(d));
-  const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`<form class="vform" data-form="s1-caravan">
+  // (owner-answers-ui, owner 2026-11-26 Q-LP18-1 (a): in a local world whose lane does not carry SendCaravan — every
+  //  local world but --coexist, flocalplay-act.mjs COEXIST_LOCAL_LANE — every caravan was refused only after the press.
+  //  The form says so first and its button is off, the line named for screen readers. Display only: nothing else changes)
+  const off = caravansOff(FS);
+  const offLine = off ? html`<p class="blocked" id="s1-caravan-off" role="status">${L`この世界では隊商を送れません。行き先の一覧は見るだけです。`}</p>` : '';
+  const send = ownDst.length >= 2 || (m.sources.length && otherDst.length) ? html`${offLine}<form class="vform" data-form="s1-caravan">
     <label class="field">${L`出発地`}<select name="src" data-plan="${pl?.src ?? ''}">${m.sources.map((s, i) => html`<option value="${i}" data-have="${haveOf6(s).join(',')}" ${raw(i === firstSrc ? 'selected' : '')}>${placeWord(s)} — ${s.locked ? errorText('CapturePending') : haveText(s)}</option>`)}</select></label>
     <label class="field">${L`行き先`}<select name="dst" data-plan="${pl?.dst ?? ''}">${dstAsk}${otherDst.length
       ? html`${ownListed.length ? html`<optgroup label="${L`あなたの場所`}">${ownListed.map(([d, i]) => dstOption(d, i))}</optgroup>` : ''}<optgroup label="${L`ほかの人の場所`}">${otherDst.map(([d, i]) => dstOption(d, i))}</optgroup>`
@@ -775,12 +786,12 @@ export function renderS1Village(FS) {
     <input type="text" name="picked" value="" hidden tabindex="-1" aria-hidden="true" autocomplete="off">
     ${sendable.map(x => html`<div class="count-row"><label class="count-label" for="s1-c${x.i}">${RESOURCES[x.r]}</label><input id="s1-c${x.i}" name="c${x.i}" type="number" min="0" max="${haveOf6(srcNow)[x.i] ?? 0}" step="1" value="0" inputmode="numeric"></div>`)}
     <p class="muted">${L`運べる量は出発地の蔵にある分までです（出発地ごとの在庫は上の一覧のとおり）。`}</p>
-    <div class="actions"><button type="submit" class="btn primary">${L`隊商を送る`}</button></div>
+    <div class="actions"><button type="submit" class="btn primary"${raw(off ? ' disabled aria-describedby="s1-caravan-off"' : '')}>${L`隊商を送る`}</button></div>
     ${otherDst.length ? html`<p class="muted">${L`ほかの人の村や貯蔵庫へ送ると、着いた荷はその人のものになります。ほかの人あての隊商は、ゲーム内の鍵ではなくウォレットで署名して送ります。`}</p>` : ''}
     ${fogActive(FS) ? html`<p class="muted s1-dst-sight">${L`行き先に並ぶのは、あなたの場所、あなたの国の村と貯蔵庫、いま見えている村と貯蔵庫だけです。`}</p>` : ''}
     ${otherDst.some(([d]) => d.coop) ? html`<p class="muted s1-coop-dst">${L`「① 依頼の届け先」は、国をまたぐ依頼の板であなたが「応じる」と答えた依頼の行き先です（依頼した人が板に公開した場所だけ。まわりの土地は見えないままです）。送ったあと、板で隊商を依頼に結び付けると、到着が数えられます。`}</p>` : ''}
     <p class="muted">${L`隊商は軍勢より遅く、道の上で略奪されることがあります。物見櫓の見張る土地や味方の柵の近くを通ると安全です。`}</p></form>`
-    : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;
+    : off ? offLine : listsRead ? html`<p class="muted">${L`隊商を送れる行き先（ほかの村か貯蔵庫）がまだありません。`}</p>` : html`<p class="muted">${L`貯蔵庫の一覧をまだ読めていないので、送れる行き先がそろっていません。`}</p>`;
   const fort = m.forts.length ? html`<form class="vform" data-form="s1-fort">
     <label class="field">${L`要塞`}<select name="tile" data-plan="${pl?.fort ?? ''}">${m.forts.map(f => html`<option value="${f.tile}" ${raw(pl?.fort === f.tile ? 'selected' : '')}>${L`マス ${f.tile}（兵 ${fmtNum(f.troops)} / ${fmtNum(FORT_MAX_TROOPS)}）`}</option>`)}</select></label>
     <div class="count-row"><label class="count-label" for="s1-ft">${L`入れる槍兵（控えから）`}<span class="muted"> / ${fmtNum(m.spearmen)}</span></label><input id="s1-ft" name="troops" type="number" min="1" max="${Math.min(m.spearmen, FORT_MAX_TROOPS)}" step="1" value="${Math.min(100, m.spearmen) || 1}" inputmode="numeric"></div>

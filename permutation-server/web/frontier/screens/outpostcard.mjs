@@ -97,7 +97,7 @@ export function outpostCardModel(FS, m) {
 const costLine = cost => cost.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(' · ');
 
 function rowHtml(r, busy) {
-  const where = L`州（${r.p}, ${r.q}）`;
+  const where = L`州 ${r.p},${r.q}`;
   const meta = html`<span class="muted">${L`第${r.ring}輪・最初の村から${r.d}州`}</span>`;
   if (r.state === 'unknown') return html`<li data-outpost="${r.p},${r.q}" data-state="unknown"><span>${where} ${meta}</span> <span class="muted">${L`まだ調べていません`}</span></li>`;
   if (r.state === 'unopened') return html`<li data-outpost="${r.p},${r.q}" data-state="unopened"><span>${where} ${meta}</span> <span class="blocked">${L`この州はまだ開かれていません。開かれるまで村は出せません（人のいる州の近くから順に、自動で開かれます）。`}</span></li>`;
@@ -105,13 +105,13 @@ function rowHtml(r, busy) {
   const ok = r.offer?.eligible === true;
   return html`<li data-outpost="${r.p},${r.q}" data-state="${ok ? 'ready' : 'blocked'}"><span>${where} ${meta} <span class="muted">${L`村の場所 ${fmtNum(r.site + 1)}`}${r.seen === 'memory' ? L`（前に見たときの様子）` : ''}</span></span>
     ${ok ? '' : html` <span class="blocked">${r.offer?.reason ?? L`いまは村を出せません。`}</span>`}
-    <button type="button" class="btn small" data-act="outpost-preview" data-p="${r.p}" data-q="${r.q}" data-site="${r.site}" aria-label="${L`ここに村を出す`}: ${L`州（${r.p}, ${r.q}）`} ${L`村の場所 ${fmtNum(r.site + 1)}`}" ${raw(busy || !ok ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`;
+    <button type="button" class="btn small" data-act="outpost-preview" data-p="${r.p}" data-q="${r.q}" data-site="${r.site}" aria-label="${L`ここに村を出す`}: ${L`州 ${r.p},${r.q}`} ${L`村の場所 ${fmtNum(r.site + 1)}`}" ${raw(busy || !ok ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`;
 }
 
 function previewHtml(pv, busy) {
   const t = pv.target;
   return html`<div class="outpost-preview" data-step="preview" role="group" aria-label="${L`送る前の確認`}">
-    <p><b>${pv.slot === 3 ? L`州（${t.p}, ${t.q}）の村の場所 ${fmtNum(t.site + 1)} に3つめの村を申し込みます。` : L`州（${t.p}, ${t.q}）の村の場所 ${fmtNum(t.site + 1)} に2つめの村を申し込みます。`}</b></p>
+    <p><b>${pv.slot === 3 ? L`州 ${t.p},${t.q} の村の場所 ${fmtNum(t.site + 1)} に3つめの村を申し込みます。` : L`州 ${t.p},${t.q} の村の場所 ${fmtNum(t.site + 1)} に2つめの村を申し込みます。`}</b></p>
     <p>${L`ウォレットから払う額: 最大 ${solText(pv.cost.total)} SOL`} <span class="muted">${L`（新しい村の家賃の預け入れ ${solText(pv.cost.deposit)} SOL ＋ 手数料 ${solText(pv.cost.fee)} SOL。devnet の SOL で、価値はありません）`}</span></p>
     <p class="muted">${L`最初の村の蔵から: ${costLine(pv.settler)}`}</p>
     <p class="muted">${L`申し込みはターンの終わりに決まります（同じ場所を選んだ人がいれば抽選）。`}</p>
@@ -124,8 +124,8 @@ export function outpostCard(FS, m, busy) {
   const o = outpostCardModel(FS, m);
   if (!o) return '';
   const pv = o.preview;
-  const ownLine = o.own.length ? html`<p data-outpost-own="${o.own.length}">${o.own.map(x => (x.order === 3 ? L`3つめの村: 州（${x.p}, ${x.q}）の村の場所 ${fmtNum(x.site + 1)}` : L`2つめの村: 州（${x.p}, ${x.q}）の村の場所 ${fmtNum(x.site + 1)}`)).join(' / ')}</p>` : '';
-  const sent = pv?.step === 'sent' ? html`<p data-outpost-sent="${pv.target.p},${pv.target.q},${pv.target.site}">${L`州（${pv.target.p}, ${pv.target.q}）への申し込みを送りました。`} <span class="muted">${L`署名 ${pv.signature}`}</span></p>` : '';
+  const ownLine = o.own.length ? html`<p data-outpost-own="${o.own.length}">${o.own.map(x => (x.order === 3 ? L`3つめの村: 州 ${x.p},${x.q} の村の場所 ${fmtNum(x.site + 1)}` : L`2つめの村: 州 ${x.p},${x.q} の村の場所 ${fmtNum(x.site + 1)}`)).join(' / ')}</p>` : '';
+  const sent = pv?.step === 'sent' ? html`<p data-outpost-sent="${pv.target.p},${pv.target.q},${pv.target.site}">${L`州 ${pv.target.p},${pv.target.q} への申し込みを送りました。`} <span class="muted">${L`署名 ${pv.signature}`}</span></p>` : '';
   const body = o.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>`
     : o.pending ? html`<p data-outpost-pending="1">${L`申し込みの結果を待っています。ターンの終わりに決まると、ここに新しい村が出ます。`}</p>`
     : pv?.step === 'preview' ? previewHtml(pv, busy)

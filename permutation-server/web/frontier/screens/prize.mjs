@@ -33,7 +33,7 @@ export function renderJoinTerms(FS) {
     ${w && !w.paid && !w.canPay ? html`<p><button type="button" class="btn" data-act="prize-faucet">${L`テストUSDCを受け取る`}</button> <span class="muted">${L`足りない場合は、参加の前に自動で受け取ります。`}</span></p>` : ''}
     <p class="muted">${m.window
       ? L`テストUSDCはこのローカルのテスト用チェーンだけの通貨で、価値はありません。この世界は終わりません。賞金の区切り${m.window.epoch}が終わる第${fmtNum(m.window.endBell)}ターンに最も多くの州を持つ国が勝ち、その区切りの賞金プールは、その国の、この区切りに参加費を払ったメンバーに分けられます。`
-      : L`テストUSDCはこのローカルのテスト用チェーンだけの通貨で、価値はありません。このテスト用の世界の終わりに最も多くの州を持つ国が勝ち、賞金プールはその国の参加費を払ったメンバーに分けられます。`}</p>
+      : L`テストUSDCはこのローカルのテスト用チェーンだけの通貨で、価値はありません。この賞金プールは、このテスト用の世界が時間の上限（ローカルの試験だけの上限）に来たときに1回だけ集計されます。そのとき最も多くの州を持つ国が勝ち、賞金プールはその国の参加費を払ったメンバーに分けられます。`}</p>
   </section>`;
 }
 
@@ -65,7 +65,7 @@ export function render(FS) {
     <ol class="pz-area prize-area">${m.area.map(a => html`<li class="kh-n${a.faction}${a.winner ? ' pz-win winner' : ''}">${crest(a.faction, 20)}<span>${factionName(a.faction)}</span><span class="pz-bar" aria-hidden="true"><i class="w${Math.round(10 * a.provinces / top)}"></i></span><strong>${fmtNum(a.provinces)}</strong>${a.winner ? html`<span class="pz-tag">${L`勝者`}</span>` : html`<span></span>`}</li>`)}</ol>
     ${m.final ? html`<div class="pz-result kh-n${m.winners[0] ?? 6}">${crest(m.winners[0] ?? null, 34)}<p class="callout"><strong>${L`結果は確定しました：${m.winners.map(factionName).join(' / ')}（州の数が最も多い国）。この集計はだれにも変更できません。`}</strong><span>${L`集計（Tally）と確定（Finalize）はチェーンの記録です。`}</span></p></div>`
       : html`<p role="status">${L`集計中です（${fmtNum(m.counted)} / ${fmtNum(m.keepsToCount)} 州）。`}</p>`}`
-    : html`<p class="muted">${L`勝者は、このテスト用の世界の終わりに最も多くの州（砦）を持つ国です。そのあと、チェーン上の州の記録から集計されます。`}</p>`;
+    : html`<p class="muted">${L`勝者は、このテスト用の世界が時間の上限（ローカルの試験だけの上限）に来たときに最も多くの州（砦）を持つ国です。数はチェーン上の州の記録から集計されます。`}</p>`;
   const ledger = g ? html`<h4>${L`攻略した人`}</h4>
     ${g.attackers.length ? html`<ul class="pz-lines prize-lines">${lineRows(g.attackers)}</ul>` : html`<p class="muted">${L`記録はありません。`}</p>`}
     <h4>${L`増援した人`}</h4>

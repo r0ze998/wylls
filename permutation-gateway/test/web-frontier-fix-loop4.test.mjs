@@ -57,7 +57,7 @@ test('B-12: the title says a faster TEST clock\'s real turn length; the launcher
   assert.doesNotMatch(src('flocalplay-session.mjs'), /既定は開始から2時間/);
   assert.match(lp, /demoPage \? L`この試験世界は時計を早めて動きます/);
   setLang('en');
-  for (const s of [L`この試験世界は時計を早めて動きます（通常の1ターン10分が、実時間では数十秒です）。開始後は、画面の時計が実際の長さを示します。進軍やその結果の受け取りは、ターンの進行を待ちます。`,
+  for (const s of [L`この試験世界は時計を早めて動きます（通常の1ターン10分が、実時間では数秒〜数十秒です。×60 なら約 10 秒）。開始後は、画面の時計が実際の長さを示します。進軍やその結果の受け取りは、ターンの進行を待ちます。`,
     L`通常速度では1ターン10分です（時計を早めた試験世界では、開始後の画面の時計が実際の長さを示します）。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。`]) { assert.doesNotMatch(s, CJK, s); assert.doesNotMatch(s, BANNED_EN, s); }
 });
 

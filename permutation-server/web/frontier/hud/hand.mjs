@@ -221,7 +221,7 @@ function hostModel(FS, sub) {
   if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
     id: EXPEDITION_POP, icon: 'search', word: L`遠征を確認`, act: 'hand-pop', data: { pop: EXPEDITION_POP },
     figure: L`読み取り専用`, pressed: pop === EXPEDITION_POP, quiet: true,
-    hint: L`この軍勢を P,Q で確認します。移動や命令は行いません。`,
+    hint: L`入力した州（P, Q）でこの軍勢を確認します。移動や命令は行いません。`,
   });
   if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
     id: OUTBOUND_POP, icon: 'march', word: L`境界への道を準備`, act: 'hand-pop', data: { pop: OUTBOUND_POP },
@@ -825,7 +825,7 @@ function expeditionPop(FS, model) {
     try { returning = originalReturnModel(report, state.request); } catch { returnError = true; }
   }
   const unavailable = FS.resident ? L`NFT の軍勢はこの確認に対応していません。` : !FS.wallet?.address ? L`接続したウォレットが必要です。` : FS.meStatus !== 'ready' ? L`自分の記録を読み込んでから確認してください。` : null;
-  return html`${popHead(L`この軍勢を P,Q で確認`)}
+  return html`${popHead(L`入力した州（P, Q）でこの軍勢を確認`)}
     <p class="pop-line">${L`読み取り専用です。P,Q は確認する場所であり、行き先でも現在地の証明でもありません。`}</p>
     ${model.kind === 'village' ? html`<p class="pop-line">${L`この村が発行した軍勢の番号を入力してください。番号 0 も有効です。これは現在地や生存の証明ではありません。`}</p>
       <label class="pop-line">${L`軍勢の発行番号`} <input type="text" inputmode="numeric" autocomplete="off" maxlength="10" data-bind="expedition-sequence" value="${state.sequence ?? ''}"></label>` : html`<p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>`}

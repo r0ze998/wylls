@@ -35,7 +35,7 @@ import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
 import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, prepareDevnetPlayDeparture, sendDevnetPlayDeparture, reconcileDevnetPlayDeparture, clearDevnetPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
-import { setTermsPace } from './seasonterms.mjs';
+import { setTermsPace, realTail } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, bellAt, countdown, seasonClock, bellStart, pollCap, worldContinues } from './clock.mjs';
@@ -239,14 +239,15 @@ const saveUiOver = (sc, patch) => ({ ...(FS.ui ?? {}), ...saveUi(uiStorage, uiKe
  */
 export function chipText(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
-  if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
+  // (owner-answers-ui, Q-EUA2-4: on a faster clock the dial's game time also says its real length — seasonterms realTail)
+  if (chip.beforeGenesis) return `${L`開始まで ${countdown(chip.secondsLeft)}`}${realTail(chip.secondsLeft)}`;
   // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
   // (a local-play world its launcher has ended: the last turn it reached, and that it is over — B5)
   // (a KEPT world its launcher stopped is paused, its progress saved — owner decision 2026-11-24, LP14-1)
   if (chip.stopped && chip.paused) return L`ターン ${fmtNum(chip.bell)} · 一時停止`;
   if (chip.stopped) return L`ターン ${fmtNum(chip.bell)} · 終了済み`;
   if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
-  return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+  return `${L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`}${realTail(chip.secondsLeft)}`;
 }
 
 /** The dial's three places: the small label, the large figure, the line under it. */

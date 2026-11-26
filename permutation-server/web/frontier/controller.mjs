@@ -4770,7 +4770,7 @@ export const ACTIONS = {
     if (devnetTerritoryNow() && !localPlay && !(await devnetTilePreviewGate(target, tile, { act: 'territory-tile', data: d }))) return { ok: false, quiet: true };
     if (devnetTerritoryNow() && !localPlay) FS.tilePreview = null;
     const t = await act('TerritoryClaim', { v: { holding: home, target, ...(reach ? { witness: { kind: 'nation', p: reach.p, q: reach.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile },
-      say: () => L`広い土地（${target.p}, ${target.q}）のマス ${tile} を自分の土地にしました。` });
+      say: () => L`広い土地の州 ${target.p},${target.q} のマスを1つ自分の土地にしました。` });
     const ans = t ?? (FS.notice?.ok === false ? FS.notice : null);
     const pc = Number(ans?.programCode), why = String(ans?.code ?? '') + ' ' + String(ans?.detail ?? '');
     const already = !!ans && ans.ok === false && (pc === 52 || /AlreadyDone/.test(why));
@@ -4817,7 +4817,7 @@ export const ACTIONS = {
         // (devnet-territory-dev: on devnet the site's tile is previewed first — ore + SOL —, then signed and sent)
         if (devnetTerritoryNow() && !localPlay && !(await devnetTilePreviewGate(target, tile, { act: 'wide-claim', data: d }))) return { ok: false, quiet: true };
         if (devnetTerritoryNow() && !localPlay) FS.tilePreview = null;
-        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(rw ? { witness: { kind: 'nation', p: rw.p, q: rw.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile }, say: () => L`広い土地（${target.p}, ${target.q}）のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
+        const t = await act('TerritoryClaim', { v: { holding: home, target, ...(rw ? { witness: { kind: 'nation', p: rw.p, q: rw.q } } : {}), ...(vill ? { village: vill } : {}) }, fields: { tile }, say: () => L`広い土地の州 ${target.p},${target.q} のマスを自分の土地にしました。もう一度押すと、そこに村を出します。` });
         // (a refusal returns nothing — failed() only sets the notice — so the answer is read there; verify-pr206-209:
         //  "already yours" (52) after a reload or a refused village never reached the village, and a tile another
         //  player owns (SiteTaken 11) was asked again at every press)
@@ -4832,7 +4832,7 @@ export const ACTIONS = {
         if (!already) return t;
       }
     }
-    const r = await act('WideClaim', { v: { holding: home, target, ...(reach && !terr ? { reach } : {}), ...(previous ? { previous } : {}), ...(terr ? { territory: true } : {}) }, fields: { site, slot }, say: () => L`広い土地（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
+    const r = await act('WideClaim', { v: { holding: home, target, ...(reach && !terr ? { reach } : {}), ...(previous ? { previous } : {}), ...(terr ? { territory: true } : {}) }, fields: { site, slot }, say: () => L`広い土地の州 ${target.p},${target.q} に村の申し込みを出しました。ターンの終わりに決まります。` });
     // (a refused or failed site is not offered again: the next press names the next site)
     if (r && r.ok === false && r.sent !== true) { FS.ui = { ...(FS.ui ?? {}), wideTried: { ...(FS.ui?.wideTried ?? {}), [`${target.p},${target.q}`]: Math.min(11, site + 1) } }; invalidate('panel'); }
     return r;
@@ -4882,7 +4882,7 @@ export const ACTIONS = {
     if (checked.offer.cost.some((v, i) => v !== pv.settler[i])) { FS.outpostPreview = null; return failed({ code: 'OutpostRule', text: L`入植の条件と費用が更新されました。内容を確認して、もう一度申請してください。` }); }
     const anchor = FS.holdings.find(h => h.order === 1), slot2 = FS.holdings.find(h => h.order === 2) ?? anchor;
     const r = await act('FileOutpost', { v: { sites: [target], anchor, slot2 }, fields: { sites: [target], anchor_site_key: hostId({ ...anchor, seq: 0 }) },
-      say: () => L`州（${target.p}, ${target.q}）に村の申し込みを出しました。ターンの終わりに決まります。` });
+      say: () => L`州 ${target.p},${target.q} に村の申し込みを出しました。ターンの終わりに決まります。` });
     FS.outpostPreview = r?.ok ? { step: 'sent', target, signature: r.signature } : null;
     invalidate('panel');
     return r;

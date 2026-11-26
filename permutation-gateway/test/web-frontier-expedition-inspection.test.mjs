@@ -268,7 +268,7 @@ test('inspection hand is unarmed, renders escaped text and no form/send action; 
     assert.equal(model.pop, EXPEDITION_POP); if (!village) assert.equal(model.armed, false);
     fs.expeditionPreview.p = '"><img src=x onerror=x>'; fs.expeditionPreview.error = '<script>alert(1)</script>';
     const markup = String(hand.renderPop(fs, model));
-    assert.match(markup, /Check this host at P,Q/); assert.match(markup, /data-act="expedition-inspect"/);
+    assert.match(markup, /Check this host at a province you enter \(P, Q\)/); assert.match(markup, /data-act="expedition-inspect"/);
     assert.match(markup, /&lt;script&gt;/); assert.doesNotMatch(markup, /<form|<script|<img src=x|data-act="(?:march-send|dissolve|hand-return)"/);
     assert.equal(markup.includes('data-bind="expedition-sequence"'), village);
     for (const version of [3, 32768, -1, 65536, NaN]) {

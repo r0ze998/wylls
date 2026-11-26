@@ -37,6 +37,7 @@ import { fxNow } from './chart.mjs';
 import { upright } from './tilt.mjs';
 import { NATION_INK, NATION_ON } from '../palette.mjs';
 import { paintGlyph } from './glyphs.mjs';
+import { realTail } from '../seasonterms.mjs';
 import { paintStandard } from './ownland.mjs';
 import { OPEN_PASS } from './labelpass.mjs';
 import { leaderHexImage, onLeaderArtLoad } from '../people/leaders.mjs';
@@ -91,7 +92,7 @@ export function waitLine(wait) {
     const left = (Number.isFinite(wait.tollAt) ? wait.tollAt : wait.resultAt) - wait.now;
     return { at: 'candidate', index: Number.isInteger(wait.first) ? wait.first : 0, glyph: 'bell', share: Number.isFinite(wait.share) ? wait.share : null, text: left > 0 ? L`村が決まるターンまで ${clockText(Math.ceil(left))}` : L`まもなく村が決まります` };
   }
-  if (Number.isFinite(wait.nextTurnAt)) return { at: 'home', index: null, glyph: 'bell', text: L`次のターンまで ${clockText(Math.max(0, wait.nextTurnAt - wait.now))}` };
+  if (Number.isFinite(wait.nextTurnAt)) return { at: 'home', index: null, glyph: 'bell', text: `${L`次のターンまで ${clockText(Math.max(0, wait.nextTurnAt - wait.now))}`}${realTail(wait.nextTurnAt - wait.now)}` };
   return null;
 }
 
