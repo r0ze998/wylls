@@ -43,7 +43,7 @@
 | ① `coop/export.mjs` `fulfilmentsForEvaluators` | 板の表示と同じ確かめ（`coopView`：到着時の受取人が依頼した人・応じた後の送信・規則の版）で、status `fulfilled` の依頼だけを、契約「ws01-fulfilled v1」で渡す。届けた人は、数えられた到着（counted が正）のある人だけ。到着ごとに CARAVAN_SETTLED の署名を付ける |
 | ① `coop/board.mjs` `outcomes()` | 上を `evaluateLive({ fulfilled })` に渡す。チェーンを読めない板では空 |
 | ⑮ `src/live.mjs` `fulfilledEvents` | やり直して確かめる：依頼の資源ごとに、届けた人の下限の和が依頼量以上か。到着の署名がヘラルドの `/h/events` の行にあるか（無ければ待つ。称号のターンはその行のターンの最大）。イベント `request.fulfilled`（流れ `ws01-fulfilled`、verified `derived`） |
-| ⑮ `src/goals.mjs` | B 版 4 の P-board-helper（`sources: ['ws01-fulfilled']`）：自分の下限が正・依頼が依頼量に届いた・依頼した人ではない（同じ cluster でもない）・依頼した人と国が違う（記録で確かめた国。分からなければ未判定）。一人一つの評価期間に一つ（報酬枠） |
+| ⑮ `src/goals.mjs` | B 版 4 の P-board-helper（`sources: ['ws01-fulfilled']`）：自分の下限が正・依頼が依頼量に届いた（届いたかは、依頼した人と同じ国の人の届け物も含めた、数えたすべての届け物で決める。2026-11-26 持ち主の決定 Q-TG2-2）・依頼した人ではない（同じ cluster でもない）・依頼した人と国が違う（記録で確かめた国。分からなければ未判定）。一人一つの評価期間に一つ（報酬枠） |
 | ⑦ `hud/coopoutcomes.mjs` | この称号の行は `audience: 'subject'`：本人のページだけに「あなたが称号「依頼に応えた」を得た」と出す。依頼した人・ほかの人のページには出さない（`/coop/outcomes` の答えそのものは公開。板の結び付けも公開） |
 
 版：B は版 3 → **版 4**（hash `d3bd326d…` → `463e2487…`）。status も `comparison-only` → `production-titles-only`（D-verify-pr31-1 の食い違いを同じ版で直した）。A・C は版 3 のまま、hash も同じ（C は凍結。C の P-board-helper は①を読まない）。版 3 の判定を再生するには、版 3 の rulesets.mjs が要る。

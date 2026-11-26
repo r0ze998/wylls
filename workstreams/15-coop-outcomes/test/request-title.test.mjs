@@ -1,6 +1,7 @@
 // ⑮ 「依頼に応えた」 (owner decision 2026-11-22 11:56, Q1-⑮): the personal title P-board-helper from ①'s FULFILLED co-op
 // requests. Awarded only to a player whose own delivery counted (①'s proven lower bound) toward a request of someone of
-// ANOTHER nation that reached its requested amount. Not for accepting without delivering, a partial request, one's own
+// ANOTHER nation that reached its requested amount — by anyone's counted deliveries, the requester's own nation's included
+// (owner 2026-11-26 10:52, Q-TG2-2). Not for accepting without delivering, a partial request, one's own
 // request, or a request of one's own nation. Titles and chronicle only: no win, score or prize effect.
 // No chain, no key: PS2 bodies laid out from the ABI's tables and decoded by the page's own decoder (test/ps2.mjs).
 import { test } from 'node:test';
@@ -97,6 +98,22 @@ test('farming: one\'s own request, and a request of one\'s own nation (a puppet 
   const s = evaluate(RULESETS.B, liveInput({ rows: rows(), tagOf, nowBell: 30, fulfilled: F(req('r1', 'A', [del('A', { wood: 20, stone: 20 }, 'sig12')])) }).input)
     .achievements.personal.find(x => x.goal === 'P-board-helper' && x.subject === 'tag:65');
   assert.equal(s.reasons[0].code, 'self_request');
+});
+
+// (owner-answers-logic, owner 2026-11-26 10:52 answer 9 / Q-TG2-2) "reached" counts EVERY counted delivery, the
+// requester's own nation's included: A (nation 1) asks 20 wood, C (nation 1, A's own) delivers 15, B (nation 2) 5 →
+// the request reached its amount and B earns the title for its 5; C, of A's nation, earns nothing itself.
+test('Q-TG2-2: same-nation deliveries count toward "reached": A asks 20, C (A\'s nation) 15, B (another) 5 → B gets the title', () => {
+  const ask = F(req('r1', 'A', [del('C', { wood: 15 }, 'sig8'), del('B', { wood: 5 }, 'sig6')], { wood: 20 }));
+  const t = helpers(run(ask));
+  assert.deepEqual(t.map(e => [e.subject.id, e.subject.nation, e.at]), [['tag:82', 'n2', 12]], 'B only, dated the latest counted arrival (C\'s, turn 12)');
+  assert.equal(run(ask).notes.fulfilledHeld, 0, 'the request is not held as short');
+  const v = evaluate(RULESETS.B, liveInput({ rows: rows(), tagOf, nowBell: 30, fulfilled: ask }).input);
+  assert.equal(v.achievements.personal.find(x => x.goal === 'P-board-helper' && x.subject === 'tag:19').reasons[0].code, 'same_nation', 'C: nothing for its own nation\'s request');
+  // without C's 15 the request is short: B's 5 alone earns nothing
+  const short = F(req('r1', 'A', [del('B', { wood: 5 }, 'sig6')], { wood: 20 }));
+  assert.equal(helpers(run(short)).length, 0);
+  assert.equal(run(short).notes.fulfilledHeld, 1);
 });
 
 test('a requester with no nation on record: undecided, never a title', () => {

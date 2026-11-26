@@ -48,7 +48,8 @@ import { oreReserve, tilePays, coversTrain, oreTurn, savingCapsTrain } from './l
 export { OPERATOR_ORE_RESERVE, OPERATOR_VILLAGE_SAVING } from './local-play-operator-reserve.mjs';
 import { OPERATOR_EARLY_MINE, minesOf, earlyMineDue, noteEarlyMine } from './local-play-operator-mine.mjs';
 export { OPERATOR_EARLY_MINE } from './local-play-operator-mine.mjs';
-import { nearerOwnVillage } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { nearerOwnVillage, tileUpkeepV1 } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { distance } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 
 export const OPERATOR_RESIDENTS_MODE = 'operator-residents-v1';
 export const OPERATOR_RESIDENTS_SCHEMA = 'frontier-local-play-operator-residents-v1';
@@ -196,6 +197,55 @@ export function residentView(me, decode) {
   return Object.freeze({ joined: true, faction, holding, wide });
 }
 
+/**
+ * (owner-answers-logic, owner 2026-11-26 10:52 Q-LP19-1 (a); no rule change) Whether a NATION-REACH village target `t`
+ * is too dear for this resident's land: the tile of its site would add more upkeep per hour than the village's food
+ * surplus. loop-play19: a target reached through a nation-mate's land 252 provinces from the resident's own villages —
+ * the tile's upkeep distance counts from the claimer's NEAREST own village (TQ-2), so that one tile made the land cost
+ * 137.79 food/h against 40 made; unpaid 24 turns, then the tile was let go.
+ *   t        a claim target (`{p, q, reach?, territory?}`); only one with a `reach` witness (the nation's land) and the
+ *            territory facts (a territory world) is ever too dear — a target within reach of home is near by the reach
+ *            rule itself, and outside a territory world there is no upkeep
+ *   home     the first home `{p, q}`; `villages` the resident's own wide villages (memory.wideVillages)
+ *   ownTiles the resident's own tiles: a province where it owns a tile already is not judged (its upkeep is paid)
+ *   land     `{foodMilliPerHour, upkeepMilliPerHour}` — the first home's food per hour and the land's upkeep now (the
+ *            resident's territory summary), both milli-food; not known → nothing is judged too dear
+ * → null (not too dear) or `{dist, addMilli, surplusMilli}`.
+ */
+export function landTooDear(t, { home, villages = [], ownTiles = [], land = null } = {}) {
+  if (!t || !t.reach || !t.territory || !land || !Number.isFinite(land.foodMilliPerHour) || !Number.isFinite(land.upkeepMilliPerHour)) return null;
+  if ((ownTiles ?? []).some(o => String(o.p) === String(t.p) && String(o.q) === String(t.q))) return null;
+  let dist;
+  try { const v = nearerOwnVillage(home, t, villages); dist = distance(v ?? home, t); } catch { return null; }
+  if (!Number.isFinite(dist)) return null;
+  const addMilli = tileUpkeepV1(dist), surplusMilli = land.foodMilliPerHour - land.upkeepMilliPerHour;
+  return addMilli > surplusMilli ? { dist, addMilli, surplusMilli } : null;
+}
+
+/** How many decisions a tile the resident claimed is kept in its memory before the herald's territory read may drop it
+ *  (the herald captures a landed claim a few seconds later; a round is OPERATOR_DEFAULTS.cadenceMs). */
+export const OWN_TILE_READ_GRACE = 10;
+/**
+ * (owner-answers-logic, loop-play19 side fact of Q-LP19-1) The resident's memory of its own tiles after the herald's
+ * territory read: a tile the read shows as not its own — let go for unpaid upkeep, farthest first — leaves
+ * `memory.ownTiles`, so its OPERATOR_TILES_MAX count, its claim price guess and its next site choice are right again.
+ * `records`: heraldTerritoryRecords (Map "p,q" → {owners}; a province absent has no owned tile at all), `ownTag` its
+ * Citizen tag. A tile noted in the last OWN_TILE_READ_GRACE decisions stays (the read may predate the claim). No usable
+ * read (null) → nothing changes. → the tiles dropped ("p,q,tile").
+ */
+export function pruneOwnTiles(memory, records, ownTag) {
+  if (!(records instanceof Map) || typeof ownTag !== 'string' || !ownTag || !Array.isArray(memory.ownTiles)) return [];
+  const dropped = [], keep = [];
+  for (const o of memory.ownTiles) {
+    const fresh = Number.isInteger(o.at) && memory.decisions - o.at < OWN_TILE_READ_GRACE;
+    const owner = records.get(`${o.p},${o.q}`)?.owners?.[o.tile] ?? null;
+    if (!fresh && owner !== ownTag) dropped.push(`${o.p},${o.q},${o.tile}`);
+    else keep.push(o);
+  }
+  if (dropped.length) memory.ownTiles = keep;
+  return dropped;
+}
+
 /** At most this many wide claims per resident (slots 2 and 3). */
 export const OPERATOR_WIDE_CLAIMS = 2;
 /** territory-impl: the most tiles an operator resident claims (its land then grows only through villages and keeps). */
@@ -241,7 +291,17 @@ const key = a => (a.name === 'Build' ? `Build:${a.item ?? a.fields?.item}` : a.n
  * `submitLocalAct`), or `{wait: true, why}`. `view` from `residentView`; `homes` from `homesOf`; `nowSecs` the clock
  * the Join's expiry is counted from. Pure: the memory is changed only by `noteOutcome`.
  */
-export function decideNext(memory, view, { homes, nowSecs, war = null, wide = null }) {
+export function decideNext(memory, view, opts) {
+  const d = decideCore(memory, view, opts);
+  // (Q-LP19-1 (a): said in the decision's reason, so the log shows which far targets were left and why)
+  const wide = opts?.wide, h = view?.holding;
+  if (!h || !Array.isArray(wide?.targets) || !wide.land || typeof d?.why !== 'string') return d;
+  const dear = wide.targets.map(t => ({ t, x: landTooDear(t, { home: h, villages: memory.wideVillages, ownTiles: memory.ownTiles, land: wide.land }) })).filter(e => e.x);
+  if (!dear.length) return d;
+  const f = dear[0];
+  return { ...d, dear: dear.map(e => `${e.t.p},${e.t.q}`), why: `${d.why} (skipped ${dear.length} nation-reach target(s) whose site tile costs more upkeep than the food surplus: ${f.t.p},${f.t.q} is ${f.x.dist} provinces from my nearest village, +${(f.x.addMilli / 1000).toFixed(2)} food/h > ${(f.x.surplusMilli / 1000).toFixed(2)} food/h spare)` };
+}
+function decideCore(memory, view, { homes, nowSecs, war = null, wide = null }) {
   if (view === null || view === undefined) return { wait: true, why: 'the herald did not give a readable answer' };
   if (!view.joined) {
     if (!Number.isSafeInteger(nowSecs) || nowSecs <= 0) return { wait: true, why: 'no clock for the Join expiry' };
@@ -270,18 +330,23 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (ai-ore-reserve, owner 2026-11-25 09:33 Q-LP15-4 (b): and only when the ORE RESERVE stays behind — one training
   //  batch, the troops still missing for its next host, its next village's ore; no tile while an own keep near it is
   //  under contest. local-play-operator-reserve.mjs)
+  // (Q-LP19-1 (a): a nation-reach target whose site tile would cost more upkeep than the village's food surplus is
+  //  skipped — for the village claim, the site tile, and the saving for it; landTooDear above)
+  const dearOf = t => landTooDear(t, { home: h, villages: memory.wideVillages, ownTiles: memory.ownTiles, land: wide?.land ?? null });
+  const targets = Array.isArray(wide?.targets) ? wide.targets.filter(t => !dearOf(t)) : [];
+  const skipped = Array.isArray(wide?.targets) ? wide.targets.length - targets.length : 0;
   const atWar = !!(memory.war && war);
   const stores = Array.isArray(wide?.stores) ? wide.stores : null;
   const ore = Number.isFinite(wide?.ore) ? wide.ore : null;
   const army = atWar ? (Number.isFinite(war.army) ? war.army : Number(war.reserve ?? 0)) : wide?.needHost ? Number(wide.needHost.reserve ?? 0) : null;
   const threatened = atWar && (war.threatened === true || war.march?.kind === 'defend');
-  const villageDue = !!wide && Array.isArray(wide.targets) && wide.targets.length > 0 && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS;
+  const villageDue = !!wide && targets.length > 0 && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS;
   const oreKept = oreReserve({ army, hostGoal: atWar ? MUSTER_MIN : wide?.needHost ? WIDE_HOST_TROOPS : 0, threatened,
     villagesHeld: villageDue ? 1 + Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length) : null });
   const oreCovers = () => tilePays(ore, (memory.ownTiles ?? []).length, oreKept);
   // (ai-early-mine: SAVING FOR ITS FIRST WIDE VILLAGE — a wide village can still be claimed (wide land in reach, a site
   //  not yet refused, a claim left) and the resident has none yet (its record's count, its own landed claims)
-  const villageSite = () => { const tried = new Set(memory.triedClaims ?? []); return wide.targets.some(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).some(site => !tried.has(`${t.p},${t.q},${site}`))); };
+  const villageSite = () => { const tried = new Set(memory.triedClaims ?? []); return targets.some(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).some(site => !tried.has(`${t.p},${t.q},${site}`))); };
   const savingFirstVillage = villageDue && Math.max(Number.isInteger(view.wide) ? view.wide : 0, (memory.wideVillages ?? []).length, memory.claims ?? 0) === 0 && villageSite();
   // (ai-early-mine, owner 2026-11-25 20:03 Q-AEM-1 (b): until its next wide-land village is built the resident's troops
   //  are capped at one host — no Train at or above 300 — so the food and gold are saved for the village; with the
@@ -317,9 +382,9 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   // (ai-ore-reserve: the tile of the next village's site, when the resident still has to claim it — the same choice
   //  the village step below makes)
   const siteTileDue = () => {
-    if (!villageDue || !wide.targets.some(t => t.territory)) return false;
+    if (!villageDue || !targets.some(t => t.territory)) return false;
     const tried = new Set(memory.triedClaims ?? []);
-    const next = wide.targets.flatMap(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).map(site => ({ t, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
+    const next = targets.flatMap(t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site)).map(site => ({ t, site }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
     const tile = next?.t.territory ? next.t.territory.siteTiles[next.site] : null;
     return Number.isInteger(tile) && !(memory.ownTiles ?? []).some(o => o.p === next.t.p && o.q === next.t.q && o.tile === tile);
   };
@@ -354,17 +419,17 @@ export function decideNext(memory, view, { homes, nowSecs, war = null, wide = nu
   }
   if (wide?.march) return { name: 'WideMarch', plan: wide.march, why: `a ready host (${wide.march.host.troops} troops) marches into the wide land at ${wide.march.dest.p},${wide.march.dest.q} (arrival turn ${wide.march.arriveBell})` };
   // (TEST-ONLY wide play: save, then claim the nearest wide land within reach — header)
-  if (wide && Array.isArray(wide.targets) && wide.targets.length && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS) {
+  if (wide && targets.length && (memory.claims ?? 0) < OPERATOR_WIDE_CLAIMS) {
     const tried = new Set(memory.triedClaims ?? []);
     // (a target's FREE sites when the herald's capture names them — flocalplay-wide.mjs freeWideSites; else every site)
     const sitesOf = t => (Array.isArray(t.free) ? t.free : Array.from({ length: 12 }, (_, site) => site));
     // (expansion-gameplay-1: a target reached through the nation's land carries its reach witness)
-    const next = wide.targets.flatMap(t => sitesOf(t).map(site => ({ t: { p: t.p, q: t.q }, site, reach: t.reach ? { p: t.reach.p, q: t.reach.q } : null }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
+    const next = targets.flatMap(t => sitesOf(t).map(site => ({ t: { p: t.p, q: t.q }, site, reach: t.reach ? { p: t.reach.p, q: t.reach.q } : null }))).find(c => !tried.has(`${c.t.p},${c.t.q},${c.site}`));
     if (next) {
       const waiting = (memory.claimWaitUntil ?? 0) > memory.decisions || (memory.cooldown.WideClaim ?? 0) > memory.decisions;
       // (territory-impl, owner 2026-11-24 12:09 T-6: in a territory world the village stands on the resident's own tile —
       //  the site's tile is claimed first, one tile a turn, paid in ore; the same reach witness as the village claim)
-      const terr = wide.targets.find(t => t.p === next.t.p && t.q === next.t.q)?.territory ?? null;
+      const terr = targets.find(t => t.p === next.t.p && t.q === next.t.q)?.territory ?? null;
       const tile = terr ? terr.siteTiles[next.site] : null;
       const owned = terr && (memory.ownTiles ?? []).some(o => o.p === next.t.p && o.q === next.t.q && o.tile === tile);
       if (terr && !owned) {
@@ -432,7 +497,7 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
     const mine = outcome === 'landed' || (bad && (why.programCode === 52 || why.code === 'AlreadyDone'));
     // (ai-ore-reserve: a tile landed — the next ore is the troops')
     if (outcome === 'landed') memory.troopsTurn = true;
-    if (mine && !(memory.ownTiles ?? []).some(o => `${o.p},${o.q},${o.tile}` === k)) (memory.ownTiles ??= []).push({ p: String(decision.v.target.p), q: String(decision.v.target.q), tile: decision.fields.tile, ...(Array.isArray(decision.blocked) ? { blocked: decision.blocked } : {}) });
+    if (mine && !(memory.ownTiles ?? []).some(o => `${o.p},${o.q},${o.tile}` === k)) (memory.ownTiles ??= []).push({ p: String(decision.v.target.p), q: String(decision.v.target.q), tile: decision.fields.tile, at: memory.decisions, ...(Array.isArray(decision.blocked) ? { blocked: decision.blocked } : {}) });
     // (verify-pr206-209: a refusal that passes with time — ore short, upkeep unpaid, the turn's claim — only cools the
     //  claim; the tile and its village site stay candidates. Not known: the tile is not asked again, the site stays)
     const temporary = bad && (TILE_CLAIM_TEMPORARY.has(why.programCode) || TILE_CLAIM_TEMPORARY.has(why.code));
