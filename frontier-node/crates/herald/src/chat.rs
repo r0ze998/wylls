@@ -308,6 +308,9 @@ pub struct Msg {
     pub nation: u8,
     pub wallet: [u8; 32],
     pub turn: u32,
+    /// The herald's own bell when it took the message: the limits count by it, not by the signed `turn` (which may be
+    /// one either side of it), so the ±1 window cannot widen [`PER_TURN`] (verify-pr263).
+    pub bell: u32,
     pub nonce: String,
     pub text: String,
     pub sig: [u8; 64],
@@ -319,17 +322,23 @@ impl Msg {
         json!({
             "id": self.id.to_string(), "nation": self.nation,
             "wallet": Address::new_from_array(self.wallet).to_string(),
-            "turn": self.turn, "nonce": self.nonce, "text": self.text,
+            "turn": self.turn, "bell": self.bell, "nonce": self.nonce, "text": self.text,
             "signature": B64.encode(self.sig), "at": self.at_ms,
         })
     }
     fn from_json(v: &Value) -> Option<Msg> {
         let sig: [u8; 64] = B64.decode(v["signature"].as_str()?).ok()?.try_into().ok()?;
+        let turn = u32::try_from(v["turn"].as_u64()?).ok()?;
         Some(Msg {
             id: v["id"].as_str()?.parse().ok()?,
             nation: u8::try_from(v["nation"].as_u64()?).ok()?,
             wallet: v["wallet"].as_str()?.parse::<Address>().ok()?.to_bytes(),
-            turn: u32::try_from(v["turn"].as_u64()?).ok()?,
+            turn,
+            // (a message stored before the field: its signed turn)
+            bell: v["bell"]
+                .as_u64()
+                .and_then(|b| u32::try_from(b).ok())
+                .unwrap_or(turn),
             nonce: v["nonce"].as_str()?.to_string(),
             text: v["text"].as_str()?.to_string(),
             sig,
@@ -461,6 +470,8 @@ impl Chat {
             {
                 if m.nation < NATIONS {
                     st.next_id = st.next_id.max(m.id + 1);
+                    // (a restart keeps refusing replays of what is stored; pruned at the next post as usual)
+                    st.nonces.insert((m.wallet, m.nonce.clone()), m.turn);
                     st.nations[m.nation as usize].push_back(m);
                 }
             }
@@ -552,15 +563,15 @@ impl Chat {
         self.events.subscribe()
     }
 
-    /// Posts and messages counted for `wallet` in `bell` and its day.
+    /// Messages counted for `wallet` in the herald's `bell` and its day (by the bell each was taken in, [`Msg::bell`]).
     fn used(st: &Store, wallet: &[u8; 32], bell: u32) -> (usize, usize) {
         let day = bell / BELLS_PER_DAY;
         let mut t = 0;
         let mut d = 0;
         for m in st.nations.iter().flatten().filter(|m| &m.wallet == wallet) {
-            if m.turn / BELLS_PER_DAY == day {
+            if m.bell / BELLS_PER_DAY == day {
                 d += 1;
-                if m.turn == bell {
+                if m.bell == bell {
                     t += 1;
                 }
             }
@@ -674,7 +685,9 @@ pub fn check_token(w: &World, t: &Value, now_s: i64) -> Result<Reader, &'static 
     let issued = t["issued"].as_i64().ok_or("BadToken")?;
     let expires = t["expires"].as_i64().ok_or("BadToken")?;
     let sig = sig_of(&t["signature"])?;
-    if expires <= issued || expires - issued > TOKEN_MAX_SECS || issued > now_s + TOKEN_SKEW_SECS {
+    // (checked arithmetic: a signed window like i64::MIN..i64::MAX must not wrap into a short one — verify-pr263)
+    let span = expires.checked_sub(issued).unwrap_or(i64::MAX);
+    if expires <= issued || span > TOKEN_MAX_SECS || issued > now_s.saturating_add(TOKEN_SKEW_SECS) {
         return Err("BadTokenWindow");
     }
     if expires <= now_s {
@@ -823,8 +836,8 @@ pub fn post_checked(app: &Shared, chat: &Chat, v: &Value) -> Result<Msg, Refusal
     if st.nonces.contains_key(&(wallet, nonce.to_string())) {
         return Err((StatusCode::CONFLICT, "Replay"));
     }
-    let (t, d) = Chat::used(&st, &wallet, turn);
-    // (the turn the message names; a message signed for the next turn counts there)
+    // (counted in the herald's own bell: a message signed for the turn before or after counts in this one — verify-pr263)
+    let (t, d) = Chat::used(&st, &wallet, now_bell);
     if t >= PER_TURN {
         return Err((StatusCode::TOO_MANY_REQUESTS, "TurnLimit"));
     }
@@ -836,6 +849,7 @@ pub fn post_checked(app: &Shared, chat: &Chat, v: &Value) -> Result<Msg, Refusal
         nation,
         wallet,
         turn,
+        bell: now_bell,
         nonce: nonce.to_string(),
         text: text.to_string(),
         sig,

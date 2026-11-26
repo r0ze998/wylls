@@ -13,6 +13,9 @@
 //!   N7 report (own message, another nation's id, reasons, once per reporter) → the operator reads, deletes, dismisses;
 //!      admin off without a token, wrong token, not from this machine
 //!   N8 WS: auth first; A's members get A's messages and deletions only; a member expelled meanwhile is cut off
+//!   N9 (verify-pr263, adversarial) the turn limit holds across the ±1 turn window and under parallel posts; a
+//!      post signed for nation A is refused for B; a replayed post is refused after a restart; a token with an
+//!      overflowing window is refused (no panic); a request without a Host, or with a foreign one, is refused
 
 mod common;
 
@@ -930,4 +933,77 @@ async fn n8_live_socket() {
         .unwrap();
     assert!(String::from_utf8_lossy(&got[..n]).starts_with("HTTP/1.1 403"));
     assert!(chat::authors(w.chat.as_ref().unwrap()).contains(&c.a2.bytes()));
+}
+
+#[tokio::test]
+async fn n9_adversarial_limits_replay_and_tokens() {
+    let dir = tmp("chat-n9");
+    let clock = Arc::new(AtomicU64::new(T0_MS));
+    let w = world_in(&dir, true, None, clock.clone()).await;
+    let c = cast(&w);
+    // the ±1 turn window does not widen "3 per turn": 3 for the turn before, now and after → only 3 land this turn
+    let mut ok = 0;
+    for (i, t) in [BELL0 - 1, BELL0, BELL0 + 1].into_iter().enumerate() {
+        for k in 0..3 {
+            let (s, _) = post(&w, &c.a1, 1, t, &nonce((i * 10 + k) as u64), "burst").await;
+            ok += (s == 200) as usize;
+        }
+    }
+    assert_eq!(ok, chat::PER_TURN, "turn window burst");
+    // parallel posts with fresh nonces in one turn: exactly 3
+    let mut tasks = Vec::new();
+    for i in 0..12u64 {
+        let b = post_body(&w, &c.a2, &c.a2, 1, BELL0, &nonce(200 + i), "parallel");
+        let port = w.port;
+        tasks.push(tokio::spawn(async move {
+            http(port, "POST", "/h/chat/post", &[], Some(&b)).await.0
+        }));
+    }
+    let mut ok = 0;
+    for t in tasks {
+        ok += (t.await.unwrap() == 200) as usize;
+    }
+    assert_eq!(ok, chat::PER_TURN, "parallel posts");
+    // a post signed for nation 1, sent as nation 4 by a nation-4 member's wallet field unchanged → bad signature
+    let mut b = post_body(&w, &c.b1, &c.b1, 1, BELL0, &nonce(300), "for nation 1");
+    b["nation"] = json!(4);
+    let (s, _, v) = http(w.port, "POST", "/h/chat/post", &[], Some(&b)).await;
+    assert_eq!((s, code(&v)), (401, "BadSignature"));
+    // a replay after a restart (same turn, the signer under its limit)
+    let b = post_body(&w, &c.b1, &c.b1, 4, BELL0, &nonce(301), "once");
+    assert_eq!(http(w.port, "POST", "/h/chat/post", &[], Some(&b)).await.0, 200);
+    let w2 = world_in(&dir, true, None, clock.clone()).await;
+    let _ = cast(&w2);
+    let (s, _, v) = http(w2.port, "POST", "/h/chat/post", &[], Some(&b)).await;
+    assert_eq!((s, code(&v)), (409, "Replay"), "replay after restart");
+    // the limit also holds after the restart
+    let (s, v) = post(&w2, &c.a1, 1, BELL0, &nonce(400), "after restart").await;
+    assert_eq!((s, code(&v)), (429, "TurnLimit"));
+    // a token with an overflowing window (validly signed): refused, the herald keeps answering
+    let t = token_for(&w2, &c.a1, 1, i64::MIN, i64::MAX);
+    let (s, v) = read(&w2, &t).await;
+    assert_eq!((s, code(&v)), (401, "BadTokenWindow"));
+    let t = token_for(&w2, &c.a1, 1, i64::MIN + 1, 0);
+    let (s, v) = read(&w2, &t).await;
+    assert_eq!((s, code(&v)), (401, "BadTokenWindow"));
+    assert_eq!(read(&w2, &token(&w2, &c.a1, 1)).await.0, 200);
+    // Host rules as the other routes: none, or a foreign one → refused before the chat sees it
+    for host in [None, Some("evil.example")] {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", w2.port))
+            .await
+            .unwrap();
+        let h = host.map(|h| format!("Host: {h}\r\n")).unwrap_or_default();
+        s.write_all(
+            format!("GET /h/chat/info HTTP/1.1\r\n{h}Connection: close\r\n\r\n").as_bytes(),
+        )
+        .await
+        .unwrap();
+        let mut got = Vec::new();
+        let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut got)).await;
+        let head = String::from_utf8_lossy(&got);
+        assert!(
+            head.starts_with("HTTP/1.1 4") && !head.contains("\"turn\""),
+            "{host:?}: {head}"
+        );
+    }
 }
