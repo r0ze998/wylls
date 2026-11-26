@@ -16,7 +16,7 @@ import { ringOf } from '../fgeo.mjs';
 import { conquestOn, waitOf, roughAt, choosableWait } from './keephand.mjs';
 import { campChoice, campFights } from './firstbattle.mjs';
 import { viewTile } from '../map/fog.mjs';
-import { conquestObjective } from '../screens/conquestguide.mjs';
+import { conquestObjective, campReach } from '../screens/conquestguide.mjs';
 
 export const GUIDE_LEVELS = Object.freeze(['all', 'warn', 'off']);
 export const GUIDE_TEXT = { all: () => L`すべて`, warn: () => L`警告だけ`, off: () => L`オフ` };
@@ -84,7 +84,8 @@ export function guideTarget(FS) {
 export function campTarget(FS) {
   const host = hostRows(FS).find(r => r.unit !== SCOUT && r.unit !== SETTLER && choosableWait(waitOf(FS, r), r)) ?? null;
   if (!host) return null;
-  const c = campChoice(FS, host, { seen: (p, q, t) => viewTile(p, q, t, 2), rough: (p, q, t) => roughAt(FS, p, q, t) });
+  // (fix-camp-reach: the same reachable camp the guide step names — campReach, the march card's route question)
+  const c = campChoice(FS, host, { seen: (p, q, t) => viewTile(p, q, t, 2), rough: (p, q, t) => roughAt(FS, p, q, t), reach: camp => campReach(FS, host, camp) });
   return c?.winnable ? { p: c.camp.p, q: c.camp.q, tile: c.camp.tile, host: String(host.id) } : null;
 }
 

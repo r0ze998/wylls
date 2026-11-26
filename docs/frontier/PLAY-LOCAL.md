@@ -156,6 +156,11 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    turn 9 (…)") and when the report is expected after that arrival. If every camp in sight sits battles out, it offers "Fight a
    practice clash" (a practice battle, not a chain record) and says to look further with "March". The march card's outlook does not
    count a camp that sits out ("The barbarian camp here (196) does not join the battle …", outlook "Unopposed").
+   The guide also names only a camp your host can **reach** (fix-camp-reach): one march crosses at most 4 provinces and 32
+   tiles, and the guide asks the same route question as the march card, so it never names a camp whose card would say "No path
+   there was found". A `--wide` rim village whose camps in sight are all out of reach gets "No camp in reach yet: no barbarian
+   camp in sight is within this host's reach (one march goes at most 4 provinces and 32 tiles). Meanwhile, try a practice
+   battle …" and "Fight a practice clash". The fog is unchanged: a camp under the fog, even in your own province, is not named.
    In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–389 defenders.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
