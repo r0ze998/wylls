@@ -3,7 +3,7 @@
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
 (its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-27 (through #274; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-27 (through #274 and #270; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -1387,6 +1387,9 @@ A **"Chat"** button in the strip at the top right, beside the language button, o
 the residents of one nation talk there: "Only residents of your nation can read it. Other nations cannot see it."
 Before you join a nation it says "Join a nation to talk with its residents." The button appears only when the world's herald
 has the chat (every `play-local.sh` world; a herald built before #263 has none, and then nothing is drawn).
+While the title screen stands, neither the button nor the panel is shown (#270). On a screen narrower than
+1100 px, the button and an open panel are also set aside while a battle report or a practice battle is open, and the
+panel comes back when it closes; on a wider screen the report moves left and the panel covers none of it.
 
 - **Reading.** Press "Open the nation chat (sign once with your wallet)". "To read, sign once with your wallet (valid for 6
   hours). The signature is only used for reading and cannot move tokens." In a local world the page's TEST key signs, so no
