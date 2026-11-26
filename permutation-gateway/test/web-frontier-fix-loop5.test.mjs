@@ -65,7 +65,9 @@ test('L5-7: while the first host forms, the pill says the wait and a press for m
   const guide = { n: 2, total: 7, title: '軍勢を編成する', text: 'x', go: { act: 'cg-go', data: { pop: 'build' }, label: '建設をひらく', aside: true }, wait: '軍勢の整列を待つ' };
   const nx = nextThing({ mode: 'play' }, { guide, items: [] });
   assert.equal(nx.short, '軍勢の整列を待つ'); assert.equal(nx.label, '待つ間に：建設をひらく'); assert.equal(nx.kicker, 'ガイド 2/7');
-  assert.match(nx.text, /軍勢を編成する（待つ間に：建設をひらく）/);
+  // (verify-pr268: the name a screen reader hears says the wait the pill shows — WCAG 2.5.3 label in name)
+  assert.match(nx.text, /^ガイド 2\/7：軍勢の整列を待つ（待つ間に：建設をひらく）$/);
+  assert.match(nx.hint, /^軍勢の整列を待つ — x$/);
   // a step's own press is unchanged
   const own = nextThing({ mode: 'play' }, { guide: { n: 3, total: 7, title: '進軍する', go: { act: 'cg-go', data: { pop: 'keeps' }, label: '届く砦を見る' } }, items: [] });
   assert.deepEqual([own.short, own.label], ['届く砦を見る', '届く砦を見る']);

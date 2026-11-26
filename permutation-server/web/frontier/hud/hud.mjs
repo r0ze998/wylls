@@ -336,7 +336,11 @@ export function nextThing(FS, { guide = null, items = null } = {}) {
     //  as 「待つ間に：…」, never as if it were the step)
     const short = guide.wait ?? (guide.go ? go.label : guide.title);
     const label = go.aside ? L`待つ間に：${go.label}` : go.label;
-    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label, short, text: L`${kicker}：${guide.title}（${label}）`, hint: guide.go && guide.text ? `${guide.title} — ${guide.text}` : guide.go ? guide.title : guide.text, act: go.act, data: go.data ?? {}, more: list.length };
+    // (verify-pr268: while the step waits, its name for a screen reader and its tooltip say the wait the pill shows —
+    //  「村の確定を待つ」 — not the step's theme: the button read 「ガイド 2/8：軍勢を編成する（待つ間に：建設をひらく）」 aloud
+    //  while the village could form no host, and its name did not hold its visible words, WCAG 2.5.3)
+    const head = guide.wait ?? guide.title;
+    return { kind: 'guide', icon: 'compass', kicker, title: guide.title, label, short, text: L`${kicker}：${head}（${label}）`, hint: guide.go && guide.text ? `${head} — ${guide.text}` : guide.go ? head : guide.text, act: go.act, data: go.data ?? {}, more: list.length };
   }
   if (!list.length) return null;
   const x = list[0];
