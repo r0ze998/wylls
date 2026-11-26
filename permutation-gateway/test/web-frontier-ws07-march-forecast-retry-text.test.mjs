@@ -30,7 +30,8 @@ const code = s => s.split('\n').filter(l => !l.trim().startsWith('//')).join('\n
 
 test('F3 F2 F1 the order of the answers: sight first, then what was not read', () => {
   order(uf, 'if (!key || !c.route || c.sending) return;', 'if (fcRun && fcRun.c === c && fcRun.key === key && fcRun.dest === c.dest) return;',
-    "if (c.forecast?.key === key && !c.forecast.pending && !(c.forecast.unread && (again || (c.forecast.why === 'NoRecord' && FS.provinces.has(destKey))))) return;",
+    // (fix-loop22: a forecast made from an older record of the destination is made again — `stale`, the envelope's revision)
+    "if (!stale && c.forecast?.key === key && !c.forecast.pending && !(c.forecast.unread && (again || (c.forecast.why === 'NoRecord' && FS.provinces.has(destKey))))) return;",
     "c.forecast = { key, ok: false, why: 'OutOfSight' }; c.compare = null; invalidate('panel'); return;",
     'if (!FS.provinces.has(destKey)) {', "c.forecast = { key, ok: false, why: 'NoRecord', unread: true }; c.compare = null;",
     "if (again) retryProvince(c.dest.p, c.dest.q, () => invalidate('map', 'panel')); else wantProvince(c.dest.p, c.dest.q, () => invalidate('map', 'panel'));",
@@ -72,7 +73,7 @@ test('F8 the map tap: its own place, its own draft, its own world', () => {
 });
 
 test('F9 a read order: as before; nothing of sending', () => {
-  assert.ok(uf.includes('c.forecast = { key, ...fc, ...(model ? { model: true } : {}) };'));
-  assert.ok(uf.includes('if (fc.ok && c.compare?.key !== ck) {'));
+  assert.ok(uf.includes("c.forecast = { key, ...fc, ...(model ? { model: true } : {}), ...(made !== null ? { rev: made } : {}) };"));
+  assert.ok(uf.includes('if (fc.ok && (c.compare?.key !== ck || c.compare?.rev !== made)) {'));
   assert.doesNotMatch(code(uf), /march-send|sendTheMarch|pendingDriver|faucet|claim/);
 });

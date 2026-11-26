@@ -2710,6 +2710,8 @@ function closeResPop() { if (FS.resOpen) { FS.resOpen = null; renderHudTick(FS.c
 //  (OutOfSight: no forecast is made there, and none is asked again). An unread forecast stays "not known", is made
 //  again by itself once the missing record is held, and at the person's request — HUD_ACTIONS['forecast-retry'].)
 let fcRun = null;
+/** (fix-loop22) A province envelope's revision as the forecast remembers it (controller.mjs latestEnvelope orders by these), or null. */
+export const envRev = env => (env ? `${env.seq ?? ''}|${env.slot ?? ''}|${env.bell ?? ''}` : null);
 function updateForecast({ again = false } = {}) {
   const c = FS.compose;
   // (fix-loop22, LP22-4: the turn the march would be sent in — the arrival stamina is the chain's, read from it: hud/forecast.mjs arrivalStamina)
@@ -2721,7 +2723,13 @@ function updateForecast({ again = false } = {}) {
   // (made already for the order as it stands — unless it is only "being made" by a request that is not under way any
   //  more (its answer was not this order's to take: the place was asked again, a draft of the same key), or it was not
   //  read and is asked again, or the record it lacked is held now)
-  if (c.forecast?.key === key && !c.forecast.pending && !(c.forecast.unread && (again || (c.forecast.why === 'NoRecord' && FS.provinces.has(destKey))))) return;
+  // (fix-loop22, LP22-4: and the destination's record it was made from is still the one held — `rev`, the envelope's
+  //  seq/slot/bell. A ×60 check: the forecast made when the camp's province had fewer villages said "274–278 left" beside
+  //  "Unopposed" read from the record that had since filled to 12 — the camp no longer fights. The old figures stay on
+  //  the card while the new ones are made: no "calculating…" at every re-read)
+  const rev = envRev(FS.provinces.get(destKey));
+  const stale = !!c.forecast?.ok && c.forecast.key === key && !c.forecast.pending && c.forecast.rev !== undefined && rev !== null && c.forecast.rev !== rev;
+  if (!stale && c.forecast?.key === key && !c.forecast.pending && !(c.forecast.unread && (again || (c.forecast.why === 'NoRecord' && FS.provinces.has(destKey))))) return;
   // (a destination out of sight: no forecast. It would be worked out from the province's whole record, the hosts the
   // viewer cannot see among them, and its numbers would tell of them: a fort's tile out of sight said only "守り N"
   // while the forecast counted N and every host on it. The independent audit of 2026-10-24, older than the uplift,
@@ -2738,11 +2746,10 @@ function updateForecast({ again = false } = {}) {
   }
   const run = fcRun = { c, key, dest: c.dest, world: momentWorld() };
   const mine = () => fcRun === run && FS.compose === c && c.dest === run.dest && forecastKey(c) === key && momentWorld() === run.world;
-  c.forecast = { key, pending: true };
-  invalidate('panel');
+  if (!stale) { c.forecast = { key, pending: true }; invalidate('panel'); }
   seasonKernel().then(k => {
     if (!mine()) return;
-    const env = FS.provinces.get(`${c.dest.p},${c.dest.q}`) ?? null, prov = env?.province ?? null, faction = FS.citizen?.faction ?? 0;
+    const env = FS.provinces.get(`${c.dest.p},${c.dest.q}`) ?? null, prov = env?.province ?? null, faction = FS.citizen?.faction ?? 0, made = envRev(env);
     // (the record went while the rules were read — another world's, or let go: not read, not a forecast of nothing)
     if (!prov) { c.forecast = { key, ok: false, why: 'NoRecord', unread: true }; c.compare = null; return; }
     // S1: the program's own clash model over the destination's bytes (the keep, the forts and the caravans are in it), the
@@ -2753,11 +2760,12 @@ function updateForecast({ again = false } = {}) {
     let fc;
     // (a throw while it is worked out: not read — never taken for the rules' own refusal)
     try { fc = worn?.blocked ? { ok: false, why: 'PalisadeOnRoad' } : one(c); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error', unread: true }; }
-    c.forecast = { key, ...fc, ...(model ? { model: true } : {}) };
+    c.forecast = { key, ...fc, ...(model ? { model: true } : {}), ...(made !== null ? { rev: made } : {}) };
     // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
+    // (fix-loop22: and again when the destination's record changed under it, as the forecast is)
     const ck = compareKey(c);
-    if (fc.ok && c.compare?.key !== ck) {
-      c.compare = { key: ck, rows: model ? [0, 1, 2, 3].map(s => { try { return { stance: s, ...modelForecast(k, { ...c, stance: s }, env.provinceBytes, faction, { wornBps: worn.bps, runs: COMPARE_RUNS }) }; } catch (e) { return { stance: s, ok: false, why: e?.code ?? 'Error' }; } })
+    if (fc.ok && (c.compare?.key !== ck || c.compare?.rev !== made)) {
+      c.compare = { key: ck, rev: made, rows: model ? [0, 1, 2, 3].map(s => { try { return { stance: s, ...modelForecast(k, { ...c, stance: s }, env.provinceBytes, faction, { wornBps: worn.bps, runs: COMPARE_RUNS }) }; } catch (e) { return { stance: s, ok: false, why: e?.code ?? 'Error' }; } })
         : compareStances(k, c, prov, faction) };
     }
   }).catch(e => { if (mine()) c.forecast = { key, ok: false, why: e?.code ?? 'NoWasm', unread: true }; })

@@ -247,3 +247,11 @@ test('fix-loop22 a --wide TEST world\'s order card says its waits on the test cl
   assert.equal(waitWords({ localPlay: { clockScale: 30, wideLand: { scale: 60 } } }, 900), '試験の時計で約 30 秒後', 'the demo\'s own word first');
   assert.equal(waitWords({ localPlay: {} }, 900), '約 15 分後');
 });
+
+test('fix-loop22 the forecast follows the destination\'s record: made again (old figures kept) when the envelope changes', () => {
+  const app = src('app.mjs');
+  assert.ok(app.includes("export const envRev = env => (env ? `${env.seq ?? ''}|${env.slot ?? ''}|${env.bell ?? ''}` : null);"));
+  assert.ok(app.includes('const stale = !!c.forecast?.ok && c.forecast.key === key && !c.forecast.pending && c.forecast.rev !== undefined && rev !== null && c.forecast.rev !== rev;'));
+  assert.ok(app.includes("if (!stale) { c.forecast = { key, pending: true }; invalidate('panel'); }"), 'no "calculating…" flash at a re-read');
+  assert.ok(app.includes('...(made !== null ? { rev: made } : {})'));
+});
