@@ -15,6 +15,9 @@
 import { bellEnd } from '../clock.mjs';
 import { campArrival } from './rulebook.mjs';
 import { SCOUT, SETTLER } from '../fland.mjs';
+import { tileHex, hexDistance } from '../fgeo.mjs';
+import { MAX_PATH_STEPS } from '../seal.mjs';
+import { MAX_ROUTE_PROVINCES } from '../fkeepreach.mjs';
 
 /** Seconds the keeper is given, after the seed round, to resolve the turn (a guide figure; the report is "about"). */
 export const RESOLVE_SLACK_SECS = 60;
@@ -95,30 +98,68 @@ export function garrisonsIn(pr) {
 export const campFights = pr => pr?.camp?.state === 1 && garrisonsIn(pr) < CAMP_GARRISON_CAP;
 
 /**
+ * (fix-camp-reach, pacing-measure-2 D-pacing-measure-2-4 / Q-PM2-1 (c)) Whether a march of host row `r` could reach the
+ * camp on tile `tile` of province (p, q) at all, by the planner's own hard limits, without asking the rules module: a
+ * route crosses at most MAX_ROUTE_PROVINCES provinces (so the camp's province is at most 3 provinces away) and takes at
+ * most MAX_PATH_STEPS steps (so the camp's tile is at most 32 hexes away). False only when it certainly cannot: a rim
+ * village (ring 128) was guided to a ring-3 camp 125 rings away, whose march card said "No path there was found".
+ */
+export function campInBounds(r, { p, q, tile }) {
+  if (!r || !Number.isInteger(p) || !Number.isInteger(q)) return false;
+  const rp = r.p ?? p, rq = r.q ?? q;
+  if (hexDist({ p, q }, { p: rp, q: rq }) > MAX_ROUTE_PROVINCES - 1) return false;
+  if (!Number.isInteger(r.tile) || !Number.isInteger(tile)) return true;
+  const a = tileHex(rp, rq, r.tile), b = tileHex(p, q, tile);
+  return !a || !b || hexDistance(a.q, a.r, b.q, b.r) <= MAX_PATH_STEPS;
+}
+
+/**
  * The barbarian camp for a first march of host row `r` (screens/host.mjs hostRows): among the camps standing in the
  * provinces the page holds whose tile the viewer may see (`seen(p, q, tile)`, the fog's own test) and that would FIGHT
  * (`campFights`: a camp in a province of 12 holdings sits the battle out — a march there is a non-battle, "Held", no
  * losses, fix-firstcamp / Q-LP22-1 (a)), the nearest one the host beats even at the worst roll; else the nearest camp
  * with the troops it would take. `rough(p, q, tile)` says whether the camp's tile is forest or hills (unknown counts as
  * rough: the careful side).
- * Answer: `{camp: {p, q, tile, troops}, winnable, odds, need, passed}` or null (no fighting camp in sight, or no
- * fighting host). `passed`: the camps in sight that sit battles out and are nearer than the pick (nearest first).
+ * (fix-camp-reach) Only a camp the host can REACH is ever chosen: `campInBounds` (the planner's limits, pure), then
+ * `reach({p, q, tile})` — the march card's own route question (screens/conquestguide.mjs campReach: the rules' planner
+ * and the arrival window) — `false` = no route / no arrival turn, `true` = a route, `null` = not known yet (no rules
+ * module; kept, as the card asks again). Asked lazily, in the order of preference, so only the camps up to the pick are
+ * routed. The fog is unchanged: an unseen camp is never a candidate.
+ * Answer: `{camp: {p, q, tile, troops}, winnable, odds, need, passed}` or null (no fighting camp in sight and in reach,
+ * or no fighting host). `passed`: the camps in sight that sit battles out and are nearer than the pick (nearest first).
  */
 export function campChoice(FS, r, opts = {}) {
   if (!r || r.unit === SCOUT || r.unit === SETTLER || !(Number(r.troops) > 0)) return null;
-  const { seen = () => true, rough = () => true } = opts;
+  const { seen = () => true, rough = () => true, reach = () => null } = opts;
   const camps = [];
-  for (const { pr, c, d } of campsInSight(FS, r, seen)) {
-    if (!campFights(pr)) continue;
-    const o = campArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), campTroops: Number(c.troops), rough: !!rough(pr.p, pr.q, c.tile) });
-    camps.push({ camp: { p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops) }, odds: o.odds, need: o.need, d });
+  for (const x of fightingCampsInSight(FS, r, { seen })) {
+    const o = campArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), campTroops: x.troops, rough: !!rough(x.p, x.q, x.tile) });
+    camps.push({ camp: { p: x.p, q: x.q, tile: x.tile, troops: x.troops }, odds: o.odds, need: o.need, d: x.d });
   }
-  if (!camps.length) return null;
+  const reachable = x => {
+    if (!campInBounds(r, x.camp)) return false;
+    let ok = null;
+    try { ok = reach(x.camp); } catch { ok = null; }
+    return ok !== false;
+  };
   const byNear = (a, b) => a.d - b.d || a.camp.troops - b.camp.troops || a.camp.p - b.camp.p || a.camp.q - b.camp.q;
-  const good = camps.filter(x => x.odds === 'good').sort(byNear)[0];
-  const pick = good ?? camps.sort((a, b) => a.d - b.d || (a.need ?? Infinity) - (b.need ?? Infinity) || byNear(a, b))[0];
+  const good = camps.filter(x => x.odds === 'good').sort(byNear).find(reachable);
+  const pick = good ?? [...camps].sort((a, b) => a.d - b.d || (a.need ?? Infinity) - (b.need ?? Infinity) || byNear(a, b)).find(reachable);
+  if (!pick) return null;
   const passed = campsSittingOut(FS, r, { seen }).filter(x => x.d < pick.d);
   return { camp: pick.camp, winnable: pick.odds === 'good', odds: pick.odds, need: pick.need, passed };
+}
+
+/**
+ * (fix-camp-reach) The camps in sight of host row `r` that would fight (`campFights`), nearest first:
+ * `[{p, q, tile, troops, d}]` — reachable or not. With `campChoice` null, a non-empty list means every fighting camp in
+ * sight is out of the host's reach (the guide then offers the practice battle, #261).
+ */
+export function fightingCampsInSight(FS, r, { seen = () => true } = {}) {
+  if (!r) return [];
+  return campsInSight(FS, r, seen).filter(x => campFights(x.pr))
+    .map(({ pr, c, d }) => ({ p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops), d }))
+    .sort((a, b) => a.d - b.d || a.p - b.p || a.q - b.q);
 }
 
 /**

@@ -74,7 +74,8 @@ test('campFights: a standing camp fights only while fewer than 12 holdings stand
 // ------------------------------------------------------------------ the choice
 test('campChoice skips the camp of a 12-village province (the --demo home) and names it as passed', () => {
   // the home province's camp is nearest (distance 0) and the weakest, but 12 villages stand there
-  const s = fs({ camps: [camp(2, 0, 100, { held: 12 }), camp(3, 0, 150), camp(9, 0, 90)] });
+  // (fix-camp-reach: the far camp is 2 provinces away — within a march's reach; 7 provinces away it never is)
+  const s = fs({ camps: [camp(2, 0, 100, { held: 12 }), camp(3, 0, 150), camp(4, 0, 90)] });
   const c = FB.campChoice(s, host, { rough: () => false });
   assert.deepEqual(c.camp, { p: 3, q: 0, tile: 33, troops: 150 });
   assert.equal(c.winnable, true);
@@ -92,7 +93,7 @@ test('campChoice skips the camp of a 12-village province (the --demo home) and n
   assert.deepEqual(FB.campChoice(far, host, { rough: () => false }).passed, []);
   // the fog still rules: an unseen fighting camp is not chosen
   const seen = (p, q) => !(p === 3 && q === 0);
-  assert.deepEqual(FB.campChoice(s, host, { seen, rough: () => false }).camp.p, 9);
+  assert.deepEqual(FB.campChoice(s, host, { seen, rough: () => false }).camp.p, 4);
 });
 
 test('the guide step names the fighting camp and why the nearer one is passed (JA + EN, no "season")', () => {

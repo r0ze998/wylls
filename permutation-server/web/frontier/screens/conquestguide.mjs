@@ -37,8 +37,10 @@ import { worldContinues } from '../clock.mjs';
 import { turnsLine } from '../seasonterms.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
-import { campChoice, campsSittingOut, earliestReportAt, reportEtaAt, ownReportDue, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
-import { planRoute } from '../fmarch.mjs';
+import { campChoice, campsSittingOut, fightingCampsInSight, earliestReportAt, reportEtaAt, ownReportDue, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
+import { planRoute, arrivalWindow } from '../fmarch.mjs';
+import { MAX_PATH_STEPS } from '../seal.mjs';
+import { MAX_ROUTE_PROVINCES } from '../fkeepreach.mjs';
 import { palisadeHexesOf } from '../s1walk.mjs';
 import { routeArrival } from './march.mjs';
 import { viewTile } from '../map/fog.mjs';
@@ -281,7 +283,7 @@ export function campStep(FS) {
   // (this page cannot send a march in this world: said as the keep step says it, and the step can be skipped)
   if (!marchOpenFor(FS)) return { text: L`${who}の軍勢が立ちました。${marchClosedText(FS)}${skip}`, go: { act: 'ob-skip', data: { step: 'camp' }, label: L`この手順を飛ばす` }, wait: null };
   const seen = (p, q, t) => viewTile(p, q, t, 2);
-  const c = campChoice(FS, ready, { seen, rough: (p, q, t) => roughAt(FS, p, q, t) });
+  const c = campChoice(FS, ready, { seen, rough: (p, q, t) => roughAt(FS, p, q, t), reach: camp => campReach(FS, ready, camp) });
   // (fix-firstcamp, Q-LP22-1 (a): a camp in a province of 12 villages sits every battle out — the march there was a
   //  non-battle, "Held", no losses — so the guide passes it by and says why)
   const sitOut = c ? c.passed : campsSittingOut(FS, ready, { seen });
@@ -303,6 +305,13 @@ export function campStep(FS) {
     return { text: out + L`いちばん近い蛮族の野営地（${provinceName(FS, c.camp.p, c.camp.q, { own: false })}、守り手 ${fmtNum(c.camp.troops)}）を、いまの軍勢（${who}）で攻めると、${chance}${need}訓練で兵を足してから向かいましょう。${skip}` + road,
       go: { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }, wait: null };
   }
+  if (fightingCampsInSight(FS, ready, { seen }).length) {
+    // (fix-camp-reach, Q-PM2-1 (c): fighting camps are in sight but none within this host's reach — a rim village saw
+    //  only a ring-3 camp 125 rings away, whose march card said "No path there was found". Never named; the practice
+    //  battle (#261) meanwhile, and the map to look further. The fog is unchanged: unseen camps stay unnamed)
+    return { text: out + L`見えている蛮族の野営地には、まだこの軍勢が届きません（1 回の進軍で行けるのは ${fmtNum(MAX_ROUTE_PROVINCES)} 州・${fmtNum(MAX_PATH_STEPS)} マスまでです）。そのあいだに練習の戦い（チェーンの記録ではありません）で戦い方を確かめられます。「進軍」で地図のマスを押すと、着いたあたりが見えて、届く野営地が見つかることがあります。${skip}`,
+      go: { act: 'practice-open', data: {}, label: L`練習で戦う` }, wait: null };
+  }
   if (sitOut.length) {
     // only camps that sit battles out are in sight: a practice battle (pt-first-battle #261, screens/practice.mjs — said
     // as practice, never a chain record) while the march looks further
@@ -311,6 +320,41 @@ export function campStep(FS) {
   }
   return { text: L`見えている蛮族の野営地はありません。「進軍」で地図のマスを押すと、着いたあたりが見えるようになります。${skip}`,
     go: { act: 'cg-go', data: { pop: 'march', host: String(ready.id) }, label: L`進軍で地図から選ぶ` }, wait: null };
+}
+
+/** (fix-camp-reach) The routes the camp choice asked the rules for, by host and camp (geometry only; cleared with a new kernel). */
+let reachMemo = { kernel: null, map: new Map() };
+const REACH_MEMO_LIMIT = 128;
+/**
+ * (fix-camp-reach, Q-PM2-1 (c)) Whether a march of host row `r` can reach `camp` now, as the march card would say it:
+ * the rules' planner (fmarch.planRoute — the card's own call, palisades avoided as there) finds a route, and the
+ * earliest arrival turn of that route lies inside the arrival window (fmarch.arrivalWindow; else the card refuses the
+ * turn). `true`, `false` (no route: the card's "No path there was found"; or no arrival turn in the window), or `null`
+ * when not known (no rules module yet, the bounded search's budget spent, no clock).
+ */
+export function campReach(FS, r, camp) {
+  if (!FS?.kernel || !r || !camp || !Number.isInteger(r.tile)) return null;
+  if (reachMemo.kernel !== FS.kernel) reachMemo = { kernel: FS.kernel, map: new Map() };
+  const rings = FS.record?.rings ?? [];
+  let blocked = [];
+  try { blocked = palisadeHexesOf(FS); } catch { blocked = []; }
+  const key = `${r.p},${r.q},${r.tile},${r.unit}|${camp.p},${camp.q},${camp.tile}|${rings.length}|${blocked.map(h => `${h.q},${h.r}`).join(';')}`;
+  let x = reachMemo.map.get(key);
+  if (x === undefined) {
+    try {
+      x = planRoute(FS.kernel, { from: { p: r.p, q: r.q, tile: r.tile }, to: { p: camp.p, q: camp.q, tile: camp.tile }, unit: r.unit,
+        seeds: rings.map(g => ({ ring: g.d, seed: g.seed })), blocked });
+    } catch { x = { ok: false, code: 'Error' }; }
+    reachMemo.map.set(key, x);
+    if (reachMemo.map.size > REACH_MEMO_LIMIT) reachMemo.map.delete(reachMemo.map.keys().next().value);
+  }
+  if (!x?.ok) return x?.code === 'NoPath' || x?.code === 'Path' || x?.code === 'PlannerRefused' || x?.code === 'BadTile' ? false : null;
+  // the arrival: the earliest turn of this route must be one the card can name (min lead ≤ it ≤ max lead)
+  let arrive = null;
+  try { arrive = routeArrival(FS, x.route); } catch { arrive = null; }
+  if (!arrive || !FS.season || !Number.isInteger(FS.nowBell)) return true;
+  const w = arrivalWindow(FS.season, FS.nowBell);
+  return Number.isFinite(w.max) ? arrive.bell <= w.max : true;
 }
 
 /** The last route the camp step asked the rules for (one at a time: the step is drawn on every render). */
@@ -374,7 +418,9 @@ export function conquestObjective(FS) {
     const t = keepTarget(FS);
     // (pt-first-battle, "march first": before the first march the measure is the nearest camp in sight, not a keep)
     const hv = activeHolding(FS);
-    const fc = !x.raided && hv ? campChoice(FS, { unit: 0, troops: 100, p: hv.p, q: hv.q }, { seen: (p, q, tl) => viewTile(p, q, tl, 2), rough: (p, q, tl) => roughAt(FS, p, q, tl) }) : null;
+    // (fix-camp-reach: only a camp a march from the village could reach — the planner's limits and route)
+    const fr = hv ? { unit: 0, troops: 100, p: hv.p, q: hv.q, tile: hv.tile } : null;
+    const fc = !x.raided && hv ? campChoice(FS, fr, { seen: (p, q, tl) => viewTile(p, q, tl, 2), rough: (p, q, tl) => roughAt(FS, p, q, tl), reach: camp => campReach(FS, fr, camp) }) : null;
     const aim = fc?.need ? L`最初の戦いは近くの蛮族の野営地（守り手 ${fmtNum(fc.camp.troops)}）です。${unitCount(UNIT_ORDER[0], fc.need)} 以上を一つの軍勢にまとめると、運が悪くても勝てる見込みです。`
       : t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
     // (fix-provisional-guide, loop-play23 BREAK-1: the first village is provisional for up to ≈4 h after its request — the
