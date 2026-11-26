@@ -71,7 +71,23 @@ export const turnsLine = n => { const r = rate(), g = Math.max(0, Number(n) || 0
  * faster clock: 「（実時間で約 10 秒）」 after "8:53" at ×60. Nothing at the natural clock or while the pace is not known
  * (fix-loop8, LP8-10: never a guess). `secs` are chain (game) seconds.
  */
-export const realTail = secs => { const r = rate(), s = Number(secs); return r !== null && r > 1 && Number.isFinite(s) && s > 0 ? L`（実時間で約 ${spanWords(s / r)}）` : ''; };
+export const realTail = secs => {
+  const r = rate(), s = Number(secs);
+  if (r === null || !(r > 1) || !Number.isFinite(s) || !(s > 0)) return '';
+  // (live at ×60: "0:19 left" said "about 0 seconds" — under half a second is said as that)
+  return s / r < 0.5 ? L`（実時間で 1 秒未満）` : L`（実時間で約 ${spanWords(s / r)}）`;
+};
+
+/** (owner-answers-ui, Q-EUA2-4) The same real length in a few characters, for the turn dial (「実時間≈10秒」 / "≈10 s real"). */
+export const realShort = secs => {
+  const r = rate(), s = Number(secs);
+  if (r === null || !(r > 1) || !Number.isFinite(s) || !(s > 0)) return '';
+  const real = Math.round(s / r);
+  if (s / r < 0.5) return L`実時間 1秒未満`;
+  if (real < 90) return L`実時間≈${fmtNum(real)}秒`;
+  if (real < 90 * 60) return L`実時間≈${fmtNum(Math.round(real / 60))}分`;
+  return L`実時間≈${fmtNum(Math.round(real / 3600))}時間`;
+};
 
 /** The season's deadlines: `{join: {bell, closed, realLeft}, end: {bell, ended, realLeft}}`, or null without a season or clock
  *  (`realLeft` null while a fast clock's pace is not known yet). */

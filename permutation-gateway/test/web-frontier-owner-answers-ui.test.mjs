@@ -15,7 +15,7 @@ import { wideClaimModel, tileWhy } from '../../permutation-server/web/frontier/s
 import * as SCR from '../../permutation-server/web/frontier/screens/s1.mjs';
 import * as FOG from '../../permutation-server/web/frontier/map/fog.mjs';
 import * as ST from '../../permutation-server/web/frontier/seasonterms.mjs';
-import { chipText } from '../../permutation-server/web/frontier/app.mjs';
+import { chipText, dialMarkup } from '../../permutation-server/web/frontier/app.mjs';
 import { COEXIST_LANE, selectLocalLane } from '../../permutation-server/web/frontier/flocalplay-lane.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import EN from '../../permutation-server/web/lang/en-frontier-play.mjs';
@@ -112,10 +112,21 @@ test('Q-EUA2-4: a game-time length says its real length on a faster clock only; 
     ST.setTermsPace(() => 60);
     assert.equal(ST.realTail(533), '（実時間で約 9 秒）');
     assert.equal(ST.realTail(0), '');
+    assert.equal(ST.realTail(19), '（実時間で 1 秒未満）', 'live: "0:19 left" said "about 0 seconds"');
+    assert.equal(ST.realTail(30), '（実時間で約 1 秒）');
     assert.equal(chipText({ bell: 1034, secondsLeft: 372 }), 'ターン 1,034 · 残り 6:12（実時間で約 6 秒）');
     assert.equal(ST.realTail(84647), '（実時間で約 24 分）', '"Shielded for 23:30:47" at ×60');
     setLang('en');
     assert.equal(chipText({ bell: 1034, secondsLeft: 372 }), 'Turn 1,034 · 6:12 left (about 6 seconds in real time)');
+    // the round dial: the tail is kept whole for a screen reader, and a few characters show under the time (live: the
+    // tail glued to "left" ran over the dial's ring)
+    const dial = [].concat(dialMarkup({ bell: 154, secondsLeft: 76 })).join('');
+    assert.match(dial, /<span class="visually-hidden"> \(about 1 second in real time\)<\/span><span class="dial-word dial-real" aria-hidden="true">≈1 s real<\/span>$/);
+    assert.match(dial, /<span class="dial-word">left<\/span>/);
+    assert.equal(dial.replace(/<[^>]+>/g, '').replace('≈1 s real', ''), 'Turn 154 · 1:16 left (about 1 second in real time)', 'the element still reads chipText');
+    setLang('ja');
+    assert.match([].concat(dialMarkup({ bell: 154, secondsLeft: 36000 })).join(''), /<span class="dial-word dial-real" aria-hidden="true">実時間≈10分<\/span>$/);
+    setLang('en');
     ST.setTermsPace(() => null);
     assert.equal(ST.realTail(533), '', 'pace not known yet: nothing (fix-loop8 LP8-10)');
   } finally { ST.setTermsPace(() => 1); setLang('ja'); }

@@ -240,7 +240,7 @@ export function render(FS, b) {
   const done = [...g.achievements].reverse();
   const ach = done.length ? html`<ol class="goal-achievements">${done.slice(0, 4).map(a => achievementMarkup(a, FS))}</ol>` : '';
   return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-round="${fk?.round ?? 0}">${head}${goals}${body}${ach}
-    <p class="muted small">${L`世界の目標を達成しても、いまは賞金は払われません（記録だけです）。お金もチェーンも動きません`}</p></section>`;
+    <p class="muted small">${L`世界の目標の賞金は、まだ払われません（出ている金額は試算です）。お金もチェーンも動きません`}</p></section>`;
 }
 
 /** The latest read (null before the first). */

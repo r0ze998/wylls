@@ -35,7 +35,7 @@ import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
 import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, prepareDevnetPlayDeparture, sendDevnetPlayDeparture, reconcileDevnetPlayDeparture, clearDevnetPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn, prepareLocalPlayConquest, sendLocalPlayConquest, reconcileLocalPlayConquest, readLocalPlayConquestOrders } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
-import { setTermsPace, realTail } from './seasonterms.mjs';
+import { setTermsPace, realTail, realShort } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, bellAt, countdown, seasonClock, bellStart, pollCap, worldContinues } from './clock.mjs';
@@ -266,6 +266,10 @@ export function dialMarkup(chip) {
   const parts = dialParts(chip);
   let rest = chipText(chip);
   const out = [];
+  // (owner-answers-ui, Q-EUA2-4: on a faster clock the line's real-time tail is too long for the round dial — it is
+  //  kept whole for a screen reader, and the dial shows the few characters of realShort beside "left" instead)
+  const tail = chip && !chip.stopped && !chip.ended ? realTail(chip.secondsLeft) : '';
+  if (tail && rest.endsWith(tail)) rest = rest.slice(0, -tail.length);
   // (the word that says the time is what is LEFT, 「残り」 / "left", stands beside the time, small: 「9:26」 alone read as
   // time gone as well as time left: the design review of 2026-10-24. The rest of the glue stays for a screen reader)
   const glue = (seg, nextToLeft) => {
@@ -284,6 +288,7 @@ export function dialMarkup(chip) {
     rest = rest.slice(i + text.length);
   }
   if (rest) glue(rest, !!parts.left && out.length > 0 && String(out[out.length - 1]).includes('dial-left'));
+  if (tail) out.push(html`<span class="visually-hidden">${tail}</span>`, html`<span class="dial-word dial-real" aria-hidden="true">${realShort(chip.secondsLeft)}</span>`);
   return out;
 }
 
