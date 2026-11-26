@@ -1190,7 +1190,9 @@ road is at most 32 tiles and 4 provinces).
 
 When the title is earned (⑮'s ruleset B version 4, `workstreams/15-coop-outcomes/src/rulesets.mjs`):
 - You **delivered with your own caravan** to a request of **someone of another nation**, and that request **reached its
-  requested amount** (the board's proof by the lower bound of what it counted).
+  requested amount** (the board's proof by the lower bound of what it counted). Every counted delivery counts toward the
+  amount, also those of the requester's own nation (owner decision 2026-11-26, Q-TG2-2): A asks for 20 wood, C of A's nation
+  delivers 15 and B of another nation 5 → the request reached its amount and B earns the title; C earns nothing.
 - Not earned by: answering "Accept" alone, a partial delivery to a request that did not reach its amount, a request of someone of
   your own nation, your own request (the board refuses that in the first place).
 - Titles and records only: nothing is added to the world goals, score or prize (owner decision ⑮ B; the
