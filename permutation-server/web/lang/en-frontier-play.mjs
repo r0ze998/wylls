@@ -2542,6 +2542,8 @@ export default {
   "{0}が旗の砦を一つ取りました（ターン {1}）": "{0} took a flag keep (turn {1})",
   "判定中（チェーンの外で。お金は動きません）": "Being judged (off chain; no money moves)",
   "広い土地の中立の砦と自由都市が旗の砦です。奪って {0}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 {1} 個）": (a, n) => `The flag keeps are the neutral keeps and Free Cities of the wide land. The first nation to capture one and hold it for {0} takes that flag keep (${plural(n, '{1} flag keep', '{1} flag keeps')} found so far)`,
+  "自由都市は、この世界ではまだ奪えません": "Free Cities cannot be taken yet in this world",
+  "広い土地の中立の砦と自由都市が旗の砦です。奪って {0}続けて持つたびに、その国が旗の砦を一つ取ります（いま見つかっている旗の砦 {1} 個）": (a, n) => `The flag keeps are the neutral keeps and Free Cities of the wide land. Each time a nation captures one and holds it for {0}, it takes a flag keep (${plural(n, '{1} flag keep', '{1} flag keeps')} found so far)`,
   "ほかの旗の砦 {0} 個は、いまは見えていません": n => plural(n, "{0} other flag keep is out of sight now", "{0} other flag keeps are out of sight now"),
   "判定はチェーンの外で、この世界の公開の記録（砦をいつから持っているか）から行います": "Judged off chain, from this world's public records (since when each keep has been held)",
   "世界の目標：あなたの国（{0}）が {1} を {2}持ち続けて、その旗の砦を取りました（ターン {3}）": "World goals: your nation ({0}) held {1} for {2} and took that flag keep (turn {3})",

@@ -29,7 +29,18 @@ export const WIDE_FLAGS_RULESET = 'wide-flags-v1';
 export const NATIONS = 6;
 /** 144 bells of 10 minutes = 24 hours (Q-PT-7 (b)). */
 export const BELLS_PER_DAY = 144;
-export const WIDE_FLAGS_DEFAULTS = Object.freeze({ holdBells: BELLS_PER_DAY, firstOnly: true });
+/**
+ * The judge's PROVISIONAL rules (owner questions inbox/2026-11-26-1830-pt-world-goals-devnet-questions.md; the
+ * recommended answers, per Grok 2026-11-26 17:02 "continue with the recommended defaults where nothing ships live").
+ * Each later answer is a change of one value here:
+ *   holdBells   Q-PT-7 (b) decided: 24 hours.
+ *   firstOnly   Q-PTWG-2 (a): the first nation to hold a flag long takes it, once per flag. false = (b): every long
+ *               hold counts again, also after a recapture by another nation.
+ *   freeCities  Q-PTWG-1 (a) / Q-PTWG-5: Free City sites are flags beside the keeps. false = keeps only (Q-PTWG-5 (c)).
+ * Not a value: Q-PTWG-3 (a) — counts only, no winner (nothing here computes one); Q-PTWG-4 — a Free City counts from
+ * the first read that shows it held; Q-PTWG-7 (a) — holds count only through RESOLVED bells (`resolvedNext`).
+ */
+export const WIDE_FLAGS_DEFAULTS = Object.freeze({ holdBells: BELLS_PER_DAY, firstOnly: true, freeCities: true });
 /** The first ring past the legacy disk (geometry R_MAX_HARD + 1). */
 export const FIRST_WIDE_RING = 129;
 
@@ -111,7 +122,7 @@ const keyCity = (p, q, site) => `c:${p},${q}:${site}`;
 
 /** A fresh judge state. */
 export function initialState(rules = WIDE_FLAGS_DEFAULTS) {
-  return { v: 1, ruleset: WIDE_FLAGS_RULESET, holdBells: rules.holdBells, firstOnly: rules.firstOnly, observations: 0, inputsHash: '0'.repeat(64), bell: null, flags: {}, achievements: [] };
+  return { v: 1, ruleset: WIDE_FLAGS_RULESET, holdBells: rules.holdBells, firstOnly: rules.firstOnly, freeCities: rules.freeCities !== false, observations: 0, inputsHash: '0'.repeat(64), bell: null, flags: {}, achievements: [] };
 }
 
 /** The canonical text of an observation (what the inputs hash chains over): only the fields the judge reads. */
@@ -129,9 +140,14 @@ export function stepFlags(st, obs) {
   const made = [];
   const achieve = (f, nation, bell) => {
     if (f.achieved && s.firstOnly) return;
-    if (f.achieved && f.achieved.nation === nation && f.achieved.bell === bell) return;
+    // (one hold = one (nation, bell): the bell is since + holdBells and since changes with every capture. `last` is the
+    //  latest hold achieved — holds are achieved in bell order — so a hold read again on the next read is not counted again)
+    const last = f.last ?? f.achieved;
+    if (last && last.nation === nation && last.bell === bell) return;
+    if (last && bell < last.bell) return;
     const a = { key: f.key, kind: f.kind, p: f.p, q: f.q, ...(f.kind === 'freeCity' ? { site: f.site } : {}), nation, bell };
     if (!f.achieved) f.achieved = { nation, bell };
+    f.last = { nation, bell };
     made.push(a);
   };
   for (const x of obs.provinces) {
@@ -153,7 +169,7 @@ export function stepFlags(st, obs) {
         if (f.holder !== null && resolved >= f.since + hold) achieve(f, f.holder, f.since + hold);
       }
     }
-    for (const c of x.sites) {
+    for (const c of s.freeCities === false ? [] : x.sites) {
       const key = keyCity(x.p, x.q, c.site);
       let f = s.flags[key];
       if (!f) {

@@ -123,7 +123,8 @@ Good to know:
   The design record is [design 01](../design/win-conditions/01-proposal.ja.md) (Japanese).
 - **World goals on the page (decision of 2026-11-26).** “Nation & territory” has a “World goals” card. Until the
   goals are judged it says “Planned — not judged yet” and names the goal: capture a neutral keep or a Free City in the
-  wide land and hold it for 144 turns (24 hours). The judging is planned to run off chain (no money, nothing written
+  wide land and hold it for 144 turns (24 hours). Free Cities cannot be taken yet in this world (the
+  devnet program has no Free City conquest), and the card says so. The judging is planned to run off chain (no money, nothing written
   to the chain) from what the chain already records about each keep, including since when it has been held. When it
   runs, the card says “Being judged” and shows your nation's flag keeps, the flag keeps in sight, and how many each
   nation took or holds. No money is paid for a goal.

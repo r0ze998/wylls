@@ -123,3 +123,21 @@ test('the judge\'s own answer (wide-flags.mjs) is a good answer for the page', (
   assert.ok(UI.goodWideAnswer(a));
   assert.match(text(UI.render(page(), { read: 'ok', goals: a })), /砦 140,-3 を 144 ターン（24 時間）持ち続けて取りました（ターン 245）/);
 }));
+
+test('verify-pr260: Free Cities cannot be taken on the devnet build (Q-PTWG-5 (b)): both cards say so, JA and EN; firstOnly false changes the rule line', () => run(() => {
+  assert.equal(UI.DEVNET_FREE_CITIES_TAKEABLE, false);
+  const FS = page();
+  const judged = { read: 'ok', goals: answer([flag(2, 0, VIEWER, 100)]) };
+  for (const b of [null, judged]) assert.match(text(UI.render(FS, b)), /自由都市は、この世界ではまだ奪えません/);
+  assert.match(text(UI.render(FS, judged)), /続けて持った最初の国が/);
+  const again = { read: 'ok', goals: { ...judged.goals, wideFlags: { ...judged.goals.wideFlags, firstOnly: false } } };
+  assert.match(text(UI.render(FS, again)), /続けて持つたびに、その国が旗の砦を一つ取ります/);
+  setLang('en');
+  for (const b of [null, judged, again]) {
+    const en = text(UI.render(FS, b));
+    assert.match(en, /Free Cities cannot be taken yet in this world/);
+    assert.doesNotMatch(en, /[぀-ヿ一-鿿]/, 'no Japanese left');
+    assert.doesNotMatch(en, /season/i);
+  }
+  assert.match(text(UI.render(FS, again)), /Each time a nation captures one and holds it for 144 turns/);
+}));

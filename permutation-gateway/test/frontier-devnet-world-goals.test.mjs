@@ -160,6 +160,64 @@ test('an older capture than one already read is ignored', () => {
   assert.equal(st.flags['k:140,0'].holder, 2);
 });
 
+// (verify-pr260) edge cases beyond the author's: the real neutral side, recapture, and the provisional-rule switches
+test('verify-pr260: the live world\'s neutral side is faction 6 (not 0xFF): a neutral keep has no holder, a capture from it counts', () => {
+  // the world-3 replica's bytes: every unowned wide keep reads holder 6, troops 50, since 7, gen 0, last_taken_from 0xFF
+  let s = stepFlags(initialState(), obsOf(entry(140, 0, province({ resolvedNext: 400, keep: keepAt(6, 7, 0) }))));
+  assert.deepEqual(s.events, []);
+  assert.equal(s.state.flags['k:140,0'].holder, null);
+  assert.equal(standingsOf(s.state).reduce((n, x) => n + x.holding, 0), 0);
+  s = stepFlags(s.state, obsOf(entry(140, 0, province({ resolvedNext: 410, keep: keepAt(2, 405, 1, 6) }))));
+  assert.deepEqual(s.events, [], 'not a missed hold of the neutral side');
+  s = stepFlags(s.state, obsOf(entry(140, 0, province({ resolvedNext: 549, keep: keepAt(2, 405, 1, 6) }))));
+  assert.deepEqual(s.events.map(e => [e.nation, e.bell]), [[2, 549]]);
+});
+
+test('verify-pr260: captured, lost before 24 h, recaptured by the first nation: it counts from the recapture only', () => {
+  const at = (rn, k) => obsOf(entry(140, 0, province({ resolvedNext: rn, keep: k })));
+  let st = stepFlags(initialState(), at(110, keepAt(1, 101, 1))).state;
+  st = stepFlags(st, at(160, keepAt(3, 150, 2, 1))).state; // nation 3 takes it after 49 turns
+  let s = stepFlags(st, at(200, keepAt(1, 190, 3, 3))); // nation 1 retakes it at bell 189
+  assert.deepEqual(s.events, []);
+  s = stepFlags(s.state, at(333, keepAt(1, 190, 3, 3)));
+  assert.deepEqual(s.events, [], '101 + 144 = 245 is not the bell: the first hold ended at 149');
+  s = stepFlags(s.state, at(334, keepAt(1, 190, 3, 3)));
+  assert.deepEqual(s.events.map(e => [e.nation, e.bell]), [[1, 334]]);
+  // the same hold read again does not count again
+  s = stepFlags(s.state, at(400, keepAt(1, 190, 3, 3)));
+  assert.deepEqual(s.events, []);
+  assert.equal(s.state.achievements.length, 1);
+});
+
+test('verify-pr260: firstOnly false (Q-PTWG-2 (b)) counts each long hold exactly once, however often it is read', () => {
+  const rules = { holdBells: 144, firstOnly: false, freeCities: true };
+  const at = (rn, k) => obsOf(entry(140, 0, province({ resolvedNext: rn, keep: k })));
+  const reads = [at(20, keepAt(2, 15, 1)), at(170, keepAt(2, 15, 1)), at(171, keepAt(2, 15, 1)), at(180, keepAt(3, 175, 2, 2)),
+    at(330, keepAt(3, 175, 2, 2)), at(331, keepAt(3, 175, 2, 2)), at(332, keepAt(3, 175, 2, 2))];
+  const st = replay(reads, rules);
+  assert.deepEqual(st.achievements.map(a => [a.nation, a.bell]), [[2, 159], [3, 319]]);
+  assert.deepEqual(st.flags['k:140,0'].achieved, { nation: 2, bell: 159 }, 'the first taker stays named');
+  // a missed hold then a seen one, in one read: both, in bell order, once
+  const s2 = replay([at(20, keepAt(2, 15, 1)), at(500, keepAt(4, 300, 2, 2)), at(501, keepAt(4, 300, 2, 2))], rules);
+  assert.deepEqual(s2.achievements.map(a => [a.nation, a.bell]), [[2, 159], [4, 444]]);
+});
+
+test('verify-pr260: freeCities false (Q-PTWG-5 (c)) makes keeps the only flags', () => {
+  const o = obsOf(entry(150, 1, province({ resolvedNext: 100, keep: keepAt(6, 7, 0), sites: [{ state: 5, faction: 6 }] })));
+  assert.deepEqual(Object.keys(replay([o]).flags).sort(), ['c:150,1:0', 'k:150,1']);
+  assert.deepEqual(Object.keys(replay([o], { holdBells: 144, firstOnly: true, freeCities: false }).flags), ['k:150,1']);
+});
+
+test('verify-pr260: the herald\'s entry order does not change the answer (same inputs hash, same achievements)', () => {
+  const a = entry(141, 0, province({ resolvedNext: 400, keep: keepAt(5, 101, 1) }));
+  const b = entry(-140, 3, province({ resolvedNext: 400, keep: keepAt(0, 101, 1), sites: [{ state: 5 }] }));
+  const c = entry(139, -2, province({ resolvedNext: 380, keep: keepAt(0, 50, 1) }));
+  const x = answerOf(replay([obsOf(a, b, c)]), { seasonId: SEASON });
+  const y = answerOf(replay([obsOf(c, a, b)]), { seasonId: SEASON });
+  assert.deepEqual(x, y);
+  assert.equal(x.achievements.length, 3);
+});
+
 /** A fake herald over a list of reads (each a list of entries), paged by 2. */
 function fakeHerald(reads, { staleOnce = false } = {}) {
   let i = 0, stale = staleOnce;

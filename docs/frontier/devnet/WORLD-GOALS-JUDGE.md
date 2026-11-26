@@ -41,7 +41,13 @@ are the neutral keeps and Free Cities of the wide land, captured and held for 24
 | A hold the judge did not see end | if the next capture names the old holder (`last_taken_from`, `gen` + 1), the old holder's hold is [s, s₂ − 1) and counts if long enough | — |
 | Achievement | the first nation to hold a flag 144 turns takes that flag (once per flag) | Q-PTWG-2 |
 | Standings | per nation: flags taken, flags held now (not yet taken) | Q-PTWG-3 (is there a "winner") |
-| Free City | counted from the first capture that shows it held by a nation (the Province bytes have no capture bell for a site) | Q-PTWG-4; and Q-PTWG-5: **the devnet program cannot capture a Free City** (P14 (b)) |
+| Free City | counted from the first capture that shows it held by a nation (the Province bytes have no capture bell for a site) | Q-PTWG-4; and Q-PTWG-5: **the devnet program cannot capture a Free City** (P14 (b)); the page says so: `DEVNET_FREE_CITIES_TAKEABLE = false` in `hud/worldgoals.mjs` shows “Free Cities cannot be taken yet in this world” on both cards (rec (b)) |
+
+The provisional rules (the recommended answers, used until r0ze answers) are one value each in
+`WIDE_FLAGS_DEFAULTS` (`permutation-gateway/src/frontier/wide-flags.mjs`): `holdBells` (144, decided), `firstOnly`
+(Q-PTWG-2: `true` = (a), `false` = (b)), `freeCities` (Q-PTWG-1 (a) / Q-PTWG-5: `false` drops Free Cities). Each
+archive line records the rules it was judged with, so a replay uses the same rules. Q-PTWG-3 (no winner), Q-PTWG-4 and
+Q-PTWG-7 (strict: resolved bells only) are how the code works, not values.
 
 ## Install (later, with r0ze's OK)
 

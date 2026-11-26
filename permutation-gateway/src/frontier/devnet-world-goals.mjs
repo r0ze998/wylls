@@ -129,7 +129,7 @@ export async function openJudge({ herald, dir, fetchImpl = globalThis.fetch, rul
       const obs = observationOf(h.entries, { seasonId: season.seasonId, world: season.world });
       const step = stepFlags(state, obs);
       n += 1;
-      await appendFile(archive, `${JSON.stringify({ n, season, rules: { holdBells: state.holdBells, firstOnly: state.firstOnly }, readAt: now(), obs })}\n`);
+      await appendFile(archive, `${JSON.stringify({ n, season, rules: { holdBells: state.holdBells, firstOnly: state.firstOnly, freeCities: state.freeCities }, readAt: now(), obs })}\n`);
       state = step.state;
       const answer = answerOf(state, { seasonId: season.seasonId, programId: season.programId, seasonAddress: season.seasonAddress });
       await writeAtomic(answerFile, JSON.stringify(answer));
