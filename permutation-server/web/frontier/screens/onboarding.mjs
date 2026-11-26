@@ -79,7 +79,9 @@ const GO = Object.fromEntries(Object.keys(GO_ACT).map(k => [k, (c = '', FS = nul
 export function waitText(w) {
   if (!w) return '';
   const range = L`約${w.minutes[0]}〜${w.minutes[1]}分`;
-  if (w.kind === 'ticket') return w.at ? Lh`結果は ${timeHtml(w.at)} ごろ（出してから${range}）。待つあいだに練習できます。` : L`結果は出してから${range}で決まります。`;
+  // (fix-loop22: the wall clock, never the chain's — screens/shell.mjs timeHtml; a time it cannot place is left out)
+  const at = w.kind === 'ticket' && w.at ? timeHtml(w.at) : null;
+  if (w.kind === 'ticket') return at ? Lh`結果は ${at} ごろ（出してから${range}）。待つあいだに練習できます。` : L`結果は出してから${range}で決まります。`;
   if (w.kind === 'explore') return L`探索の結果は送ってから${range}で出ます。`;
   if (w.kind === 'report') return html`${L`報告は出発から${range}でできます。いまは：`}${PIPELINE_TEXT[w.pipeline] ?? ''}`;
   return '';

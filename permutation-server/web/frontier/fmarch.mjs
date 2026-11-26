@@ -38,6 +38,25 @@ export const DEPART_STAMINA = RULES.MARCH_STAMINA_BASE + RULES.MARCH_STAMINA_PER
 export const troopsOf = milli => Math.floor(Number(milli) / RULES.MILLI);
 /** Stamina of an entry at bell b (+1 per bell, capped): host.rs `Stamina::at`. */
 export const staminaAt = (entry, b) => (b <= entry.staminaBell ? entry.staminaValue : Math.min(RULES.STAMINA_CAP, entry.staminaValue + (b - entry.staminaBell)));
+/**
+ * (fix-loop22, LP22-4) The stamina a march arrives with, as the chain counts it: Depart charges DEPART_STAMINA (the
+ * longest path's, I-32 — the route is sealed, so never the planned route's cost) when it settles on the departure's
+ * effective turn (host.rs `effective_bell` = the departure turn + 1, `settle` Spend: min(120, s + 1) − 74 stored there),
+ * then the road refills it +1 a turn up to the arrival turn (frontier-abi clash_model.rs `arrival_stamina`; the same
+ * arithmetic as hud/marchcard.mjs readyAgain). The forecast subtracted the planned route's cost from the stamina at the
+ * arrival turn — 33 for a host of 75 marching 18 tiles, where the chain read 5 —, so it never saw the host arrive
+ * exhausted (under ENGAGE_STAMINA, clash.rs `attacker_exhausted`) and said "holds the field 8/8" for a march that
+ * retreated (loop-play22 keep march, 300 → 227). `departBell`: the turn the march is sent in (null: two turns before the
+ * arrival, the least lead).
+ */
+export function arrivalStamina(h, departBell, arriveBell) {
+  const b = Number.isInteger(departBell) ? departBell : arriveBell - 2;
+  const spent = Math.max(0, staminaAt(h, b + 1) - DEPART_STAMINA);
+  return Math.min(RULES.STAMINA_CAP, spent + Math.max(0, arriveBell - (b + 1)));
+}
+
+/** Stamina under which an arriving host fights exhausted (host.rs ENGAGE_STAMINA; clash.rs `attacker_exhausted`). */
+export const ENGAGE_STAMINA = 20;
 
 // ------------------------------------------------------------------ choices
 /** The retreat list (§7.6, I-27): never = 0; otherwise withdraw if the frozen defenders exceed ratio × mine. */

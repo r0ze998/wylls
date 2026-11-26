@@ -957,6 +957,7 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   FS.bellItems = [];
   FS.formingBells = [];
   FS.orders = [];
+  FS.ownClashes = [];   // (fix-loop22: the former viewer's own resolved marches — hud/feed.mjs ownClashesFrom)
   FS.departed = null;
   mySlots = [];
   if (walletChanged) FS.delegation = null;

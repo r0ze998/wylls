@@ -373,7 +373,8 @@ test('words the second review asked for: a village\'s English name, the shield, 
   const en = JSON.stringify([String(provisionalNote(null, null)), String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 } }, { ticketBell: 40 }))]);
   assert.match(en, /about 4 hours after the request at the latest/);
   // (rewritten with wave 3, UX design 12.6: no bare clock time. The time says what it is: how long from now, then the clock)
-  assert.match(en, /Confirmed once every village requested in the same turn is placed: around <time datetime=[^>]*>[^<]*<\/time> at the latest\./, 'without a "now": the clock time with its word');
+  // (fix-loop22, LP22-3: without the chain's "now" no clock time is said — it was the chain's own clock, not the viewer's)
+  assert.doesNotMatch(en, /<time/, 'without a "now": no clock time (the chain\'s clock is not the viewer\'s)');
   const due = String(provisionalNote({ clock: { genesisTs: 0, window: () => 60, margin: 6 }, chain: { now: () => 40 * 600 } }, { ticketBell: 40 }));
   assert.match(due, /placed: in about \d+ h \d+ min \(around <time datetime=[^>]*>[^<]*<\/time>\) at the latest\./, due);
   setLang('ja');

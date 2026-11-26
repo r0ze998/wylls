@@ -263,7 +263,8 @@ const CLASH_F = Object.freeze([
   2297,
 ]);
 /** combat.rs / params.rs: k, and the modifiers the arrival on a keep meets (bps). */
-export const CLASH_BPS = Object.freeze({ k: 5_500, walls: 6_667, cityRetaliation: 5_000, terrain: 8_000, rollLow: 9_000, rollHigh: 11_000 });
+// (fix-loop22: `exhausted` — combat.rs ATTACKER_EXHAUSTED, an arrival under ENGAGE_STAMINA 20 strikes at 85 %)
+export const CLASH_BPS = Object.freeze({ k: 5_500, walls: 6_667, cityRetaliation: 5_000, terrain: 8_000, exhausted: 8_500, rollLow: 9_000, rollHigh: 11_000 });
 const CITY_STRENGTH = 10;
 
 /** combat.rs `damage` in milli-troops (`nA`, `nB` milli-troops; `mods` bps, applied in order). */
@@ -277,12 +278,13 @@ function clashDamage(nA, strA, nB, strB, mods, roll) {
 }
 
 /** One arrival turn of `troops` (whole) of `unit` on a keep of `keepTroops` (whole): what is left of each side and whether the host holds the tile, at the given rolls. */
-function arrivalTurn(unit, troops, keepTroops, rough, rollHost, rollKeep, walls = true) {
+function arrivalTurn(unit, troops, keepTroops, rough, rollHost, rollKeep, walls = true, tired = false) {
   const str = UNIT_STATS[unit]?.strength ?? 0;
   const a = troops * 1000, g = keepTroops * 1000;
   // (pt-first-battle: a barbarian camp is the same kind of garrison — clash.rs `Combatant::City`, strength 10, retaliation
   //  ×0.5 — standing without walls: clash_model's camp garrison has `walls: false`)
-  const mods = [...(rough ? [CLASH_BPS.terrain] : []), ...(walls ? [CLASH_BPS.walls] : [])];
+  // (fix-loop22: combat.rs pushes the attack's modifiers in this order — terrain, exhausted, then walls)
+  const mods = [...(rough ? [CLASH_BPS.terrain] : []), ...(tired ? [CLASH_BPS.exhausted] : []), ...(walls ? [CLASH_BPS.walls] : [])];
   const toKeep = clashDamage(a, str, g, CITY_STRENGTH, mods, rollHost);
   const toHost = clashDamage(g, CITY_STRENGTH, a, str, [CLASH_BPS.cityRetaliation], rollKeep);
   const hostLeft = Math.max(0, a - toHost), keepLeft = Math.max(0, g - toKeep);
@@ -296,14 +298,15 @@ function arrivalTurn(unit, troops, keepTroops, rough, rollHost, rollKeep, walls 
  * the best); `need` the fewest troops of the unit, in hundreds, that hold the tile at the worst luck (null for a
  * unit that does not fight, or above a host's 30,000). `rough`: the keep's tile is forest or hills.
  */
-export function keepArrival({ unit, troops, keepTroops, rough = true }) {
+export function keepArrival({ unit, troops, keepTroops, rough = true, tired = false }) {
   const str = UNIT_STATS[unit]?.strength ?? 0;
   if (!(str > 0) || !(troops > 0) || !(keepTroops >= 0)) return { odds: 'poor', worst: null, best: null, need: null };
-  const worst = arrivalTurn(unit, troops, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh);
-  const best = arrivalTurn(unit, troops, keepTroops, rough, CLASH_BPS.rollHigh, CLASH_BPS.rollLow);
+  // (fix-loop22, LP22-4: `tired` — the host arrives under ENGAGE_STAMINA and strikes exhausted, as the chain resolves it)
+  const worst = arrivalTurn(unit, troops, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh, true, tired);
+  const best = arrivalTurn(unit, troops, keepTroops, rough, CLASH_BPS.rollHigh, CLASH_BPS.rollLow, true, tired);
   let need = null;
   for (let n = HOST_TROOPS.min; n <= HOST_TROOPS.max; n += 100) {
-    if (arrivalTurn(unit, n, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh).holds) { need = n; break; }
+    if (arrivalTurn(unit, n, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh, true, tired).holds) { need = n; break; }
   }
   return { odds: worst.holds ? 'good' : best.holds ? 'even' : 'poor', worst, best, need };
 }

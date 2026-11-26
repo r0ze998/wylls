@@ -104,7 +104,7 @@ import { provinceName as placeProvinceName } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
 import * as pm from './proto/hand-model.mjs';
-import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports, setClockPace } from './screens/shell.mjs';
+import { renderTabs, factionChip, quotaChip, mountSheet, PHONE_MAX, row, lamports, setClockPace, setChainNow } from './screens/shell.mjs';
 import { cardHead, fold, label } from './screens/parts.mjs';
 import { drawerOf, closeDrawer, drawerTitle, holdsLand, viewerState, LIFTS, DRAWER_ICON, WIDE, STAGE, settleRows, releaseRows } from './hud/drawer.mjs';
 import { icon, iconizeMapTools, watchArtIcons } from './hud/icons.mjs';
@@ -408,9 +408,21 @@ export function myReports(FS) {
     const bell = m.entry?.arriveBell ?? m.transit?.arriveBell;
     if (m.facts?.pipeline === 'resolved' && m.dest && Number.isInteger(bell)) add({ p: m.dest.p, q: m.dest.q, bell });
   }
+  // (fix-loop22, LP22-4: and the ones whose march rows have left the list — hud/feed.mjs ownClashesFrom)
+  for (const c of FS.ownClashes ?? []) add({ p: c.p, q: c.q, bell: c.bell });
   const own = FS.holdings ?? [];
   for (const c of reportScreen.clashesFrom(FS.chronicle ?? [], 24)) if (own.some(o => o.p === c.p && o.q === c.q)) add(c);
   return out.slice(0, 12);
+}
+
+/**
+ * "Other → Recent clashes": the viewer's own clashes (myReports — kept after their march rows go, fix-loop22 LP22-4: the
+ * keep march that retreated was in neither list) with the chronicle's clashes the fog lets through, newest first.
+ */
+export function recentClashes(FS) {
+  const out = [];
+  for (const x of [...myReports(FS), ...reportScreen.clashesFrom(shownChronicle() ?? [])]) if (!out.some(y => y.p === x.p && y.q === x.q && y.bell === x.bell)) out.push(x);
+  return out.sort((a, b) => b.bell - a.bell).slice(0, 12);
 }
 
 /** The "more" drawer's settings card. */
@@ -548,7 +560,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     const warned = (FS.incoming ?? []).length > 0;
     parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
-  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(shownChronicle() ?? []), L`最近の衝突`, { FS }),
+  else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(recentClashes(FS), L`最近の衝突`, { FS }),
     settingsMarkup(FS), notifyMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
@@ -2690,6 +2702,8 @@ function closeResPop() { if (FS.resOpen) { FS.resOpen = null; renderHudTick(FS.c
 let fcRun = null;
 function updateForecast({ again = false } = {}) {
   const c = FS.compose;
+  // (fix-loop22, LP22-4: the turn the march would be sent in — the arrival stamina is the chain's, read from it: hud/forecast.mjs arrivalStamina)
+  if (c && Number.isInteger(FS.nowBell)) c.departBell = FS.nowBell;
   const key = forecastKey(c);
   if (!key || !c.route || c.sending) return;
   if (fcRun && fcRun.c === c && fcRun.key === key && fcRun.dest === c.dest) return;
@@ -3161,6 +3175,8 @@ function tickFeed() {
   if (FS.mode !== 'play' || !FS.citizen || !FS.chronicle) return;
   const snap = feed.snapshot(FS, undefined, feedPrev);
   let fresh = [...feed.diffFeed(feedPrev, snap), ...(!s1On() ? [] : awayTake())];
+  // (fix-loop22, LP22-4: the viewer's own clashes outlive their march rows — the report list, "Other → Battles", the guide)
+  if (feedPrev) FS.ownClashes = feed.ownClashesFrom(FS.ownClashes, feedPrev, snap);
   feedPrev = snap;
   // (a battle in the viewer's province that is no march's of this browser: who fought there and on which tile is in
   // the clash's own report, which is read first — clashTold — and the line is told then, by what the report says)
@@ -5116,6 +5132,8 @@ async function loadSeason(herald) {
   // is open. Only a localnet record is believed (`declare` refuses on any other cluster).
   FS.chain.declare(record.sample?.rate);
   setClockPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
+  // (fix-loop22, LP22-3: a due time is said on the viewer's wall clock — screens/shell.mjs wallOf — from the chain's "now")
+  setChainNow(() => FS.chain?.now?.());
   FS.sample = record.cluster === 'localnet' && record.sample?.world === 'sample' ? record.sample : null;
   // (the prototype rule "banners" is on exactly while that record carries it: the chip stands from this moment)
   syncProto();

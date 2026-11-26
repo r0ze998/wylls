@@ -121,6 +121,23 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
   return { bell: FS.nowBell ?? null, now, keeps, returns, territory, territoryKnown, territorySeen, marches, builds, pendingBuilds, holdings, clashes, fights, still, explored, incoming: new Set((FS.incoming ?? []).map(w => `${w.bell},${w.holding.p},${w.holding.q}`)) };
 }
 
+/** How many of the viewer's own resolved marches the page keeps (`ownClashes`). */
+export const OWN_CLASHES_MAX = 24;
+/**
+ * (fix-loop22, LP22-4) The viewer's own clashes, kept after their march rows leave the page's list: `list` (newest
+ * first, `{p, q, tile, bell}`) with every march of snapshot `next` whose turn is resolved, and every march of `prev`
+ * that is gone from `next` after its arrival turn ended. The march row is the page's only record of a march to a
+ * province the viewer holds no village in; once it went, the report, "Other → Battles" and the guide forgot the march
+ * (loop-play22: the keep march that retreated). Page memory only, of this viewer and world (controller.mjs clears it).
+ */
+export function ownClashesFrom(list, prev, next) {
+  const out = [...(list ?? [])];
+  const add = (d, bell) => { if (d && Number.isInteger(bell) && !out.some(x => x.p === d.p && x.q === d.q && x.bell === bell)) out.unshift({ p: d.p, q: d.q, tile: d.tile ?? null, bell }); };
+  for (const m of next?.marches?.values() ?? []) if (m.pipeline === 'resolved') add(m.dest, m.bell);
+  for (const [k, m] of prev?.marches ?? []) if (!next?.marches?.has(k) && Number.isInteger(next?.bell) && Number.isInteger(m.bell) && next.bell > m.bell) add(m.dest, m.bell);
+  return out.sort((a, b) => b.bell - a.bell).slice(0, OWN_CLASHES_MAX);
+}
+
 const SIDE_TEXT = { gain: () => L`あなたの国が得た`, loss: () => L`あなたの国が失った`, attack: () => L`あなたの国が攻めている`, defend: () => L`あなたの国が守っている` };
 
 /** A keep event's notification, or null: a capture is news to everyone, a contest's start and its end only to the two nations. */
@@ -167,6 +184,16 @@ function diffFeedNow(prev, next) {
       else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`${name}の衝突が決着しました（ターン ${fmtNum(m.bell)} の到着）` });
     }
     if (!was.settle && m.settle && d) out.push({ id: `st:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の結果を受け取れます` });
+  }
+  // (fix-loop22, LP22-4: a march whose row left the page's list in the same poll its turn was resolved — a march to a
+  //  province the viewer holds no village in is read only while its transit stands — was told by nobody: the keep march
+  //  that retreated had no line in "More → Notifications". Its arrival turn has ended and it was never told resolved:
+  //  told now, as the same line with the same id, so it is said once)
+  for (const [k, was] of prev.marches) {
+    if (next.marches.has(k) || was.pipeline === 'resolved' || !was.dest || !Number.isInteger(was.bell) || !Number.isInteger(bell) || bell <= was.bell) continue;
+    const d = was.dest, name = named(was.destNames, was.destName) ?? provinceName(own, d.p, d.q), quiet = next.fights?.get(`${d.p},${d.q},${was.bell}`) === 0;
+    if (quiet) out.push({ id: `rs:${k}`, kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(was.bell)} の到着）` });
+    else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: was.bell }, mine: true, text: L`${name}の衝突が決着しました（ターン ${fmtNum(was.bell)} の到着）` });
   }
   for (const c of next.clashes) {
     if (prev.clashes.has(c)) continue;

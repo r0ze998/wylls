@@ -45,7 +45,8 @@ test('devnet page, no judge: the goals are shown as planned — not judged yet �
     const ja = text(UI.render(FS, b));
     assert.match(ja, /世界の目標/);
     assert.match(ja, /予定 — まだ判定していません/);
-    assert.match(ja, /広い土地の中立の砦か自由都市を奪い、144 ターン（24 時間）続けて持つこと/);
+    // (fix-loop22, LP22-5: while Free Cities cannot be taken the goal names the neutral keeps only — Q-PTWG-5)
+    assert.match(ja, /広い土地の中立の砦を奪い、144 ターン（24 時間）続けて持つこと/);
     assert.match(ja, /賞金はありません/);
     assert.doesNotMatch(ja, /シーズン|期限/);
   }
@@ -53,7 +54,7 @@ test('devnet page, no judge: the goals are shown as planned — not judged yet �
   const en = text(UI.render(FS, null));
   assert.match(en, /World goals/);
   assert.match(en, /Planned — not judged yet/);
-  assert.match(en, /Capture a neutral keep or a Free City in the wide land and hold it for 144 turns \(24 h(ours)?\)/);
+  assert.match(en, /Capture a neutral keep in the wide land and hold it for 144 turns \(24 h(ours)?\)/);
   assert.match(en, /There is no prize/);
   assert.doesNotMatch(en, /[぀-ヿ一-鿿]/, 'no Japanese left');
   assert.doesNotMatch(en, /season/i);
@@ -128,14 +129,23 @@ test('verify-pr260: Free Cities cannot be taken on the devnet build (Q-PTWG-5 (b
   assert.equal(UI.DEVNET_FREE_CITIES_TAKEABLE, false);
   const FS = page();
   const judged = { read: 'ok', goals: answer([flag(2, 0, VIEWER, 100)]) };
-  for (const b of [null, judged]) assert.match(text(UI.render(FS, b)), /自由都市は、この世界ではまだ奪えません/);
+  // (fix-loop22, LP22-5: one card that does not contradict itself — the goal line names no Free City, and the Free Cities stand
+  //  apart in their own muted line as not possible YET; both decided by the one constant)
+  for (const b of [null, judged]) {
+    const html = String(UI.render(FS, b)), t = text(html);
+    assert.match(html, /<p class="muted small goal-free-city-note" data-free-cities="not-takeable">自由都市：この世界ではまだできません（奪えるようになったら、旗の砦に数えます）<\/p>/);
+    const rule = /<p class="goal-rule">([^<]*)<\/p>/.exec(html)?.[1] ?? '';
+    assert.ok(rule && !/自由都市/.test(rule), `the goal line names no Free City: ${rule}`);
+    assert.doesNotMatch(t, /自由都市を奪い|中立の砦と自由都市が/);
+  }
   assert.match(text(UI.render(FS, judged)), /続けて持った最初の国が/);
   const again = { read: 'ok', goals: { ...judged.goals, wideFlags: { ...judged.goals.wideFlags, firstOnly: false } } };
   assert.match(text(UI.render(FS, again)), /続けて持つたびに、その国が旗の砦を一つ取ります/);
   setLang('en');
   for (const b of [null, judged, again]) {
     const en = text(UI.render(FS, b));
-    assert.match(en, /Free Cities cannot be taken yet in this world/);
+    assert.match(en, /Free Cities: not yet possible in this world \(they count as flag keeps once they can be taken\)/);
+    assert.doesNotMatch(en, /neutral keeps? (or|and) (a )?Free Cit/);
     assert.doesNotMatch(en, /[぀-ヿ一-鿿]/, 'no Japanese left');
     assert.doesNotMatch(en, /season/i);
   }

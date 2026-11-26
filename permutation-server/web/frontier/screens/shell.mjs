@@ -19,7 +19,7 @@ import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang, onLangChange } from '../../lang.mjs';
 import { factionName, failureText } from '../fi18n.mjs';
 import { countdown } from '../clock.mjs';
-import { realTail } from '../seasonterms.mjs';
+import { realTail, termsRate, spanWords } from '../seasonterms.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { icon } from '../hud/icons.mjs';
 
@@ -29,44 +29,83 @@ export const tabLabel = id => TAB_TEXT[id]?.() ?? id;
 
 /** Lamports with thousands separators ("14,441 lamports"). */
 export const lamports = n => L`${fmtNum(Number(n))} ランポート`;
-/** A chain time as the viewer's local hh:mm (UTC in the title attribute). */
-export function clockTime(t) {
-  const d = new Date(Number(t) * 1000);
+/**
+ * (fix-loop22, LP22-3) The viewer's WALL time (unix seconds) at which chain time `t` comes, or null when it cannot be said:
+ * now on the wall, plus the chain seconds left read at the world's pace (seasonterms termsRate: 1 at the natural clock,
+ * the TEST world's ×N, null while a fast clock's pace is not known — never a guess). The chain's own clock is NOT the
+ * viewer's: a kept 1× local world's Clock was about 116 days and 9 hours behind the wall (loop-play22: "around 10:31" at
+ * 19:44), and a ×60 world's runs sixty times as fast. `now` is the chain's "now" (the caller's, else the page's —
+ * `setChainNow`); `wall` the viewer's clock in ms (a test passes its own).
+ */
+export function wallOf(t, now = null, wall = Date.now()) {
+  const n = Number.isFinite(now) ? now : chainNow();
+  const r = termsRate();
+  if (!Number.isFinite(Number(t)) || !Number.isFinite(n) || r === null || !(r >= 1)) return null;
+  return wall / 1000 + (Number(t) - n) / r;
+}
+/** A wall time (unix seconds) as the viewer's local hh:mm (UTC in the title attribute). */
+export function clockTime(w) {
+  const d = new Date(Number(w) * 1000);
   const loc = lang() === 'en' ? 'en-GB' : 'ja-JP';
   return { local: d.toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }), utc: d.toISOString().slice(11, 16) };
 }
-export const timeHtml = t => { const c = clockTime(t); return html`<time datetime="${new Date(Number(t) * 1000).toISOString()}" title="${c.utc} UTC">${c.local}</time>`; };
+/** A wall time (unix seconds, `wallOf`'s answer) as a <time> element. */
+export const wallHtml = w => { const c = clockTime(w); return html`<time datetime="${new Date(Number(w) * 1000).toISOString()}" title="${c.utc} UTC">${c.local}</time>`; };
+/**
+ * A CHAIN time as the viewer's wall hh:mm (`wallOf`), or null when it cannot be said. (fix-loop22: it printed the chain's
+ * own clock, which only a real cluster's chain shares with the viewer.)
+ */
+export const timeHtml = (t, now = null) => { const w = wallOf(t, now); return w === null ? null : wallHtml(w); };
+/** How long `left` chain seconds are, in the world's own minutes: 「約 52 分」 / 「約 3時間58分」. */
+const aboutWords = left => { const mins = Math.max(1, Math.round(left / 60)); return mins < 60 ? L`約 ${fmtNum(mins)} 分` : L`約 ${Math.floor(mins / 60)}時間${mins % 60}分`; };
+/**
+ * The parts of a due time: `{left, about, real, wall}` — chain seconds left (NaN without a "now"), the world's own length,
+ * the real length on a faster clock ('' at the natural clock or an unknown pace: seasonterms realTail's words), and the
+ * wall time it comes at (null when unknown; on a faster clock only when the real wait is a minute or more: a clock time
+ * seconds away says nothing).
+ */
+/** The highest measured pace still said as the natural clock (no "real time" beside it). */
+export const NATURAL_MAX = 1.25;
+function dueParts(t, now) {
+  const n = Number.isFinite(now) ? now : chainNow();
+  const left = Number.isFinite(n) ? Number(t) - n : NaN;
+  const r = termsRate();
+  // (a kept 1× local world's measured pace wanders a little around 1: that is the natural clock, said as one)
+  const fast = r === null || r > NATURAL_MAX;
+  const w = left > 0 ? wallOf(t, n) : null;
+  const wall = w !== null && (!fast || left / r >= 60) ? w : null;
+  return { left, fast, about: left > 0 ? aboutWords(left) : '', real: left > 0 ? realTail(left) : '', wall };
+}
 /**
  * A chain time said with what it is (UX design 12.6: no bare timer without a label; the second check: the
- * provisional village's card said "(03:30 at the latest)"): how long from `now`, then the viewer's clock time —
- * 「あと約 3時間58分（03:30 ごろ）」. A time already past, or asked without a "now", is the clock time with its word.
+ * provisional village's card said "(03:30 at the latest)"): how long from `now`, then the viewer's WALL clock time —
+ * 「あと約 3時間58分（03:30 ごろ）」. On a faster clock the world's length and its real length (Q-EUA2-4), with the wall
+ * time when the real wait is a minute or more. A time already past is 「まもなく」 (fix-loop22, LP22-3: it printed the
+ * chain's clock — "around 19:53" at 19:37 in a ×60 world); one that cannot be placed says so.
  */
 export function dueHtml(t, now = null) {
-  const left = Number.isFinite(now) ? Number(t) - now : NaN;
-  if (!(left > 0)) return Lh`${timeHtml(t)} ごろ`;
-  const mins = Math.max(1, Math.round(left / 60));
-  const about = mins < 60 ? L`約 ${fmtNum(mins)} 分` : L`約 ${Math.floor(mins / 60)}時間${mins % 60}分`;
-  // (a clock that runs fast — a local stack, the sample world — is not the viewer's clock: the time on the wall is
-  // left out and the length is said as the world's own, as every other duration on the page is)
-  // (owner-answers-ui, Q-EUA2-4: and its real length — seasonterms realTail; nothing while the pace is not known)
-  if (clockPace() !== 1) return html`${Lh`あと${about}`}${realTail(left)}`;
-  return Lh`あと${about}（${timeHtml(t)} ごろ）`;
+  const d = dueParts(t, now);
+  if (!(d.left > 0)) return Number.isFinite(d.left) ? L`まもなく` : L`時刻はまだ分かりません`;
+  if (d.fast) return d.wall !== null ? Lh`あと${d.about}（実時間で約 ${spanWords(d.left / termsRate())}・${wallHtml(d.wall)} ごろ）` : html`${Lh`あと${d.about}`}${d.real}`;
+  return d.wall !== null ? Lh`あと${d.about}（${wallHtml(d.wall)} ごろ）` : Lh`あと${d.about}`;
 }
 /**
  * (pt-first-battle) `dueHtml` as plain text, for a sentence that is also a tooltip or a screen reader's name: 「あと約 52 分
- * （15:41 ごろ）」; on a faster clock the world's length and its real length, never the wall clock.
+ * （15:41 ごろ）」; on a faster clock the world's length and its real length. Never the chain's clock.
  */
 export function dueText(t, now = null) {
-  const left = Number.isFinite(now) ? Number(t) - now : NaN;
-  if (!(left > 0)) return L`${clockTime(t).local} ごろ`;
-  const mins = Math.max(1, Math.round(left / 60));
-  const about = mins < 60 ? L`約 ${fmtNum(mins)} 分` : L`約 ${Math.floor(mins / 60)}時間${mins % 60}分`;
-  if (clockPace() !== 1) return `${L`あと${about}`}${realTail(left)}`;
-  return L`あと${about}（${clockTime(t).local} ごろ）`;
+  const d = dueParts(t, now);
+  if (!(d.left > 0)) return Number.isFinite(d.left) ? L`まもなく` : L`時刻はまだ分かりません`;
+  if (d.fast) return d.wall !== null ? L`あと${d.about}（実時間で約 ${spanWords(d.left / termsRate())}・${clockTime(d.wall).local} ごろ）` : `${L`あと${d.about}`}${d.real}`;
+  return d.wall !== null ? L`あと${d.about}（${clockTime(d.wall).local} ごろ）` : L`あと${d.about}`;
 }
 /** How fast the world's clock runs against the viewer's (1 on a real cluster): the page sets it (`setClockPace`). */
 let clockPace = () => 1;
 export function setClockPace(fn) { clockPace = typeof fn === 'function' ? () => { try { const r = Number(fn()); return Number.isFinite(r) ? r : 1; } catch { return 1; } } : () => 1; }
+export const clockPaceNow = () => clockPace();
+/** The chain's "now" (seconds) as the page knows it, for a due time asked without one (app.mjs: `FS.chain.now()`). */
+let chainNow = () => NaN;
+export function setChainNow(fn) { chainNow = typeof fn === 'function' ? () => { try { const r = Number(fn()); return Number.isFinite(r) ? r : NaN; } catch { return NaN; } } : () => NaN; }
 /** "in 6:12" / "6:12 ago". */
 export const inTime = secs => (secs >= 0 ? L`あと ${countdown(secs)}` : L`${countdown(-secs)} 前`);
 

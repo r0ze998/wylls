@@ -2542,7 +2542,12 @@ export default {
   "{0}が旗の砦を一つ取りました（ターン {1}）": "{0} took a flag keep (turn {1})",
   "判定中（チェーンの外で。お金は動きません）": "Being judged (off chain; no money moves)",
   "広い土地の中立の砦と自由都市が旗の砦です。奪って {0}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 {1} 個）": (a, n) => `The flag keeps are the neutral keeps and Free Cities of the wide land. The first nation to capture one and hold it for {0} takes that flag keep (${plural(n, '{1} flag keep', '{1} flag keeps')} found so far)`,
-  "自由都市は、この世界ではまだ奪えません": "Free Cities cannot be taken yet in this world",
+  // (fix-loop22, LP22-5: while Free Cities cannot be taken, the goal names the neutral keeps only; Free Cities stand apart, muted)
+  "自由都市：この世界ではまだできません（奪えるようになったら、旗の砦に数えます）": "Free Cities: not yet possible in this world (they count as flag keeps once they can be taken)",
+  "広い土地の中立の砦を奪い、{0}続けて持つこと": "Capture a neutral keep in the wide land and hold it for {0}",
+  "広い土地の中立の砦が旗の砦です。奪って {0}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 {1} 個）": (a, n) => `The flag keeps are the neutral keeps of the wide land. The first nation to capture one and hold it for {0} takes that flag keep (${plural(n, '{1} flag keep', '{1} flag keeps')} found so far)`,
+  "広い土地の中立の砦が旗の砦です。奪って {0}続けて持つたびに、その国が旗の砦を一つ取ります（いま見つかっている旗の砦 {1} 個）": (a, n) => `The flag keeps are the neutral keeps of the wide land. Each time a nation captures one and holds it for {0}, it takes a flag keep (${plural(n, '{1} flag keep', '{1} flag keeps')} found so far)`,
+  "旗の砦 {0} 個は、どれもいまは見えていません": n => plural(n, "The {0} flag keep is out of sight now", "None of the {0} flag keeps is in sight now"),
   "広い土地の中立の砦と自由都市が旗の砦です。奪って {0}続けて持つたびに、その国が旗の砦を一つ取ります（いま見つかっている旗の砦 {1} 個）": (a, n) => `The flag keeps are the neutral keeps and Free Cities of the wide land. Each time a nation captures one and holds it for {0}, it takes a flag keep (${plural(n, '{1} flag keep', '{1} flag keeps')} found so far)`,
   "ほかの旗の砦 {0} 個は、いまは見えていません": n => plural(n, "{0} other flag keep is out of sight now", "{0} other flag keeps are out of sight now"),
   "判定はチェーンの外で、この世界の公開の記録（砦をいつから持っているか）から行います": "Judged off chain, from this world's public records (since when each keep has been held)",
@@ -2691,4 +2696,12 @@ export default {
   "練習のくじ": "Practice draw",
   "練習の結果の要約": "Practice outcome digest",
   "このブラウザで計算し直す": "Recompute in this browser",
+  // (fix-loop22, LP22-4: the keep list and the march card say the same thing as the rules' forecast)
+  "ルールで {0} 回試し、{1} 回マスに残った目安です": a => `A guide from the rules: ${plural(a, 'tried {0} time', 'tried {0} times')}, stayed on the tile {1}`,
+  "到着したときの体力は {0} の見込みです。{1} 未満なので疲れた状態で攻め、与える打撃が下がります（予測はこれを含みます）。体力を回復してから出ると強く戦えます。": "It should arrive with {0} stamina. Under {1} it attacks exhausted and its blows are weaker (the forecast counts this). Setting out after it has rested makes it fight at full strength.",
+  "軍勢あり": "Hosts there",
+  "{0} がマスにいます。勝ち目は命令の予測で": "{0} on the tile; see the order's forecast for the odds",
+  "疲れて着く（体力 {0}）。{1}": "arrives tired (stamina {0}). {1}",
+  "それでも残れる見込み": "should still hold",
+  "体力を回復してから": "rest it first",
 };

@@ -7,16 +7,18 @@
 // arrivals are sealed until their bell, and the defenders are this
 // moment's, not the bell's start.
 import { buildClashArgs, resolveArgs } from '../screens/report.mjs';
-import { retreatBps, RULES, staminaAt } from '../fmarch.mjs';
+import { retreatBps, arrivalStamina, ENGAGE_STAMINA } from '../fmarch.mjs';
 import { sha256 } from '../../sdk/sha256.mjs';
 
 export const FORECAST_RUNS = 12;
 
+// (fix-loop22, LP22-4: the arrival stamina as the chain counts it lives in fmarch.mjs — the keep list reads it too)
+export { arrivalStamina, ENGAGE_STAMINA };
+
 /** The ClashInputs-shaped input with the viewer's host as the only arrival. */
 export function forecastInputs(c, faction) {
   const h = c.host, bell = c.arriveBell;
-  // the march's cost on the way (base + per hex of the planned route)
-  const stamina = Math.max(0, staminaAt(h, bell) - (RULES.MARCH_STAMINA_BASE + RULES.MARCH_STAMINA_PER_HEX * (c.route?.dirs?.length ?? 0)));
+  const stamina = arrivalStamina(h, c.departBell, bell);
   const retreat = c.retreat === 'never' ? 0 : retreatBps(c.retreat, c.ratio) ?? 0;
   return { p: c.dest.p, q: c.dest.q, bell, arrivals: [{ present: 1, hostId: BigInt(h.id), faction, unit: h.unit, troops: h.troops * 1000, stamina, tile: c.dest.tile, stance: c.stance ?? 0, retreat, dealt: 0 }] };
 }
@@ -67,7 +69,8 @@ export function compareStances(kernel, c, province, faction, runs = COMPARE_RUNS
   return out;
 }
 /** The key a comparison is for: the forecast's without the stance (choosing a stance does not recompute it). */
-export const compareKey = c => (c?.host && c.dest ? `${c.host.id}|${c.dest.p},${c.dest.q},${c.dest.tile}|${c.arriveBell}|${c.retreat}|${c.ratio}` : null);
+export const compareKey = c => (c?.host && c.dest ? `${c.host.id}|${c.dest.p},${c.dest.q},${c.dest.tile}|${c.arriveBell}|${c.retreat}|${c.ratio}|d${c.departBell ?? ''}` : null);
 
 /** The key a forecast is for (recompute when any input changes). */
-export const forecastKey = c => (c?.host && c.dest ? `${c.host.id}|${c.dest.p},${c.dest.q},${c.dest.tile}|${c.arriveBell}|${c.stance}|${c.retreat}|${c.ratio}` : null);
+// (fix-loop22: and the departure turn — the arrival stamina is read from it, `arrivalStamina`)
+export const forecastKey = c => (c?.host && c.dest ? `${c.host.id}|${c.dest.p},${c.dest.q},${c.dest.tile}|${c.arriveBell}|${c.stance}|${c.retreat}|${c.ratio}|d${c.departBell ?? ''}` : null);
