@@ -1115,6 +1115,8 @@ export default {
   'すでに未払いです。このままなら、土地の手放しは {0} 後に始まります。': 'Upkeep is already unpaid. If nothing changes, tiles start being let go in {0}.',
   '今の支払いで未払いが始まります。土地の手放しは、その 24 ターン後（{0} 後）に始まります。': 'This payment will leave the land unpaid. Tiles start being let go 24 turns after that (in {0}).',
   'このままなら、未払いは {0} 後に始まります。土地の手放しは、その 24 ターン後（{1} 後）に始まります。': 'If nothing changes, upkeep goes unpaid in {0}. Tiles start being let go 24 turns after that (in {1}).',
+  '未払いまで {0} 以上。': 'Unpaid in more than {0}.',
+  '食料の生産は土地の維持費より少ないですが、蔵の食料で {0} 以上は払えます。': 'Food production is below the land upkeep, but the stored food pays it for more than {0}.',
   '物流の見通し': 'Logistics horizon',
   'バックミンスター・フラーの World Game では、富とは「いまの資源・技術・物流で、何人を何日先まで支えられるか」です。このゲームに人口はないので、ここでは「最初の村のいまの食料で、土地を何マス、何ターン先まで支えられるか」を出します。数字は、プログラムが土地の維持費を払うときと同じ計算です。2村目以降の食料は、本拠地に送らない限り含まれません。兵の食料の維持費は、いまのプログラムでは取られていないので、この数字には入っていません。': 'In Buckminster Fuller\'s World Game, wealth is "how many people, for how many forward days, we are now technically organized to cope with" — present resources, technique and logistics. This game has no population, so the card shows how many land tiles the first village\'s food can support, and for how many turns. The numbers are the same calculation the program uses when it settles land upkeep. Food from a second village is not included unless it is sent to the first. Troop food upkeep is not charged by the live program today, so it is not in this figure.',
 };

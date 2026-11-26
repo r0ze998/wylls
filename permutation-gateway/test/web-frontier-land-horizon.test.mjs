@@ -263,3 +263,63 @@ test('the card and glossary name the term; no on-chain program files are touched
   // display-only slice: the JS mirror is in landhorizon.mjs, not a program change
   assert.match(web('frontier/landhorizon.mjs'), /display only/);
 });
+
+// ---- verify-pr272 (independent verification): the mirror against the program's own cases, and the bounds
+import { upkeepPerHour } from '../../permutation-server/web/frontier/territory-rules.mjs';
+import { MAX_STEPS } from '../../permutation-server/web/frontier/landhorizon.mjs';
+import EN_FRONTIER from '../../permutation-server/web/lang/en-frontier.mjs';
+
+/** frontier-abi/vectors/territory-upkeep-b.txt: `n0 d0 n1 d1 paid_to remainder since now_ts now_bell avail | charge paid since_after remainder_after paid_to_after`. */
+const VECTORS = readFileSync(new URL('../../frontier-abi/vectors/territory-upkeep-b.txt', import.meta.url), 'utf8').split('\n')
+  .filter(l => l.trim() && !l.startsWith('#'))
+  .map(l => l.split(/\s+/).filter(t => t && t !== '|').map(Number));
+
+test('verify-pr272: settleUpkeep is settle_upkeep (b) in every one of the 200 shared Rust vectors', () => {
+  assert.equal(VECTORS.length, 200);
+  let short = 0, reserve = 0;
+  for (const v of VECTORS) {
+    const [n0, d0, n1, d1, paidTo, remainder, since, nowTs, nowBell, avail, charge, paid, sinceAfter, remAfter, paidToAfter] = v;
+    const rate = upkeepPerHour(TERRITORY_V1.upkeep, [...Array(n0).fill(d0), ...Array(n1).fill(d1)]);
+    const s = settleUpkeep({ rate, paidTo, nowTs, nowBell, remainder, unpaidSince: since < 0 ? null : since, available: avail });
+    const why = JSON.stringify({ v, s });
+    assert.equal(s.take, charge, why);
+    assert.equal(s.paid, paid === 1, why);
+    assert.equal(s.unpaidSince, sinceAfter < 0 ? null : sinceAfter, why);
+    assert.equal(s.remainder, remAfter, why);
+    assert.equal(s.paidTo, paidToAfter, why);
+    if (!s.paid) short++;
+    if (since >= 0 && s.paid === false && avail >= charge) reserve++;
+  }
+  assert.ok(short > 0 && reserve > 0, `the vectors reach the short and the one-turn-reserve branches (${short}, ${reserve})`);
+});
+
+test('verify-pr272: a land stuck unpaid answers at once, the release from unpaid_since + 24', () => {
+  const t0 = performance.now();
+  const h = projectHorizon({ stockMilli: 0, productionMilliPerHour: START_FOOD, upkeepMilliPerHour: UPKEEP_73_NEAR, paidTo: 99_400, nowTs: 100_000, nowBell: 110, unpaidSince: 100, tiles: TILES_73, hist: [TILES_73] });
+  assert.ok(performance.now() - t0 < 50);
+  assert.equal(h.unpaidAlready, true);
+  assert.equal(h.turnsUntilRelease, 100 + 24 - 110);
+  assert.equal(h.turnsUntilPaid, null);
+});
+
+test('verify-pr272: short by a hair with a full store: "more than" MAX_STEPS turns, never a blank card', () => {
+  const h = projectHorizon({ stockMilli: 2_000_000, productionMilliPerHour: START_FOOD, upkeepMilliPerHour: START_FOOD + 1, paidTo: 100_000, nowTs: 100_000, nowBell: 10, tiles: 40, hist: [40] });
+  assert.equal(h.sustainable, false);
+  assert.equal(h.turnsUntilUnpaid, null);
+  assert.equal(h.beyondTurns, MAX_STEPS);
+  setLang('ja');
+  assert.match(horizonStatusLines(h, 60)[0], /2,000 ターン/);
+  assert.match(horizonHudLine(h, 60), /以上/);
+  for (const k of ['未払いまで {0} 以上。', '食料の生産は土地の維持費より少ないですが、蔵の食料で {0} 以上は払えます。']) assert.ok(EN_FRONTIER[k], k);
+  // within MAX_STEPS the turn count is exact
+  const near = projectHorizon({ stockMilli: 50_000, productionMilliPerHour: START_FOOD, upkeepMilliPerHour: START_FOOD + 6_000, paidTo: 100_000, nowTs: 100_000, nowBell: 10, tiles: 46, hist: [46] });
+  assert.equal(near.beyondTurns, null);
+  assert.ok(near.turnsUntilUnpaid > 40 && near.turnsUntilUnpaid < 60, String(near.turnsUntilUnpaid));
+});
+
+test('verify-pr272: the wide card and the food ledger blocks carry different ids', () => {
+  const h = projectHorizon({ stockMilli: 80_000, productionMilliPerHour: START_FOOD, upkeepMilliPerHour: 4 * ONE_TILE, paidTo: 10_000, nowTs: 10_000, nowBell: 1, tiles: 4, hist: [4] });
+  assert.match(String(ownLandHorizonBlock(h, { rate: 1 })), /id="hp-own-land-horizon"/);
+  assert.match(String(ownLandHorizonBlock(h, { id: 'hp-land-food-horizon', rate: 1 })), /id="hp-land-food-horizon"/);
+  assert.match(web('frontier/screens/holding.mjs'), /id: 'hp-land-food-horizon'/);
+});

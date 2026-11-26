@@ -17,7 +17,9 @@ import { spanWords } from './seasonterms.mjs';
 export const TURN_SECS = 600;
 export const HOUR = 3600;
 export const DECAY_AFTER_BELLS = TERRITORY_V1.decayAfterBells;
-const MAX_STEPS = 20_000;
+// (verify-pr272) The projection looks this many turns ahead at most (≈ 13.9 days of game time) and then says "more
+// than" — 20,000 steps were up to ~9 ms a call, and a render asks up to three times.
+export const MAX_STEPS = 2_000;
 
 const big = v => BigInt(v ?? 0);
 const toInt = (v, fallback = 0) => {
@@ -198,6 +200,12 @@ export function projectHorizon({
       // Paid, and production covers upkeep: it will stay paid.
       break;
     }
+    if (since != null && turnsUntilPaid == null && (upkeep - production) * TURN_SECS >= 2 * HOUR
+      && stock + Math.ceil((Math.max(0, production) * TURN_SECS) / HOUR) + 1 < Number(turnReserve(upkeep))) {
+      // (verify-pr272) Unpaid, and a turn's production is at least 2 milli-food short of a turn's upkeep: every
+      // settle now takes the store and the next turn holds less — it stays unpaid (the release follows `since`).
+      break;
+    }
     if (wasUnpaid && since == null && turnsUntilPaid != null) break;
     if (!wasUnpaid && since != null && turnsUntilUnpaid != null) {
       // Unpaid has started; we only need the release offset from that bell.
@@ -225,6 +233,8 @@ export function projectHorizon({
       : { turnsUntilRelease: null, letting: false };
 
   const sustainable = net >= 0 && !stillUnpaid;
+  // (verify-pr272) Paid, short of food, but no unpaid settle within MAX_STEPS turns: "more than MAX_STEPS turns".
+  const beyondTurns = !sustainable && !stillUnpaid && turnsUntilUnpaid == null ? MAX_STEPS : null;
   return snapshot({
     sustainable,
     unpaidAlready: stillUnpaid && wasUnpaid,
@@ -232,6 +242,7 @@ export function projectHorizon({
     turnsUntilRelease: release.turnsUntilRelease,
     letting: release.letting,
     turnsUntilPaid: wasUnpaid && !stillUnpaid ? (turnsUntilPaid ?? 0) : (wasUnpaid ? turnsUntilPaid : null),
+    beyondTurns,
   });
 }
 
@@ -281,6 +292,7 @@ export function horizonHudLine(h, rate) {
   if (h.turnsUntilUnpaid != null) {
     return L`未払いまで ${formatHorizonTurns(h.turnsUntilUnpaid, rate)}。手放しまで ${formatHorizonTurns(h.turnsUntilRelease, rate)}。`;
   }
+  if (h.beyondTurns != null) return L`未払いまで ${formatHorizonTurns(h.beyondTurns, rate)} 以上。`;
   return '';
 }
 
@@ -308,6 +320,9 @@ export function horizonStatusLines(h, rate) {
   }
   if (h.turnsUntilUnpaid != null) {
     return [L`このままなら、未払いは ${formatHorizonTurns(h.turnsUntilUnpaid, rate)} 後に始まります。土地の手放しは、その 24 ターン後（${formatHorizonTurns(h.turnsUntilRelease, rate)} 後）に始まります。`];
+  }
+  if (h.beyondTurns != null) {
+    return [L`食料の生産は土地の維持費より少ないですが、蔵の食料で ${formatHorizonTurns(h.beyondTurns, rate)} 以上は払えます。`];
   }
   return [];
 }
