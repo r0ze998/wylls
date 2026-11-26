@@ -148,7 +148,18 @@ fn an_honest_archive_without_post_states_passes_by_genesis_replay() {
 fn the_derived_post_states_are_the_ones_the_local_node_archived() {
     let rec = recorded();
     let d = verify_core::genesis::derive(&rpc_shaped());
-    assert!(d.ran && d.findings.is_empty(), "{:?}", d.findings);
+    // (verify-pr266: the stamps nothing the chain recorded decides are
+    // counted in VG's WARN even when no slot moved; nothing else)
+    assert!(
+        d.ran
+            && d.findings
+                .iter()
+                .all(|f| f.severity == verify_core::Severity::Warn
+                    && f.code == "ClockFromEffects"
+                    && f.detail.contains(" 0 transaction(s) in 0 slot(s)")),
+        "{:?}",
+        d.findings
+    );
     let derived = d.input.expect("derived");
     let program = rec.cfg.program.to_bytes();
     let mut compared = 0;

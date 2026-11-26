@@ -175,15 +175,245 @@ enum Judged {
     Missing(String),
 }
 
+/// How VG takes each transaction's Clock (verifier-clock-fix, Q-W3VWS-1 =
+/// a). The RPC gives a transaction's `blockTime`, not the bank's
+/// `Clock.unix_timestamp` the program read, and on devnet the two differ by
+/// one second in some slots (blockTime one above). The Clock is therefore
+/// read from the transaction's own recorded effects: the pinned program is
+/// run at `blockTime` and at `blockTime − 1`, and the Clock is the one under
+/// which its log lines (the program's records carry the times it stamps),
+/// its program accounts' balances and its error are exactly the chain's.
+///
+/// * One Clock per slot (one bank): once a transaction of a slot decides
+///   it, every later transaction of the slot is run at that Clock only, and
+///   every transaction of the slot is dated with it for the other checks
+///   (V3, V7, VX, … read the derived archive's `block_time`).
+/// * Only those two candidates, and only exact agreement: no tolerance is
+///   applied to any comparison. A transaction no candidate reproduces is
+///   judged at the slot's Clock, else at `blockTime`, as before.
+/// * When both reproduce it and the two runs leave different states (the
+///   Clock went into account data the archive does not show: PostBeacon's
+///   anchor time), the account write decides where the chain recorded it:
+///   the chain's final state of an account this transaction is the last
+///   writer of shows the Clock it stamped. Otherwise it is taken at
+///   `blockTime` until a later transaction of the same slot decides the
+///   slot's Clock; then its states are re-taken from the other run
+///   (UNVERIFIABLE [`OPEN_CLOCK`] when a later write already replaced
+///   them). Never decided: a later write replaced the stamp and every later
+///   transaction reproduced from the state taken, so the archive is the
+///   program's under that Clock (counted in the `ClockFromEffects` WARN).
+///
+/// What this proves: the archive is what the pinned program produces under
+/// SOME Clock per slot, each `blockTime` or `blockTime − 1` (the RPC's
+/// `blockTime` is no more authenticated than that). The search is greedy
+/// (no back-tracking): a transaction whose state rests on a Clock taken at
+/// `blockTime` that only a much later transaction contradicts FAILs there.
+///
+/// An archive with post-states (a local node's, whose recorder stores the
+/// bank's Clock as `block_time`) is not VG's: VX runs it at `block_time`.
+pub struct ClockRule;
+
+/// The detail prefix of an undecided Clock (UNVERIFIABLE).
+pub const OPEN_CLOCK: &str = "the Clock this transaction read is not decided";
+
+/// A transaction both candidate Clocks reproduce, whose two runs leave
+/// different states ([`ClockRule`]): taken at `used` until its slot's Clock
+/// is decided.
+struct Open {
+    tx: usize,
+    slot: u64,
+    used: i64,
+    /// The other candidate Clock.
+    other: i64,
+    /// Each account the two runs leave differently: the state taken (at
+    /// `used`) and the other one (chain lamports in both).
+    accounts: Vec<(Key, Option<Account>, Option<Account>)>,
+    /// Re-taken at the slot's decided Clock.
+    fixed: bool,
+    /// A later transaction named one of `accounts` (read or wrote it)
+    /// while the slot's Clock was undecided: it ran on the state taken at
+    /// `used`, so re-taking the other run's state would leave its judgement
+    /// resting on a state that is no longer the derived one (verify-pr266).
+    touched: bool,
+}
+
+/// Q-VCF-2 (owner question, recommended "no" = WARN): when `true`, every
+/// transaction whose stamped Clock nothing the chain recorded decides is
+/// UNVERIFIABLE ([`OPEN_CLOCK`]) instead of being counted in the
+/// `ClockFromEffects` WARN. Flip this one line if r0ze answers Q-VCF-2
+/// with "stricter".
+pub const UNDECIDED_CLOCK_UNVERIFIABLE: bool = false;
+
+/// The Clock of `slot` is `c` ([`ClockRule`]): every open transaction of the
+/// slot taken at the other Clock gets the other run's states, as long as no
+/// later transaction read or wrote them since (else it stays unfixed,
+/// reported UNVERIFIABLE).
+fn decide(
+    clocks: &mut BTreeMap<u64, i64>,
+    open: &mut [Open],
+    state: &mut BTreeMap<Key, Option<Account>>,
+    derived: &mut [fclient::ports::TxRecord],
+    slot: u64,
+    c: i64,
+) {
+    clocks.insert(slot, c);
+    for o in open
+        .iter_mut()
+        .filter(|o| o.slot == slot && o.used != c && !o.fixed)
+    {
+        if o.touched {
+            continue;
+        }
+        if o.accounts
+            .iter()
+            .any(|(k, used, _)| state.get(k) != Some(used))
+        {
+            continue;
+        }
+        for (k, _, other) in &o.accounts {
+            state.insert(*k, other.clone());
+            for (a, p) in derived[o.tx].post.iter_mut() {
+                if a.to_bytes() == *k {
+                    *p = other.clone();
+                }
+            }
+        }
+        o.used = c;
+        o.fixed = true;
+    }
+}
+
+/// Whether the bytes in which the run taken (`used`) and the other run
+/// (`other`) leave an account differently are, at the end, still the taken
+/// run's in the derived state (`now`) and the other run's in the chain's
+/// final state.
+fn survives(
+    now: Option<Account>,
+    used: &Option<Account>,
+    other: &Option<Account>,
+    fin: Option<&Option<Account>>,
+) -> bool {
+    let (Some(now), Some(used), Some(other), Some(Some(fin))) =
+        (now, used.as_ref(), other.as_ref(), fin)
+    else {
+        return false;
+    };
+    let n = used.data.len();
+    if other.data.len() != n || now.data.len() != n || fin.data.len() != n {
+        return false;
+    }
+    let at: Vec<usize> = (0..n).filter(|&o| used.data[o] != other.data[o]).collect();
+    !at.is_empty()
+        && at
+            .iter()
+            .all(|&o| now.data[o] == used.data[o] && fin.data[o] == other.data[o])
+}
+
+/// A re-run judged against what the chain recorded of the transaction
+/// (its error and program error code; for a success its log lines and the
+/// lamports it leaves). A debit before it is judged by the caller.
+fn judge_run(
+    r: &crate::reexec::Replayed,
+    rec: &fclient::ports::TxRecord,
+    bal: &Balances,
+    writable: &[bool],
+    program: &Key,
+) -> Judged {
+    if rec.err.is_some() {
+        // A failed transaction changes nothing but balances. When the
+        // chain names a program error, the program must fail with it.
+        return match (rec.code, &r.err) {
+            (Some(c), None) => Judged::Fail(REEXEC_REFUSED, format!("the archive says it failed with program error {c}, and the pinned program runs it to success from the states before it")),
+            (Some(c), Some(e)) => match fclient::ports::custom_code(e) {
+                Some(g) if g == c => Judged::Ok,
+                Some(g) => Judged::Fail(REEXEC_REFUSED, format!("the archive says it failed with program error {c}, the pinned program fails it with {g}")),
+                None => Judged::Missing(format!("the archive says it failed with program error {c}; the re-run stopped in the runtime ({e})")),
+            },
+            // A runtime failure (compute budget, funds): not the
+            // program's to prove; the state stays as before.
+            (None, _) => Judged::Ok,
+        };
+    }
+    if let Some(err) = &r.err {
+        return if err.contains("SignatureFailure") {
+            Judged::Fail(REEXEC_REFUSED, format!("the archived transaction's signatures do not verify ({err}), yet the archive says it succeeded"))
+        } else {
+            match fclient::ports::custom_code(err) {
+                Some(code) => Judged::Fail(REEXEC_REFUSED, format!("the pinned program refuses this transaction from the states its history leaves (code {code}: {err}), yet the archive says it succeeded")),
+                None => Judged::Missing(format!("the re-run stopped in the runtime, not in the program ({err})")),
+            }
+        };
+    }
+    if rec.logs.iter().any(|l| l.contains("Log truncated")) {
+        return Judged::Missing("the archived logs are cut by the runtime".into());
+    }
+    let got = judged_logs(&r.logs);
+    let want = judged_logs(&rec.logs);
+    if got != want {
+        let at = got
+            .iter()
+            .zip(want.iter())
+            .position(|(a, b)| a != b)
+            .unwrap_or(got.len().min(want.len()));
+        return Judged::Fail(REEXEC_MISMATCH, format!("the program's log lines differ from the archive's at line {at}: re-run {:?}, archive {:?}", got.get(at), want.get(at)));
+    }
+    for (j, (k, how, before, after)) in r.accounts.iter().enumerate() {
+        if *how == Pre::Runtime || !writable[j] {
+            continue;
+        }
+        let l = after.as_ref().map_or(0, |a| a.lamports);
+        if l == bal.post[j] {
+            continue;
+        }
+        if owned(before, program) || owned(after, program) {
+            return Judged::Fail(REEXEC_MISMATCH, format!("account {}: the chain shows {} lamports after it, the pinned program leaves {l}", b58(k), bal.post[j]));
+        }
+        if is_wallet(before, program) && is_wallet(after, program) {
+            return Judged::Missing(format!("wallet {}: the chain shows {} lamports after it, the re-run leaves {l} (a movement this program's archive cannot explain)", b58(k), bal.post[j]));
+        }
+        return Judged::Missing(format!(
+            "account {} (another program's): the chain shows {} lamports after it, the re-run {l}",
+            b58(k),
+            bal.post[j]
+        ));
+    }
+    Judged::Ok
+}
+
+/// Most re-derivations [`ClockRule`] makes when final states decide the
+/// Clock of slots a pass left undecided.
+const CLOCK_PASSES: usize = 4;
+
 /// Re-executes the archive from the Season's creation (see the module doc).
 pub fn derive(input: &Input) -> Derived {
+    let mut hints: BTreeMap<u64, i64> = BTreeMap::new();
+    let mut pass = 0;
+    loop {
+        pass += 1;
+        let (d, more) = derive_pass(input, &hints);
+        let more: BTreeMap<u64, i64> = more
+            .into_iter()
+            .filter(|(s, _)| !hints.contains_key(s))
+            .collect();
+        if more.is_empty() || pass >= CLOCK_PASSES {
+            return d;
+        }
+        hints.extend(more);
+    }
+}
+
+/// One pass of [`derive`], each slot of `hints` run at that Clock only.
+/// Also returns the slots whose Clock the final states decide although
+/// this pass left them undecided (a stamp the two candidate runs leave
+/// differently survives, unwritten since, into the chain's final state).
+fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<u64, i64>) {
     let mut out = Derived {
         input: None,
         findings: vec![],
         ran: false,
     };
     if !applies(input) {
-        return out;
+        return (out, BTreeMap::new());
     }
     let program = input.cfg.program.to_bytes();
     let missing = |out: &mut Derived, d: String| {
@@ -197,7 +427,7 @@ pub fn derive(input: &Input) -> Derived {
     };
     let Some(so) = input.program_so.as_ref() else {
         missing(&mut out, "the archive has no post-states; without the pinned program binary (`--program-so`) it is not re-executed from the Season's creation".into());
-        return out;
+        return (out, BTreeMap::new());
     };
     // (the season's rent: chain / declared / assumed, reexec::rent_of — rent-live-rest)
     let so = Program::with_rent(so.as_ref().clone(), crate::reexec::rent_of(input).0);
@@ -209,19 +439,19 @@ pub fn derive(input: &Input) -> Derived {
                 hex::encode(so.sha256())
             ),
         );
-        return out;
+        return (out, BTreeMap::new());
     }
     let hashes: BTreeSet<[u8; 32]> = input.program_hashes.iter().map(|(_, h)| *h).collect();
     if hashes.len() > 1 {
         missing(&mut out, format!("the program was upgraded inside the archive ({} binaries): one pinned binary cannot re-execute it", hashes.len()));
-        return out;
+        return (out, BTreeMap::new());
     }
     let mut svm = match Svm::with_authority(&so, &input.cfg.program, input.chain.upgrade_authority)
     {
         Ok(s) => s,
         Err(e) => {
             missing(&mut out, format!("the program binary does not load: {e}"));
-            return out;
+            return (out, BTreeMap::new());
         }
     };
     out.ran = true;
@@ -231,6 +461,25 @@ pub fn derive(input: &Input) -> Derived {
     let mut declared_at: BTreeSet<Key> = BTreeSet::new();
     let mut unknown: BTreeSet<Key> = BTreeSet::new();
     let mut derived = input.clone();
+    // [`ClockRule`]: the Clock each slot's transactions decided, and the
+    // transactions whose state rests on an undecided one (tx, slot, Clock used).
+    let mut clocks: BTreeMap<u64, i64> = hints.clone();
+    let mut open: Vec<Open> = vec![];
+    // The last successful transaction that writes each account (its final
+    // state, read from the chain, shows that write).
+    let mut last_writer: BTreeMap<Key, usize> = BTreeMap::new();
+    for (i, rec) in input.txs.iter().enumerate() {
+        if rec.err.is_some() {
+            continue;
+        }
+        if let Ok(m) = crate::vmsg::Msg::of(rec) {
+            for (j, k) in m.keys.iter().enumerate() {
+                if m.is_writable_index(j) {
+                    last_writer.insert(k.to_bytes(), i);
+                }
+            }
+        }
+    }
     let mut runtime_noted: BTreeSet<Key> = BTreeSet::new();
     let mut last_slot = 0u64;
     for (i, rec) in input.txs.iter().enumerate() {
@@ -282,6 +531,17 @@ pub fn derive(input: &Input) -> Derived {
             }
         };
         let keys: Vec<Key> = parsed.keys.iter().map(|k| k.to_bytes()).collect();
+        // [`ClockRule`] (verify-pr266): a transaction that names an account
+        // an open transaction of an undecided slot left runs on the state
+        // taken at that Clock, which can then no longer be re-taken.
+        for o in open
+            .iter_mut()
+            .filter(|o| !o.fixed && !clocks.contains_key(&o.slot))
+        {
+            if o.accounts.iter().any(|(k, _, _)| keys.contains(k)) {
+                o.touched = true;
+            }
+        }
         let writable: Vec<bool> = (0..keys.len())
             .map(|j| parsed.is_writable_index(j))
             .collect();
@@ -408,28 +668,142 @@ pub fn derive(input: &Input) -> Derived {
                 )
             })
         };
-        let r = match replay_known(
-            &mut svm,
-            &parsed,
-            rec.slot,
-            rec.block_time,
-            pre,
-            |_| None,
-            &program,
-            Some((&bal.pre, &bal.post, rec.fee)),
-        ) {
-            Ok(r) => r,
-            Err(e) => {
-                push(
-                    &mut out,
-                    Judged::Missing(format!("the transaction does not re-execute: {e}")),
-                );
-                if ok {
-                    mark_unknown(&mut unknown);
+        // verifier-clock-fix (Q-W3VWS-1 = a): the Clock the program read is
+        // not in the RPC's answer. `blockTime` is the slot's time as the RPC
+        // node stores it, and on devnet it is sometimes one second above the
+        // bank's `Clock.unix_timestamp` (world 3 tx#21: blockTime
+        // 1795663037, the program logged 1795663036). The Clock is taken
+        // from the transaction's own effects instead ([`ClockRule`]).
+        let base = rec.block_time;
+        let feasible: Vec<i64> = clocks
+            .get(&rec.slot)
+            .map(|c| vec![*c])
+            .unwrap_or_else(|| vec![base, base - 1]);
+        let mut runs: Vec<(i64, crate::reexec::Replayed, Judged)> = vec![];
+        let mut refused: Option<String> = None;
+        for &t in &feasible {
+            match replay_known(
+                &mut svm,
+                &parsed,
+                rec.slot,
+                t,
+                pre,
+                |_| None,
+                &program,
+                Some((&bal.pre, &bal.post, rec.fee)),
+            ) {
+                Ok(r) => {
+                    let j = judge_run(&r, rec, bal, &writable, &program);
+                    runs.push((t, r, j));
                 }
-                continue;
+                Err(e) => {
+                    refused.get_or_insert(e);
+                }
+            }
+        }
+        if runs.is_empty() {
+            push(
+                &mut out,
+                Judged::Missing(format!(
+                    "the transaction does not re-execute: {}",
+                    refused.unwrap_or_default()
+                )),
+            );
+            if ok {
+                mark_unknown(&mut unknown);
+            }
+            continue;
+        }
+        let fits: Vec<usize> = (0..runs.len())
+            .filter(|&k| matches!(runs[k].2, Judged::Ok))
+            .collect();
+        let pick = match fits.as_slice() {
+            // Neither reproduces it: judged at the first candidate (the
+            // slot's decided Clock, else blockTime), as before.
+            [] => 0,
+            // Exactly one Clock reproduces what the chain recorded: that is
+            // the slot's Clock (one Clock per slot), for every transaction
+            // of the slot.
+            [k] => {
+                decide(
+                    &mut clocks,
+                    &mut open,
+                    &mut state,
+                    &mut derived.txs,
+                    rec.slot,
+                    runs[*k].0,
+                );
+                *k
+            }
+            // Both reproduce its logs, balances and error. The states the
+            // two runs leave may still differ (the Clock stamped into
+            // account data: PostBeacon's anchor time); then the chain's
+            // final state of an account it is the last writer of decides
+            // (it shows the Clock that last write stamped), else it stays
+            // open until a later transaction of its slot decides the slot.
+            [a, b, ..] => {
+                let (a, b) = (*a, *b);
+                let mut alt: Vec<(Key, Option<Account>, Option<Account>)> = vec![];
+                let mut last: Vec<(Key, usize)> = vec![];
+                for (j, (x, y)) in runs[a]
+                    .1
+                    .accounts
+                    .iter()
+                    .zip(runs[b].1.accounts.iter())
+                    .enumerate()
+                {
+                    if x.1 == Pre::Runtime || !writable[j] || x.3 == y.3 {
+                        continue;
+                    }
+                    alt.push((
+                        x.0,
+                        with_lamports(x.3.clone(), bal.post[j]),
+                        with_lamports(y.3.clone(), bal.post[j]),
+                    ));
+                    if last_writer.get(&x.0) == Some(&i) && input.finals.contains_key(&x.0) {
+                        last.push((x.0, j));
+                    }
+                }
+                let shows = |k: usize| {
+                    last.iter().all(|(key, j)| {
+                        let f = input.finals.get(key).cloned().flatten();
+                        let s = runs[k].1.accounts[*j].3.as_ref();
+                        match (s, f.as_ref()) {
+                            (None, None) => true,
+                            (Some(s), Some(f)) => s.owner == f.owner && s.data == f.data,
+                            _ => false,
+                        }
+                    })
+                };
+                // (a failed transaction leaves no state: nothing to decide)
+                if !ok || (alt.is_empty() && runs[a].1.err == runs[b].1.err) {
+                    a
+                } else if !last.is_empty() && shows(a) != shows(b) {
+                    let k = if shows(a) { a } else { b };
+                    decide(
+                        &mut clocks,
+                        &mut open,
+                        &mut state,
+                        &mut derived.txs,
+                        rec.slot,
+                        runs[k].0,
+                    );
+                    k
+                } else {
+                    open.push(Open {
+                        tx: i,
+                        slot: rec.slot,
+                        used: runs[a].0,
+                        other: runs[b].0,
+                        accounts: alt,
+                        fixed: false,
+                        touched: false,
+                    });
+                    a
+                }
             }
         };
+        let (_, r, judged0) = runs.swap_remove(pick);
         let soften = |j: Judged| -> Judged {
             match j {
                 Judged::Fail(_, d) if !doubt.is_empty() => Judged::Missing(format!(
@@ -439,81 +813,14 @@ pub fn derive(input: &Input) -> Derived {
                 j => j,
             }
         };
+        // (a debit outside the program comes first, before a failure too)
+        let judged = match early.take() {
+            Some(e @ Judged::Fail(..)) => e,
+            _ => judged0,
+        };
         if !ok {
-            // A failed transaction changes nothing but balances. When the
-            // chain names a program error, the program must fail with it.
-            let judged = match (rec.code, &r.err) {
-                (Some(c), None) => Judged::Fail(REEXEC_REFUSED, format!("the archive says it failed with program error {c}, and the pinned program runs it to success from the states before it")),
-                (Some(c), Some(e)) => match fclient::ports::custom_code(e) {
-                    Some(g) if g == c => Judged::Ok,
-                    Some(g) => Judged::Fail(REEXEC_REFUSED, format!("the archive says it failed with program error {c}, the pinned program fails it with {g}")),
-                    None => Judged::Missing(format!("the archive says it failed with program error {c}; the re-run stopped in the runtime ({e})")),
-                },
-                // A runtime failure (compute budget, funds): not the
-                // program's to prove; the state stays as before.
-                (None, _) => Judged::Ok,
-            };
-            // (a debit outside the program is one before a failure too)
-            let judged = match (early.take(), judged) {
-                (Some(e @ Judged::Fail(..)), _) => e,
-                (_, j) => j,
-            };
             push(&mut out, soften(judged));
             continue;
-        }
-        let mut judged = early.take().unwrap_or(Judged::Ok);
-        if matches!(judged, Judged::Ok) {
-            if let Some(err) = &r.err {
-                judged = if err.contains("SignatureFailure") {
-                    Judged::Fail(REEXEC_REFUSED, format!("the archived transaction's signatures do not verify ({err}), yet the archive says it succeeded"))
-                } else {
-                    match fclient::ports::custom_code(err) {
-                        Some(code) => Judged::Fail(REEXEC_REFUSED, format!("the pinned program refuses this transaction from the states its history leaves (code {code}: {err}), yet the archive says it succeeded")),
-                        None => Judged::Missing(format!("the re-run stopped in the runtime, not in the program ({err})")),
-                    }
-                };
-            }
-        }
-        if matches!(judged, Judged::Ok) {
-            if rec.logs.iter().any(|l| l.contains("Log truncated")) {
-                judged = Judged::Missing("the archived logs are cut by the runtime".into());
-            } else {
-                let got = judged_logs(&r.logs);
-                let want = judged_logs(&rec.logs);
-                if got != want {
-                    let at = got
-                        .iter()
-                        .zip(want.iter())
-                        .position(|(a, b)| a != b)
-                        .unwrap_or(got.len().min(want.len()));
-                    judged = Judged::Fail(REEXEC_MISMATCH, format!("the program's log lines differ from the archive's at line {at}: re-run {:?}, archive {:?}", got.get(at), want.get(at)));
-                }
-            }
-        }
-        if matches!(judged, Judged::Ok) {
-            for (j, (k, how, before, after)) in r.accounts.iter().enumerate() {
-                if *how == Pre::Runtime || !writable[j] {
-                    continue;
-                }
-                let l = after.as_ref().map_or(0, |a| a.lamports);
-                if l == bal.post[j] {
-                    continue;
-                }
-                if owned(before, &program) || owned(after, &program) {
-                    judged = Judged::Fail(REEXEC_MISMATCH, format!("account {}: the chain shows {} lamports after it, the pinned program leaves {l}", b58(k), bal.post[j]));
-                    break;
-                }
-                if is_wallet(before, &program) && is_wallet(after, &program) {
-                    judged = Judged::Missing(format!("wallet {}: the chain shows {} lamports after it, the re-run leaves {l} (a movement this program's archive cannot explain)", b58(k), bal.post[j]));
-                    break;
-                }
-                judged = Judged::Missing(format!(
-                    "account {} (another program's): the chain shows {} lamports after it, the re-run {l}",
-                    b58(k),
-                    bal.post[j]
-                ));
-                break;
-            }
         }
         let judged = soften(judged);
         let stop = matches!(judged, Judged::Missing(_)) && r.err.is_some();
@@ -535,6 +842,83 @@ pub fn derive(input: &Input) -> Derived {
             post.push((Address::new_from_array(*k), a));
         }
         derived.txs[i].post = post;
+    }
+    // [`ClockRule`]: every transaction of a decided slot is dated with the
+    // slot's Clock in the derived archive (the other checks read it).
+    let mut moved: BTreeMap<u64, (i64, i64, usize)> = BTreeMap::new();
+    for (i, rec) in input.txs.iter().enumerate() {
+        if let Some(&c) = clocks.get(&rec.slot) {
+            if c != rec.block_time {
+                derived.txs[i].block_time = c;
+                let e = moved.entry(rec.slot).or_insert((rec.block_time, c, 0));
+                e.2 += 1;
+            }
+        }
+    }
+    let mut undecided = 0usize;
+    let mut more: BTreeMap<u64, i64> = BTreeMap::new();
+    for o in &open {
+        match clocks.get(&o.slot) {
+            // Never decided in this pass: the chain's final state of an
+            // account it stamped, unwritten since at the stamped bytes,
+            // shows the other run's bytes: the next pass runs the slot at
+            // the other Clock.
+            None if o.accounts.iter().any(|(k, used, other)| {
+                survives(state.get(k).cloned().flatten(), used, other, input.finals.get(k))
+            }) =>
+            {
+                more.insert(o.slot, o.other);
+            }
+            // Never decided: nothing the chain recorded shows the Clock it
+            // stamped (a later write replaced it, and every later
+            // transaction reproduced from the state taken at `used`).
+            None => {
+                undecided += 1;
+                if UNDECIDED_CLOCK_UNVERIFIABLE {
+                    out.findings.push(finding(
+                        Severity::Unverifiable,
+                        MISSING_DATA,
+                        Some(o.tx),
+                        input,
+                        format!(
+                            "{OPEN_CLOCK}: both {} and {} reproduce it and nothing the chain recorded shows which one it stamped (Q-VCF-2)",
+                            o.used, o.other
+                        ),
+                    ));
+                }
+            }
+            Some(c) if *c == o.used => {}
+            Some(c) => out.findings.push(finding(
+                Severity::Unverifiable,
+                MISSING_DATA,
+                Some(o.tx),
+                input,
+                format!(
+                    "{OPEN_CLOCK}: another transaction of slot {} decides its Clock to be {c}, but the state it left (taken at {}) was read or written again before that, so it cannot be re-taken",
+                    o.slot, o.used
+                ),
+            )),
+        }
+    }
+    // (verify-pr266: also when no slot moved: an undecided stamp taken at
+    // blockTime is not proven by blockTime either, so it is always counted)
+    if !moved.is_empty() || undecided > 0 {
+        let txs: usize = moved.values().map(|m| m.2).sum();
+        let first = moved
+            .iter()
+            .next()
+            .map(|(s, m)| format!("; first: slot {s} blockTime {} → Clock {}", m.0, m.1))
+            .unwrap_or_default();
+        out.findings.push(finding(
+            Severity::Warn,
+            CLOCK_FROM_EFFECTS,
+            None,
+            input,
+            format!(
+                "Clock from the transactions' effects, not the RPC's blockTime: {txs} transaction(s) in {} slot(s) re-executed at blockTime − 1, the only Clock of their slot that reproduces the program's recorded logs, balances, errors and final states (one Clock per slot){first}; {undecided} transaction(s) stamped a Clock nothing the chain recorded decides (a later write replaced it and every later transaction reproduced): taken at blockTime",
+                moved.len(),
+            ),
+        ));
     }
     // The end: the final states read from the chain are what the
     // re-executions leave.
@@ -603,5 +987,111 @@ pub fn derive(input: &Input) -> Derived {
         input.provenance
     );
     out.input = Some(derived);
-    out
+    (out, more)
+}
+
+#[cfg(test)]
+mod clock_rule {
+    use super::*;
+
+    fn acc(stamp: u8) -> Option<Account> {
+        Some(Account {
+            lamports: 10,
+            data: vec![1, 2, stamp, 4],
+            owner: Address::new_from_array([9; 32]),
+            executable: false,
+        })
+    }
+
+    fn one_tx() -> Vec<fclient::ports::TxRecord> {
+        vec![Default::default()]
+    }
+
+    #[test]
+    fn a_slots_decided_clock_re_takes_its_open_transactions() {
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        inp[0].post = vec![(Address::new_from_array(k), acc(0x10))];
+        let mut state = BTreeMap::from([(k, acc(0x10))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            other: 99,
+            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            fixed: false,
+            touched: false,
+        }];
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 99);
+        assert_eq!(clocks.get(&5), Some(&99));
+        assert!(open[0].fixed && open[0].used == 99);
+        assert_eq!(state.get(&k), Some(&acc(0x0f)));
+        assert_eq!(inp[0].post[0].1, acc(0x0f));
+    }
+
+    #[test]
+    fn a_state_written_again_since_is_not_re_taken() {
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        let mut state = BTreeMap::from([(k, acc(0x33))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            other: 99,
+            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            fixed: false,
+            touched: false,
+        }];
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 99);
+        assert!(!open[0].fixed);
+        assert_eq!(state.get(&k), Some(&acc(0x33)));
+        // another slot's decision never touches it
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 6, 99);
+        assert!(!open[0].fixed);
+    }
+
+    #[test]
+    fn a_state_read_since_is_not_re_taken() {
+        // verify-pr266: a later transaction of the slot named the account
+        // (read it, state unchanged) while the Clock was open: it ran on
+        // the state taken at `used`, so the other run's state is not
+        // re-taken (the open transaction is reported UNVERIFIABLE).
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        inp[0].post = vec![(Address::new_from_array(k), acc(0x10))];
+        let mut state = BTreeMap::from([(k, acc(0x10))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            other: 99,
+            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            fixed: false,
+            touched: true,
+        }];
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 99);
+        assert_eq!(clocks.get(&5), Some(&99));
+        assert!(!open[0].fixed && open[0].used == 100);
+        assert_eq!(state.get(&k), Some(&acc(0x10)));
+        assert_eq!(inp[0].post[0].1, acc(0x10));
+    }
+
+    #[test]
+    fn a_stamp_survives_only_unwritten_and_exactly_in_the_final_state() {
+        let (used, other) = (acc(0x10), acc(0x0f));
+        assert!(survives(acc(0x10), &used, &other, Some(&acc(0x0f))));
+        // the final state shows the taken run's bytes: nothing to decide
+        assert!(!survives(acc(0x10), &used, &other, Some(&acc(0x10))));
+        // written again since
+        assert!(!survives(acc(0x22), &used, &other, Some(&acc(0x0f))));
+        // a final state neither run leaves
+        assert!(!survives(acc(0x10), &used, &other, Some(&acc(0x0e))));
+        // no final state, or absent
+        assert!(!survives(acc(0x10), &used, &other, None));
+        assert!(!survives(acc(0x10), &used, &other, Some(&None)));
+    }
 }
