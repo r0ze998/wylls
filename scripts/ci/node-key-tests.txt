@@ -358,6 +358,7 @@ permutation-gateway/test/web-frontier-pretake-report.test.mjs
 permutation-gateway/test/web-frontier-proto-board.test.mjs
 permutation-gateway/test/web-frontier-proto-hand.test.mjs
 permutation-gateway/test/web-frontier-proto-loss.test.mjs
+permutation-gateway/test/web-frontier-pt-first-battle.test.mjs
 permutation-gateway/test/web-frontier-ready-again-card.test.mjs
 permutation-gateway/test/web-frontier-ready-again.test.mjs
 permutation-gateway/test/web-frontier-recorded.test.mjs

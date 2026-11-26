@@ -13,7 +13,9 @@ import { hostRows } from '../screens/host.mjs';
 import { SCOUT, SETTLER } from '../fland.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { ringOf } from '../fgeo.mjs';
-import { conquestOn } from './keephand.mjs';
+import { conquestOn, waitOf, roughAt, choosableWait } from './keephand.mjs';
+import { campChoice } from './firstbattle.mjs';
+import { viewTile } from '../map/fog.mjs';
 import { conquestObjective } from '../screens/conquestguide.mjs';
 
 export const GUIDE_LEVELS = Object.freeze(['all', 'warn', 'off']);
@@ -47,7 +49,12 @@ export function guideTarget(FS) {
     try { o = conquestObjective(FS); } catch { return null; }
     // (the step's own press says where: while the first host forms, the muster step points at training or building)
     const pop = o?.go?.act === 'cg-go' ? o.go.data?.pop : null;
-    const kind = ['build', 'train', 'muster'].includes(o?.id) && ['build', 'train', 'muster'].includes(pop) ? pop : null;
+    // (pt-first-battle, Q-PT-2 "march first": the camp step points at the camp its ready host beats, as the M1 march did)
+    if (o?.id === 'camp' && o.go?.act === 'ob-go') {
+      const c = campTarget(FS);
+      if (c) return { step: 'camp', kind: 'march', p: c.p, q: c.q, tile: c.tile, host: c.host };
+    }
+    const kind = ['build', 'train', 'muster', 'camp'].includes(o?.id) && ['build', 'train', 'muster'].includes(pop) ? pop : null;
     return kind ? { step: kind, kind, p: h.p, q: h.q, tile: h.tile } : null;
   }
   if (territoryEnabled(FS)) {
@@ -70,6 +77,14 @@ export function guideTarget(FS) {
     return best ? { step, kind: 'march', p: best.p, q: best.q, tile: best.tile, host: host ? String(host.id) : null } : null;
   }
   return null;
+}
+
+/** (pt-first-battle) The camp the conquest guide's camp step names, with the ready host: `{p, q, tile, host}` or null. */
+export function campTarget(FS) {
+  const host = hostRows(FS).find(r => r.unit !== SCOUT && r.unit !== SETTLER && choosableWait(waitOf(FS, r), r)) ?? null;
+  if (!host) return null;
+  const c = campChoice(FS, host, { seen: (p, q, t) => viewTile(p, q, t, 2), rough: (p, q, t) => roughAt(FS, p, q, t) });
+  return c?.winnable ? { p: c.camp.p, q: c.camp.q, tile: c.camp.tile, host: String(host.id) } : null;
 }
 
 /** The guide card's button for a target. */

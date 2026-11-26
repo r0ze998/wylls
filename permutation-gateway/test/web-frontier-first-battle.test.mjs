@@ -65,18 +65,22 @@ test('the keep list says the odds and the troops it takes, in both languages', (
   assert.match(en.line, /^[0-9,]+ Spearmen or more$/);
 });
 
+// (pt-first-battle, owner 2026-11-26 Q-PT-2 "march first": the keep step comes after the camp step and a building; these
+//  keep checks start past both — the camp step skipped, a building queued)
+const past = s => { s.holdings[0].queue = [{ kind: 1, doneAt: 5000n, item: 0 }]; s.ui = { dismissed: ['ob:skip:camp'] }; return s; };
+
 test('the guide checks the odds before the march, and says what a keep takes while training and forming', () => {
-  const weak = fs();
+  const weak = past(fs());
   const o = conquestObjective(weak);
   assert.equal(o.id, 'march');
   assert.match(o.text, /いまの軍勢（槍兵 100）で届く砦（守備兵 100、城壁あり）を攻めると、勝ち目は(五分|低い)です。槍兵 [0-9,]+ ほどにしてから進軍すると/);
   assert.deepEqual(o.go.data, { pop: 'train' }, 'the press is "add troops", not the keep list');
   // a host that would hold the tile: the keep list, as before
-  const strong = fs({ entries: [entry({ troops: 1000000 })] });
+  const strong = past(fs({ entries: [entry({ troops: 1000000 })] }));
   assert.deepEqual(conquestObjective(strong).go.data, { pop: 'keeps', host: String(entry().id) });
   assert.match(conquestObjective(strong).text, /勝ち目の欄が「十分」の砦を選ぶと/);
   // one keep worn down elsewhere on the map (out of reach) does not change the advice: the usual keep is the measure
-  const worn = fs();
+  const worn = past(fs());
   worn.conquest.keeps.set('9,-9', { p: 9, q: -9, tile: 3, holder: 2, troops: 12, heartland: false, consolidatedUntil: 0, contender: null, progress: 0, requiredBells: 72, asOfBell: 10 });
   worn.conquest.keeps.set('8,-8', { p: 8, q: -8, tile: 3, holder: 3, troops: 100, heartland: false, consolidatedUntil: 0, contender: null, progress: 0, requiredBells: 72, asOfBell: 10 });
   assert.equal(keepTarget(worn).troops, 100);
@@ -100,9 +104,15 @@ test('the guide checks the odds before the march, and says what a keep takes whi
 test('a march turned back on its arrival turn sends the guide back to the march, and says so', () => {
   const k = keepAt(KEEP_4_M1, 10);
   const back = { entry: { arriveBell: 17, host: String(entry().id) }, transit: null, facts: { pipeline: 'resolved' }, dest: { p: 4, q: -1, tile: k.tile } };
-  const s = fs({ bell: 19, extra: { marches: [back] } });
+  const s = past(fs({ bell: 19, extra: { marches: [back] } }));
   // the keep's record names no contender of the viewer's nation, and the host is home: turned back
   s.conquest.keeps.set('4,-1', { ...k, contender: null, progress: 0 });
+  // (pt-first-battle) nothing built yet: the first march is out of the way, so the build step comes — and says the march
+  // was pushed back, as the march step does
+  const unbuilt = fs({ bell: 19, extra: { marches: [back] } });
+  unbuilt.conquest.keeps.set('4,-1', { ...k, contender: null, progress: 0 });
+  assert.equal(conquestGuide(unbuilt).current, 'build');
+  assert.match(conquestObjective(unbuilt).text, /^前の進軍は.+の砦のマスに残れず、村へ押し戻されました。/);
   const g = conquestGuide(s);
   assert.equal(g.current, 'march', 'not "hold the keep\'s tile for 72 turns"');
   assert.deepEqual(g.facts.repelled, { p: 4, q: -1, bell: 17 });

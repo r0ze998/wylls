@@ -2,16 +2,20 @@
 // first village to a province taken, each ticked from the records the page
 // holds and from nothing else —
 //   1 the first village      the viewer's Holding
-//   2 build                  the Holding's queue or its production above the base
-//   3 train                  troops in the reserve, or a combat host
-//   4 form a host            a combat host of the viewer in a province record
-//   5 march on a keep        a march of the viewer to a province whose keep another nation holds, or
+//   2 train                  troops in the reserve, or a combat host
+//   3 form a host            a combat host of the viewer in a province record
+//   4 raid a camp            (pt-first-battle, owner 2026-11-26 15:48 Q-PT-2 "march first") a march of the viewer has
+//                            left — to the nearest barbarian camp the host can beat (hud/firstbattle.mjs campChoice), or
+//                            anywhere —, or the step was skipped. Its report is the first battle the viewer checks.
+//   5 build                  the Holding's queue or its production above the base (done while the first march walks;
+//                            a building does not pass the steps before it: reach ignores it)
+//   6 march on a keep        a march of the viewer to a province whose keep another nation holds, or
 //                            a host of the viewer standing on such a keep's tile; a march whose turn is
 //                            resolved with no host left on the tile and no contest is turned back, and
 //                            the step is current again (it says so, and what the keeps take)
-//   6 hold it for 72 turns   that keep's record names the viewer's nation as the contender, the keep being one the
+//   7 hold it for 72 turns   that keep's record names the viewer's nation as the contender, the keep being one the
 //                            viewer's own host stands on or own march is bound for: its count
-//   7 the capture            a capture record (keep_taken) to the viewer's nation, or the keep's holder
+//   8 the capture            a capture record (keep_taken) to the viewer's nation, or the keep's holder
 //                            is now the viewer's nation after its contest
 // One "next thing" at a time (UX design 7.4, 11.11): the current step's sentence and its one press, which
 // opens the thing the step needs (the village's card, the host's list of keeps, the keep).
@@ -22,7 +26,7 @@ import { activeHolding } from '../fstate.mjs';
 import { SCOUT, SETTLER, UNIT_ORDER } from '../fland.mjs';
 import { factsOf, hasBuilt } from '../onboarding.mjs';
 import { icon } from '../hud/icons.mjs';
-import { conquestOn, heartlandOnlyKeeps, holdTurns, hostWaits, waitOf, waitText, keepsModel, arrivalOdds, roughAt } from '../hud/keephand.mjs';
+import { conquestOn, heartlandOnlyKeeps, holdTurns, hostWaits, waitOf, waitText, keepsModel, arrivalOdds, roughAt, choosableWait } from '../hud/keephand.mjs';
 import { keepArrival } from '../hud/rulebook.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { hostRows } from './host.mjs';
@@ -33,8 +37,14 @@ import { worldContinues } from '../clock.mjs';
 import { turnsLine } from '../seasonterms.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
+import { campChoice, earliestReportAt, ownReportDue } from '../hud/firstbattle.mjs';
+import { viewTile } from '../map/fog.mjs';
+import { dueText } from './shell.mjs';
+import { FLAG } from '../onboarding.mjs';
 
-export const CONQUEST_STEPS = Object.freeze(['village', 'build', 'train', 'muster', 'march', 'hold', 'capture']);
+export const CONQUEST_STEPS = Object.freeze(['village', 'train', 'muster', 'camp', 'build', 'march', 'hold', 'capture']);
+/** Steps that never pass the ones before them (a building is a side step of the first hour, not progress toward a keep). */
+const SIDE_STEPS = new Set(['build']);
 const int = Number.isInteger;
 
 const keepsOf = FS => (FS.conquest?.keeps instanceof Map ? [...viewKeeps(FS.conquest.keeps).values()] : []);
@@ -82,10 +92,14 @@ export function conquestFacts(FS) {
   // the guide then counted no host and fell back to "build" (1/7) mid-march. The viewer's own march list says a host
   // stood and is away)
   const away = (FS.marches ?? []).length > 0;
+  // (pt-first-battle) the first march has left: any march of the viewer — on the page's list, counted by the Citizen
+  // (`arrivals`), or sealed by this page and not answered "no" — or the step was skipped by the viewer
+  const sentOrder = (FS.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused');
+  const raided = away || Number(FS.citizen?.arrivals ?? 0) > 0 || sentOrder || (FS.ui?.dismissed ?? []).includes(FLAG.skip('camp'));
   return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0 || away,
     // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
     stood: stoodHosts(rows).length > 0 || away, forming: formingHosts(rows)[0] ?? null,
-    marched: !!(standing || revealed || sealed || contest || gain),
+    marched: !!(standing || revealed || sealed || contest || gain), raided,
     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,
     repelled: contest || standing ? null : repelled };
@@ -190,7 +204,7 @@ export function sealedMarch(FS) {
 
 const TITLE = {
   village: () => L`最初の村`, build: () => L`建物を建てる`, train: () => L`兵を訓練する`, muster: () => L`軍勢を編成する`,
-  march: () => L`砦へ進軍する`, hold: hold => L`砦のマスを ${fmtNum(hold)} ターン保つ`, capture: () => L`州を奪う`,
+  camp: () => L`近くの蛮族の野営地を襲う`, march: () => L`砦へ進軍する`, hold: hold => L`砦のマスを ${fmtNum(hold)} ターン保つ`, capture: () => L`州を奪う`,
 };
 
 /**
@@ -202,12 +216,15 @@ export function conquestGuide(FS) {
   if (!conquestOn(FS) || heartlandOnlyKeeps(FS)) return null;
   const x = conquestFacts(FS), hold = holdTurns(FS);
   const captured = !!x.captured;
-  const done = { village: x.village, build: x.built || x.trained || x.host, train: x.trained || x.host, muster: x.stood || x.marched, march: x.marched, hold: captured, capture: captured };
+  const done = { village: x.village, train: x.trained || x.host, muster: x.stood || x.marched, camp: x.raided || x.marched || captured, build: x.built, march: x.marched, hold: captured, capture: captured };
   // the step that is next is the one after the furthest the records show (a player who has marched is not sent back to
-  // "build" because the village's queue is empty): what lies before it and is not in the records now reads as passed
-  const reach = CONQUEST_STEPS.reduce((a, id, i) => (done[id] ? i : a), -1);
+  // "build" because the village's queue is empty): what lies before it and is not in the records now reads as passed.
+  // (pt-first-battle: a building — the side step — passes nothing: a newcomer who built first is still led to the camp)
+  const reach = CONQUEST_STEPS.reduce((a, id, i) => (done[id] && !SIDE_STEPS.has(id) ? i : a), -1);
   const current = CONQUEST_STEPS.find((id, i) => i > reach && !done[id]) ?? 'done';
-  return { steps: CONQUEST_STEPS.map((id, i) => ({ id, title: TITLE[id](hold), status: done[id] || i < reach ? 'done' : id === current ? 'current' : 'todo' })), current, n: Math.max(0, reach + 1), total: CONQUEST_STEPS.length, facts: x };
+  const steps = CONQUEST_STEPS.map((id, i) => ({ id, title: TITLE[id](hold), status: done[id] || i < reach ? 'done' : id === current ? 'current' : 'todo' }));
+  // (the count of the steps done: a building counts though it passes nothing)
+  return { steps, current, n: steps.filter(x => x.status === 'done').length, total: CONQUEST_STEPS.length, facts: x };
 }
 
 /**
@@ -225,6 +242,46 @@ function waitingSuggestion(FS, r, t) {
     freeSlots: Math.max(0, (m.slots ?? 0) - (m.queue?.length ?? 0)), buildBlocked: !!m.blocks?.Build?.length });
 }
 
+/**
+ * (pt-first-battle, owner 2026-11-26 15:48 Q-PT-2) The "march first" step: the nearest barbarian camp the ready host
+ * beats even at the worst roll (hud/firstbattle.mjs campChoice; under the fog only camps on surveyed tiles, as the march
+ * card's "nearby destinations"), with when the first battle report can be expected. `{text, go, wait}`. Nothing is sent:
+ * the press opens the march card with the camp filled in (app.mjs guideGo, guideTarget's `camp`), where the rules'
+ * forecast and the seal are.
+ */
+export function campStep(FS) {
+  let rows = [];
+  try { rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { rows = []; }
+  // (a formed host whose province is only finishing the last turn counts as ready — keephand.mjs choosableWait, the keep
+  //  list's own rule: the march card holds the seal and sends it once the province has caught up. At ×60 every turn
+  //  change made the step flip to 「軍勢の準備を確かめる」 for a moment, and a press then opened the host list)
+  const ready = rows.find(r => choosableWait(waitOf(FS, r), r)) ?? null;
+  const now = FS.chain?.now?.() ?? null;
+  const skip = L`この手順は飛ばせます（飛ばすと建設へ進みます）。`;
+  if (!ready) {
+    const w = hostWaits(FS)[0] ?? null;
+    return { text: w ? waitText(w, FS) : L`野営地へ向かう軍勢がいません。訓練して軍勢を編成します。`, go: w ? { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` } : nextArmyGo(FS).go, wait: w ? L`軍勢の準備を待つ` : null };
+  }
+  const who = unitCount(UNIT_ORDER[ready.unit], Math.floor(Number(ready.troops)));
+  // (this page cannot send a march in this world: said as the keep step says it, and the step can be skipped)
+  if (!marchOpenFor(FS)) return { text: L`${who}の軍勢が立ちました。${marchClosedText(FS)}${skip}`, go: { act: 'ob-skip', data: { step: 'camp' }, label: L`この手順を飛ばす` }, wait: null };
+  const c = campChoice(FS, ready, { seen: (p, q, t) => viewTile(p, q, t, 2), rough: (p, q, t) => roughAt(FS, p, q, t) });
+  const at = earliestReportAt(FS.clock, FS.nowBell, FS.season);
+  const eta = at !== null ? L`封をして出発すると、最初の戦いの報告は早くて${dueText(at, now)}に出ます。` : '';
+  if (c?.winnable) {
+    return { text: L`最初の戦いは、${provinceName(FS, c.camp.p, c.camp.q, { own: false })}の蛮族の野営地（守り手 ${fmtNum(c.camp.troops)}）にしましょう。いまの軍勢（${who}）なら、運が悪くても勝てる見込みです。${eta}報告は、このブラウザで計算し直して確かめられます。`,
+      go: { act: 'ob-go', data: {}, label: L`この野営地へ進軍を準備する` }, wait: null };
+  }
+  if (c) {
+    const need = c.need ? L`${unitCount(UNIT_ORDER[ready.unit], c.need)} ほどにすると、運が悪くても勝てる見込みです。` : '';
+    const chance = c.odds === 'even' ? L`勝ち目は五分です。` : L`勝ち目は低いです。`;
+    return { text: L`いちばん近い蛮族の野営地（${provinceName(FS, c.camp.p, c.camp.q, { own: false })}、守り手 ${fmtNum(c.camp.troops)}）を、いまの軍勢（${who}）で攻めると、${chance}${need}訓練で兵を足してから向かいましょう。${skip}`,
+      go: { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }, wait: null };
+  }
+  return { text: L`見えている蛮族の野営地はありません。「進軍」で地図のマスを押すと、着いたあたりが見えるようになります。${skip}`,
+    go: { act: 'cg-go', data: { pop: 'march', host: String(ready.id) }, label: L`進軍で地図から選ぶ` }, wait: null };
+}
+
 /** The current step as the one "next thing": `{id, n, total, title, text, go: {act, data, label} | null}`; null when every step is done. */
 export function conquestObjective(FS) {
   const g = conquestGuide(FS);
@@ -233,12 +290,25 @@ export function conquestObjective(FS) {
   const title = TITLE[id](hold);
   let text = '', go = null, wait = null;
   if (id === 'village') { text = L`国を選ぶと、最初の村が自動で置かれます。`; go = { act: 'join-open', data: {}, label: L`国を選ぶ` }; }
-  else if (id === 'build') { text = L`村を選び、「建てる」から最初の建物を選びます。建物は毎時の産出を増やします。`; go = { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }; }
+  else if (id === 'build') {
+    // (pt-first-battle: the build step now comes while the first march walks — said so, with when its report is due)
+    const due = ownReportDue(FS), now = FS.chain?.now?.() ?? null;
+    const lead = due ? L`最初の進軍が向かっています。報告は${dueText(due.at, now)}に出る見込みです。待つあいだに、` : '';
+    // (a march turned back from a keep before anything was built: said here too, as the march step says it)
+    const back = x.repelled ? L`前の進軍は${provinceName(FS, x.repelled.p, x.repelled.q, { own: false })}の砦のマスに残れず、村へ押し戻されました。` : '';
+    text = back + (lead ? L`${lead}村を選び、「建てる」から建物を選びます。建物は毎時の産出を増やし、次の軍勢の兵を養います。` : L`村を選び、「建てる」から最初の建物を選びます。建物は毎時の産出を増やします。`);
+    go = { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` };
+  }
+  else if (id === 'camp') ({ text, go, wait } = campStep(FS));
   else if (id === 'train' || id === 'muster') {
     // what a keep takes, said before the host is formed (the UI check of 2026-10-26: the guide's first march, a host of
     // the first 100 spearmen, met a keep of 100 defenders behind walls and was turned back)
     const t = keepTarget(FS);
-    const aim = t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
+    // (pt-first-battle, "march first": before the first march the measure is the nearest camp in sight, not a keep)
+    const hv = activeHolding(FS);
+    const fc = !x.raided && hv ? campChoice(FS, { unit: 0, troops: 100, p: hv.p, q: hv.q }, { seen: (p, q, tl) => viewTile(p, q, tl, 2), rough: (p, q, tl) => roughAt(FS, p, q, tl) }) : null;
+    const aim = fc?.need ? L`最初の戦いは近くの蛮族の野営地（守り手 ${fmtNum(fc.camp.troops)}）です。${unitCount(UNIT_ORDER[0], fc.need)} 以上を一つの軍勢にまとめると、運が悪くても勝てる見込みです。`
+      : t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
     if (id === 'train') { text = L`「訓練」で兵を雇います。訓練はすぐに終わり、兵は村の控えに入ります。${aim}`; go = { act: 'cg-go', data: { pop: 'train' }, label: L`訓練する兵を選ぶ` }; }
     else if (x.forming) {
       // the host is forming: where its muster turn really is, and one thing worth doing meanwhile (the first-session
@@ -347,7 +417,7 @@ export function renderConquestGuide(FS, { open = true } = {}) {
   const body = html`${o ? html`<p>${o.text}</p>${o.go ? html`<div class="actions"><button type="button" class="btn primary" data-act="${o.go.act}" ${attrs(o.go.data)}>${o.go.label}</button></div>` : ''}`
       : html`<p>${cap ? L`第${fmtNum(cap.turn)}ターンに、あなたの国（${factionName(FS.citizen?.faction)}）が州 ${cap.p},${cap.q} を奪いました。${seasonLine}` : seasonLine}</p>${next ? html`<p class="cg-next" data-next="after-capture">${next.text}</p><div class="actions"><button type="button" class="btn primary" data-act="${next.go.act}" ${attrs(next.go.data)}>${next.go.label}</button></div>` : ''}`}
     <ol class="checklist">${g.steps.map(item)}</ol>
-    <div class="actions ck-foot"><button type="button" class="btn small quiet" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></div>`;
+    <div class="actions ck-foot">${o?.id === 'camp' && o.go?.act !== 'ob-skip' ? html`<button type="button" class="btn small quiet" data-act="ob-skip" data-step="camp">${L`この手順を飛ばす`}</button>` : ''}<button type="button" class="btn small quiet" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></div>`;
   const head = o ? L`ガイド ${o.n}/${o.total}：${o.title}` : L`ガイド：州を奪いました`;
   if (!open) return html`<details class="callout onboarding"><summary>${head}</summary>${body}</details>`;
   return html`<section class="vcard onboarding" aria-labelledby="ob-title">${cardHead({ id: 'ob-title', ic: 'compass', title: head })}${body}</section>`;

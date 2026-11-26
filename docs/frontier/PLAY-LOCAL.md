@@ -116,6 +116,12 @@ Options:
 `--demo` takes you through 1–8. In a kept world do 1–5, then stop and continue as in §6 (at 1× a mustered host can
 move only once its turn is settled: about 17 minutes later).
 
+**March first** (owner decision 2026-11-26, Q-PT-2; pt-first-battle): the guide at the top right now leads
+"Train troops" → "Form a host" → "Raid a nearby barbarian camp" (step 5a below) → "Build" → "March on a keep" →
+hold → capture, eight steps ("Guide 1/8" …). Building and scouting come while the first march walks. The steps below
+keep their old numbers; follow the guide's order. A newcomer can also check a battle in this browser within minutes:
+the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
+
 1. **Join**: "Start the world (a kept world resumes)" (with `--demo`: "Start a new world") → "Choose a nation" → pick a flag, then
    press "Join (nation)". The first village is placed for you. No key card and no wallet prompt appears.
 2. **Village**: "This is your village." means it worked. The bar above the map shows a number per good, as many as fit
@@ -123,7 +129,9 @@ move only once its turn is settled: about 17 minutes later).
    "Fields" chip joins the bar); "N more" (or any number in the bar) opens "Resources", every good with its rate
    (e.g. "Ore" "+4 per hour"; loop-play21, verify-pr255). A village with
    "No ore from the land" can only grow to about 600 troops (on the standard map every auto-placed first village in loop-play21 was one: 4 of 4).
-3. **Build**: "Choose your first building" → the farm's "Build". It finishes in about one (in-game) minute.
+3. **Build**: "Choose your first building" → the farm's "Build". It finishes in about one (in-game) minute. The guide
+   asks for it after the first march has left ("Guide 4/8 Open the build list", with "Your first march is on its way; its
+   report is expected in about N min …"); you may build earlier, it does not skip the camp step.
 4. **Train**: "Train" in the bottom bar → "Max 500" → "Train 500 Spearmen". It finishes at once.
 5. **Muster**: "Form a host" in the bottom bar (or the guide at the top right when it says "Form a host") → "All" (the whole reserve when the order goes, including a training batch that lands after the card opened; fix-loop9 LP9-5) →
    "Form N Spearmen here". When it says "This province is still resolving the last turn." you **may press anyway**: the
@@ -132,8 +140,16 @@ move only once its turn is settled: about 17 minutes later).
    about 80 % of the time, before about 30 %; in verify-pr146 the line was absent and the order went at once; §8.2).
    The village screen's "Troops" → "Form" cannot be pressed while the province settles
    (only the bottom bar's "Form a host" waits and sends). While the host forms, the guide at the top right says
-   "Guide 3/7 Wait for the host to form" (with something to do meanwhile added as "Meanwhile: Open the build list" or the like). When it
-   says "Check your host's readiness" or "See the keeps in reach", the host is mustered.
+   "Guide 2/8 Wait for the host to form" (with something to do meanwhile added as "Meanwhile: Open the build list" or the like). When it
+   says "Prepare a march on this camp" (or "See the keeps in reach" later), the host is mustered.
+5a. **First battle: a nearby barbarian camp** (pt-first-battle): "Guide 3/8 Raid a nearby barbarian camp". The guide picks the
+   nearest camp in sight that your host beats even with bad luck ("Make your first battle the barbarian camp of (place) (N defenders).
+   Your host (500 Spearmen) should win even with bad luck. Seal and depart, and the first battle report comes in about 38 min
+   (about 38 seconds in real time) at the earliest."). Its button "Prepare a march on this camp" opens the march card with the camp
+   filled in: press "Send this order". Before the host is formed, "Train troops" already says what the camp takes ("Your first battle
+   is a nearby barbarian camp (156 defenders). Gather 200 Spearmen or more into one host …"). With too few troops it says the odds and
+   "Train more troops before you go"; with no camp in sight it offers "March: choose on the map"; "Skip this step" moves on to building.
+   In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–280 defenders.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
    The card the guide opens, "March on a keep · N keeps in reach", gives each row's arrival as "Turn 22 · arrival (13 tiles)"; the
@@ -166,12 +182,22 @@ move only once its turn is settled: about 17 minutes later).
      march. If it was not, the notice says "That did not work" with "The march was not recorded in time, and now it never will be."
      (asked later: "The march that was sent was not recorded in time, and now it never will be. The host is still at the village and can be ordered again.";
      refused by the chain: "The march that was sent was refused on chain. The host is still at the village and can be ordered again.").
-     The host is at the village, the guide goes back to "Guide 4/7", and "Try again" reopens the march card: press
+     The host is at the village, the guide goes back to "Guide 5/8", and "Try again" reopens the march card: press
      "Send this order" again (#193, #200; verify-pr193 and verify-pr200 played both in English and Japanese). What is
      left: once the 2 minutes are over, no button asks again (§8.1).
 7. **Check the clash**: a turn or two after the arrival turn the notice "The clash on the (place) is resolved (arrivals of turn N)"
    appears, with "View" and "Report". "Report" → "Verify in this browser";
    "Match: the outcome recomputed in this browser is the chain's record" means it was recomputed and agrees.
+   **"While you wait"** (pt-first-battle; owner decisions Q-PT-1, Q-PT-3, Q-PT-13): a panel at the bottom left, always there, folded
+   or opened by its title button (the choice is kept per world). It is built from your own records only: "Your battle report (arrival on
+   turn N): in about … ", "Seal and depart this turn and the battle report comes at the earliest …", "(troops) are regaining stamina and
+   can march again from turn N …", the land upkeep (wide land) and a keep you are holding. Under "Things you can do": **"Verify a real
+   battle in this browser"** opens your own resolved clash, or else the newest clash in a place you can see now (the fog's own rule; no
+   other battle is offered), and "Verify in this browser" then shows "Match". With no such battle yet it offers **"Try "Recompute" on a
+   practice battle"**: the practice battle (not a chain record) → "Run the clash" → "Recompute in this browser" → "Match (practice)".
+   After your first "Match" (or the practice one) the offer goes away. In the live checks the practice match came about a minute after the
+   village, the real "Match" on your own camp raid about 4–5 real minutes after it (×60; at 1× the own report is about an hour after the
+   village: the march takes at least two turns and the seals' window and the seed another ~12 minutes).
    The same in a `--coexist` world (it answered "Could not check (a record is missing)" there until fix-loop14, LP14-4).
    A report whose record does not say what was left of a side — an older turn of a host standing on a keep's tile:
    "316 → —" — runs this check by itself when it opens and shows the numbers with "Match".
@@ -677,7 +703,7 @@ view (fog-devnet; runbook §7 P5).
 
    The same address opens; press "Start the world (a kept world resumes)" and you are back in your village.
    If you stopped with a march out, the page no longer knows its sealed destination (it is revealed on the arrival turn):
-   the guide at the top right says "Guide 4/7 See the marches" and "Your host is out on a march. Its destination stays sealed until its arrival turn, N. …" (fix-loop12), or, when the page sees no host of yours in any province, "There is no host at the village now. …" with "See the march's result".
+   the guide at the top right says "Guide 5/8 See the marches" (before the march-first order: "Guide 4/7"; with nothing built yet it says "Guide 4/8 Open the build list" first) and "Your host is out on a march. Its destination stays sealed until its arrival turn, N. …" (fix-loop12), or, when the page sees no host of yours in any province, "There is no host at the village now. …" with "See the march's result".
 - `--demo` and `--wide` worlds are not kept. Close the browser tab after a stop. **Do not reload the page** while
   playing them (the test key lives in memory only; you could not get back into that world).
 - After a `git pull` that changes the program, the old world cannot continue. The script says so; start again with `--fresh`.
@@ -751,7 +777,7 @@ nation's (part of LP13-3). None is a rules question. loop-play14's LP14-1 … 15
 | Where | What happens on main | Workaround now |
 |---|---|---|
 | Your own land (`--wide`) | a tile claim on a village that was only just placed is refused "The village is not confirmed yet." until the village has done one thing (the chain confirms it lazily; territory-card saw it live) | press "Harvest" once, then claim |
-| March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on 5/7 (verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
+| March order card | a march held as "not confirmed yet" can no longer be asked about once the page's own 2-minute re-check is over: "Try again" does not ask, and the guide stays on its hold step ("5/7" before the march-first order, now "6/8"; verify-pr200; rare) | none while playing (a reload loses a `--demo` / `--wide` world) |
 | Boundary card | closing the drawer, pressing the open tab again or "Map" clears the road you drew (verify-pr195; opening "Marches" keeps it) | draw the road again |
 | Boundary card (×60) | "Check departure conditions" is refused NotResident once or twice (the province is still settling) | wait 1–2 s and press again (it only reads) |
 | ⑩ stopping a caravan (×60) | from the moment "Stop the caravan" is offered you have in practice about 2 turns (about 20 s) to stop and decide (the limit is 6 turns from the turn the caravan stood; the province settles 2–4 turns late; verify-pr145) | try it with `--speed 15` (§12) |
@@ -780,7 +806,7 @@ Small ones (nothing blocks play):
 - The card writes "Keep taken: the host became the keep's garrison", but of a host of 200 or more only half becomes the garrison (§4 step 3).
 - In a `--wide` world the guide at the top right does not count wide-land keep captures (it looks at keeps up to ring 128).
   After a W2 village or an expedition takes a keep the guide stays on its earlier step (w2-wipeout: still "Guide 1/7 Open the build list"
-  after the capture).
+  after the capture; with the march-first order the earlier step is "Train troops" or the camp step: not re-checked live).
 - The short address in the ⑨ and ⑩ choices ("4dkm…7rAz" and the like) is the owner's resident record (Citizen), not the
   owner's wallet. The page shows neither of your own addresses anywhere, so tell the options apart by village name and tile
   (loop-play11 LP11-5; §12).
