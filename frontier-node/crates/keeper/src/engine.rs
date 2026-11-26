@@ -357,6 +357,10 @@ pub struct KindStats {
 }
 
 pub struct Engine {
+    /// keeper-landing-investigate: `getSignatureStatuses` reads of `poll`
+    /// that failed as a whole (total, in a row, the last error). Before,
+    /// a failed read was dropped silently and nothing ever landed.
+    pub status_read_errors: (u64, u64, Option<String>),
     feed_block: Option<crate::feedguard::FeedBlock>,
     feed_ready: bool,
     pending: BTreeMap<String, Pending>,
@@ -573,6 +577,7 @@ pub const PAYER_CARE_KIND: &str = "payer-care";
 impl Engine {
     pub fn new(budgets: Budgets, params: EngineParams) -> Engine {
         Engine {
+            status_read_errors: (0, 0, None),
             feed_block: None,
             feed_ready: true,
             pending: BTreeMap::new(),
@@ -664,6 +669,28 @@ impl Engine {
 
     /// An undecided care transfer blocks every new top-up and sweep. This
     /// includes attempts adopted as orphans on restart, not just pending keys.
+    /// `port.statuses`, counting a failed read (`None` for every signature:
+    /// they stay pending).
+    async fn read_statuses<P: ChainPort>(
+        &mut self,
+        port: &P,
+        sigs: &[Signature],
+    ) -> Vec<Option<Status>> {
+        match port.statuses(sigs).await {
+            Ok(v) => {
+                self.status_read_errors.1 = 0;
+                v
+            }
+            Err(e) => {
+                let r = &mut self.status_read_errors;
+                r.0 += 1;
+                r.1 += 1;
+                r.2 = Some(format!("{} signatures: {e}", sigs.len()));
+                vec![]
+            }
+        }
+    }
+
     pub fn care_unresolved(&self) -> bool {
         self.pending
             .values()
@@ -1262,7 +1289,7 @@ impl Engine {
         let sts = if flat.is_empty() {
             vec![]
         } else {
-            port.statuses(&flat).await.unwrap_or_default()
+            self.read_statuses(port, &flat).await
         };
         let mut ended: Vec<(String, Outcome)> = vec![];
         for ((k, v), st) in sigs.iter().zip(sts.iter()) {
@@ -1417,7 +1444,7 @@ impl Engine {
         if !self.orphans.is_empty() {
             let orphans = std::mem::take(&mut self.orphans);
             let os: Vec<Signature> = orphans.iter().map(|o| o.0).collect();
-            let sts = port.statuses(&os).await.unwrap_or_default();
+            let sts = self.read_statuses(port, &os).await;
             let mut keep = vec![];
             let mut resolved = HashSet::new();
             for (o, st) in orphans
@@ -2977,6 +3004,35 @@ mod tests {
         assert!(engine.uncounted_fees.contains_key(&version.sig));
         assert_eq!(journal.in_flight().unwrap().len(), 1);
         assert_eq!(engine.stats["test"].fees_charged, 0);
+    }
+
+    /// keeper-landing-investigate: a failed status read was dropped
+    /// silently (devnet keeper A: no landing for hours, nothing in the log
+    /// or `/v1/status`). It is counted now, and a good read clears the run.
+    #[tokio::test]
+    async fn failed_status_reads_are_counted_and_a_good_read_clears_the_run() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        engine.ensure(spec("w", Class::D, abi::tag::POST_SEED), 10);
+        engine.step(&port, &mut payers, None, 10).await;
+        assert_eq!(engine.status_read_errors, (0, 0, None));
+        port.fail_status_lookup
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        engine.poll(&port, None, 11).await;
+        engine.poll(&port, None, 12).await;
+        let (total, run, last) = engine.status_read_errors.clone();
+        assert_eq!((total, run), (2, 2));
+        assert!(last.unwrap().contains("status RPC down"));
+        assert!(engine.pending.contains_key("w"), "unknown stays pending");
+        port.fail_status_lookup
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        engine.poll(&port, None, 13).await;
+        assert_eq!(
+            (engine.status_read_errors.0, engine.status_read_errors.1),
+            (2, 0)
+        );
     }
 
     #[tokio::test]
