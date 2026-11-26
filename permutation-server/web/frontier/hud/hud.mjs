@@ -456,7 +456,7 @@ export function renderPlate(FS) {
  * The bottom-left corner (`aside#rail`): the to-do tab (its list when `todoOpen`), then the plate.
  * The spectator sees the standings there instead.
  */
-export function renderRail(FS, { todoOpen = false } = {}) {
+export function renderRail(FS, { todoOpen = false, wait = '' } = {}) {
   if (FS.mode === 'spectate') {
     // (no false state at load, UX design 12.3: until the season's record or an overview has answered, the six nations
     // stood at 「村 0 · 0 州」 as if the world were empty — and for good when the season could not be read. The plate
@@ -471,7 +471,8 @@ export function renderRail(FS, { todoOpen = false } = {}) {
   }
   if (FS.mode !== 'play') return '';
   // (the wide pips: the viewer's wide inventory slots, read-only, beside the plate and never among its legacy pips)
-  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`;
+  // (pt-first-battle, Q-PT-13: `wait` — the "While you wait" panel the page composes, hud/waitpanel.mjs — stands first)
+  return html`${wait}${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`;
 }
 
 /**
@@ -479,10 +480,11 @@ export function renderRail(FS, { todoOpen = false } = {}) {
  * read-only wide pips the desktop rail carries (never among the plate's legacy pips), the one "next thing" row the
  * caller passes, the to-do lines. One composition for both widths, so a phone has the wide selector too.
  */
-export function renderRest(FS, { next = '', todoMax = 8 } = {}) {
+export function renderRest(FS, { next = '', todoMax = 8, wait = '' } = {}) {
   // (workstream 07: the wide inventory's status line stands AFTER the "next thing", not between it and the plate: on a
   // herald without the wide index every player has that line, and above the next thing it pushed the next thing out of
   // the phone's peek — the sheet at rest shows the plate and the next thing whole, interaction.screen.mjs. The line and
   // the pips are unchanged; only the order is.)
-  return [renderPlate(FS), html`${renderWidePips(FS)}`, next, html`${renderWideInventoryStatus(FS)}`, renderTodo(FS, { max: todoMax, open: true })];
+  // (pt-first-battle, Q-PT-13: the "While you wait" panel last, under the to-do lines: the peek keeps the plate and the next thing)
+  return [renderPlate(FS), html`${renderWidePips(FS)}`, next, html`${renderWideInventoryStatus(FS)}`, renderTodo(FS, { max: todoMax, open: true }), ...(wait ? [wait] : [])];
 }

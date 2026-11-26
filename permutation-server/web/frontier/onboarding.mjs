@@ -22,6 +22,9 @@ import { ringOf, wedgeOf, provinceIndex } from './fgeo.mjs';
 /** The steps, in order (design §7.11 table: 1–8). */
 export const STEPS = Object.freeze(['welcome', 'join', 'build', 'scout', 'practice', 'march', 'report', 'done']);
 /** Instant-home seasons teach the real game; a practice battle is never a prerequisite. */
+// (pt-first-battle, owner 2026-11-26 15:48 Q-PT-2 "march first" is the conquest guide's order — screens/conquestguide.mjs
+//  CONQUEST_STEPS, the guide of every playable-lane world: devnet and play-local. These two orders belong to worlds no
+//  newcomer plays now — program version 2, and the sample world's territory preview — and are left as they were)
 export const HOME_STEPS = Object.freeze(['join', 'build', 'scout', 'march', 'report', 'done']);
 export const ARRIVAL_STEPS = Object.freeze(['join', 'build', 'train', 'muster', 'march', 'claim', 'done']);
 /** Local flags (in ps-fui `dismissed`). */
@@ -31,6 +34,9 @@ export const FLAG = Object.freeze({
   practice: 'ob:practice',
   report: 'ob:report',
   exploreResult: 'ob:explore-result',
+  // (pt-first-battle) this browser checked a real clash and saw 「一致」; it ran the practice battle's recompute to a match
+  verified: 'ob:verified',
+  practiceMatch: 'ob:practice-match',
   skip: id => `ob:skip:${id}`,
 });
 /** Minutes the waits take (O-M1-13, web design §6.3): [earliest, latest]. */

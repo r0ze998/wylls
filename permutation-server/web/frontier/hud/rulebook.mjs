@@ -277,10 +277,13 @@ function clashDamage(nA, strA, nB, strB, mods, roll) {
 }
 
 /** One arrival turn of `troops` (whole) of `unit` on a keep of `keepTroops` (whole): what is left of each side and whether the host holds the tile, at the given rolls. */
-function arrivalTurn(unit, troops, keepTroops, rough, rollHost, rollKeep) {
+function arrivalTurn(unit, troops, keepTroops, rough, rollHost, rollKeep, walls = true) {
   const str = UNIT_STATS[unit]?.strength ?? 0;
   const a = troops * 1000, g = keepTroops * 1000;
-  const toKeep = clashDamage(a, str, g, CITY_STRENGTH, rough ? [CLASH_BPS.terrain, CLASH_BPS.walls] : [CLASH_BPS.walls], rollHost);
+  // (pt-first-battle: a barbarian camp is the same kind of garrison — clash.rs `Combatant::City`, strength 10, retaliation
+  //  ×0.5 — standing without walls: clash_model's camp garrison has `walls: false`)
+  const mods = [...(rough ? [CLASH_BPS.terrain] : []), ...(walls ? [CLASH_BPS.walls] : [])];
+  const toKeep = clashDamage(a, str, g, CITY_STRENGTH, mods, rollHost);
   const toHost = clashDamage(g, CITY_STRENGTH, a, str, [CLASH_BPS.cityRetaliation], rollKeep);
   const hostLeft = Math.max(0, a - toHost), keepLeft = Math.max(0, g - toKeep);
   return { hostLeft: Math.floor(hostLeft / 1000), keepLeft: Math.floor(keepLeft / 1000), holds: hostLeft >= 500 && hostLeft * str > keepLeft * CITY_STRENGTH };
@@ -301,6 +304,23 @@ export function keepArrival({ unit, troops, keepTroops, rough = true }) {
   let need = null;
   for (let n = HOST_TROOPS.min; n <= HOST_TROOPS.max; n += 100) {
     if (arrivalTurn(unit, n, keepTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh).holds) { need = n; break; }
+  }
+  return { odds: worst.holds ? 'good' : best.holds ? 'even' : 'poor', worst, best, need };
+}
+
+/**
+ * (pt-first-battle, owner 2026-11-26 15:48 Q-PT-2) The arrival of a march on a barbarian camp, as the rules resolve
+ * its first turn: the keep's estimate without walls (the camp is a city-kind garrison with no walls). Same answer shape
+ * as `keepArrival`. A guide only: the march card's forecast is the rules' own run (hud/forecast.mjs).
+ */
+export function campArrival({ unit, troops, campTroops, rough = false }) {
+  const str = UNIT_STATS[unit]?.strength ?? 0;
+  if (!(str > 0) || !(troops > 0) || !(campTroops >= 0)) return { odds: 'poor', worst: null, best: null, need: null };
+  const worst = arrivalTurn(unit, troops, campTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh, false);
+  const best = arrivalTurn(unit, troops, campTroops, rough, CLASH_BPS.rollHigh, CLASH_BPS.rollLow, false);
+  let need = null;
+  for (let n = HOST_TROOPS.min; n <= HOST_TROOPS.max; n += 100) {
+    if (arrivalTurn(unit, n, campTroops, rough, CLASH_BPS.rollLow, CLASH_BPS.rollHigh, false).holds) { need = n; break; }
   }
   return { odds: worst.holds ? 'good' : best.holds ? 'even' : 'poor', worst, best, need };
 }

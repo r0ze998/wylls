@@ -252,14 +252,26 @@ test('the battle report says what is recomputed here, prints the record\'s slot,
 });
 
 // ------------------------------------------------------------------ the guide
-test('the guide on a conquest season: seven steps to a province, each from the records', () => {
-  assert.deepEqual([...CONQUEST_STEPS], ['village', 'build', 'train', 'muster', 'march', 'hold', 'capture']);
+test('the guide on a conquest season: eight steps to a province, march first (pt-first-battle), each from the records', () => {
+  assert.deepEqual([...CONQUEST_STEPS], ['village', 'train', 'muster', 'camp', 'build', 'march', 'hold', 'capture']);
   const status = s => conquestGuide(s).steps.map(x => x.status[0]).join('');
   const fresh = fs({ entries: [] });
-  assert.equal(status(fresh), 'dcttttt');
+  assert.equal(status(fresh), 'dctttttt');
   assert.equal(conquestObjective(fresh).go.act, 'cg-go');
-  assert.equal(conquestObjective(fresh).go.data.pop, 'build');
-  const withHost = fs();
+  assert.equal(conquestObjective(fresh).go.data.pop, 'train', 'march first (owner 2026-11-26 Q-PT-2): train before building');
+  // (pt-first-battle) a standing host and no march yet: the camp step. No camp stands in these records, so it offers a
+  // march by the map, and the step can be skipped; a building does not pass it (a newcomer who built first still goes)
+  const camp = fs();
+  assert.equal(conquestGuide(camp).current, 'camp');
+  assert.deepEqual(conquestObjective(camp).go, { act: 'cg-go', data: { pop: 'march', host: String(entry().id) }, label: conquestObjective(camp).go.label });
+  const BUILT = HOME({ queue: [{ kind: 1, item: 0, doneAt: 5000n }] });
+  assert.equal(conquestGuide({ ...camp, holdings: [BUILT] }).current, 'camp', 'built first: the camp step stays');
+  assert.match(String(renderConquestGuide(camp)), /data-act="ob-skip" data-step="camp"/);
+  const skipped = { ...camp, ui: { dismissed: ['ob:skip:camp'] } };
+  assert.equal(conquestGuide(skipped).current, 'build');
+  // past the camp (skipped here; a first march out does the same) and built: the keep
+  const past = s => ({ ...s, ui: { dismissed: ['ob:skip:camp'] }, holdings: [BUILT] });
+  const withHost = past(fs());
   assert.equal(conquestGuide(withHost).current, 'march');
   assert.deepEqual(conquestObjective(withHost).go, { act: 'cg-go', data: { pop: 'keeps', host: String(entry().id) }, label: conquestObjective(withHost).go.label });
   // a host that is forming: the muster step stays current until it stands (the first-session review of 2026-11-13)
@@ -275,7 +287,7 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   assert.equal(conquestGuide(holding).current, 'hold');
   // the nation contends the same keep, but no host of the viewer's is there and no march of its is bound for it (a
   // newcomer, or one whose march was turned back): the step is the march, not "hold" (the live check of 2026-10-26)
-  const others = fs({ bell: 52 });
+  const others = past(fs({ bell: 52 }));
   assert.equal(conquestGuide(others).current, 'march');
   assert.match(conquestObjective(holding).text, /41 \/ 72 ターン保っています/);
   assert.deepEqual(conquestObjective(holding).go.data, { p: 4, q: -1 });
@@ -300,12 +312,13 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   assert.equal(conquestObjective(taken), null);
   assert.match(plain(renderConquestGuide(taken)), /第83ターンに、あなたの国（アステル）が州 4,-1 を奪いました。/);
   // the page's one "next thing" follows it on a conquest season, and not on the basic game
-  assert.equal(objectiveModel({ ...withHost, ui: {} }).id, 'march');
-  assert.notEqual(objectiveModel({ ...withHost, ui: {}, season: { ...SEASON, programVersion: 2 } })?.id, 'march');
+  assert.equal(objectiveModel({ ...withHost }).id, 'march');
+  // (the basic game's own guide now starts with its march too — march first — but it is not the conquest guide's keep step)
+  assert.notEqual(objectiveModel({ ...withHost, season: { ...SEASON, programVersion: 2 } })?.title, objectiveModel({ ...withHost }).title);
   setLang('en');
   const en = plain(renderConquestGuide(holding));
-  assert.match(en, /Guide 5\/7: Hold the keep's tile for 72 turns/);
-  assert.match(en, /First village .* Build .* Train troops .* March on a keep .* Hold the keep's tile for 72 turns .* Take the province/);
+  assert.match(en, /Guide 6\/8: Hold the keep's tile for 72 turns/);
+  assert.match(en, /First village .* Train troops .* Raid a nearby barbarian camp .* Build .* March on a keep .* Hold the keep's tile for 72 turns .* Take the province/);
   assert.doesNotMatch(en, CJK);
 });
 
@@ -411,14 +424,16 @@ test('a foreign keep under its post-capture protection: no fort march while prot
 // (onto a tile of the map, seen or not), and the empty list offers it too. Nothing of the unseen land is named.
 test('LP6-4: a host whose list of reachable keeps was read empty is sent to the march, not to the empty list again', () => {
   setLang('ja');
-  const s = fs();
+  // (pt-first-battle: past the camp step and a building — the keep step is the one under test)
+  const past = x => ({ ...x, ui: { dismissed: ['ob:skip:camp'] }, holdings: [HOME({ queue: [{ kind: 1, item: 0, doneAt: 5000n }] })] });
+  const s = past(fs());
   s.conquest.hostReach = { key: 'k', host: String(entry().id), ok: true, unreachable: [], rows: [] };
   const o = conquestObjective(s);
   assert.equal(o.id, 'march');
   assert.deepEqual(o.go, { act: 'cg-go', data: { pop: 'march', host: String(entry().id) }, label: '進軍で地図から選ぶ' });
   assert.match(o.text, /この軍勢が届く他国の砦はありません（進軍が越えられるのは4州まで）。「進軍」で地図のマスを押して、砦に近づけます。/);
   // not read yet: the list is still the step (it says what it finds)
-  const unread = fs(); unread.conquest.hostReach = null;
+  const unread = past(fs()); unread.conquest.hostReach = null;
   assert.equal(conquestObjective(unread).go.data.pop, 'keeps');
   // the fog's words and the list's own next step, as written (map/fog.mjs is on only in a local world's page)
   const src = readFileSync(new URL('../../permutation-server/web/frontier/hud/keephand.mjs', import.meta.url), 'utf8');
