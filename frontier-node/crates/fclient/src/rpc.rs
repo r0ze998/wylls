@@ -648,12 +648,38 @@ fn parse_latest_blockhash_result(v: &Value) -> PortResult<(Hash, u64)> {
     Ok((hash, last_valid_block_height))
 }
 
+/// Signatures per `getSignatureStatuses` call that reads only the node's
+/// status cache (the RPC's own cap is 256; api.devnet answers 256 in
+/// ≈ 0.3 s).
+pub const STATUS_CHUNK: usize = 256;
+/// Signatures per `getSignatureStatuses` call with
+/// `searchTransactionHistory` (keeper-landing-investigate, measured on
+/// api.devnet 2026-11-26: ≈ 0.18 s per signature — 16 in 4.4 s, 64 in
+/// 13.6 s, 256 in 45 s. One 256-signature history call is past the 20 s
+/// POST deadline, so every poll failed and keeper A never saw a landing).
+pub const HISTORY_CHUNK: usize = 32;
+/// At most this many signatures go to the history search in one
+/// [`ChainPort::statuses`] call (≈ 6 s on api.devnet); the rest wait for
+/// a later call ([`RpcPort::statuses`] rotates through them).
+pub const HISTORY_PER_CALL: usize = 32;
+/// A history search runs at most once per this long on a remote RPC
+/// ([`RpcPort::history_every`]): re-sends that never landed stay unknown
+/// forever, and the keeper polls every tick (twice: writes and orphans).
+/// 1,000 unknown signatures are all re-read in ≈ 10 min.
+pub const HISTORY_EVERY: Duration = Duration::from_secs(20);
+
 /// `ChainPort` over JSON-RPC.
 pub struct RpcPort {
     pub rpc: RpcClient,
     pub program: Address,
     /// The server is `frontier-localnet` (has `frontier_feed`).
     pub localnet: bool,
+    /// Rotation of the capped history search ([`HISTORY_PER_CALL`]).
+    history_next: std::sync::atomic::AtomicUsize,
+    /// Least time between two history searches ([`HISTORY_EVERY`] for a
+    /// remote URL, zero on loopback: a local node answers at once).
+    pub history_every: Duration,
+    history_last: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl RpcPort {
@@ -662,7 +688,11 @@ impl RpcPort {
             rpc: RpcClient::new(url),
             program,
             localnet: false,
+            history_next: Default::default(),
+            history_every: Duration::ZERO,
+            history_last: Default::default(),
         }
+        .remote_history_gate()
     }
 
     /// An RPC port with a per-response HTTP wire-byte cap and no localnet feed.
@@ -676,7 +706,60 @@ impl RpcPort {
             rpc: RpcClient::new_with_response_limit(url, max_bytes),
             program,
             localnet: false,
+            history_next: Default::default(),
+            history_every: Duration::ZERO,
+            history_last: Default::default(),
         }
+        .remote_history_gate()
+    }
+
+    /// [`HISTORY_EVERY`] unless the URL is loopback.
+    fn remote_history_gate(mut self) -> RpcPort {
+        if !crate::http::is_loopback(&self.rpc.url) {
+            self.history_every = HISTORY_EVERY;
+        }
+        self
+    }
+
+    /// Sets [`RpcPort::history_every`].
+    pub fn with_history_every(mut self, every: Duration) -> RpcPort {
+        self.history_every = every;
+        self
+    }
+
+    /// Whether a history search may run now (and, if so, marks it run).
+    fn history_due(&self) -> bool {
+        let mut last = self.history_last.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        if last.is_some_and(|t| now.duration_since(t) < self.history_every) {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
+
+    /// One `getSignatureStatuses` call: the raw value per signature asked.
+    async fn statuses_call(&self, chunk: &[Signature], history: bool) -> PortResult<Vec<Value>> {
+        let ss: Vec<String> = chunk.iter().map(|s| s.to_string()).collect();
+        let params = if history {
+            json!([ss, {"searchTransactionHistory": true}])
+        } else {
+            json!([ss])
+        };
+        let v = self.rpc.call("getSignatureStatuses", params).await?;
+        let arr = v
+            .get("value")
+            .and_then(|x| x.as_array())
+            .ok_or_else(|| PortError::Decode("value".into()))?;
+        // One status per signature asked (see get_multiple_accounts_at).
+        if arr.len() != chunk.len() {
+            return Err(PortError::Decode(format!(
+                "getSignatureStatuses: {} values for {} signatures",
+                arr.len(),
+                chunk.len()
+            )));
+        }
+        Ok(arr.clone())
     }
 
     pub fn localnet(url: impl Into<String>, program: Address) -> RpcPort {
@@ -684,7 +767,11 @@ impl RpcPort {
             rpc: RpcClient::new(url),
             program,
             localnet: true,
+            history_next: Default::default(),
+            history_every: Duration::ZERO,
+            history_last: Default::default(),
         }
+        .remote_history_gate()
     }
 }
 
@@ -830,31 +917,62 @@ impl ChainPort for RpcPort {
         parse_sig(&v)
     }
 
+    /// Two passes (keeper-landing-investigate). First the status cache for
+    /// every signature, [`STATUS_CHUNK`] per call: a version that landed
+    /// since the last poll is there. Then `searchTransactionHistory` only
+    /// for signatures the cache did not know, at most [`HISTORY_PER_CALL`]
+    /// per call in [`HISTORY_CHUNK`]s, rotating, at most once per
+    /// [`RpcPort::history_every`], so a long unknown list
+    /// (re-sends whose blockhash expired unlanded) cannot push one call past
+    /// the POST deadline. A chunk that fails leaves its signatures `None`
+    /// (unknown: the caller keeps them pending) instead of discarding the
+    /// answers of every other chunk; only when no status-cache chunk was
+    /// answered at all is the call an error.
     async fn statuses(&self, sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
-        let mut out = vec![];
-        for chunk in sigs.chunks(256) {
-            let ss: Vec<String> = chunk.iter().map(|s| s.to_string()).collect();
-            let v = self
-                .rpc
-                .call(
-                    "getSignatureStatuses",
-                    json!([ss, {"searchTransactionHistory": true}]),
-                )
-                .await?;
-            let arr = v
-                .get("value")
-                .and_then(|x| x.as_array())
-                .ok_or_else(|| PortError::Decode("value".into()))?;
-            // One status per signature asked (see get_multiple_accounts_at).
-            if arr.len() != chunk.len() {
-                return Err(PortError::Decode(format!(
-                    "getSignatureStatuses: {} values for {} signatures",
-                    arr.len(),
-                    chunk.len()
-                )));
+        let mut out: Vec<Option<Status>> = vec![None; sigs.len()];
+        // Signatures the status cache answered `null` for (unknown to it).
+        let mut unseen: Vec<usize> = vec![];
+        let mut first_err = None;
+        let mut answered = false;
+        for (c, chunk) in sigs.chunks(STATUS_CHUNK).enumerate() {
+            match self.statuses_call(chunk, false).await {
+                Ok(arr) => {
+                    answered = true;
+                    for (i, s) in arr.iter().enumerate() {
+                        let at = c * STATUS_CHUNK + i;
+                        if s.is_null() {
+                            unseen.push(at);
+                        } else {
+                            out[at] = parse_finalized_status(s);
+                        }
+                    }
+                }
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                }
             }
-            for s in arr {
-                out.push(parse_finalized_status(s));
+        }
+        if !answered {
+            if let Some(e) = first_err {
+                return Err(e);
+            }
+        }
+        if !unseen.is_empty() && self.history_due() {
+            let n = unseen.len();
+            let take = n.min(HISTORY_PER_CALL);
+            let start = self
+                .history_next
+                .fetch_add(take, std::sync::atomic::Ordering::Relaxed)
+                % n;
+            let pick: Vec<usize> = (0..take).map(|k| unseen[(start + k) % n]).collect();
+            for chunk in pick.chunks(HISTORY_CHUNK) {
+                let ss: Vec<Signature> = chunk.iter().map(|&i| sigs[i]).collect();
+                // A failed history chunk stays unknown; the next call tries others.
+                if let Ok(arr) = self.statuses_call(&ss, true).await {
+                    for (&i, s) in chunk.iter().zip(arr.iter()) {
+                        out[i] = parse_finalized_status(s);
+                    }
+                }
             }
         }
         Ok(out)

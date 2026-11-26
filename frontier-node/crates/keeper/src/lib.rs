@@ -2079,6 +2079,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "land": self.index.feed.status(), "play": self.play.index.feed.status(),
             },
             "pending": self.engine.pending_len(),
+            "status_reads": {
+                "errors": self.engine.status_read_errors.0,
+                "errors_in_a_row": self.engine.status_read_errors.1,
+                "last_error": self.engine.status_read_errors.2,
+            },
             "refusals": self.refusals_status(slot),
             "kinds": kinds,
             "pools": {
