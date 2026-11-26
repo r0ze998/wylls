@@ -1,0 +1,740 @@
+{
+ "note": "test-gaps-3: literal signed chat posts and read tokens of throwaway TEST wallets (seeds of tests/chat.rs). Written by make-chat-signed.mjs (key-using, never run by CI); read by tests/chat_keyfree.rs, which verifies and signs nothing new.",
+ "world": {
+  "season": 5,
+  "program": "7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT"
+ },
+ "bell0": 300,
+ "t0Ms": 1900000000000,
+ "wallets": {
+  "a1": {
+   "nation": 1,
+   "address": "7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9",
+   "hex": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a"
+  },
+  "a2": {
+   "nation": 1,
+   "address": "mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v",
+   "hex": "0b513ad9b4924015ca0902ed079044d3ac5dbec2306f06948c10da8eb6e39f2d"
+  },
+  "c1": {
+   "nation": 1,
+   "address": "AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os",
+   "hex": "91a28a0b74381593a4d9469579208926afc8ad82c8839b7644359b9eba9a4b3a"
+  },
+  "b1": {
+   "nation": 4,
+   "address": "FMUEmtxhU46GzhKF4FW9MLJdQWiLgjiXP9TYRWSrqTpV",
+   "hex": "d54207da194977dcf46adbfec2bc2e75b52d5a8a42184fedfdc00024f0e3e8da"
+  }
+ },
+ "posts": [
+  {
+   "id": "parallel-0",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570000",
+   "text": "parallel 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570000\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 0",
+   "signature": "7pNW2uQ36G5qxOj+wCWjC8mOosEaY5vD8cxauYD4mGe24N6Qblk1kIRufoUbfTxPx+rcKyb9kG+2n9PNpSbpDw=="
+  },
+  {
+   "id": "parallel-1",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570001",
+   "text": "parallel 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570001\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 1",
+   "signature": "pMugQEIygg1mkPLIvsmPb6FQbwq4zgbX7h32eJ3l+fFNcNO2+CgjvScKaPN0tPQjcHFRTAISeF4ve6iFVGRzCg=="
+  },
+  {
+   "id": "parallel-2",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570002",
+   "text": "parallel 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570002\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 2",
+   "signature": "mO3KD/3WIJ+F2FiPzmvDziC8uIeqDmX5RSoFo2Y3TW3FkNfjnH/EOFmIpaSi/fB2zVBh/HrrIgDyz/TO29cXBA=="
+  },
+  {
+   "id": "parallel-3",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570003",
+   "text": "parallel 3",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570003\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 3",
+   "signature": "V2suDudAP+e8PuArCkbGleH1oU0nkkIy6fGQEzAGn7e8QQx9DRuLC1tepu/TeF6RFMLQumFH02yf2rosZr/wCg=="
+  },
+  {
+   "id": "parallel-4",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570004",
+   "text": "parallel 4",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570004\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 4",
+   "signature": "RNNeiGaeVdwtER+TymIOwEoiDjsuTs7dL+ftIugyeyl2XFQ0uzKXmI8swwZ7N/zsEtdMDx3dkvm3w5SvVbbEDA=="
+  },
+  {
+   "id": "parallel-5",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570005",
+   "text": "parallel 5",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570005\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 5",
+   "signature": "MTJuyhFkiYsJslQ1e4Qih5rw61cdVzgib04wdIuP5o0u8Q5oSXnvyyrcmJrcChqBjaA3/wmVZureZb4wWlDiDw=="
+  },
+  {
+   "id": "parallel-6",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570006",
+   "text": "parallel 6",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570006\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 6",
+   "signature": "XG8vzLvsw9vXnZGCqlCix0X7vYhhjDpm+pt5NJgivcwY+7XgzScxRnfuHX2pIxSu+30u6rUvRtt1/2qCO/sECA=="
+  },
+  {
+   "id": "parallel-7",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570007",
+   "text": "parallel 7",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570007\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 7",
+   "signature": "wKR95b3tOhoTAeZ7XaPjBWgbTsn1wFD9nEEOBBVSM+cClpsGLrPPkiRb0E7KuVVlWyia3keq04KFbFdbcHcpBw=="
+  },
+  {
+   "id": "parallel-8",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570008",
+   "text": "parallel 8",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570008\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 8",
+   "signature": "w7+ka+Ajc7wZiCgIVagH+CBTGXCWjNYA/EZ6QAot0fFDU/suAfqY1zTBPfldiJJ0OkMgldemZuO+t/t7HhxrCg=="
+  },
+  {
+   "id": "parallel-9",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570009",
+   "text": "parallel 9",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570009\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 9",
+   "signature": "s5SR3QBBS5YeskMoTjwUHTE9X4lD6oCcf3mvfKHOMGr3MxuKwNQQkVSF4xwngA9kVEBgMO1kUDrY6T3xdH8nDA=="
+  },
+  {
+   "id": "parallel-10",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e57000a",
+   "text": "parallel 10",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e57000a\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 10",
+   "signature": "9LpTzkN1IKKMEmRU10NUIH91AhlY8A5FJwVZX70A6Yv5VabANxF3fsgHqWsqM80se6UrFj3994cFBl+pxvyACw=="
+  },
+  {
+   "id": "parallel-11",
+   "who": "a2",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e57000b",
+   "text": "parallel 11",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e57000b\nWallet: mBKqcnGotbsSb5vNrdyhzZ5EhqZdids9QYiTRckvi7v\nText:\nparallel 11",
+   "signature": "+t6E72CgUL/NYpELuqPAkZoFOBLxNvrL1okYJ5UfG7Wp7PhihDz+E1WgpREU4xdwGas839MSgKK8gc4wd/TnDw=="
+  },
+  {
+   "id": "window-299-0",
+   "who": "c1",
+   "nation": 1,
+   "turn": 299,
+   "nonce": "0000000000000000000000007e57000c",
+   "text": "window 299 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 299\nNonce: 0000000000000000000000007e57000c\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 299 0",
+   "signature": "BfAy2FyhAXXLVpFYcLha6ujyrVQz9XaYhQ1LduoISFJdB+FRrG+ko4Y2xVKR7aacKesCdqqOSRTNQk4QbCJVBg=="
+  },
+  {
+   "id": "window-299-1",
+   "who": "c1",
+   "nation": 1,
+   "turn": 299,
+   "nonce": "0000000000000000000000007e57000d",
+   "text": "window 299 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 299\nNonce: 0000000000000000000000007e57000d\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 299 1",
+   "signature": "UKndX0aradiFQ/DBjfIHzUQA8MUH7KYck8ZWYgHs0WsqEdyHKZhEWpx7His2ezQI6wFWU0rXkzTyN6FBfKFGAw=="
+  },
+  {
+   "id": "window-299-2",
+   "who": "c1",
+   "nation": 1,
+   "turn": 299,
+   "nonce": "0000000000000000000000007e57000e",
+   "text": "window 299 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 299\nNonce: 0000000000000000000000007e57000e\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 299 2",
+   "signature": "sg5uRTn6TWURQ4kqOLJXyFtoVmOzF93LNA7elRxiO6/fgqlSKbJ/SxC52HYmf4Fja/Oxgvu5bPXstW0g0pzfCQ=="
+  },
+  {
+   "id": "window-300-0",
+   "who": "c1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e57000f",
+   "text": "window 300 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e57000f\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 300 0",
+   "signature": "uSqIo78DaTWPAS0YzzdMKcPe+cmcLriaANjvEwKJAPEqiGyRSOgStZLl47quptMHeTupFmH6XVXx1AL0b3dVDg=="
+  },
+  {
+   "id": "window-300-1",
+   "who": "c1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570010",
+   "text": "window 300 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570010\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 300 1",
+   "signature": "PZlNUs4EURWXY/FjRbNsRtqWycQlywN1x4+Yk5V4bEB+/8M1eJl+AKfL2irhA/zpAsgv24IsqwhqmHyXj3kmAA=="
+  },
+  {
+   "id": "window-300-2",
+   "who": "c1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570011",
+   "text": "window 300 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570011\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 300 2",
+   "signature": "wDLhxAMF7b44A0cAr43YqgsSwyw97MWKT+Bd530bI8xxlmYNUi0X1P8HIBKeLduuUfgLJyR/TdSd5wxLkKFFCg=="
+  },
+  {
+   "id": "window-301-0",
+   "who": "c1",
+   "nation": 1,
+   "turn": 301,
+   "nonce": "0000000000000000000000007e570012",
+   "text": "window 301 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 301\nNonce: 0000000000000000000000007e570012\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 301 0",
+   "signature": "t5ONfeWhbT1Nm+WUBImzXQf4INwFduGuNio6fLvvXxnOUOv2Y0UVdhTvpO1Ed26PAN4gyQHJwn/zctKa8mpJAA=="
+  },
+  {
+   "id": "window-301-1",
+   "who": "c1",
+   "nation": 1,
+   "turn": 301,
+   "nonce": "0000000000000000000000007e570013",
+   "text": "window 301 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 301\nNonce: 0000000000000000000000007e570013\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 301 1",
+   "signature": "4djwmSV69yYgEX7WpqwJTh1toR0UYDvKlWkp6BnAmCvGkLzGOzYewaNhW+hYrC1/qWbUq2BUzlpSmyiK6L5xAw=="
+  },
+  {
+   "id": "window-301-2",
+   "who": "c1",
+   "nation": 1,
+   "turn": 301,
+   "nonce": "0000000000000000000000007e570014",
+   "text": "window 301 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 301\nNonce: 0000000000000000000000007e570014\nWallet: AoVsGaj8MSJ6xwKxfFxo9iZWH3enC8RRTXKH2fx2F8os\nText:\nwindow 301 2",
+   "signature": "7JPP+eNhZ39ZyGShxlnPrw89d6Cm572cv5RqXDZhKGx18T3sACcRfzuDXorOT+hO79LbEQAMzKbJpuAZWSeHBg=="
+  },
+  {
+   "id": "day-300-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570015",
+   "text": "day 300 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570015\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 300 0",
+   "signature": "yq1WwhZYXaHdO+J1bBjFUW+ahpUxi9QnFYZYgNoQ2rq/xYgf1tJOQu8WyddUXfRjEU6PazbwcbuYl4H5SfdDBw=="
+  },
+  {
+   "id": "day-300-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570016",
+   "text": "day 300 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570016\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 300 1",
+   "signature": "Rv6WJzCEBticL8OFRgiWCkmhQTau2DY2iISRJZwEG8iHDtoDTwR4WPjllUtMK2gwKJhKLEPH6PfO06IZkerXCA=="
+  },
+  {
+   "id": "day-300-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570017",
+   "text": "day 300 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570017\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 300 2",
+   "signature": "GXS1RS1i/KRFSTGAKEXA9MgHktj4EooAEIYtx6l0pdj867eE6grhU+xMT66mf5Pu9oLNQXeY+5+kS9XPUzDCAQ=="
+  },
+  {
+   "id": "day-301-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 301,
+   "nonce": "0000000000000000000000007e570018",
+   "text": "day 301 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 301\nNonce: 0000000000000000000000007e570018\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 301 0",
+   "signature": "TLpe/iTE0kfqJ0VKcNdYJjJyTtRQ+BIf15N6faxLIVvyMsd5+RmDaItvbkeOtFeJII+x0qGmMMbdB6IVoh89Ag=="
+  },
+  {
+   "id": "day-301-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 301,
+   "nonce": "0000000000000000000000007e570019",
+   "text": "day 301 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 301\nNonce: 0000000000000000000000007e570019\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 301 1",
+   "signature": "93uzncLBbS9VWI6zB5R9pvGiXZgqbFFCOZfz2vxrBrtdX7YHMgwrHRVwFXd2Kkvo86t49QqAgbGqlWmr1WQFBw=="
+  },
+  {
+   "id": "day-301-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 301,
+   "nonce": "0000000000000000000000007e57001a",
+   "text": "day 301 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 301\nNonce: 0000000000000000000000007e57001a\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 301 2",
+   "signature": "aalLFGO1rmMGW0AEDpKUNOiJX4wEAKuuIZIqndEl/aAdc76hO/0l+jp2TE88xOS+LZXLasLGLk0Tkz4BWUwuBA=="
+  },
+  {
+   "id": "day-302-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 302,
+   "nonce": "0000000000000000000000007e57001b",
+   "text": "day 302 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 302\nNonce: 0000000000000000000000007e57001b\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 302 0",
+   "signature": "nadgECHfoEAdHCFdnyz3ciD0SW8VHZ71j+Ye+zfakQj93GQJI9uqtsP7wfNKcBIWRJ8E0OeRnPEDH+bFhRh2Cg=="
+  },
+  {
+   "id": "day-302-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 302,
+   "nonce": "0000000000000000000000007e57001c",
+   "text": "day 302 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 302\nNonce: 0000000000000000000000007e57001c\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 302 1",
+   "signature": "2qNFrYyF3WXTXQ2aVUbzBiZBkfZSUJX/GzudT19iazmXKa/0c19wbuBlZGvQ0x5qvvOpkS0Y5RziAtqxnfKPDQ=="
+  },
+  {
+   "id": "day-302-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 302,
+   "nonce": "0000000000000000000000007e57001d",
+   "text": "day 302 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 302\nNonce: 0000000000000000000000007e57001d\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 302 2",
+   "signature": "q0Os/4B3+gAspa9OmdweX2I+ISNUOYm3gh+K8x1G8i1SZhljkO+8c5eAsNTxdnLPudXaHdtwaGwqoUqzj+0pAA=="
+  },
+  {
+   "id": "day-303-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 303,
+   "nonce": "0000000000000000000000007e57001e",
+   "text": "day 303 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 303\nNonce: 0000000000000000000000007e57001e\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 303 0",
+   "signature": "Vh5EqM1zgAHoHbOWRuVYw68IFCr5RljTCBrdb+Q5dboP53muYZv4qCEztluTOxAYSTAIzhdVdnp0cXZTsTuPBw=="
+  },
+  {
+   "id": "day-303-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 303,
+   "nonce": "0000000000000000000000007e57001f",
+   "text": "day 303 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 303\nNonce: 0000000000000000000000007e57001f\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 303 1",
+   "signature": "4tuc5TImGFfM2TSNru/DBoBGrNN8VU9R2O3ppFGhMnp6p3kLfsOCLLvDbooJh+wCSRuSo9c+eGhiaD1B1KfrDg=="
+  },
+  {
+   "id": "day-303-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 303,
+   "nonce": "0000000000000000000000007e570020",
+   "text": "day 303 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 303\nNonce: 0000000000000000000000007e570020\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 303 2",
+   "signature": "4uBuFf4AlVJyEfwNWhnXbank7/DNkkqkVkkPjpCAg33TwrVth8VODn65kD7905TQbscfjlpL76bkzLeUQiCWDA=="
+  },
+  {
+   "id": "day-304-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 304,
+   "nonce": "0000000000000000000000007e570021",
+   "text": "day 304 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 304\nNonce: 0000000000000000000000007e570021\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 304 0",
+   "signature": "+7sZ0n9Zex5G1mWnctrvnevnZooWaRnQV6ICkL5UGEaH3SgEopLaA28d8rdKk1i7iQfY//rV6XXMRj1BYEtjCQ=="
+  },
+  {
+   "id": "day-304-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 304,
+   "nonce": "0000000000000000000000007e570022",
+   "text": "day 304 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 304\nNonce: 0000000000000000000000007e570022\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 304 1",
+   "signature": "Wqzu0Low2hmeQKKGGGIfsfgIBUXUOCVJs6TUyHh3TlR06c6RgUzI3IVej3zFirbjW5EZ0OhAJg7y3+haeal1Cg=="
+  },
+  {
+   "id": "day-304-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 304,
+   "nonce": "0000000000000000000000007e570023",
+   "text": "day 304 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 304\nNonce: 0000000000000000000000007e570023\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 304 2",
+   "signature": "XiUUChPC8cL3qpwgud5KfzREyfV3p721w/J40/WI7l7C2cgZAyflZ3RZhYAmV00L+ld8vNL3gj9yUr4/O4GhAw=="
+  },
+  {
+   "id": "day-305-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 305,
+   "nonce": "0000000000000000000000007e570024",
+   "text": "day 305 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 305\nNonce: 0000000000000000000000007e570024\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 305 0",
+   "signature": "KR+zdZJAFEj0RkJXqI56OE0LFSdG4vC4KMrKNTKiIXCoCXJsqsWXc8cDj4GkD71tPUTMvY9B4AD1NPLrt5kHAA=="
+  },
+  {
+   "id": "day-305-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 305,
+   "nonce": "0000000000000000000000007e570025",
+   "text": "day 305 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 305\nNonce: 0000000000000000000000007e570025\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 305 1",
+   "signature": "lMCvMJYaJUZXkz9jfxi49IkBwev5YuiOmRxsyIbyvPTJRj4vGeNR/fuKSh7gQCSwmLZ/Hk9sJfybH3/6LjV4DQ=="
+  },
+  {
+   "id": "day-305-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 305,
+   "nonce": "0000000000000000000000007e570026",
+   "text": "day 305 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 305\nNonce: 0000000000000000000000007e570026\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 305 2",
+   "signature": "HK1U/Sd1FpmECMeQOYhd2fdPpZS+Xm7iJJ8rwQ2xO05GtjLmJrNJyY68pnvKebSSuwR2gh6z5HuTExFcYbyKDA=="
+  },
+  {
+   "id": "day-306-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 306,
+   "nonce": "0000000000000000000000007e570027",
+   "text": "day 306 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 306\nNonce: 0000000000000000000000007e570027\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 306 0",
+   "signature": "JtRjpYvWGyfafKjRwV1lkAaMl8HiSX53v7LaXYZIU+NEEGZcIgbUPGsCtriS2mtunK6wrh+bSrAZKByMc9zhCQ=="
+  },
+  {
+   "id": "day-306-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 306,
+   "nonce": "0000000000000000000000007e570028",
+   "text": "day 306 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 306\nNonce: 0000000000000000000000007e570028\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 306 1",
+   "signature": "FEGXKPkHfPbbkww661DQWMuuPrswUocf1KjEfILirZmvrv6I8HLyXVnF1SocGTVFYC+R72JUZWUxLdO82sB0Aw=="
+  },
+  {
+   "id": "day-306-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 306,
+   "nonce": "0000000000000000000000007e570029",
+   "text": "day 306 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 306\nNonce: 0000000000000000000000007e570029\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 306 2",
+   "signature": "pTvxpgcYr0klTP9+cK/GJWF+hIKomgaumns+Kj3Ufv4xDTTvwUhiAowzE2Qzr0lBnmoP23oM/djAF9kfPo1MBA=="
+  },
+  {
+   "id": "day-307-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 307,
+   "nonce": "0000000000000000000000007e57002a",
+   "text": "day 307 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 307\nNonce: 0000000000000000000000007e57002a\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 307 0",
+   "signature": "1mu/aPkWxGaVWsksB7fkZoancwB/dZkRmeOesOVlzPY0xpSe3vrDltgq+KUk3bzmD6qp6Z/vbHun5CHgPSiPBw=="
+  },
+  {
+   "id": "day-307-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 307,
+   "nonce": "0000000000000000000000007e57002b",
+   "text": "day 307 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 307\nNonce: 0000000000000000000000007e57002b\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 307 1",
+   "signature": "+HFoCCkX3xA0NAQHNuEWdqkFypahZC3fwEXUwTF/piAuiANeB+CvLqQWqEENQUElr1jb9vhm5ltQX+rX84tyBQ=="
+  },
+  {
+   "id": "day-307-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 307,
+   "nonce": "0000000000000000000000007e57002c",
+   "text": "day 307 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 307\nNonce: 0000000000000000000000007e57002c\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 307 2",
+   "signature": "z7bB8SV/pQcz11aFY0qDVn7RN7Nj8Ltyl5UjupE5h2yVc1kgCInkpwPFqYEzJJrjwIZFbO15fE42ki7G/LwyBA=="
+  },
+  {
+   "id": "day-308-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 308,
+   "nonce": "0000000000000000000000007e57002d",
+   "text": "day 308 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 308\nNonce: 0000000000000000000000007e57002d\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 308 0",
+   "signature": "t+NMZJGI1jThfX5LyWZqMCPqlBpmwv+xkqZw3OA+ISWWhhoVQ2KMQQb5fn2XkG+C/3K0s7B0hlf/uCP1AX37CQ=="
+  },
+  {
+   "id": "day-308-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 308,
+   "nonce": "0000000000000000000000007e57002e",
+   "text": "day 308 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 308\nNonce: 0000000000000000000000007e57002e\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 308 1",
+   "signature": "fEbGQGLCGjpMZY5oJMMyiQt8oni9XP17vU5Pxb9FRpVZLKoIcew8JMqyxodhVp3BWKaIfKYoyoJmZ0uckhJeDg=="
+  },
+  {
+   "id": "day-308-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 308,
+   "nonce": "0000000000000000000000007e57002f",
+   "text": "day 308 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 308\nNonce: 0000000000000000000000007e57002f\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 308 2",
+   "signature": "uL8UolK4JdvPA/zMVUPI8HIgq/lTIcrMvysUnyvUqokN2pW/71dL5kOdk9RvSYozQEG1npBgixmOSmI93jmvCQ=="
+  },
+  {
+   "id": "day-309-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 309,
+   "nonce": "0000000000000000000000007e570030",
+   "text": "day 309 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 309\nNonce: 0000000000000000000000007e570030\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 309 0",
+   "signature": "QfiQj8kvyNars8qx1Y9ZFLluhxP3YjsUODc9/gsowWnfXADrU05puF2sJsmBv0KPfcA5i9wuZFoUiskZvi+4CQ=="
+  },
+  {
+   "id": "day-309-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 309,
+   "nonce": "0000000000000000000000007e570031",
+   "text": "day 309 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 309\nNonce: 0000000000000000000000007e570031\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 309 1",
+   "signature": "XB1YX1TyA23vv/wQmJUSpzBLQavyJxh0bB1D5MtDBlIrgEh57G8MqrogS9ZUcPqxqT3SXQUrBYhiWtPqwQ2CAw=="
+  },
+  {
+   "id": "day-309-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 309,
+   "nonce": "0000000000000000000000007e570032",
+   "text": "day 309 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 309\nNonce: 0000000000000000000000007e570032\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 309 2",
+   "signature": "+rI1VSBTW9/0oEIOcwsa4ugBLLXBmTppEH6o/1f+PaXO+U98xj8wzDubeY+b/mJyp0Eg7xIrd12yxdUgLBGPDg=="
+  },
+  {
+   "id": "day-310-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 310,
+   "nonce": "0000000000000000000000007e570033",
+   "text": "day 310 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 310\nNonce: 0000000000000000000000007e570033\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 310 0",
+   "signature": "yx7d32FC7DbazJP8zOmmGvX+OLoHwvyuN2AbPJ18DK4RR4o7f/4IWETpi62q1RiCyXgRz4FN4wT5pYECInI7Dg=="
+  },
+  {
+   "id": "day-310-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 310,
+   "nonce": "0000000000000000000000007e570034",
+   "text": "day 310 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 310\nNonce: 0000000000000000000000007e570034\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 310 1",
+   "signature": "mvP6gjP/U1N/DK4fFAegYo/SI1Rzh7p+Oys7hHzats3GjP11IdITWrLI+A8OXxsWNKWWsQfObUWRaCXAwB6+Ag=="
+  },
+  {
+   "id": "day-310-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 310,
+   "nonce": "0000000000000000000000007e570035",
+   "text": "day 310 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 310\nNonce: 0000000000000000000000007e570035\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 310 2",
+   "signature": "zVnKTeqAfr0jN4m2cDcyC1X/tRbp4nsC7UN5EcEm76HxfKtpcYPTGZ01XiVQQO1WSV4Rzg3i3fWGXxLtMXKzAg=="
+  },
+  {
+   "id": "day-311-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 311,
+   "nonce": "0000000000000000000000007e570036",
+   "text": "day 311 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 311\nNonce: 0000000000000000000000007e570036\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 311 0",
+   "signature": "8Hc3VxrUeiJx9dZ4ab4C7crB0NGCgA15RHXoBiUBRYdBxXGWJFpWQxXdbdoQK3+5G0rNMN54NLx8QQShrdmhBg=="
+  },
+  {
+   "id": "day-311-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 311,
+   "nonce": "0000000000000000000000007e570037",
+   "text": "day 311 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 311\nNonce: 0000000000000000000000007e570037\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 311 1",
+   "signature": "AgWObdf5/7rPWbLKaioHao22vlnBvScTIE36Do/wke3ssQr6tCnyILaXDiL85SJnbA1WzJciWvn3krie68mTAg=="
+  },
+  {
+   "id": "day-311-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 311,
+   "nonce": "0000000000000000000000007e570038",
+   "text": "day 311 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 311\nNonce: 0000000000000000000000007e570038\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 311 2",
+   "signature": "jh815mGqN4WFvX8sp7tqsUc+6RYjKQd3V1T3W10kIk4uB7+Jl9nycXQB2/NEf2AwQv92C6fGr2GveYK0bLtfBw=="
+  },
+  {
+   "id": "day-312-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 312,
+   "nonce": "0000000000000000000000007e570039",
+   "text": "day 312 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 312\nNonce: 0000000000000000000000007e570039\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 312 0",
+   "signature": "kLXIzOgB4iUG2d39m3vLQVHC/w5yE0dgvFwJkxyjpFnBMMwZzu9SNvzqnBVKQaKWb1rrnYcYdTloPQBLIzu2Bg=="
+  },
+  {
+   "id": "day-312-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 312,
+   "nonce": "0000000000000000000000007e57003a",
+   "text": "day 312 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 312\nNonce: 0000000000000000000000007e57003a\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 312 1",
+   "signature": "dfP16/UpfuYJ+KYWX/pMJ7Y+dWFhDYJ16u4wXHYKuR78RK7cjAloK0wAXrCp6mRyRWCfp/eA025zoxwOLHlHDg=="
+  },
+  {
+   "id": "day-312-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 312,
+   "nonce": "0000000000000000000000007e57003b",
+   "text": "day 312 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 312\nNonce: 0000000000000000000000007e57003b\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 312 2",
+   "signature": "JylkAHWtUhUwliIwkL3xBv8Iaz3LWAAV48rxptNqMzvHCjWIhx9yhGyhhOPOZaUOR3vC5NN+vLB7eeye2VizBw=="
+  },
+  {
+   "id": "day-313-0",
+   "who": "a1",
+   "nation": 1,
+   "turn": 313,
+   "nonce": "0000000000000000000000007e57003c",
+   "text": "day 313 0",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 313\nNonce: 0000000000000000000000007e57003c\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 313 0",
+   "signature": "7HRktN6qsQ4htXICaCkgfuvRAoakrVZIAfwwkPHBBimdwl43ETv0UEWoPN7nqGiqJQk7xB8sfJ1XCIYkAqxiAg=="
+  },
+  {
+   "id": "day-313-1",
+   "who": "a1",
+   "nation": 1,
+   "turn": 313,
+   "nonce": "0000000000000000000000007e57003d",
+   "text": "day 313 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 313\nNonce: 0000000000000000000000007e57003d\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 313 1",
+   "signature": "9niSWxTXtOQnL3acN5et8pkqQ5Z3CHhdgR26a4GYWk17PPCU2kHREIgoKcJ7vGU9EvJ7AJg1bpxslvEnTYc4Bw=="
+  },
+  {
+   "id": "day-313-2",
+   "who": "a1",
+   "nation": 1,
+   "turn": 313,
+   "nonce": "0000000000000000000000007e57003e",
+   "text": "day 313 2",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 313\nNonce: 0000000000000000000000007e57003e\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nday 313 2",
+   "signature": "Mq+OeM+uFBkJdhEFrdnBbLwNwyrDKsr3iqt6s4Q2098G3dMkrtZC8cfHdMj2cTLvtRhfpUQyLGE0YoEwsPgLAw=="
+  },
+  {
+   "id": "nextday",
+   "who": "a1",
+   "nation": 1,
+   "turn": 432,
+   "nonce": "0000000000000000000000007e57003f",
+   "text": "the next day",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 432\nNonce: 0000000000000000000000007e57003f\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nText:\nthe next day",
+   "signature": "vfwGvwEbVAsNJ8l2NyenKzpjYeN5DhOiMvwjOmvBuPd5vbAi5BF59Zj5QcE5niFIyLTCPkLLGbSOAQJFoUq4CA=="
+  },
+  {
+   "id": "b1-own",
+   "who": "b1",
+   "nation": 4,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570040",
+   "text": "dunmar only",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 4\nTurn: 300\nNonce: 0000000000000000000000007e570040\nWallet: FMUEmtxhU46GzhKF4FW9MLJdQWiLgjiXP9TYRWSrqTpV\nText:\ndunmar only",
+   "signature": "KV5j3ZqlMyW6TcGROa2+iPRKxk/87dh79yPqIp0q3tWpwdOqGSYv21U0w9FkW3ufJ8nvHeXZb+mUEy7TFapjBg=="
+  },
+  {
+   "id": "b1-as-1",
+   "who": "b1",
+   "nation": 1,
+   "turn": 300,
+   "nonce": "0000000000000000000000007e570041",
+   "text": "b1 claims nation 1",
+   "message": "WYLLS nation chat message v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nTurn: 300\nNonce: 0000000000000000000000007e570041\nWallet: FMUEmtxhU46GzhKF4FW9MLJdQWiLgjiXP9TYRWSrqTpV\nText:\nb1 claims nation 1",
+   "signature": "Xws2llip/GrUbyw6tSSsCvIlF5hH+qJilgoHpfh0pmq7QQXsPogefAtmnMe2KSsW2SzsafvfKIFh2kx44xf5Cw=="
+  }
+ ],
+ "tokens": [
+  {
+   "id": "a1",
+   "who": "a1",
+   "nation": 1,
+   "issued": "1899999990",
+   "expires": "1900003600",
+   "message": "WYLLS nation chat read v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nIssued: 1899999990\nExpires: 1900003600\nOnly members of this nation can read its chat. This signature lets this browser read and report messages there until the time above. It cannot post, move tokens or act in the game.",
+   "signature": "P1lHPyFb/54eBgv6h2yrQQDLij/tVVJ1gZQuWc/EN3oVXuBKPof/bbk9/kHbWNcrfzkxeslI9svvhokfxSyMAg=="
+  },
+  {
+   "id": "b1",
+   "who": "b1",
+   "nation": 4,
+   "issued": "1899999990",
+   "expires": "1900003600",
+   "message": "WYLLS nation chat read v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 4\nWallet: FMUEmtxhU46GzhKF4FW9MLJdQWiLgjiXP9TYRWSrqTpV\nIssued: 1899999990\nExpires: 1900003600\nOnly members of this nation can read its chat. This signature lets this browser read and report messages there until the time above. It cannot post, move tokens or act in the game.",
+   "signature": "4uCRC9LS8dH34/OxdSPqqhF+pOq/mSydOZurPOAHf4dybnmD+OS/j35LvRz58V2+JjmQwSIDU7fDVPvrFBGVBA=="
+  },
+  {
+   "id": "b1-claims-1",
+   "who": "b1",
+   "nation": 1,
+   "issued": "1899999990",
+   "expires": "1900003600",
+   "message": "WYLLS nation chat read v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nWallet: FMUEmtxhU46GzhKF4FW9MLJdQWiLgjiXP9TYRWSrqTpV\nIssued: 1899999990\nExpires: 1900003600\nOnly members of this nation can read its chat. This signature lets this browser read and report messages there until the time above. It cannot post, move tokens or act in the game.",
+   "signature": "RBqxiuIcCOBFxpO0Jiqg+LCPeWDGFR3rHymhlzTdwMRMIqF+hGvo1Xz5b6C/Vp/sC7Eekhw+hGYP8myM8ICsDQ=="
+  },
+  {
+   "id": "a1-overflow",
+   "who": "a1",
+   "nation": 1,
+   "issued": "-9223372036854775808",
+   "expires": "9223372036854775807",
+   "message": "WYLLS nation chat read v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nIssued: -9223372036854775808\nExpires: 9223372036854775807\nOnly members of this nation can read its chat. This signature lets this browser read and report messages there until the time above. It cannot post, move tokens or act in the game.",
+   "signature": "kmYvKay3/iLwJ8T/2oSaPIYh0RBjml8KfaBGcbnLnyt0C7Ihd9QwpLrmxeMxYz7vocFCWpZzq11uxvJRoqSEAg=="
+  },
+  {
+   "id": "a1-13h",
+   "who": "a1",
+   "nation": 1,
+   "issued": "1899999990",
+   "expires": "1900046790",
+   "message": "WYLLS nation chat read v1\nWorld: 5\nProgram: 7MNnTJmxb2vJ7WWi15fNMHYhwvmvJyY5XMegUjDKEKKT\nNation: 1\nWallet: 7v54NWdBtkjuAFJrLGsS2SXnuk8nKam81mZJeeYxVFi9\nIssued: 1899999990\nExpires: 1900046790\nOnly members of this nation can read its chat. This signature lets this browser read and report messages there until the time above. It cannot post, move tokens or act in the game.",
+   "signature": "ZXPqW73Zg2I1sMX+s/0VsXrx365tLb3goWzQUsFGy6ce2PCVg6S+QtIex5zOvbwxqhlukolYOcL7MyyLa216Cw=="
+  }
+ ]
+}
