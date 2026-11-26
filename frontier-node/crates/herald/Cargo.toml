@@ -71,3 +71,6 @@ solana-program-runtime.workspace = true
 solana-instruction.workspace = true
 # herald-v0v1-decode: the alarm test builds v0 / v1 messages (already a workspace dependency).
 solana-message.workspace = true
+# nation chat tests sign as players' wallets (already workspace dependencies).
+solana-keypair.workspace = true
+solana-signer.workspace = true

@@ -28,6 +28,7 @@ import { composerMarch, composerArrival, composerChoices, routeLine, marchTiming
 import { swatch } from '../screens/shell.mjs';
 import { keepFor, reachLink } from '../screens/conquest.mjs';
 import { territoryEnabled } from '../territory.mjs';
+import { campFights, CAMP_GARRISON_CAP } from './firstbattle.mjs';
 import { fold, label, stepper, bar } from '../screens/parts.mjs';
 import { DIRECTIONS, tileHex } from '../fgeo.mjs';
 import { termButton, sealLine } from './glossary.mjs';
@@ -80,10 +81,13 @@ export function defendersAt(FS, dest) {
   const j = Array.from(prov.sites ?? []).indexOf(dest.tile);
   const m = j >= 0 ? prov.siteMirror?.[j] : null;
   const garrison = m && m.state === 1 && m.faction !== FS.citizen?.faction ? troopsOf(m.garrison) : 0;
-  const camp = prov.camp?.state === 1 && prov.camp.tile === dest.tile ? Number(prov.camp.troops) : 0;
+  // (fix-firstcamp, LP22-1: a camp in a province of 12 holdings sits the battle out — clash_model.rs joins it only while
+  //  fewer than 12 garrisons stand —; it was counted, and the card said "Slight edge" beside a forecast of no fight)
+  const campHere = prov.camp?.state === 1 && prov.camp.tile === dest.tile ? Number(prov.camp.troops) : 0;
+  const camp = campHere && campFights(prov) ? campHere : 0, campOut = campHere && !camp ? campHere : 0;
   const k = territoryEnabled(FS) ? null : keepFor(FS, dest.p, dest.q);
   const keep = k?.tile === dest.tile && k.holder !== FS.citizen?.faction ? Number(k.troops ?? 0) : 0;
-  return { residents, garrison, camp, keep, total: residents.reduce((a, r) => a + r.troops, 0) + garrison + camp + keep };
+  return { residents, garrison, camp, campOut, keep, total: residents.reduce((a, r) => a + r.troops, 0) + garrison + camp + keep };
 }
 
 /** A guide word from the troop ratio (attacker ÷ defenders): no defenders → "unopposed". */
@@ -397,6 +401,7 @@ export function render(FS) {
       <p class="mc-odds-head"><strong>${odds.text}</strong><span class="muted">${odds.forecast ? L`ルールで ${fmtNum(odds.runs)} 回試し、${fmtNum(odds.stays)} 回マスに残った目安です` : L`兵数を比べた目安です`}</span></p>
       <dl class="versus"><div><dt>${L`あなた`}</dt><dd>${bar(c.host.troops, sides, 'bar-own')}<span>${fmtNum(c.host.troops)}</span></dd></div>
         <div><dt>${L`守り`}</dt><dd>${bar(def.total, sides, 'bar-foe')}<span>${fmtNum(def.total)}</span></dd></div></dl>
+        ${def.campOut ? html`<p class="muted mc-camp-out">${L`ここの蛮族の野営地（${fmtNum(def.campOut)}）は戦いに加わりません。この州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っていて、野営地が戦うのは州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです。`}</p>` : ''}
       ${fold('o-odds', L`守り手と結果の幅`, html`
         ${def.residents.length || def.garrison || def.camp || def.keep ? html`<ul class="list mc-def">${def.residents.map(r => html`<li>${swatch(r.faction)}${factionName(r.faction)} ${fmtNum(r.troops)}</li>`)}${def.garrison ? html`<li>${L`守備隊 ${fmtNum(def.garrison)}`}</li>` : ''}${def.camp ? html`<li>${L`蛮族 ${fmtNum(def.camp)}`}</li>` : ''}${def.keep ? html`<li>${L`砦の守備兵`} ${fmtNum(def.keep)}</li>` : ''}</ul>` : html`<p class="muted">${L`いまは守り手がいません。`}</p>`}
         <p class="muted">${L`あなた ${fmtNum(c.host.troops)}（${STANCE_TEXT[stance]}）対 守り ${fmtNum(def.total)}。実際の結果は、到着のターンが始まるときにそこにいる守り手と、戦いの運で決まります。`}</p>
