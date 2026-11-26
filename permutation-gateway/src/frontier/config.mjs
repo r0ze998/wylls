@@ -96,6 +96,9 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   devnetPlayRulesetHash: null,
   /** TEST ONLY: the devnet play routes over the in-process localnet on loopback (the offline proof of the devnet .so). */
   devnetPlayOfflineRpc: false,
+  /** (pt-world-goals-devnet) The off-chain world-goals judge's answer file (devnet-world-goals.mjs `--dir`/answer.json): served read only as
+   *  GET /f/goals/state. null: the route answers 404 (the page shows the goals as planned, not judged). */
+  worldGoalsFile: null,
   /** Fixed test price of one model call (base units of the 6-decimal test mint: 10,000 = 0.01). TEST VALUE. */
   agentInferencePrice: 10_000,
   /** A JSON file `{actionName: baseUnits}` of USDC prices for game actions; none: every action stays free or resource-paid. */
@@ -212,6 +215,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     devnetPlay: flags.devnetPlay === true || d.devnetPlay,
     devnetPlayRulesetHash: pick('devnet-play-ruleset-hash', 'FRONTIER_DEVNET_PLAY_RULESET_HASH', d.devnetPlayRulesetHash),
     devnetPlayOfflineRpc: flags.devnetPlayOfflineRpc === true || d.devnetPlayOfflineRpc,
+    worldGoalsFile: pick('world-goals-file', 'FRONTIER_WORLD_GOALS_FILE', d.worldGoalsFile),
     agentInferencePrice: int(pick('agent-inference-price', 'FRONTIER_AGENT_INFERENCE_PRICE', d.agentInferencePrice), '--agent-inference-price'),
     agentGamePricesFile: pick('agent-game-prices-file', 'FRONTIER_AGENT_GAME_PRICES_FILE', d.agentGamePricesFile),
     agentReconcileMs: int(pick('agent-reconcile-ms', 'FRONTIER_AGENT_RECONCILE_MS', d.agentReconcileMs), '--agent-reconcile-ms'),

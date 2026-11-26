@@ -119,8 +119,14 @@ Good to know:
 - **There is no winning or losing yet.** After a keep is taken the guide says “This world goes on; war-period winners and counts
   are not decided yet.” The direction decided after that text was written (2026-11-24)
   is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
-  achieves one receives a prize. That is a plan and is not built: the devnet world has no goals and no prize today.
+  achieves one receives a prize. That is a plan and is not built: the devnet world has no prize.
   The design record is [design 01](../design/win-conditions/01-proposal.ja.md) (Japanese).
+- **World goals on the page (decision of 2026-11-26).** “Nation & territory” has a “World goals” card. Until the
+  goals are judged it says “Planned — not judged yet” and names the goal: capture a neutral keep or a Free City in the
+  wide land and hold it for 144 turns (24 hours). The judging is planned to run off chain (no money, nothing written
+  to the chain) from what the chain already records about each keep, including since when it has been held. When it
+  runs, the card says “Being judged” and shows your nation's flag keeps, the flag keeps in sight, and how many each
+  nation took or holds. No money is paid for a goal.
 
 ## 6. When something goes wrong
 

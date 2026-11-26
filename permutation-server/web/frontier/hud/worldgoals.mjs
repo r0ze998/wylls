@@ -8,10 +8,16 @@
 // flag, the need, the hold time), every nation's progress, the viewer's nation's timer, and the achievements with the
 // would-have-won breakdown. The flag keeps are also handed to the map (map/keeps.mjs `setGoalFlags`) for their marks.
 // A server without the judge answers 404: then nothing is drawn and the path is not asked again until a reload.
+//
+// (pt-world-goals-devnet; owner r0ze 2026-11-26 15:48 JST: Q-PT-6 (c), Q-PT-7 (b)) THE DEVNET WORLD. Its page shows the
+// goals of the world as PLANNED — NOT JUDGED YET (`plannedOf`) until its relay serves an answer of the off-chain judge
+// (permutation-gateway src/frontier/devnet-world-goals.mjs, ruleset `wide-flags-v1`: the neutral keeps and Free Cities of
+// the wide land, captured and held 24 hours; no money). The page reads it as `/gw/f/goals/state` and applies the fog of
+// war to it (`wideFlagRows`): only flags of the viewer's nation and flags in sight now are told by place.
 import { html } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName } from '../fi18n.mjs';
-import { fogActive, fogNow, viewKeeps } from '../map/fog.mjs';
+import { fogActive, fogNow, viewKeeps, viewTile } from '../map/fog.mjs';
 import { termsRate, turnsLine } from '../seasonterms.mjs';
 import { said } from './words.mjs';
 
@@ -38,8 +44,25 @@ const goodRow = r => r && typeof r.wallet === 'string' && nation(r.nation) && in
 const goodAchievement = a => a && int(a.round) && int(a.bell) && Array.isArray(a.nations) && a.nations.every(nation) && a.prize && a.prize.simulated === true && Array.isArray(a.prize.rows) && a.prize.rows.every(goodRow)
   && ['vaultBefore', 'payout', 'paid', 'returned'].every(k => /^\d+$/.test(String(a.prize[k])));
 
+/** The devnet judge's ruleset (permutation-gateway src/frontier/wide-flags.mjs). */
+export const WIDE_FLAGS_RULESET = 'wide-flags-v1';
+const decStr = x => typeof x === 'string' && /^(0|-?[1-9][0-9]{0,18})$/.test(x);
+const goodWideFlag = f => f && (f.kind === 'keep' || (f.kind === 'freeCity' && int(f.site))) && decStr(f.p) && decStr(f.q) && int(f.tile)
+  && (f.holder === null || nation(f.holder)) && intOrNull(f.since) && intOrNull(f.longAt) && (f.achieved === null || (nation(f.achieved?.nation) && int(f.achieved?.bell)));
+const goodWideAchievement = a => a && (a.kind === 'keep' || (a.kind === 'freeCity' && int(a.site))) && decStr(a.p) && decStr(a.q) && nation(a.nation) && int(a.bell);
+const goodStanding = x => x && nation(x.nation) && int(x.achieved) && int(x.holding);
+
+/** Whether an answer is the DEVNET judge's (`wide-flags-v1`): its kind, no money, no chain effect, well-formed parts. */
+export function goodWideAnswer(j) {
+  return !!j && j.ok === true && j.v === 1 && j.kind === 'world-goals' && j.ruleset === WIDE_FLAGS_RULESET && j.effects?.money === 'none' && j.effects?.chain === 'none'
+    && j.season && typeof j.season.seasonId === 'string' && intOrNull(j.bell) && Array.isArray(j.goals)
+    && j.wideFlags && int(j.wideFlags.holdBells) && j.wideFlags.holdBells > 0 && Array.isArray(j.wideFlags.flags) && j.wideFlags.flags.every(goodWideFlag)
+    && Array.isArray(j.wideFlags.standings) && j.wideFlags.standings.every(goodStanding) && Array.isArray(j.achievements) && j.achievements.every(goodWideAchievement);
+}
+
 /** Whether an answer is the judge's: its kind, no effect on money or the chain, and well-formed parts. */
 export function goodAnswer(j) {
+  if (j?.ruleset === WIDE_FLAGS_RULESET) return goodWideAnswer(j);
   return !!j && j.ok === true && j.v === 1 && j.kind === 'world-goals' && j.ruleset === 'flag-keeps-v2' && j.effects?.money === 'none' && j.effects?.chain === 'none'
     && j.season && typeof j.season.seasonId === 'string' && Array.isArray(j.goals) && intOrNull(j.bell)
     && (j.flagKeeps === null || (int(j.flagKeeps.round) && int(j.flagKeeps.need) && int(j.flagKeeps.holdBells) && Array.isArray(j.flagKeeps.flags) && j.flagKeeps.flags.every(goodFlag) && Array.isArray(j.flagKeeps.progress) && j.flagKeeps.progress.every(goodProgress)))
@@ -199,6 +222,7 @@ function achievementMarkup(a, FS) {
  */
 export function achievementNews(FS, b, { first = false } = {}) {
   if (!b || b.read !== 'ok' || !sameWorld(FS, b.goals)) return null;
+  if (b.goals.ruleset === WIDE_FLAGS_RULESET) return wideAchievementNews(FS, b.goals, { first });
   const me = FS?.citizen?.faction, sid = String(b.goals.season.seasonId);
   return b.goals.achievements.map(a => {
     const mine = nation(me) && a.nations.includes(me), row = mine ? viewerPrize(FS, a) : null;
@@ -212,8 +236,123 @@ export function achievementNews(FS, b, { first = false } = {}) {
   });
 }
 
+// ------------------------------------------------------------------ the devnet world (pt-world-goals-devnet)
+/** Whether this page is the play page of a DEVNET world (not local play): `FS.pin.cluster`, else the herald record's. */
+export function devnetGoalsPage(FS) {
+  if ((FS?.mode ?? 'play') !== 'play' || FS?.localPlay) return false;
+  return (FS?.pin?.cluster ?? FS?.record?.cluster ?? null) === 'devnet';
+}
+
+/**
+ * The devnet world's goals as PLANNED, before its judge answers (owner Q-PT-6 (c)): `{preset, goals, holdBells}` on a
+ * devnet page, else null. World 3 (preset S1_DEVNET_TERRITORY) has one goal that can be played there: the flag keeps of
+ * the wide land (Q-PT-7 (b)). The other three goals of the design are not in this world. Static: no position, no
+ * holder, nothing the fog hides.
+ */
+export function plannedOf(FS) {
+  if (!devnetGoalsPage(FS)) return null;
+  return { preset: 'S1_DEVNET_TERRITORY', holdBells: 144, goals: [{ id: 'flag-keeps', kind: 'hegemony', live: false }] };
+}
+
+/** Where a devnet page reads its judge: the relay behind the herald's /gw (permutation-gateway routes/world-goals.mjs). */
+export const DEVNET_GOALS_BASE = '/gw/f';
+/** How often a devnet page reads it: once a minute (the judge reads the herald every few minutes; a turn is 10). */
+export const DEVNET_GOALS_EVERY_MS = 60_000;
+
+const goalsHead = sub => html`<header class="c-head"><span class="c-titles"><h3 id="world-goals-title">${L`世界の目標`}</h3><span class="c-sub">${sub}</span></span></header>`;
+const noMoneyLine = () => html`<p class="muted small goal-no-money">${L`賞金はありません。お金もチェーンも動きません`}</p>`;
+
+/** The planned card (no judge answer yet): what the goal will be, in words only. */
+export function plannedMarkup(FS, p = plannedOf(FS)) {
+  if (!p) return '';
+  return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-goals="planned">${goalsHead(L`予定 — まだ判定していません`)}
+    <ul class="goal-kinds"><li data-goal="flag-keeps" class="planned">${GOAL_NAMES()['flag-keeps']} · <small class="muted">${L`予定`}</small></li></ul>
+    <p class="goal-rule">${L`広い土地の中立の砦か自由都市を奪い、${turnsText(p.holdBells)}続けて持つこと`}</p>
+    <p class="muted small">${L`判定はまだ始まっていません。始まったら、チェーンに残る砦の記録（いつから持っているか）から判定します`}</p>
+    <p class="muted small">${L`ほかの目標（世界初の技術・大建造物・未踏の印）は、この世界にはまだありません`}</p>
+    ${noMoneyLine()}</section>`;
+}
+
+const whereOf = f => (f.kind === 'freeCity' ? L`自由都市 ${f.p},${f.q}` : L`砦 ${f.p},${f.q}`);
+const safeNum = x => { const n = Number(x); return Number.isSafeInteger(n) ? n : null; };
+/** Whether the wide flag `f` is in the viewer's sight now (always true without the fog). */
+const inSight = f => { const p = safeNum(f.p), q = safeNum(f.q); return p !== null && q !== null && viewTile(p, q, f.tile); };
+
+/**
+ * The devnet judge's flags as the viewer may see them under the fog of war: `{rows, hidden}` — `rows`: the flags of the
+ * viewer's nation (held or taken) and, once the viewer has a village, the flags in sight now; `hidden`: how many others
+ * there are (a count only). Before the first village, no flag is told by place (verify-pr198's rule).
+ */
+export function wideFlagRows(FS, g) {
+  const me = FS?.citizen?.faction;
+  const prejoin = fogActive(FS) && !(FS?.holdings ?? []).length;
+  const rows = [];
+  let hidden = 0;
+  for (const f of g.wideFlags.flags) {
+    const mine = nation(me) && (f.holder === me || f.achieved?.nation === me);
+    if (mine || (!prejoin && inSight(f))) rows.push({ ...f, mine });
+    else hidden += 1;
+  }
+  return { rows, hidden };
+}
+
+function wideFlagRow(f, g) {
+  const hold = g.wideFlags.holdBells;
+  let state;
+  if (f.achieved) state = L`${factionName(f.achieved.nation)}が取りました（ターン ${fmtNum(f.achieved.bell)}）`;
+  else if (nation(f.holder) && f.longAt !== null && g.bell !== null) state = L`${factionName(f.holder)}が持っています · 満たすまで あと ${turnsText(Math.max(0, f.longAt - g.bell))}`;
+  else if (nation(f.holder)) state = L`${factionName(f.holder)}が持っています`;
+  else state = L`持ち主なし（${turnsText(hold)}持てば取れます）`;
+  const p = safeNum(f.p), q = safeNum(f.q);
+  const place = p !== null && q !== null ? html`<button type="button" class="link" data-act="goto" data-p="${p}" data-q="${q}">${whereOf(f)}</button>` : whereOf(f);
+  return html`<li class="goal-flag${f.mine ? ' mine' : ''}" data-flag="${f.kind}:${f.p},${f.q}${f.kind === 'freeCity' ? `:${f.site}` : ''}">${place} · <small class="muted">${state}</small></li>`;
+}
+
+/** The judged card of the devnet world. */
+export function wideMarkup(FS, g) {
+  const me = FS?.citizen?.faction;
+  const hold = g.wideFlags.holdBells;
+  const { rows, hidden } = wideFlagRows(FS, g);
+  const st = g.wideFlags.standings;
+  const mine = nation(me) ? st.find(x => x.nation === me) : null;
+  const mineLine = mine ? html`<p class="goal-mine" data-achieved="${mine.achieved}" data-holding="${mine.holding}"><b>${L`あなたの国：取った旗の砦 ${fmtNum(mine.achieved)} · いま持っている旗の砦 ${fmtNum(mine.holding)}`}</b></p>` : '';
+  const active = st.filter(x => x.achieved > 0 || x.holding > 0).sort((a, c) => c.achieved - a.achieved || c.holding - a.holding || a.nation - c.nation);
+  const nations = html`<p class="muted small goal-nations" data-nations="${active.length}">${active.length ? active.map(x => L`${factionName(x.nation)} 取った ${fmtNum(x.achieved)}（持っている ${fmtNum(x.holding)}）`).join(' · ') : L`まだどの国も、旗の砦を持っていません`}</p>`;
+  const prejoin = fogActive(FS) && !(FS?.holdings ?? []).length;
+  const done = [...g.achievements].reverse().slice(0, 4).map(a => {
+    const told = nation(me) && a.nation === me ? true : !prejoin && inSight(a);
+    return html`<li class="goal-achieved${nation(me) && a.nation === me ? ' mine' : ''}">${told ? L`${factionName(a.nation)}が ${whereOf(a)} を ${turnsText(hold)}持ち続けて取りました（ターン ${fmtNum(a.bell)}）` : L`${factionName(a.nation)}が旗の砦を一つ取りました（ターン ${fmtNum(a.bell)}）`}</li>`;
+  });
+  return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-goals="judged" data-flags="${g.wideFlags.flags.length}">${goalsHead(L`判定中（チェーンの外で。お金は動きません）`)}
+    <ul class="goal-kinds"><li data-goal="flag-keeps" class="live">${GOAL_NAMES()['flag-keeps']} · <small class="muted">${L`判定中`}</small></li></ul>
+    <p class="goal-rule">${L`広い土地の中立の砦と自由都市が旗の砦です。奪って ${turnsText(hold)}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）`}</p>
+    ${mineLine}
+    ${rows.length ? html`<ol class="goal-flags">${rows.map(f => wideFlagRow(f, g))}</ol>` : ''}
+    ${hidden ? html`<p class="muted small goal-hidden" data-hidden="${hidden}">${L`ほかの旗の砦 ${fmtNum(hidden)} 個は、いまは見えていません`}</p>` : ''}
+    ${nations}
+    ${done.length ? html`<ol class="goal-achievements">${done}</ol>` : ''}
+    <p class="muted small">${L`ほかの目標（世界初の技術・大建造物・未踏の印）は、この世界にはまだありません`}</p>
+    <p class="muted small">${L`判定はチェーンの外で、この世界の公開の記録（砦をいつから持っているか）から行います`}</p>
+    ${noMoneyLine()}</section>`;
+}
+
+/** (pt-world-goals-devnet) Feed lines of the devnet judge's achievements: by place only for the viewer's nation or in sight. */
+function wideAchievementNews(FS, g, { first }) {
+  const me = FS?.citizen?.faction, sid = String(g.season.seasonId), hold = g.wideFlags.holdBells;
+  const prejoin = fogActive(FS) && !(FS?.holdings ?? []).length;
+  return g.achievements.map(a => {
+    const mine = nation(me) && a.nation === me, told = mine || (!prejoin && inSight(a));
+    return { id: `goal:${sid}:wide:${a.kind}:${a.p},${a.q}${a.kind === 'freeCity' ? `:${a.site}` : ''}`, kind: 'goal', bell: a.bell, ...(first ? { quiet: true } : {}), ...said(() => {
+      if (mine) return L`世界の目標：あなたの国（${factionName(me)}）が ${whereOf(a)} を ${turnsText(hold)}持ち続けて、その旗の砦を取りました（ターン ${fmtNum(a.bell)}）`;
+      return told ? L`世界の目標：${factionName(a.nation)}が ${whereOf(a)} を ${turnsText(hold)}持ち続けて、その旗の砦を取りました（ターン ${fmtNum(a.bell)}）` : L`世界の目標：${factionName(a.nation)}が旗の砦を一つ取りました（ターン ${fmtNum(a.bell)}）`;
+    }) };
+  });
+}
+
 /** The card for a read `b` (probeGoals' answer, or null before the first read): '' when there is nothing to show. */
 export function render(FS, b) {
+  // (pt-world-goals-devnet: a devnet page shows the goals as planned until a good answer of its own world comes)
+  if (devnetGoalsPage(FS)) return b?.read === 'ok' && sameWorld(FS, b.goals) && b.goals.ruleset === WIDE_FLAGS_RULESET ? wideMarkup(FS, b.goals) : plannedMarkup(FS);
   if (!b || b.read === 'absent') return '';
   const head = html`<header class="c-head"><span class="c-titles"><h3 id="world-goals-title">${L`世界の目標`}</h3><span class="c-sub">${L`期限のない 4 つの目標。どの国も、いつでも狙えます`}</span></span></header>`;
   if (b.read !== 'ok') return html`<section class="vcard world-goals" aria-labelledby="world-goals-title">${head}<p class="muted read-state" role="status" data-read="unread">${L`世界の目標を読み込めませんでした（${b.code ?? '?'}）`}</p></section>`;
@@ -269,6 +408,6 @@ export function installWorldGoals({ fetch, base = '', every = 5_000, changed = (
 
 /** The flag keeps the map marks: `[{p, q, round}]` of an answer of this world, else []. */
 export function mapFlags(FS, b) {
-  if (b?.read !== 'ok' || !sameWorld(FS, b.goals) || !b.goals.flagKeeps) return [];
+  if (b?.read !== 'ok' || !sameWorld(FS, b.goals) || !b.goals.flagKeeps) return []; // (a wide-flags-v1 answer has no flagKeeps: no marks)
   return b.goals.flagKeeps.flags.map(f => ({ p: f.p, q: f.q, round: b.goals.flagKeeps.round }));
 }
