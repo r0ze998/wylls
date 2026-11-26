@@ -43,6 +43,7 @@ import { palisadeHexesOf } from '../s1walk.mjs';
 import { routeArrival } from './march.mjs';
 import { viewTile } from '../map/fog.mjs';
 import { dueText } from './shell.mjs';
+import { villageConfirm, confirmPending, confirmLine, joinSentences } from '../hud/provisional.mjs';
 import { FLAG } from '../onboarding.mjs';
 
 export const CONQUEST_STEPS = Object.freeze(['village', 'train', 'muster', 'camp', 'build', 'march', 'hold', 'capture']);
@@ -376,7 +377,20 @@ export function conquestObjective(FS) {
     const fc = !x.raided && hv ? campChoice(FS, { unit: 0, troops: 100, p: hv.p, q: hv.q }, { seen: (p, q, tl) => viewTile(p, q, tl, 2), rough: (p, q, tl) => roughAt(FS, p, q, tl) }) : null;
     const aim = fc?.need ? L`最初の戦いは近くの蛮族の野営地（守り手 ${fmtNum(fc.camp.troops)}）です。${unitCount(UNIT_ORDER[0], fc.need)} 以上を一つの軍勢にまとめると、運が悪くても勝てる見込みです。`
       : t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
+    // (fix-provisional-guide, loop-play23 BREAK-1: the first village is provisional for up to ≈4 h after its request — the
+    //  program forms no host from it until hud/provisional.mjs villageConfirm's time, and only an action after that time
+    //  confirms it. The step pointed at 「軍勢を編成する」, whose card could not be pressed for hours. It says when, that an
+    //  action after that time confirms it, and offers what works meanwhile: building)
+    const pend = id === 'muster' && !x.forming ? villageConfirm(FS) : null;
     if (id === 'train') { text = L`「訓練」で兵を雇います。訓練はすぐに終わり、兵は村の控えに入ります。${aim}`; go = { act: 'cg-go', data: { pop: 'train' }, label: L`訓練する兵を選ぶ` }; }
+    else if (confirmPending(pend)) {
+      text = confirmLine(FS, pend, { meanwhile: 'build' });
+      if (pend.state === 'past') go = { act: 'harvest', data: {}, label: L`収穫して村を確定する` };
+      else { go = { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく`, aside: true }; wait = L`村の確定を待つ`; }
+    } else if (pend?.state === 'due') {
+      text = joinSentences(confirmLine(FS, pend), L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`);
+      go = { act: 'cg-go', data: { pop: 'muster' }, label: L`軍勢を編成する` };
+    }
     else if (x.forming) {
       // the host is forming: where its muster turn really is, and one thing worth doing meanwhile (the first-session
       // review of 2026-11-13: the guide said nothing for the ~18 minutes between the muster and the formed host)
