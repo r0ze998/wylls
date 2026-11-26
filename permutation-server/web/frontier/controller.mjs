@@ -1383,6 +1383,26 @@ function ownMarchDest(t, scope) {
   const o = all[0];
   return { p: o.dest.p, q: o.dest.q, tile: o.dest.tile };
 }
+/**
+ * (fix-loop24, BREAK-2/3) The destination of the viewer's own live transit `t` that this device sent, as early as the
+ * march departs (not only once its arrival turn has come): local play keeps no seal copy in the browser's march book —
+ * the memory-only sender keeps its own (flocalplay-march.mjs `local-march:memory`, kept across a reload in a kept
+ * world) — so every local march row had `dest: null` until its arrival, and none at all when that turn's record was not
+ * read: the calendar file skipped every local march (loop-play24 BREAK-2) and the report line of a march into a province
+ * without a village of the viewer's was never told (BREAK-3). Read in this order: the sender's own entry for this seal
+ * (its plaintext: the tile too), this page's order record (ownMarchDest), the transit's gathered destination (no tile).
+ * Reads this browser only; nothing is sent, nothing is shown to anyone else.
+ */
+function sentMarchDest(t, scope) {
+  if (localPlay) {
+    try {
+      const s = localMarchSenderNow(), e = book.entryOfTransit(book.loadBook(s.storage, s.bookKey), t);
+      const p = e ? unpack(book.materialBytes(e).plain) : null;
+      if (p && Number.isInteger(p.destP) && Number.isInteger(p.destQ)) return { p: p.destP, q: p.destQ, tile: Number.isInteger(p.destTile) ? p.destTile : null };
+    } catch { /* a damaged entry only costs the early name */ }
+  }
+  return ownMarchDest(t, scope) ?? t.dest ?? null;
+}
 const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
 /**
  * fix-wide-breaks BREAK-4: a route through a province the chain holds no Province for — grown land the herald has no
@@ -1478,7 +1498,7 @@ async function readMarches() {
   const looseFacts = new Map(), looseUnread = new Map();
   for (const t of transits.filter(x => x.state >= 1 && x.state <= 3)) {
     if (marches.some(m => m.transit && m.transit.slot === t.slot) || !Number.isInteger(t.arriveBell) || b < t.arriveBell) continue;
-    const dest = t.dest ?? ownMarchDest(t, at.scope);
+    const dest = sentMarchDest(t, at.scope);
     if (!dest) continue;
     const slotRead = await slotOf(dest, t.arriveBell, t.hostId);
     const { slot, env } = slotRead;
@@ -1497,7 +1517,8 @@ async function readMarches() {
   for (const t of transits.filter(x => x.state >= 1 && x.state <= 3)) {
     if (marches.some(m => m.transit && m.transit.slot === t.slot)) continue;
     if (held.some(e => e.transitSlot === t.slot && e.host === String(t.hostId) && e.state !== 'settled')) continue;
-    const lf = looseFacts.get(t.slot) ?? null, lu = looseUnread.get(t.slot) ?? null, dest = lf?.dest ?? t.dest;
+    // (fix-loop24, BREAK-2: the destination this device sent it to, from the departure on — sentMarchDest)
+    const lf = looseFacts.get(t.slot) ?? null, lu = looseUnread.get(t.slot) ?? null, dest = lf?.dest ?? sentMarchDest(t, at.scope);
     marches.push({ entry: null, transit: t, facts: { nowBell: b, pipeline: lf?.pipeline ?? null, slotPresent: !!lf?.slot, settleReady: false }, record: lf?.record ?? null, slot: lf?.slot ?? null, env: lf?.env ?? null,
       dest, region: dest ? regionOf(dest.p, dest.q) : null, unread: lu ? { slot: lu.slot, facts: lu.facts, code: lu.code } : null, readDest: lu?.dest ?? null });
   }

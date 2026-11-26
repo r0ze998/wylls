@@ -101,7 +101,7 @@ import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
 import { mountWideMode } from './map/widemode.mjs';
 // the same recorded wide world drawn on the ordinary map and its chart 「全体図」 (map/wideland.mjs: rendering only)
 import { mountWideLand, landOfCells } from './map/wideland.mjs';
-import { provinceName as placeProvinceName } from './hud/place.mjs';
+import { noticeProvince } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
 import * as pm from './proto/hand-model.mjs';
@@ -500,6 +500,8 @@ export function restMarkup(FS) {
  * resolved clashes, else the newest clash the fog lets it read (`clashHere`, the rule every report link obeys), else a
  * practice battle. '' without a village.
  */
+/** (fix-loop24) The wait panel's last model with timers (hud/waitpanel.mjs steadyWaitModel), of the page's own store. */
+let waitSteady = null;
 function waitMarkup(F = FS) {
   if (F?.mode !== 'play' || !hud.activeHolding(F)) return '';
   let offer = null;
@@ -507,7 +509,12 @@ function waitMarkup(F = FS) {
     const visible = F === FS ? reportScreen.clashesFrom(shownChronicle() ?? [], 12).filter(c => clashHere(c.p, c.q, c.bell)) : [];
     offer = battleOffer({ own: myReports(F), visible });
   } catch { offer = null; }
-  try { return waitPanel.renderWaitPanel(F, waitPanel.waitModel(F, { offer })); } catch (e) { console.error('frontier wait panel:', e); return ''; }
+  try {
+    // (fix-loop24, BREAK-5: what the panel last said stands until new data is in — hud/waitpanel.mjs steadyWaitModel)
+    const st = waitPanel.steadyWaitModel(F, F === FS ? waitSteady : null, waitPanel.waitModel(F, { offer }));
+    if (F === FS) waitSteady = st.keep;
+    return waitPanel.renderWaitPanel(F, st.shown);
+  } catch (e) { console.error('frontier wait panel:', e); return ''; }
 }
 
 /**
@@ -780,6 +787,7 @@ function applyDrawer(d) {
     if ((el.dataset.kind ?? '') !== kind) el.dataset.kind = kind;
     if (el.dataset.doc !== doc) el.dataset.doc = doc;
   }
+  nationChatPlace();
   if (kind === drawerKind) return false;
   // the camera comes back when the drawer closes (hud/camkeep.mjs): where it was when the drawer opened, unless the
   // player moved it in between. (An order card is not a drawer in this sense: its route frames the picture on purpose.)
@@ -914,6 +922,8 @@ function nationChatTick() {
   const k = `${FS.wallet?.address ?? ''}|${FS.citizen?.faction ?? ''}`;
   if (nationChatRef && k !== nationChatKey) { nationChatKey = k; nationChatRef.changed(); }
 }
+/** (fix-loop24, BREAK-1) The screen changed under the chat (the title up or down, a wide document opened or closed): it follows (hud/nationchat.mjs chatPlacement). */
+function nationChatPlace() { try { nationChatRef?.place?.(); } catch (e) { console.error('frontier nation chat:', e); } }
 
 function renderMode() {
   renderDrawer(() => modePanel(FS));
@@ -3251,7 +3261,7 @@ async function clashTold(x) {
       }) };
     } else if (scene) {
       // (nobody of the viewer's fought: a public fact of the province, in the list with its report)
-      item = { ...item, quiet: true, tile: scene.tiles[0]?.idx ?? null, ...said(() => L`${placeProvinceName(FS, p, q)}で、ほかの国どうしの戦いがありました（ターン ${fmtNum(bell)}）`) };
+      item = { ...item, quiet: true, tile: scene.tiles[0]?.idx ?? null, ...said(() => L`${noticeProvince(p, q)}で、ほかの国どうしの戦いがありました（ターン ${fmtNum(bell)}）`) };
     }
   } catch (e) { console.error('frontier feed:', e); }
   const speed = BATTLE_SPEEDS[FS.ui?.battleFx ?? 'normal'] || 0;
@@ -3797,6 +3807,7 @@ function markTitle(up) {
   if (!body?.dataset) return;
   if (up) body.dataset.title = 'up'; else delete body.dataset.title;
   for (const el of [$('frontier'), $('tabs')]) if (el) el.inert = up;
+  nationChatPlace();
 }
 export function openIntro() {
   const el = $('intro');
@@ -3940,7 +3951,8 @@ function notifyBackgroundSync() {
 /** The page's names for a place, for the herald's alerts. */
 const notifyNames = {
   village: (p, q, site) => { const h = (FS.holdings ?? []).find(o => o.p === p && o.q === q && o.site === site); return h ? holdingName(h) : holdingName({ p, q, site }, 0); },
-  province: (p, q) => placeProvinceName(FS, p, q),
+  // (fix-loop24, BREAK-4: one form for a province in every notice — hud/place.mjs noticeProvince)
+  province: (p, q) => noticeProvince(p, q),
 };
 /** Every host of the viewer's villages the page holds: whether it can march now (the to-do rail's "idle" rule), or rests / is on the road. */
 function notifyHostRows() {

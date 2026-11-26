@@ -68,7 +68,7 @@ test('a capture is a notification with “go there”, marked as the viewer’s 
   assert.doesNotMatch(String(FEED.renderCentre(feed, 'holding')), /砦/);
   assert.match(FEED.bellSummary(feed, 229).text, /砦 1/);
   setLang('en');
-  assert.equal(FEED.diffFeed(at(0, 229, [contest]), at(0, 229, [contest, taken]))[0].text, 'Cinder took the keep of province -3,4 from Borealis (turn 228)');
+  assert.equal(FEED.diffFeed(at(0, 229, [contest]), at(0, 229, [contest, taken]))[0].text, 'Cinder took the keep of Province -3,4 from Borealis (turn 228)');
   // (loop-play13: the English table defined 「砦 {0}」 twice and the later '{0} keep' won — "Turn 91 in brief: 2 keep")
   assert.match(FEED.bellSummary(feed, 229).text, /: 1 keep$/);
   const two = FEED.pushFeed([], [...lost, { ...lost[0], id: `${lost[0].id}:2` }], 1000);

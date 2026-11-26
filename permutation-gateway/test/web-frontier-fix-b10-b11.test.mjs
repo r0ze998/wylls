@@ -113,7 +113,7 @@ test('B11: every notice diffFeed makes carries its words in every language, the 
     assert.doesNotMatch(x.words.en, JP);
   }
   // the loop-play2 lines, in both languages (the wording of each language as it was)
-  assert.match(items[0].words.en, /took the keep of province -2,4 from .+ \(turn 83\)/);
+  assert.match(items[0].words.en, /took the keep of Province -2,4 from .+ \(turn 83\)/);
   assert.match(items[0].words.ja, /^州 -2,4 の砦を .+ が .+ から奪った（第83ターン）$/);
   assert.match(items[1].words.ja, /^ターン 86 に、.+へ敵が来るかもしれません$/);
   // made in Japanese: the same words
@@ -143,7 +143,7 @@ test('B11: the list, the cards over the map and the turn\'s own list show a noti
   inLang('en', () => {
     const en = text(FEED.renderCentre(all));
     assert.match(en, /Turn 85 in brief: 1 attack warning · 1 keep/);
-    assert.match(en, /took the keep of province -2,4/);
+    assert.match(en, /took the keep of Province -2,4/);
     assert.doesNotMatch(en.replace(/州/g, ''), /まとめ|奪った|敵が来る/);
   });
   // a notice without words (an older one, or one from a producer that has none) keeps its text

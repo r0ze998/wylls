@@ -46,7 +46,11 @@ export function waitModel(FS, { offer = null } = {}) {
   if (due) timers.push({ id: 'report', kind: 'report', at: due.at, arrive: due.arriveBell, dest: due.dest });
   let rows = [];
   try { rows = hostRows(FS).filter(combat); } catch { rows = []; }
-  const ready = rows.find(r => !waitOf(FS, r)) ?? null;
+  // (fix-loop24, LP22/loop-play24 BREAK-5: in the first seconds of every turn the host's province is a moment behind the
+  //  new turn — keephand.mjs waitOf says `settling` — and a standing host was neither resting nor ready: the panel said
+  //  「いま待っているものはありません」 for about a quarter of each turn at ×60. What the host waits for does not change with
+  //  the province catching up: its ready turn and its stamina are its own. Read through the settling moment — settledWait)
+  const ready = rows.find(r => { const w = waitOf(FS, r); return !w || (w.why === 'settling' && r.state === 1 && !settledWait(FS, r)); }) ?? null;
   // (a ready host and no report awaited: when a march sealed this turn would be reported at the earliest. Said for any
   //  march — the page forgets a march once it is settled, so "first" could not be told from the records)
   if (!due && ready) {
@@ -70,6 +74,13 @@ export function waitModel(FS, { offer = null } = {}) {
     const back = forming ? standsShort(FS, rows.find(x => String(x.id) === String(w.id)), forming.turn) : null;
     if (back) { timers.push({ id: `host:${w.id}`, kind: 'hostMarch', at: at(FS, back.turn), turn: back.turn, unit: w.unit, troops: w.troops, stamina: back.stamina }); continue; }
     if (forming) { timers.push({ id: `host:${w.id}`, kind: 'hostForms', at: forming.at, turn: forming.turn, unit: w.unit, troops: w.troops, stamina: null }); continue; }
+    // (fix-loop24: a standing host whose province is still settling the new turn: its own rest, as before the turn changed)
+    if (w.why === 'settling') {
+      const r = rows.find(x => String(x.id) === String(w.id));
+      const sw = r && r.state === 1 ? settledWait(FS, r) : null;
+      if (sw) timers.push({ id: `host:${w.id}`, kind: 'hostMarch', at: at(FS, sw.turn), turn: sw.turn, unit: w.unit, troops: w.troops, stamina: sw.stamina ?? null });
+      continue;
+    }
     if (!['resting', 'stamina'].includes(w.why) || !Number.isInteger(w.turn)) continue;
     // (resting / short of stamina: the host may depart in turn `w.turn` — stamina is +1 per resolved turn (host.rs
     //  Stamina::at) and a departure in turn b reads it at b —, so from that turn's start; said on the wall clock at the
@@ -105,6 +116,42 @@ export function waitModel(FS, { offer = null } = {}) {
   if (busy < queueSlots(h.tier)) suggestions.push({ id: 'build', act: 'cg-go', data: { pop: 'build' } });
   const timed = timers.filter(t => Number.isFinite(t.at)).sort((a, b) => a.at - b.at);
   return { timers, suggestions: suggestions.slice(0, WAIT_SUGGESTIONS), soonest: timed[0] ?? null };
+}
+
+/**
+ * (fix-loop24) What a standing host (state 1) waits for once its province has caught up with the turn, from its own
+ * record alone: `{why: 'resting', turn}` before its ready turn, `{why: 'stamina', turn, stamina}` short of the stamina a
+ * departure takes (the rule of keephand.mjs waitOf), or null — it may march then.
+ */
+export function settledWait(FS, r) {
+  const bell = FS?.nowBell ?? 0;
+  if (!r || r.state !== 1) return null;
+  if (Number.isInteger(r.readyBell) && bell < r.readyBell) return { why: 'resting', turn: r.readyBell, stamina: null };
+  const st = Number(r.stamina);
+  if (Number.isFinite(st) && st < DEPART_STAMINA) return { why: 'stamina', turn: Math.max(bell + DEPART_STAMINA - st, Number.isInteger(r.readyBell) ? r.readyBell : 0), stamina: st };
+  return null;
+}
+
+/**
+ * (fix-loop24, BREAK-5) The panel keeps what it last said until new data is in: a model with no timer, for the same
+ * village, while that village's own province has not caught up with the turn (`resolvedNext + 1 < nowBell`, the
+ * "settling" moment of every turn change) or no host of it is read at all although the last model had host timers, and
+ * no more than one turn after the last model with timers, is answered by that last model's timers. Pure: `prev` is
+ * `{key, bell, model}` (null at first) → `{shown, keep}` (`keep` the record for next time).
+ */
+export function steadyWaitModel(FS, prev, model) {
+  const h = activeHolding(FS), key = h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : null, bell = FS?.nowBell ?? null;
+  if (!model) return { shown: model, keep: null };
+  if (model.timers.length) return { shown: model, keep: { key, bell, model } };
+  const own = h ? FS?.provinces?.get?.(`${h.p},${h.q}`)?.province ?? null : null;
+  const behind = !own || Number(own.resolvedNext) + 1 < Number(bell);
+  let rowsNow = 0;
+  try { rowsNow = hostRows(FS).filter(combat).length; } catch { rowsNow = 0; }
+  const lostRows = rowsNow === 0 && (prev?.model?.timers ?? []).some(t => String(t.id).startsWith('host:'));
+  if (prev && prev.key === key && prev.model?.timers?.length && Number.isInteger(bell) && Number.isInteger(prev.bell) && bell - prev.bell <= 1 && (behind || lostRows)) {
+    return { shown: { ...model, timers: prev.model.timers, soonest: prev.model.soonest }, keep: prev };
+  }
+  return { shown: model, keep: { key, bell, model } };
 }
 
 /**

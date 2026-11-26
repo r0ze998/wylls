@@ -55,7 +55,8 @@ test('which feed line is which event (and the same event from two sources has on
   assert.equal(of({ id: 'cl:1,2,40', kind: 'battle', p: 1, q: 2, battle: { bell: 40 }, attacked: true }).kind, 'attacked');
   assert.equal(of({ id: 'cl:1,2,40', kind: 'battle', quiet: true, attacked: true }), null, 'others\' battle');
   assert.deepEqual(of({ id: 'rs:77', kind: 'battle' }), { kind: 'report', key: 'report:77' });
-  assert.equal(of({ id: 'rs:77', kind: 'march' }), null, 'arrived, no battle: no report');
+  // (fix-loop24, BREAK-3: every own march's result is a report — an arrival nobody stood against has its report too)
+  assert.deepEqual(of({ id: 'rs:77', kind: 'march' }), { kind: 'report', key: 'report:77' }, 'arrived, no battle: its report is ready too');
   assert.deepEqual(of({ id: 'st:77', kind: 'march' }), { kind: 'report', key: 'report:77' }, 'the result to collect is the same event as the report');
   assert.equal(of({ id: 'in:40,1,2', kind: 'incoming' }).kind, 'incoming');
   assert.equal(of({ id: 'sum:40', kind: 'summary' }), null);

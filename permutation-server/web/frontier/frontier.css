@@ -2820,6 +2820,14 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
 .nchat-status { min-height: 1.2em; margin: 0; font-size: var(--t1); color: var(--ink); }
 .nchat-panel button:focus-visible, .nchat-panel textarea:focus-visible, .nchat-panel select:focus-visible, .nchat-panel summary:focus-visible, .nchat-log:focus-visible { outline: 2px solid #1d5fa8; outline-offset: 2px; }
 @media (max-width: 759px) { .nchat-toggle-label { display: none; } .nchat-panel { top: calc(var(--dial) + 10px); left: var(--edge); width: auto; max-height: calc(100vh - var(--dial) - 20px); } }
+/* (fix-loop24, loop-play24 BREAK-1) The chat follows the screen (hud/nationchat.mjs chatPlacement): never with the title
+   (it opened under the title card, unseen, and took the keyboard), and beside a wide document — a report, a practice
+   battle — only with room for both: the document moves left by the panel's width, so the panel covers none of it (it
+   stood over the practice sheet's result column). Narrower, the open panel is set aside while the document is open. */
+body[data-title="up"] .nchat-toggle, body[data-title="up"] .nchat-panel { display: none; }
+@media (min-width: 1100px) {
+  body[data-nchat="open"] .panel[data-doc="wide"] { left: calc((100% - min(380px, calc(100vw - 2 * var(--edge))) - var(--edge)) / 2); width: min(900px, calc(100% - min(380px, calc(100vw - 2 * var(--edge))) - 3 * var(--edge))); }
+}
 
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
@@ -2895,4 +2903,3 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
   .panel[data-doc="wide"] .report.doc .versus-band { margin-bottom: var(--s2); padding: var(--s2) var(--s3); }
   .panel[data-doc="wide"] .report.doc .report-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 var(--s1); }
 }
-
