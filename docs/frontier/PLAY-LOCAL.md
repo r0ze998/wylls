@@ -224,7 +224,7 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    other battle is offered), and "Verify in this browser" then shows "Match". With no such battle yet it offers **"Try "Recompute" on a
    practice battle"**: the practice battle (not a chain record) → "Run the clash" → "Recompute in this browser" → "Match (practice)".
    Its times are on your own clock (#267), never the chain's: "in about 20 min (around 21:57)"; on a ×60 clock
-   "in about 7 h 12 min (about 7 min in real time, around 22:45)" (the clock time only once the real wait is a minute or
+   "in about 7 h 12 min (about 7 minutes in real time, around 22:45)" (the clock time only once the real wait is a minute or
    more); a time already past reads "Any moment now". A forming host's line counts to the end of its muster turn,
    "The host of (name) stands and can march from turn N: …" (in the kept 1× check it stood within a minute of the time
    shown). The join screen's ticket line, the turn sheet and the provisional village's note use the same clock.
