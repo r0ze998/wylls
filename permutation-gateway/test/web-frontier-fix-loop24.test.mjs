@@ -180,7 +180,7 @@ test('BREAK-1: the placement rule — no chat with the title; beside a wide docu
   const b = d => ({ dataset: d });
   assert.deepEqual(chat.chatPlacement(b({ title: 'up' }), 1920), { toggle: false, panel: false });
   assert.deepEqual(chat.chatPlacement(b({ doc: 'wide' }), 1280), { toggle: true, panel: true });
-  assert.deepEqual(chat.chatPlacement(b({ doc: 'wide' }), 1024), { toggle: true, panel: false });
+  assert.deepEqual(chat.chatPlacement(b({ doc: 'wide' }), 1024), { toggle: false, panel: false }, 'no dead Chat key while the panel may not open');
   assert.deepEqual(chat.chatPlacement(b({}), 390), { toggle: true, panel: true });
   assert.equal(chat.CHAT_BESIDE_DOC_MIN, 1100);
   // the stylesheet: hidden with the title, the document moved left beside the open panel at the same width
@@ -239,12 +239,18 @@ test('BREAK-1: a wide document on a narrow screen sets the open panel aside and 
   // wide enough: it stays open beside the document
   doc.defaultView.innerWidth = 1280; doc.body.dataset.doc = 'wide'; ref.place();
   assert.equal(panel.hidden, false);
-  // closed by the player while set aside: it does not come back by itself
+  // set aside again on a narrow screen: the toggle steps aside with it (no dead key), and both come back
   doc.defaultView.innerWidth = 1024; ref.place();
-  toggle.fire('click');   // (the toggle press while set aside asks to open: it may not, the panel stays hidden)
   assert.equal(panel.hidden, true);
+  assert.equal(toggle.hidden, true, 'no Chat key that could not open anything');
   doc.body.dataset.doc = ''; ref.place();
-  assert.equal(panel.hidden, true, 'a press while set aside ends the "set aside": nothing reopens unasked');
+  assert.equal(toggle.hidden, false);
+  assert.equal(panel.hidden, false, 'back as the player left it');
+  // closed by the player: it stays closed through a document opening and closing
+  toggle.fire('click');
+  assert.equal(panel.hidden, true);
+  doc.body.dataset.doc = 'wide'; ref.place(); doc.body.dataset.doc = ''; ref.place();
+  assert.equal(panel.hidden, true, 'nothing reopens unasked');
   ref.stop();
 });
 

@@ -221,9 +221,11 @@ function el(doc, tag, attrs = {}, text = null) {
  * panel stood over the practice sheet's result column. → `{toggle, panel}` booleans.
  */
 export const CHAT_BESIDE_DOC_MIN = 1100;
+// (the toggle goes with the panel: a Chat button that could not open anything while a document stands would be a dead key)
 export function chatPlacement(body, width) {
   const title = body?.dataset?.title === 'up', doc = body?.dataset?.doc === 'wide';
-  return { toggle: !title, panel: !title && !(doc && !(Number(width) >= CHAT_BESIDE_DOC_MIN)) };
+  const can = !title && !(doc && !(Number(width) >= CHAT_BESIDE_DOC_MIN));
+  return { toggle: can, panel: can };
 }
 
 /**

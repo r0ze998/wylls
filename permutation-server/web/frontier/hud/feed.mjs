@@ -6,8 +6,12 @@
 // a building finished, a village made final, a keep taken (and, for the viewer's nation, a
 // contest for a keep begun or beaten off). When the bell tolls, the
 // changes of the turn that ended are folded into one summary ("turn 1,034:
-// 2 battles…"). A place is said by its name, never by coordinates (UX
-// design 11.13): a village by its own, a province by hud/place.mjs.
+// 2 battles…"). A place is said by its name (UX design 11.13): a village by
+// its own, a camp or a Free City by what it is; a province — no name of its
+// own — by one form in every notice, 「州 x,y」 / "Province x,y", as the march
+// card and the report say it (fix-loop24: the same province was told as
+// "province -1,1" and as "Cinder side (ring 1)" one after the other; hud/place.mjs
+// noticeProvince).
 //
 // Notifications sit at the map's top right (newest first, at most
 // TOAST_MAX, each with "go there" and, for battles, "watch" and "report"),
