@@ -1321,3 +1321,24 @@ by a nation that holds the need minus one or more captured flag keeps (still onl
 see only wins a near tie. A resident with one march already on a flag keep gets no more of that tie-break (two for a
 close rival's flags), so its other hosts fight the ordinary war. Once ring 4 is open its keeps are contestable too
 but carry no flag in round 1, and the AI residents keep fighting over them. Their log (`operators.out`) names the reason of a march: `defend-flag`, `stop-rival` or `flag`.
+
+## 15. Notifications outside the page and a calendar file (every world; owner decisions Q-PT-8 (a)+(b), Q-PT-10)
+
+More → **Notifications (outside the page)**. Nothing here leaves the browser: no account, no server, no third party.
+
+- **While the tab is open.** Press **Turn on browser notifications**: only then does the browser ask for permission.
+  While the tab is in front, the notices over the map are all you see. While it is behind (another tab or app), each
+  new event you chose comes as one browser notification; if the browser refuses notifications (or has none), the
+  button reads **Show a count in the tab title** and the tab title shows "(2) Wylls" instead. The count goes when you
+  come back. Each event is told once. Once you turned this on, a hidden tab keeps reading at its slow pace (every
+  60 s, faster in a ×60 world) so it can tell you; nothing else changes for players who did not.
+- **Which events.** On by default: **attacked** (a siege on your village, your nation's keep contested or taken, a
+  village or land of yours taken, a caravan or storehouse of yours raided or seized, a host of yours attacked where it
+  stood) and **battle report ready**. Off until you switch them on: an enemy host may reach your village, a host can
+  march again, land upkeep unpaid, a keep capture complete. Only your own events the page already reads count (the
+  fog is the same).
+- **Calendar (.ics).** **Save calendar file** writes your coming timers — a host ready again, a march's arrival and
+  its report, a keep your nation is taking (or one it holds that may fall), unpaid upkeep letting land go — into a
+  file for the calendar app you choose (titles in English and Japanese). Times are estimates. Save and import it again
+  after plans change: the same events move. In a ×60 world the times are seconds or minutes away.
+- Not yet: notifications when the browser is closed (Web Push, the next step; it needs a fixed public address).

@@ -79,7 +79,9 @@ test('the controller wires the wake to visibility and pageshow, and the loop onl
   assert.match(src, /addEventListener\?\.\('pageshow', e => \{ if \(e\?\.persisted && !hidden\(\)\) poll\.wake\(\); \}\);/);
   assert.ok(!/visibilitychange', \(\) => \{ if \(!hidden\(\)\) refreshSoon\(0\)/.test(src), 'no second read path beside the loop');
   const at = src.indexOf('const poll = pollLoop = createPollLoop({'), block = src.slice(at, src.indexOf('poll.start(', at));
-  assert.match(block, /if \(hidden\(\)\) await revealTick\(\); else await refresh\(\);/);
+  // (pt-notify, owner Q-PT-8 (a): a player who turned notices on — app.mjs FS.notifyBackground: enabled and a kind on,
+  //  browser notifications or the title count — keeps the full read at the hidden pace, so a tab behind can tell; others as before)
+  assert.match(block, /if \(hidden\(\) && !FS\.notifyBackground\) await revealTick\(\); else await refresh\(\);/);
   assert.ok(!/\bact\(|ACTIONS|send|sign/i.test(block.replace(/console\.error\('frontier refresh:', e\)/, '')), 'the loop builds, signs and sends nothing');
   const mod = readFileSync(new URL('../../permutation-server/web/frontier/poll-loop.mjs', import.meta.url), 'utf8');
   assert.ok(!/fetch\(|send|sign/i.test(mod.replace(/builds, signs and sends nothing/, '')), 'the loop module itself reads and sends nothing');

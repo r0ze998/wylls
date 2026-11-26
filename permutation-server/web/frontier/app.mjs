@@ -191,6 +191,10 @@ import * as hud from './hud/hud.mjs';
 import { landUpkeepMilli } from './landfood.mjs';
 import * as inspect from './hud/inspect.mjs';
 import * as feed from './hud/feed.mjs';
+import * as notify from './hud/notify.mjs';
+import * as calendar from './hud/calendar.mjs';
+import { ownLandView } from './flocalplay-territory.mjs';
+import { hostsIn } from './fland.mjs';
 import { said, worded, reworded } from './hud/words.mjs';
 import * as status from './hud/status.mjs';
 import * as title from './intro/title.mjs';
@@ -545,7 +549,7 @@ export function panelMarkup(FS, d = drawerOf(FS)) {
     parts.push(warned ? incomingScreen.render(FS) : '', marchScreen.render(FS), trackerScreen.render(FS), reportScreen.renderLinks(myReports(FS), L`あなたの衝突の報告`, { FS }), warned ? '' : incomingScreen.render(FS));
   }
   else parts.push(feed.renderCentre(FS.feed ?? [], FS.feedFilter ?? 'all'), chronicleScreen.render(FS), coopTitles.render(FS, coopTitles.current()), reportScreen.renderLinks(reportScreen.clashesFrom(shownChronicle() ?? []), L`最近の衝突`, { FS }),
-    settingsMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
+    settingsMarkup(FS), notifyMarkup(FS), ...surveyHelpWithProto(), moreFolds(FS), detailsMarkup(FS));
   return parts;
 }
 
@@ -2923,6 +2927,7 @@ function renderHudTick(now) {
   if (FS.pins === undefined) { const sc = scope(); if (sc) { FS.pins = pins.loadPins(uiStorage, sc.seasonId); if (FS.pins.length) { invalidate('map'); renderMinimap(); } } }
   tickFeed();
   renderFeed();
+  notifyTick();
   renderHand();
   renderProto();
   const attn = $('attn-pill');
@@ -3201,6 +3206,9 @@ async function clashTold(x) {
       const me = sides(tile).find(s0 => mine(s0.id)), foe = sides(tile).find(s0 => !mine(s0.id) && Number.isInteger(s0.faction) && s0.faction !== (FS.citizen?.faction ?? -1)) ?? null;
       const lost = Number.isFinite(me.before) && Number.isFinite(me.after) ? Math.max(0, me.before - me.after) : null;
       // (B11: the words in every language now — hud/words.mjs said — so that a switch of language shows the same line)
+      // (`attacked`: a host of the viewer's stood and was attacked — it is among the tile's defenders; a host of the viewer's
+      //  that arrived there is the attacker, its own march's clash, told as its report — hud/notify.mjs; live, pt-notify)
+      if ((tile.defenders ?? []).some(s0 => mine(s0.id)) && !(tile.attackers ?? []).some(s0 => mine(s0.id))) item = { ...item, attacked: true };
       item = { ...item, tile: tile.idx, ...said(() => {
         const where = tileNameOf({ p, q, tile: tile.idx }), who = foe && foe.faction >= 0 && foe.faction < 6 ? factionName(foe.faction) : null;
         return who
@@ -3882,6 +3890,100 @@ export function focusHome(state = FS, map = mapRef) {
   return true;
 }
 
+// ------------------------------------------------------------------ notices outside the page (pt-notify, Q-PT-8 a, Q-PT-10)
+let notifyPrefs = notify.loadNotify(uiStorage);
+const notifier = notify.createNotifier({ env: notify.browserEnv(), prefs: () => notifyPrefs });
+const notifyWatch = notify.createWatch();
+let notifyAt = 0;
+/**
+ * Whether a hidden tab keeps reading (controller poll: a full read at the hidden pace instead of the reveal-only one):
+ * only for a player who turned notices on — with browser notifications, or, where the browser refuses them, with the
+ * count in the tab's title (live, pt-notify: a refused permission left a hidden tab reading nothing, so the count never came).
+ */
+function notifyBackgroundSync() {
+  FS.notifyBackground = notifyPrefs.enabled && notify.NOTIFY_KINDS.some(k => notifyPrefs.on[k]);
+}
+/** The page's names for a place, for the herald's alerts. */
+const notifyNames = {
+  village: (p, q, site) => { const h = (FS.holdings ?? []).find(o => o.p === p && o.q === q && o.site === site); return h ? holdingName(h) : holdingName({ p, q, site }, 0); },
+  province: (p, q) => placeProvinceName(FS, p, q),
+};
+/** Every host of the viewer's villages the page holds: whether it can march now (the to-do rail's "idle" rule), or rests / is on the road. */
+function notifyHostRows() {
+  const bell = FS.nowBell ?? 0, out = [];
+  for (const h of FS.holdings ?? []) for (const env of FS.provinces?.values?.() ?? []) for (const r of hostsIn(env.province, h, bell)) {
+    const standing = r.state === 1 && !r.inTransit && !r.pending, rested = r.stamina >= DEPART_STAMINA && !(r.readyBell > bell);
+    out.push({ id: r.id, p: env.province.p, q: env.province.q, tile: r.tile, village: holdingName(h), ready: standing && rested, busy: !!r.inTransit || (standing && !rested) });
+  }
+  return out;
+}
+/**
+ * Once a second at most: the lines the feed has no source for (the herald's alerts, a host ready again, land upkeep
+ * unpaid — added only when their kind is on, so a player who has not chosen them sees the feed as before), then every
+ * new line of the feed told once by its kind's choice (hud/notify.mjs).
+ */
+function notifyTick() {
+  if (FS.mode !== 'play' || !FS.citizen) return;
+  const now = Date.now();
+  if (now - notifyAt < 1000) return;
+  notifyAt = now;
+  const bell = FS.nowBell ?? null, on = notifyPrefs.on;
+  const add = [];
+  for (const x of notifyWatch.alerts(FS.meAlerts ?? null, notifyNames)) {
+    // (the same event already told by another line — the keep events, the away summary — is not added twice)
+    if (on.attacked && !notifier.toldRecently(x.notice.key, bell) && !(FS.feed ?? []).some(y => notify.noticeOf(y)?.key === x.notice.key)) add.push(x);
+  }
+  const hosts = notifyWatch.hosts(notifyHostRows(), bell);
+  if (on.hostReady) add.push(...hosts);
+  const land = FS.ownLand?.player ? ownLandView(FS.ownLand.player, bell ?? 0) : null;
+  const first = (FS.holdings ?? [])[0] ?? null;
+  const upkeep = notifyWatch.upkeep(land, bell, first);
+  if (on.upkeep) add.push(...upkeep);
+  if (add.length) { FS.feed = feed.pushFeed(FS.feed ?? [], add); invalidate('panel'); }
+  notifier.observe(FS.feed ?? [], { bell, onOpen: x => goToItem(x) });
+}
+/** The settings card's test: one notice by the channel a real one would take now (a system one needs the tab behind). */
+function notifyTest() {
+  const st = globalThis.Notification?.permission ?? 'unsupported';
+  if (st === 'granted' && notifyPrefs.enabled) {
+    try { notify.browserEnv().show(`${L`お知らせのテスト`} — Wylls`, { body: L`ブラウザ通知は届いています。`, tag: 'wylls:test', lang: lang() }, null); } catch (e) { console.error('notify test:', e); }
+  }
+  FS.notice = { ok: true, text: st === 'granted' && notifyPrefs.enabled ? L`テストの通知を送りました。` : L`ブラウザ通知はオンになっていません。タブが後ろにあるあいだは、タブの題名に件数を出します。` };
+  renderFeed();
+}
+/** The "More" drawer's card: the browser's notices per event, and the calendar file of the player's own timers. */
+function notifyMarkup(FS) {
+  // (the browser's permission as it is now, not as it was at the press: a permission changed later in the site settings —
+  //  denied → allowed — showed the old "refused" text while notices already went out; verify-pr262)
+  const st = typeof globalThis.Notification === 'function' ? globalThis.Notification.permission : (FS.notifyPermission ?? 'unsupported');
+  const on = notifyPrefs.enabled, refused = st === 'unsupported' || st === 'denied';
+  const evs = calendar.calendarEvents(FS), blocked = calendar.calendarBlocked(FS);
+  const when = e => { try { return new Date(e.startMs).toLocaleString(lang() === 'en' ? 'en' : 'ja', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+  return html`<section class="vcard notify-card" aria-labelledby="notify-title">${cardHead({ id: 'notify-title', ic: 'bell', title: L`お知らせ（ページの外）` })}
+    <p class="hint" data-notify-state="${st}">${notify.permissionText(st, notifyPrefs.enabled)}</p>
+    <div class="actions">${on
+      ? html`<button type="button" class="btn" data-act="notify-disable">${refused ? L`タブの題名で知らせるのをやめる` : L`ブラウザ通知をオフにする`}</button>`
+      : html`<button type="button" class="btn primary" data-act="notify-enable">${icon('bell')}${refused ? L`タブの題名で知らせる` : L`ブラウザ通知をオンにする`}</button>`}
+      <button type="button" class="btn small" data-act="notify-test">${L`テスト`}</button></div>
+    <fieldset class="notify-kinds"><legend>${L`知らせる出来事`}</legend>
+      ${notify.NOTIFY_KINDS.map(k => html`<label class="choice"><input type="checkbox" data-act="notify-kind" data-k="${k}" ${notifyPrefs.on[k] ? 'checked' : ''}>${notify.KIND_LABEL[k]()}</label>`)}
+    </fieldset>
+    <p class="hint">${L`知らせるのは、このページが読んでいるあなたの出来事だけです。何もこのブラウザの外へは送りません。`}</p>
+    <h4>${L`カレンダー（.ics）`}</h4>
+    <p class="hint">${blocked === 'stopped' ? L`この世界の時計が止まっているため、予定の時刻を出せません。` : blocked ? L`世界の時刻を読み込み中です。` : evs.length ? L`これからの予定 ${fmtNum(evs.length)} 件（軍勢の出陣・進軍の到着・報告・砦）。ファイルをカレンダーのアプリに読み込んでください。時刻は目安です。予定が変わったら、もう一度書き出して読み込むと同じ予定が動きます。` : L`いまカレンダーに入れる予定はありません（出陣を待つ軍勢・進軍・砦の攻防があると出ます）。`}</p>
+    ${evs.length ? html`<ul class="notify-ics">${evs.slice(0, 5).map(e => html`<li>${when(e)} · ${e.title[lang()] ?? e.title.ja}</li>`)}</ul>` : ''}
+    <div class="actions"><button type="button" class="btn" data-act="ics-download" ${evs.length ? '' : 'disabled'}>${L`カレンダーのファイルを保存`}</button>${FS.icsLast ? html`<span class="hint">${L`保存しました（${fmtNum(FS.icsLast.n)} 件）`}</span>` : ''}</div>
+  </section>`;
+}
+{
+  // the tab in front again: the count in its title goes; a switch of language rewrites the title (data-i18n): the count comes back
+  const front = () => { if (notify.browserEnv().focused()) notifier.clearBadge(); };
+  globalThis.document?.addEventListener?.('visibilitychange', front);
+  globalThis.addEventListener?.('focus', front);
+  onLangChange(() => { try { notifier.reapplyBadge(); } catch { /* before the page is built */ } });
+  notifyBackgroundSync();
+}
+
 function goToItem(x) {
   if (!x) return;
   camKeep.touch();   // (a place the player asked for: a kept view is not gone back to)
@@ -3941,6 +4043,12 @@ const LOCAL_RETURN_ACTS = Object.freeze(['local-return-prepare', 'local-return-s
 const LOCAL_CONQUEST_ACTS = Object.freeze(['local-conquest-prepare', 'local-conquest-send', 'local-conquest-reconcile', 'local-conquest-orders']);
 const LOCAL_REVEAL_ACTS = Object.freeze(['local-reveal-check', 'local-reveal-send', 'local-reveal-reconcile', 'local-reveal-clear']);
 export const HUD_ACTIONS = {
+  // (pt-notify) notices outside the page: the permission is asked only here, from the player's press
+  'notify-enable': async () => { const st = await notify.askPermission(); notifyPrefs = notify.saveNotify(uiStorage, { enabled: true }); FS.notifyPermission = st; notifyBackgroundSync(); invalidate('panel'); },
+  'notify-disable': () => { notifyPrefs = notify.saveNotify(uiStorage, { enabled: false }); notifyBackgroundSync(); invalidate('panel'); },
+  'notify-kind': d => { if (!notify.NOTIFY_KINDS.includes(d.k)) return; notifyPrefs = notify.saveNotify(uiStorage, { on: { [d.k]: !notifyPrefs.on[d.k] } }); notifyBackgroundSync(); invalidate('panel'); },
+  'notify-test': () => { notifyTest(); },
+  'ics-download': () => { const now = Date.now(), evs = calendar.calendarEvents(FS, { nowMs: now }); FS.icsLast = { at: now, n: evs.length }; calendar.downloadIcs(calendar.icsText(evs, { nowMs: now }), calendar.icsFileName(now)); invalidate('panel'); },
   // A read only. No handOrder, ACTIONS, SENT classification or accepted-order effects.
   'expedition-inspect': () => inspectOriginalExpedition(),
   'expedition-prepare': () => prepareOriginalExpedition(),
