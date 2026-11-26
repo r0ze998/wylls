@@ -230,11 +230,24 @@ struct Open {
     accounts: Vec<(Key, Option<Account>, Option<Account>)>,
     /// Re-taken at the slot's decided Clock.
     fixed: bool,
+    /// A later transaction named one of `accounts` (read or wrote it)
+    /// while the slot's Clock was undecided: it ran on the state taken at
+    /// `used`, so re-taking the other run's state would leave its judgement
+    /// resting on a state that is no longer the derived one (verify-pr266).
+    touched: bool,
 }
+
+/// Q-VCF-2 (owner question, recommended "no" = WARN): when `true`, every
+/// transaction whose stamped Clock nothing the chain recorded decides is
+/// UNVERIFIABLE ([`OPEN_CLOCK`]) instead of being counted in the
+/// `ClockFromEffects` WARN. Flip this one line if r0ze answers Q-VCF-2
+/// with "stricter".
+pub const UNDECIDED_CLOCK_UNVERIFIABLE: bool = false;
 
 /// The Clock of `slot` is `c` ([`ClockRule`]): every open transaction of the
 /// slot taken at the other Clock gets the other run's states, as long as no
-/// later transaction wrote them since (else it stays unfixed, reported).
+/// later transaction read or wrote them since (else it stays unfixed,
+/// reported UNVERIFIABLE).
 fn decide(
     clocks: &mut BTreeMap<u64, i64>,
     open: &mut [Open],
@@ -248,6 +261,9 @@ fn decide(
         .iter_mut()
         .filter(|o| o.slot == slot && o.used != c && !o.fixed)
     {
+        if o.touched {
+            continue;
+        }
         if o.accounts
             .iter()
             .any(|(k, used, _)| state.get(k) != Some(used))
@@ -515,6 +531,17 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
             }
         };
         let keys: Vec<Key> = parsed.keys.iter().map(|k| k.to_bytes()).collect();
+        // [`ClockRule`] (verify-pr266): a transaction that names an account
+        // an open transaction of an undecided slot left runs on the state
+        // taken at that Clock, which can then no longer be re-taken.
+        for o in open
+            .iter_mut()
+            .filter(|o| !o.fixed && !clocks.contains_key(&o.slot))
+        {
+            if o.accounts.iter().any(|(k, _, _)| keys.contains(k)) {
+                o.touched = true;
+            }
+        }
         let writable: Vec<bool> = (0..keys.len())
             .map(|j| parsed.is_writable_index(j))
             .collect();
@@ -748,7 +775,8 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
                         }
                     })
                 };
-                if alt.is_empty() && runs[a].1.err == runs[b].1.err {
+                // (a failed transaction leaves no state: nothing to decide)
+                if !ok || (alt.is_empty() && runs[a].1.err == runs[b].1.err) {
                     a
                 } else if !last.is_empty() && shows(a) != shows(b) {
                     let k = if shows(a) { a } else { b };
@@ -769,6 +797,7 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
                         other: runs[b].0,
                         accounts: alt,
                         fixed: false,
+                        touched: false,
                     });
                     a
                 }
@@ -843,7 +872,21 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
             // Never decided: nothing the chain recorded shows the Clock it
             // stamped (a later write replaced it, and every later
             // transaction reproduced from the state taken at `used`).
-            None => undecided += 1,
+            None => {
+                undecided += 1;
+                if UNDECIDED_CLOCK_UNVERIFIABLE {
+                    out.findings.push(finding(
+                        Severity::Unverifiable,
+                        MISSING_DATA,
+                        Some(o.tx),
+                        input,
+                        format!(
+                            "{OPEN_CLOCK}: both {} and {} reproduce it and nothing the chain recorded shows which one it stamped (Q-VCF-2)",
+                            o.used, o.other
+                        ),
+                    ));
+                }
+            }
             Some(c) if *c == o.used => {}
             Some(c) => out.findings.push(finding(
                 Severity::Unverifiable,
@@ -851,15 +894,15 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
                 Some(o.tx),
                 input,
                 format!(
-                    "{OPEN_CLOCK}: another transaction of slot {} decides its Clock to be {c}, but the state it left (taken at {}) was written again before that, so it cannot be re-taken",
+                    "{OPEN_CLOCK}: another transaction of slot {} decides its Clock to be {c}, but the state it left (taken at {}) was read or written again before that, so it cannot be re-taken",
                     o.slot, o.used
                 ),
             )),
         }
     }
-    // (only when a slot moved: where every Clock is blockTime, as a local
-    // node records it, an undecided stamp taken at blockTime is the chain's)
-    if !moved.is_empty() {
+    // (verify-pr266: also when no slot moved: an undecided stamp taken at
+    // blockTime is not proven by blockTime either, so it is always counted)
+    if !moved.is_empty() || undecided > 0 {
         let txs: usize = moved.values().map(|m| m.2).sum();
         let first = moved
             .iter()
@@ -977,6 +1020,7 @@ mod clock_rule {
             other: 99,
             accounts: vec![(k, acc(0x10), acc(0x0f))],
             fixed: false,
+            touched: false,
         }];
         let mut clocks = BTreeMap::new();
         decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 99);
@@ -998,6 +1042,7 @@ mod clock_rule {
             other: 99,
             accounts: vec![(k, acc(0x10), acc(0x0f))],
             fixed: false,
+            touched: false,
         }];
         let mut clocks = BTreeMap::new();
         decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 99);
@@ -1006,6 +1051,33 @@ mod clock_rule {
         // another slot's decision never touches it
         decide(&mut clocks, &mut open, &mut state, &mut inp, 6, 99);
         assert!(!open[0].fixed);
+    }
+
+    #[test]
+    fn a_state_read_since_is_not_re_taken() {
+        // verify-pr266: a later transaction of the slot named the account
+        // (read it, state unchanged) while the Clock was open: it ran on
+        // the state taken at `used`, so the other run's state is not
+        // re-taken (the open transaction is reported UNVERIFIABLE).
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        inp[0].post = vec![(Address::new_from_array(k), acc(0x10))];
+        let mut state = BTreeMap::from([(k, acc(0x10))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            other: 99,
+            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            fixed: false,
+            touched: true,
+        }];
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 99);
+        assert_eq!(clocks.get(&5), Some(&99));
+        assert!(!open[0].fixed && open[0].used == 100);
+        assert_eq!(state.get(&k), Some(&acc(0x10)));
+        assert_eq!(inp[0].post[0].1, acc(0x10));
     }
 
     #[test]

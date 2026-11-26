@@ -1897,8 +1897,13 @@ fn vg_replays_the_territory_world_from_genesis_without_a_fail() {
     let rep = verify_core::verify(&inp);
     let fails: Vec<_> = rep.findings.iter().filter(|f| f.fail()).collect();
     assert!(fails.is_empty(), "{:#?}", show(&rep.findings));
+    // (verify-pr266: VG's only finding may be the WARN counting the stamps
+    // nothing the chain recorded decides; no slot moves)
     assert!(
-        !rep.findings.iter().any(|f| f.check == "VG"),
+        !rep.findings.iter().any(|f| f.check == "VG"
+            && !(f.severity == Severity::Warn
+                && f.code == "ClockFromEffects"
+                && f.detail.contains(" 0 transaction(s) in 0 slot(s)"))),
         "{:#?}",
         show(&rep.findings)
     );

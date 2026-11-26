@@ -90,10 +90,23 @@ fn the_fixture_is_clock_sensitive() {
 fn a_block_time_one_second_above_the_clock_passes_by_the_programs_effects() {
     let honest = verify_core::verify(&rpc_shaped());
     assert_eq!(honest.verdict, Verdict::Pass, "{:#?}", show(&honest));
-    assert!(
-        !honest.findings.iter().any(|f| f.code == "ClockFromEffects"),
-        "blockTime is the Clock: nothing moves"
-    );
+    // blockTime is the Clock: nothing moves. A stamp nothing the chain
+    // recorded decides is still counted (verify-pr266: never passed
+    // silently as proven, even when no slot moved).
+    for f in honest
+        .findings
+        .iter()
+        .filter(|f| f.code == "ClockFromEffects")
+    {
+        assert_eq!(f.severity, Severity::Warn);
+        assert!(
+            f.detail
+                .contains(" 0 transaction(s) in 0 slot(s) re-executed")
+                && !f.detail.contains("; 0 transaction(s) stamped"),
+            "{}",
+            f.detail
+        );
+    }
     let r = verify_core::verify(&shifted(1));
     assert_eq!(r.verdict, Verdict::Pass, "{:#?}", show(&r));
     let w: Vec<_> = r
@@ -140,6 +153,22 @@ fn a_block_time_below_the_clock_is_not_a_candidate() {
     // other candidate. A Clock above blockTime is never tried.
     let r = verify_core::verify(&shifted(-1));
     assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+    // verify-pr266: VG itself refuses it (a Clock-sensitive transaction no
+    // candidate reproduces) and moves no slot to blockTime + 1.
+    assert!(
+        r.findings
+            .iter()
+            .any(|f| f.fail() && f.check == "VG" && f.code == "ReExecMismatch"),
+        "{:#?}",
+        show(&r)
+    );
+    let d = verify_core::genesis::derive(&shifted(-1));
+    let derived = d.input.expect("VG ran");
+    let rec = shifted(-1);
+    assert!(
+        (0..rec.txs.len()).all(|i| derived.txs[i].block_time <= rec.txs[i].block_time),
+        "a Clock above blockTime was taken"
+    );
 }
 
 #[test]
@@ -217,4 +246,33 @@ fn a_forged_final_state_still_fails_with_a_moved_clock() {
     a.data[200] ^= 0x5a;
     let r = verify_core::verify(&inp);
     assert_eq!(r.verdict, Verdict::Fail, "{k:?}: {:#?}", show(&r));
+}
+
+#[test]
+fn an_undecided_stamp_is_counted_even_when_no_slot_moved() {
+    // verify-pr266: the honest archive (blockTime IS the Clock everywhere)
+    // still has stamps nothing the chain recorded decides; each is counted
+    // in the WARN, never passed silently as proven.
+    let d = verify_core::genesis::derive(&rpc_shaped());
+    let open = d
+        .findings
+        .iter()
+        .find(|f| f.code == "ClockFromEffects")
+        .map(|f| f.detail.clone());
+    let derived = d.input.expect("VG ran");
+    let honest = rpc_shaped();
+    assert!(
+        (0..honest.txs.len()).all(|i| derived.txs[i].block_time == honest.txs[i].block_time),
+        "nothing moves"
+    );
+    // (the fixture stamps undecidable Clocks: the WARN must be there)
+    let w = open.expect("the WARN counts the undecided stamps");
+    assert!(w.contains(" 0 transaction(s) in 0 slot(s)"), "{w}");
+    let n: usize = w
+        .split("; ")
+        .last()
+        .and_then(|s| s.split(' ').next())
+        .and_then(|s| s.parse().ok())
+        .expect("a count");
+    assert!(n > 0, "{w}");
 }
