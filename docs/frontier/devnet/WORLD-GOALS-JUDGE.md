@@ -36,7 +36,7 @@ are the neutral keeps and Free Cities of the wide land, captured and held for 24
 | Part | Rule | Open question |
 |---|---|---|
 | Flags | every keep of an opened wide Province (ring ≥ 129; all start unowned in world 3), and every Free City site (site state 5) the judge has seen | Q-PTWG-1 (which ones count) |
-| Hold | a keep held by nation n since `since_bell` s counts once its Province is resolved through s + 144 (`resolved_next ≥ s + 144`) | — |
+| Hold | a keep held by nation n since `since_bell` s counts once its Province is resolved through s + 144 (`resolved_next ≥ s + 144`). A Province nobody acts in may not be resolved for a long time (seen in the local world-3 replica: wide `resolved_next` 4–7 while the chain was past bell 28), so its hold waits | Q-PTWG-7 |
 | Lost before 24 h | a capture by another nation changes holder, `since_bell` and `gen`: the first holder gets nothing | — |
 | A hold the judge did not see end | if the next capture names the old holder (`last_taken_from`, `gen` + 1), the old holder's hold is [s, s₂ − 1) and counts if long enough | — |
 | Achievement | the first nation to hold a flag 144 turns takes that flag (once per flag) | Q-PTWG-2 |
@@ -59,7 +59,8 @@ are the neutral keeps and Free Cities of the wide land, captured and held for 24
    "Nation & territory" → "World goals" in EN and JA.
 
 Cost: one read every 5 minutes of the herald's wide pages on loopback (≈ 6.5 KB per captured wide Province, at most
-256 per page). The archive grows by one line per read (≈ 150 B per wide Province with a keep).
+256 per page). The archive grows by one line per read: measured ≈ 30 KB per read for 108 wide Provinces (≈ 280 B
+each), so ≈ 8.5 MB a day at one read per 5 minutes with that many Provinces.
 
 Rollback: stop the judge, restart the gateway without `--world-goals-file` (the route answers 404; the page shows the
 planned card), or roll the page back. The archive stays; a restarted judge replays it and goes on.
