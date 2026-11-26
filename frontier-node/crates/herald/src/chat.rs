@@ -395,12 +395,32 @@ pub enum Event {
 
 #[derive(Default)]
 struct Store {
+    /// Above every message id ever given (kept in the file as `nextId`, so an older herald reading it never reuses one).
     next_id: u64,
+    /// Per nation, the next message number: a message of nation `n` gets the id `next_seq[n] × NATIONS + n`
+    /// ([`Store::take_id`]). Ids were one counter shared by every nation, so a member saw in the gaps between its own
+    /// nation's ids how many messages the other nations had posted, and when (fog-leak-audit): "a reader learns
+    /// nothing of other nations".
+    next_seq: Vec<u64>,
     next_report: u64,
     nations: Vec<VecDeque<Msg>>,
     reports: Vec<Report>,
     /// (wallet, nonce) → turn, for replay refusal within the turn window (pruned).
     nonces: HashMap<([u8; 32], String), u32>,
+}
+
+impl Store {
+    /// The next id of a message of `nation`: unique over every nation (`id % NATIONS` is the nation), growing within
+    /// the nation (a reader's `after` cursor), and moved by nothing another nation does.
+    fn take_id(&mut self, nation: u8) -> u64 {
+        let n = nation as usize;
+        let id = self.next_seq[n]
+            .saturating_mul(u64::from(NATIONS))
+            .saturating_add(u64::from(nation));
+        self.next_seq[n] = self.next_seq[n].saturating_add(1);
+        self.next_id = self.next_id.max(id.saturating_add(1));
+        id
+    }
 }
 
 type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
@@ -452,6 +472,7 @@ impl Chat {
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let mut st = Store {
             nations: (0..NATIONS).map(|_| VecDeque::new()).collect(),
+            next_seq: vec![0; NATIONS as usize],
             ..Default::default()
         };
         let read = |name: &str| -> Result<Option<Value>, String> {
@@ -483,6 +504,21 @@ impl Chat {
             }
             for q in st.nations.iter_mut() {
                 q.make_contiguous().sort_by_key(|m| m.id);
+            }
+            let seqs: Option<Vec<u64>> = v["nextSeq"].as_array().and_then(|a| {
+                a.iter()
+                    .map(|x| x.as_str().and_then(|s| s.parse().ok()))
+                    .collect::<Option<Vec<u64>>>()
+                    .filter(|a| a.len() == NATIONS as usize)
+            });
+            let nn = u64::from(NATIONS);
+            for (n, q) in st.nations.iter().enumerate() {
+                st.next_seq[n] = match &seqs {
+                    // (each nation's own numbers, and past every id of its own messages kept)
+                    Some(a) => q.iter().map(|m| m.id / nn + 1).fold(a[n], u64::max),
+                    // (a file from before per-nation ids: every new id above every id given so far, once)
+                    None => st.next_id.div_ceil(nn),
+                };
             }
         }
         if let Some(v) = read("reports.json")? {
@@ -523,7 +559,8 @@ impl Chat {
 
     fn save(&self, st: &Store) {
         let msgs: Vec<Value> = st.nations.iter().flatten().map(Msg::json).collect();
-        let m = json!({"v": 1, "nextId": st.next_id.to_string(), "messages": msgs});
+        let m = json!({"v": 1, "nextId": st.next_id.to_string(),
+            "nextSeq": st.next_seq.iter().map(u64::to_string).collect::<Vec<_>>(), "messages": msgs});
         let r = json!({"v": 1, "nextId": st.next_report.to_string(),
             "reports": st.reports.iter().map(Report::json).collect::<Vec<_>>()});
         for (name, v) in [("messages.json", m), ("reports.json", r)] {
@@ -852,8 +889,9 @@ pub fn post_checked(app: &Shared, chat: &Chat, v: &Value) -> Result<Msg, Refusal
     if d >= PER_DAY {
         return Err((StatusCode::TOO_MANY_REQUESTS, "DayLimit"));
     }
+    let id = st.take_id(nation);
     let m = Msg {
-        id: st.next_id,
+        id,
         nation,
         wallet,
         turn,
@@ -863,7 +901,6 @@ pub fn post_checked(app: &Shared, chat: &Chat, v: &Value) -> Result<Msg, Refusal
         sig,
         at_ms: now,
     };
-    st.next_id += 1;
     st.nonces.insert((wallet, nonce.to_string()), turn);
     let q = &mut st.nations[nation as usize];
     q.push_back(m.clone());

@@ -18,7 +18,8 @@ import { DEPART_STAMINA } from '../fmarch.mjs';
 import { keepFromProvince } from '../fconquest.mjs';
 import { ownLandView } from '../flocalplay-territory.mjs';
 import { holdingName } from '../people/ui.mjs';
-import { provinceName } from './place.mjs';
+import { noticeKeep } from './place.mjs';
+import { destPlace, marchArrive } from './feed.mjs';
 
 /** A march's report is read about this long (chain seconds) after its arrival turn ends (anchor + window + margin, clock.mjs). */
 export const REPORT_LAG_SECS = 90;
@@ -42,7 +43,7 @@ export function calendarBlocked(FS) {
   return null;
 }
 
-const marchKey = m => String(m.entry?.host ?? m.transit?.hostId ?? '');
+const marchKey = m => String(m.entry?.host ?? m.transit?.hostId ?? m.expedition?.host ?? '');
 
 /**
  * The viewer's coming timers: `[{uid, kind, startMs, bell, title: {ja, en}, desc: {ja, en}}]`, soonest first, only those
@@ -72,12 +73,14 @@ export function calendarEvents(FS, { nowMs = Date.now() } = {}) {
     }
   }
   // a march of the viewer's: its arrival turn, and its report after that turn is resolved
+  // (fix-loop24, BREAK-2: a local march's row carries its destination from the departure on — controller.mjs
+  //  sentMarchDest —, a kept expedition's its own; the place is said as the notifications say it — hud/feed.mjs destPlace)
   for (const m of FS.marches ?? []) {
-    const arrive = m.entry?.arriveBell ?? m.transit?.arriveBell;
-    if (!Number.isInteger(arrive) || !m.dest || m.facts?.pipeline === 'resolved') continue;
+    const arrive = marchArrive(m), dest = m.dest ?? m.expedition?.dest ?? null;
+    if (!Number.isInteger(arrive) || !dest || m.facts?.pipeline === 'resolved' || ['resolved', 'settled'].includes(m.expedition?.stage)) continue;
     const k = marchKey(m);
     if (!k) continue;
-    const to = () => provinceName(FS, m.dest.p, m.dest.q);
+    const to = () => destPlace(FS, dest);
     if (arrive > bell) add('marchArrival', k, arrive, bellStart(g, arrive), () => L`Wylls：進軍が${to()}に着きます`, () => L`あなたの進軍が、ターン ${fmtNum(arrive)} に${to()}へ着きます。${about()}`);
     add('reportDue', k, arrive, bellEnd(g, arrive) + REPORT_LAG_SECS, () => L`Wylls：${to()}への進軍の報告`, () => L`ターン ${fmtNum(arrive)} に着く進軍の結果と戦いの報告が、このころ届きます。${about()}`);
   }
@@ -90,8 +93,8 @@ export function calendarEvents(FS, { nowMs = Date.now() } = {}) {
       const left = Number(k.requiredBells) - Number(k.progress);
       if (!(left > 0)) continue;
       const done = k.asOfBell + left;
-      if (k.contender === faction) add('keepHold', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${provinceName(FS, k.p, k.q)}の砦を取り終えます`, () => L`あなたの国が攻めている${provinceName(FS, k.p, k.q)}の砦は、守りきられなければターン ${fmtNum(done)} の終わりに取れます（早くてこの時刻）。${about()}`);
-      else if (k.holder === faction) add('keepFall', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${provinceName(FS, k.p, k.q)}の砦が落ちるかもしれません`, () => L`${factionName(k.contender)}が攻めている${provinceName(FS, k.p, k.q)}の砦は、守らなければターン ${fmtNum(done)} の終わりに奪われます（早くてこの時刻）。${about()}`);
+      if (k.contender === faction) add('keepHold', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${noticeKeep(k.p, k.q)}を取り終えます`, () => L`あなたの国が攻めている${noticeKeep(k.p, k.q)}は、守りきられなければターン ${fmtNum(done)} の終わりに取れます（早くてこの時刻）。${about()}`);
+      else if (k.holder === faction) add('keepFall', `${k.p},${k.q}`, done, bellEnd(g, done), () => L`Wylls：${noticeKeep(k.p, k.q)}が落ちるかもしれません`, () => L`${factionName(k.contender)}が攻めている${noticeKeep(k.p, k.q)}は、守らなければターン ${fmtNum(done)} の終わりに奪われます（早くてこの時刻）。${about()}`);
     }
   }
   // land upkeep unpaid: when tiles start to be let go
