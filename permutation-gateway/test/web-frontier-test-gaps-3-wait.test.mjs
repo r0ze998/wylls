@@ -166,16 +166,18 @@ test('W4 campChoice never picks a camp that sits out; every nearer camp that sit
     const hidden = new Set([...provinces.keys()].filter(() => r() < 0.15));
     const seen = (p, q) => !hidden.has(`${p},${q}`);
     const got = FB.campChoice(FS, host, { seen, rough: () => r() < 0.5 });
-    const fights = [...provinces.values()].map(e => e.province).filter(pr => seen(pr.p, pr.q) && FB.campFights(pr));
+    // the rule's own count, not the page's (clash_model.rs v2_garrison_state: a holding or a Free City; MAX_GARRISONS 12)
+    const garrisons = pr => pr.siteMirror.slice(0, pr.siteCount).filter(s => s.state === 1 || s.state === 5).length;
+    const ruleFights = pr => pr.camp.state === 1 && garrisons(pr) < 12;
+    const fights = [...provinces.values()].map(e => e.province).filter(pr => seen(pr.p, pr.q) && ruleFights(pr));
     if (!got) { assert.equal(fights.length, 0, 'no pick only when no camp in sight fights'); none++; continue; }
     const pr = provinces.get(`${got.camp.p},${got.camp.q}`).province;
-    assert.ok(FB.campFights(pr), 'the pick fights');
+    assert.ok(ruleFights(pr), `the pick fights (${garrisons(pr)} garrisons by the rule)`);
     assert.ok(seen(pr.p, pr.q), 'the pick is in sight');
-    assert.ok(FB.garrisonsIn(pr) < 12 && pr.camp.state === 1);
     const d = x => (Math.abs(x.p) + Math.abs(x.q) + Math.abs(x.p + x.q)) / 2;
-    const want = [...provinces.values()].map(e => e.province).filter(x => seen(x.p, x.q) && x.camp.state === 1 && !FB.campFights(x) && d(x) < d(pr));
+    const want = [...provinces.values()].map(e => e.province).filter(x => seen(x.p, x.q) && x.camp.state === 1 && !ruleFights(x) && d(x) < d(pr));
     assert.deepEqual(got.passed.map(x => `${x.p},${x.q}`).sort(), want.map(x => `${x.p},${x.q}`).sort(), 'the nearer camps that sit out');
-    for (const x of got.passed) assert.equal(x.garrisons, 12);
+    for (const x of got.passed) assert.equal(x.garrisons, garrisons(provinces.get(`${x.p},${x.q}`).province));
     picks++; passedSeen += got.passed.length;
   }
   assert.ok(picks > 1500 && passedSeen > 200 && none > 20, `exercised: ${picks} picks, ${passedSeen} camps passed, ${none} none`);
