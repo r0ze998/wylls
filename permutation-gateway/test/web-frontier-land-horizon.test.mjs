@@ -333,3 +333,9 @@ test('verify-pr272: the English horizon texts keep the play screen\'s banned wor
   assert.ok(block.length > 100);
   assert.doesNotMatch(block, BANNED_EN);
 });
+
+test('verify-pr272: the projection reports the store now (not where it stopped stepping)', () => {
+  const h = projectHorizon({ stockMilli: 283_000, productionMilliPerHour: START_FOOD, upkeepMilliPerHour: 41 * ONE_TILE, paidTo: 100_000, nowTs: 100_000, nowBell: 10, tiles: 41, hist: [41] });
+  assert.equal(h.stockMilli, 283_000);
+  assert.equal(h.beyondTurns, MAX_STEPS);
+});

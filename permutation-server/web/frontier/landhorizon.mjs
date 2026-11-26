@@ -129,6 +129,7 @@ export function projectHorizon({
   const bell0 = toInt(nowBell);
   const cap = Math.max(0, toInt(capMilli, 2_000 * 1000));
   let stock = Math.max(0, toInt(stockMilli));
+  const stock0 = stock; // (verify-pr272: the snapshot reports the store now, not where the projection stopped)
   let frac = 0;
   let paid = paidTo == null ? now : toInt(paidTo);
   let rem = Math.max(0, toInt(remainder));
@@ -152,7 +153,7 @@ export function projectHorizon({
     productionMilliPerHour: production,
     upkeepMilliPerHour: upkeep,
     netMilliPerHour: net,
-    stockMilli: stock,
+    stockMilli: stock0,
     distance,
     maxSustainableTiles: maxAtDistance,
     headroom,
