@@ -130,7 +130,7 @@ test('Q-EUA2-4: a game-time length says its real length on a faster clock only; 
     ST.setTermsPace(() => null);
     assert.equal(ST.realTail(533), '', 'pace not known yet: nothing (fix-loop8 LP8-10)');
   } finally { ST.setTermsPace(() => 1); setLang('ja'); }
-  for (const [f, needle] of [['frontier/map/waitview.mjs', '${realTail(wait.nextTurnAt - wait.now)}'], ['frontier/screens/holding.mjs', '${realTail(f.shieldLeft)}'], ['frontier/screens/shell.mjs', 'html`${Lh`あと${about}`}${realTail(left)}`']]) assert.ok(web(f).includes(needle), `${f}: ${needle}`);
+  for (const [f, needle] of [['frontier/map/waitview.mjs', '${realTail(wait.nextTurnAt - wait.now)}'], ['frontier/screens/holding.mjs', '${realTail(f.shieldLeft)}'], ['frontier/screens/shell.mjs', 'html`${Lh`あと${d.about}`}${d.real}`'], ['frontier/screens/shell.mjs', 'real: left > 0 ? realTail(left) : \'\'']]) assert.ok(web(f).includes(needle), `${f}: ${needle}`);
 });
 
 // ------------------------------------------------------------------ wording (Q-EUA2-1, -2, -5, -6, -7)

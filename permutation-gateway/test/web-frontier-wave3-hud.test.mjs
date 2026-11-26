@@ -171,7 +171,8 @@ test('words: a chip explains itself, a due time says what it is', async () => {
   // a due time: how long from now, then the clock; never a bare 03:30
   assert.match(text(dueHtml(3600 * 5, 3600 * 1 + 120)), /^あと約 3時間58分（ \S+ ごろ）$/);
   assert.match(text(dueHtml(600, 0)), /^あと約 10 分（ \S+ ごろ）$/);
-  assert.match(text(dueHtml(600, 900)), /^\S+ ごろ$/);
+  // (fix-loop22, LP22-3: a time already past is 「まもなく」 — it printed the chain's clock as a wall time)
+  assert.equal(text(dueHtml(600, 900)), 'まもなく');
   setLang('en');
   try {
     assert.match(text(dueHtml(3600 * 5, 3600 * 1 + 120)), /^in about 3 h 58 min \(around \S+ \)$/);

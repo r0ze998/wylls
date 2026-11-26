@@ -9,13 +9,15 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { unitCount } from '../fi18n.mjs';
 import { UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
-import { bellStart } from '../clock.mjs';
+import { bellStart, bellAt } from '../clock.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { icon } from './icons.mjs';
 import { hostWaits, waitOf } from './keephand.mjs';
-import { ownReportDue, earliestReportAt } from './firstbattle.mjs';
+import { ownReportDue, earliestReportAt, reportEtaAt } from './firstbattle.mjs';
+import { musterBellOf } from './firststeps.mjs';
 import { dueHtml } from '../screens/shell.mjs';
 import { hostRows } from '../screens/host.mjs';
+import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
 import { provinceName } from './place.mjs';
 import { queueSlots } from './rulebook.mjs';
 import { FLAG } from '../onboarding.mjs';
@@ -55,9 +57,24 @@ export function waitModel(FS, { offer = null } = {}) {
   let waits = [];
   try { waits = hostWaits(FS); } catch { waits = []; }
   for (const w of waits) {
-    if (!['forming', 'resting', 'stamina'].includes(w.why) || !Number.isInteger(w.turn)) continue;
-    timers.push({ id: `host:${w.id}`, kind: w.why === 'forming' ? 'hostForms' : 'hostMarch', at: at(FS, w.turn), turn: w.turn, unit: w.unit, troops: w.troops, stamina: w.stamina ?? null });
     if (timers.filter(x => x.id.startsWith('host:')).length >= 2) break;
+    // (fix-loop22, LP22-3/LP22-8: a host still forming — `forming`, or `settling` while its row is still state 2 — stands
+    //  when its MUSTER turn is resolved (the turn's end, the seals' window, the seed margin, the keeper: firstbattle.mjs
+    //  reportEtaAt, the clock the own report's ETA uses and which matched to the minute), not at the start of the next
+    //  turn: a kept 1× world said "turn 1: in about 9 min" and the host stood on turn 2, 20.5 min after Form)
+    const forming = formingAt(FS, w, rows);
+    // (verify-pr267: a host pushed home by a keep or a camp comes back as state 2 too, with the stamina the march left it —
+    //  54 of the 74 a departure needs, seen live in --demo —: it stands on that turn but may march only once the stamina is
+    //  back, +1 a resolved turn (host.rs Stamina::at). The panel said 「整列し、ターン 22 から進軍できます」 of a host that
+    //  could depart from turn 40; it says the stamina wait, as it does from the turn the host stands)
+    const back = forming ? standsShort(FS, rows.find(x => String(x.id) === String(w.id)), forming.turn) : null;
+    if (back) { timers.push({ id: `host:${w.id}`, kind: 'hostMarch', at: at(FS, back.turn), turn: back.turn, unit: w.unit, troops: w.troops, stamina: back.stamina }); continue; }
+    if (forming) { timers.push({ id: `host:${w.id}`, kind: 'hostForms', at: forming.at, turn: forming.turn, unit: w.unit, troops: w.troops, stamina: null }); continue; }
+    if (!['resting', 'stamina'].includes(w.why) || !Number.isInteger(w.turn)) continue;
+    // (resting / short of stamina: the host may depart in turn `w.turn` — stamina is +1 per resolved turn (host.rs
+    //  Stamina::at) and a departure in turn b reads it at b —, so from that turn's start; said on the wall clock at the
+    //  world's real turn length by screens/shell.mjs dueHtml)
+    timers.push({ id: `host:${w.id}`, kind: 'hostMarch', at: at(FS, w.turn), turn: w.turn, unit: w.unit, troops: w.troops, stamina: w.stamina ?? null });
   }
   if (ready) timers.push({ id: `host:${ready.id}`, kind: 'hostReady', at: null, unit: ready.unit, troops: ready.troops });
   // 3 land upkeep (the viewer's own land record, territory worlds)
@@ -88,6 +105,33 @@ export function waitModel(FS, { offer = null } = {}) {
   if (busy < queueSlots(h.tier)) suggestions.push({ id: 'build', act: 'cg-go', data: { pop: 'build' } });
   const timed = timers.filter(t => Number.isFinite(t.at)).sort((a, b) => a.at - b.at);
   return { timers, suggestions: suggestions.slice(0, WAIT_SUGGESTIONS), soonest: timed[0] ?? null };
+}
+
+/**
+ * (fix-loop22) When a forming host of wait `w` stands: `{at, turn}` — `at` the chain time its muster turn is expected to be
+ * resolved (firstbattle.mjs reportEtaAt of hud/firststeps.mjs musterBellOf), `turn` the turn that runs then — or null for a
+ * wait that is no forming host's. `rows`: screens/host.mjs hostRows' combat rows.
+ */
+export function formingAt(FS, w, rows = []) {
+  if (!w || !(w.why === 'forming' || w.why === 'settling') || !FS?.clock) return null;
+  const r = (rows ?? []).find(x => String(x.id) === String(w.id) && x.state === 2) ?? null;
+  const b = musterBellOf(r);
+  if (b === null) return null;
+  const t = reportEtaAt(FS.clock, b);
+  if (t === null) return null;
+  return { at: t, turn: bellAt(Number(FS.clock.genesisTs), t) ?? b + 1 };
+}
+
+/**
+ * (verify-pr267) A state-2 host `r` that stands on turn `turn` with less stamina than a departure takes: `{turn, stamina}` —
+ * the turn its stamina reaches DEPART_STAMINA (+1 a turn from its stamina now, keephand.mjs waitOf's own count) and its
+ * stamina now — or null (a newly formed host, at full stamina, or no row).
+ */
+export function standsShort(FS, r, turn) {
+  const bell = FS?.nowBell, s = Number(r?.stamina);
+  if (!r || !Number.isInteger(bell) || !Number.isFinite(s) || !Number.isInteger(turn)) return null;
+  if (Math.min(RULES.STAMINA_CAP, s + Math.max(0, turn - bell)) >= DEPART_STAMINA) return null;
+  return { turn: Math.max(turn, bell + DEPART_STAMINA - s, Number.isInteger(r.readyBell) ? r.readyBell : 0), stamina: s };
 }
 
 const who = t => unitCount(UNIT_ORDER[t.unit], Math.floor(Number(t.troops) || 0));

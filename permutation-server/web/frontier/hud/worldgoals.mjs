@@ -255,7 +255,10 @@ export function devnetGoalsPage(FS) {
  * taken yet. Flip to true once the devnet program can capture them.
  */
 export const DEVNET_FREE_CITIES_TAKEABLE = false;
-const freeCityNote = () => (DEVNET_FREE_CITIES_TAKEABLE ? '' : html`<p class="muted small goal-free-city-note" data-free-cities="not-takeable">${L`自由都市は、この世界ではまだ奪えません`}</p>`);
+// (fix-loop22, LP22-5: the goal line named "a neutral keep or a Free City" and the next line said Free Cities cannot be
+//  taken — one card that contradicted itself. While they cannot be taken, the goal line names the neutral keeps only and
+//  the Free Cities stand apart, muted, as not possible YET in this world: the same one constant decides both lines)
+const freeCityNote = () => (DEVNET_FREE_CITIES_TAKEABLE ? '' : html`<p class="muted small goal-free-city-note" data-free-cities="not-takeable">${L`自由都市：この世界ではまだできません（奪えるようになったら、旗の砦に数えます）`}</p>`);
 
 export function plannedOf(FS) {
   if (!devnetGoalsPage(FS)) return null;
@@ -275,7 +278,7 @@ export function plannedMarkup(FS, p = plannedOf(FS)) {
   if (!p) return '';
   return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-goals="planned">${goalsHead(L`予定 — まだ判定していません`)}
     <ul class="goal-kinds"><li data-goal="flag-keeps" class="planned">${GOAL_NAMES()['flag-keeps']} · <small class="muted">${L`予定`}</small></li></ul>
-    <p class="goal-rule">${L`広い土地の中立の砦か自由都市を奪い、${turnsText(p.holdBells)}続けて持つこと`}</p>
+    <p class="goal-rule">${DEVNET_FREE_CITIES_TAKEABLE ? L`広い土地の中立の砦か自由都市を奪い、${turnsText(p.holdBells)}続けて持つこと` : L`広い土地の中立の砦を奪い、${turnsText(p.holdBells)}続けて持つこと`}</p>
     ${freeCityNote()}
     <p class="muted small">${L`判定はまだ始まっていません。始まったら、チェーンに残る砦の記録（いつから持っているか）から判定します`}</p>
     <p class="muted small">${L`ほかの目標（世界初の技術・大建造物・未踏の印）は、この世界にはまだありません`}</p>
@@ -334,11 +337,13 @@ export function wideMarkup(FS, g) {
   });
   return html`<section class="vcard world-goals" aria-labelledby="world-goals-title" data-goals="judged" data-flags="${g.wideFlags.flags.length}">${goalsHead(L`判定中（チェーンの外で。お金は動きません）`)}
     <ul class="goal-kinds"><li data-goal="flag-keeps" class="live">${GOAL_NAMES()['flag-keeps']} · <small class="muted">${L`判定中`}</small></li></ul>
-    <p class="goal-rule">${g.wideFlags.firstOnly === false ? L`広い土地の中立の砦と自由都市が旗の砦です。奪って ${turnsText(hold)}続けて持つたびに、その国が旗の砦を一つ取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）` : L`広い土地の中立の砦と自由都市が旗の砦です。奪って ${turnsText(hold)}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）`}</p>
+    <p class="goal-rule">${DEVNET_FREE_CITIES_TAKEABLE
+    ? (g.wideFlags.firstOnly === false ? L`広い土地の中立の砦と自由都市が旗の砦です。奪って ${turnsText(hold)}続けて持つたびに、その国が旗の砦を一つ取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）` : L`広い土地の中立の砦と自由都市が旗の砦です。奪って ${turnsText(hold)}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）`)
+    : (g.wideFlags.firstOnly === false ? L`広い土地の中立の砦が旗の砦です。奪って ${turnsText(hold)}続けて持つたびに、その国が旗の砦を一つ取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）` : L`広い土地の中立の砦が旗の砦です。奪って ${turnsText(hold)}続けて持った最初の国が、その旗の砦を取ります（いま見つかっている旗の砦 ${fmtNum(g.wideFlags.flags.length)} 個）`)}</p>
     ${freeCityNote()}
     ${mineLine}
     ${rows.length ? html`<ol class="goal-flags">${rows.map(f => wideFlagRow(f, g))}</ol>` : ''}
-    ${hidden ? html`<p class="muted small goal-hidden" data-hidden="${hidden}">${L`ほかの旗の砦 ${fmtNum(hidden)} 個は、いまは見えていません`}</p>` : ''}
+    ${hidden ? html`<p class="muted small goal-hidden" data-hidden="${hidden}">${rows.length ? L`ほかの旗の砦 ${fmtNum(hidden)} 個は、いまは見えていません` : L`旗の砦 ${fmtNum(hidden)} 個は、どれもいまは見えていません`}</p>` : ''}
     ${nations}
     ${done.length ? html`<ol class="goal-achievements">${done}</ol>` : ''}
     <p class="muted small">${L`ほかの目標（世界初の技術・大建造物・未踏の印）は、この世界にはまだありません`}</p>

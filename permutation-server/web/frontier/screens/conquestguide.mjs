@@ -77,7 +77,16 @@ export function conquestFacts(FS) {
   };
   const live = (FS.marches ?? []).filter(m => !turnedBack(m));
   const back = (FS.marches ?? []).find(turnedBack) ?? null;
-  const repelled = back ? { p: back.dest.p, q: back.dest.q, bell: back.entry?.arriveBell ?? back.transit?.arriveBell ?? null } : null;
+  // (fix-loop22, LP22-4: once the march row has left the list, the viewer's own resolved clash on a keep it does not stand
+  //  on and its nation does not contest — hud/feed.mjs ownClashesFrom — is the same fact. The guide said 「砦のマスを
+  //  72 ターン保つ … 着いて勝てば」 with 「砦へ進軍」 ticked after the host had bounced home)
+  const gone = back ? null : (FS.ownClashes ?? []).find(c => {
+    const k = keeps.find(x => x.p === c.p && x.q === c.q && foreign(x) && (c.tile === null || c.tile === undefined || x.tile === c.tile));
+    return !!k && !(standing && standing.p === k.p && standing.q === k.q) && !(int(f) && k.contender === f) && !(FS.marches ?? []).some(m => m?.dest && m.dest.p === c.p && m.dest.q === c.q)
+      // (a later march sealed to the same keep is a new try, not the old loss)
+      && !(FS.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused' && o.dest?.p === c.p && o.dest?.q === c.q && Number(o.arriveBell) > c.bell);
+  }) ?? null;
+  const repelled = back ? { p: back.dest.p, q: back.dest.q, bell: back.entry?.arriveBell ?? back.transit?.arriveBell ?? null } : gone ? { p: gone.p, q: gone.q, bell: gone.bell } : null;
   const revealed = live.map(keepOf).find(Boolean) ?? null;
   // (verify-pr193: a march order the page was answered "no" for — refused before sending, refused on chain, or read
   //  `expired` — never went: it is not "marched". It moved the guide to 「5/7 砦を見る」 with no march out)
@@ -131,8 +140,10 @@ export function keepTarget(FS) {
 /** The best the ready host `r` could do among the keeps its card lists (or, before the card has been read, the usual keep: `keepTarget`): `{odds, need, troops}` or null. */
 function bestOdds(FS, r) {
   let rows = [];
-  try { const km = keepsModel(FS, r); rows = km.state === 'ready' ? km.rows.filter(x => x.odds) : []; } catch { rows = []; }
   const rank = { good: 2, even: 1, poor: 0 };
+  // (fix-loop22: a row whose odds only the order card's forecast can tell — other hosts on the keep's tile, keephand.mjs
+  //  arrivalOdds 'hosts' — is no measure here: never read as "low odds")
+  try { const km = keepsModel(FS, r); rows = km.state === 'ready' ? km.rows.filter(x => x.odds && x.odds.odds in rank) : []; } catch { rows = []; }
   if (rows.length) {
     const x = rows.reduce((a, b) => (rank[b.odds.odds] > rank[a.odds.odds] || (rank[b.odds.odds] === rank[a.odds.odds] && b.troops < a.troops) ? b : a));
     return { odds: x.odds.odds, need: x.odds.need, troops: x.troops };
@@ -140,7 +151,7 @@ function bestOdds(FS, r) {
   const t = keepTarget(FS);
   if (!t) return null;
   const o = arrivalOdds(FS, r, t);
-  return o ? { odds: o.odds, need: o.need, troops: t.troops } : null;
+  return o && o.odds in rank ? { odds: o.odds, need: o.need, troops: t.troops } : null;
 }
 
 /** (fix-loop6, LP6-4) The host's own list of reachable keeps has been read and holds none (keepsModel 'ready', 0 rows). */

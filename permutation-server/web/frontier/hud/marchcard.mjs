@@ -101,6 +101,21 @@ export function oddsWord(mine, theirs) {
   return { id: 'bad', text: L`不利` };
 }
 
+/**
+ * (fix-loop22, LP22-4) The outlook word from the rules' forecast (hud/forecast.mjs: the clash resolved by the rules'
+ * own module, the arrival stamina as the chain counts it): the share of tries in which the host stays on the tile —
+ * every one 「優勢」, some 「互角」, none 「不利」 — with `forecast: true`; null without a
+ * forecast (then `oddsWord`'s troop ratio is the guide, and says so).
+ */
+export function forecastOdds(fc) {
+  if (!fc?.ok || !(fc.runs > 0)) return null;
+  const stays = Number(fc.fates?.Stays ?? 0), k = stays / fc.runs;
+  // (the keep list's three words — good / even / poor, hud/keephand.mjs oddsText — on the same scale: every try → 「優勢」,
+  //  some → 「互角」, none → 「不利」; a ×60 check had the list say "Even" and the card "Slight edge" of one march)
+  const w = k >= 1 ? { id: 'strong', text: L`優勢` } : k > 0 ? { id: 'even', text: L`互角` } : { id: 'bad', text: L`不利` };
+  return { ...w, forecast: true, stays, runs: fc.runs };
+}
+
 /** The arrival options the stepper walks: the window from the earliest bell. */
 export function bellWindow(FS) {
   const a = composerArrival(FS);
@@ -184,7 +199,10 @@ export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
   //  said as not known, with the draft kept and one button that asks again; shown whether or not the defenders are known)
   const fcRetry = fc?.unread ? html`<p class="mc-fc-unread" role="status">${fc.why === 'NoRecord' ? L`見込みはまだわかりません（行き先の州の記録を読めていません）。下書きはそのままです。` : L`見込みはまだわかりません（規則を読めていません）。下書きはそのままです。`}
     <button type="button" class="btn small" data-act="forecast-retry">${icon('return')}${L`見込みをもう一度計算する`}</button></p>` : '';
-  return html`<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
+  // (fix-loop22, LP22-4: a host that arrives under ENGAGE_STAMINA strikes exhausted — clash.rs attacker_exhausted, its
+  //  blows at 85 % (combat.rs ATTACKER_EXHAUSTED) —; the forecast counts it, and the card says why before the seal)
+  const tired = rt && def?.total && rt.arrive < ENGAGE_STAMINA ? html`<p class="mc-tired" role="note">${icon('hourglass')}<span>${L`到着したときの体力は ${fmtNum(rt.arrive)} の見込みです。${fmtNum(ENGAGE_STAMINA)} 未満なので疲れた状態で攻め、与える打撃が下がります（予測はこれを含みます）。体力を回復してから出ると強く戦えます。`}</span></p>` : '';
+  return html`${tired}<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
     ${w ? cell(L`到着`, L`ターン ${fmtNum(w.value)}`, awayLine) : ''}
     ${cell(L`費用`, L`体力 −${fmtNum(DEPART_STAMINA)}`, next)}
     ${cell(L`相手`, foe, foeNote)}
@@ -268,7 +286,9 @@ export function render(FS) {
   const destKeep = c.dest && !territoryEnabled(FS) ? (k => (k && k.tile === c.dest.tile ? k : null))(keepFor(FS, c.dest.p, c.dest.q)) : null;
   const keepOnly = !!destKeep && sight < 3 && destKeep.holder !== FS.citizen?.faction;
   const def = c.dest && sight >= 3 ? defendersAt(FS, c.dest) : keepOnly ? { residents: [], garrison: 0, camp: 0, keep: Number(destKeep.troops ?? 0), total: Number(destKeep.troops ?? 0) } : null;
-  const odds = c.dest && def ? oddsWord(c.host.troops, def.total) : null;
+  // (fix-loop22, LP22-4: once the rules' forecast is there, the word is the forecast's — how often the host stays — and
+  //  not the troop ratio's: "290 defending · Even" stood beside "holds the field 8 of 8" for a march that retreated)
+  const odds = c.dest && def ? (def.total ? forecastOdds(forecastNow(c)) : null) ?? oddsWord(c.host.troops, def.total) : null;
   const problems = c.dest ? checkMarch(m).filter(p => p !== 'NoDestination') : [];
   const busy = !!c.sending;
   const timing = marchTiming(FS, m.arriveBell);
@@ -378,7 +398,7 @@ export function render(FS) {
     <p class="pick-line">${custom ? L`倍率を指定しています：${m.retreat.ratio ?? '—'}` : retreatLine(m.retreat.choice)}</p>
     ${label(L`見込み`)}
     ${def ? html`<div class="mc-odds mc-odds-${odds.id}">
-      <p class="mc-odds-head"><strong>${odds.text}</strong><span class="muted">${L`兵数を比べた目安です`}</span></p>
+      <p class="mc-odds-head"><strong>${odds.text}</strong><span class="muted">${odds.forecast ? L`ルールで ${fmtNum(odds.runs)} 回試し、${fmtNum(odds.stays)} 回マスに残った目安です` : L`兵数を比べた目安です`}</span></p>
       <dl class="versus"><div><dt>${L`あなた`}</dt><dd>${bar(c.host.troops, sides, 'bar-own')}<span>${fmtNum(c.host.troops)}</span></dd></div>
         <div><dt>${L`守り`}</dt><dd>${bar(def.total, sides, 'bar-foe')}<span>${fmtNum(def.total)}</span></dd></div></dl>
         ${def.campOut ? html`<p class="muted mc-camp-out">${L`ここの蛮族の野営地（${fmtNum(def.campOut)}）は戦いに加わりません。この州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っていて、野営地が戦うのは州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです。`}</p>` : ''}

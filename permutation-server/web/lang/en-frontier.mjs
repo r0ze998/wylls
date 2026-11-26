@@ -47,7 +47,10 @@ export default {
   // a due time says what it is (screens/shell.mjs dueHtml): how long from now, then the clock
   '約 {0}時間{1}分': 'about {0} h {1} min',
   'あと{0}（{1} ごろ）': 'in {0} (around {1})',
-  '{0} ごろ': 'around {0}',
+  // (fix-loop22, LP22-3: the wall clock on a faster clock too, once the real wait is a minute or more; never the chain's clock)
+  'あと{0}（実時間で約 {1}・{2} ごろ）': 'in {0} (about {1} in real time, around {2})',
+  '時刻はまだ分かりません': 'time not known yet',
+  '次の段階まで {0}': 'next step in {0}',
   '同じターンの申し込みがすべて決まると確定します。遅くとも{0}です。': 'Confirmed once every village requested in the same turn is placed: {0} at the latest.',
   'それまでは、より順位の高い申し込みに押し出されることがあります。': 'Until then a higher-ranked request can displace it.',
   '早くて{0}': '{0} at the earliest',

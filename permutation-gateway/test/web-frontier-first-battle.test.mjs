@@ -47,7 +47,7 @@ test('the arrival estimate brackets the turned-back march of the UI check (100 S
   assert.ok(keepArrival({ unit: 3, troops: 100, keepTroops: 100, rough: true }).need < o.need, 'Pikemen are 22 a troop');
   assert.deepEqual(keepArrival({ unit: 6, troops: 500, keepTroops: 100 }), { odds: 'poor', worst: null, best: null, need: null });
   assert.equal(keepArrival({ unit: 0, troops: 1000, keepTroops: 100 }).odds, 'good');
-  assert.deepEqual({ ...CLASH_BPS }, { k: 5_500, walls: 6_667, cityRetaliation: 5_000, terrain: 8_000, rollLow: 9_000, rollHigh: 11_000 }, 'combat.rs / params.rs');
+  assert.deepEqual({ ...CLASH_BPS }, { k: 5_500, walls: 6_667, cityRetaliation: 5_000, terrain: 8_000, exhausted: 8_500, rollLow: 9_000, rollHigh: 11_000 }, 'combat.rs / params.rs');
 });
 
 test('the keep list says the odds and the troops it takes, in both languages', () => {

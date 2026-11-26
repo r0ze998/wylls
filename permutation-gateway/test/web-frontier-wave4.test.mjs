@@ -206,13 +206,15 @@ test('the own name: a signed profile kept per season and wallet, the form in bot
 
 test('the forecast\'s input: only the viewer\'s host arrives, with its stance, retreat, troops and the route\'s stamina cost', async () => {
   const F = await import('../../permutation-server/web/frontier/hud/forecast.mjs');
-  const c = { host: { id: '77', unit: 0, troops: 600, staminaValue: 100, staminaBell: 40 }, dest: { p: 2, q: 0, tile: 32 }, arriveBell: 44, stance: 1, retreat: 'never', ratio: null, route: { dirs: [0, 0, 1, 1] } };
+  const c = { host: { id: '77', unit: 0, troops: 600, staminaValue: 100, staminaBell: 40 }, dest: { p: 2, q: 0, tile: 32 }, arriveBell: 44, departBell: 40, stance: 1, retreat: 'never', ratio: null, route: { dirs: [0, 0, 1, 1] } };
   const i = F.forecastInputs(c, 3);
   assert.deepEqual([i.p, i.q, i.bell, i.arrivals.length], [2, 0, 44, 1]);
   const a = i.arrivals[0];
   assert.deepEqual([a.hostId, a.faction, a.troops, a.stance, a.retreat, a.tile], [77n, 3, 600000, 1, 0, 32]);
-  assert.equal(a.stamina, 104 - (10 + 2 * 4), 'stamina regained to the arrival bell, less the march');
-  assert.equal(F.forecastKey(c), '77|2,0,32|44|1|never|null');
+  // (fix-loop22, LP22-4: the chain's count — DEPART_STAMINA 74 charged on the departure turn + 1, refilled on the road
+  //  — not the planned route's cost: 101 at turn 41 − 74 = 27, + 3 turns to the arrival = 30)
+  assert.equal(a.stamina, 101 - 74 + 3, 'the chain\'s arrival stamina (clash_model.rs arrival_stamina)');
+  assert.equal(F.forecastKey(c), '77|2,0,32|44|1|never|null|d40');
   assert.deepEqual(F.forecast(null, c, null, 3), { ok: false, why: 'NoInput' });
 });
 

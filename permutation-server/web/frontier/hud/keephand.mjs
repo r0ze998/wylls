@@ -24,7 +24,7 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { factionName, unitCount, clientText } from '../fi18n.mjs';
 import { UNIT_ORDER, SCOUT, SETTLER, actionBlocks } from '../fland.mjs';
-import { DEPART_STAMINA, DEPART_MARGIN_SECS, arrivalWindow, earliestBell } from '../fmarch.mjs';
+import { DEPART_STAMINA, DEPART_MARGIN_SECS, arrivalWindow, earliestBell, arrivalStamina, ENGAGE_STAMINA } from '../fmarch.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/avatar.mjs';
@@ -34,7 +34,7 @@ import { whyText } from './orderparts.mjs';
 import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
 import { formingLine } from './firststeps.mjs';
 import { contestableKeeps, defendableKeeps } from '../fkeepreach.mjs';
-import { fogNow } from '../map/fog.mjs';
+import { fogNow, viewKeeps } from '../map/fog.mjs';
 import { turnsLine } from '../seasonterms.mjs';
 
 const int = Number.isInteger;
@@ -235,15 +235,40 @@ export function roughAt(FS, p, q, tile) {
  * How the arrival of host `r` on a keep of `troops` defenders on tile (p, q, tile) would go (rulebook.mjs
  * keepArrival), or null when the keep's defenders or the host are not known.
  */
-export function arrivalOdds(FS, r, { p, q, tile, troops }) {
+export function arrivalOdds(FS, r, { p, q, tile, troops, arrive = null }) {
   if (!r || !Number.isFinite(troops) || !Number.isFinite(Number(r.troops))) return null;
-  return keepArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), keepTroops: troops, rough: roughAt(FS, p, q, tile) });
+  // (fix-loop22, LP22-4: other nations' hosts the viewer SEES on the keep's tile fight there too; the estimate below is
+  //  the keep's garrison alone and cannot weigh them — the row says so and leaves the odds to the order card's forecast,
+  //  the rules' own run. The list said "50 defenders · Good" of a keep whose tile Ember's 289 held: the march retreated)
+  const hosts = hostsSeenOnTile(FS, p, q, tile);
+  if (hosts.length) return { odds: 'hosts', hosts, need: null, worst: null, best: null };
+  // (and the stamina the host arrives with, as the chain counts it — hud/forecast.mjs arrivalStamina: under 20 it strikes exhausted)
+  const bell = FS.nowBell ?? 0;
+  const ent = Number.isFinite(Number(r.staminaValue)) ? r : Number.isFinite(Number(r.entry?.staminaValue)) ? r.entry : Number.isFinite(Number(r.stamina)) ? { staminaValue: Number(r.stamina), staminaBell: bell } : null;
+  const stam = Number.isInteger(arrive) && ent ? arrivalStamina(ent, bell, arrive) : null;
+  const tired = stam !== null && stam < ENGAGE_STAMINA;
+  return { ...keepArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), keepTroops: troops, rough: roughAt(FS, p, q, tile), tired }), tired, stamina: stam };
+}
+
+/**
+ * (fix-loop22) Other nations' hosts standing on tile (p, q, tile) in the province record the page holds, ONLY when the
+ * viewer has that tile in sight (the order card's own reading of sight, hud/marchcard.mjs): `[{faction, troops}]`.
+ */
+export function hostsSeenOnTile(FS, p, q, tile) {
+  if (FS?.survey && !FS.survey.showAll && FS.survey.levelOf(p, q, tile) < 3) return [];
+  const prov = FS?.provinces?.get?.(`${p},${q}`)?.province;
+  if (!prov) return [];
+  return (prov.entries ?? []).filter(e => e && e.state === 1 && e.tile === tile && e.faction !== FS.citizen?.faction)
+    .map(e => ({ faction: e.faction, troops: Math.floor(Number(e.troops) / 1000) })).filter(e => e.troops > 0);
 }
 
 /** The odds in a word and the line under it: 「十分」 / 「五分」 / 「足りない」, and the troops it takes. */
 export function oddsText(o, unit) {
   if (!o) return null;
+  // (fix-loop22: hosts on the tile — the order card's forecast weighs them, this list cannot)
+  if (o.odds === 'hosts') return { word: L`軍勢あり`, line: L`${o.hosts.map(h => `${factionName(h.faction)} ${fmtNum(h.troops)}`).join(L`、`)} がマスにいます。勝ち目は命令の予測で` };
   const word = o.odds === 'good' ? L`十分` : o.odds === 'even' ? L`五分` : L`足りない`;
+  if (o.tired) return { word, line: L`疲れて着く（体力 ${fmtNum(o.stamina)}）。${o.odds === 'good' ? L`それでも残れる見込み` : L`体力を回復してから`}` };
   const line = o.odds === 'good' ? L`着いたターンに残れる見込み` : o.need ? L`${unitCount(UNIT_ORDER[unit], o.need)} 以上で十分` : L`この兵種では届かない`;
   return { word, line };
 }
@@ -259,15 +284,19 @@ export function keepsModel(FS, r) {
   const wait = waitOf(FS, r);
   if (!hr || hr.host !== String(r?.id)) return { state: 'loading', wait, rows: [], unreachable: 0 };
   if (!hr.ok) return { state: 'error', code: hr.code, wait, rows: [], unreachable: 0 };
-  const keeps = FS.conquest?.keeps;
+  // (fix-loop22, LP22-4: the keep as the page knows it NOW — the order card's own source, screens/conquest.mjs keepFor's
+  //  fog-aware view — not the copy inside the reach answer, which is cached per host, turn and control snapshot: the list
+  //  said "50 defenders" while the card said "0 recorded defenders" of the same keep)
+  const keeps = viewKeeps(FS.conquest?.keeps);
   const rows = hr.rows.map(x => {
     const k = keeps?.get?.(`${x.p},${x.q}`) ?? x;
     const contender = nation(k.contender) ? k.contender : null;
-    return { p: x.p, q: x.q, tile: x.tile, holder: x.holder, troops: Number.isFinite(x.troops) ? x.troops : null, name: provinceName(FS, x.p, x.q, { own: false }), coords: provinceCoords(x.p, x.q),
+    const troops = Number.isFinite(Number(k.troops)) && k.tile === x.tile ? Number(k.troops) : Number.isFinite(x.troops) ? x.troops : null;
+    return { p: x.p, q: x.q, tile: x.tile, holder: x.holder, troops, name: provinceName(FS, x.p, x.q, { own: false }), coords: provinceCoords(x.p, x.q),
       hexes: x.route.hexes, provinces: x.route.provinces.length, secs: x.route.secs, arrive: arrivalTurn(FS, x.route.secs), hold: holdTurns(FS, k), contender, progress: contender === null ? null : Math.max(0, Number(k.progress ?? 0)), key: `${x.p},${x.q}`,
       // (a row of the viewer's own contested keep: going there defends it; the odds against its own garrison mean nothing)
       ...(x.defend ? { defend: true } : {}),
-      odds: !x.defend && Number.isFinite(x.troops) ? arrivalOdds(FS, r, { p: x.p, q: x.q, tile: x.tile, troops: x.troops }) : null };
+      odds: !x.defend && troops !== null ? arrivalOdds(FS, r, { p: x.p, q: x.q, tile: x.tile, troops, arrive: arrivalTurn(FS, x.route.secs) }) : null };
   });
   return { state: 'ready', wait, rows, unreachable: hr.unreachable.length };
 }

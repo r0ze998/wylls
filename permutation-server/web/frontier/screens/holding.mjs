@@ -258,7 +258,9 @@ export function provisionalNote(FS, h) {
   let by = null;
   try { by = FS?.clock && Number.isInteger(h?.ticketBell) ? ticketTimes(FS.clock, h.ticketBell).cohortEndsBy : null; } catch { by = null; }
   // (the time says what it is: how long from now, then the clock; `dueHtml`)
-  return by ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, FS.chain?.now?.() ?? null)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
+  // (fix-loop22: only with the chain's "now" — the time is said on the viewer's wall clock from it, never as the chain's clock)
+  const now = FS?.chain?.now?.() ?? null;
+  return by && Number.isFinite(now) && by > now ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, now)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
 }
 
 // (`nudge: false` — local play: the reasons stand as they are, without the "catch up" button. The keeper is not asked

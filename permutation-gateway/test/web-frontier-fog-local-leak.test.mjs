@@ -152,7 +152,7 @@ test('the page\'s wiring: every surface that shows the map reads the fogged copi
   assert.ok(app.includes('const entries = [...shownOverviews()];'), 'the minimap');
   assert.ok(app.includes('for (const ov of shownOverviews().values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);\n  searchHits = search.searchMap('), 'search');
   assert.ok(app.includes('departures: scene.departuresAt(shownLog, shownOv, bell),'), 'other nations\' columns on the board');
-  assert.ok(app.includes('reportScreen.renderLinks(reportScreen.clashesFrom(shownChronicle() ?? []), L`最近の衝突`, { FS }),'), 'the recent clashes list');
+  assert.ok(app.includes('reportScreen.renderLinks(recentClashes(FS), L`最近の衝突`, { FS }),') && app.includes('for (const x of [...myReports(FS), ...reportScreen.clashesFrom(shownChronicle() ?? [])])'), 'the recent clashes list (fix-loop22: the viewer\'s own, then the fogged chronicle)');
   assert.ok(app.includes('if (!fogWorld) try { wideModeRef = mountWideMode('), 'the recorded world\'s sheet is not offered under the fog');
   assert.ok(app.includes('caravans: s1Memo.marks.caravans.filter(c => c.own || (seen(c.from) && seen(c.to)))'), 'S1 marks');
   // the keep lists and the incoming warnings
