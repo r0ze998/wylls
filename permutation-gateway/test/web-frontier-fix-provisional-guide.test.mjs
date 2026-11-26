@@ -210,3 +210,21 @@ test('the page wiring: the guide and the panel read hud/provisional.mjs; the har
   assert.ok(src(`${web}app.mjs`).includes("export const SENDS = Object.freeze(new Set(['wide-claim', 'territory-tile', 'harvest',"));
   assert.ok(src(`${web}hud/provisional.mjs`).includes("import { dueText } from '../screens/shell.mjs';"), 'the wall clock of fix-loop22');
 });
+
+// ------------------------------------------------------------------ the village card (live pw3 run: two times on one screen)
+test('the village card says the rule\'s time once the cohort is closed (it said "3 h 43 min at the latest" beside the panel\'s 16 min), and "now" past it', async () => {
+  const { provisionalNote } = await import('../../permutation-server/web/frontier/screens/holding.mjs');
+  ST.setTermsPace(() => 1);
+  const closed = fs({ cohorts: CLOSED });
+  const note = plain(provisionalNote(closed, closed.holdings[0]));
+  // (deliberate-break check: the old card gave the 24-turn bound — about 3 h 4x min — here)
+  assert.ok(!/3時間/.test(note), note);
+  assert.match(note, /^同じターンの申し込みはすべて決まりました。 ?あと約 \d+ 分（ \d\d:\d\d ごろ） ?から確定できます。その時刻を過ぎたら、収穫などの行動をひとつすると確定します。$/);
+  const open = fs();
+  assert.match(plain(provisionalNote(open, open.holdings[0])), /^同じターンの申し込みがすべて決まると確定します。遅くとも ?あと約 3時間\d+分/, 'cohort open: the bound, as before');
+  const due = fs({ bell: 11, cohorts: CLOSED });
+  assert.equal(plain(provisionalNote(due, due.holdings[0])), 'いま確定できます。収穫などの行動をひとつすると確定します。');
+  setLang('en');
+  assert.match(plain(provisionalNote(closed, closed.holdings[0])), /^Every village requested in the same turn is placed\. It can be confirmed in about \d+ min \(around \d\d:\d\d ?\) ?\. After that time, any action \(e\.g\. Harvest\) confirms it\.$/);
+  assert.equal(plain(provisionalNote(due, due.holdings[0])), 'It can be confirmed now: any action (e.g. Harvest) confirms it.');
+});

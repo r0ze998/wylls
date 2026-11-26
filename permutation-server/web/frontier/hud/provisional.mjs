@@ -14,7 +14,7 @@ import { finalityDue, cohortClosed, ticketTimes } from '../fland.mjs';
 import { dueText } from '../screens/shell.mjs';
 
 /**
- * The viewer's active village while it is provisional, or null (no village, or final):
+ * The viewer's active village (or village `h`) while it is provisional, or null (no village, or final):
  *   {state: 'waiting', at, latest}  it cannot be confirmed before chain time `at` — `latest` when the cohort is still open
  *                                   on the page's copy of the Province, so `at` is the 24-turn bound (it may come sooner);
  *   {state: 'due', at: null}        the rule holds now: the next action confirms it (and the page lets Muster be pressed);
@@ -22,8 +22,7 @@ import { dueText } from '../screens/shell.mjs';
  *                                   missing): an action that does not need a final village — Harvest — confirms it;
  *   {state: 'unknown', at: null}    no chain "now" or no times on the record.
  */
-export function villageConfirm(FS) {
-  const h = activeHolding(FS);
+export function villageConfirm(FS, h = activeHolding(FS)) {
   if (!h || h.state !== 1) return null;
   const prov = FS?.provinces?.get?.(`${h.p},${h.q}`)?.province ?? null;
   let now = NaN;

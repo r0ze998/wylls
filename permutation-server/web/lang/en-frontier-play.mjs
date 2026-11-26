@@ -2791,4 +2791,6 @@ export default {
   "あなたの村は、いま確定できます：": "Your village can be confirmed now: ",
   "次の行動（収穫など）をひとつすると確定します": "your next action (e.g. Harvest) confirms it",
   "確定できる時刻を過ぎました。収穫で村が確定し、軍勢を編成できるようになります。": "The time has passed. A Harvest confirms your village, and then you can form a host.",
+  "同じターンの申し込みはすべて決まりました。{0}から確定できます。その時刻を過ぎたら、収穫などの行動をひとつすると確定します。": "Every village requested in the same turn is placed. It can be confirmed {0}. After that time, any action (e.g. Harvest) confirms it.",
+  "いま確定できます。収穫などの行動をひとつすると確定します。": "It can be confirmed now: any action (e.g. Harvest) confirms it.",
 };
