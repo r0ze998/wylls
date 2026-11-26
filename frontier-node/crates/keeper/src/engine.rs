@@ -667,8 +667,6 @@ impl Engine {
         Ok(())
     }
 
-    /// An undecided care transfer blocks every new top-up and sweep. This
-    /// includes attempts adopted as orphans on restart, not just pending keys.
     /// `port.statuses`, counting a failed read (`None` for every signature:
     /// they stay pending).
     async fn read_statuses<P: ChainPort>(
@@ -691,6 +689,8 @@ impl Engine {
         }
     }
 
+    /// An undecided care transfer blocks every new top-up and sweep. This
+    /// includes attempts adopted as orphans on restart, not just pending keys.
     pub fn care_unresolved(&self) -> bool {
         self.pending
             .values()
@@ -1285,11 +1285,28 @@ impl Engine {
                 sigs.push((k.clone(), v.clone()));
             }
         }
-        let flat: Vec<Signature> = sigs.iter().map(|(_, v)| v.sig).collect();
-        let sts = if flat.is_empty() {
+        // verify-pr259: one status read per poll for the pending versions
+        // AND the orphans. `RpcPort::statuses` runs its capped history
+        // search at most once per `history_every` across all calls; with two
+        // reads per poll the first (pending writes, which nearly always has
+        // an unknown fresh send) took every history turn and orphans older
+        // than the status cache (restart-adopted attempts, payer care among
+        // them) were never re-read, so `care_unresolved` could stay true.
+        let mut flat: Vec<Signature> = sigs.iter().map(|(_, v)| v.sig).collect();
+        let n_pending = flat.len();
+        let n_orphans = self.orphans.len();
+        flat.extend(self.orphans.iter().map(|o| o.0));
+        let mut sts = if flat.is_empty() {
             vec![]
         } else {
             self.read_statuses(port, &flat).await
+        };
+        // Orphan answers, in `self.orphans` order (orphans added below by
+        // `hold_unsettled` are appended after them and wait for the next poll).
+        let orphan_sts: Vec<Option<Status>> = if sts.len() == n_pending + n_orphans {
+            sts.split_off(n_pending)
+        } else {
+            vec![]
         };
         let mut ended: Vec<(String, Outcome)> = vec![];
         for ((k, v), st) in sigs.iter().zip(sts.iter()) {
@@ -1443,13 +1460,11 @@ impl Engine {
         // definitive status arrives, even after the retry window.
         if !self.orphans.is_empty() {
             let orphans = std::mem::take(&mut self.orphans);
-            let os: Vec<Signature> = orphans.iter().map(|o| o.0).collect();
-            let sts = self.read_statuses(port, &os).await;
             let mut keep = vec![];
             let mut resolved = HashSet::new();
             for (o, st) in orphans
                 .into_iter()
-                .zip(sts.iter().chain(std::iter::repeat(&None)))
+                .zip(orphan_sts.iter().chain(std::iter::repeat(&None)))
             {
                 match st {
                     Some(st) => {
@@ -1957,6 +1972,8 @@ mod tests {
         fail_after_send: std::sync::atomic::AtomicBool,
         /// Simulates a status RPC failure after the transaction was sent.
         fail_status_lookup: std::sync::atomic::AtomicBool,
+        /// Signature count of every `statuses` call (verify-pr259).
+        status_calls: Mutex<Vec<usize>>,
     }
 
     impl Default for Script {
@@ -1969,6 +1986,7 @@ mod tests {
                 blockhash_height: std::sync::atomic::AtomicU64::new(150),
                 fail_after_send: std::sync::atomic::AtomicBool::new(false),
                 fail_status_lookup: std::sync::atomic::AtomicBool::new(false),
+                status_calls: Mutex::new(vec![]),
             }
         }
     }
@@ -2012,6 +2030,7 @@ mod tests {
             Ok(sig)
         }
         async fn statuses(&self, sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+            self.status_calls.lock().unwrap().push(sigs.len());
             if self
                 .fail_status_lookup
                 .load(std::sync::atomic::Ordering::SeqCst)
@@ -3033,6 +3052,74 @@ mod tests {
             (engine.status_read_errors.0, engine.status_read_errors.1),
             (2, 0)
         );
+    }
+
+    /// verify-pr259: pending versions and orphans share ONE status read per
+    /// poll. `RpcPort` runs its capped history search at most once per
+    /// `history_every` over all calls; with a second read for orphans, the
+    /// pending read (a fresh unknown send nearly every tick) took every
+    /// history turn and restart-adopted care orphans were never resolved.
+    #[tokio::test]
+    async fn pending_and_orphans_share_one_status_read_per_poll() {
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let care = Signature::from([9u8; 64]);
+        j.record_attempt(&Attempt {
+            sig: care.to_string(),
+            write_id: None,
+            tag: None,
+            kind: PAYER_CARE_KIND.into(),
+            object_key: "care:old:transfer:1".into(),
+            bell: None,
+            region: None,
+            class: "N".into(),
+            payer: payers.delay.keys[0].pubkey().to_string(),
+            bid_milli: 100,
+            fee: 5_000,
+            cu_limit: 2_000,
+            heap: None,
+            first_valid_slot: 1,
+            sent_slot: 1,
+            last_valid_block_height: Some(151),
+            landed_slot: None,
+            status: "sent".into(),
+            code: None,
+        })
+        .unwrap();
+        let mut engine = Engine::new(Budgets::placeholder(), EngineParams::default());
+        engine.adopt(&j.in_flight().unwrap()).unwrap();
+        engine.ensure(spec("w", Class::D, abi::tag::POST_SEED), 10);
+        engine.step(&port, &mut payers, Some(&j), 10).await;
+        assert!(engine.pending.contains_key("w"));
+        port.status_calls.lock().unwrap().clear();
+        engine.poll(&port, Some(&j), 11).await;
+        assert_eq!(
+            *port.status_calls.lock().unwrap(),
+            vec![2],
+            "one read: the pending version and the orphan"
+        );
+        assert!(engine.care_unresolved());
+        port.statuses.lock().unwrap().insert(
+            care,
+            Status {
+                slot: 5,
+                err: None,
+                code: None,
+            },
+        );
+        port.status_calls.lock().unwrap().clear();
+        engine.poll(&port, Some(&j), 12).await;
+        assert_eq!(*port.status_calls.lock().unwrap(), vec![2]);
+        assert!(!engine.care_unresolved(), "the orphan's answer is used");
+        assert!(engine.pending.contains_key("w"), "unknown stays pending");
+        // A failed read is one error per poll, and nothing is resolved.
+        port.fail_status_lookup
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        engine.poll(&port, Some(&j), 13).await;
+        assert_eq!(engine.status_read_errors.1, 1);
+        assert!(engine.pending.contains_key("w"));
     }
 
     #[tokio::test]
