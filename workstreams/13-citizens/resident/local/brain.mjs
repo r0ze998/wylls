@@ -47,6 +47,12 @@ export const WIDE_HOME_ORDER = 'FileTicket';
  * to refuse, and the failure hold would follow.
  */
 export const TICKET_WAIT_BELLS = 72;
+/**
+ * (LP20-4) Turns after a landed rim request before its end can be read from the citizen record: a ticket settles only
+ * after its turn's seed, about 2.1 turns after the filing turn (fland.mjs `ticketTimes`), so a record read sooner that
+ * shows no open request may simply not have seen it land yet.
+ */
+export const TICKET_DECIDED_BELLS = 2;
 /** ⑬'s plan items: the economy buildings (goals.mjs PLAN_ITEMS: food, wood, stone, ore, gold), real items 0–4. */
 export const PLAN_ITEMS = Object.freeze(BUILD_ITEMS.filter(b => ['Food', 'Wood', 'Stone', 'Ore', 'Gold'].includes(b.resource)).map(b => b.item));
 /** The Join's session expiry, as the page counts it (controller.mjs: chain now + 30 days − 600 s). */
@@ -363,7 +369,12 @@ export function localCandidates(obs, mem, { limits = LOCAL_LIMITS } = {}) {
     // (external-wide: a rim request that landed waits for the runner's settlement at a turn's end; nothing else is
     //  asked for the first village meanwhile — the page shows its 'ticket' wait the same way)
     const t = mem.ticket;
-    const waiting = t && Number.isInteger(t.bell) && bell < t.bell + TICKET_WAIT_BELLS ? `my village request for ${t.site} (turn ${t.bell}) waits for the turn's end (until turn ${t.bell + TICKET_WAIT_BELLS})` : null;
+    // (LP20-4: two residents of one nation can ask for the same rim site in the same turn; the runner settles both and
+    //  the loser's request ends with no village. Its own citizen record then shows no open request (landStage 'joined'):
+    //  the wait ends there, not at the timer — loop-play20 r2 waited turns 155 → 227 for a request lost by ~162. Never
+    //  before TICKET_DECIDED_BELLS: a request is settled only after its turn's seed, so a record read sooner may not show it yet.)
+    const ended = t && Number.isInteger(t.bell) && obs.landStage === 'joined' && bell >= t.bell + TICKET_DECIDED_BELLS;
+    const waiting = t && Number.isInteger(t.bell) && bell < t.bell + TICKET_WAIT_BELLS && !ended ? `my village request for ${t.site} (turn ${t.bell}) waits for the turn's end (until turn ${t.bell + TICKET_WAIT_BELLS})` : null;
     const free = (obs.homes ?? []).filter(x => !tried.has(`${x.p},${x.q},${x.site}`));
     if (!free.length) why.push(obs.wide ? 'no untried free first-village site of my nation seen (outward, as the page reads them)' : 'no untried free home site of my nation seen');
     free.slice(0, 3).forEach((x, i) => {

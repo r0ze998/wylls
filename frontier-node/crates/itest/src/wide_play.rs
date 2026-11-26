@@ -371,6 +371,47 @@ pub struct LegacyTicket {
     pub bell: u32,
     pub sites: Vec<ix::Site>,
     pub next: u8,
+    /// The Citizen's `CITIZEN_TAG` (its ticket score and the tie-break: [`displaced_by`]).
+    pub tag: u64,
+}
+
+/// (LP20-4, caravan-raid-investigate) The holder a SettleTicket of `t`'s next site displaces, read from the chain as
+/// the program decides it (proc/citizen.rs `settle_ticket`, I-47): the site's Holding is PROVISIONAL, of the same
+/// ticket bell, another Citizen's, and `t`'s score `ticket_score(S(bell), site, tag)` beats the held one (higher score,
+/// a tie to the lower tag). The program then requires the displaced accounts (else `TooManyAccounts`), so a runner
+/// that never sends them failed this SettleTicket every turn until the ticket expired and the better ticket lost: two
+/// residents of one nation that file the same rim site in one turn (loop-play20, LP20-4). The devnet keeper does the
+/// same for wide tickets (keeper_core::widetickets). None when nothing is displaced or something is not readable (the
+/// plain SettleTicket is sent, as before).
+pub fn displaced_by(state: &Shared, a: &Addresses, t: &LegacyTicket) -> Option<ix::DisplacedAt> {
+    use fclient::decode::{Citizen, Holding, SeedCache};
+    use frontier_abi::layout::player::holding as H;
+    let s0 = t.sites.get(t.next as usize)?;
+    let hd = read(state, &a.holding(s0.p as i32, s0.q as i32, s0.site))?;
+    let h = Holding::decode(&hd).ok()?;
+    if h.state != H::STATE_PROVISIONAL
+        || h.ticket_bell != t.bell
+        || h.owner_citizen == a.citizen(&t.wallet)
+    {
+        return None;
+    }
+    let region = ix::region_of(s0.p as i32, s0.q as i32);
+    let seed = SeedCache::decode(&read(state, &a.seed_cache(t.bell, region, 0))?)
+        .ok()?
+        .seed;
+    let holder = Citizen::decode(&read(state, &h.owner_citizen)?).ok()?;
+    let score = fclient::land::ticket_score(&seed, s0.p as i32, s0.q as i32, s0.site, t.tag);
+    if !fclient::land::beats(score, t.tag, h.ticket_score, holder.citizen_tag) {
+        return None;
+    }
+    Some(ix::DisplacedAt {
+        rent_payer: h.rent_payer,
+        at: ix::CitizenAt {
+            citizen: h.owner_citizen,
+            shard: holder.join_shard,
+        },
+        faction: holder.faction,
+    })
 }
 
 /// The open wide tickets, the provisional wide holdings and the open legacy tickets on the chain.
@@ -405,6 +446,7 @@ fn scan(state: &Shared, a: &Addresses) -> (Vec<WideTicket>, Vec<WideHolding>, Ve
                             bell: c.ticket_bell,
                             sites,
                             next: c.ticket_next,
+                            tag: c.citizen_tag,
                         });
                     }
                 }
@@ -470,22 +512,36 @@ pub async fn run_claims(
                     Ok(Seed::Ready)
                 );
             if ready {
+                // (LP20-4: an expired ticket displaces nothing — the program ends it whatever the site holds)
+                let displaced = if expired {
+                    None
+                } else {
+                    displaced_by(&state, &a, &t)
+                };
                 sends.push((
-                    ix::settle_ticket(
+                    ix::settle_ticket_at(
                         &a,
                         payer.pubkey(),
-                        &t.wallet,
+                        ix::CitizenAt::wallet(&a, &t.wallet),
                         t.faction,
                         t.next,
                         s0,
                         t.bell,
                         &t.sites,
                         ix::SeedSource::Cache { nonce: 0 },
-                        None,
+                        displaced.as_ref(),
                     ),
                     format!(
-                        "SettleTicket({}, {} site {}, k {})",
-                        s0.p, s0.q, s0.site, t.next
+                        "SettleTicket({}, {} site {}, k {}{})",
+                        s0.p,
+                        s0.q,
+                        s0.site,
+                        t.next,
+                        if displaced.is_some() {
+                            ", displaces the provisional holder"
+                        } else {
+                            ""
+                        }
                     ),
                 ));
             }
@@ -712,5 +768,119 @@ mod tests {
                 .collect();
             assert_eq!(w.len(), RIM_PER_NATION, "nation {n}");
         }
+    }
+
+    /// (LP20-4) Two Citizens of one nation file the same rim site in one bell; the runner settled the lower score
+    /// first (a provisional Holding of that ticket bell). The better ticket's SettleTicket must carry the displaced
+    /// holder (else the program refuses it TooManyAccounts every turn until the ticket expires); a holder the ticket
+    /// does not beat, a holding of another ticket bell, a final one and the ticket's own are displaced by nothing.
+    #[test]
+    fn a_better_ticket_displaces_a_provisional_holder_of_its_bell_and_nothing_else() {
+        use fclient::abi::{layout as l, magic, size};
+        let mut c = localnet::Chain::new(localnet::Config::default());
+        c.produce_block();
+        let a = Addresses::new(
+            Address::new_from_array(crate::expedition_play::PROGRAM),
+            crate::expedition_play::SEASON_ID,
+        );
+        let put = |c: &mut localnet::Chain, k: Address, data: Vec<u8>| {
+            c.set_account(
+                k,
+                fclient::ports::Account {
+                    lamports: 1_000_000,
+                    data,
+                    owner: a.program,
+                    executable: false,
+                },
+            )
+            .unwrap();
+        };
+        let (bell, site) = (
+            156u32,
+            ix::Site {
+                p: -65,
+                q: -63,
+                site: 8,
+            },
+        );
+        let region = ix::region_of(site.p as i32, site.q as i32);
+        let seed = [7u8; 32];
+        let mut sc = vec![0u8; size::SEED_CACHE];
+        sc[..8].copy_from_slice(magic::SEED_CACHE);
+        sc[l::seed_cache::SEED..l::seed_cache::SEED + 32].copy_from_slice(&seed);
+        put(&mut c, a.seed_cache(bell, region, 0), sc);
+        let (me, holder_wallet) = (
+            Address::new_from_array([1; 32]),
+            Address::new_from_array([2; 32]),
+        );
+        let holder = a.citizen(&holder_wallet);
+        let mut cz = vec![0u8; size::CITIZEN];
+        cz[..8].copy_from_slice(magic::CITIZEN);
+        cz[l::citizen::CITIZEN_TAG..l::citizen::CITIZEN_TAG + 8]
+            .copy_from_slice(&99u64.to_le_bytes());
+        cz[l::citizen::FACTION] = 3;
+        cz[l::citizen::JOIN_SHARD] = 5;
+        put(&mut c, holder, cz);
+        let rent_payer = Address::new_from_array([9; 32]);
+        let holding = |state: u8, tb: u32, owner: Address, score: u64| {
+            let mut d = vec![0u8; size::HOLDING];
+            d[..8].copy_from_slice(magic::HOLDING);
+            d[l::holding::STATE] = state;
+            d[l::holding::TICKET_BELL..l::holding::TICKET_BELL + 4]
+                .copy_from_slice(&tb.to_le_bytes());
+            d[l::holding::OWNER_CITIZEN..l::holding::OWNER_CITIZEN + 32]
+                .copy_from_slice(owner.as_ref());
+            d[l::holding::TICKET_SCORE..l::holding::TICKET_SCORE + 8]
+                .copy_from_slice(&score.to_le_bytes());
+            d[l::holding::RENT_PAYER..l::holding::RENT_PAYER + 32]
+                .copy_from_slice(rent_payer.as_ref());
+            d
+        };
+        let t = LegacyTicket {
+            wallet: me,
+            faction: 3,
+            bell,
+            sites: vec![site],
+            next: 0,
+            tag: 42,
+        };
+        let hk = a.holding(site.p as i32, site.q as i32, site.site);
+        let state: Shared = std::sync::Arc::new(std::sync::Mutex::new(c));
+        let set = |d: Vec<u8>| put(&mut lock(&state), hk, d);
+        let mine =
+            fclient::land::ticket_score(&seed, site.p as i32, site.q as i32, site.site, t.tag);
+        assert!(
+            mine > 0 && mine < u64::MAX,
+            "the test's seed gives an inner score"
+        );
+        use frontier_abi::layout::player::holding as H;
+        // the holder scored lower, same ticket bell, provisional: displaced (its rent payer, its Citizen and shard, its nation)
+        set(holding(H::STATE_PROVISIONAL, bell, holder, mine - 1));
+        let d = displaced_by(&state, &a, &t)
+            .expect("the better ticket displaces the provisional holder");
+        assert_eq!(
+            (d.rent_payer, d.at.citizen, d.at.shard, d.faction),
+            (rent_payer, holder, 5, 3)
+        );
+        // a tie goes to the lower tag (42 < 99): still displaced
+        set(holding(H::STATE_PROVISIONAL, bell, holder, mine));
+        assert!(displaced_by(&state, &a, &t).is_some());
+        // the holder scored higher: the ticket is TAKEN, nothing displaced
+        set(holding(H::STATE_PROVISIONAL, bell, holder, mine + 1));
+        assert!(displaced_by(&state, &a, &t).is_none());
+        // another ticket bell, a final holding, the ticket's own holding: nothing displaced
+        set(holding(H::STATE_PROVISIONAL, bell - 1, holder, 0));
+        assert!(displaced_by(&state, &a, &t).is_none());
+        set(holding(H::STATE_PROVISIONAL + 1, bell, holder, 0));
+        assert!(displaced_by(&state, &a, &t).is_none());
+        set(holding(H::STATE_PROVISIONAL, bell, a.citizen(&me), 0));
+        assert!(displaced_by(&state, &a, &t).is_none());
+        // no seed cache yet: nothing (the plain SettleTicket, as before)
+        let t2 = LegacyTicket {
+            bell: bell + 1,
+            ..t.clone()
+        };
+        set(holding(H::STATE_PROVISIONAL, bell + 1, holder, 0));
+        assert!(displaced_by(&state, &a, &t2).is_none());
     }
 }
