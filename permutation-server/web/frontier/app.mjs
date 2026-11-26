@@ -74,6 +74,7 @@ import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
 import { localCoopBoardOptions } from './hud/coopboard-local.mjs';
+import { installNationChat } from './hud/nationchat.mjs';
 import * as coopTitles from './hud/coopoutcomes.mjs';
 import * as worldGoals from './hud/worldgoals.mjs';
 import { settled } from './hud/rulebook.mjs';
@@ -876,6 +877,7 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  nationChatTick();
   wideModeRef?.validateFocus();
   // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
   renderChips();
@@ -891,6 +893,14 @@ function renderPlay() {
   renderMinimap();
   // the header follows new data at once, not only on the next one-second tick
   renderHudTick(FS.chain?.now() ?? null);
+}
+
+/** The nation chat (hud/nationchat.mjs): what it needs of the page, and a nudge when the viewer's wallet or nation changes. */
+let nationChatRef = null, nationChatKey = '';
+const nationChatState = () => ({ wallet: FS.wallet, nation: Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : null, world: FS.season?.seasonId ?? null, program: FS.pin?.programId ?? null });
+function nationChatTick() {
+  const k = `${FS.wallet?.address ?? ''}|${FS.citizen?.faction ?? ''}`;
+  if (nationChatRef && k !== nationChatKey) { nationChatKey = k; nationChatRef.changed(); }
 }
 
 function renderMode() {
@@ -5560,6 +5570,8 @@ export async function boot() {
         // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
         if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel'), ...(coopOptions ?? {}) }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
+        // (nation chat, owner Q-PT-11 (a): the herald's /h/chat/* when it has one — hud/nationchat.mjs; nothing drawn when not)
+        if (!nationChatRef) { try { nationChatRef = installNationChat({ base: cfg.herald ?? '', anchor: $('lang-box'), host: document.body, state: nationChatState }); } catch (e) { console.error('frontier nation chat:', e); } }
         // (workstream 15, ruleset B: the titles and chronicle of cooperation 01's board judges — read only, a record that
         //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
         //  (B13: in a launcher world they are read under that world's board mount, beside its board — hud/coopboard-local.mjs)

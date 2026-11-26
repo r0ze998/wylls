@@ -3,7 +3,7 @@
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
 (its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-26 (through #244 and #243). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-26 (through #262; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -149,7 +149,14 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    filled in: press "Send this order". Before the host is formed, "Train troops" already says what the camp takes ("Your first battle
    is a nearby barbarian camp (156 defenders). Gather 200 Spearmen or more into one host …"). With too few troops it says the odds and
    "Train more troops before you go"; with no camp in sight it offers "March: choose on the map"; "Skip this step" moves on to building.
-   In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–280 defenders.
+   The guide only picks a camp that will **fight** (fix-firstcamp): a camp joins a battle only while fewer than 12 villages stand in
+   its province, so a camp in a province of 12 villages is passed by and named ("The camp of (place) is nearer, but 12 villages stand
+   in its province, so it does not join battles …"). In a `--demo` world (fixed map) the home province and soon a neighbour fill with
+   12 villages, so the first camp is further away. The step also says the way there ("The way there: 6 tiles · 2 provinces · arrives
+   turn 9 (…)") and when the report is expected after that arrival. If every camp in sight sits battles out, it offers "Fight a
+   practice clash" (a practice battle, not a chain record) and says to look further with "March". The march card's outlook does not
+   count a camp that sits out ("The barbarian camp here (196) does not join the battle …", outlook "Unopposed").
+   In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–389 defenders.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
    The card the guide opens, "March on a keep · N keeps in reach", gives each row's arrival as "Turn 22 · arrival (13 tiles)"; the
@@ -566,6 +573,7 @@ say so.
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
      (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village makes enough food for your land each turn.".
      While it shows, every "Claim a tile" is off (owner decision 11-26 10:52) with the line "Land upkeep is unpaid, so "Claim a tile" cannot be pressed for now."
+     (The devnet page does not have this yet: there the button can still be pressed and the page stops before signing, PLAY-DEVNET.md §5.)
      The card follows the chain's record (read every 10 s in a local world, once a minute on devnet), so the button can stay off for that long after
      the food is back (a claim settles upkeep first, so the rule would already take it then: owner question Q-TC-1, now decided this way).
      The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
@@ -750,7 +758,8 @@ view (fog-devnet; runbook §7 P5).
 | ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
 | External AI residents (⑬ / ⑤B), the read-only MCP server, `--plan` (④) | `--external` worlds only (§11) | none (admission of external residents and the MCP server are undecided) |
 | ① co-op board, ⑮ title "Answered a request" | board and card in every world (`--no-coop-board` leaves them out); a caravan can deliver only in `--coexist` worlds (§13). No effect on winning, score or prize | none |
-| World goals (flag keeps) | judged off chain by the launcher in every world; card and pennants; the prize is an estimate, nothing is paid (§14) | none. The prize program has a goals pool since #202 (feature `goals`, test USDC only); neither `play-local.sh` nor the devnet page uses it |
+| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a), "While you wait" panel (§3 step 7), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262) | every world | **not on the devnet page today**: its page files are main of 2026-11-26 10:58 (#252), with the 7-step guide ("Guide 1/7"). They come only with a page update, which is not decided yet (PLAY-DEVNET.md §5 step 4) |
+| World goals (flag keeps) | judged off chain by the launcher in every world; card and pennants; the prize is an estimate, nothing is paid (§14) | **no card on the devnet page today**, and no judge runs. Main has a devnet card ("Planned — not judged yet"; Free Cities cannot be taken yet there) and an off-chain judge (#260); neither is live: the page update and the judge's start are not decided (PLAY-DEVNET.md §5). The prize program has a goals pool since #202 (feature `goals`, test USDC only); neither `play-local.sh` nor the devnet page uses it |
 | Fog | yes (display only) | yes, the same player view on the devnet page (fog-devnet, `DEVNET_FOG`) |
 
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and

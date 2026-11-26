@@ -81,19 +81,20 @@ value; no in-game key is made).”
    devnet your wallet signs each command itself, so it asks twice. The second comes once the page sees your join,
    which can take tens of seconds (“Waiting for the record…”; no need to press again. If it has not shown after
    180 seconds, press “Check again”; nothing is sent twice).
-3. **March first** (owner decision 2026-11-26, Q-PT-2): train troops, muster a host, then raid the nearest barbarian camp
-   your host can beat — the guide's “Raid a nearby barbarian camp” fills it into the march card —, and build while that
-   march walks; keeps come after. The screens work as in the local version, so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (steps
-   4, 5, 5a, 3, 6) is your guide. In real time the host stands one turn after the muster turn is settled (10–20 minutes) and
-   the report of a march comes at the earliest about 30–40 minutes after it leaves (two turns' walk at least, then the
-   seals' window and the seed, about 12 minutes); the guide and the “While you wait” panel say when (“Your battle report
-   (arrival on turn N): in about … (around 15:41)”). So your own first report is about an hour after you join.
-4. **Check a battle yourself before that** (Q-PT-1, Q-PT-3): the “While you wait” panel at the bottom left offers
-   “Verify a real battle in this browser” — your own clash, or the newest clash in a place you can see now — and the
-   report's “Verify in this browser” shows “Match”. With no such battle yet it offers a practice battle (not a chain
-   record) and its “Recompute in this browser”. The panel is built from your own records only, can be folded, and reads
-   nothing new from the chain. (This panel and the march-first guide arrive on the devnet page when its page files are
-   next updated; until then the page has the earlier guide.)
+3. Harvest, build and train in the village, muster a host and march. The guide at the top right leads you through
+   seven steps (“Guide 1/7” …): “First village”, “Build”, “Train troops”, “Form a host”, “March on a keep”, “Hold the
+   keep's tile for 72 turns”, “Take the province”. The screens work as in the local version, so [PLAY-LOCAL.md](PLAY-LOCAL.md)
+   §3 is your guide (but see step 4: the local page's guide is newer). In real time the host stands one turn after the
+   muster turn is settled (10–20 minutes) and the report of a march comes at the earliest about 30–40 minutes after it
+   leaves (two turns' walk at least, then the seals' window and the seed, about 12 minutes), so your own first report is
+   about an hour after you join. A march's report has “Verify in this browser”, which recomputes the clash in your
+   browser ([PLAY-LOCAL.md](PLAY-LOCAL.md) §3 step 7).
+4. **Not on the devnet page today.** The page code on main has newer parts that the devnet page does not have yet: the
+   march-first guide of eight steps (a nearby barbarian camp before the keeps; owner decision 2026-11-26, Q-PT-2), the
+   “While you wait” panel (verify a real battle or a practice battle in this browser within minutes; Q-PT-1, Q-PT-3),
+   the “World goals” card (below), “Claim a tile” turned off while land upkeep is unpaid, and notifications outside the
+   page with a calendar file. They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, step 7), §4.1 and §15. The devnet page gets them only when its page files are
+   updated, and that has not been decided yet. Until then the page works as written in this guide.
 
 Good to know:
 
@@ -110,7 +111,10 @@ Good to know:
   food it holds is taken and the land is unpaid; no tile can be claimed; after 24 unpaid turns (4 hours) the farthest
   tile goes back, one every turn (10 minutes), until the village pays a whole turn again (owner decision Q-LP17-1 (b),
   2026-11-25; the devnet world has had this rule from its start: the program was updated on 2026-11-26 before the
-  world was created).
+  world was created). While the land is unpaid, the village card says so under “Your land” (“Your land upkeep (food from
+  your first village) is unpaid. No new tile can be claimed. …”). “Claim a tile” can still be pressed on the devnet page,
+  but the page then stops before your wallet is asked: “Your land upkeep (your first village's food) is unpaid, so no new
+  tile can be claimed. Once food builds up again you can claim again.” (nothing is sent and nothing is paid).
 - **A new village is “Provisional” at first** (shown beside its name). While it is, “Claim a tile” still shows its cost
   and “Sign and claim”, but the claim is then refused with “The village is not confirmed yet.” (nothing is sent and
   nothing is paid). The program confirms the village on your own next act there once its turn's villages are placed:
@@ -132,13 +136,14 @@ Good to know:
   is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
   achieves one receives a prize. That is a plan and is not built: the devnet world has no prize.
   The design record is [design 01](../design/win-conditions/01-proposal.ja.md) (Japanese).
-- **World goals on the page (decision of 2026-11-26).** “Nation & territory” has a “World goals” card. Until the
-  goals are judged it says “Planned — not judged yet” and names the goal: capture a neutral keep or a Free City in the
-  wide land and hold it for 144 turns (24 hours). Free Cities cannot be taken yet in this world (the
-  devnet program has no Free City conquest), and the card says so. The judging is planned to run off chain (no money, nothing written
-  to the chain) from what the chain already records about each keep, including since when it has been held. When it
-  runs, the card says “Being judged” and shows your nation's flag keeps, the flag keeps in sight, and how many each
-  nation took or holds. No money is paid for a goal.
+- **World goals (decision of 2026-11-26): not on the devnet page today.** The devnet page has no “World goals” card, and no
+  judge of the goals runs for the devnet world. Both are merged on main (#260) and wait for the page update of step 4
+  and for the judge to be started; neither is decided yet. What main's card says on a devnet world: until the goals are
+  judged, “Planned — not judged yet” and the goal in words (capture a neutral keep or a Free City in the wide land and
+  hold it for 144 turns, 24 hours); that Free Cities cannot be taken yet in this world (the devnet program has no Free
+  City conquest); once a judge runs, “Being judged” with your nation's flag keeps, the flag keeps in sight, and how many
+  each nation took or holds. The judging would run off chain (no money, nothing written to the chain), from what the
+  chain already records about each keep. No money is paid for a goal.
 
 ## 6. When something goes wrong
 

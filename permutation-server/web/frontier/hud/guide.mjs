@@ -14,7 +14,7 @@ import { SCOUT, SETTLER } from '../fland.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { ringOf } from '../fgeo.mjs';
 import { conquestOn, waitOf, roughAt, choosableWait } from './keephand.mjs';
-import { campChoice } from './firstbattle.mjs';
+import { campChoice, campFights } from './firstbattle.mjs';
 import { viewTile } from '../map/fog.mjs';
 import { conquestObjective } from '../screens/conquestguide.mjs';
 
@@ -69,7 +69,8 @@ export function guideTarget(FS) {
     let best = null;
     for (const env of FS.provinces?.values() ?? []) {
       const pr = env.province, c = pr?.camp;
-      if (c?.state !== 1) continue;
+      // (fix-firstcamp: a camp in a province of 12 villages sits every battle out — never the guide's target)
+      if (c?.state !== 1 || !campFights(pr)) continue;
       const d = dist(pr, h) * 100 + ringOf(pr.p, pr.q);
       if (!best || d < best.d) best = { d, p: pr.p, q: pr.q, tile: c.tile };
     }
