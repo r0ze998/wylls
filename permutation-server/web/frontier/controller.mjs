@@ -2025,6 +2025,9 @@ export function applyMeResult(me) {
     const shown = ['ticket', 'provisional', 'final'].includes(after) || (Number.isInteger(FS.landRec?.lastTicketBell) && Number(me.citizen?.ticketBell) === FS.landRec.lastTicketBell);
     if (FS.landRec?.ticketSeen === false && shown) saveLandPatch({ ticketSeen: true });
     if (me.record?.quota) FS.quota = me.record.quota;
+    // (pt-notify: the herald's own alerts for this wallet in a conquest world — siege, keep contest, occupied, captured —,
+    //  in the answer already read; hud/notify.mjs tells them. Not a conquest world: no field, null)
+    FS.meAlerts = Array.isArray(me.record?.alerts) ? me.record.alerts : null;
     // ⑳: an NFT Citizen has no Frontier session (its owner's wallet signs every action; SetSession is refused for
     // it): there is no key to mend, and the wallet's own key is not held against it
     if (FS.resident) FS.sessionProblem = null;
@@ -5355,7 +5358,8 @@ export async function startPlay({ herald: h, cfg }) {
     tick: async () => {
       try {
         // Hidden: only the marchbook's self-reveal step (§4.2), not the full refresh.
-        if (hidden()) await revealTick(); else await refresh();
+        // (pt-notify: a player who turned notices on — app.mjs FS.notifyBackground: browser notifications or the title count — keeps the full read at the hidden pace)
+        if (hidden() && !FS.notifyBackground) await revealTick(); else await refresh();
         errors = 0;
       } catch (e) { errors++; console.error('frontier refresh:', e); }
     },

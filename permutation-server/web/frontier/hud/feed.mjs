@@ -186,7 +186,7 @@ function diffFeedNow(prev, next) {
     // A late resolution is still news. First loading history, or revealing an old
     // event after gaining sight, is not: remember records even while their tile is hidden.
     if (prev.territorySeen?.has(k) || !prev.territoryKnown?.has(`${c.p},${c.q}`)) continue;
-    out.push({ id: `tr:${k}`, kind: 'territory', bell: c.bell, p: c.p, q: c.q, tile: c.tile,
+    out.push({ id: `tr:${k}`, kind: 'territory', bell: c.bell, p: c.p, q: c.q, tile: c.tile, ...(c.mine ? {} : { lost: true }),
       text: c.mine ? (c.reason === 'battle' ? L`${named(c.names, c.name)}の戦いに勝ち、領地を獲得しました` : L`${named(c.names, c.name)}へ到着し、領地を獲得しました`) : L`${named(c.names, c.name)}の領地を失いました` });
   }
   if (prev.keeps && next.keeps) for (const [k, e] of next.keeps) {
@@ -237,7 +237,8 @@ function diffFeedNow(prev, next) {
     if (next.holdings.has(k)) continue;
     // a new request follows only when no village is left (re-check 6)
     const last = next.holdings.size === 0;
-    out.push({ id: `hg:${k}:${bell}`, kind: 'holding', bell, p: was.p, q: was.q, text: was.state === 2
+    // (`lost`: a final village taken — an attack, hud/notify.mjs —; a provisional one pushed out is not)
+    out.push({ id: `hg:${k}:${bell}`, kind: 'holding', bell, p: was.p, q: was.q, ...(was.state === 2 ? { lost: true } : {}), text: was.state === 2
       ? (last ? L`${village(was)}を失いました。村の申し込みを自動でもう一度出します。` : L`${village(was)}を失いました`)
       : (last ? L`仮の村（${village(was)}）は押し出されました。村の申し込みを自動でもう一度出します。` : L`仮の村（${village(was)}）は押し出されました`) });
   }
