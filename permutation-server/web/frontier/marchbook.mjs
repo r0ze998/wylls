@@ -212,6 +212,20 @@ export function reconcile(book, { transits = [], revealedHosts = [], complete = 
   });
 }
 
+/**
+ * (fix-loop24, BREAK-2/3) The entry of `book` that sealed the live transit `t` (`{slot, hostId, arriveBell, sealRoot}`):
+ * the same host, slot and arrival turn, and — when the transit names its seal root — the same seal root (then even an
+ * entry the send flow marked failed is the one: it landed anyway). Without a seal root only an entry not failed. null
+ * when none, or when two entries could be it. Pure: the caller reads the destination from the entry's own plaintext.
+ */
+export function entryOfTransit(book, t) {
+  if (!t || !Number.isInteger(t.slot) || !Number.isInteger(t.arriveBell)) return null;
+  const root = typeof t.sealRoot === 'string' && t.sealRoot !== '' ? t.sealRoot.toLowerCase() : null;
+  const all = (book ?? []).filter(e => e && e.transitSlot === t.slot && e.arriveBell === t.arriveBell && e.host === String(t.hostId)
+    && (root ? String(e.sealRoot_hex ?? '').toLowerCase() === root : e.state !== 'failed'));
+  return all.length === 1 ? all[0] : null;
+}
+
 /** Drop the oldest finished entries past MAX_ENTRIES (entries in flight are never dropped). */
 export function prune(book) {
   const done = e => e.state === 'settled' || e.state === 'failed';

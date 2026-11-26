@@ -214,14 +214,34 @@ function el(doc, tag, attrs = {}, text = null) {
 }
 
 /**
+ * (fix-loop24, loop-play24 BREAK-1) Where the chat may be shown now, from the page's own marks (app.mjs): never while
+ * the title stands (`body[data-title="up"]`, the aria-modal title card at z 50 — the panel opened under it, unseen, and
+ * the keyboard went in), and beside a wide document (a battle report, a practice battle: `body[data-doc="wide"]`) only
+ * when the screen has room for both side by side (frontier.css: the document moves left by the panel's width) — the
+ * panel stood over the practice sheet's result column. → `{toggle, panel}` booleans.
+ */
+export const CHAT_BESIDE_DOC_MIN = 1100;
+// (the toggle goes with the panel: a Chat button that could not open anything while a document stands would be a dead key)
+export function chatPlacement(body, width) {
+  const title = body?.dataset?.title === 'up', doc = body?.dataset?.doc === 'wide';
+  const can = !title && !(doc && !(Number(width) >= CHAT_BESIDE_DOC_MIN));
+  return { toggle: can, panel: can };
+}
+
+/**
  * Mount the chat: a toggle placed before `anchor` (the header's language box) and a panel in `host`. `state()` →
  * `{wallet, nation, world, program}` of the page (world = the page's pinned Season id, program its pinned program).
- * → `{stop, refresh}`. Nothing is drawn until the herald says the chat is on for this page's world.
+ * `placement()` → `{toggle, panel}`: whether each may be shown now (default chatPlacement of the page's body).
+ * → `{stop, refresh, changed, place}`. Nothing is drawn until the herald says the chat is on for this page's world.
  */
-export function installNationChat({ base = '', anchor, host, state, doc = globalThis.document, storage = globalThis.localStorage, fetch, WebSocket: WS = globalThis.WebSocket, timers = globalThis, every = 30_000 } = {}) {
-  if (!doc || !host) return { stop() {}, refresh() {} };
+export function installNationChat({ base = '', anchor, host, state, doc = globalThis.document, storage = globalThis.localStorage, fetch, WebSocket: WS = globalThis.WebSocket, timers = globalThis, every = 30_000,
+  placement = () => chatPlacement(doc?.body, doc?.defaultView?.innerWidth ?? globalThis.innerWidth) } = {}) {
+  if (!doc || !host) return { stop() {}, refresh() {}, changed() {}, place() {} };
   const client = createChatClient({ base, fetch, wallet: () => state().wallet, nation: () => state().nation });
   let info = null, messages = [], muted = new Set(), sock = null, poll = null, retry = null, stopped = false, open = false, unread = 0, lastId = null, reporting = null, busy = false;
+  // (fix-loop24, BREAK-1: `on` — the herald offers the chat for this page's world; `parked` — the player left it open and
+  //  the page now shows something it may not cover: set aside, and back when the page allows it again)
+  let on = false, parked = false;
 
   // the toggle (in the header strip, before the language box)
   const toggle = el(doc, 'button', { type: 'button', class: 'hud-btn nchat-toggle', id: 'nchat-toggle', 'aria-expanded': 'false', 'aria-controls': 'nchat-panel', hidden: true });
@@ -434,19 +454,40 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   const startPolling = () => { if (poll === null) poll = timers.setInterval(() => { if (client.token && (!sock || sock.readyState !== 1)) readAll(); }, every); };
 
   // opening and closing
-  function show(on) {
-    open = on;
-    panel.hidden = !on;
-    toggle.setAttribute('aria-expanded', on ? 'true' : 'false');
-    if (on) { unread = 0; labels(); (client.token ? text : (gateBtn.hidden ? title : gateBtn)).focus?.(); logBox.scrollTop = logBox.scrollHeight; }
-    else { labels(); toggle.focus?.(); }
+  // (fix-loop24, BREAK-1: the panel opens only where it can be seen — `placement()` —; the keyboard goes in only then, and
+  //  comes back to the toggle when the player closes it (or to the page's body when the toggle is not shown). Nothing
+  //  holds the keyboard inside: Tab leaves the panel as from any region)
+  const inside = () => { const a = doc.activeElement; return !!a && a !== doc.body && panel.contains?.(a); };
+  function show(want, { focus = true } = {}) {
+    const can = placement() ?? {};
+    const shown = !!want && on && can.panel !== false;
+    open = shown;
+    panel.hidden = !shown;
+    toggle.setAttribute('aria-expanded', shown ? 'true' : 'false');
+    if (doc.body?.dataset) { if (shown) doc.body.dataset.nchat = 'open'; else delete doc.body.dataset.nchat; }
+    if (shown) { unread = 0; labels(); if (focus) (client.token ? text : (gateBtn.hidden ? title : gateBtn)).focus?.(); logBox.scrollTop = logBox.scrollHeight; }
+    else { labels(); if (focus) { if (toggle.hidden) doc.activeElement?.blur?.(); else toggle.focus?.(); } }
   }
-  toggle.addEventListener('click', () => show(!open));
-  closeBtn.addEventListener('click', () => show(false));
+  /** Follow the page: the toggle and the panel as `placement()` allows now; an open panel set aside comes back. */
+  function place() {
+    if (stopped) return;
+    const can = placement() ?? {};
+    toggle.hidden = !(on && can.toggle !== false);
+    if (open && (!on || can.panel === false)) {
+      // (set aside, not closed: the keyboard is not pulled out of what the page just opened — the title focuses its own
+      //  button, a report its heading —; only a focus left inside the hidden panel is let go, to the page's body)
+      const had = inside();
+      parked = on;
+      show(false, { focus: false });
+      if (had) doc.activeElement?.blur?.();
+    } else if (parked && on && can.panel !== false) { parked = false; show(true, { focus: false }); }
+  }
+  toggle.addEventListener('click', () => { parked = false; show(!open); });
+  closeBtn.addEventListener('click', () => { parked = false; show(false); });
   panel.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     e.preventDefault();
-    if (reporting) { const id = reporting; reporting = null; drawLog(); backTo(id); } else show(false);
+    if (reporting) { const id = reporting; reporting = null; drawLog(); backTo(id); } else { parked = false; show(false); }
   });
   gateBtn.addEventListener('click', async () => {
     if (busy) return;
@@ -477,23 +518,29 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   async function refresh() {
     const r = await client.info();
     if (stopped) return;
-    if (!r.ok) { toggle.hidden = true; panel.hidden = true; return r; }
+    if (!r.ok) { on = false; parked = false; place(); return r; }
     const s = state();
     // (a herald of another world than the page's pin: never offered — nothing would be signed for the wrong world)
-    if (s.world === null || s.world === undefined || String(s.world) !== r.world || (s.program && s.program !== r.program)) { toggle.hidden = true; return r; }
+    if (s.world === null || s.world === undefined || String(s.world) !== r.world || (s.program && s.program !== r.program)) { on = false; parked = false; place(); return r; }
     info = { world: r.world, program: r.program };
     muted = loadMuted(storage, info);
-    toggle.hidden = false;
+    on = true;
+    place();
     labels();
     return r;
   }
   const offLang = onLangChange?.(() => labels()) ?? (() => {});
+  // (a window made narrower or wider moves the line between "beside the document" and "set aside")
+  const win = doc.defaultView ?? null, onResize = () => place();
+  win?.addEventListener?.('resize', onResize);
   refresh();
   return {
     refresh,
     /** The page's state changed (wallet, nation): a token of another wallet or nation is dropped. */
-    changed() { if (!client.token && sock) closeSocket(); labels(); },
-    stop() { stopped = true; closeSocket(); if (poll !== null) timers.clearInterval(poll); offLang(); toggle.remove(); panel.remove(); },
+    changed() { if (!client.token && sock) closeSocket(); labels(); place(); },
+    /** The page's screen changed (the title, a wide document): the toggle and the panel follow `placement()`. */
+    place,
+    stop() { stopped = true; closeSocket(); if (poll !== null) timers.clearInterval(poll); offLang(); win?.removeEventListener?.('resize', onResize); if (doc.body?.dataset) delete doc.body.dataset.nchat; toggle.remove(); panel.remove(); },
     get client() { return client; },
   };
 }

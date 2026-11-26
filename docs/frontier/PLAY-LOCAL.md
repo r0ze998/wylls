@@ -1346,11 +1346,15 @@ More → **Notifications (outside the page)**. Nothing here leaves the browser: 
   60 s, faster in a ×60 world) so it can tell you; nothing else changes for players who did not.
 - **Which events.** On by default: **attacked** (a siege on your village, your nation's keep contested or taken, a
   village or land of yours taken, a caravan or storehouse of yours raided or seized, a host of yours attacked where it
-  stood) and **battle report ready**. Off until you switch them on: an enemy host may reach your village, a host can
+  stood) and **battle report ready** (the result of every march of yours: a battle, or an arrival nobody fought; a march
+  to a keep or camp in a province without your village too, and each march of the same host). Off until you switch them on: an enemy host may reach your village, a host can
   march again, land upkeep unpaid, a keep capture complete. Only your own events the page already reads count (the
-  fog is the same).
+  fog is the same). A notice names a province one way, "Province -1,1" (a keep: "the keep of Province -1,1"), as the
+  march card and the report's text do (the report's title, the clash lists and the world timeline still name a province by its
+  side and ring, e.g. "Cinder side, ring 1").
 - **Calendar (.ics).** **Save calendar file** writes your coming timers — a host ready again, a march's arrival and
   its report, a keep your nation is taking (or one it holds that may fall), unpaid upkeep letting land go — into a
   file for the calendar app you choose (titles in English and Japanese). Times are estimates. Save and import it again
-  after plans change: the same events move. In a ×60 world the times are seconds or minutes away.
+  after plans change: the same events move. In a ×60 world the times are seconds or minutes away. A local world lists
+  your march from the turn you send it (the page reads where it goes from its own copy of the order).
 - Not yet: notifications when the browser is closed (Web Push, the next step; it needs a fixed public address).

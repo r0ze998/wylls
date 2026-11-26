@@ -195,7 +195,8 @@ test('the chronicle and the notifications: a turn for every number, a name for e
   assert.equal(texts.rv, '蛮族の野営地への進軍の封が開けられました');
   assert.equal(texts.rs, '蛮族の野営地の衝突が決着しました（ターン 43 の到着）');
   assert.equal(texts.st, '蛮族の野営地への進軍の結果を受け取れます');
-  assert.equal(texts.cl, `${name}の町のある州で戦いがありました（ターン 41）`);
+  // (fix-loop24, BREAK-4: a province in a notification is said one way, 「州 p,q」 / "Province p,q" — hud/place.mjs noticeProvince)
+  assert.equal(texts.cl, '州 2,0で戦いがありました（ターン 41）');
   assert.equal(texts.in, `ターン 44 に、${name}の町へ敵が来るかもしれません`);
   assert.equal(texts.bd, `伐採場が完成しました（${name}の町）`);
   assert.equal(texts.hf, `${name}の町が確定しました`);
@@ -203,9 +204,11 @@ test('the chronicle and the notifications: a turn for every number, a name for e
   assert.equal(feed.diffFeed(snap([h]), snap([{ ...h, tier: 1 }]))[0].text, `${name}の村が町になりました`);
   assert.equal(feed.diffFeed(snap([{ ...h, state: 2 }]), snap([]))[0].text, `${name}の集落を失いました。村の申し込みを自動でもう一度出します。`);
   assert.equal(feed.diffFeed(snap([h]), snap([]))[0].text, `仮の村（${name}の集落）は押し出されました。村の申し込みを自動でもう一度出します。`);
-  // a march whose destination this browser does not know: the province in words
-  assert.equal(feed.diffFeed(snap([h], [['7', { ...m, destName: null }]]), snap([h], [['7', { ...m, destName: null, revealed: true }]]))[0].text, 'アステル方面・第2輪の州への進軍の封が開けられました');
-  for (const x of [...out, ...feed.diffFeed(snap([h]), snap([]))]) assert.doesNotMatch(x.text, /第\d+鐘|州 -?\d|精算|入植希望|開封されました/, x.text);
+  // a march whose destination this browser does not know: the province, as every notification says one (fix-loop24, BREAK-4)
+  assert.equal(feed.diffFeed(snap([h], [['7', { ...m, destName: null }]]), snap([h], [['7', { ...m, destName: null, revealed: true }]]))[0].text, '州 1,1への進軍の封が開けられました');
+  // (fix-loop24, BREAK-4: a province in a notification is 「州 p,q」 now — one form with the march card and the report —,
+  //  so coordinates are allowed there and only there; a tile number never)
+  for (const x of [...out, ...feed.diffFeed(snap([h]), snap([]))]) assert.doesNotMatch(x.text.replace(/州 -?\d+,-?\d+/g, '州'), /第\d+鐘|州 -?\d|マス \d|精算|入植希望|開封されました/, x.text);
   setLang('en');
   assert.equal(chronicle.lineOf({ name: 'DEPART', host_id: host, origin_p: 2, origin_q: 0, arrive_bell: 43 }, FS), `A host from ${placeName(2, 0, 3).en} set out (arrives on turn 43)`);
   assert.equal(chronicle.lineOf({ name: 'CLASH', p: 1, q: 1, bell: 39 }, null), 'The clash on the Aster side (ring 2) was resolved');   // (rewritten with wave 3: a place inside a sentence reads as English)

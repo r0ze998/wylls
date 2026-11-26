@@ -113,7 +113,7 @@ test('B11: every notice diffFeed makes carries its words in every language, the 
     assert.doesNotMatch(x.words.en, JP);
   }
   // the loop-play2 lines, in both languages (the wording of each language as it was)
-  assert.match(items[0].words.en, /took the keep of province -2,4 from .+ \(turn 83\)/);
+  assert.match(items[0].words.en, /took the keep of Province -2,4 from .+ \(turn 83\)/);
   assert.match(items[0].words.ja, /^州 -2,4 の砦を .+ が .+ から奪った（第83ターン）$/);
   assert.match(items[1].words.ja, /^ターン 86 に、.+へ敵が来るかもしれません$/);
   // made in Japanese: the same words
@@ -143,7 +143,7 @@ test('B11: the list, the cards over the map and the turn\'s own list show a noti
   inLang('en', () => {
     const en = text(FEED.renderCentre(all));
     assert.match(en, /Turn 85 in brief: 1 attack warning · 1 keep/);
-    assert.match(en, /took the keep of province -2,4/);
+    assert.match(en, /took the keep of Province -2,4/);
     assert.doesNotMatch(en.replace(/州/g, ''), /まとめ|奪った|敵が来る/);
   });
   // a notice without words (an older one, or one from a producer that has none) keeps its text
@@ -261,7 +261,7 @@ test('B11 round 2: a march notice names its tile in the language of each run (sn
   const [a, b] = inLang('en', () => { FS.marches = [m('open', false)]; const s0 = FEED.snapshot(FS); FS.marches = [m('open', true)]; return [s0, FEED.snapshot(FS, undefined, s0)]; });
   assert.deepEqual(b.marches.get('9').destNames, { ja: '蛮族の野営地', en: 'Barbarian camp' });
   const [seal] = inLang('en', () => FEED.diffFeed(a, b));
-  assert.equal(seal.id, 'rv:9');
+  assert.equal(seal.id, 'rv:9@41');
   assert.match(seal.words.ja, /^蛮族の野営地への進軍の封が開けられました$/, 'Japanese words with the Japanese name');
   assert.match(seal.words.en, /^The seal of your march to the barbarian camp was opened$/);
 });

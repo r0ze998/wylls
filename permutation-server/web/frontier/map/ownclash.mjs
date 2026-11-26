@@ -34,7 +34,7 @@ import { createHerald } from '../herald.mjs';
 import { config } from '../config.mjs';
 import { bus as pageBus } from '../fx/bus.mjs';
 import { battleScene, BATTLE_SPEEDS, PHASE } from '../people/battle.mjs';
-import { provinceName } from '../hud/place.mjs';
+import { noticeProvince } from '../hud/place.mjs';
 import { said } from '../hud/words.mjs';
 
 const int = Number.isInteger;
@@ -89,7 +89,8 @@ export function ownClashText(fs, { p, q, bell }, part) {
   const stays = part.me.some(s => s.fate === 'Stays' && s.after !== 0);
   if (part.keep && part.keep.after === 0 && stays) return L`州 ${p},${q} の砦の守備兵を、あなたの軍勢が破りました。軍勢は砦のマスを押さえています（ターン ${fmtNum(bell)}）`;
   if (part.keep && Number.isFinite(part.keep.after)) return L`州 ${p},${q} の砦の守備兵と、あなたの軍勢が戦いました。守備兵は残り ${fmtNum(part.keep.after)}（ターン ${fmtNum(bell)}）`;
-  const where = provinceName(fs, p, q);
+  // (verify-pr270: a notice — the feed's `cl:` line — says a province one way, 「州 x,y」 / "Province x,y": hud/place.mjs noticeProvince)
+  const where = noticeProvince(p, q);
   return lost !== null ? L`${where}で、あなたの軍勢が戦いました（ターン ${fmtNum(bell)}・${fmtNum(lost)} 兵を失いました）` : L`${where}で、あなたの軍勢が戦いました（ターン ${fmtNum(bell)}）`;
 }
 
