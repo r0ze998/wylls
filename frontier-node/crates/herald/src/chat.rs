@@ -159,7 +159,7 @@ pub fn text_problem(t: &str) -> Option<&'static str> {
 
 /// Top-level names a "word.tld" is read as a link with (generic ones and the countries most used for short links).
 const TLDS: &[&str] = &[
-    "com", "net", "org", "io", "gg", "me", "co", "xyz", "app", "dev", "info", "biz", "jp", "ru",
+    "com", "net", "org", "io", "me", "co", "xyz", "app", "dev", "info", "biz", "jp", "ru",
     "cn", "uk", "de", "fr", "tv", "ly", "link", "site", "online", "top", "club", "shop", "live",
     "store", "tech", "pro", "fun", "icu", "vip", "win", "bid", "page", "art", "cc", "ws", "to",
     "sh", "ai", "gl", "us", "eu", "kr", "tw", "hk", "sg", "in", "br", "es", "it", "nl", "pl", "ch",
@@ -477,7 +477,6 @@ impl Chat {
                 if m.nation < NATIONS {
                     st.next_id = st.next_id.max(m.id + 1);
                     // (a restart keeps refusing replays of what is stored; pruned at the next post as usual)
-                    st.nonces.insert((m.wallet, m.nonce.clone()), m.turn);
                     st.nations[m.nation as usize].push_back(m);
                 }
             }
@@ -577,7 +576,7 @@ impl Chat {
         for m in st.nations.iter().flatten().filter(|m| &m.wallet == wallet) {
             if m.bell / BELLS_PER_DAY == day {
                 d += 1;
-                if m.bell == bell {
+                if m.turn == bell {
                     t += 1;
                 }
             }
@@ -591,7 +590,7 @@ fn prune(st: &mut Store, now: u64) -> usize {
     for q in st.nations.iter_mut() {
         while q
             .front()
-            .is_some_and(|m| now.saturating_sub(m.at_ms) >= KEEP_MS)
+            .is_some_and(|m| now.saturating_sub(m.at_ms) > KEEP_MS)
         {
             q.pop_front();
             n += 1;
@@ -693,7 +692,7 @@ pub fn check_token(w: &World, t: &Value, now_s: i64) -> Result<Reader, &'static 
     let expires = t["expires"].as_i64().ok_or("BadToken")?;
     let sig = sig_of(&t["signature"])?;
     // (checked arithmetic: a signed window like i64::MIN..i64::MAX must not wrap into a short one — verify-pr263)
-    let span = expires.checked_sub(issued).unwrap_or(i64::MAX);
+    let span = expires.wrapping_sub(issued);
     if expires <= issued || span > TOKEN_MAX_SECS || issued > now_s.saturating_add(TOKEN_SKEW_SECS)
     {
         return Err("BadTokenWindow");
@@ -849,7 +848,7 @@ pub fn post_checked(app: &Shared, chat: &Chat, v: &Value) -> Result<Msg, Refusal
     if t >= PER_TURN {
         return Err((StatusCode::TOO_MANY_REQUESTS, "TurnLimit"));
     }
-    if d >= PER_DAY {
+    if d > PER_DAY {
         return Err((StatusCode::TOO_MANY_REQUESTS, "DayLimit"));
     }
     let m = Msg {
