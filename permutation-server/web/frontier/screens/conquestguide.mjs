@@ -37,7 +37,10 @@ import { worldContinues } from '../clock.mjs';
 import { turnsLine } from '../seasonterms.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
-import { campChoice, earliestReportAt, ownReportDue } from '../hud/firstbattle.mjs';
+import { campChoice, campsSittingOut, earliestReportAt, reportEtaAt, ownReportDue, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
+import { planRoute } from '../fmarch.mjs';
+import { palisadeHexesOf } from '../s1walk.mjs';
+import { routeArrival } from './march.mjs';
 import { viewTile } from '../map/fog.mjs';
 import { dueText } from './shell.mjs';
 import { FLAG } from '../onboarding.mjs';
@@ -265,21 +268,74 @@ export function campStep(FS) {
   const who = unitCount(UNIT_ORDER[ready.unit], Math.floor(Number(ready.troops)));
   // (this page cannot send a march in this world: said as the keep step says it, and the step can be skipped)
   if (!marchOpenFor(FS)) return { text: L`${who}の軍勢が立ちました。${marchClosedText(FS)}${skip}`, go: { act: 'ob-skip', data: { step: 'camp' }, label: L`この手順を飛ばす` }, wait: null };
-  const c = campChoice(FS, ready, { seen: (p, q, t) => viewTile(p, q, t, 2), rough: (p, q, t) => roughAt(FS, p, q, t) });
-  const at = earliestReportAt(FS.clock, FS.nowBell, FS.season);
-  const eta = at !== null ? L`封をして出発すると、最初の戦いの報告は早くて${dueText(at, now)}に出ます。` : '';
+  const seen = (p, q, t) => viewTile(p, q, t, 2);
+  const c = campChoice(FS, ready, { seen, rough: (p, q, t) => roughAt(FS, p, q, t) });
+  // (fix-firstcamp, Q-LP22-1 (a): a camp in a province of 12 villages sits every battle out — the march there was a
+  //  non-battle, "Held", no losses — so the guide passes it by and says why)
+  const sitOut = c ? c.passed : campsSittingOut(FS, ready, { seen });
+  // (named by the viewer's own village where it has one: in --demo the camp passed by is in the home province)
+  const out = sitOut.length ? L`${provinceName(FS, sitOut[0].p, sitOut[0].q)}の野営地は近くにありますが、その州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っているため、戦いに加わりません（野営地が戦うのは、州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです）。` : '';
+  // the way there and when the march would arrive (tiles, provinces, the arrival turn and its wait in the report line's words), and
+  // the report expected after that arrival turn; without a route, the earliest a sealed march can be reported
+  const way = c ? campWay(FS, ready, c.camp) : null;
+  const at = way?.arrive ? reportEtaAt(FS.clock, way.arrive.bell) : earliestReportAt(FS.clock, FS.nowBell, FS.season);
+  const eta = at !== null ? (way?.arrive ? L`封をして出発すると、最初の戦いの報告は${dueText(at, now)}に出る見込みです。` : L`封をして出発すると、最初の戦いの報告は早くて${dueText(at, now)}に出ます。`) : '';
+  const road = way?.line ? L`道のり：${way.line}。` : '';
   if (c?.winnable) {
-    return { text: L`最初の戦いは、${provinceName(FS, c.camp.p, c.camp.q, { own: false })}の蛮族の野営地（守り手 ${fmtNum(c.camp.troops)}）にしましょう。いまの軍勢（${who}）なら、運が悪くても勝てる見込みです。${eta}報告は、このブラウザで計算し直して確かめられます。`,
+    return { text: out + L`最初の戦いは、${provinceName(FS, c.camp.p, c.camp.q, { own: false })}の蛮族の野営地（守り手 ${fmtNum(c.camp.troops)}）にしましょう。いまの軍勢（${who}）なら、運が悪くても勝てる見込みです。${road + eta}報告は、このブラウザで計算し直して確かめられます。`,
       go: { act: 'ob-go', data: {}, label: L`この野営地へ進軍を準備する` }, wait: null };
   }
   if (c) {
     const need = c.need ? L`${unitCount(UNIT_ORDER[ready.unit], c.need)} ほどにすると、運が悪くても勝てる見込みです。` : '';
     const chance = c.odds === 'even' ? L`勝ち目は五分です。` : L`勝ち目は低いです。`;
-    return { text: L`いちばん近い蛮族の野営地（${provinceName(FS, c.camp.p, c.camp.q, { own: false })}、守り手 ${fmtNum(c.camp.troops)}）を、いまの軍勢（${who}）で攻めると、${chance}${need}訓練で兵を足してから向かいましょう。${skip}`,
+    return { text: out + L`いちばん近い蛮族の野営地（${provinceName(FS, c.camp.p, c.camp.q, { own: false })}、守り手 ${fmtNum(c.camp.troops)}）を、いまの軍勢（${who}）で攻めると、${chance}${need}訓練で兵を足してから向かいましょう。${skip}` + road,
       go: { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }, wait: null };
+  }
+  if (sitOut.length) {
+    // only camps that sit battles out are in sight: a practice battle (pt-first-battle #261, screens/practice.mjs — said
+    // as practice, never a chain record) while the march looks further
+    return { text: L`見えている蛮族の野営地は、どれも村が ${fmtNum(CAMP_GARRISON_CAP)} 立つ州にあり、戦いに加わりません（野営地が戦うのは、州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです）。そのあいだに練習の戦い（チェーンの記録ではありません）で戦い方を確かめられます。「進軍」で地図のマスを押すと、着いたあたりが見えて、ほかの野営地が見つかります。${skip}`,
+      go: { act: 'practice-open', data: {}, label: L`練習で戦う` }, wait: null };
   }
   return { text: L`見えている蛮族の野営地はありません。「進軍」で地図のマスを押すと、着いたあたりが見えるようになります。${skip}`,
     go: { act: 'cg-go', data: { pop: 'march', host: String(ready.id) }, label: L`進軍で地図から選ぶ` }, wait: null };
+}
+
+/** The last route the camp step asked the rules for (one at a time: the step is drawn on every render). */
+let campRouteMemo = null;
+/**
+ * (fix-firstcamp) The way from host row `r` to `camp`: `{line, arrive}` — the order card's row (tiles,
+ * provinces, the arrival turn and the wait until it begins) and the arrival `{bell, inSecs}` (screens/march.mjs
+ * routeArrival) — or null while the rules module is not loaded or no route is found. The rules' planner, the same
+ * call the march card makes (palisades avoided as there); the card asks again when the order is written.
+ */
+export function campWay(FS, r, camp) {
+  if (!FS?.kernel || !r || !camp || !Number.isInteger(r.tile)) return null;
+  const rings = FS.record?.rings ?? [];
+  const key = `${r.id}|${r.p},${r.q},${r.tile},${r.unit}|${camp.p},${camp.q},${camp.tile}|${rings.length}|${FS.nowBell ?? ''}`;
+  if (campRouteMemo?.key !== key) {
+    let route = null;
+    try {
+      let blocked = [];
+      try { blocked = palisadeHexesOf(FS); } catch { blocked = []; }
+      const x = planRoute(FS.kernel, { from: { p: r.p, q: r.q, tile: r.tile }, to: { p: camp.p, q: camp.q, tile: camp.tile }, unit: r.unit,
+        seeds: rings.map(g => ({ ring: g.d, seed: g.seed })), blocked });
+      route = x?.ok ? x.route : null;
+    } catch { route = null; }
+    campRouteMemo = { key, route };
+  }
+  const route = campRouteMemo.route;
+  if (!route) return null;
+  let arrive = null;
+  try { arrive = routeArrival(FS, route); } catch { arrive = null; }
+  // (the wait is said by shell.mjs dueText, as the report time beside it: on a TEST clock it adds the real time. The
+  //  keep list's keepRouteLine says it by march.mjs waitWords, which knows only the --demo clock (FS.localPlay
+  //  .clockScale): in a --wide ×60 world it said "about 13 min" for 13 real seconds)
+  const now = FS.chain?.now?.() ?? null;
+  const n = route.hexes, pv = route.provinces?.length ?? 1;
+  const t = arrive ? L`到着はターン ${fmtNum(arrive.bell)}（${dueText(Number(now) + arrive.inSecs, now)}）` : '';
+  const head = n === 1 && pv === 1 ? L`1 マス · 1 州 · ${t}` : pv === 1 ? L`${n} マス · 1 州 · ${t}` : L`${n} マス · ${pv} 州 · ${t}`;
+  return { line: t ? head : '', arrive };
 }
 
 /** The current step as the one "next thing": `{id, n, total, title, text, go: {act, data, label} | null}`; null when every step is done. */

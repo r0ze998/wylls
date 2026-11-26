@@ -2745,6 +2745,12 @@ export default {
   "{0} ほどにすると、運が悪くても勝てる見込みです。": "With about {0} it should win even with bad luck.",
   "いちばん近い蛮族の野営地（{0}、守り手 {1}）を、いまの軍勢（{2}）で攻めると、{3}{4}訓練で兵を足してから向かいましょう。{5}": "If your host ({2}) attacks the nearest barbarian camp ({0}, {1} defenders), {3}{4} Train more troops before you go. {5}",
   "見えている蛮族の野営地はありません。「進軍」で地図のマスを押すと、着いたあたりが見えるようになります。{0}": "No barbarian camp in sight. Use \"March\" and press a tile on the map: the land around where you arrive comes into sight. {0}",
+  // fix-firstcamp (Q-LP22-1 (a)): camps in provinces of 12 villages sit battles out
+  "{0}の野営地は近くにありますが、その州には村が {1} 立っているため、戦いに加わりません（野営地が戦うのは、州の村が {2} 未満のときだけです）。": "The camp of {0} is nearer, but {1} villages stand in its province, so it does not join battles (a camp fights only while fewer than {2} villages stand in its province). ",
+  "封をして出発すると、最初の戦いの報告は{0}に出る見込みです。": "Seal and depart, and the first battle report is expected {0}.",
+  "道のり：{0}。": "The way there: {0}. ",
+  "見えている蛮族の野営地は、どれも村が {0} 立つ州にあり、戦いに加わりません（野営地が戦うのは、州の村が {1} 未満のときだけです）。そのあいだに練習の戦い（チェーンの記録ではありません）で戦い方を確かめられます。「進軍」で地図のマスを押すと、着いたあたりが見えて、ほかの野営地が見つかります。{2}": "Every barbarian camp in sight stands in a province of {0} villages, so none of them joins a battle (a camp fights only while fewer than {1} villages stand in its province). Meanwhile you can try a practice battle (not a chain record). Use \"March\" and press a tile on the map: the land around where you arrive comes into sight, with other camps. {2}",
+  "ここの蛮族の野営地（{0}）は戦いに加わりません。この州には村が {1} 立っていて、野営地が戦うのは州の村が {2} 未満のときだけです。": "The barbarian camp here ({0}) does not join the battle: {1} villages stand in this province, and a camp fights only while fewer than {2} villages stand.",
   "最初の進軍が向かっています。報告は{0}に出る見込みです。待つあいだに、": "Your first march is on its way; its report is expected {0}. While you wait, ",
   "{0}村を選び、「建てる」から建物を選びます。建物は毎時の産出を増やし、次の軍勢の兵を養います。": "{0}select the village and choose a building with \"Build\". Buildings raise the hourly output and feed your next host's troops.",
   "練習の戦い（チェーンの記録ではありません）：「衝突を試す」を押し、結果の下の「このブラウザで計算し直す」で、同じ結果になることを確かめます。": "Practice battle (not a chain record): press \"Run the clash\", then \"Recompute in this browser\" under the result to see that it gives the same result.",
