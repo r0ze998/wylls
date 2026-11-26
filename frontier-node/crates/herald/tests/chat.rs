@@ -971,7 +971,10 @@ async fn n9_adversarial_limits_replay_and_tokens() {
     assert_eq!((s, code(&v)), (401, "BadSignature"));
     // a replay after a restart (same turn, the signer under its limit)
     let b = post_body(&w, &c.b1, &c.b1, 4, BELL0, &nonce(301), "once");
-    assert_eq!(http(w.port, "POST", "/h/chat/post", &[], Some(&b)).await.0, 200);
+    assert_eq!(
+        http(w.port, "POST", "/h/chat/post", &[], Some(&b)).await.0,
+        200
+    );
     let w2 = world_in(&dir, true, None, clock.clone()).await;
     let _ = cast(&w2);
     let (s, _, v) = http(w2.port, "POST", "/h/chat/post", &[], Some(&b)).await;

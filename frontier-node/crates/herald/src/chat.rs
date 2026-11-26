@@ -687,7 +687,8 @@ pub fn check_token(w: &World, t: &Value, now_s: i64) -> Result<Reader, &'static 
     let sig = sig_of(&t["signature"])?;
     // (checked arithmetic: a signed window like i64::MIN..i64::MAX must not wrap into a short one — verify-pr263)
     let span = expires.checked_sub(issued).unwrap_or(i64::MAX);
-    if expires <= issued || span > TOKEN_MAX_SECS || issued > now_s.saturating_add(TOKEN_SKEW_SECS) {
+    if expires <= issued || span > TOKEN_MAX_SECS || issued > now_s.saturating_add(TOKEN_SKEW_SECS)
+    {
         return Err("BadTokenWindow");
     }
     if expires <= now_s {
