@@ -117,8 +117,9 @@ move only once its turn is settled: about 17 minutes later).
 
 1. **Join**: "Start the world (a kept world resumes)" (with `--demo`: "Start a new world") → "Choose a nation" → pick a flag, then
    press "Join (nation)". The first village is placed for you. No key card and no wallet prompt appears.
-2. **Village**: "This is your village." means it worked. Look at "Ore +2" above the map. A village with
-   "No ore from the land" can only grow to about 600 troops.
+2. **Village**: "This is your village." means it worked. The bar above the map shows food and wood; "N more" opens the
+   rest, with each good's rate (e.g. "Ore" "+4 per hour"; loop-play21). A village with
+   "No ore from the land" can only grow to about 600 troops (on the standard map every auto-placed first village in loop-play21 was one: 4 of 4).
 3. **Build**: "Choose your first building" → the farm's "Build". It finishes in about one (in-game) minute.
 4. **Train**: "Train" in the bottom bar → "Max 500" → "Train 500 Spearmen". It finishes at once.
 5. **Muster**: "Form a host" in the bottom bar (or the guide at the top right when it says "Form a host") → "All" (the whole reserve when the order goes, including a training batch that lands after the card opened; fix-loop9 LP9-5) →
@@ -132,9 +133,13 @@ move only once its turn is settled: about 17 minutes later).
    says "Check your host's readiness" or "See the keeps in reach", the host is mustered.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
-   Each row says when a march sent now would arrive, in the order card's words: "13 tiles · 3 provinces · arrives turn 36 (in about 28 s on the test clock)"
+   The card the guide opens, "March on a keep · N keeps in reach", gives each row's arrival as "Turn 22 · arrival (13 tiles)"; the
+   order card then says the wait, "Turn 23 · in about 32 s on the test clock" (loop-play21). The keep rows under "Nation & territory"
+   say both in one line: "13 tiles · 3 provinces · arrives turn 36 (in about 28 s on the test clock)"
    (at the natural clock "… arrives turn 6 (in about 48 min)"). A march arrives when its arrival turn begins, so this is longer than the walk itself
    (before fix-loop15 the row said the walk's time, "about 40 min", beside an order card saying "in about 48 min": loop-play15 LP15-9).
+   The arrival turn can move on by one or two while the card is open or the send waits for the province (loop-play21: row turn 22,
+   card turn 23, "It arrives on turn 24" after the wait).
    While the province is settling, the same order is sent once, as soon as it can be. "The first march" means it left.
    - In a kept world that has just started (a turn is 10 min), a press at the start of turn 2 shows "Finding the keeps you can reach…"
      and "In a world that has just started, the list of keeps in reach appears once the first turn's results are all in (a few minutes)." until the world's first
@@ -161,7 +166,8 @@ move only once its turn is settled: about 17 minutes later).
      The host is at the village, the guide goes back to "Guide 4/7", and "Try again" reopens the march card: press
      "Send this order" again (#193, #200; verify-pr193 and verify-pr200 played both in English and Japanese). What is
      left: once the 2 minutes are over, no button asks again (§8.1).
-7. **Check the clash**: on the arrival turn "Clash … A clash was resolved" appears. "Report" → "Verify in this browser";
+7. **Check the clash**: a turn or two after the arrival turn the notice "The clash on the (place) is resolved (arrivals of turn N)"
+   appears, with "View" and "Report". "Report" → "Verify in this browser";
    "Match: the outcome recomputed in this browser is the chain's record" means it was recomputed and agrees.
    The same in a `--coexist` world (it answered "Could not check (a record is missing)" there until fix-loop14, LP14-4).
    A report whose record does not say what was left of a side — an older turn of a host standing on a keep's tile:
