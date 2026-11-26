@@ -1354,5 +1354,6 @@ More → **Notifications (outside the page)**. Nothing here leaves the browser: 
   file for the calendar app you choose (titles in English and Japanese). Times are estimates. Save and import it again
   after plans change: the same events move. In a ×60 world the times are seconds or minutes away. The report time is
   the one the "While you wait" panel shows (the turn's end, the reveal window, the seed margin and about a minute). In a
-  faster world the page gives no times until it knows how fast the clock runs (the Calendar section says "Measuring how fast this world's clock runs").
+  fast world whose pace the page does not know yet (the launcher states it, so its worlds give times at once), the page
+  gives no times (the Calendar section says "Measuring how fast this world's clock runs").
 - Not yet: notifications when the browser is closed (Web Push, the next step; it needs a fixed public address).
