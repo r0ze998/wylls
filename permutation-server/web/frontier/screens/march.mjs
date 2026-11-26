@@ -102,7 +102,9 @@ export function composerMarch(FS, arrival = composerArrival(FS)) {
  * 2026-11-14); there the wait is said in the wall's own time and named the test clock. Every other world: as it was.
  */
 export function waitWords(FS, gameSecs) {
-  const k = FS?.localPlay?.clockScale;
+  // (fix-loop22: and a --wide TEST world's stated clock — `FS.localPlay.wideLand.scale`, what app.mjs setTermsPace reads —:
+  //  its order card said "in about 15 min" for 15 real seconds at ×60)
+  const k = Number.isInteger(FS?.localPlay?.clockScale) ? FS.localPlay.clockScale : FS?.localPlay?.wideLand?.scale;
   if (!(Number.isInteger(k) && k > 1)) return L`約 ${fmtNum(Math.max(1, Math.round(gameSecs / 60)))} 分後`;
   const s = Math.max(1, gameSecs / k);
   return s < 90 ? L`試験の時計で約 ${fmtNum(Math.round(s))} 秒後` : L`試験の時計で約 ${fmtNum(Math.round(s / 60))} 分後`;

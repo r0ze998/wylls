@@ -2697,11 +2697,11 @@ export default {
   "練習の結果の要約": "Practice outcome digest",
   "このブラウザで計算し直す": "Recompute in this browser",
   // (fix-loop22, LP22-4: the keep list and the march card say the same thing as the rules' forecast)
-  "ルールで {0} 回試し、{1} 回マスに残った目安です": a => `A guide from the rules: ${plural(a, 'tried {0} time', 'tried {0} times')}, stayed on the tile {1}`,
+  "ルールで {0} 回試し、{1} 回マスに残った目安です": a => `A guide from the rules: it stayed on the tile in {1} of ${plural(a, '{0} try', '{0} tries')}`,
   "到着したときの体力は {0} の見込みです。{1} 未満なので疲れた状態で攻め、与える打撃が下がります（予測はこれを含みます）。体力を回復してから出ると強く戦えます。": "It should arrive with {0} stamina. Under {1} it attacks exhausted and its blows are weaker (the forecast counts this). Setting out after it has rested makes it fight at full strength.",
   "軍勢あり": "Hosts there",
   "{0} がマスにいます。勝ち目は命令の予測で": "{0} on the tile; see the order's forecast for the odds",
-  "疲れて着く（体力 {0}）。{1}": "arrives tired (stamina {0}). {1}",
+  "疲れて着く（体力 {0}）。{1}": "arrives tired (stamina {0}); {1}",
   "それでも残れる見込み": "should still hold",
   "体力を回復してから": "rest it first",
 };

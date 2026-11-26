@@ -160,7 +160,7 @@ test('LP22-4 the card\'s outlook word is the forecast\'s once it is there (never
   assert.equal(MC.forecastOdds({ ok: false }), null);
   const fc = fates => ({ ok: true, runs: 12, troops: { min: 1, max: 2, start: 3 }, fates });
   assert.equal(MC.forecastOdds(fc({ Stays: 12 })).id, 'strong');
-  assert.equal(MC.forecastOdds(fc({ Stays: 7, Retreated: 5 })).id, 'edge');
+  assert.equal(MC.forecastOdds(fc({ Stays: 10, Retreated: 2 })).id, 'even', 'the list\'s "Even" for the same march (×60 check)');
   assert.equal(MC.forecastOdds(fc({ Stays: 2, Retreated: 10 })).id, 'even');
   assert.equal(MC.forecastOdds(fc({ Bounced: 12 })).id, 'bad');
   assert.ok(src('hud/marchcard.mjs').includes('(def.total ? forecastOdds(forecastNow(c)) : null) ?? oddsWord(c.host.troops, def.total)'));
@@ -189,7 +189,7 @@ test('LP22-4 the keep list reads the keep the card reads (not the cached reach c
   assert.equal(o.stamina, 5);
   assert.match(KH.oddsText(o, 0).line, /疲れて着く（体力 5）/);
   setLang('en');
-  assert.match(KH.oddsText(o, 0).line, /^arrives tired \(stamina 5\)\. /);
+  assert.match(KH.oddsText(o, 0).line, /^arrives tired \(stamina 5\); (should still hold|rest it first)$/);
   assert.equal(KH.oddsText({ odds: 'hosts', hosts: [{ faction: 4, troops: 289 }] }, 0).word, 'Hosts there');
 });
 
@@ -239,4 +239,11 @@ test('LP22-4 the guide acknowledges the lost keep march after its row is gone (n
   assert.equal(conquestFacts({ ...FS, ownClashes: [] }).marched, true);
   // a new march sealed to the same keep is a new try
   assert.equal(conquestFacts({ ...FS, orders: [order, { ...order, arriveBell: 130 }] }).repelled, null);
+});
+
+test('fix-loop22 a --wide TEST world\'s order card says its waits on the test clock too (it said "in about 15 min" for 15 s)', async () => {
+  const { waitWords } = await import('../../permutation-server/web/frontier/screens/march.mjs');
+  assert.equal(waitWords({ localPlay: { wideLand: { scale: 60 } } }, 900), '試験の時計で約 15 秒後');
+  assert.equal(waitWords({ localPlay: { clockScale: 30, wideLand: { scale: 60 } } }, 900), '試験の時計で約 30 秒後', 'the demo\'s own word first');
+  assert.equal(waitWords({ localPlay: {} }, 900), '約 15 分後');
 });

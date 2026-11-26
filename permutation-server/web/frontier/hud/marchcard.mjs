@@ -100,13 +100,15 @@ export function oddsWord(mine, theirs) {
 /**
  * (fix-loop22, LP22-4) The outlook word from the rules' forecast (hud/forecast.mjs: the clash resolved by the rules'
  * own module, the arrival stamina as the chain counts it): the share of tries in which the host stays on the tile —
- * every one 「優勢」, half or more 「やや優勢」, some 「互角」, none 「不利」 — with `forecast: true`; null without a
+ * every one 「優勢」, some 「互角」, none 「不利」 — with `forecast: true`; null without a
  * forecast (then `oddsWord`'s troop ratio is the guide, and says so).
  */
 export function forecastOdds(fc) {
   if (!fc?.ok || !(fc.runs > 0)) return null;
   const stays = Number(fc.fates?.Stays ?? 0), k = stays / fc.runs;
-  const w = k >= 1 ? { id: 'strong', text: L`優勢` } : k >= 0.5 ? { id: 'edge', text: L`やや優勢` } : k > 0 ? { id: 'even', text: L`互角` } : { id: 'bad', text: L`不利` };
+  // (the keep list's three words — good / even / poor, hud/keephand.mjs oddsText — on the same scale: every try → 「優勢」,
+  //  some → 「互角」, none → 「不利」; a ×60 check had the list say "Even" and the card "Slight edge" of one march)
+  const w = k >= 1 ? { id: 'strong', text: L`優勢` } : k > 0 ? { id: 'even', text: L`互角` } : { id: 'bad', text: L`不利` };
   return { ...w, forecast: true, stays, runs: fc.runs };
 }
 
