@@ -1,6 +1,7 @@
 # Play it locally and check it yourself (TEST only, one command)
 
-How to check the playable version (expeditions, wide land, keep capture) on your own Mac before it goes to devnet.
+How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
+(its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
 Matches main as of 2026-11-26 (through #244 and #243). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
@@ -498,7 +499,8 @@ say so.
      "You already have 3 villages." and its rows keep "Claim a tile" only).
    - A province where a wide village of yours stands stays on the card as its own row, "Province (P, Q) your village stands here",
      with "Claim a tile" only (no second village there): the land around your own village can be claimed from the page
-     (loop-play15, #223; before, that row and its button were gone).
+     (loop-play15, #223; before, that row and its button were gone). Local worlds only: the devnet page leaves this row
+     out today, so there the province of your wide village has no row at all (PLAY-DEVNET.md §5).
 5. **Upkeep.** Your land costs food, taken from your **first village's** stores by the world's keeper, about once a turn:
    - 0.99 food an hour for each tile;
    - plus 0.48 food an hour for each province a tile lies beyond 3 from your nearest own village (the first village or
@@ -687,11 +689,11 @@ view (fog-devnet; runbook §7 P5).
 |---|---|---|
 | Program | a local-only `.so` (program id `[0x45; 32]`, never deployable) | the devnet `.so` (another build; the local features are not in it) |
 | Centre | **none** (the world's own rule byte `centre` = 1) | the presets keep the centre (the `CENTRE_PLAYABLE` switch is r0ze's) |
-| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | the wide preset `S1_DEVNET_WIDE_7D` also from a Hamlet (0 since #104); `S1_LOCAL_7D` from a Town (1) |
+| Village that may claim wide land | from a Hamlet (`--wide` only: `outpost_tier_min` = 0) | also from a Hamlet: the devnet world's preset `S1_DEVNET_TERRITORY` is built on the wide preset `S1_DEVNET_WIDE_7D` (0 since #104); `S1_LOCAL_7D` from a Town (1) |
 | First village on the rim, wide villages | test participants settle first in the setup; the keeper settles the claim | done in #104 (the keeper's rings role opens the rim provinces, its tickets role settles the request); keeper A's `wide-tickets` role settles wide claims (#107). After the Join, the devnet page waits up to 180 s for your own record to appear before it files the rim village (#172; past that, "Check again"; checked offline) |
 | Expedition rim → wide land | works (the 0x4804 expedition, #92) | the same instructions are in it; the departure is sent from the same card of the devnet page, paid by the connected wallet ("Review what will be sent" → "Sign with the wallet and send"; #129, runbook §7 P15). Keeper A's `expeditions` role sends every step after the departure (#121) and its `wide-resolve` role keeps the wide provinces resolved turn by turn (#129). All checked offline |
-| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | built, not played there yet: the new devnet world's profile opens every wide keep unowned (preset `S1_DEVNET_TERRITORY`, keep holder `NeutralTerritoryV1`, `scripts/devnet/devnet-new-world-profile.json`); the devnet world is not created yet |
-| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | built, not played there yet: the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221, checked on a local chain by P18); the devnet world is not created yet |
+| Neutral wide land, reach from the nation's land, land opening where nations go (#206) | every `--wide` world (§4.1) | in the devnet world created on 2026-11-26: every wide keep starts unowned (preset `S1_DEVNET_TERRITORY`, keep holder `NeutralTerritoryV1`, `scripts/devnet/devnet-new-world-profile.json`), and the program on devnet has #206 (updated 2026-11-25 and 2026-11-26). Played end to end on a local chain with that world's own build (world3-local-replica, 2026-11-26) |
+| Your own land: tile claims, upkeep, decay, tiles moving with a keep (#209) | every `--wide` world (§4.1); the launcher's keeper loop settles upkeep, decay and the moves | in the devnet world created on 2026-11-26, with the unpaid-upkeep rule of #243 (§4.1 step 6): the devnet page has the tile claim (with a cost preview in ore and SOL before you sign) and keeper A settles upkeep, decay and the moves (#221). The row "your village stands here" (§4.1 step 4) is not on the devnet page. Played on a local chain with that world's own build (world3-local-replica, 2026-11-26) |
 | March wide → wide, capture of a wide keep | works (the local-only feature `localnet-wide-depart`, #94) | **closed** (WideDepart) |
 | Clock | can run ×10–×60 (a TEST clock) | the natural speed only |
 | Opening a march's seal, clash, settlement, keep capture | the keeper loop inside the launcher (TEST machinery; the keeper program is not run) | keeper A's roles (#118, #122). A held keep is resolved every turn and taken after exactly 72 (#120; #160 ran a capture by a 72-turn hold and a march there and back offline on the devnet `.so`; 12 hours of real time) |
