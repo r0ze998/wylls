@@ -456,8 +456,9 @@ this section describes what the program does today, and none of it is a promise 
   Design: docs/design/expansion/01-reach-from-land.md
 
 **Your own land: follow these presses (#209).** You need a confirmed rim village (§4 step 1) with 10 ore in its stores.
-A new village is "Provisional" at first: "Claim a tile" still shows its cost and "Sign and claim", and the claim is then
-refused with "The village is not confirmed yet." (nothing is sent). The program confirms the village on your own next
+A new village is "Provisional" at first: "Claim a tile" can still be pressed, and the press is then refused: the notice says
+"That did not work" with "The village is not confirmed yet." (nothing is sent; on devnet the press first shows the cost and
+"Sign and claim", and the refusal comes after you sign, PLAY-DEVNET.md). The program confirms the village on your own next
 act there once its turn's villages are placed (in world3-local-replica one "Harvest" did it at once); the page does not
 say so.
 (In verify-pr206-209's world the rim village made 26 ore an hour; an hour is one minute at ×60. A village with

@@ -62,7 +62,8 @@ value; no in-game key is made).”
 - Each figure was measured on a local chain at devnet's rent rate (5,080 lamports per byte), not on devnet itself.
   If devnet's rent rate changes, the rent parts change with it. On 2026-11-26 a local chain running the devnet
   world's own build charged a new wallet exactly these amounts (join 0.0026, first village 0.0072, first tile
-  0.00634484, later tiles 0.000005, a wide-land village 0.0091), each the same as the page's preview to the lamport.
+  0.00634484, later tiles 0.000005, a wide-land village 0.0091); the first tile's charge was the page's cost preview
+  to the lamport.
 - In the dress rehearsal the busiest page spent 0.0173 SOL without the wide land, and 0.0366 SOL with one village on
   the wide land.
 - Your wallet's confirmation shows what you pay before you send. Cards such as the expedition's take two presses,
@@ -76,7 +77,7 @@ value; no in-game key is made).”
    “Back to the Frontier”). The nation screen says “To begin, connect a wallet first.” with one button per wallet, named by the wallet (for example
    “Phantom”): press yours. Then press a nation's card and “Join <nation>” (for example “Join Dunmar”).
 2. That one press asks your wallet for **two signatures**: first the Join (your resident record, 0.0026 SOL), then
-   the request for your first village (its record, 0.0072 SOL). They are two separate commands of the program, and on
+   your first village (a heartland village, or the request for a rim village; its record, 0.0072 SOL). They are two separate commands of the program, and on
    devnet your wallet signs each command itself, so it asks twice. The second comes once the page sees your join,
    which can take tens of seconds (“Waiting for the record…”; no need to press again. If it has not shown after
    180 seconds, press “Check again”; nothing is sent twice).
