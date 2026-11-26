@@ -5570,6 +5570,10 @@ export async function boot() {
         // (fix-loop13, LP13-9: an achievement is also a feed line — a notice when it happens while the page is open)
         let goalsFirst = true;
         const goalNews = b => { const items = worldGoals.achievementNews(FS, b, { first: goalsFirst }); if (!items) return; goalsFirst = false; if (items.length) { FS.feed = feed.pushFeed(FS.feed ?? [], items); renderFeed(); } };
+        // (pt-world-goals-devnet: a devnet page reads its relay's off-chain judge, /gw/f/goals/state, once a minute; the card
+        //  shows the goals as planned until a good answer comes — a relay without the judge answers 404 and is not asked again)
+        const goalsDevnet = !cfg.localPlay && worldGoals.devnetGoalsPage(FS);
+        if (goalsDevnet && !goalsBase) { try { worldGoals.installWorldGoals({ base: worldGoals.DEVNET_GOALS_BASE, every: worldGoals.DEVNET_GOALS_EVERY_MS, changed: b => { invalidate('panel'); try { goalNews(b); } catch (e) { console.error('frontier world goals news:', e); } } }); } catch (e) { console.error('frontier world goals:', e); } }
         if (goalsBase) { try { worldGoals.installWorldGoals({ base: goalsBase, changed: b => { invalidate('panel'); mapRef?.keeps?.setGoalFlags?.(worldGoals.mapFlags(FS, b)); try { goalNews(b); } catch (e) { console.error('frontier world goals news:', e); } } }); } catch (e) { console.error('frontier world goals:', e); } }
         if (!started.play) {
           started.play = true;
