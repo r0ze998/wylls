@@ -1,7 +1,7 @@
 # Play on devnet (for players, a test)
 
 The playable version of Wylls (villages, marches, keep capture, the wide land) went out on Solana **devnet** on
-2026-11-23. **The world is not created yet, so nobody can join today**; the date will be announced.
+2026-11-23. **Its world was created on 2026-11-26 and you can join it now** (the title page says “World no. 3”).
 Devnet is a test network: the SOL used here has no value and no real money is involved.
 Japanese: [PLAY-DEVNET.ja.md](PLAY-DEVNET.ja.md). To play on your own Mac only, see [PLAY-LOCAL.md](PLAY-LOCAL.md).
 
@@ -9,7 +9,7 @@ Japanese: [PLAY-DEVNET.ja.md](PLAY-DEVNET.ja.md). To play on your own Mac only, 
 |---|---|
 | Network | Solana devnet (not mainnet) |
 | Program id | `GGFRJr9dwzq5g4Dj4w1gN9DdSwhVz1McfUGtekiECMrr` |
-| Can be joined from | **not yet: the world is not created.** The date will be announced (the creation planned for 2026-11-25 was postponed on 2026-11-24; the world is created after a rules update) |
+| Can be joined from | **now.** The world was created on 2026-11-26 (12:14 JST), after the rules update of the same day |
 | World length | **it does not end** (a continuous world); you can join at any time. One turn is 10 minutes; there is no fast clock |
 | Devnet SOL to hold | **about 0.05 SOL**, or **0.1 SOL** if you go to the wide land |
 
@@ -73,8 +73,8 @@ value; no in-game key is made).”
 
 ## 5. How a game goes
 
-1. Open the page and press “Choose a nation” (a wallet that has already joined sees “Back to your village” or
-   “Back to the Frontier”). The nation screen says “To begin, connect a wallet first.” with one button per wallet, named by the wallet (for example
+1. Open the page. The title page shows the six nations, the world's number (“World no. 3”) and one button: press
+   “Choose a nation” (a wallet that has already joined sees “Back to your village” or “Back to the Frontier”). The nation screen says “To begin, connect a wallet first.” with one button per wallet, named by the wallet (for example
    “Phantom”): press yours. Then press a nation's card and “Join <nation>” (for example “Join Dunmar”).
 2. That one press asks your wallet for **two signatures**: first the Join (your resident record, 0.0026 SOL), then
    your first village (a heartland village, or the request for a rim village; its record, 0.0072 SOL). They are two separate commands of the program, and on
@@ -98,7 +98,8 @@ Good to know:
   [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1. In real time: when the first village's food cannot pay a turn's land upkeep, the
   food it holds is taken and the land is unpaid; no tile can be claimed; after 24 unpaid turns (4 hours) the farthest
   tile goes back, one every turn (10 minutes), until the village pays a whole turn again (owner decision Q-LP17-1 (b),
-  2026-11-25; devnet gets this rule with the program update planned before the world is created).
+  2026-11-25; the devnet world has had this rule from its start: the program was updated on 2026-11-26 before the
+  world was created).
 - **A new village is “Provisional” at first** (shown beside its name). While it is, “Claim a tile” still shows its cost
   and “Sign and claim”, but the claim is then refused with “The village is not confirmed yet.” (nothing is sent and
   nothing is paid). The program confirms the village on your own next act there once its turn's villages are placed:
@@ -106,13 +107,15 @@ Good to know:
   say this, so harvest once before you claim your first tile.
 - Your land line (“Your land: tiles owned: …”) is read every 60 seconds on devnet, and once right after a claim. That
   read can come before the world's record has the claim, so the count can stay at the old number for up to a minute.
+- **One row of [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 is not on the devnet page:** once you have a village on the wide
+  land, the local page keeps that province on the card as “your village stands here” with “Claim a tile”. The devnet
+  page leaves that row out today: once your wide village stands, its province has no row at all, so no more tiles of
+  that province can be claimed from the page (other provinces' rows work as usual).
 - Marching from a wide-land village to other wide land (taking a wide-land keep) is closed on devnet, and there are
   no AI residents. The differences from the local version are in the table of [PLAY-LOCAL.md](PLAY-LOCAL.md) §7.
-- Until the world is created the page has no world to show. It says “The world is not open yet. …”, with when it
-  opens once that is set (§6), and shows the world by itself once it opens. That is expected today.
-- The 7-day world announced on 2026-11-23 was cancelled (2026-11-24) and is never created. The world does not end
-  (decision of 2026-11-23): the devnet world will be one continuous world. Its creation, planned for 2026-11-25,
-  was postponed (decision of 2026-11-24) until the rules update is ready; the new date will be announced.
+- The 7-day world announced on 2026-11-23 was cancelled (2026-11-24) and never created. The world does not end
+  (decision of 2026-11-23): the devnet world is one continuous world. Its creation, first planned for 2026-11-25, waited
+  for the rules update (decision of 2026-11-24); it was created on 2026-11-26.
 - **There is no winning or losing yet.** After a keep is taken the guide says “This world goes on; war-period winners and counts
   are not decided yet.” The direction decided after that text was written (2026-11-24)
   is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
@@ -124,7 +127,7 @@ Good to know:
 | What happens | What to do |
 |---|---|
 | The page does not open | The address may have changed. Look for the operator's new announcement (§1) |
-| “The world is not open yet. …” | The world has not been created yet. Nothing is wrong and there is nothing to do: the line says when it opens (“It opens on or after …”, in your own time zone) or “It opens soon”, and the page shows the world automatically once it opens. You do not need to reload |
+| “The world is not open yet. …” | The page cannot find a world record. The devnet world exists since 2026-11-26, so this shows only if the world is being started over (see the last line of this guide). There is nothing to do: the line says when it opens (“It opens on or after …”, in your own time zone) or “It opens soon”, and the page shows the world automatically once it opens. You do not need to reload |
 | “No wallet found. …” | Install a wallet, then reload the page |
 | The wallet shows a balance of 0, or its confirmation shows mainnet amounts | The wallet is not on devnet (§2) |
 | The wallet or the page refuses for lack of balance | Add devnet SOL (§3) |
