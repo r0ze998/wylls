@@ -111,6 +111,7 @@ permutation-gateway/test/web-frontier-local-play-return.test.mjs
 permutation-gateway/test/web-frontier-local-play-reveal.test.mjs
 permutation-gateway/test/web-frontier-local-play-world-instance.test.mjs
 permutation-gateway/test/web-frontier-local-play.test.mjs
+permutation-gateway/test/web-frontier-nation-chat.test.mjs
 permutation-gateway/test/web-frontier-people.test.mjs
 permutation-gateway/test/web-frontier-prize.test.mjs
 permutation-gateway/test/web-frontier-rekey-delegation-round2.test.mjs
@@ -543,6 +544,7 @@ permutation-gateway/test/frontier-conquest-reservations.test.mjs
 permutation-gateway/test/frontier-conquest-v2-evidence.test.mjs
 permutation-gateway/test/frontier-expedition-preview.test.mjs
 permutation-gateway/test/frontier-local-play-capture-demo.test.mjs
+permutation-gateway/test/frontier-local-play-chat-proxy.test.mjs
 permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
 permutation-gateway/test/frontier-local-play-contest-pair.test.mjs
 permutation-gateway/test/frontier-local-play-herald-output.test.mjs
