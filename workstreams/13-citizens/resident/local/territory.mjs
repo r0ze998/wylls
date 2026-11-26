@@ -63,14 +63,22 @@ const isMine = (x, tile, m) => x.own.includes(tile) || (m.mineTiles ?? []).inclu
  * the first home first — a site that is free, has no village on a neighbouring site as far as the resident sees, was
  * not tried, and whose tile is its own already or can still be asked for. A site whose tile is already its own comes
  * first. → `{p, q, site, tile, mine, province}` or `{why}`.
+ * (owner-answers-logic, owner 2026-11-26 10:52 Q-LP19-1 (a); no rule change) `foodPerHour`: the first home's food per
+ * hour. A site reached through the NATION's land (reach kind 'nation') in a province where the resident owns no tile is
+ * skipped when its tile would add more upkeep per hour (`tileUpkeepMilliFoodPerHour`, from the nearest own village)
+ * than the food surplus (food per hour minus the land's upkeep now) — loop-play19: such a far tile was unpaid 24 turns
+ * and let go. Not known (no food rate): nothing is skipped.
  */
-export function villageSite(view, st, targets) {
+export function villageSite(view, st, targets, { foodPerHour = null } = {}) {
   if (view?.on !== true) return { why: view?.why ?? 'player territory is not read' };
   const m = territoryMem(st), triedSites = new Set(st.wide?.triedClaims ?? []), triedTiles = new Set(m.triedTiles);
   const options = [];
+  const surplus = Number.isFinite(foodPerHour) ? foodPerHour * 1000 - Number(view.own?.upkeepMilliFoodPerHour ?? 0) : null;
+  let dear = 0;
   for (const x of view.provinces) {
     const k = `${x.p},${x.q}`;
     if (!targets.has(k)) continue;
+    if (surplus !== null && x.reach?.kind === 'nation' && !x.own.length && Number(x.tileUpkeepMilliFoodPerHour) > surplus) { dear++; continue; }
     const free = targets.get(k);   // (the herald's free sites of that province, or null: not known)
     for (const s of x.sites) {
       if (triedSites.has(tkey(x.p, x.q, s.site))) continue;
@@ -81,7 +89,7 @@ export function villageSite(view, st, targets) {
       options.push({ p: x.p, q: x.q, site: s.site, tile: s.tile, mine, province: x });
     }
   }
-  if (!options.length) return { why: 'no free village site within reach whose tile is mine or can still be claimed' };
+  if (!options.length) return { why: `no free village site within reach whose tile is mine or can still be claimed${dear ? ` (${dear} province(s) through my nation's land skipped: the tile's upkeep would be more than my food surplus of ${(surplus / 1000).toFixed(2)} food/h)` : ''}` };
   return options.find(o => o.mine) ?? options[0];
 }
 

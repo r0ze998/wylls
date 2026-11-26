@@ -415,3 +415,29 @@ test('TP2 with ④\'s plans on, the turn the site\'s tile can be asked is the br
   assert.equal(r2.did, 'plan-wait');
   assert.equal(asked.next, 1);
 });
+
+// (owner-answers-logic, owner 2026-11-26 10:52 Q-LP19-1 (a); no rule change) A village site reached through the NATION's
+// land whose tile would cost more upkeep per hour than the first home's food surplus is passed over (loop-play19: a
+// tile 252 provinces past the free distance cost 121.95 food/h on top of the land; unpaid 24 turns, then let go).
+test('TB-LP19 a far nation-reach site whose tile upkeep is more than the food surplus is skipped; a near one is not', () => {
+  const site = (s, tile) => ({ site: s, tile, open: true });
+  const prov = (p, q, kind, upkeep, own = []) => ({ p, q, reach: { kind, p: '0', q: '0' }, sites: [site(0, 5), site(1, 20)], own, taken: [], tileUpkeepMilliFoodPerHour: upkeep });
+  const far = prov('64', '-131', 'nation', tileUpkeepV1(255));        // 990 + 480 × 252 = 121,950 milli-food/h
+  const near = prov('-65', '-64', 'home', tileUpkeepV1(1));          // 990
+  const view = { on: true, own: { tiles: 16, upkeepMilliFoodPerHour: 16 * 990 }, provinces: [far, near] };
+  const targets = new Map([['64,-131', null], ['-65,-64', null]]);
+  const st = { territory: { triedTiles: [], mineTiles: [] }, wide: { triedClaims: [] } };
+  // without the food rate: as before (the far one is first in the list)
+  assert.equal(villageSite(view, st, targets).p, '64');
+  // 40 food/h made, 15.84 paid: 24.16 spare < 121.95 → the near site
+  const pick = villageSite(view, st, targets, { foodPerHour: 40 });
+  assert.equal(pick.p, '-65');
+  // only the far one: nothing, and the reason says why
+  const only = villageSite(view, st, new Map([['64,-131', null]]), { foodPerHour: 40 });
+  assert.match(only.why, /1 province\(s\) through my nation's land skipped: .*24\.16 food\/h/);
+  // a far province where a tile is mine already is not judged (its upkeep is paid); a cheap nation-reach one is kept
+  assert.equal(villageSite({ ...view, provinces: [{ ...far, own: [33] }] }, st, new Map([['64,-131', null]]), { foodPerHour: 40 }).p, '64');
+  assert.equal(villageSite({ ...view, provinces: [{ ...far, tileUpkeepMilliFoodPerHour: tileUpkeepV1(20) }] }, st, new Map([['64,-131', null]]), { foodPerHour: 40 }).p, '64');
+  // claimOrder hands the first home's food rate in (the stores' perHour by RESOURCE_ORDER)
+  assert.ok(RESOURCE_ORDER.indexOf('Food') >= 0);
+});

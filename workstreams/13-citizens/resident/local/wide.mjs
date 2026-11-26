@@ -108,7 +108,8 @@ export function claimOrder(obs, st) {
   //  Territory not read in a wide world: no claim is made on a guess.)
   if (obs.territory && obs.territory.on !== false) {
     if (obs.territory.on !== true) return { why: obs.territory.why ?? 'whether this world has player territory is not read' };
-    const s = villageSite(obs.territory, st, new Map(w.targets.map(t => [`${t.p},${t.q}`, Array.isArray(t.free) ? t.free : null])));
+    const s = villageSite(obs.territory, st, new Map(w.targets.map(t => [`${t.p},${t.q}`, Array.isArray(t.free) ? t.free : null])),
+      { foodPerHour: (obs.stores ?? [])[RESOURCE_ORDER.indexOf('Food')]?.perHour ?? null });
     if (s.why) return { why: s.why };
     if (!s.mine) return { why: `the tile of site ${s.site} at ${s.p},${s.q} (tile ${s.tile}) is not mine yet: a village stands on my own land, the tile first`, tileFirst: s };
     const holding = { p: obs.holding.p, q: obs.holding.q, site: obs.holding.site }, target = { p: String(s.p), q: String(s.q) };
