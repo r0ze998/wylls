@@ -225,6 +225,8 @@ const CLIENT_TEXT = {
   // the wide village on the village screen is a captured record shown read-only (fwide.mjs): no order reaches it
   WideReadOnly: () => L`遠方の村は捕捉記録の読み取り専用表示です。この村には命令を送れません。`,
   NotFound: () => L`まだ記録がありません`,
+  // (pt-world-goals-devnet: the relay's world-goals route before its off-chain judge wrote an answer — routes/world-goals.mjs)
+  WorldGoalsNotYet: () => L`世界の目標は、まだ判定していません`,
   WideWorldUnavailable: () => L`この世界には「記録された世界」の表示（実験中）はありません。遊ぶうえで困ることはありません。この画面は閉じてかまいません。`,
   WideIndexUnavailable: () => L`この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。`,
   BadConfig: () => L`協力の板の設定を読めませんでした（BadConfig）。`,
