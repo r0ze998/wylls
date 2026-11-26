@@ -3,12 +3,14 @@
 //   GET /f/season              {programId, season, seasonId, cluster, relayPool, quotas, heraldUrl, joinGate, inviteRequired, tipMin, tipPresets, marchFee, sealBond}
 //   GET /f/quota?citizen=      {left, resetsAt, lamportsLeft}   (citizen: the Citizen account's address)
 //   GET /f/tx/{signature}      {state: "landed|failed|unknown", slot?, code?}
+//   GET /f/goals/state         the off-chain world-goals judge's answer (routes/world-goals.mjs; 404 without --world-goals-file)
 import { encode as base58, decode as fromBase58 } from '../../../client/src/base58.mjs';
 import { programError } from '../../../client/src/frontier/codec.mjs';
 import { seasonTipMin, tipPresets } from '../../../client/src/frontier/fees.mjs';
 import { RouteError } from '../../routes/errors.mjs';
 import { dailyTxs, gameDay, QUOTA } from '../quota.mjs';
 import { lamportsPerDay } from '../shapes.mjs';
+import { worldGoalsRoutes } from './world-goals.mjs';
 
 const isKey = (s, n = 32) => {
   try { return typeof s === 'string' && fromBase58(s).length === n; } catch { return false; }
@@ -69,4 +71,7 @@ export const seasonRoutes = {
     }
     return { body: { state: 'landed', slot: st.slot } };
   },
+
+  // (pt-world-goals-devnet: a file the judge writes, served read only)
+  ...worldGoalsRoutes,
 };

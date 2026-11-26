@@ -52,6 +52,7 @@ import { createExpeditionDepartPrepare, EXPEDITION_DEPART_PREPARE_ROUTE, DEPART_
 import { expeditionDepartPrepareRoutes } from './routes/expedition-depart-prepare.mjs';
 import { createDevnetPlayAct } from './devnet-play-act.mjs';
 import { devnetPlayRoutes, DEVNET_PLAY_PUBLIC_ROUTES, DEVNET_PLAY_IP_LIMITS } from './routes/devnet-play.mjs';
+import { WORLD_GOALS_ROUTE } from './routes/world-goals.mjs';
 
 export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes, ...expeditionPrepareRoutes, ...expeditionDepartPrepareRoutes, ...devnetPlayRoutes });
 
@@ -71,6 +72,8 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   EXPEDITION_DEPART_PREPARE_ROUTE,
   // (devnet gap P1: 404 unless the gateway runs with --devnet-play; wallet-paid, so not a funded route)
   ...DEVNET_PLAY_PUBLIC_ROUTES,
+  // (pt-world-goals-devnet: the off-chain world-goals judge's answer, read only; 404 without --world-goals-file)
+  WORLD_GOALS_ROUTE,
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -82,6 +85,8 @@ export const FRONTIER_IP_LIMITS = Object.freeze({
   [EXPEDITION_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
   [EXPEDITION_DEPART_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
   ...DEVNET_PLAY_IP_LIMITS,
+  // (a page reads it once a minute; the answer is a file the judge rewrites at most once a read)
+  [WORLD_GOALS_ROUTE]: { burst: 20, perSecond: 1 },
   'POST /f/relay': { burst: 40, perSecond: 2 },
   'POST /f/join': { burst: 10, perSecond: 0.2 },
   // fix-gw-highs: a page reveals a march once (again after 60 s at most ten times) and nudges once a bell.
