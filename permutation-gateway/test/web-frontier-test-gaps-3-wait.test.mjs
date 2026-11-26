@@ -169,17 +169,22 @@ test('W4 campChoice never picks a camp that sits out; every nearer camp that sit
     // the rule's own count, not the page's (clash_model.rs v2_garrison_state: a holding or a Free City; MAX_GARRISONS 12)
     const garrisons = pr => pr.siteMirror.slice(0, pr.siteCount).filter(s => s.state === 1 || s.state === 5).length;
     const ruleFights = pr => pr.camp.state === 1 && garrisons(pr) < 12;
-    const fights = [...provinces.values()].map(e => e.province).filter(pr => seen(pr.p, pr.q) && ruleFights(pr));
-    if (!got) { assert.equal(fights.length, 0, 'no pick only when no camp in sight fights'); none++; continue; }
+    // (fix-camp-reach, Q-PM2-1 (c): a camp beyond a march's reach — more than 3 provinces away, MAX_ROUTE_PROVINCES 4 —
+    //  is never picked either; the deliberate change of that PR, so "no pick" now means none in sight, fighting AND in reach)
+    const inReach = x => (Math.abs(x.p - host.p) + Math.abs(x.q - host.q) + Math.abs(x.p + x.q - host.p - host.q)) / 2 <= 3;
+    const fights = [...provinces.values()].map(e => e.province).filter(pr => seen(pr.p, pr.q) && ruleFights(pr) && inReach(pr));
+    if (!got) { assert.equal(fights.length, 0, 'no pick only when no camp in sight and in reach fights'); none++; continue; }
     const pr = provinces.get(`${got.camp.p},${got.camp.q}`).province;
     assert.ok(ruleFights(pr), `the pick fights (${garrisons(pr)} garrisons by the rule)`);
     assert.ok(seen(pr.p, pr.q), 'the pick is in sight');
+    assert.ok(inReach(pr), 'the pick is within a march\'s reach');
     const d = x => (Math.abs(x.p) + Math.abs(x.q) + Math.abs(x.p + x.q)) / 2;
     const want = [...provinces.values()].map(e => e.province).filter(x => seen(x.p, x.q) && x.camp.state === 1 && !ruleFights(x) && d(x) < d(pr));
     assert.deepEqual(got.passed.map(x => `${x.p},${x.q}`).sort(), want.map(x => `${x.p},${x.q}`).sort(), 'the nearer camps that sit out');
     for (const x of got.passed) assert.equal(x.garrisons, garrisons(provinces.get(`${x.p},${x.q}`).province));
     picks++; passedSeen += got.passed.length;
   }
-  assert.ok(picks > 1500 && passedSeen > 200 && none > 20, `exercised: ${picks} picks, ${passedSeen} camps passed, ${none} none`);
+  // (fix-camp-reach: picks are now within reach, so fewer nearer sitting-out camps exist: 81 on this seed, was > 200)
+  assert.ok(picks > 1500 && passedSeen > 50 && none > 20, `exercised: ${picks} picks, ${passedSeen} camps passed, ${none} none`);
 });
 const oneOf = (r, a) => a[pick(r, a.length)];
