@@ -591,7 +591,7 @@ test('in English: the start, the wait, the boot; then the limit, the list, the e
     doc.byId('local-play-connect').click(); await settle();
     assert.equal(status(doc), 'Preparing the world… (up to 70 seconds)'); assert.equal(doc.byClass('local-play-elapsed')[0].textContent, '0 seconds elapsed'); allEnglish(doc, 'the wait');
     releaseStart(); const result = await gate.ready;
-    assert.equal(status(doc), 'Connected: loading this wallet\'s citizen and village (reads only; nothing is sent).'); assert.equal(result.cfg.herald, 'http://localhost:41926');
+    assert.equal(status(doc), 'Connected: loading this wallet\'s player record and villages (reads only; nothing is sent).'); assert.equal(result.cfg.herald, 'http://localhost:41926');
     // a second page, at the limit: the refusal in words with its code, the rows, the question and its two keys
     full = true; const second = open(); second.answer.start = answer.start; second.answer.stop = answer.stop;
     await made(second.gate); second.doc.byId('local-play-connect').click(); await settle(); releaseStart(); for (let i = 0; i < 4; i++) await settle();
@@ -669,7 +669,7 @@ test('in English: the operator\'s panel (no launcher) reads in English too', asy
     assert.equal(status(doc), 'Getting ready: start the runner and the herald for this address, then press "Connect".'); allEnglish(doc, 'operator waiting');
     await gate.connect(); assert.equal(status(doc), 'This herald cannot be reached yet. Start the runner and the herald, then connect again. (HeraldUnreachable)');
     h.season = { ok: false, code: 'NotFound' }; await gate.connect(); assert.equal(status(doc), 'The herald answered, but it has no world record yet. Wait a moment, then connect again. (HeraldNotReady)');
-    h.season = goodSeason(); h.me = { ok: false, code: 'NotFound' }; await gate.connect(); assert.equal(status(doc), 'This herald has no citizen or village for this wallet. Start the runner with the address above. (WalletNotBound)');
+    h.season = goodSeason(); h.me = { ok: false, code: 'NotFound' }; await gate.connect(); assert.equal(status(doc), 'This herald has no player record or village for this wallet. Start the runner with the address above. (WalletNotBound)');
     allEnglish(doc, 'operator refused');
     let release; h.hold = new Promise(r => { release = r; }); h.me = goodMe; const checking = gate.connect(); await settle();
     assert.equal(status(doc), 'Checking the herald\'s records…'); release(); await checking; assert.equal(gate.state().phase, 'connected');

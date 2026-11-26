@@ -82,5 +82,5 @@ test('the preview (first press) names the wallet\'s cost in SOL, the settler cos
   const pending = text(outpostCard(FSof({ citizen: { slots: 2, faction: 1 } }), M, false));
   assert.match(pending, /申し込みの結果を待っています/); assert.doesNotMatch(pending, /outpost-preview/);
   const after = text(outpostCard(FSof({ holdings: [HOME, { p: 127, q: -59, site: 2, order: 2, state: 1 }] }), M, false));
-  assert.match(after, /2つめの村: 州（127, -59）の村の場所 3/);
+  assert.match(after, /2つめの村: 州 127,-59 の村の場所 3/);
 });

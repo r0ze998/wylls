@@ -54,11 +54,11 @@ test('LP14-3 (--wide: the keep is not in the page\'s keep map): a flag keep the 
   // no live fact: no timer, no siege, no since
   assert.deepEqual([f.since, f.longAt, f.contender, f.progress, f.required], [null, null, null, 0, 0]);
   const s = text(UI.render(FS, { read: 'ok', goals: answer(TAKER) }));
-  assert.match(s, /州 \(-2, 0\) · 持ち主 アステル · あなたの国が失ったとき（第92ターン）の持ち主です/);
+  assert.match(s, /州 -2,0 · 持ち主 アステル · あなたの国が失ったとき（第92ターン）の持ち主です/);
   assert.doesNotMatch(s, /まだ見ていません|包囲中|満たすまで/);
   assert.match(String(UI.render(FS, { read: 'ok', goals: answer(TAKER) })), /data-seen="memory" data-lost-at="92"/);
   setLang('en');
-  assert.match(text(UI.render(FS, { read: 'ok', goals: answer(TAKER) })), /Province \(-2, 0\) · held by Aster · holder when your nation lost it \(turn 92\)/);
+  assert.match(text(UI.render(FS, { read: 'ok', goals: answer(TAKER) })), /Province -2,0 · held by Aster · holder when your nation lost it \(turn 92\)/);
 }));
 
 test('LP14-3: the capture is the viewer\'s knowledge only when its nation took part; a later capture among others stays hidden; a regained keep is not "lost"', () => run(() => {

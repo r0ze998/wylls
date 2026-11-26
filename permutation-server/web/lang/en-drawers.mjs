@@ -100,7 +100,7 @@ export default {
   '対象外': 'Excluded',
   '観戦中は表示されません。': 'Not shown while spectating.',
   'MERIT · 功績と見込み': 'MERIT',
-  '世界の終了時の配分 {0} USDC': 'Payout when the world ended: {0} USDC',
+  '最後の集計での配分 {0} USDC': 'Payout at the final count: {0} USDC',
   '今終わったら {0} USDC': 'If it ended now: {0} USDC',
   '勢力の取り分は {0} USDC。その{1}%は活動したメンバーで均等（1人 {2}・上限は参加費の半分）、残りは功績の比で、勢力が点を取った道の功績ほど重く分けます。活動したメンバー＝{3}区間のうち{4}区間以上で命令・献策・支持・投票をした人（あなた：{5}区間{6}）。':
     (share, pct, each, total, need, mine) => `Your faction's share is {0} USDC. {1}% of it is split equally among the active members ({2} each, at most half the entry fee); the rest goes by merit, weighted toward the paths where your faction scored. Active members are those who gave orders, proposed, supported or voted in at least {4} of {3} windows (you: ${plural(mine, '{5} window', '{5} windows')}{6}).`,

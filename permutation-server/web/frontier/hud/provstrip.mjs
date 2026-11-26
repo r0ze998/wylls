@@ -118,6 +118,6 @@ export function renderSeasonEnd(m) {
     <h2 id="se-title" class="se-line">${m.winners.map(f => crest(f, 34))}<span>${seasonEndLine(m)}</span></h2>
     <ol class="se-area" aria-label="${L`国ごとの州の数`}">${m.area.map((n, f) => html`<li class="kh-n${f}${m.winners.includes(f) ? ' se-win' : ''}">${crest(f, 22)}<span class="se-name">${factionName(f)}</span><strong class="num">${fmtNum(n)}</strong></li>`)}</ol>
     <p class="se-note">${m.source === 'pool' ? L`賞金プールの集計（Tally と Finalize）がチェーンで確定しました。州の数はチェーンの記録を数えたものです。` : L`最終の順位の記録が確定しました。州の数はチェーンの記録を数えたものです。`}${m.mine ? html` <strong>${L`あなたの国が最も多くの州を保っていました。`}</strong>` : ''}</p>
-    <div class="se-acts"><button type="button" class="btn primary" data-act="se-go">${icon('list')}${L`結果と賞金を見る`}</button></div>
+    <div class="se-acts"><button type="button" class="btn primary" data-act="se-go">${icon('list')}${m.source === 'pool' ? L`最後の記録と賞金を見る` : L`最後の記録を見る`}</button></div>
   </section>`;
 }

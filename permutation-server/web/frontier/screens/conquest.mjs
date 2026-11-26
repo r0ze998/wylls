@@ -396,7 +396,7 @@ export function renderStandings(FS) {
       : ended ? html`<p class="conquest-season-clock muted">${L`この試しの世界は第${fmtNum(endBell)}ターンで新しい命令の受付を終えました。試しの世界の上限で、勝ち負けの決まりではありません。`}${isFinal ? '' : html` ${L`最後の戦いの記録を待っています。`}`}</p>`
       : html`<p class="conquest-season-clock">${L`この試しの世界が新しい命令を受け付けるのは第${fmtNum(endBell)}ターンまでです（残り：${turnsLine(Math.max(0, endBell - (FS.nowBell ?? 0)))}）。試しの世界の上限で、勝ち負けの決まりではありません。`}</p>`}
     ${rows ? html`<table class="stores conquest-scores"><thead><tr><th>${L`記録順`}</th><th>${L`国`}</th><th>${L`支配する州`}</th><th>${L`州・時間`}</th></tr></thead><tbody>${rows.map(r => html`<tr class="${r.faction === FS.citizen?.faction ? 'is-mine' : ''}"><td>${fmtNum(r.rank)}</td><th scope="row"><span class="cs-nation kh-n${r.faction}">${crest(r.faction, 22)}<span>${factionName(r.faction)}</span></span>${r.faction === FS.citizen?.faction ? html` <span class="tag">${L`あなたの国`}</span>` : ''}</th><td>${fmtNum(r.provinces)}</td><td>${fmtNum(Math.round(Number(r.score) * seconds / 360) / 10)}</td></tr>`)}</tbody></table>
-      <p class="muted">${L`第${fmtNum(record.bell)}ターンまでの州・時間の参考記録。賞金の成果基準は未決定です。`}</p>` : html`<p class="muted">${cq?.status === 'error' ? L`記録を読み込めませんでした。再取得してください。` : L`州・時間の記録を読み込んでいます。`}</p>`}
+      <p class="muted">${L`第${fmtNum(record.bell)}ターンまでの州・時間の参考記録です。記録だけで、これで勝ち負けや賞金は決まりません。`}</p>` : html`<p class="muted">${cq?.status === 'error' ? L`記録を読み込めませんでした。再取得してください。` : L`州・時間の記録を読み込んでいます。`}</p>`}
     ${!isFinal ? html`<button type="button" class="btn small" data-act="cq-refresh" ${raw(busy(FS) || cq?.status === 'loading' ? 'disabled' : '')}>${L`世界の状況を更新する`}</button>` : ''}
   </section>`;
 }

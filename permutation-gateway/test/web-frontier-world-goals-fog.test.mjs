@@ -61,7 +61,7 @@ test('world goals card: a flag keep in sight is told live (holder, hold timer, s
 test('world goals card: a flag keep never seen tells its place only — no holder, no timer, no siege', () => run(() => {
   const FS = world(NONE());
   const s = card(FS);
-  assert.match(s, /州 \(-2, -?0\)|州 \(-2, 0\)/);
+  assert.match(s, /州 -2,-?0/); // (owner-answers-ui, Q-EUA2-7: one coordinate format)
   assert.match(s, /この州の砦は、まだ見ていません/);
   assert.doesNotMatch(s, /持ち主 /, 'no holder');
   assert.doesNotMatch(s, /包囲中/, 'no siege');

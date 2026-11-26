@@ -79,11 +79,11 @@ test('4 a11y: an off "Claim a tile" / "Found a village here" button names the li
   assert.equal(tileWhy({}), '');
   assert.equal(tileWhy({ territory: true, tileShort: true }), ' aria-describedby="hp-tile-why-ore"');
   assert.equal(tileWhy({ territory: true, tilePriceShort: true }), ' aria-describedby="hp-tile-why-price"');
-  assert.equal(tileWhy({ territory: true, land: { unpaid: true } }), ' aria-describedby="hp-own-land-unpaid"');
-  assert.equal(tileWhy({ territory: true, tileShort: true, land: { unpaid: true } }), ' aria-describedby="hp-tile-why-ore hp-own-land-unpaid"');
+  assert.equal(tileWhy({ territory: true, land: { unpaid: true } }), ' aria-describedby="hp-tile-why-unpaid hp-own-land-unpaid"');
+  assert.equal(tileWhy({ territory: true, tileShort: true, land: { unpaid: true } }), ' aria-describedby="hp-tile-why-ore hp-tile-why-unpaid hp-own-land-unpaid"');
   const src = web('frontier/screens/holding.mjs');
   // every id named is on the card's reason line
-  for (const id of ['hp-tile-why-ore', 'hp-tile-why-price', 'hp-own-land-unpaid', 'hp-wide-short']) assert.ok(src.includes(`id="${id}"`), id);
+  for (const id of ['hp-tile-why-ore', 'hp-tile-why-price', 'hp-tile-why-unpaid', 'hp-own-land-unpaid', 'hp-wide-short']) assert.ok(src.includes(`id="${id}"`), id);
   // every "Claim a tile" button carries it, and "Found a village here" names the short resources while it is off for them
   assert.equal((src.match(/data-act="territory-tile"[^>]*\$\{raw\(tileWhy\(w\)\)\} aria-label=/g) ?? []).length, 3);
   assert.match(src, /data-act="wide-claim"[^>]*\$\{raw\(w\.short\.length \? ' aria-describedby="hp-wide-short"' : ''\)\} aria-label=[^>]*\$\{raw\(busy \|\| w\.short\.length \? 'disabled' : ''\)\}>/);
