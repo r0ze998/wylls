@@ -116,9 +116,9 @@ test('the notice is that record\'s own: its id, its place, its turn, its 見る 
   try {
     const r = rec(620), item = ownClashItem(viewer(), { p: P, q: Q, bell: 620, inputs: r.inputs, before: r.before, after: after(620) });
     assert.deepEqual(item, { id: `cl:${P},${Q},620`, kind: 'battle', bell: 622, p: P, q: Q, tile: 60, battle: { p: P, q: Q, bell: 620 },
-      text: 'Your host beat the last defenders of the keep of province -4,0 and now holds the keep\'s tile (turn 620)', residents: true,
+      text: 'Your host beat the last defenders of the keep of Province -4,0 and now holds the keep\'s tile (turn 620)', residents: true,
       // (B11, loop-play2: the same line in every language, so that a switch of language shows it in the new one)
-      words: { ja: '州 -4,0 の砦の守備兵を、あなたの軍勢が破りました。軍勢は砦のマスを押さえています（ターン 620）', en: 'Your host beat the last defenders of the keep of province -4,0 and now holds the keep\'s tile (turn 620)' } });
+      words: { ja: '州 -4,0 の砦の守備兵を、あなたの軍勢が破りました。軍勢は砦のマスを押さえています（ターン 620）', en: 'Your host beat the last defenders of the keep of Province -4,0 and now holds the keep\'s tile (turn 620)' } });
     // the arrival's record and the record without an engagement make no notice here
     assert.equal(ownClashItem(viewer(), { p: P, q: Q, bell: 619, inputs: rec(619).inputs, before: rec(619).before, after: after(619) }), null);
     assert.equal(ownClashItem(viewer(), { p: P, q: Q, bell: 621, inputs: rec(621).inputs, before: rec(621).before, after: rec(621).before }), null);

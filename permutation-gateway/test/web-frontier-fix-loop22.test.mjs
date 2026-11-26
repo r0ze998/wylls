@@ -202,15 +202,15 @@ test('LP22-4 a march whose row left the list as its turn was resolved is still t
   const prev = snap(56, [['h1', keepMarch('awaitingSeed')]]);
   const next = snap(57, []);
   const items = FD.diffFeed(prev, next);
-  const it = items.find(x => x.id === 'rs:h1');
+  const it = items.find(x => x.id === 'rs:h1@55');
   assert.ok(it, JSON.stringify(items));
   assert.equal(it.kind, 'battle');
   assert.deepEqual(it.battle, { p: 1, q: 0, bell: 55 });
   // (deliberate-break: told once — the same id as the "resolved" line, so pushFeed keeps one)
-  assert.equal(FD.pushFeed(FD.pushFeed([], items), items).filter(x => x.id === 'rs:h1').length, 1);
+  assert.equal(FD.pushFeed(FD.pushFeed([], items), items).filter(x => x.id === 'rs:h1@55').length, 1);
   // not before its arrival turn has ended, and not when it was already told resolved
-  assert.ok(!FD.diffFeed(snap(55, [['h1', keepMarch('open')]]), snap(55, [])).some(x => x.id === 'rs:h1'));
-  assert.ok(!FD.diffFeed(snap(57, [['h1', keepMarch('resolved')]]), snap(58, [])).some(x => x.id === 'rs:h1'));
+  assert.ok(!FD.diffFeed(snap(55, [['h1', keepMarch('open')]]), snap(55, [])).some(x => x.id === 'rs:h1@55'));
+  assert.ok(!FD.diffFeed(snap(57, [['h1', keepMarch('resolved')]]), snap(58, [])).some(x => x.id === 'rs:h1@55'));
 });
 
 test('LP22-4 ownClashesFrom keeps the viewer\'s resolved marches after their rows go; the report list, Other and the guide read it', () => {
