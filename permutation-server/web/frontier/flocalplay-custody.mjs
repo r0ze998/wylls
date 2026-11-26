@@ -479,9 +479,11 @@ export const LOT_GEN_LOOKBACK = 2;
  * would never be told. So: the present generation (the viewer's storehouses for every other player with a village in
  * that Province; another's storehouse for the viewer), the generations before (up to LOT_GEN_LOOKBACK, both roles:
  * the lot's own `custodianTag` and `owner` tell which side the viewer was), and every lot read before, again by its own
- * address (`known`).
+ * address (`known`), and every lot the storehouse's own LOT LIST found (`listed`, listedLots below: owner 2026-11-26
+ * 10:52 answer 8 / Q-TG2-1 — the keeper sees every lot in its own storehouse, also a depositor's whose village there was
+ * captured or left, who is no longer among the Province's villagers).
  */
-export function lotReadPlan({ vaults = [], holdings = [], viewer, known = [] }) {
+export function lotReadPlan({ vaults = [], holdings = [], viewer, known = [], listed = [] }) {
   const out = new Map();
   const add = (vault, owner) => { const key = `${vault.p},${vault.q},${vault.tile},${vault.gen}:${owner}`; if (!out.has(key)) out.set(key, { vault, owner }); };
   for (const v of vaults) {
@@ -495,7 +497,30 @@ export function lotReadPlan({ vaults = [], holdings = [], viewer, known = [] }) 
     }
   }
   for (const e of known) add(e.vault, e.owner);
+  for (const e of listed) add(e.vault, e.owner);
   return [...out.values()];
+}
+/** The relay's read-only lot list of one storehouse (permutation-gateway local-play-act.mjs LOCAL_ACT_LOTS_READ_SCHEMA). */
+export const LOT_LIST_SCHEMA = 'frontier-local-play-act-lots-read-v1';
+/**
+ * (owner-answers-logic, Q-TG2-1) The lots of storehouse `vault` that its lot list named (`addresses`, the relay's answer)
+ * and that were read back (`accounts`: Map address → bytes | null): `[{vault, owner}]` — only a Lot whose OWN bytes name
+ * that storehouse place and generation and derive that very address (`lotAddress(seasonAddress, programId, vault,
+ * ownerTag, resource)`), of ore (the only resource this page opens lots for), and whose owner Citizen's tag is its owner
+ * tag. So the list's word alone adds nothing: an address the relay made up, another season's or another storehouse's
+ * lot is dropped here. `vault` is passed through as given (the planner's key: p, q, tile, gen).
+ */
+export function listedLots({ vault, addresses = [], accounts, seasonAddress, programId }) {
+  const out = [];
+  for (const a of Array.isArray(addresses) ? addresses : []) {
+    const b = accounts?.get?.(a);
+    const l = b ? decodeLot(b) : null;
+    if (!l || l.p !== Number(vault.p) || l.q !== Number(vault.q) || l.tile !== Number(vault.tile) || l.vaultGen !== Number(vault.gen) || l.resource !== RES.ore) continue;
+    let ok = false;
+    try { ok = tagOf(l.owner) === l.ownerTag && lotAddress(seasonAddress, programId, vault, l.ownerTag, l.resource) === a; } catch { ok = false; }
+    if (ok) out.push({ vault, owner: l.owner });
+  }
+  return out;
 }
 /**
  * The pools to read: `[{p, q, site, gen}]`. A pool's address carries its village's generation and a capture moves the

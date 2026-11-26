@@ -304,6 +304,30 @@ export const LOCAL_ACT_INSTANCE_SCHEMA = 'frontier-local-play-act-instance-v1';
 export const LOCAL_ACT_STATUS_SCHEMA = 'frontier-local-play-act-status-v1';
 export const LOCAL_ACT_WIDE_READ_SCHEMA = 'frontier-local-play-act-wide-read-v1';
 export const LOCAL_ACT_WIDE_READ_MAX = 16;
+// (owner-answers-logic, owner 2026-11-26 10:52 answer 8 / Q-TG2-1: a storehouse's keeper sees EVERY lot in its own
+//  storehouse, also a depositor's whose village there was captured or left) The context route's read-only LOT LIST of one
+//  storehouse: {schema, vault: {p, q, tile, gen}} → {schema, context_slot, addresses, more}. A lot's address is
+//  `cl‖P,Q,tile,gen,owner_tag,resource` (frontier-abi v2/addr.rs) — it needs the depositor's tag, and the storehouse keeps
+//  only a count of its lots (Vault CUSTODY_LOTS), no index — so the lots are found by what they ARE: ONE
+//  `getProgramAccounts` of this relay's program, filtered to a Lot (576 B, magic PSF1CLOT) of this relay's season
+//  (header SEASON_ID @8) at that storehouse place and generation (P, Q, TILE, VAULT_GEN @64). Only the addresses are
+//  answered (dataSlice 0): the page reads them with the wide read above and keeps a lot only when its own bytes derive
+//  that very address (flocalplay-custody.mjs listedLots). At most LOCAL_ACT_LOTS_READ_MAX, sorted; `more` says the
+//  list was cut. Nothing is kept or sent.
+export const LOCAL_ACT_LOTS_READ_SCHEMA = 'frontier-local-play-act-lots-read-v1';
+export const LOCAL_ACT_LOTS_READ_MAX = 64;
+const LOT_SIZE = 576, LOT_MAGIC = 'PSF1CLOT', LOT_PLACE_AT = 64;
+/** The getProgramAccounts filters of the lots of storehouse `vault` in season `seasonId` (pure; exported for tests). */
+export function lotListFilters(vault, seasonId) {
+  const head = new Uint8Array(16);
+  head.set([...LOT_MAGIC].map(c => c.charCodeAt(0)), 0);
+  new DataView(head.buffer).setBigUint64(8, BigInt(seasonId), true);
+  const place = new Uint8Array(6), dv = new DataView(place.buffer);
+  dv.setInt16(0, vault.p, true); dv.setInt16(2, vault.q, true); dv.setUint8(4, vault.tile); dv.setUint8(5, vault.gen);
+  return [{ dataSize: LOT_SIZE }, { memcmp: { offset: 0, bytes: Buffer.from(head).toString('base64'), encoding: 'base64' } },
+    { memcmp: { offset: LOT_PLACE_AT, bytes: Buffer.from(place).toString('base64'), encoding: 'base64' } }];
+}
+const lotVault = v => exact(v, ['p', 'q', 'tile', 'gen']) && [v.p, v.q].every(x => Number.isInteger(x) && x >= -32768 && x <= 32767) && Number.isInteger(v.tile) && v.tile >= 0 && v.tile <= 60 && Number.isInteger(v.gen) && v.gen >= 0 && v.gen <= 255;
 export const LOCAL_ACT_MAX_HISTORY = 256;
 /** Signatures this relay still answers `status` for after their record left the replay barrier (oldest forgotten first). */
 export const LOCAL_ACT_MAX_ANSWERED = 8192;
@@ -492,6 +516,16 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== body.addresses.length) fail('LocalActRpcUnavailable');
         return { schema: LOCAL_ACT_WIDE_READ_SCHEMA, context_slot: String(slot),
           accounts: rows.map(row => { const a = accountOf(row); return a !== null && a.owner === pins.program ? { data_b64: Buffer.from(a.bytes).toString('base64') } : null; }) };
+      }
+      // (owner-answers-logic: the read-only lot list of one storehouse — LOCAL_ACT_LOTS_READ_SCHEMA above)
+      if (exact(body, ['schema', 'vault']) && body.schema === LOCAL_ACT_LOTS_READ_SCHEMA) {
+        check(lotVault(body.vault));
+        const got = await ask('getProgramAccounts', [pins.program, { encoding: 'base64', commitment: 'confirmed', withContext: true, dataSlice: { offset: 0, length: 0 }, filters: lotListFilters(body.vault, pins.seasonId) }]);
+        open();
+        const slot = got.result?.context?.slot, rows = got.result?.value;
+        if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows)) fail('LocalActRpcUnavailable');
+        const found = [...new Set(rows.filter(x => address(x?.pubkey) && x?.account?.owner === pins.program).map(x => x.pubkey))].sort();
+        return { schema: LOCAL_ACT_LOTS_READ_SCHEMA, context_slot: String(slot), addresses: found.slice(0, LOCAL_ACT_LOTS_READ_MAX), more: found.length > LOCAL_ACT_LOTS_READ_MAX };
       }
       // (rent-live-rest: the runner's rent of one Holding — the village ticket's escrow — for the page's preview; one
       //  getMinimumBalanceForRentExemption, nothing kept or sent: web/frontier/frent.mjs)
