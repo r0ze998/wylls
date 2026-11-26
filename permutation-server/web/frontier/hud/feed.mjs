@@ -6,8 +6,12 @@
 // a building finished, a village made final, a keep taken (and, for the viewer's nation, a
 // contest for a keep begun or beaten off). When the bell tolls, the
 // changes of the turn that ended are folded into one summary ("turn 1,034:
-// 2 battles…"). A place is said by its name, never by coordinates (UX
-// design 11.13): a village by its own, a province by hud/place.mjs.
+// 2 battles…"). A place is said by its name (UX design 11.13): a village by
+// its own, a camp or a Free City by what it is; a province — no name of its
+// own — by one form in every notice, 「州 x,y」 / "Province x,y", as the march
+// card and the report say it (fix-loop24: the same province was told as
+// "province -1,1" and as "Cinder side (ring 1)" one after the other; hud/place.mjs
+// noticeProvince).
 //
 // Notifications sit at the map's top right (newest first, at most
 // TOAST_MAX, each with "go there" and, for battles, "watch" and "report"),
@@ -17,16 +21,32 @@ import { html, raw } from '../../util.mjs';
 import { L, fmtNum, lang, inEachLang } from '../../lang.mjs';
 import { BUILDINGS, TIERS, factionName } from '../fi18n.mjs';
 import { queueItem, buildItemOf } from '../fland.mjs';
-import { keepEventSide } from '../fconquest.mjs';
+import { keepEventSide, keepFromProvince } from '../fconquest.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { playerFace } from '../people/faces.mjs';
 import { placeName } from '../people/identity.mjs';
 import { icon } from './icons.mjs';
 import { worded, noticeText } from './words.mjs';
-import { tileWhat, provinceName } from './place.mjs';
+import { tileWhat, noticeProvince, noticeKeep } from './place.mjs';
 import { cardHead, chip, fold } from '../screens/parts.mjs';
 import { territoryEnabled, territoryOf } from '../territory.mjs';
 import { viewClash, keepTileIn } from '../map/fog.mjs';
+
+/**
+ * (fix-loop24) A march's destination in a notification: a keep as 「州 p,q の砦」, a tile that is something (a camp, a
+ * village, a Free City) by its name, any other tile — or none known — by its province, 「州 p,q」 (hud/place.mjs
+ * noticeProvince). A keep's tile was named by its terrain ("Hills").
+ */
+export function destPlace(FS, d) {
+  if (!d || !Number.isInteger(d.p) || !Number.isInteger(d.q)) return null;
+  if (Number.isInteger(d.tile)) {
+    const keep = keepTileIn(FS?.overviews, d.p, d.q) ?? keepFromProvince(FS?.provinces?.get?.(`${d.p},${d.q}`)?.province)?.tile ?? null;
+    if (keep === d.tile) return noticeKeep(d.p, d.q);
+    const w = tileWhat(FS, d.p, d.q, d.tile);
+    if (w.kind !== 'land' && w.name) return w.name;
+  }
+  return noticeProvince(d.p, d.q);
+}
 
 export const FEED_MAX = 60;
 export const TOAST_MAX = 3;
@@ -36,7 +56,19 @@ export const TOAST_MS = 45_000;
 /** A keep event is news for this many bells after its own (a bell resolves after it ends; older ones are the record's). */
 export const KEEP_NEWS_BELLS = 6;
 
-const marchKey = m => String(m.entry?.host ?? m.transit?.hostId ?? '');
+// (fix-loop24: a kept expedition's row — wide land — has no book entry and, once its marker is gone, no transit: its own host)
+const marchKey = m => String(m.entry?.host ?? m.transit?.hostId ?? m.expedition?.host ?? '');
+/**
+ * (verify-pr270) The id of a line about ONE march: its host and its arrival turn, `rs:<host>@<turn>` (`rv:` its seal opened,
+ * `rs:` its result, `st:` its result to collect). The id was the host's alone, and the feed (pushFeed) and the notices
+ * (hud/notify.mjs, `report:<host…>`) tell an id once: a host's second march — loop-play24's keep march, sent by the host
+ * that had taken the camp — got no line and no "Battle report ready". hud/notify.mjs keys the event by what follows the prefix.
+ */
+export const marchLineId = (prefix, host, arrive) => `${prefix}:${host}@${Number.isInteger(arrive) ? arrive : ''}`;
+/** (fix-loop24) A march row's arrival turn: the book's, the transit's, else a kept expedition's. */
+export const marchArrive = m => m.entry?.arriveBell ?? m.transit?.arriveBell ?? m.expedition?.arriveBell ?? null;
+/** (fix-loop24) A march row's stage as the feed reads it: a kept expedition resolved or settled on chain is `resolved`. */
+const marchPipeline = m => m.facts?.pipeline ?? (['resolved', 'settled'].includes(m.expedition?.stage) ? 'resolved' : null);
 
 /**
  * What the page knows now, reduced to what notifications compare. `prev` is the snapshot before this one: what a
@@ -48,20 +80,26 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
   for (const m of FS.marches ?? []) {
     const k = marchKey(m);
     const was = prev?.marches?.get(k) ?? null;
-    const arrive = m.entry?.arriveBell ?? m.transit?.arriveBell ?? null;
+    const arrive = marchArrive(m);
+    // (fix-loop24, BREAK-3: the destination once known stays known for the same march — the same arrival turn —: a
+    //  row read once without it (a local march whose turn record was not read in that poll) left the snapshot with
+    //  `dest: null`, and neither the resolved line nor the "row gone" line below could be told: the keep march of
+    //  loop-play24 was never said)
+    const dest = m.dest ?? m.expedition?.dest ?? (was && was.bell === arrive ? was.dest : null);
     // (the destination's name as the page knows it now: what stands on the tile, when this browser knows the tile)
     // (once the arrival turn has ended its clash may have changed what stands there — a camp it cleared is grass —: the
     // line that tells of the clash names the place as it was when the host came to it)
-    const nameNow = m.dest && Number.isInteger(m.dest.tile) ? tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name ?? null : null;
+    // (fix-loop24: a keep tile as the keep, not by its terrain — destPlace; without a tile the line names the province then)
+    const nameNow = dest && Number.isInteger(dest.tile) ? destPlace(FS, dest) : null;
     // (B11 round 2: the same name in every language, kept beside it — a notice made later names the place in each)
-    const namesNow = m.dest && Number.isInteger(m.dest.tile) ? inEachLang(() => tileWhat(FS, m.dest.p, m.dest.q, m.dest.tile).name ?? null) : null;
+    const namesNow = dest && Number.isInteger(dest.tile) ? inEachLang(() => destPlace(FS, dest)) : null;
     const ended = Number.isInteger(arrive) && Number.isInteger(FS.nowBell) && FS.nowBell > arrive;
     const kept = ended && was && was.bell === arrive && was.destName;
     const destName = kept ? was.destName : nameNow, destNames = kept ? was.destNames ?? null : namesNow;
     const same = !!was && was.bell === arrive;
-    if (k) marches.set(k, { pipeline: same && was.pipeline === 'resolved' ? 'resolved' : m.facts?.pipeline ?? null,
+    if (k) marches.set(k, { pipeline: same && was.pipeline === 'resolved' ? 'resolved' : marchPipeline(m),
       revealed: !!m.facts?.slotPresent || (same && was.revealed), settle: !!m.facts?.settleReady,
-      dest: m.dest ?? null, destName, destNames, bell: arrive, outcome: m.transit?.outcome ?? null });
+      dest, destName, destNames, bell: arrive, outcome: m.transit?.outcome ?? null });
   }
   const builds = new Set(), pendingBuilds = new Set(), holdings = new Map();
   for (const h of FS.holdings ?? []) {
@@ -106,7 +144,7 @@ export function snapshot(FS, now = FS.chain?.now?.() ?? 0, prev = null) {
       const id = `${p},${q},${c.tile},${c.bell},${c.from},${c.to},${c.reason}`;
       territorySeen.add(id);
       if (FS.survey && !FS.survey.showAll && FS.survey.levelOf(p, q, c.tile) !== 3) continue;
-      territory.set(id, { ...c, p, q, mine: c.to === FS.citizen.faction, name: tileWhat(FS, p, q, c.tile).name ?? provinceName(FS, p, q), names: inEachLang(() => tileWhat(FS, p, q, c.tile).name ?? provinceName(FS, p, q)) });
+      territory.set(id, { ...c, p, q, mine: c.to === FS.citizen.faction, name: tileWhat(FS, p, q, c.tile).name ?? noticeProvince(p, q), names: inEachLang(() => tileWhat(FS, p, q, c.tile).name ?? noticeProvince(p, q)) });
     }
   }
   // keep events (controller refreshKeepEvents): null until the season's days are read, so the past is not news
@@ -165,25 +203,25 @@ function diffFeedNow(prev, next) {
   // names from the two snapshots alone: a village by its place and tier, a province by the viewer's village in it
   // (else by the nation on whose side it lies), a march's destination by what stands there
   const own = { holdings: [...next.holdings.values(), ...[...prev.holdings.values()].filter(h => !next.holdings.has(`${h.p},${h.q},${h.site}`))] };
-  const village = h => (Number.isInteger(h?.site) ? holdingName({ p: h.p, q: h.q, site: h.site }, h.tier ?? 0) : provinceName(own, h.p, h.q));
-  const villageIn = (p, q) => { const h = own.holdings.find(x => x.p === p && x.q === q); return h ? village(h) : provinceName(own, p, q); };
+  const village = h => (Number.isInteger(h?.site) ? holdingName({ p: h.p, q: h.q, site: h.site }, h.tier ?? 0) : noticeProvince(h.p, h.q));
+  const villageIn = (p, q) => { const h = own.holdings.find(x => x.p === p && x.q === q); return h ? village(h) : noticeProvince(p, q); };
   // (a kept name in the language of this run when the snapshot has it in every language: B11 round 2)
   const named = (names, name) => names?.[lang()] ?? name ?? null;
-  const destOf = m => named(m.destNames, m.destName) ?? provinceName(own, m.dest.p, m.dest.q);
+  const destOf = m => named(m.destNames, m.destName) ?? noticeProvince(m.dest.p, m.dest.q);
   for (const [k, m] of next.marches) {
     const was = prev.marches.get(k);
     const d = m.dest;
     if (!was) continue;
-    if (!was.revealed && m.revealed && d) out.push({ id: `rv:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の封が開けられました` });
+    if (!was.revealed && m.revealed && d) out.push({ id: marchLineId('rv', k, m.bell), kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の封が開けられました` });
     if (was.pipeline !== 'resolved' && m.pipeline === 'resolved' && d) {
       // (the place by the name it had before the turn was resolved: a camp that this very clash cleared is still
       // "the camp" in the line that tells of it. With no engagement in the record nobody stood there: the host
       // simply arrived, and no battle is staged for it)
       const name = named(was.destNames, was.destName) ?? destOf(m), quiet = next.fights?.get(`${d.p},${d.q},${m.bell}`) === 0;
-      if (quiet) out.push({ id: `rs:${k}`, kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(m.bell)} の到着）` });
-      else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`${name}の衝突が決着しました（ターン ${fmtNum(m.bell)} の到着）` });
+      if (quiet) out.push({ id: marchLineId('rs', k, m.bell), kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(m.bell)} の到着）` });
+      else out.push({ id: marchLineId('rs', k, m.bell), kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: m.bell }, text: L`${name}の衝突が決着しました（ターン ${fmtNum(m.bell)} の到着）` });
     }
-    if (!was.settle && m.settle && d) out.push({ id: `st:${k}`, kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の結果を受け取れます` });
+    if (!was.settle && m.settle && d) out.push({ id: marchLineId('st', k, m.bell), kind: 'march', bell, p: d.p, q: d.q, text: L`${destOf(m)}への進軍の結果を受け取れます` });
   }
   // (fix-loop22, LP22-4: a march whose row left the page's list in the same poll its turn was resolved — a march to a
   //  province the viewer holds no village in is read only while its transit stands — was told by nobody: the keep march
@@ -191,9 +229,9 @@ function diffFeedNow(prev, next) {
   //  told now, as the same line with the same id, so it is said once)
   for (const [k, was] of prev.marches) {
     if (next.marches.has(k) || was.pipeline === 'resolved' || !was.dest || !Number.isInteger(was.bell) || !Number.isInteger(bell) || bell <= was.bell) continue;
-    const d = was.dest, name = named(was.destNames, was.destName) ?? provinceName(own, d.p, d.q), quiet = next.fights?.get(`${d.p},${d.q},${was.bell}`) === 0;
-    if (quiet) out.push({ id: `rs:${k}`, kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(was.bell)} の到着）` });
-    else out.push({ id: `rs:${k}`, kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: was.bell }, mine: true, text: L`${name}の衝突が決着しました（ターン ${fmtNum(was.bell)} の到着）` });
+    const d = was.dest, name = named(was.destNames, was.destName) ?? noticeProvince(d.p, d.q), quiet = next.fights?.get(`${d.p},${d.q},${was.bell}`) === 0;
+    if (quiet) out.push({ id: marchLineId('rs', k, was.bell), kind: 'march', bell, p: d.p, q: d.q, tile: d.tile, text: L`${name}に着きました。戦いはありませんでした（ターン ${fmtNum(was.bell)} の到着）` });
+    else out.push({ id: marchLineId('rs', k, was.bell), kind: 'battle', bell, p: d.p, q: d.q, battle: { p: d.p, q: d.q, bell: was.bell }, mine: true, text: L`${name}の衝突が決着しました（ターン ${fmtNum(was.bell)} の到着）` });
   }
   for (const c of next.clashes) {
     if (prev.clashes.has(c)) continue;
@@ -204,10 +242,10 @@ function diffFeedNow(prev, next) {
     // with neighbours it would be raised every turn)
     if (next.still?.has(c)) continue;   // (LP14-7: nobody arrived and nobody fought — a host only stood there: not news)
     if (next.fights?.get(c) === 0) {
-      if (!out.some(x => x.id.startsWith('rs:') && x.p === p && x.q === q)) out.push({ id: `cl:${c}`, kind: 'march', bell, p, q, quiet: true, text: L`${provinceName(own, p, q)}に軍勢が着きました。戦いはありませんでした（ターン ${fmtNum(b)}）` });
+      if (!out.some(x => x.id.startsWith('rs:') && x.p === p && x.q === q)) out.push({ id: `cl:${c}`, kind: 'march', bell, p, q, quiet: true, text: L`${noticeProvince(p, q)}に軍勢が着きました。戦いはありませんでした（ターン ${fmtNum(b)}）` });
       continue;
     }
-    out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`${provinceName(own, p, q)}で戦いがありました（ターン ${fmtNum(b)}）` });
+    out.push({ id: `cl:${c}`, kind: 'battle', bell, p, q, battle: { p, q, bell: b }, text: L`${noticeProvince(p, q)}で戦いがありました（ターン ${fmtNum(b)}）` });
   }
   for (const [k, c] of next.territory ?? []) {
     // A late resolution is still news. First loading history, or revealing an old

@@ -87,7 +87,9 @@ export function noticeOf(x) {
   if (id.startsWith('tr:')) return x.lost ? { kind: 'attacked', key: `land:${id.slice(3)}` } : null;
   if (id.startsWith('hg:')) return x.lost ? { kind: 'attacked', key: `lost:${at(x)}` } : null;
   if (id.startsWith('cl:')) return x.attacked ? { kind: 'attacked', key: `clash:${at(x)}:${x.battle?.bell ?? x.bell}` } : null;
-  if (id.startsWith('rs:')) return x.kind === 'battle' ? { kind: 'report', key: `report:${id.slice(3)}` } : null;
+  // (fix-loop24, BREAK-3: every own march's result is a report — a clash, and an arrival nobody stood against (its report
+  //  says so too) —; only the battle was told, so a march that met nobody, or a line made as 'march', was never told)
+  if (id.startsWith('rs:')) return { kind: 'report', key: `report:${id.slice(3)}` };
   if (id.startsWith('st:')) return { kind: 'report', key: `report:${id.slice(3)}` };
   if (id.startsWith('in:')) return { kind: 'incoming', key: id };
   if (id.startsWith('al:')) return x.notice ?? null;

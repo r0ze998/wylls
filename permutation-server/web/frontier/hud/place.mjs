@@ -66,6 +66,15 @@ export function provinceName(FS, p, q, { own: byVillage = true } = {}) {
 /** A province by its coordinates: the small print of "details". */
 export const provinceCoords = (p, q) => L`州 ${p},${q}`;
 
+// (fix-loop24, loop-play24 BREAK-3/4) A place in a NOTIFICATION — the feed's lines, the toasts and the system notices
+// made from them, the herald's alerts —: one form, the one the march card, the report body and the world goals card
+// already use: 「州 -1,1」 / "Province -1,1". The same province was told as "province -1,1" by one line and as "Cinder side
+// (ring 1)" by the next. A province's keep is 「州 -1,1 の砦」 / "the keep of Province -1,1".
+/** A province in a notification: 「州 p,q」 / "Province p,q". */
+export const noticeProvince = (p, q) => provinceCoords(p, q);
+/** A province's keep in a notification: 「州 p,q の砦」 / "the keep of Province p,q". */
+export const noticeKeep = (p, q) => L`州 ${p},${q} の砦`;
+
 /**
  * The painted village of a nation at a tier, as the map draws it (the same
  * sprites: art/holdings, named as map/sprites.mjs names them — tier, open or
