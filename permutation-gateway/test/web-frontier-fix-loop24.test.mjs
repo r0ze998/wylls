@@ -288,5 +288,9 @@ test('flicker: what the panel said stands until new data is in (steadyWaitModel)
   assert.deepEqual(waitPanel.steadyWaitModel(caughtUp, st1.keep, empty).shown.timers, [], 'new data in: the empty answer is shown');
   const later = waitFS({ resolvedNext: 47, bell: 53 });
   assert.deepEqual(waitPanel.steadyWaitModel(later, st1.keep, empty).shown.timers, [], 'not more than a turn');
+  // the host between its march's report and home (--wide ×60: 4 empty samples): the report line stands a moment longer
+  const withReport = { key: st1.keep.key, bell: 50, model: { timers: [{ id: 'report', kind: 'report', at: 1 }], suggestions: [], soonest: null } };
+  assert.deepEqual(waitPanel.steadyWaitModel(caughtUp, withReport, empty).shown.timers.map(t => t.kind), ['report']);
+  assert.deepEqual(waitPanel.steadyWaitModel(waitFS({ resolvedNext: 53, bell: 53 }), withReport, empty).shown.timers, [], 'not past a turn');
   assert.ok(src('app.mjs').includes('const st = waitPanel.steadyWaitModel(F, F === FS ? waitSteady : null, waitPanel.waitModel(F, { offer }));'));
 });

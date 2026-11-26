@@ -145,7 +145,8 @@ export function settledWait(FS, r) {
 /**
  * (fix-loop24, BREAK-5) The panel keeps what it last said until new data is in: a model with no timer, for the same
  * village, while that village's own province has not caught up with the turn (`resolvedNext + 1 < nowBell`, the
- * "settling" moment of every turn change) or no host of it is read at all although the last model had host timers, and
+ * "settling" moment of every turn change), no host of it is read at all although the last model had host timers, or the
+ * last model awaited a march's report (the host between its report and home), and
  * no more than one turn after the last model with timers, is answered by that last model's timers. Pure: `prev` is
  * `{key, bell, model}` (null at first) → `{shown, keep}` (`keep` the record for next time).
  */
@@ -158,7 +159,10 @@ export function steadyWaitModel(FS, prev, model) {
   let rowsNow = 0;
   try { rowsNow = hostRows(FS).filter(combat).length; } catch { rowsNow = 0; }
   const lostRows = rowsNow === 0 && (prev?.model?.timers ?? []).some(t => String(t.id).startsWith('host:'));
-  if (prev && prev.key === key && prev.model?.timers?.length && Number.isInteger(bell) && Number.isInteger(prev.bell) && bell - prev.bell <= 1 && (behind || lostRows)) {
+  // (a march's report just came: its row left the list and its host is on the way home, not yet a standing host with a
+  //  timer of its own — the panel said 「いま待っているものはありません」 for a few seconds then, --wide ×60)
+  const marchGap = (prev?.model?.timers ?? []).some(t => t.kind === 'report');
+  if (prev && prev.key === key && prev.model?.timers?.length && Number.isInteger(bell) && Number.isInteger(prev.bell) && bell - prev.bell <= 1 && (behind || lostRows || marchGap)) {
     return { shown: { ...model, timers: prev.model.timers, soonest: prev.model.soonest }, keep: prev };
   }
   return { shown: model, keep: { key, bell, model } };
