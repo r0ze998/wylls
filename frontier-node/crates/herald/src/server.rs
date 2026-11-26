@@ -18,7 +18,9 @@
 //! `X-Content-Type-Options: nosniff`, and a CSP — the web design §12 policy
 //! for `/frontier/*`, `default-src 'none'; frame-ancestors 'none'`
 //! elsewhere. `/h/*` answers carry `Access-Control-Allow-Origin: *` (public
-//! data; the page's loopback `?herald=` override reads them cross-origin).
+//! data; the page's loopback `?herald=` override reads them cross-origin) —
+//! except the nation chat's `/h/chat/*` (`crate::chat`: a nation's private
+//! messages, POST reads with a wallet-signed token), which carries none.
 //!
 //! **`/gw/*`** is the relay's public listener (§8.3) on this origin, as
 //! `permutation-server/src/play/proxy.rs`: GET/POST/OPTIONS only, a safe
