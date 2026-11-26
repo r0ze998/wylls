@@ -88,7 +88,7 @@ export function wideClaimModel(FS, m) {
   //  counts toward the three villages, and its province is never offered again)
   const mine = wideSlots(FS);
   const held = new Set(mine.filter(e => e.holding).map(e => `${String(e.holding.p)},${String(e.holding.q)}`));
-  // (expansion-gameplay-1, reach from the nation's land — local wide worlds only, the devnet program takes no witness:
+  // (expansion-gameplay-1, reach from the nation's land — local wide worlds and devnet territory worlds (below); the devnet wide program 67a33c92 takes no witness:
   //  the opened wide land as the herald records it now (it grows where nations go), and the nation's land in it —
   //  a village of the nation, or a keep it won —, from which a claim may also reach OUTPOST_RANGE provinces)
   const local = !!FS?.localPlay?.wideLand;
@@ -193,6 +193,12 @@ export function ownLandBlock(land) {
       : land.tiles > 0 ? L`土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。あと ${fmtNum(land.turnsLeft)} ターン払えないままだと、遠いマスから1ターンに1つずつ手放されます。`
         : L`土地の維持費（本拠地の食料）が払えていません。新しいマスは取れません。本拠地に食料が戻ると、また取れます。`}</span></p>` : ''}`;
 }
+/** (en-ui-audit-2, a11y) A "Claim a tile" button names the card's lines that say why it is off or refused (ore short of
+ * 10 / of the next tile's price, land upkeep unpaid), so a screen reader hears the reason with the button. */
+export const tileWhy = w => {
+  const ids = [w.tilePriceShort && 'hp-tile-why-price', w.territory && w.tileShort && 'hp-tile-why-ore', w.land?.unpaid && 'hp-own-land-unpaid'].filter(Boolean);
+  return ids.length ? ` aria-describedby="${ids.join(' ')}"` : '';
+};
 function wideClaimCard(FS, m, busy) {
   const w = wideClaimModel(FS, m);
   if (!w) return '';
@@ -201,17 +207,17 @@ function wideClaimCard(FS, m, busy) {
   return html`<section class="vcard" id="hp-wide" aria-labelledby="hp-wide-h">
     ${cardHead({ id: 'hp-wide-h', ic: 'flag', title: L`広い土地に村を出す（テスト）` })}
     <p>${L`この村は広い土地（第129輪より外）のそばにあります。近くの州に2つめ・3つめの村を出せます。`}</p>
-    ${w.full ? '' : html`<p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>`}
+    ${w.full ? '' : html`<p class="muted">${L`費用（村の蔵から）`}: ${cost}${w.short.length ? html` — <span class="blocked" id="hp-wide-short">${L`足りません`}: ${w.short.map(x => `${RESOURCES[x.resource]} ${fmtNum(x.need - x.have)}`).join(' · ')}</span>` : ''}</p>`}
     ${ownLandBlock(w.land)}
     ${w.foodStalled ? html`<p class="muted" id="hp-own-land-stalled"><span class="blocked">${L`食料の増え方はもう 0 以下です（${signedNet(w.foodStalled.perHour)}/時）。次の1マスの維持費は、本拠地が毎ターン作る食料では払えません。`}</span></p>` : ''}
-    ${w.tilePriceShort ? html`<p class="muted"><span class="blocked">${L`鉱石が次の1マスの値段（${fmtNum(w.tilePrice)}）に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
-    ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
+    ${w.tilePriceShort ? html`<p class="muted"><span class="blocked" id="hp-tile-why-price">${L`鉱石が次の1マスの値段（${fmtNum(w.tilePrice)}）に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
+    ${w.territory && w.tileShort ? html`<p class="muted"><span class="blocked" id="hp-tile-why-ore">${L`鉱石が 10 に足りないので、いまは「1マス取る」を押せません。`}</span></p>` : ''}
     ${w.own.length ? html`<ul class="build-list">${w.own.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`あなたの村がある州`}</span>${noFreeNote(t)}</span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(tileWhy(w))} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}
     ${w.full ? html`<p class="muted">${L`村はもう3つあります。`}</p>${w.targets.some(t => t.territory) ? html`<ul class="build-list">${w.targets.filter(t => t.territory).map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`}${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}${noFreeNote(t)}</span>
-      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}${noFreeNote(t)}</span>
-      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
-      <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
+      <button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(tileWhy(w))} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button></li>`)}</ul>` : ''}` : html`<ul class="build-list">${w.targets.map(t => html`<li><span>${L`州（${t.p}, ${t.q}）`} <span class="muted">${L`村の場所 ${fmtNum(t.site + 1)}`}</span>${t.reach ? html` <span class="muted">${L`国の土地（${t.reach.p}, ${t.reach.q}）から`}</span>` : ''}${t.pin === 'siege' ? html` <span class="muted" data-pin="siege">${L`あなたの軍勢が砦を奪っている州`}</span>` : t.pin === 'keep' ? html` <span class="muted" data-pin="keep">${L`あなたの軍勢が砦を奪った州`}</span>` : t.pin === 'tiles' ? html` <span class="muted" data-pin="tiles">${L`あなたのマスがある州`}</span>` : ''}${noFreeNote(t)}</span>
+      ${t.territory ? html`<button type="button" class="btn small" data-act="territory-tile" data-p="${t.p}" data-q="${t.q}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(tileWhy(w))} aria-label="${L`1マス取る`}: ${L`州（${t.p}, ${t.q}）`}" ${raw(busy || w.tileOff || t.noFree ? 'disabled' : '')}>${L`1マス取る`}</button>` : ''}
+      <button type="button" class="btn small" data-act="wide-claim" data-p="${t.p}" data-q="${t.q}" data-site="${t.site}" data-slot="${w.slot}"${raw(t.reach ? ` data-rp="${t.reach.p}" data-rq="${t.reach.q}"` : '')}${raw(w.slot === 3 && w.previous ? ` data-pp="${w.previous.p}" data-pq="${w.previous.q}" data-ps="${w.previous.site}"` : '')}${raw(w.short.length ? ' aria-describedby="hp-wide-short"' : '')} aria-label="${L`ここに村を出す`}: ${L`州（${t.p}, ${t.q}）`} ${L`村の場所 ${fmtNum(t.site + 1)}`}" ${raw(busy || w.short.length ? 'disabled' : '')}>${L`ここに村を出す`}</button></li>`)}</ul>
       ${w.targets.some(t => t.reach) ? html`<p class="muted">${L`自分の国の村がある州や、国が奪った砦の州から 3 州以内にも村を出せます。国の土地が広がるほど、遠くへ出られます。`}</p>` : ''}`}
     ${tilePreviewBlock(w.preview, busy)}
     ${w.territory ? html`<p class="muted">${L`自分の土地：「1マス取る」はその州のマスを1つ、すぐ自分の土地にします（鉱石 10、持っているマス1つごとに +2%、1ターンに1マス）。村は自分のマスの上にだけ建ち、「ここに村を出す」は1回目でその場所のマスを取り、2回目で村を出します。土地の維持費は本拠地の食料から払います（1マス 0.99/時、自分の村から3州より遠いと1州ごとに +0.48/時）。払えないと新しく取れず、24ターン後から遠いマスが1ターンに1つずつ手放されます。`}</p>` : ''}

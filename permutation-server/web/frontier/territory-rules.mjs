@@ -4,7 +4,7 @@
 // `permutation-gateway/test/web-frontier-territory-rules.test.mjs`.
 //
 // Nothing here picks a number: every open owner question (inbox 2026-11-24-0933-territory-q2-questions.md, T-2..T-5)
-// is a parameter, and no world has a territory rule until r0ze answers. Amounts are milli-units per hour (upkeep) and
+// is a parameter. Since #209 the worlds use the decided rule V1 (`TERRITORY_V1` in `flocalplay-territory.mjs`). Amounts are milli-units per hour (upkeep) and
 // whole units (claim cost, as BigInt-safe decimal strings or numbers). Arithmetic is BigInt, so "does not fit" is
 // `null` exactly where the kernel says `None`.
 

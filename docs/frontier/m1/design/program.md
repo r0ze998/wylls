@@ -434,7 +434,7 @@ Arrival record (40 B): 0 host_id u64 · 8 citizen_tag u64 · 16 dep_mass u32 · 
 
 **ConsumeGenesisSeed (0x03)** — `[payer s,w] [season w]`, data: round u64, compressed sig 48, hints. Checks: status Created; round == `genesis_round`; quicknet verify (hinted, `crypto::quick::verify`). Effects: `genesis_seed = seed_of(round, sig)` (SP-V2 `seed_of`, domain `PSF-SEED-v1`), status Seeded; RingSeeds 0..g become derivable. Log `GENESIS_SEED`. Status Running starts lazily when `now ≥ genesis_ts` (every instruction computes it).
 
-**AbortSeason (0x06)** — anyone, if status Created and `now ≥ created_ts + 7 days` (genesis timeout) or status Seeded/Running and the beacon-outage rule of §8.10 holds (M2 completes the outage evidence). M1 effect: status Aborted; every instruction except closes refuses.
+**AbortSeason (0x06)** — (a) the authority, while the season has not started (status Announced, or Created/Seeded with `now < genesis_ts`); or (b) anyone, once a season still Announced or Created missed its creation window (`now ≥ t_create_min + 7 days`). A Running, ended, closed or aborted season is refused (`WrongStatus`); the beacon-outage abort of §8.10 is not built. M1 effect: status Aborted; every instruction except closes refuses.
 
 **OpenRing (0x20)** — `[payer s,w] [season] [frontier w] [ringseed w] [pfund] [system]`, data d. Checks: `d == frontier.rings_open + 1 ≤ r_max`; ≥ 1 bell since `last_ring_open_bell`; some wedge has `wedge_occupied ≥ θ × wedge_open` (θ early/late by `now − genesis_ts`), read from the **folded** values; `pfund.lamports − rent ≥ 6d × rent(4096)`. Effects: RingSeed(d) status requested, `t_open = now`, `round = first round ≥ now + 600 + Δ`; Frontier `rings_open = d` (provinces creatable after the seed). Log `RING_OPEN`.
 
