@@ -117,8 +117,10 @@ move only once its turn is settled: about 17 minutes later).
 
 1. **Join**: "Start the world (a kept world resumes)" (with `--demo`: "Start a new world") → "Choose a nation" → pick a flag, then
    press "Join (nation)". The first village is placed for you. No key card and no wallet prompt appears.
-2. **Village**: "This is your village." means it worked. The bar above the map shows food and wood; "N more" opens the
-   rest, with each good's rate (e.g. "Ore" "+4 per hour"; loop-play21). A village with
+2. **Village**: "This is your village." means it worked. The bar above the map shows a number per good, as many as fit
+   (in a 1280-px-wide window: food, wood, stone and ore with "2 more" at first, only food and wood with "4 more" once the
+   "Fields" chip joins the bar); "N more" (or any number in the bar) opens "Resources", every good with its rate
+   (e.g. "Ore" "+4 per hour"; loop-play21, verify-pr255). A village with
    "No ore from the land" can only grow to about 600 troops (on the standard map every auto-placed first village in loop-play21 was one: 4 of 4).
 3. **Build**: "Choose your first building" → the farm's "Build". It finishes in about one (in-game) minute.
 4. **Train**: "Train" in the bottom bar → "Max 500" → "Train 500 Spearmen". It finishes at once.
