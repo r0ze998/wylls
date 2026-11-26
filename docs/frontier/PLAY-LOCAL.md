@@ -149,7 +149,14 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    filled in: press "Send this order". Before the host is formed, "Train troops" already says what the camp takes ("Your first battle
    is a nearby barbarian camp (156 defenders). Gather 200 Spearmen or more into one host …"). With too few troops it says the odds and
    "Train more troops before you go"; with no camp in sight it offers "March: choose on the map"; "Skip this step" moves on to building.
-   In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–280 defenders.
+   The guide only picks a camp that will **fight** (fix-firstcamp): a camp joins a battle only while fewer than 12 villages stand in
+   its province, so a camp in a province of 12 villages is passed by and named ("The camp of (place) is nearer, but 12 villages stand
+   in its province, so it does not join battles …"). In a `--demo` world (fixed map) the home province and soon a neighbour fill with
+   12 villages, so the first camp is further away. The step also says the way there ("The way there: 6 tiles · 2 provinces · arrives
+   turn 9 (…)") and when the report is expected after that arrival. If every camp in sight sits battles out, it offers "Fight a
+   practice clash" (a practice battle, not a chain record) and says to look further with "March". The march card's outlook does not
+   count a camp that sits out ("The barbarian camp here (196) does not join the battle …", outlook "Unopposed").
+   In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–389 defenders.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
    The card the guide opens, "March on a keep · N keeps in reach", gives each row's arrival as "Turn 22 · arrival (13 tiles)"; the

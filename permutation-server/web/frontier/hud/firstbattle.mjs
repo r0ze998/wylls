@@ -65,29 +65,81 @@ export const ownReportOut = FS => (FS?.marches ?? []).some(m => m?.facts?.pipeli
 const hexDist = (a, b) => { const dq = a.q - b.q, dp = a.p - b.p; return (Math.abs(dp) + Math.abs(dq) + Math.abs(dp + dq)) / 2; };
 
 /**
- * The barbarian camp for a first march of host row `r` (screens/host.mjs hostRows): among the camps standing in the
- * provinces the page holds whose tile the viewer may see (`seen(p, q, tile)`, the fog's own test), the nearest one the
- * host beats even at the worst roll; else the nearest camp with the troops it would take. `rough(p, q, tile)` says
- * whether the camp's tile is forest or hills (unknown counts as rough: the careful side).
- * Answer: `{camp: {p, q, tile, troops}, winnable, odds, need}` or null (no camp in sight, or no fighting host).
+ * Garrisons a clash takes (`clash::MAX_GARRISONS`, screens/report.mjs MAX_GARRISONS): the camp joins a province's
+ * clash only while FEWER than this many holdings stand there (frontier-abi clash_model.rs `camp.present() &&
+ * garrisons.len() < MAX_GARRISONS`; permutation-frontier proc/clash.rs: "12 holdings and a camp: the camp sits the bell
+ * out"). Kept equal to report.mjs's by a test.
  */
-export function campChoice(FS, r, { seen = () => true, rough = () => true } = {}) {
+export const CAMP_GARRISON_CAP = 12;
+
+/** The holdings standing in decoded Province `pr` (the rule's garrisons: site mirrors in state 1 among `siteCount`). */
+export function garrisonsIn(pr) {
+  const m = Array.isArray(pr?.siteMirror) ? pr.siteMirror : [];
+  const n = Math.min(Number.isInteger(pr?.siteCount) ? pr.siteCount : m.length, CAMP_GARRISON_CAP);
+  let k = 0;
+  for (let i = 0; i < n; i++) if (m[i]?.state === 1) k++;
+  return k;
+}
+
+/**
+ * Whether the camp of decoded Province `pr` would fight a march arriving now, by the rule's own conditions: it stands
+ * (state 1 — a beaten camp is state 0 until the daily check places a new one) and fewer than CAMP_GARRISON_CAP holdings
+ * stand in its province (else it sits every bell out: the `--demo` home province with 12 villages, loop-play22 LP22-1).
+ * A Province without site mirrors has no holdings the page knows of.
+ */
+export const campFights = pr => pr?.camp?.state === 1 && garrisonsIn(pr) < CAMP_GARRISON_CAP;
+
+/**
+ * The barbarian camp for a first march of host row `r` (screens/host.mjs hostRows): among the camps standing in the
+ * provinces the page holds whose tile the viewer may see (`seen(p, q, tile)`, the fog's own test) and that would FIGHT
+ * (`campFights`: a camp in a province of 12 holdings sits the battle out — a march there is a non-battle, "Held", no
+ * losses, fix-firstcamp / Q-LP22-1 (a)), the nearest one the host beats even at the worst roll; else the nearest camp
+ * with the troops it would take. `rough(p, q, tile)` says whether the camp's tile is forest or hills (unknown counts as
+ * rough: the careful side).
+ * Answer: `{camp: {p, q, tile, troops}, winnable, odds, need, passed}` or null (no fighting camp in sight, or no
+ * fighting host). `passed`: the camps in sight that sit battles out and are nearer than the pick (nearest first).
+ */
+export function campChoice(FS, r, opts = {}) {
   if (!r || r.unit === SCOUT || r.unit === SETTLER || !(Number(r.troops) > 0)) return null;
+  const { seen = () => true, rough = () => true } = opts;
   const camps = [];
+  for (const { pr, c, d } of campsInSight(FS, r, seen)) {
+    if (!campFights(pr)) continue;
+    const o = campArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), campTroops: Number(c.troops), rough: !!rough(pr.p, pr.q, c.tile) });
+    camps.push({ camp: { p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops) }, odds: o.odds, need: o.need, d });
+  }
+  if (!camps.length) return null;
+  const byNear = (a, b) => a.d - b.d || a.camp.troops - b.camp.troops || a.camp.p - b.camp.p || a.camp.q - b.camp.q;
+  const good = camps.filter(x => x.odds === 'good').sort(byNear)[0];
+  const pick = good ?? camps.sort((a, b) => a.d - b.d || (a.need ?? Infinity) - (b.need ?? Infinity) || byNear(a, b))[0];
+  const passed = campsSittingOut(FS, r, { seen }).filter(x => x.d < pick.d);
+  return { camp: pick.camp, winnable: pick.odds === 'good', odds: pick.odds, need: pick.need, passed };
+}
+
+/**
+ * The camps in sight of host row `r` that sit battles out (`campFights` false while standing: 12 holdings in their
+ * province), nearest first: `[{p, q, tile, troops, garrisons, d}]`. The guide names them so the newcomer knows why the
+ * camp next door is not the first battle.
+ */
+export function campsSittingOut(FS, r, { seen = () => true } = {}) {
+  if (!r) return [];
+  return campsInSight(FS, r, seen).filter(x => !campFights(x.pr))
+    .map(({ pr, c, d }) => ({ p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops), garrisons: garrisonsIn(pr), d }))
+    .sort((a, b) => a.d - b.d || a.p - b.p || a.q - b.q);
+}
+
+/** The standing camps whose tile the viewer may see, with their province distance from host row `r`. */
+function campsInSight(FS, r, seen) {
+  const out = [];
   for (const env of FS?.provinces?.values?.() ?? []) {
     const pr = env?.province, c = pr?.camp;
     if (c?.state !== 1 || !Number.isInteger(c.tile) || !(Number(c.troops) >= 0)) continue;
     let ok = false;
     try { ok = !!seen(pr.p, pr.q, c.tile); } catch { ok = false; }
     if (!ok) continue;
-    const o = campArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), campTroops: Number(c.troops), rough: !!rough(pr.p, pr.q, c.tile) });
-    camps.push({ camp: { p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops) }, odds: o.odds, need: o.need, d: hexDist(pr, { p: r.p ?? pr.p, q: r.q ?? pr.q }) });
+    out.push({ pr, c, d: hexDist(pr, { p: r.p ?? pr.p, q: r.q ?? pr.q }) });
   }
-  if (!camps.length) return null;
-  const byNear = (a, b) => a.d - b.d || a.camp.troops - b.camp.troops || a.camp.p - b.camp.p || a.camp.q - b.camp.q;
-  const good = camps.filter(x => x.odds === 'good').sort(byNear)[0];
-  const pick = good ?? camps.sort((a, b) => a.d - b.d || (a.need ?? Infinity) - (b.need ?? Infinity) || byNear(a, b))[0];
-  return { camp: pick.camp, winnable: pick.odds === 'good', odds: pick.odds, need: pick.need };
+  return out;
 }
 
 /**
