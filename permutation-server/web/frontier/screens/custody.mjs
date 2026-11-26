@@ -144,7 +144,9 @@ export function custodyModel(FS, nowTs = FS.chain?.now?.() ?? 0) {
     const l = e.lot, v = vaultNow(e);
     const seized = l.state === LOT_FORFEITED || (!!v && (Number(v.gen) !== l.vaultGen || v.ownerCitizen !== viewer));
     if (seized) losses.push({ key: `kept:${l.p},${l.q},${l.tile},${l.vaultGen}:${l.ownerTag}`, text: () => L`あなたの貯蔵庫が奪われ、預かっていた鉱石も奪われました。` });
-    return { vault: e.vault, depositor: nationOf(e.owner), held: whole(l.held), quota: whole(l.quota), state: l.state, seized };
+    // (verify-pr256: the lot list shows a depositor with no village in this Province any more — its nation is not read
+    //  there, so the row names it by a short form of its address instead of a nation)
+    return { vault: e.vault, depositor: nationOf(e.owner), who: short(e.owner), held: whole(l.held), quota: whole(l.quota), state: l.state, seized };
   });
   const myVaults = vaults.filter(v => v.ownerCitizen === viewer);
   const openChoices = myVaults.flatMap(v => holdings.filter(h => same(h, v) && h.ownerCitizen !== viewer)
@@ -234,7 +236,7 @@ export function renderCustody(FS) {
       ${e.reconcile ? btn('lot-reconcile', { ...d, caravans: e.reconcile.caravans.join('.') }, L`帳簿を確かめる`) : ''}
       ${e.canClose ? btn('lot-close', { ...d, rent: e.lot.rentTo }, L`枠を閉じる`) : ''}</span></li>`;
   })}</ul>` : '';
-  const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? html`${chip(L`奪われた`, 'warn')} ` : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
+  const kept = m.keptLots.length ? html`${label(L`あなたの貯蔵庫の預かり`)}<ul class="list custody-kept">${m.keptLots.map(e => html`<li>${icon('crate')}${L`${e.depositor === null ? e.who : factionName(e.depositor)} の鉱石（マス ${e.vault.tile}）`} ${e.seized ? html`${chip(L`奪われた`, 'warn')} ` : ''}<span class="muted">${L`${fmtNum(e.held)} / 枠 ${fmtNum(e.quota)}`}</span></li>`)}</ul>` : '';
   // (fix-loop9, LP9-7: the select chose the province's FIRST village — an AI's or a test village — and a lot opened for
   //  the wrong person unless one noticed: one choice is chosen; more are left to the person, except the one picked last)
   const pairPick = openPairPick(m.openChoices, FS.ui?.custodyPair ?? null);

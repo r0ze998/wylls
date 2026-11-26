@@ -403,6 +403,8 @@ function judgePersonalGoal(W, g, a, credited) {
       const mine = b.deliverers.filter(d => d.actor === a.id);
       const own = {};
       for (const d of mine) for (const [r, q] of Object.entries(d.counted)) if (Object.hasOwn(b.need, r)) own[r] = (own[r] ?? 0) + q;
+      // ("reached" counts EVERY deliverer's counted amount, the requester's own nation's included — owner 2026-11-26
+      //  10:52, Q-TG2-2: A asks 20, C of A's nation 15, B of another 5 → reached, B earns it; test/request-title)
       const total = {};
       for (const d of b.deliverers) for (const [r, q] of Object.entries(d.counted)) total[r] = (total[r] ?? 0) + q;
       const ev = [b.fulfilled.id];

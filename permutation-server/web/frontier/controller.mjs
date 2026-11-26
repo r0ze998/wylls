@@ -4245,6 +4245,19 @@ async function custodyRead(addrs) {
   return out;
 }
 /**
+ * (owner-answers-logic, owner 2026-11-26 10:52 answer 8 / Q-TG2-1) The addresses the relay's read-only lot list names for
+ * the viewer's own storehouse `v` (cust.LOT_LIST_SCHEMA): every Lot there, whoever deposited — also a depositor whose
+ * village in that Province was captured or left. A relay that does not answer it: none (the plan reads as before).
+ */
+async function custodyLotList(v) {
+  const g = localDepartGate();
+  if (!g?.ok) return [];
+  try {
+    const j = await localAct.postLocalAct(g.relay, localAct.LOCAL_ACT_CONTEXT_PATH, { schema: cust.LOT_LIST_SCHEMA, vault: { p: Number(v.p), q: Number(v.q), tile: Number(v.tile), gen: Number(v.gen) } });
+    return Array.isArray(j?.addresses) ? j.addresses.filter(a => typeof a === 'string').slice(0, 64) : [];
+  } catch { return []; }
+}
+/**
  * What the preview card needs (FOG RULE, flocalplay-custody.mjs): the villages of the viewer's own Provinces (their
  * Holdings), the pools of the workshop villages there, the jobs the viewer is a party to, the lots in the viewer's
  * storehouses and the viewer's own lots, and the viewer's custody caravans those lots expect. Only reads. A loss seen
@@ -4266,7 +4279,18 @@ async function refreshCustody(current = () => true) {
     // (a seizure or a capture moves a storehouse or village to its next generation, and a lot's or pool's address
     //  carries the generation: the planners also read the generations before and everything read before, or a loss
     //  would vanish instead of being told — verify-pr140)
-    const lotAt = cust.lotReadPlan({ vaults, holdings, viewer, known: [...c.lots.values()].map(e => ({ vault: e.vault, owner: e.owner })) });
+    // (owner-answers-logic, Q-TG2-1: the lots of the viewer's OWN storehouses are found by the storehouse's lot list, not
+    //  only by who has a village in its Province now — each kept only when its own bytes derive its address)
+    const listed = [];
+    for (const v of vaults.filter(v => v.ownerCitizen === viewer)) {
+      const addrs = await custodyLotList(v);
+      if (!current() || FS.custody !== c) return;
+      if (!addrs.length) continue;
+      const acc = await custodyRead(addrs);
+      if (!current() || FS.custody !== c) return;
+      listed.push(...cust.listedLots({ vault: v, addresses: addrs, accounts: acc, seasonAddress: A.season, programId: pin.programId }));
+    }
+    const lotAt = cust.lotReadPlan({ vaults, holdings, viewer, listed, known: [...c.lots.values()].map(e => ({ vault: e.vault, owner: e.owner })) });
     const lotAddr = lotAt.map(x => cust.lotAddress(A.season, pin.programId, x.vault, cust.tagOf(x.owner)));
     const poolOf = cust.poolReadPlan({ holdings, known: [...c.pools.values()].map(e => e.pool.facility) });
     const poolAddr = poolOf.map(f => cust.poolAddress(A.season, pin.programId, f));
