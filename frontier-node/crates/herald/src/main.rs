@@ -12,6 +12,8 @@
 //!     [--wide-index PATH]  (feature wide-index-read-experimental, read-only)
 //!     [--public-host NAME[,NAME…]]  (B13: the names the TLS proxy serves;
 //!      every request's Host, and a WS Origin, must name loopback or one of them)
+//!     [--chat-dir DIR [--chat-admin-token-file FILE]]  (nation chat `/h/chat/*`, src/chat.rs; off
+//!      without it. DIR holds the messages and reports and is never served; FILE the operator's token)
 //! --source read-only requires a matching herald.ckpt and --wide-index; no RPC/ingest/write.
 //! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
 //! ```
@@ -44,6 +46,28 @@ fn hosts(a: &HashMap<String, String>) -> Result<herald_fold::server::HostPolicy,
         .map(|v| v.split(',').collect())
         .unwrap_or_default();
     herald_fold::server::HostPolicy::with_public(&names)
+}
+
+/// `--chat-dir DIR [--chat-admin-token-file FILE]` → the nation chat, or none (src/chat.rs).
+fn chat_of(a: &HashMap<String, String>) -> Result<Option<Arc<herald_fold::chat::Chat>>, String> {
+    let Some(dir) = a.get("chat-dir") else {
+        if a.contains_key("chat-admin-token-file") {
+            return Err("--chat-admin-token-file needs --chat-dir".into());
+        }
+        return Ok(None);
+    };
+    let token = match a.get("chat-admin-token-file") {
+        Some(p) => Some(
+            std::fs::read_to_string(p)
+                .map_err(|e| format!("--chat-admin-token-file {p}: {e}"))?
+                .trim()
+                .to_string(),
+        ),
+        None => None,
+    };
+    let c = herald_fold::chat::Chat::open(PathBuf::from(dir), token)?;
+    eprintln!("frontier-herald: nation chat on (/h/chat/*), store {dir}");
+    Ok(Some(Arc::new(c)))
 }
 
 fn args() -> Result<HashMap<String, String>, String> {
@@ -315,6 +339,17 @@ async fn main_inner() -> Result<(), String> {
         host_policy.names().join(", ")
     );
     app.hosts = host_policy;
+    app.chat = chat_of(&a)?;
+    if let Some(c) = app.chat.clone() {
+        // (messages and reports are dropped 7 days after they were posted, also while nobody asks)
+        tokio::spawn(async move {
+            let mut t = tokio::time::interval(Duration::from_secs(600));
+            loop {
+                t.tick().await;
+                c.prune_and_save();
+            }
+        });
+    }
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .map_err(|e| format!("{listen}: {e}"))?;

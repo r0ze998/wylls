@@ -22,6 +22,8 @@
 //! recomputed it.
 
 pub mod caravan;
+/// Nation chat (`/h/chat/*`, `--chat-dir`): signed, nation-only, moderated (owner Q-PT-11 (a), Q-PT-12).
+pub mod chat;
 pub mod checkpoint;
 pub mod clash;
 // MC hook: conquest milestone modules (CONQUEST-CONTRACT §4.5, §8.4)
