@@ -159,7 +159,7 @@ pub fn text_problem(t: &str) -> Option<&'static str> {
 
 /// Top-level names a "word.tld" is read as a link with (generic ones and the countries most used for short links).
 const TLDS: &[&str] = &[
-    "com", "net", "org", "io", "me", "co", "xyz", "app", "dev", "info", "biz", "jp", "ru",
+    "com", "net", "org", "io", "gg", "me", "co", "xyz", "app", "dev", "info", "biz", "ru",
     "cn", "uk", "de", "fr", "tv", "ly", "link", "site", "online", "top", "club", "shop", "live",
     "store", "tech", "pro", "fun", "icu", "vip", "win", "bid", "page", "art", "cc", "ws", "to",
     "sh", "ai", "gl", "us", "eu", "kr", "tw", "hk", "sg", "in", "br", "es", "it", "nl", "pl", "ch",
