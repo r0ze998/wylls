@@ -53,7 +53,9 @@ import { profileForHash } from '../../../permutation-server/web/sdk/frontier/pro
 import { claimTargets, settlerCost, freeWideSites } from '../../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { createWideLandReader, expansionTargets, headingOf, withTerritory } from './local-play-operator-expansion.mjs';
 import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
-import { heraldTerritoryPlayer, heraldTerritoryRecords, citizenTagOf } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { citizenTagOf } from '../../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import { ownLandOf, cachedFor } from './local-play-operator-land.mjs';
+export { ownLandOf, cachedFor } from './local-play-operator-land.mjs';
 import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/resources.mjs';
 
 /**
@@ -72,23 +74,6 @@ export function storesNow(holding, secs) {
 /** The village's food per hour in milli-food at `secs`, or null when unreadable (Q-LP19-1 (a): its food surplus). */
 export function foodMilliPerHourAt(holding, secs) {
   try { const x = Number.isSafeInteger(secs) ? storesAt(holding, secs, RESOURCE_ORDER)[RESOURCE_ORDER.indexOf('Food')]?.perHour : null; return Number.isFinite(x) ? Math.round(x * 1000) : null; } catch { return null; }
-}
-/**
- * (owner-answers-logic, Q-LP19-1 (a)) The resident's own land as the herald captured it, for the policy: `{land, records}`
- * — `land` `{foodMilliPerHour, upkeepMilliPerHour, tiles}` (null when the summary or the food rate is unreadable; a
- * Citizen that never claimed a tile pays 0), `records` the territory tiles (heraldTerritoryRecords), asked for only when
- * the summary counts FEWER tiles than the resident remembers (a tile was let go). FOG RULE: its own Citizen only.
- */
-export async function ownLandOf({ citizen, foodMilliPerHour, rememberedTiles, deps }) {
-  if (typeof citizen !== 'string' || !deps.territoryPlayer) return { land: null, records: null };
-  let player;
-  try { player = heraldTerritoryPlayer(await deps.territoryPlayer(citizen), { citizen, tag: citizenTagOf(citizen) }); } catch { player = null; }
-  if (!player) return { land: null, records: null };
-  const tiles = player.player ? player.player.tiles : 0, upkeep = player.player ? player.player.upkeepMilliPerHour : 0;
-  const land = Number.isFinite(foodMilliPerHour) ? { foodMilliPerHour, upkeepMilliPerHour: upkeep, tiles } : null;
-  let records = null;
-  if (rememberedTiles > tiles && deps.territoryTiles) { try { records = heraldTerritoryRecords(await deps.territoryTiles()); } catch { records = null; } }
-  return { land, records };
 }
 export function coversSettlerCost(holding, secs, holdingsN) {
   try {
@@ -178,15 +163,6 @@ async function getJson(url, ms = 4000) {
   const r = await fetch(url, { signal: AbortSignal.timeout(ms), redirect: 'error' });
   if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
   return r.json();
-}
-/** `ask()` shared and kept `ms` milliseconds (one answer for every resident of the round; a failure is not kept). */
-export function cachedFor(ms, ask, now = () => Date.now()) {
-  let at = -Infinity, value = null, pending = null;
-  return () => {
-    if (now() - at < ms) return Promise.resolve(value);
-    pending ??= ask().then(v => { value = v; at = now(); return v; }).finally(() => { pending = null; });
-    return pending;
-  };
 }
 /** A wait of `ms`, cut short by `signal`; its abort listener is removed either way (one per round would pile up: loop-play-b12 live run). */
 export const delay = (ms, signal) => new Promise(r => {

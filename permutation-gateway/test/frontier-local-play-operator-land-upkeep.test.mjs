@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createResidentMemory, decideNext, noteOutcome, landTooDear, pruneOwnTiles, OWN_TILE_READ_GRACE, OPERATOR_TILES_MAX } from '../src/frontier/local-play-operator-policy.mjs';
-import { ownLandOf, cachedFor } from '../src/frontier/local-play-operator-residents.mjs';
+import { ownLandOf, cachedFor } from '../src/frontier/local-play-operator-land.mjs';
 import { tileUpkeepV1, citizenTagOf } from '../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { distance } from '../../permutation-server/web/frontier/flocalplay-wide.mjs';
 import { encode } from '../../permutation-server/web/sdk/base58.mjs';
