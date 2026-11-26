@@ -322,4 +322,6 @@ test('verify-pr272: the wide card and the food ledger blocks carry different ids
   assert.match(String(ownLandHorizonBlock(h, { rate: 1 })), /id="hp-own-land-horizon"/);
   assert.match(String(ownLandHorizonBlock(h, { id: 'hp-land-food-horizon', rate: 1 })), /id="hp-land-food-horizon"/);
   assert.match(web('frontier/screens/holding.mjs'), /id: 'hp-land-food-horizon'/);
+  // and the ledger copy stands only where the wide-land card (which carries it under the land line) is not shown
+  assert.match(web('frontier/screens/holding.mjs'), /landPerHour > 0\) && !wideClaimModel\(FS, m\) \? ownLandHorizonBlock\(m\.horizon, \{ id: 'hp-land-food-horizon'/);
 });

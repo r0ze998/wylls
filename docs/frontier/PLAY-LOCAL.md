@@ -525,8 +525,8 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
    is not counted unless it is sent to the first (and on a `--wide` local world you cannot send a caravan). The numbers
    are the same settle the program uses. This game has no population, so the measure is tiles and turns — after
    Buckminster Fuller's World Game ("how many people, for how many forward days, we are now technically organized to
-   cope with"). The same note sits on the first village's food ledger and in the food row of the resource HUD. "?"
-   opens the glossary term "Logistics horizon".
+   cope with"). The same note sits in the food row of the resource HUD, and on the first village's food ledger when
+   the village has no wide-land card. "?" opens the glossary term "Logistics horizon".
    The card lists at most 4 provinces near your first village and 6 reached through your nation's land, nearest first, so
    a province in reach can be missing and rows change as land opens. A province where you own a tile ("you own tiles
    here") or whose keep your host is taking ("your host is taking this keep") or has taken ("your host took this keep")

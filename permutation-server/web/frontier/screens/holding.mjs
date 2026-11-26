@@ -675,6 +675,8 @@ export function render(FS) {
       ${f.state === 'provisional' ? html`<li class="fact-note">${provisionalNote(FS, h)}</li>` : ''}</ul>` : ''}
   </section>`;
 
+  // (verify-pr272: on a village with the wide-land card the horizon stands there, under the land line — not twice on
+  //  one screen; the food ledger carries it only when that card is not shown)
   const stores = html`<section class="vcard" id="hp-harvest" aria-labelledby="hp-harvest-h">
     ${cardHead({ id: 'hp-harvest-h', ic: 'crate', title: L`資源`, side: full.length ? html`<span class="c-count c-count-bad">${L`満杯 ${fmtNum(full.length)}`}</span>` : '' })}
     ${renderLedger(m.stores)}
@@ -682,7 +684,7 @@ export function render(FS) {
     <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(actionBusy || m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
       <span class="muted">${full.length ? L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : L`資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。`}</span></div>
     ${m.stores.some(s => s.landPerHour > 0) ? html`<p class="muted" id="hp-land-food">${L`食料の毎時は、あなたの土地の維持費を引いたあとの量です（「土地」がその分。ターンごとにこの村の食料から払われます）。`}</p>` : ''}
-    ${m.stores.some(s => s.landPerHour > 0) ? ownLandHorizonBlock(m.horizon, { id: 'hp-land-food-horizon', rate: termsRate(), villageCount: m.horizon?.villageCount, otherFoodMilli: m.horizon?.otherFoodMilli, otherProdMilliPerHour: m.horizon?.otherProdMilliPerHour, caravansOff: caravansOff(FS) }) : ''}
+    ${m.stores.some(s => s.landPerHour > 0) && !wideClaimModel(FS, m) ? ownLandHorizonBlock(m.horizon, { id: 'hp-land-food-horizon', rate: termsRate(), villageCount: m.horizon?.villageCount, otherFoodMilli: m.horizon?.otherFoodMilli, otherProdMilliPerHour: m.horizon?.otherProdMilliPerHour, caravansOff: caravansOff(FS) }) : ''}
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const queueName = q => queueItemLabel(q.q);
