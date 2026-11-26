@@ -20,6 +20,9 @@
 //!      → BadSignature; signed for nation 1 by a nation-4 member → NotThisNation; a report on another nation's
 //!      message → NoSuchMessage; an overflowing or over-long token window → BadTokenWindow (F3)
 //!   K7 7-day expiry by the wall clock: kept until KEEP_MS, gone after (also across a restart)
+//!   K8 (fog-leak-audit) a message id tells nothing of other nations: nation 1's ids step by NATIONS whatever nation 4
+//!      posts between them, also across a restart (ids were one counter over every nation: the gaps counted the
+//!      other nations' messages)
 
 mod common;
 
@@ -504,4 +507,51 @@ async fn k7_messages_expire_after_seven_days_by_the_wall_clock() {
     assert!(chat::kept(&w2.chat, 4).is_empty(), "gone at 7 days");
     let w3 = world_in(&dir, clock, &v).await;
     assert!(chat::kept(&w3.chat, 4).is_empty(), "and stays gone");
+}
+
+#[tokio::test]
+async fn k8_message_ids_tell_nothing_of_other_nations() {
+    let nations = permutation_rules::frontier::structure::NATIONS as u64;
+    let v = signed();
+    let dir = tmp("chat-k8");
+    let clock = Arc::new(AtomicU64::new(T0_MS));
+    let w = world_in(&dir, clock.clone(), &v).await;
+    let id_of = |r: &Value| -> u64 {
+        r["message"]["id"]
+            .as_str()
+            .expect("id")
+            .parse()
+            .expect("u64")
+    };
+    let (s, r) = post(&w, &post_body(&v, "day-300-0")).await;
+    assert_eq!(s, 200, "{r}");
+    let a0 = id_of(&r);
+    // nation 4 speaks between nation 1's two messages
+    let (s, r) = post(&w, &post_body(&v, "b1-own")).await;
+    assert_eq!(s, 200, "{r}");
+    let b0 = id_of(&r);
+    let (s, r) = post(&w, &post_body(&v, "day-300-1")).await;
+    assert_eq!(s, 200, "{r}");
+    let a1 = id_of(&r);
+    assert_eq!(
+        a1 - a0,
+        nations,
+        "nation 1's next id is not moved by nation 4's post"
+    );
+    assert_eq!((a0 % nations, a1 % nations, b0 % nations), (1, 1, 4));
+    // after a restart nation 1 goes on from its own numbers
+    drop(w);
+    let w2 = world_in(&dir, clock.clone(), &v).await;
+    let (s, r) = post(&w2, &post_body(&v, "day-300-2")).await;
+    assert_eq!(s, 200, "{r}");
+    assert_eq!(id_of(&r), a1 + nations);
+    let (s, r) = read(&w2, &token(&v, "a1")).await;
+    assert_eq!(s, 200, "{r}");
+    let got: Vec<String> = r["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .map(|m| m["id"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert_eq!(got, [a0, a1, a1 + nations].map(|i| i.to_string()));
 }

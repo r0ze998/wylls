@@ -1010,3 +1010,104 @@ async fn n9_adversarial_limits_replay_and_tokens() {
         );
     }
 }
+
+/// The ids a read answered, in order.
+fn ids(v: &Value) -> Vec<u64> {
+    v["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap().parse().unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn n10_message_ids_tell_nothing_of_other_nations() {
+    // (fog-leak-audit: ids were one counter over every nation, so the gaps between a nation's own ids counted the
+    //  other nations' messages, turn by turn)
+    let nations = permutation_rules::frontier::structure::NATIONS as u64;
+    let dir = tmp("chat-n10");
+    let clock = Arc::new(AtomicU64::new(T0_MS));
+    let w = world_in(&dir, true, None, clock.clone()).await;
+    let c = cast(&w);
+    assert_eq!(post(&w, &c.a1, 1, BELL0, &nonce(1), "A one").await.0, 200);
+    for i in 0..3 {
+        assert_eq!(
+            post(&w, &c.b1, 4, BELL0, &nonce(10 + i), "B busy").await.0,
+            200
+        );
+    }
+    assert_eq!(post(&w, &c.a2, 1, BELL0, &nonce(2), "A two").await.0, 200);
+    let a = ids(&read(&w, &token(&w, &c.a1, 1)).await.1);
+    let b = ids(&read(&w, &token(&w, &c.b1, 4)).await.1);
+    // the same ids as a world where nation 4 said nothing
+    let quiet = world("chat-n10-quiet", true, None).await;
+    let cq = cast(&quiet);
+    assert_eq!(
+        post(&quiet, &cq.a1, 1, BELL0, &nonce(1), "A one").await.0,
+        200
+    );
+    assert_eq!(
+        post(&quiet, &cq.a2, 1, BELL0, &nonce(2), "A two").await.0,
+        200
+    );
+    assert_eq!(a, ids(&read(&quiet, &token(&quiet, &cq.a1, 1)).await.1));
+    assert_eq!(a.len(), 2);
+    assert_eq!(a[1] - a[0], nations, "one step of the nation's own");
+    assert!(a.iter().all(|i| i % nations == 1) && b.iter().all(|i| i % nations == 4));
+    assert!(b.windows(2).all(|x| x[1] - x[0] == nations));
+    // after a restart nation 1 goes on from its own numbers, whatever nation 4 posted meanwhile
+    {
+        let mut f = w.fold.write().unwrap();
+        set_bell(&mut f, BELL0 + 1);
+    }
+    for i in 0..3 {
+        assert_eq!(
+            post(&w, &c.b1, 4, BELL0 + 1, &nonce(20 + i), "B busier")
+                .await
+                .0,
+            200
+        );
+    }
+    let w2 = world_in(&dir, true, None, clock.clone()).await;
+    let _ = cast(&w2);
+    {
+        let mut f = w2.fold.write().unwrap();
+        set_bell(&mut f, BELL0 + 1);
+    }
+    assert_eq!(
+        post(&w2, &c.a1, 1, BELL0 + 1, &nonce(3), "A three").await.0,
+        200
+    );
+    let a2 = ids(&read(&w2, &token(&w2, &c.a1, 1)).await.1);
+    assert_eq!(a2, [a[0], a[1], a[1] + nations]);
+    // a deletion by id still finds the one message (ids stay unique over the nations)
+    let all: std::collections::HashSet<u64> = a2
+        .iter()
+        .chain(ids(&read(&w2, &token(&w2, &c.b1, 4)).await.1).iter())
+        .copied()
+        .collect();
+    assert_eq!(all.len(), 3 + 6);
+    // a store written before per-nation ids: every new id is above every old one (a reader's `after` cursor)
+    let old = tmp("chat-n10-old");
+    std::fs::create_dir_all(old.join("chat")).unwrap();
+    std::fs::write(
+        old.join("chat/messages.json"),
+        json!({"v": 1, "nextId": "50", "messages": []}).to_string(),
+    )
+    .unwrap();
+    let w3 = world_in(&old, true, None, clock.clone()).await;
+    let c3 = cast(&w3);
+    assert_eq!(post(&w3, &c3.a1, 1, BELL0, &nonce(1), "A new").await.0, 200);
+    let (_, _, v) = http(
+        w3.port,
+        "POST",
+        "/h/chat/read",
+        &[],
+        Some(&json!({"token": token(&w3, &c3.a1, 1), "after": "49"})),
+    )
+    .await;
+    let n = ids(&v);
+    assert_eq!(n.len(), 1);
+    assert!(n[0] >= 50 && n[0] % nations == 1, "{n:?}");
+}
