@@ -246,7 +246,10 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   const gateText = el(doc, 'p');
   const gateBtn = el(doc, 'button', { type: 'button', class: 'nchat-open', hidden: true });
   gate.append(gateText, gateBtn);
-  const log = el(doc, 'ol', { class: 'nchat-log', role: 'log', 'aria-live': 'polite', 'aria-relevant': 'additions', tabindex: '0' });
+  // (the live region is a plain box around the list: role="log" on the <ol> itself would take away its list semantics)
+  const logBox = el(doc, 'div', { class: 'nchat-log', role: 'log', 'aria-live': 'polite', 'aria-relevant': 'additions', tabindex: '0' });
+  const log = el(doc, 'ol', { class: 'nchat-list' });
+  logBox.append(log);
   const empty = el(doc, 'p', { class: 'nchat-empty', hidden: true });
   const form = el(doc, 'form', { class: 'nchat-form', hidden: true, novalidate: true });
   const label = el(doc, 'label', { for: 'nchat-text', class: 'nchat-label' });
@@ -262,7 +265,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   const mutedSum = el(doc, 'summary');
   const mutedList = el(doc, 'ul');
   mutedBox.append(mutedSum, mutedList);
-  panel.append(head, rules, gate, log, empty, form, status, mutedBox);
+  panel.append(head, rules, gate, logBox, empty, form, status, mutedBox);
   host.append(panel);
 
   const say = t => { status.textContent = t ?? ''; };
@@ -312,14 +315,15 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     else { gateText.textContent = ''; gateBtn.hidden = true; }
     gate.hidden = have && isMember();
     form.hidden = !(have && isMember());
-    log.hidden = !(have && isMember());
+    logBox.hidden = !(have && isMember());
   }
   function drawMuted() {
     mutedBox.hidden = muted.size === 0;
     mutedList.replaceChildren(...[...muted].map(w => {
       const li = el(doc, 'li');
       const b = el(doc, 'button', { type: 'button', class: 'nchat-unmute', 'data-wallet': w }, L`${shortWallet(w)} のミュートを解く`);
-      b.addEventListener('click', () => { muted.delete(w); saveMuted(storage, info, muted); say(L`${shortWallet(w)} のミュートを解きました`); labels(); });
+      // (the pressed button goes away with the list: the keyboard is put back on the list's summary, else the composer)
+      b.addEventListener('click', () => { muted.delete(w); saveMuted(storage, info, muted); say(L`${shortWallet(w)} のミュートを解きました`); labels(); (muted.size ? mutedSum : text).focus?.(); });
       li.append(b);
       return li;
     }));
@@ -349,7 +353,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     const shown = messages.filter(m => !muted.has(m.wallet));
     const want = new Set(shown.map(m => m.id));
     for (const [id, n] of nodes) if (!want.has(id)) { n.li.remove(); nodes.delete(id); }
-    const near = log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+    const near = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 48;
     let prev = null;
     for (const m of shown) {
       const key = `${m.wallet === me()}|${reporting === m.id}|${lang()}`;
@@ -360,9 +364,11 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
       if (n.li !== at) log.insertBefore(n.li, at);
       prev = n.li;
     }
-    if (near) log.scrollTop = log.scrollHeight;
+    if (near) logBox.scrollTop = logBox.scrollHeight;
     empty.hidden = !(client.token && isMember()) || shown.length > 0;
   }
+  // (a redrawn message replaces the pressed control: the keyboard goes back to that message's report button)
+  const backTo = id => (nodes.get(id)?.li.querySelector('.nchat-report') ?? text).focus?.();
   function reportForm(m) {
     const f = el(doc, 'div', { class: 'nchat-reportbox', role: 'group', 'aria-label': L`通報の理由` });
     const lab = el(doc, 'label', { for: `nchat-reason-${m.id}` }, L`理由`);
@@ -374,10 +380,10 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     go.addEventListener('click', async () => {
       go.disabled = true;
       const r = await client.report(m.id, sel.value);
-      reporting = null; drawLog();
+      reporting = null; drawLog(); backTo(m.id);
       say(r.ok ? (r.already ? L`この発言はもう通報してあります` : L`通報しました。運営が確かめます。`) : codeText(r.code));
     });
-    no.addEventListener('click', () => { reporting = null; drawLog(); });
+    no.addEventListener('click', () => { reporting = null; drawLog(); backTo(m.id); });
     f.append(lab, sel, go, no);
     return f;
   }
@@ -432,12 +438,16 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     open = on;
     panel.hidden = !on;
     toggle.setAttribute('aria-expanded', on ? 'true' : 'false');
-    if (on) { unread = 0; labels(); (client.token ? text : (gateBtn.hidden ? title : gateBtn)).focus?.(); log.scrollTop = log.scrollHeight; }
+    if (on) { unread = 0; labels(); (client.token ? text : (gateBtn.hidden ? title : gateBtn)).focus?.(); logBox.scrollTop = logBox.scrollHeight; }
     else { labels(); toggle.focus?.(); }
   }
   toggle.addEventListener('click', () => show(!open));
   closeBtn.addEventListener('click', () => show(false));
-  panel.addEventListener('keydown', e => { if (e.key === 'Escape' && !reporting) { e.preventDefault(); show(false); } else if (e.key === 'Escape') { reporting = null; drawLog(); } });
+  panel.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    if (reporting) { const id = reporting; reporting = null; drawLog(); backTo(id); } else show(false);
+  });
   gateBtn.addEventListener('click', async () => {
     if (busy) return;
     busy = true; gateBtn.disabled = true; say(L`ウォレットの署名を待っています…`);

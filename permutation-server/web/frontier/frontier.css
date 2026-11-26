@@ -2766,6 +2766,7 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
 .nchat-gate[hidden], .nchat-log[hidden], .nchat-form[hidden], .nchat-empty[hidden], .nchat-muted[hidden] { display: none; }
 .nchat-open, .nchat-send, .nchat-report-go { min-height: 36px; padding: 0 12px; border: 1px solid var(--brass-lo); border-radius: 8px; background: linear-gradient(180deg, #fbe9b4, var(--you) 42%, #dcb862); color: #1b2a18; font: 700 var(--t2)/1 var(--ui); cursor: pointer; }
 .nchat-log { flex: 1 1 auto; min-height: 80px; overflow: auto; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ink-soft); border-bottom: 1px solid var(--ink-soft); }
+.nchat-list { margin: 0; padding: 0; list-style: none; }
 .nchat-msg { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; padding: 6px 2px; border-bottom: 1px solid var(--ink-soft); }
 .nchat-msg[data-own] .nchat-who { color: #6a4f12; }
 .nchat-who { font-weight: 650; font-size: var(--t1); }
@@ -2784,7 +2785,7 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
 .nchat-count.over { color: #a3261a; font-weight: 700; }
 .nchat-status { min-height: 1.2em; margin: 0; font-size: var(--t1); color: var(--ink); }
 .nchat-panel button:focus-visible, .nchat-panel textarea:focus-visible, .nchat-panel select:focus-visible, .nchat-panel summary:focus-visible, .nchat-log:focus-visible { outline: 2px solid #1d5fa8; outline-offset: 2px; }
-@media (max-width: 759px) { .nchat-toggle-label { display: none; } .nchat-panel { top: calc(var(--strip) + 4px); left: var(--edge); width: auto; } }
+@media (max-width: 759px) { .nchat-toggle-label { display: none; } .nchat-panel { top: calc(var(--dial) + 10px); left: var(--edge); width: auto; max-height: calc(100vh - var(--dial) - 20px); } }
 
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
