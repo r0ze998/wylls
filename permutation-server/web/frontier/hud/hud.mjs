@@ -243,6 +243,7 @@ export function renderBreakdown(b) {
       <span>${fmtNum(r.value)} / ${fmtNum(r.cap)}</span><span class="muted">${r.landPerHour > 0 ? html`${L`毎時 ${signedNet(r.perHour)}`}${landPart(r)}` : L`毎時 ${signedResourceRate(r.perHour)}`}</span>
       <span class="muted">${r.fullIn === 0 ? L`満杯` : r.fullIn !== null ? L`満杯まで ${span(r.fullIn)}` : r.emptyIn > 0 ? L`空になるまで ${span(r.emptyIn)}` : ''}</span></button></li>`)}</ul>
     ${b.landPerHour > 0 ? html`<p class="muted res-land-note">${L`「土地」は、あなたの土地の維持費です。最初の村の食料から、ターンごとに払われます。`}</p>` : ''}
+    ${b.horizonLine ? html`<p class="muted res-land-horizon">${b.horizonLine}</p>` : ''}
     <p class="muted">${L`増える量は、建物と村のまわりの土地で決まります。満杯になると増えません。村の画面で収穫や建設ができます。`}</p>`;
 }
 

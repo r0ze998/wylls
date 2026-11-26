@@ -37,6 +37,9 @@ export const TERMS = Object.freeze({
   vigil: { name: () => L`夜番`, text: () => L`毎日決まった時間、あなたが眠っている間も守りを固める時間帯です。` },
   shield: { name: () => L`保護`, text: () => L`村ができてしばらくは攻められません。保護が切れるまでの時間です。` },
   tier: { name: () => L`段階`, text: () => L`集落・町・都市・城塞の四つです。上がるほど生産と守りが増えます。` },
+  // (land-logistics-horizon: Fuller's World Game measure, said in the player's words on the village card;
+  //  N is land tiles because this game has no population; the number is settle_upkeep (b), not invented people)
+  horizon: { name: () => L`物流の見通し`, text: () => L`バックミンスター・フラーの World Game では、富とは「いまの資源・技術・物流で、何人を何日先まで支えられるか」です。このゲームに人口はないので、ここでは「最初の村のいまの食料で、土地を何マス、何ターン先まで支えられるか」を出します。数字は、プログラムが土地の維持費を払うときと同じ計算です。2村目以降の食料は、本拠地に送らない限り含まれません。兵の食料の維持費は、いまのプログラムでは取られていないので、この数字には入っていません。` },
 });
 
 /** The "?" button after a term (`key` in TERMS). */
