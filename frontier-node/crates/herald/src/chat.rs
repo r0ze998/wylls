@@ -70,6 +70,12 @@ pub const MAX_LINES: usize = 6;
 /// Days a message (and a report) is kept, wall clock.
 pub const KEEP_DAYS: u64 = 7;
 pub const KEEP_MS: u64 = KEEP_DAYS * 86_400_000;
+/// Days a report (with its copy of the message) is kept, wall clock. Provisional (Q-NC-6, open for r0ze): as messages.
+pub const REPORT_KEEP_DAYS: u64 = KEEP_DAYS;
+pub const REPORT_KEEP_MS: u64 = REPORT_KEEP_DAYS * 86_400_000;
+/// Whether an expelled citizen (Citizen v2 `expelled_since` ≠ 0) may still read and write its nation's chat.
+/// Provisional (Q-NC-3, open for r0ze): no. A refugee (still in the nation) may.
+pub const EXPELLED_MAY_CHAT: bool = false;
 /// Longest read-token validity.
 pub const TOKEN_MAX_SECS: i64 = 12 * 3600;
 /// A token may be issued at most this far in the herald's future (clock skew).
@@ -280,7 +286,7 @@ pub fn member_of(f: &Fold, wallet: &[u8; 32]) -> Result<u8, &'static str> {
         return Err("NoNation");
     }
     let expelled = i64::from_le_bytes(d[320..328].try_into().unwrap_or([0; 8]));
-    if expelled != 0 {
+    if expelled != 0 && !EXPELLED_MAY_CHAT {
         return Err("Expelled");
     }
     Ok(n)
@@ -592,7 +598,8 @@ fn prune(st: &mut Store, now: u64) -> usize {
         }
     }
     let before = st.reports.len();
-    st.reports.retain(|r| now.saturating_sub(r.at_ms) < KEEP_MS);
+    st.reports
+        .retain(|r| now.saturating_sub(r.at_ms) < REPORT_KEEP_MS);
     n + before - st.reports.len()
 }
 
