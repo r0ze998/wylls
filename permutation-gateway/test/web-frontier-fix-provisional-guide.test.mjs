@@ -104,6 +104,10 @@ test('BREAK-1 the guide step 「軍勢を編成する」 while provisional: when
   assert.equal(nt.label, '待つ間に：建設をひらく');
   assert.equal(nt.short, '村の確定を待つ');
   assert.ok(!nt.hint.includes('<'), nt.hint);
+  // (verify-pr268: the name a screen reader hears holds the pill's visible words and never the dead step 「軍勢を編成する」)
+  assert.equal(nt.text, 'ガイド 2/8：村の確定を待つ（待つ間に：建設をひらく）');
+  assert.ok(nt.hint.startsWith('村の確定を待つ — あなたの村は、まだ仮の村です。'), nt.hint);
+  assert.ok(!nt.text.includes('軍勢を編成') && !nt.hint.includes('軍勢を編成'), nt.text + nt.hint);
   // the map points at the village (the build), not at a muster tile
   assert.equal(guideTarget(s)?.kind, 'build');
   // the card: no button that opens the Muster card
@@ -116,6 +120,9 @@ test('BREAK-1 the guide step 「軍勢を編成する」 while provisional: when
   assert.match(en.text, /^Your village is still provisional\. It can be confirmed in about 3 h \d+ min \(around \d\d:\d\d\) at the latest\. After that time, any action \(e\.g\. Harvest\) confirms it\. Until then, you can build\.$/);
   assert.equal(en.go.label, 'Open the build list');
   assert.equal(nextThing(s, { guide: en, items: [] }).label, 'Meanwhile: Open the build list');
+  const ntEn = nextThing(s, { guide: en, items: [] });
+  assert.match(ntEn.text, /^Guide 2\/8: Waiting for the village to be confirmed \(Meanwhile: Open the build list\)$/);
+  assert.ok(!/Form a host/.test(ntEn.text + ntEn.hint), ntEn.text + ntEn.hint);
   assert.ok(!CJK.test(en.text + en.wait), en.text + en.wait);
 });
 
@@ -227,4 +234,12 @@ test('the village card says the rule\'s time once the cohort is closed (it said 
   setLang('en');
   assert.match(plain(provisionalNote(closed, closed.holdings[0])), /^Every village requested in the same turn is placed\. It can be confirmed in about \d+ min \(around \d\d:\d\d ?\) ?\. After that time, any action \(e\.g\. Harvest\) confirms it\.$/);
   assert.equal(plain(provisionalNote(due, due.holdings[0])), 'It can be confirmed now: any action (e.g. Harvest) confirms it.');
+});
+
+// (verify-pr268) the top pill rewrites its tooltip when the sentence changes: the confirm time rides the tooltip only, and it
+// stayed at the first render's 24-turn bound ("3 h 32 min at the latest") once the Province copy came in (2 min, live)
+test('the pill is redrawn when its tooltip changes (the provisional confirm time rides the tooltip)', () => {
+  const app = src('permutation-server/web/frontier/app.mjs');
+  assert.ok(app.includes("const key = nx ? `${nx.kind}|${nx.act}|${JSON.stringify(nx.data)}|${nx.text}|${nx.hint ?? ''}|${nx.more}` : '';"));
+  assert.ok(app.includes('attn.title = nx.hint || nx.text;'));
 });
