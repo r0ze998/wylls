@@ -3,7 +3,7 @@
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
 (its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-26 (through #262; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-27 (through #274 and #270; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -28,6 +28,10 @@ Train form says a part hundred costs a whole hundred, a tile claim refused for t
 Then #247 (loop-play18): a full province's "Claim a tile" is off with the reason, tiles let go for unpaid upkeep are
 free again on the card, a falling food store says "Empty in …", and the caravan form never picks its own start as the
 destination (§4.1, §5).
+Since #262: the guide's first camp is one that fights and that your host can reach, with a practice clash when there is
+none (#265, #273 → §3 step 5a); a provisional village says when it can be confirmed (#268 → §4.1); wait times are said on
+your own clock, and the keep list, the march card and the forecast agree, a tired arrival included (#267 → §3 steps 6
+and 7); and the **nation chat** (#263; its message numbers are counted per nation since #274 → §16).
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
@@ -172,6 +176,16 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    The arrival turn can move on by one or two while the card is open or the send waits for the province (loop-play21: row turn 22,
    card turn 23, "It arrives on turn 24" after the wait).
    While the province is settling, the same order is sent once, as soon as it can be. "The first march" means it left.
+   The keep row, the march card and the rules' forecast now say the same thing (fix-loop22, #267). Once the forecast is
+   made, the card's outlook word comes from it: "Favoured" when every try stays on the tile, "Even" when some do,
+   "Outmatched" when none do ("A guide from the rules: it stayed on the tile in M of N tries"); until then the troop-ratio
+   word stands in. A host that would arrive with under 20 stamina attacks exhausted: the card says "It should arrive with
+   N stamina. Under 20 it attacks exhausted and its blows are weaker (the forecast counts this). …", and the keep row says
+   "arrives tired (stamina N); …". Another nation's host in sight on the keep's tile makes the row say "Hosts there"
+   ("… on the tile; see the order's forecast for the odds") instead of a garrison-only "Good". If the march is pushed
+   off the keep's tile, the guide no longer waits on the hold step: it says "Your last march could not stay on the tile of
+   the keep at (place) and was pushed back to the village." (both live keep marches of fix-loop22 won, so this line is
+   checked by unit tests only).
    - In a kept world that has just started (a turn is 10 min), a press at the start of turn 2 shows "Finding the keeps you can reach…"
      and "In a world that has just started, the list of keeps in reach appears once the first turn's results are all in (a few minutes)." until the world's first
      turn results are all in (1–2 minutes into turn 2); the list follows about 30 s later (#195; loop-play13: 3 s).
@@ -200,6 +214,8 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
 7. **Check the clash**: a turn or two after the arrival turn the notice "The clash on the (place) is resolved (arrivals of turn N)"
    appears, with "View" and "Report". "Report" → "Verify in this browser";
    "Match: the outcome recomputed in this browser is the chain's record" means it was recomputed and agrees.
+   Your own clash stays listed after its march's row is gone (#267): it is told once in the notification list, and
+   "Recent clashes" lists your own clashes first, marked " (you)".
    **"While you wait"** (pt-first-battle; owner decisions Q-PT-1, Q-PT-3, Q-PT-13): a panel at the bottom left, always there, folded
    or opened by its title button (the choice is kept per world). It is built from your own records only: "Your battle report (arrival on
    turn N): in about … ", "Seal and depart this turn and the battle report comes at the earliest …", "(troops) are regaining stamina and
@@ -207,6 +223,11 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    battle in this browser"** opens your own resolved clash, or else the newest clash in a place you can see now (the fog's own rule; no
    other battle is offered), and "Verify in this browser" then shows "Match". With no such battle yet it offers **"Try "Recompute" on a
    practice battle"**: the practice battle (not a chain record) → "Run the clash" → "Recompute in this browser" → "Match (practice)".
+   Its times are on your own clock (#267), never the chain's: "in about 20 min (around 21:57)"; on a ×60 clock
+   "in about 7 h 12 min (about 7 minutes in real time, around 22:45)" (the clock time only once the real wait is a minute or
+   more); a time already past reads "Any moment now". A forming host's line counts to the end of its muster turn,
+   "The host of (name) stands and can march from turn N: …" (in the kept 1× check it stood within a minute of the time
+   shown). The join screen's ticket line, the turn sheet and the provisional village's note use the same clock.
    After your first "Match" (or the practice one) the offer goes away. In the live checks the practice match came about a minute after the
    village, the real "Match" on your own camp raid about 4–5 real minutes after it (×60; at 1× the own report is about an hour after the
    village: the march takes at least two turns and the seals' window and the seed another ~12 minutes).
@@ -763,8 +784,9 @@ view (fog-devnet; runbook §7 P5).
 | ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
 | External AI residents (⑬ / ⑤B), the read-only MCP server, `--plan` (④) | `--external` worlds only (§11) | none (admission of external residents and the MCP server are undecided) |
 | ① co-op board, ⑮ title "Answered a request" | board and card in every world (`--no-coop-board` leaves them out); a caravan can deliver only in `--coexist` worlds (§13). No effect on winning, score or prize | none |
-| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a), "While you wait" panel (§3 step 7), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262) | every world | **not on the devnet page today**: its page files are main of 2026-11-26 10:58 (#252), with the 7-step guide ("Guide 1/7"). They come only with a page update, which is not decided yet (PLAY-DEVNET.md §5 step 4) |
+| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a; a camp that fights and is in reach, #265, #273), "While you wait" panel (§3 step 7; times on your own clock, #267), the provisional village's confirm time (§4.1, #268), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262) | every world | **not on the devnet page today**: its page files are main of 2026-11-26 10:58 (#252), with the 7-step guide ("Guide 1/7"). They come only with a page update, which is not decided yet (PLAY-DEVNET.md §5 step 4) |
 | World goals (flag keeps) | judged off chain by the launcher in every world; card and pennants; the prize is an estimate, nothing is paid (§14) | **no card on the devnet page today**, and no judge runs. Main has a devnet card ("Planned — not judged yet"; Free Cities cannot be taken yet there) and an off-chain judge (#260); neither is live: the page update and the judge's start are not decided (PLAY-DEVNET.md §5). The prize program has a goals pool since #202 (feature `goals`, test USDC only); neither `play-local.sh` nor the devnet page uses it |
+| Nation chat (§16, #263) | every world (the launcher gives each world's herald a chat store) | **none**: the devnet herald has no chat, so the devnet page shows no "Chat" button. Starting it there needs a services update and r0ze's OK; its open questions (Q-NC-1..8) are not answered |
 | Fog | yes (display only) | yes, the same player view on the devnet page (fog-devnet, `DEVNET_FOG`) |
 
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and
@@ -1358,3 +1380,29 @@ More → **Notifications (outside the page)**. Nothing here leaves the browser: 
   after plans change: the same events move. In a ×60 world the times are seconds or minutes away. A local world lists
   your march from the turn you send it (the page reads where it goes from its own copy of the order).
 - Not yet: notifications when the browser is closed (Web Push, the next step; it needs a fixed public address).
+
+## 16. Nation chat (every world; owner decisions Q-PT-11 (a), Q-PT-12)
+
+A **"Chat"** button in the strip at the top right, beside the language button, opens **"Nation chat — (your nation)"**. Only
+the residents of one nation talk there: "Only residents of your nation can read it. Other nations cannot see it."
+Before you join a nation it says "Join a nation to talk with its residents." The button appears only when the world's herald
+has the chat (every `play-local.sh` world; a herald built before #263 has none, and then nothing is drawn).
+While the title screen stands, neither the button nor the panel is shown (#270). On a screen narrower than
+1100 px, the button and an open panel are also set aside while a battle report or a practice battle is open, and the
+panel comes back when it closes; on a wider screen the report moves left and the panel covers none of it.
+
+- **Reading.** Press "Open the nation chat (sign once with your wallet)". "To read, sign once with your wallet (valid for 6
+  hours). The signature is only used for reading and cannot move tokens." In a local world the page's TEST key signs, so no
+  wallet window appears. New messages arrive while the panel is open; while it is closed the button counts them ("Nation
+  chat (N new)"). Membership is checked again on every read: a player who leaves the nation stops receiving.
+- **Writing.** Type and press "Send" ("Enter sends · Shift+Enter for a new line"). Each message is signed by your wallet,
+  and "Your wallet address is shown with your messages. Do not write your name or contact details."
+  Limits: up to 280 characters and 6 lines, "Links (addresses) are not allowed" (also written-out addresses and "dot"
+  spellings; the page refuses before anything is signed), and "You can speak up to 3 times per turn and 40 times per
+  day." (a day here is 144 turns; a refused message does not use up the count). "Messages are deleted after 7 days."
+- **Mute and Report.** "Mute" on a message hides that player's messages in this browser only ("They are not told"); the
+  list of muted players lets you undo it. "Report" (with a reason) sends the message to the operators, who may delete
+  it. A local world has no operator tool for this: the reports stay in the world's `chat/reports.json`.
+- Not on devnet (§7). How operators would review reports, one signature per message on devnet, refugees and expelled
+  players, AI residents posting, and game day vs real day for the 40-a-day limit are open owner questions (Q-NC-1..8);
+  this section describes today's local behaviour only.
