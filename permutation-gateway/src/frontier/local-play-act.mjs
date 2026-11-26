@@ -517,6 +517,13 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         return { schema: LOCAL_ACT_WIDE_READ_SCHEMA, context_slot: String(slot),
           accounts: rows.map(row => { const a = accountOf(row); return a !== null && a.owner === pins.program ? { data_b64: Buffer.from(a.bytes).toString('base64') } : null; }) };
       }
+      // (rent-live-rest: the runner's rent of one Holding — the village ticket's escrow — for the page's preview; one
+      //  getMinimumBalanceForRentExemption, nothing kept or sent: web/frontier/frent.mjs)
+      if (exact(body, ['schema']) && body.schema === RENT_CONTEXT_SCHEMA) {
+        const out = await clusterRentAnswer(ask, () => fail('LocalActRpcUnavailable'));
+        open();
+        return out;
+      }
       // (owner-answers-logic: the read-only lot list of one storehouse — LOCAL_ACT_LOTS_READ_SCHEMA above)
       if (exact(body, ['schema', 'vault']) && body.schema === LOCAL_ACT_LOTS_READ_SCHEMA) {
         check(lotVault(body.vault));
@@ -526,13 +533,6 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
         if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows)) fail('LocalActRpcUnavailable');
         const found = [...new Set(rows.filter(x => address(x?.pubkey) && x?.account?.owner === pins.program).map(x => x.pubkey))].sort();
         return { schema: LOCAL_ACT_LOTS_READ_SCHEMA, context_slot: String(slot), addresses: found.slice(0, LOCAL_ACT_LOTS_READ_MAX), more: found.length > LOCAL_ACT_LOTS_READ_MAX };
-      }
-      // (rent-live-rest: the runner's rent of one Holding — the village ticket's escrow — for the page's preview; one
-      //  getMinimumBalanceForRentExemption, nothing kept or sent: web/frontier/frent.mjs)
-      if (exact(body, ['schema']) && body.schema === RENT_CONTEXT_SCHEMA) {
-        const out = await clusterRentAnswer(ask, () => fail('LocalActRpcUnavailable'));
-        open();
-        return out;
       }
       check(exact(body, ['schema']) && body.schema === LOCAL_ACT_CONTEXT_SCHEMA);
       const r = await ask('getLatestBlockhash', [{ commitment: 'confirmed' }]);
