@@ -92,6 +92,7 @@ import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
 import { raidOffers, domesticRaidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, placeKey, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
+import { campInBounds } from './hud/firstbattle.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
 import { fogNow, viewKeeps, viewTile } from './map/fog.mjs';
 import * as fprize from './fprize.mjs';
@@ -3215,7 +3216,13 @@ export function composeTick() {
   return true;
 }
 
-function quickDestinations() {
+/**
+ * The march card's 「近くの行き先」: the camps in sight and the viewer's villages. (fix-camp-reach, D-pacing-measure-2-4: with
+ * `from` — the host's {p, q, tile} — a camp no march from there can reach by the planner's own limits, ≤ 4 provinces and
+ * ≤ 32 steps (hud/firstbattle.mjs campInBounds), is not offered: a rim village's list began with a camp 128 rings away
+ * whose card said "No path there was found". The fog cut is unchanged and comes first.)
+ */
+function quickDestinations(from = null) {
   const out = [];
   for (const env of FS.provinces.values()) {
     const camp = env.province.camp;
@@ -3224,6 +3231,7 @@ function quickDestinations() {
     if (camp?.state === 1 && viewTile(env.province.p, env.province.q, camp.tile, 2)) out.push({ kind: 'camp', p: env.province.p, q: env.province.q, tile: camp.tile });
   }
   for (const h of FS.holdings ?? []) out.push({ kind: 'holding', p: h.p, q: h.q, tile: h.tile });
+  if (from) return out.filter(d => d.kind !== 'camp' || campInBounds(from, d));
   return out;
 }
 
@@ -5033,7 +5041,7 @@ export const ACTIONS = {
     const h = activeHolding(FS);
     const tips = tipOptions(FS.season);
     FS.compose = { holding:{p:h.p,q:h.q,site:h.site,gen:h.gen}, host: { ...r.entry, id: r.id, troops: r.troops, tile: r.tile, unit: r.unit }, origin: { p: r.p, q: r.q }, stance: 0, retreat: 'never', ratio: null,
-      tip: String(tips[0].lamports), quick: quickDestinations(), dest: null, route: null, arriveBell: arrivalWindow(FS.season, nowBell()).min };
+      tip: String(tips[0].lamports), quick: quickDestinations({ p: r.p, q: r.q, tile: r.tile }), dest: null, route: null, arriveBell: arrivalWindow(FS.season, nowBell()).min };
     // from the map (the inspector) the march is composed on the map; from the Hosts tab, on the Marches tab
     if (d.stay !== 'map') FS.tab = 'marches';
     invalidate('panel', 'tabs', 'map');
