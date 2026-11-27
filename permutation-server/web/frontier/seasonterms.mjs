@@ -105,7 +105,8 @@ export function deadlineLine(FS) {
   // (a join close at the no-end turn is no deadline: nothing is said of it)
   // (a time left not known yet — a fast clock's pace still being measured — is not said: fix-loop8, LP8-10)
   const join = d.join.bell >= NO_END_BELL ? '' : d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : d.join.realLeft === null ? '' : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanFine(d.join.realLeft, `join:${d.join.bell}`)}）。`;
-  const end = worldContinues(FS) ? '' : d.end.ended ? L`この試しの世界は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました（試しの世界の上限です）。`
+  // (walletless demo: a world made fresh at every page load says nothing of the test-world end turn while it is ahead)
+  const end = worldContinues(FS) || (FS?.sample?.demo && !d.end.ended) ? '' : d.end.ended ? L`この試しの世界は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました（試しの世界の上限です）。`
     : d.end.realLeft === null ? '' : L`この試しの世界が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanFine(d.end.realLeft, `end:${d.end.bell}`)}。試しの世界の上限です）。`;
   return `${join}${end}`;
 }
