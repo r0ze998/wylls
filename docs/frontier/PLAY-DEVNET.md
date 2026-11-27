@@ -82,7 +82,7 @@ value; no in-game key is made).”
    which can take tens of seconds (“Waiting for the record…”; no need to press again. If it has not shown after
    180 seconds, press “Check again”; nothing is sent twice).
 3. Harvest, build and train in the village, muster a host and march. The guide at the top right leads you through
-   eight steps (“Guide 1/8” …), march first: train troops, form a host, raid a nearby barbarian camp as your first
+   eight steps (“Guide 1/8” …), march first: after the first village, train troops, form a host, raid a nearby barbarian camp as your first
    battle, build while that march walks, then march on a keep, hold its tile for 72 turns and take the province (owner
    decision 2026-11-26, Q-PT-2; on the devnet page since 2026-11-27, step 4). The screens work as in the local version,
    so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 is your guide (step 5a for the camp). In real time the host stands one turn after the
@@ -108,8 +108,10 @@ value; no in-game key is made).”
    - what main changed after that day. For a player: the logistics horizon's numbers and sentences of #285
      (2026-11-27, [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 1). The devnet card counts the first village's food in whole
      units, so its “unpaid in …” can come early (by a few turns, and by tens of turns when production is close to the
-     upkeep). And while the land is already unpaid, a coming payment that pays it is still told as “This payment will
-     leave the land unpaid.” on the devnet card.
+     upkeep). And while the land is already unpaid, a payment that pays it (the one now due or a later one) is still told as “This payment will
+     leave the land unpaid.” on the devnet card. Also after that day, #293: when the village has under 10 ore and the
+     next tile costs more, the devnet card still says “You have less than 10 ore, so "Claim a tile" cannot be pressed
+     for now.” (main names the next tile's price, [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 2).
    The devnet page gets those only with a later page or herald update, and none is decided yet.
 
 Good to know:

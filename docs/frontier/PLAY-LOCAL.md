@@ -3,7 +3,7 @@
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
 (its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-27 (through #290; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-27 (through #293; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -38,7 +38,9 @@ the first host's banner says "camp first" (#278 → §3 step 5a, §16); the guid
 (#277 → §3 step 5a); the village card's **logistics horizon**, how many tiles the first village's food supports and for
 how many turns, counted exactly as the program pays and saying when an unpaid land is paid again (#272, #285 → §4.1
 step 1). #276, #283 and #289 are tests only; #280–#282, #287, #288 and #290 change the devnet keeper, herald and health
-check, not the page.
+check, not the page. #293: the reason under an off "Claim a tile" names the next tile's price whenever it is above 10
+(§4.1 step 2), the horizon says "1 more tile" in the singular, and the chat's status line follows the page's language;
+its capture-demo setup fix is test-only.
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
@@ -590,7 +592,7 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
 2. Press **"Claim a tile"** on a row. It can be pressed when the village holds the ore of the next tile (the "next tile"
    number of the land line; 10 for your first tiles), whatever the village cost line above says. With less, every
    "Claim a tile" is off and the card says why: "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."
-   or, from the fifth tile on, "You have less ore than the next tile costs (N), so "Claim a tile" cannot be pressed for now.". One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
+   or, once the next tile costs more than 10 (from 5 tiles owned, step 3), "You have less ore than the next tile costs (N), so "Claim a tile" cannot be pressed for now." (one of the two, the price that applies; since #293 also under 10 ore). One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
    says "One tile of wide-land province P,Q is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
    - You do not choose the tile: the page takes the lowest-numbered tile of the province that is not a village site, not
      the keep's tile and not already yours (a province has 61 tiles, numbered 0–60).
@@ -828,7 +830,7 @@ view (fog-devnet; runbook §7 P5).
 | ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
 | External AI residents (⑬ / ⑤B), the read-only MCP server, `--plan` (④) | `--external` worlds only (§11) | none (admission of external residents and the MCP server are undecided) |
 | ① co-op board, ⑮ title "Answered a request" | board and card in every world (`--no-coop-board` leaves them out); a caravan can deliver only in `--coexist` worlds (§13). No effect on winning, score or prize | none |
-| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a; a camp that fights and is in reach, #265, #273, #277), one right-side panel and the fog exception for your own province's camp (#278), "While you wait" panel (§3 step 7; times on your own clock, #267), the provisional village's confirm time (§4.1, #268), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262, #270, #271), the logistics horizon (§4.1 step 1, #272, #285) | every world | **on the devnet page since its page update of 2026-11-27** (page files = main 7758fb98, through #283; the 8-step guide "Guide 1/8"), except what main changed after that: #285 (the horizon counts whole food there and still says "This payment will leave the land unpaid." when an unpaid land is paid by the coming payment; PLAY-DEVNET.md §5 step 4) |
+| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a; a camp that fights and is in reach, #265, #273, #277), one right-side panel and the fog exception for your own province's camp (#278), "While you wait" panel (§3 step 7; times on your own clock, #267), the provisional village's confirm time (§4.1, #268), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262, #270, #271), the logistics horizon (§4.1 step 1, #272, #285) | every world | **on the devnet page since its page update of 2026-11-27** (page files = main 7758fb98, through #283; the 8-step guide "Guide 1/8"), except what main changed after that: #285 (the horizon counts whole food there and still says "This payment will leave the land unpaid." when a payment, the one now due or a later one, pays an unpaid land; PLAY-DEVNET.md §5 step 4) |
 | World goals (flag keeps) | judged off chain by the launcher in every world; card and pennants; the prize is an estimate, nothing is paid (§14) | **the card is on the devnet page since 2026-11-27** and says "Planned — not judged yet" (Free Cities cannot be taken yet there): no judge runs. Main has an off-chain judge (#260); starting it for devnet is not decided (PLAY-DEVNET.md §5). The prize program has a goals pool since #202 (feature `goals`, test USDC only); neither `play-local.sh` nor the devnet page uses it |
 | Nation chat (§16, #263) | every world (the launcher gives each world's herald a chat store) | **none**: the devnet page has the chat's code since 2026-11-27, but the devnet herald has no chat, so the page shows no chat button and no chat panel. Starting it there needs a services update and r0ze's OK; its open questions (Q-NC-1..8) are not answered |
 | Fog | yes (display only) | yes, the same player view on the devnet page (fog-devnet, `DEVNET_FOG`) |
