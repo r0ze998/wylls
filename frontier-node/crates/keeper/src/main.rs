@@ -276,10 +276,25 @@ async fn main() {
     // a public cluster polled through findex's RpcPoll (B2). One pacer for
     // every client of the RPC (`rpc_min_gap_ms`).
     let pacer = clusterfeed::pacer(&cfg);
-    let port = ClusterPort::from_config(&cfg, &rpc, &pacer).unwrap_or_else(|e| {
+    let mut port = ClusterPort::from_config(&cfg, &rpc, &pacer).unwrap_or_else(|e| {
         eprintln!("keeper.toml: {e}");
         std::process::exit(2)
     });
+    // keeper-feed-persist: `feed = "rpc"` keeps its polled log beside the
+    // journal (`feed_store`), so a restart reads only the new tail.
+    if let Some(dir) = cfg.feed_store_dir(&jpath) {
+        match port.persist_feed(&dir, cfg.program) {
+            Ok(opened) => eprintln!(
+                "frontier-keeper: feed store {}: {}",
+                dir.display(),
+                clusterfeed::describe(&opened)
+            ),
+            Err(e) => {
+                eprintln!("feed store {}: {e}", dir.display());
+                std::process::exit(1)
+            }
+        }
+    }
     eprintln!(
         "frontier-keeper: rpc {} feed {:?}, {} ms between calls",
         fclient::https::redact(&rpc),
