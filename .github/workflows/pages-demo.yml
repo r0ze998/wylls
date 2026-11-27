@@ -1,0 +1,81 @@
+# The walletless demo on GitHub Pages: https://<owner>.github.io/<repo>/
+# (r0ze998/wylls → https://r0ze998.github.io/wylls/; owner decision Q-WD-0 = A, 2026-11-28).
+#
+# What it is: the real page + the screens sample world, running in the browser
+# (permutation-gateway/demo, README there). Plain static files: no server, chain,
+# RPC, wallet or secret. Build and checks are the same as the `walletless-demo`
+# job in ci.yml (key-free: no key is generated, derived or signed with here);
+# the Playwright play-through stays in the manual key-tests job (Q-WD-9).
+#
+# One-time setup by the repository owner: Settings → Pages → Build and
+# deployment → Source = "GitHub Actions". Until then the deploy job fails
+# ("Pages site not found"); the build job still passes.
+#
+# Optional repository variable (Settings → Secrets and variables → Actions →
+# Variables), not a secret: DEMO_LIVE_URL = an https:// page of the live world.
+# When set, the demo's tag links it as "The live world / 本物の世界へ"; when
+# empty there is no link (Q-WD-1: the wylls-site top page once it is up).
+#
+# Actions are pinned to full commit SHAs (this workflow can write to Pages and
+# mint an OIDC token); the tag each SHA was taken from is in the comment.
+name: Walletless demo → GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'permutation-gateway/demo/**'
+      - 'permutation-gateway/screens/**'
+      - 'permutation-server/web/**'
+      - 'frontier-abi/vectors/presets.json'
+      - 'permutation-gateway/test/frontier-vectors.json'
+      - 'permutation-gateway/test/fixtures/frontier/make-fixtures.mjs' # screens/world.mjs bundles it (verify-pr305)
+      - '.github/workflows/pages-demo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer push waits instead of cancelling a deployment in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the demo for /${{ github.event.repository.name }}/
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: Build the static bundle and check it
+        working-directory: permutation-gateway/demo
+        env:
+          BASE: /${{ github.event.repository.name }}/
+          LIVE_URL: ${{ vars.DEMO_LIVE_URL }}
+        run: |
+          npm ci --ignore-scripts
+          node build.mjs --base "$BASE" --live-url "$LIVE_URL"
+          node check.mjs
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: permutation-gateway/demo/dist
+          include-hidden-files: true # .nojekyll
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
