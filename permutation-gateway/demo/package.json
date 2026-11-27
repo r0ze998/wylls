@@ -1,0 +1,16 @@
+{
+  "name": "wylls-walletless-demo",
+  "private": true,
+  "type": "module",
+  "description": "Walletless static demo of Wylls: the real page + the screens sample world in the browser (no server, no chain, no wallet)",
+  "scripts": {
+    "build": "node build.mjs",
+    "smoke": "node smoke.mjs",
+    "serve": "node serve.mjs"
+  },
+  "devDependencies": {
+    "buffer": "6.0.3",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.58.2"
+  }
+}
