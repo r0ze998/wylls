@@ -5,9 +5,10 @@
 // made here. A guide only: the route the composer plans is what a march takes.
 import { planRoute } from './fmarch.mjs';
 import { hexDistance } from './fgeo.mjs';
+import { MAX_PATH_PROVINCES } from './fcaravan.mjs';
 
 /** A march may cross this many provinces (planRoute refuses a longer route; the program re-checks at Reveal). */
-export const MAX_ROUTE_PROVINCES = 4;
+export const MAX_ROUTE_PROVINCES = MAX_PATH_PROVINCES;
 
 /**
  * (fix-campreach-4, Q-TG4-1 / D-test-gaps-4-1) Whether province `to` lies within a march's reach of province `from` by

@@ -174,3 +174,29 @@ test('one province bound on the page: campInBounds and keepsPending ask province
   const walk = (u, out = []) => { for (const e of readdirSync(u, { withFileTypes: true })) { if (e.isDirectory()) { if (e.name !== 'wasm' && e.name !== 'vendor') walk(new URL(`${e.name}/`, u), out); } else if (e.name.endsWith('.mjs')) out.push(new URL(e.name, u)); } return out; };
   for (const f of walk(dir)) assert.doesNotMatch(readFileSync(f, 'utf8'), /MAX_ROUTE_PROVINCES\s*-\s*1/, f.pathname);
 });
+
+// (verify-pr277) the march card's own planner reads the same number: fmarch.mjs (planRoute's fallback test and
+// checkMarch's 'Path' code) and froute-bounded.mjs (the bounded search) had a hand-written 4; all now import
+// fcaravan.mjs MAX_PATH_PROVINCES, the page's one copy of travel.rs MAX_PATH_PROVINCES, as fkeepreach.mjs does
+test('verify-pr277: one province limit on the page — the guides, the march card\'s planner and its check share fcaravan.mjs MAX_PATH_PROVINCES', async () => {
+  const { MAX_PATH_PROVINCES } = await import('../../permutation-server/web/frontier/fcaravan.mjs');
+  const { BOUNDED_MAX_PROVINCES } = await import('../../permutation-server/web/frontier/froute-bounded.mjs');
+  const { checkMarch } = await import('../../permutation-server/web/frontier/fmarch.mjs');
+  assert.equal(MAX_PATH_PROVINCES, 4);
+  assert.equal(MAX_ROUTE_PROVINCES, MAX_PATH_PROVINCES);
+  assert.equal(BOUNDED_MAX_PROVINCES, MAX_PATH_PROVINCES);
+  const tr = root('permutation-rules/src/frontier/travel.rs');
+  assert.ok(tr.includes(`pub const MAX_PATH_PROVINCES: usize = ${MAX_PATH_PROVINCES};`));
+  // checkMarch: a route entering 4 provinces has no 'Path' code; one entering 5 has
+  const SEASON = { minLead: 2, maxLead: 10, minRevealPriorityMilli: 1000, revealCuLimit: 200000, revealLoadedLimit: 65536 };
+  const route = n => ({ dirs: [0, 0, 0], provinces: Array.from({ length: n }, (_, i) => ({ p: i + 1, q: 0 })) });
+  assert.ok(!checkMarch({ route: route(4), season: SEASON, nowBell: 10 }).includes('Path'));
+  assert.ok(checkMarch({ route: route(5), season: SEASON, nowBell: 10 }).includes('Path'));
+  const fm = web('fmarch.mjs'), rb = web('froute-bounded.mjs'), kr = web('fkeepreach.mjs');
+  for (const [name, s] of [['fmarch.mjs', fm], ['froute-bounded.mjs', rb], ['fkeepreach.mjs', kr]]) {
+    assert.match(s, /^import \{ MAX_PATH_PROVINCES \} from '\.\/fcaravan\.mjs';$/m, name);
+    assert.doesNotMatch(s, /provinces\.length\s*[<>]=?\s*\d/, `${name}: no hand-written province limit`);
+  }
+  assert.match(rb, /export const BOUNDED_MAX_PROVINCES = MAX_PATH_PROVINCES;/);
+  assert.match(kr, /export const MAX_ROUTE_PROVINCES = MAX_PATH_PROVINCES;/);
+});
