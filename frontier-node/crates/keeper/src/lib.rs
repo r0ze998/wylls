@@ -2046,12 +2046,14 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
 
     /// fix-keeper-care: the rent-exempt minimum of a data-less account at
     /// the cluster's last read rent (0, fee only, until a rent is read; the
-    /// rent is read for the `rings` and `beacon` roles only).
+    /// rent is read for the `rings` and `beacon` roles only), plus
+    /// keeper-send-spare's `send_spare_lamports` (default 0).
     fn payer_reserve_now(&self) -> u64 {
         self.rent
             .last()
             .and_then(|r| r.sysvar.minimum_balance(0))
             .unwrap_or(0)
+            .saturating_add(self.cfg.send_spare_lamports)
     }
 
     /// Top-ups and sweeps as class N transfers signed by their source.
@@ -3794,6 +3796,161 @@ mod tests {
         assert_eq!(k.engine.pending_len(), 10, "the writes wait");
         // Once per send pass of the tick (duties, then the final pass).
         assert!(k.engine.unfunded_skips >= 10);
+    }
+
+    /// keeper-send-spare: ten class-D memo writes for the spare tests.
+    fn ksp_writes(k: &mut fkc::FkcKeeper, from: u8, n: u8) {
+        let memo = Address::new_from_array([0x77; 32]);
+        for i in from..from + n {
+            k.engine.ensure(
+                WriteSpec {
+                    key: format!("anchor:{i}:0"),
+                    kind: "anchor",
+                    tag: tag::POST_BEACON,
+                    class: Class::D,
+                    bell: Some(i as u32),
+                    region: Some(0),
+                    build: Arc::new(move |_| {
+                        vec![solana_instruction::Instruction::new_with_bytes(
+                            memo,
+                            &[i],
+                            vec![],
+                        )]
+                    }),
+                    deadline_slot: None,
+                    not_before_slot: 0,
+                    fixed_payer: None,
+                },
+                fkc::SLOT,
+            );
+        }
+    }
+
+    /// keeper-send-spare: a keeper with the `beacon` role, the devnet rent
+    /// (5,080 lamports/byte) served, delay payers at `delay` lamports and
+    /// funders that cannot top anyone up (care changes nothing).
+    fn ksp_keeper(spare: u64, delay: u64) -> fkc::FkcKeeper {
+        let port = fkc::CarePort::new(Duration::ZERO, None);
+        let mut k = fkc::keeper(
+            port,
+            Journal::open(std::path::Path::new(":memory:")).unwrap(),
+            fkc::RENT_FLOOR,
+            delay,
+        );
+        k.cfg.roles.push("beacon".into());
+        k.cfg.send_spare_lamports = spare;
+        let mut rent = 5_080u64.to_le_bytes().to_vec();
+        rent.extend_from_slice(&1.0f64.to_le_bytes());
+        rent.push(0);
+        k.port.inner.put(
+            fclient::rent::rent_sysvar(),
+            fclient::ports::Account {
+                lamports: 1,
+                data: rent,
+                owner: fclient::rent::sysvar_owner(),
+                executable: false,
+            },
+        );
+        k
+    }
+
+    /// keeper-send-spare (brief test 3a): spare 0 (the default) keeps the
+    /// reserve at the rent-exempt minimum, as on main; a spare X adds X,
+    /// and a payer that main would use (min + X/2 + fees) is then skipped
+    /// in a real tick.
+    #[tokio::test(start_paused = true)]
+    async fn ksp_tick_reserve_is_rent_minimum_plus_spare() {
+        const X: u64 = 2_000_000;
+        let delay = fkc::RENT_FLOOR + X / 2;
+        assert_eq!(
+            KeeperConfig::new(Address::default(), 1, Address::default()).send_spare_lamports,
+            0
+        );
+        let mut sent = vec![];
+        for spare in [0, X] {
+            let mut k = ksp_keeper(spare, delay);
+            k.start().await.unwrap();
+            ksp_writes(&mut k, 0, 10);
+            k.tick().await.unwrap();
+            assert_eq!(k.engine.payer_reserve, fkc::RENT_FLOOR + spare);
+            assert_eq!(
+                k.status_json(fkc::SLOT, 0, None)["care"]["payer_reserve"],
+                fkc::RENT_FLOOR + spare
+            );
+            let n = k.port.inner.sent.lock().unwrap().len();
+            sent.push((n, k.engine.pending_len(), k.engine.unfunded_skips > 0));
+        }
+        // spare 0: main's behaviour, every write goes out.
+        assert_eq!(sent[0], (10, 10, false), "spare 0 sends like main");
+        // spare X: nothing is signed, the writes wait.
+        assert_eq!(sent[1], (0, 10, true), "spare X skips payers below min + X");
+    }
+
+    /// keeper-send-spare (brief test 3b): with spare X a payer at
+    /// fee + min + X − 1 is skipped and one at fee + min + X signs.
+    #[tokio::test(start_paused = true)]
+    async fn ksp_spare_boundary_is_fee_plus_minimum_plus_spare() {
+        const X: u64 = 1_234_567;
+        let mut k = ksp_keeper(X, fkc::RENT_FLOOR);
+        k.start().await.unwrap();
+        // Before the first rent read the reserve is the spare alone (main:
+        // 0, fee only).
+        assert!(k.rent.last().is_none());
+        assert_eq!(k.payer_reserve_now(), X);
+        k.follow_rent(fkc::SLOT).await;
+        let reserve = k.payer_reserve_now();
+        assert_eq!(reserve, fkc::RENT_FLOOR + X);
+        k.engine.payer_reserve = reserve;
+        // The fee of one memo version: sent once from a rich payer.
+        let keys: Vec<Address> = k.payers.delay.keys.iter().map(|p| p.pubkey()).collect();
+        for d in &keys {
+            k.payers.set_balance(*d, fkc::RENT_FLOOR);
+        }
+        k.payers.set_balance(keys[0], 100_000_000);
+        ksp_writes(&mut k, 0, 1);
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (1, 0));
+        let fee = k.journal.as_ref().unwrap().in_flight().unwrap()[0].fee;
+        assert!(fee >= fclient::fees::LAMPORTS_PER_SIGNATURE);
+        // One lamport short: skipped, nothing signed.
+        k.payers.set_balance(keys[0], fkc::RENT_FLOOR);
+        k.payers.set_balance(keys[1], fee + fkc::RENT_FLOOR + X - 1);
+        ksp_writes(&mut k, 1, 1);
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (0, 1), "fee + min + X − 1 is skipped");
+        // Exactly fee + min + X: it signs.
+        k.payers.set_balance(keys[1], fee + fkc::RENT_FLOOR + X);
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (1, 0), "fee + min + X sends");
+        let sent = k.port.inner.sent.lock().unwrap();
+        assert_eq!(sent.last().unwrap().message.account_keys[0], keys[1]);
     }
 
     /// verify-pr290 (break V4): a care-only poll (`Engine::poll_kind`)
