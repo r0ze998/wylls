@@ -929,7 +929,19 @@ impl ChainPort for RpcPort {
     /// answers of every other chunk; only when no status-cache chunk was
     /// answered at all is the call an error.
     async fn statuses(&self, sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+        Ok(self.statuses_absent(sigs).await?.0)
+    }
+
+    /// [`ChainPort::statuses`] (above) with the history search's `null`
+    /// answers marked: only a signature the history search itself answered
+    /// `null` for is `absent` (verify-pr282). A status-cache `null` is not:
+    /// the cache forgets a landed signature ≈ 300 blocks after its blockhash.
+    async fn statuses_absent(
+        &self,
+        sigs: &[Signature],
+    ) -> PortResult<(Vec<Option<Status>>, Vec<bool>)> {
         let mut out: Vec<Option<Status>> = vec![None; sigs.len()];
+        let mut absent = vec![false; sigs.len()];
         // Signatures the status cache answered `null` for (unknown to it).
         let mut unseen: Vec<usize> = vec![];
         let mut first_err = None;
@@ -970,12 +982,13 @@ impl ChainPort for RpcPort {
                 // A failed history chunk stays unknown; the next call tries others.
                 if let Ok(arr) = self.statuses_call(&ss, true).await {
                     for (&i, s) in chunk.iter().zip(arr.iter()) {
+                        absent[i] = s.is_null();
                         out[i] = parse_finalized_status(s);
                     }
                 }
             }
         }
-        Ok(out)
+        Ok((out, absent))
     }
 
     async fn feed(&self, after: Cursor) -> PortResult<Vec<TxRecord>> {

@@ -221,6 +221,23 @@ pub trait ChainPort: Send + Sync {
         &self,
         sigs: &[Signature],
     ) -> impl Future<Output = PortResult<Vec<Option<Status>>>> + Send;
+    /// [`ChainPort::statuses`] plus, per signature, whether this call's
+    /// transaction-history search (`searchTransactionHistory`) answered
+    /// `null` for it: `true` is evidence that the ledger holds no such
+    /// transaction; `false` means found, not yet finalized, or not searched
+    /// (a status-cache `null` alone proves nothing for an old signature).
+    /// verify-pr282: the keeper settles an expired version as never landed
+    /// only on that evidence. Default: no evidence.
+    fn statuses_absent(
+        &self,
+        sigs: &[Signature],
+    ) -> impl Future<Output = PortResult<(Vec<Option<Status>>, Vec<bool>)>> + Send {
+        async move {
+            let s = self.statuses(sigs).await?;
+            let n = s.len();
+            Ok((s, vec![false; n]))
+        }
+    }
     /// Program transactions (incl. failed) after `after`, in slot order.
     fn feed(&self, after: Cursor) -> impl Future<Output = PortResult<Vec<TxRecord>>> + Send;
     /// [`ChainPort::feed`] and, from the same read, how far the source's

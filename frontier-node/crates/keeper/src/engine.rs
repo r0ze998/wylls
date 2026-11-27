@@ -691,24 +691,30 @@ impl Engine {
         Ok(())
     }
 
-    /// `port.statuses`, counting a failed read (`None` for every signature:
-    /// they stay pending).
+    /// `port.statuses_absent`, counting a failed read (empty: every
+    /// signature stays pending). The flags say which `None`s a history
+    /// search answered `null` (verify-pr282).
     async fn read_statuses<P: ChainPort>(
         &mut self,
         port: &P,
         sigs: &[Signature],
-    ) -> Vec<Option<Status>> {
-        match port.statuses(sigs).await {
-            Ok(v) => {
+    ) -> (Vec<Option<Status>>, Vec<bool>) {
+        match port.statuses_absent(sigs).await {
+            Ok((v, absent)) if absent.len() == v.len() => {
                 self.status_read_errors.1 = 0;
-                v
+                (v, absent)
+            }
+            Ok((v, _)) => {
+                self.status_read_errors.1 = 0;
+                let n = v.len();
+                (v, vec![false; n])
             }
             Err(e) => {
                 let r = &mut self.status_read_errors;
                 r.0 += 1;
                 r.1 += 1;
                 r.2 = Some(format!("{} signatures: {e}", sigs.len()));
-                vec![]
+                (vec![], vec![])
             }
         }
     }
@@ -1382,32 +1388,17 @@ impl Engine {
         let n_pending = flat.len();
         let n_orphans = self.orphans.len();
         flat.extend(self.orphans.iter().map(|o| o.0));
-        let mut sts = if flat.is_empty() {
-            vec![]
-        } else {
-            self.read_statuses(port, &flat).await
-        };
-        let read_ok = !flat.is_empty() && sts.len() == flat.len();
-        // Orphan answers, in `self.orphans` order (orphans added below by
-        // `hold_unsettled` are appended after them and wait for the next poll).
-        let orphan_sts: Vec<Option<Status>> = if sts.len() == n_pending + n_orphans {
-            sts.split_off(n_pending)
-        } else {
-            vec![]
-        };
-        // keeper-stall-investigate: the chain's block height, read only when
-        // an unknown signature has a recorded validity height. A signature
-        // still unknown more than EXPIRED_MARGIN_BLOCKS past it never landed.
-        let height_now = if read_ok
-            && (sigs
+        // keeper-stall-investigate + verify-pr282: the chain's block height,
+        // read BEFORE the status read (so a version past its validity then
+        // cannot land after the read that finds it absent), and only when a
+        // signature being read has a recorded validity height.
+        let height_before = if sigs
+            .iter()
+            .any(|(_, v)| v.last_valid_block_height.is_some())
+            || self
+                .orphans
                 .iter()
-                .zip(sts.iter())
-                .any(|((_, v), st)| st.is_none() && v.last_valid_block_height.is_some())
-                || self
-                    .orphans
-                    .iter()
-                    .zip(orphan_sts.iter())
-                    .any(|(o, st)| st.is_none() && self.orphan_valid_height.contains_key(&o.0)))
+                .any(|o| self.orphan_valid_height.contains_key(&o.0))
         {
             match port.blockhash().await {
                 Ok((_, h)) if h > BLOCKHASH_VALID_BLOCKS => Some(h - BLOCKHASH_VALID_BLOCKS),
@@ -1416,14 +1407,39 @@ impl Engine {
         } else {
             None
         };
-        let gone = |valid: Option<u64>| match (valid, height_now) {
-            (Some(v), Some(h)) => h > v.saturating_add(EXPIRED_MARGIN_BLOCKS),
-            _ => false,
+        let (mut sts, mut absent) = if flat.is_empty() {
+            (vec![], vec![])
+        } else {
+            self.read_statuses(port, &flat).await
+        };
+        let read_ok = !flat.is_empty() && sts.len() == flat.len();
+        // Orphan answers, in `self.orphans` order (orphans added below by
+        // `hold_unsettled` are appended after them and wait for the next poll).
+        let (orphan_sts, orphan_absent): (Vec<Option<Status>>, Vec<bool>) =
+            if sts.len() == n_pending + n_orphans {
+                (sts.split_off(n_pending), absent.split_off(n_pending))
+            } else {
+                (vec![], vec![])
+            };
+        // A version never landed when (1) the chain was already more than
+        // EXPIRED_MARGIN_BLOCKS past its validity height before this read
+        // and (2) this read's history search answered `null` for it. A
+        // status-cache `null` is not enough: the cache forgets a landed
+        // signature ≈ 300 blocks after its blockhash, and the history
+        // search reaches only HISTORY_PER_CALL signatures per call, so a
+        // landing seen by neither (a long tick, a restart) would otherwise
+        // be journaled `superseded` (verify-pr282).
+        let gone = |valid: Option<u64>, proven_absent: bool| {
+            proven_absent
+                && match (valid, height_before) {
+                    (Some(v), Some(h)) => h > v.saturating_add(EXPIRED_MARGIN_BLOCKS),
+                    _ => false,
+                }
         };
         let mut ended: Vec<(String, Outcome)> = vec![];
-        for ((k, v), st) in sigs.iter().zip(sts.iter()) {
+        for (((k, v), st), proven_absent) in sigs.iter().zip(sts.iter()).zip(absent.iter()) {
             let Some(st) = st else {
-                if gone(v.last_valid_block_height) {
+                if read_ok && gone(v.last_valid_block_height, *proven_absent) {
                     self.settle_never_landed(k, v, journal, slot, &mut ended, &mut report);
                 }
                 continue;
@@ -1579,13 +1595,15 @@ impl Engine {
             let orphans = std::mem::take(&mut self.orphans);
             let mut keep = vec![];
             let mut resolved = HashSet::new();
-            for (o, st) in orphans
+            for (i, (o, st)) in orphans
                 .into_iter()
                 .zip(orphan_sts.iter().map(Some).chain(std::iter::repeat(None)))
+                .enumerate()
             {
                 // `None`: appended by `hold_unsettled` in this poll, not read yet.
                 let read_now = st.is_some();
                 let st = st.unwrap_or(&None);
+                let proven_absent = orphan_absent.get(i).copied().unwrap_or(false);
                 match st {
                     Some(st) => {
                         // An adopted signature may also have been settled
@@ -1627,7 +1645,7 @@ impl Engine {
                     }
                     None if read_ok
                         && read_now
-                        && gone(self.orphan_valid_height.get(&o.0).copied()) =>
+                        && gone(self.orphan_valid_height.get(&o.0).copied(), proven_absent) =>
                     {
                         if let Some(j) = journal.filter(|_| self.uncounted_fees.contains_key(&o.0))
                         {
@@ -2130,6 +2148,11 @@ mod tests {
         status_calls: Mutex<Vec<usize>>,
         /// `blockhash` calls (keeper-stall-investigate).
         blockhash_calls: std::sync::atomic::AtomicU64,
+        /// verify-pr282: unknown answers come from the status cache only
+        /// (no history search), so they prove nothing.
+        cache_only: std::sync::atomic::AtomicBool,
+        /// verify-pr282: blocks the chain moves on during each status read.
+        blocks_per_status_read: std::sync::atomic::AtomicU64,
     }
 
     impl Default for Script {
@@ -2144,6 +2167,8 @@ mod tests {
                 fail_status_lookup: std::sync::atomic::AtomicBool::new(false),
                 status_calls: Mutex::new(vec![]),
                 blockhash_calls: std::sync::atomic::AtomicU64::new(0),
+                cache_only: std::sync::atomic::AtomicBool::new(false),
+                blocks_per_status_read: std::sync::atomic::AtomicU64::new(0),
             }
         }
     }
@@ -2196,6 +2221,22 @@ mod tests {
             }
             let m = self.statuses.lock().unwrap();
             Ok(sigs.iter().map(|s| m.get(s).cloned()).collect())
+        }
+        /// The script is the whole ledger: an unknown signature is absent
+        /// (a history search's `null`) unless `cache_only` is set.
+        async fn statuses_absent(
+            &self,
+            sigs: &[Signature],
+        ) -> PortResult<(Vec<Option<Status>>, Vec<bool>)> {
+            let v = self.statuses(sigs).await?;
+            let moved = self
+                .blocks_per_status_read
+                .load(std::sync::atomic::Ordering::SeqCst);
+            self.blockhash_height
+                .fetch_add(moved, std::sync::atomic::Ordering::SeqCst);
+            let cache_only = self.cache_only.load(std::sync::atomic::Ordering::SeqCst);
+            let absent = v.iter().map(|s| s.is_none() && !cache_only).collect();
+            Ok((v, absent))
         }
         async fn feed(&self, _: Cursor) -> PortResult<Vec<TxRecord>> {
             Ok(vec![])
@@ -2508,6 +2549,126 @@ mod tests {
         let rows = j.attempts_of("w").unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows.iter().filter(|a| a.status == "superseded").count(), 1);
+    }
+
+    /// verify-pr282: a status-cache `null` is no evidence. The cache forgets
+    /// a landed signature ≈ 300 blocks after its blockhash and the history
+    /// search reaches only 32 signatures per call, so a version that landed
+    /// while no poll looked (a long tick, a restart) must not be journaled
+    /// `superseded` on a cache `null`. It is settled from the next read
+    /// whose history search answers for it.
+    #[tokio::test]
+    async fn cache_only_null_past_validity_is_not_never_landed() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        e.ensure(spec("w", Class::D, abi::tag::POST_ANCHOR), 1);
+        assert_eq!(e.step(&port, &mut payers, Some(&j), 1).await.sent, 1);
+        let first = port.sent.lock().unwrap().len();
+        let sig = tx::signature(&port.sent.lock().unwrap()[0]);
+        port.blockhash_height
+            .store(151 + EXPIRED_MARGIN_BLOCKS + BLOCKHASH_VALID_BLOCKS, SeqCst);
+        port.cache_only.store(true, SeqCst);
+        e.poll(&port, Some(&j), 400).await;
+        assert_eq!(e.never_landed, 0, "a cache null proves nothing");
+        assert_eq!(j.attempts_of("w").unwrap()[0].status, "sent");
+        // It had landed after all: the next history-searched read says so.
+        port.statuses.lock().unwrap().insert(
+            sig,
+            Status {
+                slot: 120,
+                err: None,
+                code: None,
+            },
+        );
+        port.cache_only.store(false, SeqCst);
+        let r = e.poll(&port, Some(&j), 401).await;
+        assert!(r
+            .outcomes
+            .iter()
+            .any(|(k, o)| k == "w" && matches!(o, Outcome::Landed { .. })));
+        assert_eq!(e.never_landed, 0);
+        assert_eq!(j.attempts_of("w").unwrap()[0].status, "landed");
+        assert_eq!(port.sent.lock().unwrap().len(), first, "no re-send");
+    }
+
+    /// verify-pr282: the same for an adopted orphan after a restart.
+    #[tokio::test]
+    async fn adopted_orphan_cache_only_null_waits_for_history() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let port = Script::default();
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sig = Signature::from([7u8; 64]);
+        j.record_attempt(&Attempt {
+            sig: sig.to_string(),
+            write_id: None,
+            tag: None,
+            kind: PAYER_CARE_KIND.into(),
+            object_key: "care:a:b:1".into(),
+            bell: None,
+            region: None,
+            class: "N".into(),
+            payer: payers().delay.keys[0].pubkey().to_string(),
+            bid_milli: 100,
+            fee: 5_000,
+            cu_limit: 2_000,
+            heap: None,
+            first_valid_slot: 1,
+            sent_slot: 1,
+            last_valid_block_height: Some(1_000),
+            landed_slot: None,
+            status: "sent".into(),
+            code: None,
+        })
+        .unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        e.adopt(&j.in_flight().unwrap()).unwrap();
+        port.blockhash_height.store(
+            1_001 + EXPIRED_MARGIN_BLOCKS + BLOCKHASH_VALID_BLOCKS,
+            SeqCst,
+        );
+        port.cache_only.store(true, SeqCst);
+        e.poll(&port, Some(&j), 5_000).await;
+        assert!(e.care_unresolved());
+        assert_eq!(j.in_flight().unwrap().len(), 1);
+        port.cache_only.store(false, SeqCst);
+        e.poll(&port, Some(&j), 5_001).await;
+        assert!(!e.care_unresolved());
+        assert_eq!(e.never_landed, 1);
+        assert_eq!(j.attempts_of("care:a:b:1").unwrap()[0].status, "superseded");
+    }
+
+    /// verify-pr282: the height is read before the status read. A version
+    /// still inside its margin at that read stays unknown even if the chain
+    /// moves past the margin while the (long) read runs: it could have
+    /// landed after the read looked.
+    #[tokio::test]
+    async fn never_landed_needs_the_margin_passed_before_the_status_read() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let port = Script::default();
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        e.ensure(spec("w", Class::D, abi::tag::POST_ANCHOR), 1);
+        assert_eq!(e.step(&port, &mut payers, Some(&j), 1).await.sent, 1);
+        let calls = port.blockhash_calls.load(SeqCst);
+        port.blockhash_height
+            .store(150 + EXPIRED_MARGIN_BLOCKS + BLOCKHASH_VALID_BLOCKS, SeqCst);
+        port.blocks_per_status_read.store(100, SeqCst);
+        e.poll(&port, Some(&j), 400).await;
+        assert_eq!(e.never_landed, 0, "the margin passed only during the read");
+        assert_eq!(
+            port.blockhash_calls.load(SeqCst),
+            calls + 1,
+            "one height read per poll"
+        );
+        // The next poll starts past the margin: settled.
+        e.poll(&port, Some(&j), 401).await;
+        assert_eq!(e.never_landed, 1);
     }
 
     #[tokio::test]
