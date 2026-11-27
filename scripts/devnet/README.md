@@ -151,7 +151,8 @@ herald that reports `ingest.backlog` > 0: WARN "behind, progressing" when `inges
 previous `--state` run, FAIL when it did not, WARN once when it fell below the previous run's (a rebuilt archive); "≈ N s" at `--slot-s` [0.4], devnet measured 0.240 s/slot on 11-27),
 the gateway's public `/f/season`, keeper A's API (`/v1/status` without a token must answer 401: the token is not
 read, so duties/rent/lag come from its log), `keeper.landed` (keeper A's journal read with `sqlite3 -readonly`: the newest
-`landed` write vs the herald live slot, WARN > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min or no landed write; a
+`landed` write vs the RPC slot already read for `herald.lag` (no extra call; the herald-based age is shown too, and
+without RPC it falls back to the herald live slot and says "(herald slot; rpc unavailable)"), WARN > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min or no landed write; a
 healthy keeper lands anchor/seed/beacon-log every bell even in a quiet world), tunnel name vs the herald's `public-host`, the public page and
 `/h/season` through the tunnel, the join check's result, disk free, and error/restart/STOP lines in the last
 500 lines of each `devnet-*.log`.
