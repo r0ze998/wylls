@@ -11,9 +11,10 @@
 // Nothing here is sent or stored.
 import { tileHex, locate, ringOf, DIRECTIONS } from './fgeo.mjs';
 import { encodePath } from './seal.mjs';
+import { MAX_PATH_PROVINCES } from './fcaravan.mjs';
 
 export const BOUNDED_MAX_STEPS = 32;
-export const BOUNDED_MAX_PROVINCES = 4;
+export const BOUNDED_MAX_PROVINCES = MAX_PATH_PROVINCES;
 /** The most states the search visits before it gives up (`PlannerBudget`). */
 export const BOUNDED_STATE_BUDGET = 60000;
 

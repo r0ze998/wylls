@@ -17,6 +17,7 @@
 // and may be re-sealed); a lost answer keeps the entry and the tracker
 // reconciles it with the Holding's transit records.
 import { encodePath, pack, unpack, validate, STANCES, RETREAT_MAX_BPS, MAX_PATH_STEPS, PROVINCE_TILES } from './seal.mjs';
+import { MAX_PATH_PROVINCES } from './fcaravan.mjs';
 import { minTipLamports, tipPresets, tipPriorityMilli, departEscrow } from '../sdk/frontier/fees.mjs';
 import * as book from './marchbook.mjs';
 import { tileHex } from './fgeo.mjs';
@@ -129,7 +130,7 @@ export function planRoute(kernel, { from, to, unit, seeds, blocked = [] }) {
   // (the kernel's planner checks the province limit only after choosing the fastest route: when that route crosses a
   //  fifth province or runs past 32 steps it answers none, though a slower legal one may exist — the bounded search
   //  keeps the limits in its state and its answer is checked by the kernel's own path_cost: froute-bounded.mjs)
-  if (!r.value || r.value.provinces.length > 4 || r.value.dirs.length > MAX_PATH_STEPS) {
+  if (!r.value || r.value.provinces.length > MAX_PATH_PROVINCES || r.value.dirs.length > MAX_PATH_STEPS) {
     const b = planBounded(kernel, { from, to, unit, seeds, blocked });
     if (b.ok) return b;
     // (the search's budget spent: not known either way — never said as "no route")
@@ -190,7 +191,7 @@ export function checkMarch(m) {
   //  accepted and never revealed. `destOpen` false: the page knows the place is not open land; unknown is not refused)
   else if (m.destOpen === false) add('DestinationNotOpen');
   if (!m.route) add('NoPath');
-  else if (m.route.dirs.length < 1 || m.route.dirs.length > MAX_PATH_STEPS || m.route.provinces.length > 4) add('Path');
+  else if (m.route.dirs.length < 1 || m.route.dirs.length > MAX_PATH_STEPS || m.route.provinces.length > MAX_PATH_PROVINCES) add('Path');
   const w = arrivalWindow(m.season, m.nowBell, m.earliest);
   if (!Number.isInteger(m.arriveBell) || m.arriveBell < w.min || m.arriveBell > w.max) add('ArrivalBell');
   if (!(m.stance >= 0 && m.stance < STANCES.length)) add('Stance');

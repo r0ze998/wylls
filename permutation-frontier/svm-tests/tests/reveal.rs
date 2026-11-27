@@ -1093,6 +1093,48 @@ fn g01_s1_reveal_worst_with_towers() {
     let _ = l;
 }
 
+/// The worst S1 Reveal as the keeper actually sends it
+/// (reveal-cu-investigate, 2026-11-27): the keeper's transaction carries
+/// three ComputeBudget instructions (limit, price, loaded limit), 150 CU
+/// each, and the program's fee-evidence parser walks every one, so it uses
+/// ≈ 230 CU more than [`measure_reveal_with`]'s two-instruction profile
+/// reads (27,823 against 27,593 on the devnet world-3 build 245ce1ab, 177
+/// under `REVEAL_CU_LIMIT_S1`). The keeper requests
+/// `fclient::budgets::REVEAL_REQUEST_CU_S1` for it: the heaviest fill
+/// (first reveal of the province-bell, every Province of the walk full of
+/// hostile towers) lands at the keeper's table row with ≥ 10 % to spare.
+#[test]
+fn g01_s1_reveal_worst_at_the_keeper_profile() {
+    use permutation_frontier_svm_tests::chain::Profile;
+    let (need, c, w, ix) = measure_reveal_with(Build::Release, Fill::FirstOfBell, true);
+    let row = fclient::budgets::Budgets::canonical_for(w.params.season.program_version)
+        .get(frontier_abi::v2::Ix::Reveal.tag());
+    assert_eq!(row.cu_limit, fclient::budgets::REVEAL_REQUEST_CU_S1);
+    let p = Profile::NONE
+        .with_cu(row.cu_limit)
+        .with_price(1)
+        .with_loaded(row.loaded_limit);
+    let l = expect_lands(
+        c.fork()
+            .send_with(&p, std::slice::from_ref(&ix), &[&w.keeper]),
+        "the worst Reveal at the keeper's profile",
+    );
+    println!(
+        "Reveal worst at the keeper profile: {} CU (two-instruction profile {}; requested {}, S1 limit {})",
+        l.cu,
+        need.cu,
+        row.cu_limit,
+        frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1
+    );
+    assert!(l.cu > need.cu, "the price instruction costs CU");
+    assert!(
+        l.cu * 10 <= row.cu_limit as u64 * 9,
+        "{} CU leaves < 10 % of {}",
+        l.cu,
+        row.cu_limit
+    );
+}
+
 /// G1 for Reveal (§13.1, W3-B's measurement): CU, tx bytes and loaded data
 /// against the current release `.so` at the worst fills; heap on the trace
 /// build when it is built. Gate W3: ≤ 26,000 CU, tx ≤ 1,100 B, `L(reveal)`
