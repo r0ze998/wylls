@@ -1312,11 +1312,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         // fix-keeper-care: the payers' reserve (the rent-exempt minimum of a
         // data-less account at the cluster's last read rent; fee only until
         // the rent is read) below which no version is signed.
-        self.engine.payer_reserve = self
-            .rent
-            .last()
-            .and_then(|r| r.sysvar.minimum_balance(0))
-            .unwrap_or(0);
+        self.engine.payer_reserve = self.payer_reserve_now();
         // Payer care after the poll (D-test-gaps-6-1: a care transfer the
         // poll just proved never-landed no longer blocks this tick's care),
         // and its transfers go out at once, before any duty spends from the
@@ -1381,6 +1377,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 self.follow_rent(slot).await;
             }
             self.rings.rent = Some(self.rent.current(slot));
+            // verify-pr290: the reserve follows the rent just read. A fresh
+            // process reads its first rent here, after the care block above:
+            // without this its whole first tick (11-27: ≈ 107 min) sent at a
+            // 0 reserve, i.e. from payers already at their rent floor.
+            self.engine.payer_reserve = self.payer_reserve_now();
             let t = Tick {
                 slot,
                 now,
@@ -2041,6 +2042,16 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         for (k, cu, heap) in &r.ladder {
             self.alert(slot, "retry-ladder", format!("{k}: cu {cu}, heap {heap:?}"));
         }
+    }
+
+    /// fix-keeper-care: the rent-exempt minimum of a data-less account at
+    /// the cluster's last read rent (0, fee only, until a rent is read; the
+    /// rent is read for the `rings` and `beacon` roles only).
+    fn payer_reserve_now(&self) -> u64 {
+        self.rent
+            .last()
+            .and_then(|r| r.sysvar.minimum_balance(0))
+            .unwrap_or(0)
     }
 
     /// Top-ups and sweeps as class N transfers signed by their source.
@@ -3722,5 +3733,66 @@ mod tests {
                 "top-up {i} after the feed read began"
             );
         }
+    }
+
+    /// verify-pr290: a fresh process reads its first rent after the tick's
+    /// care block; the reserve must still hold for the rest of that first
+    /// tick (11-27: the 107-minute one), so drained payers sign nothing.
+    #[tokio::test(start_paused = true)]
+    async fn v290_first_tick_after_start_keeps_the_rent_reserve() {
+        let port = fkc::CarePort::new(Duration::ZERO, None);
+        let mut k = fkc::keeper(
+            port,
+            Journal::open(std::path::Path::new(":memory:")).unwrap(),
+            fkc::RENT_FLOOR,
+            fkc::RENT_FLOOR,
+        );
+        k.cfg.roles.push("beacon".into());
+        let mut rent = 5_080u64.to_le_bytes().to_vec();
+        rent.extend_from_slice(&1.0f64.to_le_bytes());
+        rent.push(0);
+        k.port.inner.put(
+            fclient::rent::rent_sysvar(),
+            fclient::ports::Account {
+                lamports: 1,
+                data: rent,
+                owner: fclient::rent::sysvar_owner(),
+                executable: false,
+            },
+        );
+        k.start().await.unwrap();
+        let memo = Address::new_from_array([0x77; 32]);
+        for i in 0..10u8 {
+            k.engine.ensure(
+                WriteSpec {
+                    key: format!("anchor:{i}:0"),
+                    kind: "anchor",
+                    tag: tag::POST_BEACON,
+                    class: Class::D,
+                    bell: Some(i as u32),
+                    region: Some(0),
+                    build: Arc::new(move |_| {
+                        vec![solana_instruction::Instruction::new_with_bytes(
+                            memo,
+                            &[i],
+                            vec![],
+                        )]
+                    }),
+                    deadline_slot: None,
+                    not_before_slot: 0,
+                    fixed_payer: None,
+                },
+                fkc::SLOT,
+            );
+        }
+        k.tick().await.unwrap();
+        assert_eq!(k.engine.payer_reserve, fkc::RENT_FLOOR);
+        assert!(
+            k.port.inner.sent.lock().unwrap().is_empty(),
+            "no write from a payer at its rent floor in the first tick"
+        );
+        assert_eq!(k.engine.pending_len(), 10, "the writes wait");
+        // Once per send pass of the tick (duties, then the final pass).
+        assert!(k.engine.unfunded_skips >= 10);
     }
 }
