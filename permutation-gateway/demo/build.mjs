@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Build the walletless static demo: `node build.mjs [--out dist] [--live-url URL] [--turn 12] [--delay 3]`.
+// Build the walletless static demo: `node build.mjs [--out dist] [--live-url URL] [--base /wylls/] [--turn 12] [--delay 3]`.
 //
 //   dist/                 a copy of permutation-server/web/ (the real page: HTML, JS modules, CSS, art, i18n, wasm)
 //   dist/index.html       the one URL to share: opens frontier/ (the game page) at once
@@ -22,9 +22,13 @@ const { values: opt } = parseArgs({ options: {
   // (no default: the tag's "The live world" link appears only when a real, public live-world page is given — a link to the
   //  source repository under that label would mislead players; verify-pr301, Q-WD-1)
   'live-url': { type: 'string', default: '' },
+  // the path the host serves dist/ under (GitHub Pages: /<repo>/). Only 404.html uses it: a host serves 404.html at
+  // whatever missing URL was asked for, so its links must be absolute. Every other file stays relative (any prefix).
+  base: { type: 'string', default: '' },
   turn: { type: 'string', default: '12' }, delay: { type: 'string', default: '3' }, 'land-ms': { type: 'string', default: '400' },
 } });
 const OUT = opt.out;
+if (opt.base && !/^\/(?:[\w.-]+\/)*$/.test(opt.base)) throw new Error(`--base must start and end with "/" (got ${opt.base})`);
 const DEMO = { turnSecs: Number(opt.turn), delaySecs: Number(opt.delay), landMs: Number(opt['land-ms']), liveUrl: opt['live-url'] };
 
 // What the page never needs in the demo (server-only pages, the art sources, the docs).
@@ -131,6 +135,22 @@ await writeFile(join(OUT, 'index.html'), `<!doctype html>
 </body>
 </html>
 `);
+// (GitHub Pages) a missing path — an old or mistyped link — sends the player to the demo instead of a host error page
+if (opt.base) await writeFile(join(OUT, '404.html'), `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="refresh" content="0; url=${opt.base}">
+<meta name="robots" content="noindex">
+<title>Wylls — playable demo</title>
+</head>
+<body style="background:#10221f;color:#e8dfc8;font:16px system-ui,sans-serif">
+<p><a href="${opt.base}" style="color:#e8dfc8">Wylls — open the playable demo</a></p>
+</body>
+</html>
+`);
+// (static hosts that run Jekyll would drop files and folders whose names start with "_")
 await writeFile(join(OUT, '.nojekyll'), '');
 // (DEMO_META=<file>: write both esbuild metafiles there, for size analysis)
 if (process.env.DEMO_META) await writeFile(process.env.DEMO_META, JSON.stringify({ world: res.metafile, page: pageRes.metafile }));
@@ -142,4 +162,5 @@ const world = Object.values(res.metafile.outputs)[0].bytes;
 const pageOut = Object.values(pageRes.metafile.outputs).reduce((n, o) => n + o.bytes, 0), pageIn = Object.keys(pageRes.metafile.inputs).length;
 console.log(`walletless demo → ${relative(process.cwd(), OUT) || '.'}: ${files} files, ${(bytes / 1048576).toFixed(1)} MiB (world bundle ${(world / 1024).toFixed(0)} KiB), ${Date.now() - t0} ms`);
 console.log(`  page bundle: ${pageIn} modules → ${Object.keys(pageRes.metafile.outputs).length} files, ${(pageOut / 1024).toFixed(0)} KiB; css ${(cssIn / 1024).toFixed(0)} → ${(cssOut / 1024).toFixed(0)} KiB`);
+console.log(`  base ${opt.base ? `${opt.base} (404.html sends missing paths there)` : '(none: no 404.html; pass --base /wylls/ for GitHub Pages)'}`);
 console.log(`  turn ${DEMO.turnSecs} s, first toll after ${DEMO.delaySecs} s, live world link ${DEMO.liveUrl || '(none: pass --live-url https://… to show one)'}`);

@@ -56,6 +56,21 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
   its origin's `localStorage` (keeping only `ps-lang`), so on a shared origin it would wipe the real page's saved
   wallet choice and in-game key.
 
+## GitHub Pages (https://r0ze998.github.io/wylls/)
+
+`.github/workflows/pages-demo.yml` builds `dist/` with `--base /<repo>/` and deploys it with `actions/deploy-pages`
+on every push to `main` that touches the demo's sources (and by hand: Actions → "Walletless demo → GitHub Pages" →
+Run workflow). It needs no secret. One-time: Settings → Pages → Source = "GitHub Actions". The repository variable
+`DEMO_LIVE_URL` (optional, an `https://` page) becomes the tag's live-world link; empty = no link.
+
+Try the Pages layout locally: `node build.mjs --base /wylls/ && node serve.mjs --port 41850 --prefix /wylls/` →
+http://127.0.0.1:41850/wylls/ (`serve.mjs` answers a missing path with `dist/404.html`, as Pages does).
+
 ## Build options
 
-`node build.mjs [--out dist] [--live-url https://…] [--turn 12] [--delay 3] [--land-ms 400]`
+`node build.mjs [--out dist] [--live-url https://…] [--base /wylls/] [--turn 12] [--delay 3] [--land-ms 400]`
+
+`--base` is the path the host serves `dist/` under. Only `404.html` uses it (written only with `--base`: a host
+serves it at whatever missing URL was asked for, so its link must be absolute); it sends the player to the demo.
+Every other file stays relative and works under any prefix. `dist/.nojekyll` is always written (the page has files
+named `_*.mjs`, which a Jekyll pass would drop).

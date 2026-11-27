@@ -79,7 +79,7 @@ jobs:
       - name: CI stays key-free on push and pull request
         run: |
           python3 -c 'import yaml' 2>/dev/null || pip install --user pyyaml==6.0.2
-          python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml
+          python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml .github/workflows/pages-demo.yml
       - name: Local play kit (scripts/play-local.sh) arguments and refusals (no build, no world)
         run: python3 -I scripts/tests/test_play_local.py
 
