@@ -23,6 +23,7 @@
 //          [--state FILE] [--report FILE] [--log-lines N] [--run-dir DIR] [--logs DIR]
 //          [--restart-warn-min N]
 //          [--rpc-gap-ms N (>= 1000, default 1100)] [--timeline] [--no-world-yet]
+//          [--slot-s S (seconds a slot, for herald.lag's ≈ seconds; default 0.4)]
 //   --state FILE   remember the first time each milestone was seen (CreateSeason,
 //                  Seeded, Running, keeper start, WideSetRules, join check) across runs
 //                  and each process's PID, so a restart is seen as "the PID of the
@@ -178,6 +179,25 @@ export function lagLevel(lag) {
   if (lag > 1500) return 'FAIL';
   if (lag > 150) return 'WARN';
   return 'OK';
+}
+
+/** Seconds a slot for herald.lag's "≈ N s" (devnet measured 0.240 on 11-27; `--slot-s` gives a measured value). */
+export const SLOT_S_DEFAULT = 0.4;
+
+/**
+ * herald-pull-chunk: herald.lag from /h/status. A herald that reports `ingest.backlog` (listed − archived) reads its
+ * Clock on its own timer, so `live` stays current while it catches up: a backlog > 0 is "behind, progressing" (WARN)
+ * when `ingest.lastArchivedSlot` advanced since the previous run (--state), "behind, not progressing" (FAIL) when it
+ * did not, and WARN when there is no previous run to compare. No backlog (0, "unknown", or an older herald without
+ * the field): the live-slot lag in slots decides, as before. → {level, note}
+ */
+export function heraldLag({ lag, backlog, lastArchived, prevArchived }) {
+  if (Number.isFinite(backlog) && backlog > 0) {
+    if (!Number.isFinite(prevArchived)) return { level: 'WARN', note: `behind: backlog ${backlog} txs, archived through slot ${lastArchived ?? '?'} (no previous run to compare)` };
+    if (Number.isFinite(lastArchived) && lastArchived > prevArchived) return { level: 'WARN', note: `behind, progressing: backlog ${backlog} txs, archived through slot ${lastArchived} (+${lastArchived - prevArchived} slots since the last run)` };
+    return { level: 'FAIL', note: `behind, NOT progressing: backlog ${backlog} txs, archived through slot ${lastArchived ?? '?'} (same as the last run)` };
+  }
+  return { level: lagLevel(lag), note: null };
 }
 
 export const LOG_PATTERNS = Object.freeze({
@@ -488,6 +508,7 @@ function parseArgs(argv) {
     else if (k === '--restart-warn-min') { o.restartWarnMin = Number(v()); if (!(o.restartWarnMin >= 0)) throw new Error('--restart-warn-min needs a number >= 0'); }
     else if (k === '--logs') o.logs = v();
     else if (k === '--rpc-gap-ms') o.rpcGapMs = Math.max(1000, Number(v()));
+    else if (k === '--slot-s') { o.slotS = Number(v()); if (!(o.slotS > 0 && o.slotS < 10)) throw new Error('--slot-s needs seconds a slot (0 < S < 10)'); }
     else if (k === '-h' || k === '--help') { console.log(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\nimport ')[0]); process.exit(0); }
     else throw new Error(`unknown option ${k}`);
   }
@@ -625,6 +646,7 @@ export async function runChecks(o) {
     else add('FAIL', 'herald.season', `HTTP ${s.status} ${s.text.slice(0, 120)}`);
   } catch (e) { add('FAIL', 'herald.season', `no answer: ${e.message}`); }
   let heraldLive = NaN;
+  let heraldRec = null;
   try {
     const s = await getJson(`http://127.0.0.1:${P.herald}/h/status`);
     if (s.status !== 200 || !s.body) add('FAIL', 'herald.status', `HTTP ${s.status}`);
@@ -636,10 +658,16 @@ export async function runChecks(o) {
       add(lvl, 'herald.status', `ingest ${ingest.state}${ingest.failures ? ` failures ${ingest.failures}` : ''}${ingest.error ? ` error ${String(ingest.error).slice(0, 80)}` : ''}; events ${b.events}, provinces ${b.provinces}, ws open ${b.ws?.open ?? 0}; alarms ${alarms.length ? alarms.join(' ') : 'none'}`);
       const live = Array.isArray(b.live) ? Number(b.live[0]) : NaN;
       heraldLive = live;
+      const backlog = typeof ingest.backlog === 'number' ? ingest.backlog : NaN;
+      const lastArchived = typeof ingest.lastArchivedSlot === 'number' ? ingest.lastArchivedSlot : NaN;
+      if (Number.isFinite(lastArchived)) heraldRec = { lastArchivedSlot: lastArchived };
+      const slotS = o.slotS ?? SLOT_S_DEFAULT;
+      const hl = heraldLag({ lag: rpcSlot != null ? rpcSlot - live : NaN, backlog, lastArchived, prevArchived: prevState?.herald?.lastArchivedSlot });
+      const tail = hl.note ? `; ${hl.note}` : '';
       if (rpcSlot != null) {
         const lag = rpcSlot - live;
-        add(lagLevel(lag), 'herald.lag', `herald live slot ${live}, rpc ${rpcSlot}, lag ${lag} slots (≈${Math.round(lag * 0.4)} s)`);
-      } else add('OK', 'herald.lag', `herald live slot ${live} (no RPC slot to compare)`);
+        add(hl.level, 'herald.lag', `herald live slot ${live}, rpc ${rpcSlot}, lag ${lag} slots (≈${Math.round(lag * slotS)} s at ${slotS} s/slot)${tail}`);
+      } else add(hl.note ? hl.level : 'OK', 'herald.lag', `herald live slot ${live} (no RPC slot to compare)${tail}`);
     }
   } catch (e) { add('FAIL', 'herald.status', `no answer: ${e.message}`); }
 
@@ -710,7 +738,7 @@ export async function runChecks(o) {
     add(lv, `log.${f.replace(/^devnet-|\.log$/g, '')}`, `last ${c.lines} lines: ${c.error} error, ${c.restart} restart, ${c.fatal} fatal${last ? ` | ${last.slice(0, 140)}` : ''}`);
   }
 
-  return { at: now, out, ms, season, procs: procState, postponed };
+  return { at: now, out, ms, season, procs: procState, postponed, herald: heraldRec };
 }
 
 export function overallOf(out) {
@@ -720,9 +748,11 @@ export function overallOf(out) {
 }
 
 /** Merge first-seen milestone times into the state file. */
-export function mergeState(state, { at, ms, season, procs, postponed }) {
+export function mergeState(state, { at, ms, season, procs, postponed, herald }) {
   const s = { ...state, firstSeen: { ...(state.firstSeen ?? {}) }, fromLogs: { ...(state.fromLogs ?? {}) } };
   if (procs) s.procs = { ...(state.procs ?? {}), ...procs };
+  // herald-pull-chunk: the archive's newest slot, so the next run can tell "progressing" from "stuck"
+  if (herald) s.herald = { ...herald, at: jst(at) };
   const seen = (k) => { if (!s.firstSeen[k]) s.firstSeen[k] = jst(at); };
   if (season) {
     seen(`status:${season.statusName}`);
