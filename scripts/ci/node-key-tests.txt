@@ -101,6 +101,7 @@ permutation-gateway/test/web-frontier-devnet-territory.test.mjs
 permutation-gateway/test/web-frontier-devnet-wide-village.test.mjs
 permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs
 permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs
+permutation-gateway/test/web-frontier-fix-loop25-chat-read.test.mjs
 permutation-gateway/test/web-frontier-fplay-profile.test.mjs
 permutation-gateway/test/web-frontier-fx.test.mjs
 permutation-gateway/test/web-frontier-local-march-open-other-village.test.mjs

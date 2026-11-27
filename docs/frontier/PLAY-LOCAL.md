@@ -164,7 +164,22 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    tiles, and the guide asks the same route question as the march card, so it never names a camp whose card would say "No path
    there was found". A `--wide` rim village whose camps in sight are all out of reach gets "No camp in reach yet: no barbarian
    camp in sight is within this host's reach (one march goes at most 4 provinces and 32 tiles). Meanwhile, try a practice
-   battle …" and "Fight a practice clash". The fog is unchanged: a camp under the fog, even in your own province, is not named.
+   battle …" and "Fight a practice clash".
+   **The one fog exception** (fix-loop25, owner decision 2026-11-27, Q-PM2-1 (a); code: hud/firstbattle.mjs ownProvinceOf): the guide may name the barbarian camp of a
+   province where **you have a village of your own** even when its tile is under the fog (a rim village sees only 4–6 tiles
+   around itself, and its only camp in reach often stands further out in the same province). Only that province: a camp in a
+   neighbouring province, or in a province where only a nation-mate has a village, stays unnamed while it is under the fog.
+   The guide reveals only what it needs: where the camp is and that it fights. It does not give the defender count ("Make
+   your first battle the barbarian camp of (place). This camp stands in your village's province, so the guide shows where
+   it is even under the fog (its defenders show once it is in sight). Your host (200 Spearmen) should win even with bad
+   luck. …"; before the host is formed: "Your first battle is the barbarian camp in your village's province (under the fog,
+   so its defenders are not in sight). Gather 200 Spearmen or more …"). The map stays as it was: the camp's tile and the
+   rest of the province are still fogged, and the march card's "Nearby destinations" still lists only camps you have seen.
+   The guide's button still opens the march card on that camp, and the reach and fight checks above still apply. The card
+   gives no defender count for a tile out of sight.
+   When the first host stands, its banner says the same next step as the guide: "Next goal: march on a nearby barbarian
+   camp first (the guide shows the way)" (fix-loop25; it said "choose a keep in reach and march" while the guide said
+   "camp first": loop-play25 BREAK-2). After the camp step (or once it is skipped) the banner speaks of keeps as before.
    In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–389 defenders.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
@@ -1402,6 +1417,15 @@ has the chat (every `play-local.sh` world; a herald built before #263 has none, 
 While the title screen stands, neither the button nor the panel is shown (#270). On a screen narrower than
 1100 px, the button and an open panel are also set aside while a battle report or a practice battle is open, and the
 panel comes back when it closes; on a wider screen the report moves left and the panel covers none of it.
+**One right-side panel at a time** (fix-loop25, owner decision 2026-11-27, Q-LP25-1 (a)): the chat and the side drawer
+(Hosts, Village, Territory, Marches, More, Selection, the guide, the waiting and welcome cards) stand in the same place,
+so only one is open. Opening the chat closes the drawer. Opening a drawer closes the chat: press a tab, choose a place on
+the map, or let a card open by itself, such as the first village's welcome. The button keeps counting new messages while
+the chat is closed ("Nation chat (N new)"), and what you were typing stays in the box. One drawer is not closed:
+a **march order you are writing** is set aside under the open chat (not shown, not pressable) and comes back as it was
+when you close the chat. If the keyboard was in the chat when a drawer opened, it moves to the drawer's heading;
+otherwise it stays where you pressed. (Before, the chat stood over the Hosts sheet, and a press on "March" went into the
+chat's message box: loop-play25 BREAK-1.)
 
 - **Reading.** Press "Open the nation chat (sign once with your wallet)". "To read, sign once with your wallet (valid for 6
   hours). The signature is only used for reading and cannot move tokens." In a local world the page's TEST key signs, so no

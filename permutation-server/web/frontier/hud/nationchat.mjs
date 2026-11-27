@@ -259,14 +259,54 @@ export function chatPlacement(body, width) {
 }
 
 /**
+ * (fix-loop25, owner r0ze 2026-11-27 09:00 Q-LP25-1 (a), loop-play25 BREAK-1) ONE RIGHT-SIDE PANEL AT A TIME. The chat
+ * panel and the page's side drawer (Hosts, Village, Territory, March order, Selection, the guide… — every drawer kind
+ * that is not a wide document or the nation stage, hud/drawer.mjs WIDE / STAGE) stand in the same place at the right;
+ * the chat stood over the Hosts sheet and took the press on its "March" button. Now:
+ *   - opening the chat (its toggle) closes the side drawer (`onOpen`: app.mjs shuts it as its own close button does). A
+ *     march order being written is not thrown away: it is an order in progress, not a panel (hud/drawer.mjs
+ *     closeDrawer keeps it), so it is set aside under the chat (frontier.css) and stands again when the chat closes;
+ *   - a side drawer that OPENS — another kind, another selection, another order (`sideDrawerKey` changes to a drawer)
+ *     — closes the chat (`yieldToDrawer`), set aside or not; the unread badge goes on counting (a closed chat counts);
+ *     the keyboard, if it was inside the chat, goes to the drawer's heading (`focusDrawer`), else stays where the press
+ *     left it.
+ * The same rule as the title screen's (chatPlacement): never two panels over each other.
+ * The drawer's key (pure): null for no side drawer; else its kind, with the selection for a selection's card and the
+ * order (and its destination) for an order card (`token(obj)` → a number per object: a new choice is a new object,
+ * hud/drawer.mjs drawerHeadFor). A redraw of the same drawer keeps its key, so it never closes the chat.
+ */
+export function sideDrawerKey(d, { selected = null, compose = null, wide = new Set(), stage = new Set(), token = () => 0 } = {}) {
+  if (!d?.kind || wide.has(d.kind) || stage.has(d.kind)) return null;
+  const sel = d.kind === 'inspect' || d.kind === 'spectate' ? `|s${selected ? token(selected) : 0}` : '';
+  // (the order's destination too: a place chosen on the map for an order set aside under the chat brings the card back)
+  const dest = compose?.dest && typeof compose.dest === 'object' ? `@${compose.dest.p},${compose.dest.q},${compose.dest.tile}` : '';
+  const ord = d.kind === 'march' ? `|c${compose ? token(compose) : 0}${dest}` : '';
+  return `${d.kind}${sel}${ord}`;
+}
+/** A number per object, kept with the object (WeakMap): the identity `sideDrawerKey` compares. */
+export function objectTokens() {
+  const map = new WeakMap();
+  let n = 0;
+  return o => { if (!o || (typeof o !== 'object' && typeof o !== 'function')) return 0; let t = map.get(o); if (!t) { t = ++n; map.set(o, t); } return t; };
+}
+/**
+ * Whether a drawer has just OPENED, from the last key seen (`prev`) to `next`: a side drawer now, and not the one seen
+ * last. → `{opened, key}` (key: what to remember).
+ */
+export const drawerOpened = (prev, next) => ({ opened: next !== null && next !== prev, key: next });
+
+/**
  * Mount the chat: a toggle placed before `anchor` (the header's language box) and a panel in `host`. `state()` →
  * `{wallet, nation, world, program}` of the page (world = the page's pinned Season id, program its pinned program).
  * `placement()` → `{toggle, panel}`: whether each may be shown now (default chatPlacement of the page's body).
- * → `{stop, refresh, changed, place}`. Nothing is drawn until the herald says the chat is on for this page's world.
+ * `onOpen()`: the player opens the chat (fix-loop25: the page closes its side drawer). `focusDrawer()`: put the
+ * keyboard on the side drawer (when a drawer that opened closes the chat while the keyboard was inside it).
+ * → `{stop, refresh, changed, place, yieldToDrawer, isOpen}`. Nothing is drawn until the herald says the chat is on for
+ * this page's world.
  */
 export function installNationChat({ base = '', anchor, host, state, doc = globalThis.document, storage = globalThis.localStorage, fetch, WebSocket: WS = globalThis.WebSocket, timers = globalThis, every = 30_000,
-  placement = () => chatPlacement(doc?.body, doc?.defaultView?.innerWidth ?? globalThis.innerWidth) } = {}) {
-  if (!doc || !host) return { stop() {}, refresh() {}, changed() {}, place() {} };
+  placement = () => chatPlacement(doc?.body, doc?.defaultView?.innerWidth ?? globalThis.innerWidth), onOpen = () => {}, focusDrawer = () => {} } = {}) {
+  if (!doc || !host) return { stop() {}, refresh() {}, changed() {}, place() {}, yieldToDrawer() { return false; }, get isOpen() { return false; } };
   const client = createChatClient({ base, fetch, wallet: () => state().wallet, nation: () => state().nation });
   let info = null, messages = [], muted = new Set(), sock = null, poll = null, retry = null, stopped = false, open = false, unread = 0, lastId = null, reporting = null, busy = false;
   // (fix-loop24, BREAK-1: `on` — the herald offers the chat for this page's world; `parked` — the player left it open and
@@ -512,7 +552,25 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
       if (had) doc.activeElement?.blur?.();
     } else if (parked && on && can.panel !== false) { parked = false; show(true, { focus: false }); }
   }
-  toggle.addEventListener('click', () => { parked = false; show(!open); });
+  // (fix-loop25, Q-LP25-1 (a): opening the chat closes the side drawer first — one right-side panel at a time)
+  toggle.addEventListener('click', () => {
+    parked = false;
+    if (!open) { try { onOpen(); } catch (e) { console.error('frontier nation chat:', e); } }
+    show(!open);
+  });
+  /**
+   * (fix-loop25) A side drawer opened: the chat closes (an open or a set-aside one; never reopened by itself). The
+   * keyboard left inside it goes to the drawer. → true when the chat was open or set aside.
+   */
+  function yieldToDrawer() {
+    if (stopped || (!open && !parked)) return false;
+    const had = inside();
+    parked = false;
+    show(false, { focus: false });
+    // (let go at once — never left in the hidden panel —, then given to the drawer, which may be written a moment later)
+    if (had) { doc.activeElement?.blur?.(); try { focusDrawer(); } catch { /* the body keeps it */ } }
+    return true;
+  }
   closeBtn.addEventListener('click', () => { parked = false; show(false); });
   panel.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
@@ -570,6 +628,9 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     changed() { if (!client.token && sock) closeSocket(); labels(); place(); },
     /** The page's screen changed (the title, a wide document): the toggle and the panel follow `placement()`. */
     place,
+    yieldToDrawer,
+    /** Whether the panel is open now (not set aside). */
+    get isOpen() { return open; },
     stop() { stopped = true; closeSocket(); if (poll !== null) timers.clearInterval(poll); offLang(); win?.removeEventListener?.('resize', onResize); if (doc.body?.dataset) delete doc.body.dataset.nchat; toggle.remove(); panel.remove(); },
     get client() { return client; },
   };

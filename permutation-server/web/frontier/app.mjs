@@ -74,7 +74,7 @@ import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
 import { localCoopBoardOptions } from './hud/coopboard-local.mjs';
-import { installNationChat } from './hud/nationchat.mjs';
+import { installNationChat, sideDrawerKey, objectTokens, drawerOpened } from './hud/nationchat.mjs';
 import * as coopTitles from './hud/coopoutcomes.mjs';
 import * as worldGoals from './hud/worldgoals.mjs';
 import { settled } from './hud/rulebook.mjs';
@@ -788,6 +788,9 @@ function applyDrawer(d) {
     if ((el.dataset.kind ?? '') !== kind) el.dataset.kind = kind;
     if (el.dataset.doc !== doc) el.dataset.doc = doc;
   }
+  // (fix-loop25: a side drawer that opened closes the chat — before the chat follows the screen, so a chat set aside for a
+  //  report does not come back over the drawer that the report's closing left)
+  nationChatSide(d);
   nationChatPlace();
   if (kind === drawerKind) return false;
   // the camera comes back when the drawer closes (hud/camkeep.mjs): where it was when the drawer opened, unless the
@@ -925,6 +928,35 @@ function nationChatTick() {
 }
 /** (fix-loop24, BREAK-1) The screen changed under the chat (the title up or down, a wide document opened or closed): it follows (hud/nationchat.mjs chatPlacement). */
 function nationChatPlace() { try { nationChatRef?.place?.(); } catch (e) { console.error('frontier nation chat:', e); } }
+/**
+ * (fix-loop25, owner Q-LP25-1 (a), loop-play25 BREAK-1) One right-side panel at a time (hud/nationchat.mjs
+ * sideDrawerKey): the side drawer last seen, by its key. A drawer that OPENS (its key changes to a side drawer) closes
+ * the chat; the chat opened by the player closes the side drawer (`nationChatOpening`).
+ */
+const sideTokens = objectTokens();
+let sideKeyNow = null;
+const sideKeyOf = d => sideDrawerKey(d, { selected: FS.selected, compose: FS.compose, wide: WIDE, stage: STAGE, token: sideTokens });
+function nationChatSide(d) {
+  const x = drawerOpened(sideKeyNow, sideKeyOf(d));
+  sideKeyNow = x.key;
+  if (x.opened) { try { nationChatRef?.yieldToDrawer?.(); } catch (e) { console.error('frontier nation chat:', e); } }
+}
+/** The player opens the chat: the side drawer closes as its own close button closes it (an order being written stays, set aside under the chat). */
+function nationChatOpening() {
+  const d = drawerOf(FS);
+  if (sideKeyOf(d) !== null && d.kind !== 'march') shutDrawer({ focus: false });
+  // (what stands now is what the chat opened over: not a drawer that opened)
+  sideKeyNow = sideKeyOf(drawerOf(FS));
+}
+/** The keyboard, left inside the chat that a drawer's opening closed, goes to the drawer's heading (after the drawer is written). */
+function focusDrawerHead() {
+  setTimeout(() => {
+    const t = $('panel-title');
+    if (!t || $('panel')?.dataset.drawer !== 'open') return;
+    if (!t.hasAttribute('tabindex')) t.setAttribute('tabindex', '-1');
+    t.focus?.({ preventScroll: true });
+  }, 0);
+}
 
 function renderMode() {
   renderDrawer(() => modePanel(FS));
@@ -5614,7 +5646,7 @@ export async function boot() {
         // (on its own: a board that cannot be installed does not hold play back; it is tried again at the next good read)
         if (!started.coop) { try { installCoopBoard({ changed: () => invalidate('panel'), ...(coopOptions ?? {}) }); started.coop = true; } catch (e) { console.error('frontier coop board:', e); } }
         // (nation chat, owner Q-PT-11 (a): the herald's /h/chat/* when it has one — hud/nationchat.mjs; nothing drawn when not)
-        if (!nationChatRef) { try { nationChatRef = installNationChat({ base: cfg.herald ?? '', anchor: $('lang-box'), host: document.body, state: nationChatState }); } catch (e) { console.error('frontier nation chat:', e); } }
+        if (!nationChatRef) { try { nationChatRef = installNationChat({ base: cfg.herald ?? '', anchor: $('lang-box'), host: document.body, state: nationChatState, onOpen: nationChatOpening, focusDrawer: focusDrawerHead }); } catch (e) { console.error('frontier nation chat:', e); } }
         // (workstream 15, ruleset B: the titles and chronicle of cooperation 01's board judges — read only, a record that
         //  changes no standing; nothing drawn on a server without them. Installs once — hud/coopoutcomes.mjs)
         //  (B13: in a launcher world they are read under that world's board mount, beside its board — hud/coopboard-local.mjs)

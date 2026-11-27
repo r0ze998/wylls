@@ -125,17 +125,19 @@ export function campInBounds(r, { p, q, tile }) {
  * `reach({p, q, tile})` — the march card's own route question (screens/conquestguide.mjs campReach: the rules' planner
  * and the arrival window) — `false` = no route / no arrival turn, `true` = a route, `null` = not known yet (no rules
  * module; kept, as the card asks again). Asked lazily, in the order of preference, so only the camps up to the pick are
- * routed. The fog is unchanged: an unseen camp is never a candidate.
- * Answer: `{camp: {p, q, tile, troops}, winnable, odds, need, passed}` or null (no fighting camp in sight and in reach,
+ * routed. The fog is unchanged: an unseen camp is never a candidate — save the one exception (fix-loop25, Q-PM2-1 (a)):
+ * with `own(p, q)` (ownProvinceOf), a camp in a province of the viewer's own village is a candidate under the fog too,
+ * and its answer says `camp.fogged` (the lines then leave its defender count out).
+ * Answer: `{camp: {p, q, tile, troops, fogged?}, winnable, odds, need, passed}` or null (no fighting camp in sight and in reach,
  * or no fighting host). `passed`: the camps in sight that sit battles out and are nearer than the pick (nearest first).
  */
 export function campChoice(FS, r, opts = {}) {
   if (!r || r.unit === SCOUT || r.unit === SETTLER || !(Number(r.troops) > 0)) return null;
-  const { seen = () => true, rough = () => true, reach = () => null } = opts;
+  const { seen = () => true, rough = () => true, reach = () => null, own } = opts;
   const camps = [];
-  for (const x of fightingCampsInSight(FS, r, { seen })) {
+  for (const x of fightingCampsInSight(FS, r, { seen, own })) {
     const o = campArrival({ unit: r.unit, troops: Math.floor(Number(r.troops)), campTroops: x.troops, rough: !!rough(x.p, x.q, x.tile) });
-    camps.push({ camp: { p: x.p, q: x.q, tile: x.tile, troops: x.troops }, odds: o.odds, need: o.need, d: x.d });
+    camps.push({ camp: { p: x.p, q: x.q, tile: x.tile, troops: x.troops, ...(x.fogged ? { fogged: true } : {}) }, odds: o.odds, need: o.need, d: x.d });
   }
   const reachable = x => {
     if (!campInBounds(r, x.camp)) return false;
@@ -147,7 +149,7 @@ export function campChoice(FS, r, opts = {}) {
   const good = camps.filter(x => x.odds === 'good').sort(byNear).find(reachable);
   const pick = good ?? [...camps].sort((a, b) => a.d - b.d || (a.need ?? Infinity) - (b.need ?? Infinity) || byNear(a, b)).find(reachable);
   if (!pick) return null;
-  const passed = campsSittingOut(FS, r, { seen }).filter(x => x.d < pick.d);
+  const passed = campsSittingOut(FS, r, { seen, own }).filter(x => x.d < pick.d);
   return { camp: pick.camp, winnable: pick.odds === 'good', odds: pick.odds, need: pick.need, passed };
 }
 
@@ -156,10 +158,10 @@ export function campChoice(FS, r, opts = {}) {
  * `[{p, q, tile, troops, d}]` — reachable or not. With `campChoice` null, a non-empty list means every fighting camp in
  * sight is out of the host's reach (the guide then offers the practice battle, #261).
  */
-export function fightingCampsInSight(FS, r, { seen = () => true } = {}) {
+export function fightingCampsInSight(FS, r, { seen = () => true, own } = {}) {
   if (!r) return [];
-  return campsInSight(FS, r, seen).filter(x => campFights(x.pr))
-    .map(({ pr, c, d }) => ({ p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops), d }))
+  return campsInSight(FS, r, seen, own).filter(x => campFights(x.pr))
+    .map(({ pr, c, d, fogged }) => ({ p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops), d, fogged }))
     .sort((a, b) => a.d - b.d || a.p - b.p || a.q - b.q);
 }
 
@@ -168,23 +170,48 @@ export function fightingCampsInSight(FS, r, { seen = () => true } = {}) {
  * province), nearest first: `[{p, q, tile, troops, garrisons, d}]`. The guide names them so the newcomer knows why the
  * camp next door is not the first battle.
  */
-export function campsSittingOut(FS, r, { seen = () => true } = {}) {
+export function campsSittingOut(FS, r, { seen = () => true, own } = {}) {
   if (!r) return [];
-  return campsInSight(FS, r, seen).filter(x => !campFights(x.pr))
-    .map(({ pr, c, d }) => ({ p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops), garrisons: garrisonsIn(pr), d }))
+  return campsInSight(FS, r, seen, own).filter(x => !campFights(x.pr))
+    .map(({ pr, c, d, fogged }) => ({ p: pr.p, q: pr.q, tile: c.tile, troops: Number(c.troops), garrisons: garrisonsIn(pr), d, fogged }))
     .sort((a, b) => a.d - b.d || a.p - b.p || a.q - b.q);
 }
 
-/** The standing camps whose tile the viewer may see, with their province distance from host row `r`. */
-function campsInSight(FS, r, seen) {
+/**
+ * (fix-loop25, owner r0ze 2026-11-27 09:00, Q-PM2-1 (a)) THE ONE FOG EXCEPTION OF THE GUIDE: the camp of a province where
+ * the viewer has a village of its OWN (`FS.holdings`, the viewer's own record — never a nation-mate's village, never a
+ * neighbouring province) may be named by the march-first guide even when its tile is under the fog. A rim village sees
+ * 4–6 tiles round itself, and the only camp in its reach stood in its own province out of sight (pacing-measure-2): the
+ * guide named an unreachable camp 125 rings away, or none. What the exception lets through is exactly what the guide
+ * needs: the camp's POSITION (its tile, for the guide's line, its map mark and the march card's destination) and THAT IT
+ * FIGHTS (`campFights`; a camp of a province of 12 villages is passed by and said so). Nothing else: the fog view
+ * (map/fog.mjs) is not touched, so the province's other tiles, sites, hosts and the camp's own tile stay fogged on the
+ * map, the minimap and every list; the march card says no defenders for a tile out of sight (hud/marchcard.mjs
+ * `sight`), and the guide says none either (`fogged`: its lines leave the defender count out). The guide's odds and the
+ * troops it advises are still the page's own copy of the clash (as for every camp), so the advice stays right.
+ * → `(p, q) => boolean`.
+ */
+export function ownProvinceOf(FS) {
+  const own = new Set();
+  for (const h of Array.isArray(FS?.holdings) ? FS.holdings : []) if (Number.isInteger(h?.p) && Number.isInteger(h?.q)) own.add(`${h.p},${h.q}`);
+  return (p, q) => own.has(`${p},${q}`);
+}
+
+/**
+ * The standing camps whose tile the viewer may see (`seen`) — or that stand in a province of the viewer's own village
+ * (`own`, the one exception above; such a camp is marked `fogged` when `seen` says no) —, with their province distance
+ * from host row `r`.
+ */
+function campsInSight(FS, r, seen, own = () => false) {
   const out = [];
   for (const env of FS?.provinces?.values?.() ?? []) {
     const pr = env?.province, c = pr?.camp;
     if (c?.state !== 1 || !Number.isInteger(c.tile) || !(Number(c.troops) >= 0)) continue;
-    let ok = false;
+    let ok = false, mine = false;
     try { ok = !!seen(pr.p, pr.q, c.tile); } catch { ok = false; }
-    if (!ok) continue;
-    out.push({ pr, c, d: hexDist(pr, { p: r.p ?? pr.p, q: r.q ?? pr.q }) });
+    if (!ok) { try { mine = !!own(pr.p, pr.q); } catch { mine = false; } }
+    if (!ok && !mine) continue;
+    out.push({ pr, c, d: hexDist(pr, { p: r.p ?? pr.p, q: r.q ?? pr.q }), fogged: !ok });
   }
   return out;
 }

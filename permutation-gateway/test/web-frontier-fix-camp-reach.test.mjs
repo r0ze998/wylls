@@ -1,8 +1,9 @@
 // fix-camp-reach (pacing-measure-2 D-pacing-measure-2-4, Q-PM2-1 (c)): the march-first guide names only a barbarian camp
 // the host can REACH — the planner's limits (≤ 4 provinces, ≤ 32 steps) and the march card's own route question (the rules'
 // planner, the arrival window) —, never one whose march card says "No path there was found". With no fighting camp in
-// sight and in reach: the practice battle (#261). The fog is unchanged (Q-PM2-1 (a) is r0ze's call): a camp under the fog
-// is never named, even the one in the village's own province.
+// sight and in reach: the practice battle (#261). Here the fog is unchanged: called without `own`, a camp under the fog is
+// never named. (fix-loop25, owner Q-PM2-1 (a) 2026-11-27: the page's callers pass `own: ownProvinceOf(FS)`, so the camp of
+// the viewer's OWN village's province is named under the fog too — web-frontier-fix-loop25.test.mjs.)
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -159,9 +160,11 @@ function provOfHex(h) {
 // ------------------------------------------------------------------ the page's wiring (source pins)
 test('every caller of campChoice passes the march card\'s route question; the fog test is unchanged', () => {
   const cg = src('screens/conquestguide.mjs'), gd = src('hud/guide.mjs');
-  assert.match(cg, /campChoice\(FS, ready, \{ seen, rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, ready, camp\) \}\)/);
-  assert.match(cg, /campChoice\(FS, fr, \{ seen: \(p, q, tl\) => viewTile\(p, q, tl, 2\), rough: \(p, q, tl\) => roughAt\(FS, p, q, tl\), reach: camp => campReach\(FS, fr, camp\) \}\)/);
-  assert.match(gd, /campChoice\(FS, host, \{ seen: \(p, q, t\) => viewTile\(p, q, t, 2\), rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, host, camp\) \}\)/);
+  // (fix-loop25, Q-PM2-1 (a): every call also carries the one fog exception, `own: ownProvinceOf(FS)` — the camp of the
+  //  viewer's own village's province; web-frontier-fix-loop25.test.mjs)
+  assert.match(cg, /campChoice\(FS, ready, \{ seen, own, rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, ready, camp\) \}\)/);
+  assert.match(cg, /campChoice\(FS, fr, \{ seen: \(p, q, tl\) => viewTile\(p, q, tl, 2\), own: ownProvinceOf\(FS\), rough: \(p, q, tl\) => roughAt\(FS, p, q, tl\), reach: camp => campReach\(FS, fr, camp\) \}\)/);
+  assert.match(gd, /campChoice\(FS, host, \{ seen: \(p, q, t\) => viewTile\(p, q, t, 2\), own: ownProvinceOf\(FS\), rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, host, camp\) \}\)/);
   const lines = [...cg.split('\n'), ...gd.split('\n')].filter(l => /campChoice\(FS/.test(l));
   assert.equal(lines.length, 3);
   for (const l of lines) assert.match(l, /reach: camp => campReach\(FS, /, 'every call carries reach');

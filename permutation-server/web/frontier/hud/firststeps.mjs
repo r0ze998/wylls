@@ -4,7 +4,8 @@
 //     `pipeline`) with the herald's facts of the muster turn (controller.mjs `FS.formingBells`). A countdown is shown
 //     only where the pipeline names a time; no total wait is promised.
 //   - one useful thing to do while it forms (grow toward a keep's need, or start a building);
-//   - the first host that stands in the record, said once (hud/milestones.mjs), with a next goal this world can take;
+//   - the first host that stands in the record, said once (hud/milestones.mjs), with a next goal this world can take
+//     (the barbarian camp while the march-first guide is at its camp step; fix-loop25);
 //   - "Form a host" idle right after every troop went into a host reads as done, not as an error.
 // Whether this page can march is one decision (`marchOpenFor`): in local play it stays false until the march
 // owner's contract says otherwise. Rules are not read or changed here.
@@ -111,8 +112,13 @@ export function whileWaitingLine(s, unit = 0) {
  * The first host's next goal: 'seeKeeps' (march open, enough troops or no keep known), 'addTroops' (march open,
  * short), 'growToward' (march closed, short), 'keepsOnly' (march closed, enough), or null (march closed, no keep
  * known: nothing this page can point at).
+ * (fix-loop25, loop-play25 BREAK-2) `campFirst`: the march-first guide's current step is the barbarian camp
+ * (screens/conquestguide.mjs conquestGuide, owner Q-PT-2 "march first"): the banner says the camp, as the guide does at
+ * the same moment — 'camp' with the march open; with it closed nothing (the guide says why and offers to skip). The
+ * banner said "choose a keep in reach and march" beside the guide's "Make your first battle the barbarian camp".
  */
-export function firstHostNext({ troops = 0, need = null, marchOpen = false } = {}) {
+export function firstHostNext({ troops = 0, need = null, marchOpen = false, campFirst = false } = {}) {
+  if (campFirst) return marchOpen ? 'camp' : null;
   const known = Number.isFinite(need);
   if (marchOpen) return known && troops < need ? 'addTroops' : 'seeKeeps';
   if (!known) return null;
@@ -123,6 +129,8 @@ export function firstHostNext({ troops = 0, need = null, marchOpen = false } = {
 export function firstHostNextLine(next, { unit = 0, need = null } = {}) {
   const n = Number.isFinite(need) ? unitCount(UNIT_ORDER[unit], need) : '';
   switch (next) {
+    // (fix-loop25, BREAK-2: the guide's camp step, in its words — the camp first, the keeps after it)
+    case 'camp': return L`次の目標：まず近くの蛮族の野営地へ進軍する（ガイドが案内します）`;
     case 'seeKeeps': return L`次の目標：届く砦を選んで進軍する`;
     case 'addTroops': return L`次の目標：${n} まで兵を足してから砦へ`;
     // (short: the banner celebrates; why the march is closed is said by the guide, which stays on screen)

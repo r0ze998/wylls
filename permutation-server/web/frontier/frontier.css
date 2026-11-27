@@ -2825,6 +2825,13 @@ html[lang="en"] .unit-picks-costs .unit-pick > :not(.unit-card):not(input) { gri
    battle — only with room for both: the document moves left by the panel's width, so the panel covers none of it (it
    stood over the practice sheet's result column). Narrower, the open panel is set aside while the document is open. */
 body[data-title="up"] .nchat-toggle, body[data-title="up"] .nchat-panel { display: none; }
+/* (fix-loop25, owner Q-LP25-1 (a), loop-play25 BREAK-1) One right-side panel at a time (hud/nationchat.mjs sideDrawerKey):
+   opening the chat closes the side drawer, and a side drawer that opens closes the chat. The one drawer the chat's opening
+   does not close is a march order being written (an order in progress, not a panel: hud/drawer.mjs closeDrawer keeps
+   it): it is set aside under the open chat — not drawn, not pressable, out of the keyboard's way — and stands again when
+   the chat closes. (It stood under the chat, and a press on its seal went into the chat's composer.) */
+body[data-nchat="open"] .panel[data-drawer="open"][data-doc=""] { visibility: hidden; pointer-events: none; }
+#panel-title:focus:not(:focus-visible) { outline: none; }
 @media (min-width: 1100px) {
   body[data-nchat="open"] .panel[data-doc="wide"] { left: calc((100% - min(380px, calc(100vw - 2 * var(--edge))) - var(--edge)) / 2); width: min(900px, calc(100% - min(380px, calc(100vw - 2 * var(--edge))) - 3 * var(--edge))); }
 }

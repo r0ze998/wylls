@@ -192,7 +192,8 @@ test('BREAK-1: the placement rule — no chat with the title; beside a wide docu
   // the page tells the chat when the title or a wide document comes and goes
   const app = src('app.mjs');
   assert.match(app, /for \(const el of \[\$\('frontier'\), \$\('tabs'\)\]\) if \(el\) el\.inert = up;\n  nationChatPlace\(\);/);
-  assert.match(app, /if \(el\.dataset\.doc !== doc\) el\.dataset\.doc = doc;\n  \}\n  nationChatPlace\(\);/);
+  // (fix-loop25: the one-right-panel rule, nationChatSide, runs just before — web-frontier-fix-loop25.test.mjs)
+  assert.match(app, /if \(el\.dataset\.doc !== doc\) el\.dataset\.doc = doc;\n  \}\n(?:  \/\/ .*\n)*  nationChatSide\(d\);\n  nationChatPlace\(\);/);
 });
 
 test('BREAK-1: under the title the toggle is hidden and nothing opens; the keyboard never goes into a hidden panel', async () => {
