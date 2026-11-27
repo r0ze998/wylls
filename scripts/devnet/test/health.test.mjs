@@ -958,3 +958,56 @@ test('runChecks: herald.lag behind-progressing / not-progressing, the state keep
   r = await world({ herald: status({ backlog: 'unknown', lastArchivedSlot: 990 }), tunnelLog: 'x' });
   assert.equal(r.by['herald.lag'].level, 'OK');
 });
+
+// fix-health-nan (D-test-gaps-7-1): a missing / null / non-number lastArchivedSlot (or live slot) prints "?", never
+// "NaN"; the WARN/FAIL decision is unchanged (Q-TG7-1 is the owner's — the level is pinned against heraldLag/lagLevel).
+const ODD = [undefined, null, NaN, Infinity, -Infinity, '1234', '', true, {}, []];
+test('heraldLag: odd lastArchived / prevArchived never print NaN, undefined or Infinity (D-test-gaps-7-1)', () => {
+  assert.match(heraldLag({ lag: 5, backlog: 1587, prevArchived: 900 }).note, /archived through slot \? \(same as the last run\)/);
+  assert.match(heraldLag({ lag: 5, backlog: 1587, lastArchived: NaN, prevArchived: 900 }).note, /archived through slot \? \(same as the last run\)/);
+  assert.match(heraldLag({ lag: 5, backlog: 1587, lastArchived: NaN }).note, /archived through slot \? \(no previous run to compare\)/);
+  for (const lastArchived of [...ODD, 400, 900, 950]) {
+    for (const prevArchived of [...ODD, 900]) {
+      const h = heraldLag({ lag: 5, backlog: 300, lastArchived, prevArchived });
+      assert.doesNotMatch(h.note, /NaN|undefined|Infinity|\[object|null/, `${String(lastArchived)} / ${String(prevArchived)}: ${h.note}`);
+    }
+  }
+  // the decision table, unchanged: no previous run WARN; not a number now but a previous run → FAIL
+  assert.equal(heraldLag({ lag: 5, backlog: 300, lastArchived: NaN }).level, 'WARN');
+  assert.equal(heraldLag({ lag: 5, backlog: 300, lastArchived: NaN, prevArchived: 900 }).level, 'FAIL');
+  assert.equal(heraldLag({ lag: 5, backlog: 300, lastArchived: '950', prevArchived: 900 }).level, 'FAIL');
+});
+
+test('runChecks: herald.lag never prints NaN for a missing / odd lastArchivedSlot, live slot or previous state; levels unchanged (D-test-gaps-7-1)', async () => {
+  const status = (ingest, live) => ({
+    '/h/season': { status: 200, body: { statusName: 'Running', rings: [1, 2], ringsOpened: 2, rMax: 16, rulesetHash: 'ab'.repeat(32) } },
+    '/h/status': { status: 200, body: { ingest: { state: 'ok', failures: 0, error: null, ...ingest }, alarms: { badRecords: 0 }, events: '9', provinces: 2, ws: { open: 1 }, ...(live === undefined ? {} : { live }) } },
+  });
+  const lasCases = [{}, { lastArchivedSlot: null }, { lastArchivedSlot: '1234' }, { lastArchivedSlot: true }, { lastArchivedSlot: 950 }];
+  const prevCases = [undefined, {}, { herald: {} }, { herald: { lastArchivedSlot: null } }, { herald: { lastArchivedSlot: '900' } }, { herald: { lastArchivedSlot: 900 } }];
+  const liveCases = [[995, 0], undefined, [], ['x'], 'nope'];
+  for (const backlog of [1587, 0]) {
+    for (const las of lasCases) {
+      for (const prevState of prevCases) {
+        for (const live of liveCases) {
+          const r = await world({ herald: status({ backlog, ...las }, live), tunnelLog: 'x', extra: prevState === undefined ? {} : { prevState } });
+          const c = r.by['herald.lag'];
+          const what = JSON.stringify({ backlog, las, prevState, live });
+          assert.doesNotMatch(c.detail, /NaN|undefined|Infinity/, `${what}: ${c.detail}`);
+          // the level is exactly heraldLag's on the raw numbers (runChecks' own parsing, as before this fix)
+          const liveN = Array.isArray(live) ? Number(live[0]) : NaN;
+          const lastArchived = typeof las.lastArchivedSlot === 'number' ? las.lastArchivedSlot : NaN;
+          const want = heraldLag({ lag: 1000 - liveN, backlog, lastArchived, prevArchived: prevState?.herald?.lastArchivedSlot }).level;
+          assert.equal(c.level, want, what);
+        }
+      }
+    }
+  }
+  // the reported case: a fresh herald (no lastArchivedSlot yet) behind a previous run
+  const r = await world({ herald: status({ backlog: 1587, lastArchivedSlot: null }, [995, 0]), tunnelLog: 'x', extra: { prevState: { herald: { lastArchivedSlot: 900 } } } });
+  assert.equal(r.by['herald.lag'].level, 'FAIL');
+  assert.match(r.by['herald.lag'].detail, /lag 5 slots .*behind, NOT progressing: backlog 1587 txs, archived through slot \? \(same as the last run\)/);
+  const nolive = await world({ herald: status({ backlog: 0 }, undefined), tunnelLog: 'x' });
+  assert.equal(nolive.by['herald.lag'].level, 'FAIL', 'no live slot: lagLevel(NaN) is FAIL, as before');
+  assert.match(nolive.by['herald.lag'].detail, /^herald live slot \?, rpc 1000, lag \? slots \(≈\? s at 0\.4 s\/slot\)$/);
+});
