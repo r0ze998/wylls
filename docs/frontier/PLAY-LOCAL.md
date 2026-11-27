@@ -3,7 +3,7 @@
 How to check the playable version (expeditions, wide land, keep capture) on your own Mac. The same version is on devnet
 (its world was created on 2026-11-26: [PLAY-DEVNET.md](PLAY-DEVNET.md)).
 It uses a local chain and test keys only. No real key, SOL, devnet or paid API is ever used.
-Matches main as of 2026-11-27 (through #274 and #270; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
+Matches main as of 2026-11-27 (through #293; §8 was last re-checked at #244). **English is the page's primary language: every quoted text here is the
 English page's own wording** (the top-right button switches 日本語 ⇄ English; the Japanese page's texts are in
 [PLAY-LOCAL.ja.md](PLAY-LOCAL.ja.md)).
 
@@ -32,6 +32,15 @@ Since #262: the guide's first camp is one that fights and that your host can rea
 none (#265, #273 → §3 step 5a); a provisional village says when it can be confirmed (#268 → §4.1); wait times are said on
 your own clock, and the keep list, the march card and the forecast agree, a tired arrival included (#267 → §3 steps 6
 and 7); and the **nation chat** (#263; its message numbers are counted per nation since #274 → §16).
+Since #274: notices and the calendar file name each own march's report and the province one way (#270, #271 → §15); the
+chat and the side drawer close each other, the guide may name the camp of your own village's province under the fog, and
+the first host's banner says "camp first" (#278 → §3 step 5a, §16); the guide's first camp may be 4 provinces away
+(#277 → §3 step 5a); the village card's **logistics horizon**, how many tiles the first village's food supports and for
+how many turns, counted exactly as the program pays and saying when an unpaid land is paid again (#272, #285 → §4.1
+step 1). #276, #283 and #289 are tests only; #280–#282, #287, #288 and #290 change the devnet keeper, herald and health
+check, not the page. #293: the reason under an off "Claim a tile" names the next tile's price whenever it is above 10
+(§4.1 step 2), the horizon says "1 more tile" in the singular, and the chat's status line follows the page's language;
+its capture-demo setup fix is test-only.
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
 ## 1. Install once
@@ -161,7 +170,9 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    practice clash" (a practice battle, not a chain record) and says to look further with "March". The march card's outlook does not
    count a camp that sits out ("The barbarian camp here (196) does not join the battle …", outlook "Unopposed").
    The guide also names only a camp your host can **reach** (fix-camp-reach): one march crosses at most 4 provinces and 32
-   tiles, and the guide asks the same route question as the march card, so it never names a camp whose card would say "No path
+   tiles (the provinces a route enters are counted, not the one it starts in: since #277 a camp whose route enters
+   exactly 4 provinces is named, and the march card's "Nearby destinations" keeps the same bound; before, both stopped
+   at 3), and the guide asks the same route question as the march card, so it never names a camp whose card would say "No path
    there was found". A `--wide` rim village whose camps in sight are all out of reach gets "No camp in reach yet: no barbarian
    camp in sight is within this host's reach (one march goes at most 4 provinces and 32 tiles). Meanwhile, try a practice
    battle …" and "Fight a practice clash".
@@ -557,7 +568,18 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
    Under that line the card also says how many tiles this food can support, and for how many turns: if the first
    village's food production covers the land, that the land is sustainable and how many more tiles at the current
    distance would still be; if not, both when unpaid upkeep starts and when tiles start being let go (24 turns after
-   unpaid starts), in turns and in game time, with real time in parentheses on a faster clock. Food in a second village
+   unpaid starts), in turns and in game time, with real time in parentheses on a faster clock. The food is counted to
+   the thousandth, with the part the program carries between payments, exactly as the program pays from it (#285; before,
+   the card counted whole food and could say "unpaid" a few turns early, tens of turns when production is close to the
+   upkeep). While the land is already unpaid and production stays below the upkeep, the card says which payment pays it
+   and when upkeep goes unpaid again (#285, owner decision Q-TG5-2 (a)): when the payment now due pays it, "This payment
+   pays the land upkeep, and the land is no longer unpaid. If nothing changes, upkeep goes unpaid again in (M). Tiles
+   start being let go 24 turns after that (in M + 24)."; when a later payment does, "Upkeep is already unpaid. If nothing
+   changes, the payment in (P) pays it. Upkeep goes unpaid again in (M). …"; when the 24 unpaid turns end before any
+   payment can pay, only when tiles start being let go ("Upkeep is already unpaid. If nothing changes, tiles start being
+   let go in …"; nothing after a release is forecast). The resource HUD says it shorter ("This payment pays the land.
+   Unpaid again in …"). The wording of the last two cases is fix-landhorizon's default (Q-FLH-1, not answered yet; the
+   numbers do not depend on it). Food in a second village
    is not counted unless it is sent to the first (and on a `--wide` local world you cannot send a caravan). The numbers
    are the same settle the program uses. This game has no population, so the measure is tiles and turns — after
    Buckminster Fuller's World Game ("how many people, for how many forward days, we are now technically organized to
@@ -570,7 +592,7 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
 2. Press **"Claim a tile"** on a row. It can be pressed when the village holds the ore of the next tile (the "next tile"
    number of the land line; 10 for your first tiles), whatever the village cost line above says. With less, every
    "Claim a tile" is off and the card says why: "You have less than 10 ore, so "Claim a tile" cannot be pressed for now."
-   or, from the fifth tile on, "You have less ore than the next tile costs (N), so "Claim a tile" cannot be pressed for now.". One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
+   or, once the next tile costs more than 10 (from 5 tiles owned, step 3), "You have less ore than the next tile costs (N), so "Claim a tile" cannot be pressed for now." (one of the two, the price that applies; since #293 also under 10 ore). One tile of that province becomes yours **at once** (no wait for the end of the turn), and the notice
    says "One tile of wide-land province P,Q is now your land.". The ore leaves the village's stores ("Ore" on the same screen).
    - You do not choose the tile: the page takes the lowest-numbered tile of the province that is not a village site, not
      the keep's tile and not already yours (a province has 61 tiles, numbered 0–60).
@@ -623,7 +645,7 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
      "Your land upkeep (food from your first village) is unpaid. No new tile can be claimed. If it stays unpaid for N more turns, your farthest tiles are let go, one per turn."
      (N counts down from 24), and after that "Your land upkeep (food from your first village) is unpaid. Your farthest tiles are being let go, one per turn. It stops once your first village makes enough food for your land each turn.".
      While it shows, every "Claim a tile" is off (owner decision 11-26 10:52) with the line "Land upkeep is unpaid, so "Claim a tile" cannot be pressed for now."
-     (The devnet page does not have this yet: there the button can still be pressed and the page stops before signing, PLAY-DEVNET.md §5.)
+     (The devnet page has this since its page update of 2026-11-27; before, the button could be pressed there and the page stopped before signing, PLAY-DEVNET.md §5.)
      The card follows the chain's record (read every 10 s in a local world, once a minute on devnet), so the button can stay off for that long after
      the food is back (a claim settles upkeep first, so the rule would already take it then: owner question Q-TC-1, now decided this way).
      The program charges no food for troops (the rule that large hosts eat food is in the simulator only; loop-play15,
@@ -808,9 +830,9 @@ view (fog-devnet; runbook §7 P5).
 | ⑨ workshop lending, ⑩ ore custody, storehouse seizure, stopping a caravan to take or burn it | `--coexist` worlds only (preview card, §12) | not in it |
 | External AI residents (⑬ / ⑤B), the read-only MCP server, `--plan` (④) | `--external` worlds only (§11) | none (admission of external residents and the MCP server are undecided) |
 | ① co-op board, ⑮ title "Answered a request" | board and card in every world (`--no-coop-board` leaves them out); a caravan can deliver only in `--coexist` worlds (§13). No effect on winning, score or prize | none |
-| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a; a camp that fights and is in reach, #265, #273), "While you wait" panel (§3 step 7; times on your own clock, #267), the provisional village's confirm time (§4.1, #268), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262) | every world | **not on the devnet page today**: its page files are main of 2026-11-26 10:58 (#252), with the 7-step guide ("Guide 1/7"). They come only with a page update, which is not decided yet (PLAY-DEVNET.md §5 step 4) |
-| World goals (flag keeps) | judged off chain by the launcher in every world; card and pennants; the prize is an estimate, nothing is paid (§14) | **no card on the devnet page today**, and no judge runs. Main has a devnet card ("Planned — not judged yet"; Free Cities cannot be taken yet there) and an off-chain judge (#260); neither is live: the page update and the judge's start are not decided (PLAY-DEVNET.md §5). The prize program has a goals pool since #202 (feature `goals`, test USDC only); neither `play-local.sh` nor the devnet page uses it |
-| Nation chat (§16, #263) | every world (the launcher gives each world's herald a chat store) | **none**: the devnet herald has no chat, so the devnet page shows no "Chat" button. Starting it there needs a services update and r0ze's OK; its open questions (Q-NC-1..8) are not answered |
+| Guide and helpers of the page: "march first" guide (8 steps, §3 step 5a; a camp that fights and is in reach, #265, #273, #277), one right-side panel and the fog exception for your own province's camp (#278), "While you wait" panel (§3 step 7; times on your own clock, #267), the provisional village's confirm time (§4.1, #268), "Claim a tile" off while upkeep is unpaid (§4.1 step 6), notifications outside the page and the calendar file (§15) (#261, #257, #262, #270, #271), the logistics horizon (§4.1 step 1, #272, #285) | every world | **on the devnet page since its page update of 2026-11-27** (page files = main 7758fb98, through #283; the 8-step guide "Guide 1/8"), except what main changed after that: #285 (the horizon counts whole food there and still says "This payment will leave the land unpaid." when a payment, the one now due or a later one, pays an unpaid land; PLAY-DEVNET.md §5 step 4) |
+| World goals (flag keeps) | judged off chain by the launcher in every world; card and pennants; the prize is an estimate, nothing is paid (§14) | **the card is on the devnet page since 2026-11-27** and says "Planned — not judged yet" (Free Cities cannot be taken yet there): no judge runs. Main has an off-chain judge (#260); starting it for devnet is not decided (PLAY-DEVNET.md §5). The prize program has a goals pool since #202 (feature `goals`, test USDC only); neither `play-local.sh` nor the devnet page uses it |
+| Nation chat (§16, #263) | every world (the launcher gives each world's herald a chat store) | **none**: the devnet page has the chat's code since 2026-11-27, but the devnet herald has no chat, so the page shows no chat button and no chat panel. Starting it there needs a services update and r0ze's OK; its open questions (Q-NC-1..8) are not answered |
 | Fog | yes (display only) | yes, the same player view on the devnet page (fog-devnet, `DEVNET_FOG`) |
 
 Heartland protection of keeps, the 72-turn capture, the clash computation and the costs of villages, building and

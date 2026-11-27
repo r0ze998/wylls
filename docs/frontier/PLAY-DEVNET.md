@@ -82,24 +82,37 @@ value; no in-game key is made).”
    which can take tens of seconds (“Waiting for the record…”; no need to press again. If it has not shown after
    180 seconds, press “Check again”; nothing is sent twice).
 3. Harvest, build and train in the village, muster a host and march. The guide at the top right leads you through
-   seven steps (“Guide 1/7” …): “First village”, “Build”, “Train troops”, “Form a host”, “March on a keep”, “Hold the
-   keep's tile for 72 turns”, “Take the province”. The screens work as in the local version, so [PLAY-LOCAL.md](PLAY-LOCAL.md)
-   §3 is your guide (but see step 4: the local page's guide is newer). In real time the host stands one turn after the
+   eight steps (“Guide 1/8” …), march first: after the first village, train troops, form a host, raid a nearby barbarian camp as your first
+   battle, build while that march walks, then march on a keep, hold its tile for 72 turns and take the province (owner
+   decision 2026-11-26, Q-PT-2; on the devnet page since 2026-11-27, step 4). The screens work as in the local version,
+   so [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 is your guide (step 5a for the camp). In real time the host stands one turn after the
    muster turn is settled (10–20 minutes) and the report of a march comes at the earliest about 30–40 minutes after it
    leaves (two turns' walk at least, then the seals' window and the seed, about 12 minutes), so your own first report is
    about an hour after you join. A march's report has “Verify in this browser”, which recomputes the clash in your
    browser ([PLAY-LOCAL.md](PLAY-LOCAL.md) §3 step 7).
-4. **Not on the devnet page today.** The page code on main has newer parts that the devnet page does not have yet: the
-   march-first guide of eight steps (a nearby barbarian camp before the keeps; owner decision 2026-11-26, Q-PT-2), the
-   “While you wait” panel (verify a real battle or a practice battle in this browser within minutes; Q-PT-1, Q-PT-3),
-   the “World goals” card (below), “Claim a tile” turned off while land upkeep is unpaid, and notifications outside the
-   page with a calendar file. Also newer than the devnet page: the guide's first camp chosen among camps that fight and that
-   your host can reach (#265, #273), and named even under the fog when it stands in the province of your own village
-   (fix-loop25; only that province, without its defender count), a first-host banner that says "camp first" like the
-   guide (fix-loop25), wait times on your own clock and a keep forecast that counts a tired arrival (#267),
-   a provisional village that says when it can be confirmed (#268), and the nation chat (#263; the devnet herald has no
-   chat either; one right-side panel at a time: the chat and the side drawer close each other, fix-loop25). They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, steps 6 and 7), §4.1, §15 and §16. The devnet page gets them only when its page files are
-   updated, and that has not been decided yet. Until then the page works as written in this guide.
+4. **The page update of 2026-11-27.** Since 2026-11-27 16:23 JST the devnet page's files are main of that day
+   (7758fb98, through #283). So the devnet page now has: the march-first guide of eight steps (step 3); the
+   “While you wait” panel (verify a real battle or a practice battle in this browser within minutes; Q-PT-1, Q-PT-3);
+   the guide's first camp chosen among camps that fight and that your host can reach (one march enters at most 4
+   provinces, the starting one not counted; #265, #273, #277), named even under the fog when it stands in the province
+   of your own village (only that province, without its defender count; fix-loop25), and a first-host banner that says
+   “camp first” like the guide; wait times on your own clock and a keep forecast that counts a tired arrival (#267);
+   notifications outside the page and a calendar file (#262, #270, #271); a provisional village that says when it can be
+   confirmed (#268); “Claim a tile” turned off while land upkeep is unpaid; the land's logistics horizon on the village
+   card (#272); and the “World goals” card (below). They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a,
+   steps 6 and 7), §4.1 and §15; on devnet the times are real time (one turn is 10 minutes).
+   **Still not on the devnet page:**
+   - the **nation chat** (#263, [PLAY-LOCAL.md](PLAY-LOCAL.md) §16): the page has its code, but the devnet herald has no
+     chat, so the page shows no chat button and no chat panel. It needs a herald update, which is not decided;
+   - the judging of the world goals: the card says “Planned — not judged yet” (below);
+   - what main changed after that day. For a player: the logistics horizon's numbers and sentences of #285
+     (2026-11-27, [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 1). The devnet card counts the first village's food in whole
+     units, so its “unpaid in …” can come early (by a few turns, and by tens of turns when production is close to the
+     upkeep). And while the land is already unpaid, a payment that pays it (the one now due or a later one) is still told as “This payment will
+     leave the land unpaid.” on the devnet card. Also after that day, #293: when the village has under 10 ore and the
+     next tile costs more, the devnet card still says “You have less than 10 ore, so "Claim a tile" cannot be pressed
+     for now.” (main names the next tile's price, [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 2).
+   The devnet page gets those only with a later page or herald update, and none is decided yet.
 
 Good to know:
 
@@ -117,14 +130,17 @@ Good to know:
   tile goes back, one every turn (10 minutes), until the village pays a whole turn again (owner decision Q-LP17-1 (b),
   2026-11-25; the devnet world has had this rule from its start: the program was updated on 2026-11-26 before the
   world was created). While the land is unpaid, the village card says so under “Your land” (“Your land upkeep (food from
-  your first village) is unpaid. No new tile can be claimed. …”). “Claim a tile” can still be pressed on the devnet page,
-  but the page then stops before your wallet is asked: “Your land upkeep (your first village's food) is unpaid, so no new
-  tile can be claimed. Once food builds up again you can claim again.” (nothing is sent and nothing is paid).
+  your first village) is unpaid. No new tile can be claimed. …”), and since the page update of 2026-11-27 every “Claim
+  a tile” is off, with the reason “Land upkeep is unpaid, so "Claim a tile" cannot be pressed for now.” (before, the
+  button could be pressed and the page stopped before your wallet was asked). Under the “Your land” line the card also
+  says how many tiles the first village's food can support and for how many turns (the logistics horizon, #272;
+  [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 1; on devnet the turns are 10 minutes each, so they are given in real time).
 - **A new village is “Provisional” at first** (shown beside its name). While it is, “Claim a tile” still shows its cost
   and “Sign and claim”, but the claim is then refused with “The village is not confirmed yet.” (nothing is sent and
   nothing is paid). The program confirms the village on your own next act there once its turn's villages are placed:
-  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). The devnet page does
-  not say this (the page on main does since #268, step 4), so harvest once before you claim your first tile.
+  in the local run of 2026-11-26 one “Harvest” did it at once (“The hamlet of … is now confirmed”). Since the page update of
+  2026-11-27 the village card, the guide and “While you wait” say when the village can be confirmed, and once it can
+  the guide offers “Harvest to confirm your village” (#268). Harvest once before you claim your first tile.
 - Your land line (“Your land: tiles owned: …”) is read every 60 seconds on devnet, and once right after a claim. That
   read can come before the world's record has the claim, so the count can stay at the old number for up to a minute.
 - **One row of [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 is not on the devnet page:** once you have a village on the wide
@@ -141,12 +157,11 @@ Good to know:
   is that “world goals” are always posted in the world (holding flag keeps for 24 hours, and others) and a nation that
   achieves one receives a prize. That is a plan and is not built: the devnet world has no prize.
   The design record is [design 01](../design/win-conditions/01-proposal.ja.md) (Japanese).
-- **World goals (decision of 2026-11-26): not on the devnet page today.** The devnet page has no “World goals” card, and no
-  judge of the goals runs for the devnet world. Both are merged on main (#260) and wait for the page update of step 4
-  and for the judge to be started; neither is decided yet. What main's card says on a devnet world: until the goals are
-  judged, “Planned — not judged yet” and the goal in words (capture a neutral keep in the wide land and hold it for 144
+- **World goals (decision of 2026-11-26): a card, not judged.** Since the page update of 2026-11-27 the devnet page has
+  the “World goals” card (tab “Nation & territory”), but no judge of the goals runs for the devnet world (the judge is
+  merged on main, #260; starting it is not decided). So the card says “Planned — not judged yet” and the goal in words (capture a neutral keep in the wide land and hold it for 144
   turns, 24 hours); Free Cities on a line of their own, “Free Cities: not yet possible in this world (they count as flag
-  keeps once they can be taken)” (the devnet program has no Free City conquest; wording of #267); once a judge runs, “Being judged” with your nation's flag keeps, the flag keeps in sight, and how many
+  keeps once they can be taken)” (the devnet program has no Free City conquest; wording of #267). The card's code also has the view for a judged world, “Being judged”, with your nation's flag keeps, the flag keeps in sight, and how many
   each nation took or holds. The judging would run off chain (no money, nothing written to the chain), from what the
   chain already records about each keep. No money is paid for a goal.
 
