@@ -440,7 +440,7 @@ async fn run(args: &Args) -> Result<Value, String> {
     }
     let mut sink = match args.incremental {
         Some(cap) => {
-            src.max_fetch = Some(cap);
+            src.max_batch = cap;
             src.keep_balances = true;
             Some(BalanceSink::open(&args.data.join("balances.jsonl"))?)
         }

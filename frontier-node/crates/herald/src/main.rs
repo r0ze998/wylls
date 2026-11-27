@@ -9,6 +9,9 @@
 //!     [--rpc-min-gap-ms 150]  (rpc source: least time between two calls to --rpc; 0 = unpaced)
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
+//!     [--clock-ms N]  (how often the Clock (live slot) is read, beside the pulls; default = --poll-ms)
+//!     [--pull-max 50]  (rpc source: the most transactions one pull fetches; the rest follow in
+//!      the next pulls, each chunk archived, folded and published on its own)
 //!     [--wide-index PATH]  (feature wide-index-read-experimental, read-only)
 //!     [--public-host NAME[,NAME…]]  (B13: the names the TLS proxy serves;
 //!      every request's Host, and a WS Origin, must name loopback or one of them)
@@ -262,6 +265,16 @@ async fn main_inner() -> Result<(), String> {
             .map(|v| v.parse().unwrap_or(200))
             .unwrap_or(200),
     );
+    // herald-pull-chunk: the Clock on its own timer (default: as often as an idle poll, as before).
+    let clock_every = match a.get("clock-ms") {
+        Some(v) => Duration::from_millis(
+            v.parse::<u64>()
+                .ok()
+                .filter(|&n| n > 0)
+                .ok_or("--clock-ms: a number > 0")?,
+        ),
+        None => poll,
+    };
     // Opt-in local-play bootstrap: checked before the data directory is
     // created or any archive opened (a new/empty directory, the localnet
     // source, a loopback RPC, the runner's own program/season/RPC).
@@ -393,7 +406,7 @@ async fn main_inner() -> Result<(), String> {
                 }
             }
             let clock = RpcPort::localnet(rpc.clone(), program);
-            runner::run(ing, feed, Some(clock), poll, stop).await
+            runner::run_with(ing, feed, Some(clock), poll, clock_every, stop).await
         }
         "rpc" => {
             // G1/G3 checks (findex `RpcPoll::coverage`): without them the
@@ -415,7 +428,16 @@ async fn main_inner() -> Result<(), String> {
                     None => c,
                 }
             };
-            let mut rpc_poll = RpcPoll::new(rpc.clone(), program);
+            // herald-pull-chunk: one pull fetches at most this many transactions (default 50).
+            let pull_max: usize = match a.get("pull-max") {
+                Some(v) => v
+                    .parse()
+                    .ok()
+                    .filter(|&n| n > 0)
+                    .ok_or("--pull-max: a number > 0")?,
+                None => DEFAULT_PULL_MAX,
+            };
+            let mut rpc_poll = RpcPoll::new(rpc.clone(), program).with_max_batch(pull_max);
             rpc_poll.rpc = paced(&rpc);
             if let Some(o) = a.get("origin") {
                 rpc_poll = rpc_poll.with_origin(
@@ -440,13 +462,17 @@ async fn main_inner() -> Result<(), String> {
             src.rpc = paced(&rpc);
             let mut port = RpcPort::new(rpc.clone(), program);
             port.rpc = paced(&rpc);
-            runner::run(ing, src, Some(port), poll, stop).await
+            runner::run_with(ing, src, Some(port), poll, clock_every, stop).await
         }
         s => Err(format!("--source {s}: localnet or rpc")),
     };
     srv.abort();
     res
 }
+
+/// `--pull-max` default (herald-pull-chunk): ≈ 1–3 min of devnet's shared
+/// getTransaction budget per chunk.
+const DEFAULT_PULL_MAX: usize = 50;
 
 #[tokio::main]
 async fn main() {

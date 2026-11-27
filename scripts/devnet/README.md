@@ -146,7 +146,9 @@ season driver, gateway starter/gateway, herald, keeper A, Cloudflare quick tunne
 
 Checks: the processes the logs say should be up (see "Process checks" below), devnet genesis, Season PDA status (Announced/Created/Seeded/Running/Ended) vs the scheduled
 CreateSeason time (late CreateSeason / genesis seed → WARN/FAIL), balances of the deployer, authority and keeper A
-funders vs thresholds, herald `/h/season` + `/h/status` (ingest, alarms) and lag (herald live slot vs RPC slot),
+funders vs thresholds, herald `/h/season` + `/h/status` (ingest, alarms) and lag (herald live slot vs RPC slot; with a
+herald that reports `ingest.backlog` > 0: WARN "behind, progressing" when `ingest.lastArchivedSlot` advanced since the
+previous `--state` run, FAIL when it did not, WARN once when it fell below the previous run's (a rebuilt archive); "≈ N s" at `--slot-s` [0.4], devnet measured 0.240 s/slot on 11-27),
 the gateway's public `/f/season`, keeper A's API (`/v1/status` without a token must answer 401: the token is not
 read, so duties/rent/lag come from its log), `keeper.landed` (keeper A's journal read with `sqlite3 -readonly`: the newest
 `landed` write vs the RPC slot already read for `herald.lag` (no extra call; the herald-based age is shown too, and
