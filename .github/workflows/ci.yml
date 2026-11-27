@@ -523,6 +523,13 @@ jobs:
           # fake RPC (127.0.0.1:0), unsigned wires with placeholder signatures: no key.
           cargo test --locked -p findex --test pull_chunk
           cargo test --locked -p herald --test pull_chunk
+          # test-gaps-7: verify-pr288/292's hand checks at the herald's level (same loopback fake RPC, no key): a herald
+          # pulling 50 at a time with getMultipleAccounts failures archives and folds the same as an unchunked one and
+          # reopens (checkpoint + tail) at the newest archived slot; a getTransaction 429 storm on the shared per-method
+          # pacer, through RpcClient::call, never freezes the live slot and keeps every request ≥ the gap apart (the
+          # pre-#292 Process scope freezes it); the frontier-herald binary (--listen 127.0.0.1:0) logs hundreds of
+          # failed Clock reads in ONE line while its ingest archives everything.
+          cargo test --locked -p herald --test test_gaps_7
           # test-gaps-3: nation chat (#263) with no key. tests/chat.rs signs as players (key tests only), so CI ran no
           # chat test. This one replays literal posts and read tokens signed once by hand (tests/vectors/chat-signed.json;
           # the herald only verifies): 3 per turn under parallel posts and across the ±1 turn window, 40 per bell-day,
@@ -539,6 +546,15 @@ jobs:
           # the program is never PASS). No key, no network beyond loopback.
           cargo test --locked -p fclient --lib
           cargo test --locked -p fclient --test rpc_devnet_replay
+          # test-gaps-7: rpc-pacer-per-method (#292)'s verifier tests V1-V8 (verify-pr292) never ran in CI: a fake
+          # transport and the public Pacer API, no socket, no key (total rate ≤ 1/gap under mixed storms, a
+          # getTransaction 429 never delays getAccountInfo, 503 holds every method, cap/jitter/reset per method,
+          # the Process scope, the throttle log, FCLIENT_PACER_SCOPE).
+          cargo test --locked -p fclient --test pacer_verify
+          # test-gaps-7: verify-local-source (#291)'s `frontier-verify pull --incremental` tests never ran in CI
+          # either; plus killed twice mid-chunk, resumed and grown = one default pull's judge input and verdict.
+          # A JSON-RPC stand-in on 127.0.0.1:0, opaque transactions, nothing signed.
+          cargo test --locked -p verify --test pull_incremental --test test_gaps_7_incremental
           cargo test --locked -p keeper --test cluster_feed_v1
           cargo test --locked -p verify --test devnet_b5_witness --test devnet_b5_program_accounts
       # verify-pr157: `scripts/play-local.sh` builds itest, herald and keeper with feature sets that no other
@@ -561,6 +577,16 @@ jobs:
           cargo check --locked -p herald --features land-preview,wide-world-experimental,expedition-records-experimental,coexist-lane,rights-records --all-targets
           cargo check --locked -p keeper --features expedition-dispatch-experimental --all-targets
           cargo check --locked -p keeper --features expedition-dispatch-experimental,coexist-lane --all-targets
+      # test-gaps-7: the demo setup's FoldStale retry (#293 fix-loop27: a fold restarted from part 0 at the next bell,
+      # at most 4 folds, any other refusal or an unknown outcome stopped at once) is tested only under
+      # localnet-land-play, which the step above compiles but never runs. These are pure: a bell model and literal
+      # `Sent` outcomes, no chain, no socket, no key (the filter runs no other itest lib test).
+      - name: Local-play demo setup's fold retry (pure tests; key-free)
+        if: hashFiles('frontier-node/Cargo.toml') != ''
+        working-directory: frontier-node
+        run: |
+          cargo test --locked -p itest --features localnet-land-play --lib capture_demo::tests::
+          cargo test --locked -p itest --features localnet-land-play --test test_gaps_7_fold
       # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
       # 0x4804) is behind the `playable-lane` feature, which no other step
       # builds. Lint it, and run its checks over the committed recordings
