@@ -780,17 +780,25 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       // (a neighbour gives no order the program would refuse: it waits while its host forms, rests or its province lags)
       if (e.state !== ES.ROSTER || e.pendOp !== OP.NONE || inTransit(H, n.id) || b < e.readyBell || R.staminaAt(e.staminaValue, e.staminaBell, b) < R.DEPART_STAMINA || !R.residentOk(at.resolvedNext, b)) continue;
       // out: an open tile of the viewer's province nobody stands on; home: its own village
-      let dest;
-      if (n.out) {
-        // (nor where another neighbour is already bound: the script stands in for people who would not walk into each other)
-        const taken = new Set([...home.entries.filter(x => x.state !== ES.FREE).map(x => x.tile), ...all().flatMap(X => X.plans.map(x => unpack(x.plain))).filter(x => x.destP === home.p && x.destQ === home.q).map(x => x.destTile),
-          ...[...st.slots.values()].flat().filter(x => x.p === home.p && x.q === home.q && x.bell >= home.resolvedNext).map(x => x.tile)]);
-        const cands = [...Array(61).keys()].filter(x => passable(home, x) && siteOfTile(home, x) < 0 && !(home.camp.state === 1 && home.camp.tile === x) && !taken.has(x));
-        dest = cands.length ? { p: home.p, q: home.q, tile: cands[pick(cands.length, 'npc-tile', n.id.toString(), b)] } : null;
-      } else dest = { p: H.p, q: H.q, tile: H.tile };
+      let dest, plan = null;
+      // (walletless demo, `nations`: the neighbours march into the viewer's own province once there is one — the one
+      //  the guest's first village was placed in —, else, or when it is out of a march's reach, the fixture's home)
+      const fields = nations && ME && !(ME.p === home.p && ME.q === home.q) ? [provinces.get(key(ME.p, ME.q)), home] : [home];
+      for (const field of n.out ? fields : [null]) {
+        if (field) {
+          // (nor where another neighbour is already bound: the script stands in for people who would not walk into each other)
+          const taken = new Set([...field.entries.filter(x => x.state !== ES.FREE).map(x => x.tile), ...all().flatMap(X => X.plans.map(x => unpack(x.plain))).filter(x => x.destP === field.p && x.destQ === field.q).map(x => x.destTile),
+            ...[...st.slots.values()].flat().filter(x => x.p === field.p && x.q === field.q && x.bell >= field.resolvedNext).map(x => x.tile)]);
+          const cands = [...Array(61).keys()].filter(x => passable(field, x) && siteOfTile(field, x) < 0 && !(field.camp.state === 1 && field.camp.tile === x) && !taken.has(x));
+          dest = cands.length ? { p: field.p, q: field.q, tile: cands[pick(cands.length, 'npc-tile', n.id.toString(), b)] } : null;
+        } else dest = { p: H.p, q: H.q, tile: H.tile };
+        if (!dest || (dest.p === at.p && dest.q === at.q && dest.tile === e.tile)) { plan = null; continue; }
+        plan = K.call('plan_path', { start: tileHex(at.p, at.q, e.tile), dest: tileHex(dest.p, dest.q, dest.tile), unit: e.unit, blocked: [], seeds: RINGS });
+        if (plan.ok && plan.value && plan.value.dirs.length <= R.MAX_PATH_STEPS) break;
+        plan = null;
+      }
       if (!dest || (dest.p === at.p && dest.q === at.q && dest.tile === e.tile)) { n.out = !n.out; n.at = b + 1; continue; }
-      const plan = K.call('plan_path', { start: tileHex(at.p, at.q, e.tile), dest: tileHex(dest.p, dest.q, dest.tile), unit: e.unit, blocked: [], seeds: RINGS });
-      if (!plan.ok || !plan.value || plan.value.dirs.length > R.MAX_PATH_STEPS) { n.at = b + 1; continue; }
+      if (!plan) { n.at = b + 1; continue; }
       const early = K.call('earliest_arrival_bell', { genesis_ts: GENESIS_TS, depart_ts: Math.floor(t), secs: R.travelSecs(e.faction, plan.value.secs) }).value;
       const arrive = Math.max(b + R.MIN_ARRIVAL_LEAD_BELLS, early) + pick(2, 'npc-late', n.id.toString(), b);
       const slot = H.transit.findIndex(x => !x), path = encodePath(plan.value.dirs);

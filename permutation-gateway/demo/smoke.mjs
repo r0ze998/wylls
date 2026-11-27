@@ -54,7 +54,11 @@ const unfold = key => page.evaluate(k => { const d = document.querySelector(`det
 async function orders() { return page.evaluate(async () => (await globalThis.__wyllsDemo.world()).orders.map(o => ({ name: o.name, ok: o.ok, code: o.code ?? null }))); }
 async function order(what, name, doIt) {
   const before = (await orders()).length;
-  const pressed = await doIt();
+  let pressed = false;
+  for (let attempt = 0; attempt < 3 && !pressed; attempt++) {
+    if (attempt) { await page.keyboard.press('Escape').catch(() => {}); await press('[data-act="drawer-close"]', { timeout: 1_500 }); await sleep(800); }
+    pressed = await doIt();
+  }
   if (pressed === false) { say(`    ${what}: NOT PRESSED`); return false; }
   for (let i = 0; i < 60; i++) { if ((await orders()).length > before) break; await sleep(100); }
   const o = (await orders()).slice(before).find(x => x.name === name);
@@ -62,20 +66,27 @@ async function order(what, name, doIt) {
   return !!o?.ok;
 }
 const UNIT = ['Spearman', 'Archer', 'Horseman', 'Pikeman', 'Crossbowman', 'Knight', 'Scout'];
-const train = (unit, n) => order(`train ${n} ${UNIT[unit]}`, 'Train', async () => {
-  await tab('holding');
-  await page.locator('#hp-train').first().waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
-  await unfold('v-train');
-  const ok = await page.evaluate(([unit, n]) => { const f = document.getElementById('hp-train'); if (!f) return false; const r = f.querySelector(`input[name="unit"][value="${unit}"]`); if (!r) return false; r.checked = true; f.elements.n.value = String(n); return true; }, [unit, n]);
-  return ok && press('#hp-train button[type="submit"]:not([disabled])');
-});
-const muster = (unit, troops) => order(`form a host of ${troops} ${UNIT[unit]}`, 'Muster', async () => {
-  await tab('holding');
-  await page.locator('#hp-muster').first().waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
-  await unfold('v-muster');
-  const ok = await page.evaluate(([unit, n]) => { const f = document.getElementById('hp-muster'); if (!f) return false; const r = f.querySelector(`input[name="unit"][value="${unit}"]`); if (!r) return false; r.checked = true; f.elements.troops.value = String(n); return true; }, [unit, troops]);
-  return ok && press('#hp-muster button[type="submit"]:not([disabled])');
-});
+/** Fill one of the village drawer's forms and press its submit in the same task (the drawer re-renders every second). */
+async function fillAndSubmit(formId, fold, unit, field, n, timeout = 25_000) {
+  const t0 = Date.now();
+  for (;;) {
+    await tab('holding');
+    await unfold(fold);
+    const ok = await page.evaluate(([id, unit, field, n]) => {
+      const f = document.getElementById(id); if (!f) return false;
+      const r = f.querySelector(`input[name="unit"][value="${unit}"]`); if (!r) return false;
+      r.checked = true; r.dispatchEvent(new Event('change', { bubbles: true }));
+      f.elements[field].value = String(n); f.elements[field].dispatchEvent(new Event('input', { bubbles: true }));
+      const b = f.querySelector('button[type="submit"]'); if (!b || b.disabled) return false;
+      b.scrollIntoView({ block: 'center' }); b.click(); return true;
+    }, [formId, unit, field, n]);
+    if (ok) return true;
+    if (Date.now() - t0 > timeout) return false;
+    await sleep(300);
+  }
+}
+const train = (unit, n) => order(`train ${n} ${UNIT[unit]}`, 'Train', () => fillAndSubmit('hp-train', 'v-train', unit, 'n', n));
+const muster = (unit, troops) => order(`form a host of ${troops} ${UNIT[unit]}`, 'Muster', () => fillAndSubmit('hp-muster', 'v-muster', unit, 'troops', troops));
 const marchCamp = host => order('march the host on the camp (sealed in this browser)', 'Depart', async () => {
   await tab('hosts');
   if (!(await press(`[data-act="compose"][data-host="${host}"]:not([disabled])`))) return false;
@@ -83,6 +94,46 @@ const marchCamp = host => order('march the host on the camp (sealed in this brow
   if (!(await press('[data-act="dest-quick"]'))) return false;
   return press('[data-act="march-send"]:not([disabled])', { timeout: 25_000 });
 });
+/** Where a tile is seen now (viewport px), once the camera rests (playthrough.mjs's tileAt, with page-relative imports). */
+async function tileAt(at) {
+  return page.evaluate(async at => {
+    const rel = n => new URL(n, location.href).href;
+    if (!window.__map) {
+      const { FrontierMap } = await import(rel('map/fmap.mjs'));
+      const P = FrontierMap.prototype, draw = P.draw;
+      P.draw = function (...a) { window.__map = this; return draw.apply(this, a); };
+      for (let i = 0; i < 80 && !window.__map; i++) { window.dispatchEvent(new Event('resize')); await new Promise(r => setTimeout(r, 50)); }
+    }
+    const m = window.__map, frame = () => new Promise(r => requestAnimationFrame(r));
+    for (let still = 0, i = 0; still < 10 && i < 400; i++) { await frame(); still = m.cam.moving || m.reachFly ? 0 : still + 1; }
+    const { tileHex } = await import(rel('fgeo.mjs'));
+    const { project } = await import(rel('../map.mjs'));
+    const h = tileHex(at.p, at.q, at.tile), c = project(h.q, h.r);
+    return m.project(c.x, c.y);
+  }, at);
+}
+/** An open tile of the viewer's province next to the village (passable, no village, no camp, nobody on it). */
+const openTileNearHome = () => page.evaluate(async () => {
+  const live = await globalThis.__wyllsDemo.world(), me = live.summary().me, [p, q] = me.village, pv = live.province(p, q);
+  const { TILE_OFFSETS, hexDistance } = await import(new URL('fgeo.mjs', location.href).href);
+  const home = TILE_OFFSETS[me.tile], d = t => hexDistance(TILE_OFFSETS[t].q, TILE_OFFSETS[t].r, home.q, home.r);
+  const free = [...Array(61).keys()].filter(t => ((pv.passableMask >> BigInt(t)) & 1n) && !pv.sites.slice(0, pv.siteCount).includes(t) && !(pv.camp.state === 1 && pv.camp.tile === t) && !pv.entries.some(e => e.state && e.tile === t));
+  const t = free.sort((a, b) => d(a) - d(b))[0];
+  return t === undefined ? null : { p, q, tile: t };
+});
+const marchTile = (host, at) => order(`march the host to the open tile ${at.tile} (land)`, 'Depart', async () => {
+  await tab('hosts');
+  if (!(await press(`[data-act="compose"][data-host="${host}"]:not([disabled])`))) { say('      (no compose button for the host)'); await shot(page, 'x-land-compose'); return false; }
+  await page.locator('#mc-title').waitFor({ timeout: 8_000 }).catch(() => {});
+  const xy = await tileAt(at);
+  await page.mouse.move(xy.x, xy.y); await page.mouse.down(); await sleep(90); await page.mouse.up();
+  await sleep(600);
+  await shot(page, 'x-land-picked');
+  const ok = await press('[data-act="march-send"]:not([disabled])', { timeout: 25_000 });
+  if (!ok) say(`      (the send button stayed disabled after a tap at ${Math.round(xy.x)},${Math.round(xy.y)})`);
+  return ok;
+});
+const ownTiles = async () => { const s = await summary(); const [p, q] = s.me.village, t = s.territory?.find(x => x.p === p && x.q === q); return t ? t.owners.filter(o => o === s.me.nation).length : 0; };
 async function untilTurn(b, into = 0.35) {
   for (let i = 0; i < 600; i++) {
     const s = await summary();
@@ -127,21 +178,24 @@ if (opt.loop) {
   const T = s0.turn;
   say(`  village founded in turn ${T} (${me.state === 1 ? 'provisional' : 'final'})`);
   const tLoop = Date.now();
-  await train(0, 300);
+  await train(0, 400);
   // a provisional hamlet trains but does not muster: the village is final after the first toll
   for (let i = 0; i < 240 && (await summary()).me.state !== 2; i++) await sleep(250);
   await untilTurn((await summary()).turn, 0.2);
   await muster(0, 300);
-  let host = null;
-  for (let i = 0; i < 400 && !host; i++) {
-    const m = (await summary()).me;
-    host = m.hosts.find(h => h.unit === 0 && h.state === 1 && !m.marches.some(x => x.host === h.id))?.id ?? null;
-    if (!host) await sleep(250);
-  }
-  check(!!host, 'the host stands in the roster');
+  await muster(0, 100);
+  const free = () => summary().then(s => s.me.hosts.filter(h => h.unit === 0 && h.state === 1 && !s.me.marches.some(x => x.host === h.id)));
+  let hosts = [];
+  for (let i = 0; i < 400 && hosts.length < 2; i++) { hosts = await free(); if (hosts.length < 2) await sleep(250); }
+  check(hosts.length >= 2, `two hosts stand in the roster (${hosts.map(h => h.troops).join(' + ')})`);
   await untilTurn((await summary()).turn, 0.2);
   await shot(page, '03-host');
-  const sent = host && await marchCamp(host);
+  const big = hosts.sort((a, b) => b.troops - a.troops)[0]?.id, small = hosts[1]?.id;
+  const tilesBefore = await ownTiles();
+  const field = await openTileNearHome();
+  const sentLand = small && field && await marchTile(small, field);
+  check(!!sentLand, `the march onto open land was accepted (tile ${field?.tile})`);
+  const sent = big && await marchCamp(big);
   check(!!sent, 'the march on the camp was accepted');
   await shot(page, '04-march');
   // the clash: the camp's record (kind 41 CLASH at the home province) and the report the page opens
@@ -158,6 +212,12 @@ if (opt.loop) {
   const doc = await page.locator('#panel').innerText().catch(() => '');
   check(opened, `the battle report opened from the notice`);
   await shot(page, '06-report');
+  let tilesAfter = await ownTiles();
+  for (let i = 0; i < 240 && tilesAfter <= tilesBefore; i++) { await sleep(250); tilesAfter = await ownTiles(); }
+  check(tilesAfter > tilesBefore, `the nation's land in the home province grew ${tilesBefore} → ${tilesAfter} tiles`);
+  await press('[data-act="drawer-close"]', { timeout: 2_000 }).catch(() => {});
+  await tab('territory'); await sleep(1500);
+  await shot(page, '07-land');
   result.loopMs = Date.now() - tLoop;
   check(result.loopMs <= 180_000, `the loop (train → host → camp battle → report) took ${(result.loopMs / 1000).toFixed(0)} s`);
   const s1 = await summary();
