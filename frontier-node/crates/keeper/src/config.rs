@@ -415,7 +415,8 @@ pub struct KeeperConfig {
     /// (findex G3); optional.
     pub feed_witness: Option<String>,
     /// Least time between two JSON-RPC calls of this keeper to its `rpc`
-    /// (every client shares one pacer; an HTTP 429/503 backs all off).
+    /// (every client shares one pacer; an HTTP 429 backs off its method,
+    /// a 503 every method: rpc-pacer-per-method).
     /// Default 0 (unpaced) with `feed = "localnet"`, 150 ms with `"rpc"`
     /// (≈ 66 calls per 10 s, under the public devnet RPC's per-IP limit).
     pub rpc_min_gap_ms: Option<u64>,

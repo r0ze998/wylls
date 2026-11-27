@@ -1,10 +1,11 @@
 //! JSON-RPC POST through `fclient::https` (devnet-readiness B1) against
 //! loopback mocks only: a plain-http mock on 127.0.0.1 (curl's loopback
 //! path, always run) and a TLS mock with its own CA (needs openssl and
-//! python3: `--ignored`). Ports 41460–41469 (the fnode-devnet-rpc range).
+//! python3: `--ignored`). Ports 41460–41469 (the fnode-devnet-rpc range) and 41800 (P2b).
 //!
 //!   P1 the body and the URL (path and query) arrive intact via stdin
 //!   P2 a 429 comes back as a status; the shared pacer backs off and clears
+//!   P2b a 429 backs off only its method; a 503 every method
 //!   P3 a response over the cap kills curl (no partial body returned)
 //!   P4 https with the right CA: `RpcClient::get_slot` works end to end
 //!   P5 https with the ambient store (unknown CA) or a misnamed cert: refused
@@ -171,6 +172,78 @@ async fn p2_pacer_backs_off_on_429_and_clears() {
         "waited the penalty"
     );
     assert_eq!(pacer.penalty().await, Duration::ZERO);
+}
+
+/// rpc-pacer-per-method over real HTTP (port 41800): a 429 on
+/// getTransaction holds back only getTransaction; getAccountInfo goes on at
+/// the min gap, and a 503 still holds back every method.
+#[tokio::test]
+async fn p2b_a_429_backs_off_only_its_method() {
+    let l = bind(41800);
+    let seen = mock(l, |b| {
+        let v: serde_json::Value = serde_json::from_slice(b).unwrap_or_default();
+        match v["method"].as_str().unwrap_or("") {
+            "getTransaction" => (429, b"{}".to_vec()),
+            "unavailable" => (503, b"{}".to_vec()),
+            _ => (200, br#"{"jsonrpc":"2.0","id":1,"result":7}"#.to_vec()),
+        }
+    });
+    let pacer = fclient::rpc::Pacer::with_scope(
+        Duration::from_millis(20),
+        Duration::from_secs(2),
+        fclient::rpc::PacerScope::Method,
+    );
+    let c = RpcClient::new("http://127.0.0.1:41800/").with_pacer(pacer.clone());
+    let e = c
+        .call("getTransaction", serde_json::json!([]))
+        .await
+        .unwrap_err();
+    assert!(matches!(e, PortError::Http(429)), "{e:?}");
+    assert_eq!(
+        pacer.penalty_of("getTransaction"),
+        Duration::from_millis(500)
+    );
+    let t = std::time::Instant::now();
+    for _ in 0..5 {
+        assert_eq!(
+            c.call("getAccountInfo", serde_json::json!([]))
+                .await
+                .unwrap(),
+            7
+        );
+    }
+    assert!(
+        t.elapsed() < Duration::from_millis(450),
+        "not held: {:?}",
+        t.elapsed()
+    );
+    // getTransaction itself waits its penalty out.
+    let t = std::time::Instant::now();
+    assert!(c
+        .call("getTransaction", serde_json::json!([]))
+        .await
+        .is_err());
+    assert!(
+        t.elapsed() >= Duration::from_millis(250),
+        "{:?}",
+        t.elapsed()
+    );
+    assert_eq!(pacer.penalty_of("getTransaction"), Duration::from_secs(1));
+    // A 503: every method waits.
+    assert!(c.call("unavailable", serde_json::json!([])).await.is_err());
+    let t = std::time::Instant::now();
+    assert_eq!(
+        c.call("getAccountInfo", serde_json::json!([]))
+            .await
+            .unwrap(),
+        7
+    );
+    assert!(
+        t.elapsed() >= Duration::from_millis(450),
+        "{:?}",
+        t.elapsed()
+    );
+    assert_eq!(seen.lock().unwrap().len(), 9);
 }
 
 // ---------------------------------------------------------------- TLS
