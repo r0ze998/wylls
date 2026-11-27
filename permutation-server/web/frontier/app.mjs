@@ -352,6 +352,15 @@ function renderSampleTag() {
   const rate = Number(sm.rate) || 0, times = rate >= 10 ? Math.round(rate) : Math.round(rate * 10) / 10;
   const pace = sm.paused || !(rate > 0) ? L`時計は止めてあります` : rate === 1 ? L`時計はそのまま` : L`時計 ${fmtNum(times)} 倍速`;
   const arrival = territoryEnabled(FS);
+  // (walletless demo: the static bundle's world says `sample.demo = {live}` — the tag says "playable demo" and links the live world)
+  const demo = sm.demo && typeof sm.demo === 'object' ? sm.demo : null;
+  const live = demo && /^https:\/\//.test(String(demo.live ?? '')) ? String(demo.live) : null;
+  if (demo) {
+    const long = L`ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（${pace}）。`;
+    setHtmlIfChanged(el, html`${icon('info')}<span>${L`体験版`}</span><span class="sample-pace">${pace}</span>${live ? html`<a class="sample-live" href="${live}" target="_blank" rel="noopener">${L`本物の世界へ`}</a>` : ''}`);
+    if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }
+    return;
+  }
   const long = arrival ? L`領土ルールの開発版です。チェーンにはつないでいません。進行はこのサーバー内に保存され、再起動すると最初からになります。時間表示はゲーム内の時間です（${pace}）。` : L`見本の世界です。基本ゲームのルールで動きますが、チェーンにはつないでいません。画面の時間はこの世界の中の時間です（${pace}）。`;
   setHtmlIfChanged(el, html`${icon('info')}<span>${arrival ? L`領土ルールの開発版` : L`見本の世界`}</span><span class="sample-pace">${pace}</span>`);
   if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }

@@ -4162,10 +4162,13 @@ async function ownLandFromRelay(pin, citizen, local) {
 }
 async function refreshOwnLand({ force = false } = {}) {
   const pin = io.pinned(), local = !!localPlay?.wideLand, dev = !local && !!devnetTerritoryNow();
-  if (!(local || dev) || !FS.wallet || !FS.citizen || !pin) { if (FS.ownLand) { FS.ownLand = undefined; invalidate('panel'); } return; }
+  // (walletless demo: a sample world whose record says `landUpkeep` serves the same herald summary, read as often as a
+  //  local world's; it has no devnet gate, so the relay fallback asks nothing there)
+  const sample = !local && !dev && FS.sample?.landUpkeep === true;
+  if (!(local || dev || sample) || !FS.wallet || !FS.citizen || !pin) { if (FS.ownLand) { FS.ownLand = undefined; invalidate('panel'); } return; }
   const citizen = viewerCitizen(), world = providerWorld();
   if (FS.ownLand && (FS.ownLand.citizen !== citizen || FS.ownLand.world !== world)) FS.ownLand = undefined;
-  if (ownLandBusy || (!force && FS.ownLand && Date.now() - FS.ownLand.at < (local ? OWN_LAND_EVERY_MS : OWN_LAND_EVERY_DEVNET_MS))) return;
+  if (ownLandBusy || (!force && FS.ownLand && Date.now() - FS.ownLand.at < (local || sample ? OWN_LAND_EVERY_MS : OWN_LAND_EVERY_DEVNET_MS))) return;
   if (!force && Date.now() < ownLandRetryAt) return;
   ownLandBusy = true;
   let answered = false;

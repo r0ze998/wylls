@@ -401,6 +401,8 @@ export function renderWideInventoryStatus(FS) {
   // (PR #46 verification, 2026-11-18: a local-play world confirmed ended — flocalplay-ended.mjs — is not read any more:
   //  its network failure is not said as a second error with a Retry beside the banner that says the world ended)
   if (failed && FS.worldEnded && FS.wideError?.code === 'network') return '';
+  // (walletless demo: a sample world has no wide land at all — not "unknown": nothing to say)
+  if (!failed && FS.sample) return '';
   const message = failed
     ? L`遠方の村の情報を読み込めません（${FS.wideError?.code ?? 'Unavailable'}）。保有地がないことを意味しません。`
     : L`この配信元では遠方の村の情報を取得できません。保有地の有無は不明です。`;
