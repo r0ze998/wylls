@@ -149,7 +149,7 @@ test('the controller: the identity frozen at arming is checked at every look, in
   // the card's village must be the active one, or nothing is offered
   assert.match(block, /!sameHolding\(h, activeHolding\(FS\)\) \? \['HoldingMismatch'\]/);
   // an ordinary press when ready is sent for the card's own village too; an unknown earlier muster blocks arming
-  assert.match(block, /if \(press === 'send'\) return musterOrder\(n\.draft\.unit, n\.draft\.troops, n\.draft\.tile, n\.holding\);/);
+  assert.match(block, /if \(press === 'send'\) \{ FS\.lastAct = musterLastAct\(n\.draft\); return musterOrder\(n\.draft\.unit, n\.draft\.troops, n\.draft\.tile, n\.holding\); \}/);
   assert.match(block, /if \(press !== 'wait' \|\| musterHeld\(\)\) return;/);
   // no timer of its own; the send is the ordinary order (act → the local path, held by its signature when unknown)
   assert.doesNotMatch(block, /setInterval|setTimeout|localAct\.send|sendTransaction/);

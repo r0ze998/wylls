@@ -42,6 +42,9 @@ const UNSENT = {
   build: () => L`建設はまだ始まっていません。`,
   train: () => L`訓練はまだされていません。`,
   muster: () => L`編成はまだ命じられていません。`,
+  // (fix-loop29: the first village's scout — a Train and a Muster of their own buttons)
+  'home-scout-train': () => L`訓練はまだされていません。`,
+  'home-scout-muster': () => L`編成はまだ命じられていません。`,
   garrison: () => L`守備隊はまだ増えていません。`,
   dissolve: () => L`解散はされていません。`,
   join: () => L`参加はまだできていません。`,
@@ -67,6 +70,30 @@ export const unconfirmedNotice = n => !!n && !n.ok && !n.busy && !n.waiting
 
 /** The line for a refused action: what was not done (null for an action this table does not know). */
 export const unsentText = FS => UNSENT[FS?.lastAct?.name]?.(FS) ?? null;
+
+/**
+ * (fix-loop29) `unsent` of a refusal that no remembered send owns: the toast names nothing (no entry above), and no retry.
+ * A press that is not one of the page's sends (app.mjs SENDS) leaves `FS.lastAct` as the EARLIER send; a refusal it left
+ * was told as that send and its "Try again" re-ran it (loop-play29 BREAK-1: a refused muster said "Nothing has been
+ * trained yet." and its retry trained 100 Spearmen).
+ */
+export const UNSENT_UNNAMED = 'unnamed';
+const refusal = n => !!n && n.ok === false && !n.busy && !n.waiting && !n.loss;
+/**
+ * After a press that is not one of the page's sends: the refusal it left, made to name nothing and offer no retry —
+ * unless the press set its own `FS.lastAct` (a send it made by itself: the muster's and the march's wait presses) or the
+ * notice already says what it concerns (`unsent`). Null when there is nothing to change.
+ */
+export function unownedRefusal({ noticeBefore, notice, lastActBefore, lastAct }) {
+  if (notice === noticeBefore || !refusal(notice) || lastAct !== lastActBefore || notice.unsent) return null;
+  return { ...notice, unsent: UNSENT_UNNAMED, retry: false };
+}
+/** "Try again": the remembered send (`FS.lastAct`) run once more as it was — its action with its data, or its form with its values. */
+export function retryAction(a, { actions, forms }) {
+  if (!a) return undefined;
+  if (a.kind === 'form') return forms[a.name]?.({ elements: Object.fromEntries(Object.entries(a.values ?? {}).map(([k, v]) => [k, { value: v }])), dataset: { form: a.name } });
+  return actions[a.name]?.(a.data ?? {});
+}
 
 /**
  * The status to show: null, or `{state: 'busy'|'done'|'refused', text,

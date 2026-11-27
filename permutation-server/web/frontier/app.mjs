@@ -4863,6 +4863,13 @@ export function w4Bind(name, value) {
 export const SENDS = Object.freeze(new Set(['wide-claim', 'territory-tile', 'harvest', 'build', 'train', 'muster', 'garrison', 'dissolve', 'join', 'session', 'session-replace', 'auto-ticket', 'nudge', 'explore-send', 'settle-explore', 'settle-transit', 'march-send',
   // S1 (screens/s1.mjs)
   's1-vault', 's1-structure', 's1-raid', 's1-raid-open', 's1-vote', 's1-seize', 's1-siege', 's1-expel', 's1-readmit',
+  // (fix-loop29 audit, loop-play29 BREAK-1's gap: direct sends that were not here, so a refusal of one was told as the
+  //  earlier send and "Try again" re-ran THAT. Each one re-runs as it was from its own button's data: the first village's
+  //  scout (Train / Muster), ② rights and ⑨⑩ custody (screens/rights.mjs, screens/custody.mjs), the map's outpost, the test
+  //  faucet. The devnet two-press sends — outpost-send, wide-act-send — are left out: a refusal clears their preview, the
+  //  toast says to look again, and the dispatcher's net below gives them no retry)
+  'home-scout-train', 'home-scout-muster', 'rights-execute', 'rights-release', 'rights-revoke', 'rights-close', 'rights-deliver',
+  'cap-reclaim', 'cap-revoke', 'cap-settle', 'cap-cancel', 'cap-claim', 'cap-loss', 'lot-deliver', 'lot-reconcile', 'lot-close', 'cq-outpost', 'prize-faucet',
   // (orders of the prototype rule "banners": to the sample world only)
   'proto-raise', 'proto-dress', 'proto-tend', 'proto-take', 'proto-pull', 'proto-strike']));
 /** Send the refused action once more, as it was (`FS.lastAct`: its name and data, or a form's name and values). */
@@ -4870,9 +4877,10 @@ function retryLast() {
   const a = FS.lastAct;
   if (!a || FS.mode !== 'play') return undefined;
   FS.notice = null;
-  if (a.kind === 'form') return FORMS[a.name]?.({ elements: Object.fromEntries(Object.entries(a.values ?? {}).map(([k, v]) => [k, { value: v }])), dataset: { form: a.name } });
-  return ACTIONS[a.name]?.(a.data ?? {});
+  return status.retryAction(a, { actions: ACTIONS, forms: FORMS });
 }
+/** Presses that are not sends and never leave a refusal of their own to re-attribute (the toast's own buttons). */
+const NOT_OWNERS = Object.freeze(['notice-retry', 'notice-close']);
 /** A refused control shakes its head once (visual only; the toast at the map says why). */
 function shake(control) {
   const body = $('panel-body');
@@ -4933,7 +4941,7 @@ function mountNationLook() {
 }
 
 /** Route the screens' clicks, forms and bound inputs: the wave-4 screens here, the play screens to the controller (game page only). */
-function delegate(doc) {
+export function delegate(doc) {   // (exported for tests: fix-loop29 drives the page's own press → send → refusal → "Try again" path)
   // a press elsewhere puts small things away: the phone's list of lenses; on a phone the leader's line (its first touch)
   doc.addEventListener('pointerdown', e => {
     if ($('lenses')?.dataset.open === 'true' && !e.target?.closest?.('#lenses')) setLensMenu(false);
@@ -4969,8 +4977,17 @@ function delegate(doc) {
   });
   const play = FS.mode === 'play';
   // `then`: a refusal (the notice the action left) shakes the control that was pressed, once
-  const run = (p, control = null) => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); })
-    .then(() => { if (control && FS.notice && FS.notice.ok === false && !FS.notice.busy) shake(control); });
+  // (fix-loop29, loop-play29 BREAK-1: `own` — the state before a press that is NOT one of the page's sends: a refusal it
+  //  leaves, unless the press set FS.lastAct itself, names nothing and offers no retry (hud/status.mjs unownedRefusal) —
+  //  FS.lastAct is the EARLIER send then, and "Try again" re-ran that: a refused muster said "Nothing has been trained
+  //  yet." and its retry trained 100 Spearmen)
+  const run = (p, control = null, own = null) => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); })
+    .then(() => {
+      const fixed = own ? status.unownedRefusal({ ...own, notice: FS.notice, lastAct: FS.lastAct }) : null;
+      if (fixed) { FS.notice = fixed; invalidate('panel'); }
+      if (control && FS.notice && FS.notice.ok === false && !FS.notice.busy) shake(control);
+    });
+  const before = () => ({ noticeBefore: FS.notice, lastActBefore: FS.lastAct });
   const action = name => HUD_ACTIONS[name] ?? W4_ACTIONS[name] ?? (play ? ACTIONS[name] : undefined);
   // (fix-loop12, LP12-5) presses that only look — a tab of the drawer, closing it — and keep the boundary card's draft
   const OUTBOUND_LOOKS = Object.freeze(['tab', 'drawer-close']);
@@ -4991,7 +5008,8 @@ function delegate(doc) {
     if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-devnet-preview', 'outbound-devnet-send', 'outbound-devnet-reconcile', 'outbound-devnet-clear', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act) && !OUTBOUND_LOOKS.includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
-    run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
+    const own = play && !sends && !NOT_OWNERS.includes(el.dataset.act) ? before() : null;
+    run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null, own);
   });
   doc.addEventListener('submit', e => {
     const f = e.target.closest?.('form[data-form]');
@@ -5000,7 +5018,8 @@ function delegate(doc) {
     e.preventDefault();
     const sends = play && !!FORMS[f.dataset.form] && f.dataset.form !== 'dest';
     if (sends) FS.lastAct = { kind: 'form', name: f.dataset.form, values: Object.fromEntries([...f.elements].filter(x => x.name && (x.type !== 'radio' || x.checked)).map(x => [x.name, x.value])) };
-    run(fn(f), sends ? { form: f.dataset.form } : null);
+    const own = play && !sends ? before() : null;   // (taken BEFORE the press runs: fn may set its refusal synchronously)
+    run(fn(f), sends ? { form: f.dataset.form } : null, own);
   });
   doc.addEventListener('input', e => {
     const inspection = e.target.closest?.('[data-bind^="expedition-"]');
