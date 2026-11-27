@@ -664,7 +664,9 @@ pub const HISTORY_CHUNK: usize = 32;
 pub const HISTORY_PER_CALL: usize = 32;
 /// A history search runs at most once per this long on a remote RPC
 /// ([`RpcPort::history_every`]): re-sends that never landed stay unknown
-/// forever, and the keeper polls every tick (twice: writes and orphans).
+/// until the keeper proves them absent (verify-pr282: only this search's
+/// `null` is proof, [`ChainPort::statuses_absent`]), and the keeper polls
+/// every tick (one read for writes and orphans since verify-pr259).
 /// 1,000 unknown signatures are all re-read in ≈ 10 min.
 pub const HISTORY_EVERY: Duration = Duration::from_secs(20);
 
