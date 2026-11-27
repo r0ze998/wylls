@@ -4,9 +4,21 @@
 // the keeps the page already holds for the control snapshot. No request is
 // made here. A guide only: the route the composer plans is what a march takes.
 import { planRoute } from './fmarch.mjs';
+import { hexDistance } from './fgeo.mjs';
+import { MAX_PATH_PROVINCES } from './fcaravan.mjs';
 
 /** A march may cross this many provinces (planRoute refuses a longer route; the program re-checks at Reveal). */
-export const MAX_ROUTE_PROVINCES = 4;
+export const MAX_ROUTE_PROVINCES = MAX_PATH_PROVINCES;
+
+/**
+ * (fix-campreach-4, Q-TG4-1 / D-test-gaps-4-1) Whether province `to` lies within a march's reach of province `from` by
+ * the province bound alone. The rules (permutation-rules travel.rs path_cost) count the provinces a route's steps
+ * ENTER — at most MAX_ROUTE_PROVINCES, the starting province not counted unless a step re-enters it — so a province up
+ * to MAX_ROUTE_PROVINCES away can be reached (the real kernel routes (0,0) tile 59 → (4,-2) tile 47 in 27 steps).
+ * The one bound every page guide uses (the keep list's pending count, the march-first camp, "Nearby destinations"), so
+ * they cannot drift apart. A guide only: the planner's route decides.
+ */
+export const provinceInReach = (from, to) => hexDistance(from.p, from.q, to.p, to.q) <= MAX_ROUTE_PROVINCES;
 
 const list = keeps => (keeps instanceof Map ? [...keeps.values()] : Object.values(keeps ?? {}));
 const tileOk = t => Number.isInteger(t) && t >= 0 && t < 61;
