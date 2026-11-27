@@ -157,9 +157,11 @@ function provOfHex(h) {
 // ------------------------------------------------------------------ the page's wiring (source pins)
 test('every caller of campChoice passes the march card\'s route question; the fog test is unchanged', () => {
   const cg = src('screens/conquestguide.mjs'), gd = src('hud/guide.mjs');
-  assert.match(cg, /campChoice\(FS, ready, \{ seen, rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, ready, camp\) \}\)/);
-  assert.match(cg, /campChoice\(FS, fr, \{ seen: \(p, q, tl\) => viewTile\(p, q, tl, 2\), rough: \(p, q, tl\) => roughAt\(FS, p, q, tl\), reach: camp => campReach\(FS, fr, camp\) \}\)/);
-  assert.match(gd, /campChoice\(FS, host, \{ seen: \(p, q, t\) => viewTile\(p, q, t, 2\), rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, host, camp\) \}\)/);
+  // (fix-loop25, Q-PM2-1 (a): every call also carries the one fog exception, `own: ownProvinceOf(FS)` — the camp of the
+  //  viewer's own village's province; web-frontier-fix-loop25.test.mjs)
+  assert.match(cg, /campChoice\(FS, ready, \{ seen, own, rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, ready, camp\) \}\)/);
+  assert.match(cg, /campChoice\(FS, fr, \{ seen: \(p, q, tl\) => viewTile\(p, q, tl, 2\), own: ownProvinceOf\(FS\), rough: \(p, q, tl\) => roughAt\(FS, p, q, tl\), reach: camp => campReach\(FS, fr, camp\) \}\)/);
+  assert.match(gd, /campChoice\(FS, host, \{ seen: \(p, q, t\) => viewTile\(p, q, t, 2\), own: ownProvinceOf\(FS\), rough: \(p, q, t\) => roughAt\(FS, p, q, t\), reach: camp => campReach\(FS, host, camp\) \}\)/);
   const lines = [...cg.split('\n'), ...gd.split('\n')].filter(l => /campChoice\(FS/.test(l));
   assert.equal(lines.length, 3);
   for (const l of lines) assert.match(l, /reach: camp => campReach\(FS, /, 'every call carries reach');

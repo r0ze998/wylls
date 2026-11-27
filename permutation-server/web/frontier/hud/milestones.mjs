@@ -14,7 +14,7 @@ import { holdingName } from '../people/ui.mjs';
 import { provinceName } from './place.mjs';
 import { UNIT_ORDER } from '../fland.mjs';
 import { hostRows } from '../screens/host.mjs';
-import { keepTarget } from '../screens/conquestguide.mjs';
+import { keepTarget, conquestGuide } from '../screens/conquestguide.mjs';
 import { stoodHosts, firstHostNext, firstHostNextLine, marchOpenFor } from './firststeps.mjs';
 
 export const MILESTONE_KEY = 'ps-fmile:';
@@ -53,7 +53,10 @@ export function reachedMilestones(FS) {
       const r = stood[0], troops = Math.floor(Number(r.troops)) || 0;
       let need = null;
       try { need = keepTarget(FS)?.need ?? null; } catch { need = null; }
-      out.push({ id: 'first-host', kind: 'first-host', unit: r.unit, troops, need, next: firstHostNext({ troops, need, marchOpen: marchOpenFor(FS) }) });
+      // (fix-loop25, loop-play25 BREAK-2: while the guide's step is the camp, the banner's next goal is the camp too)
+      let campFirst = false;
+      try { campFirst = conquestGuide(FS)?.current === 'camp'; } catch { campFirst = false; }
+      out.push({ id: 'first-host', kind: 'first-host', unit: r.unit, troops, need, next: firstHostNext({ troops, need, marchOpen: marchOpenFor(FS), campFirst }) });
     }
   }
   if (marched) out.push({ id: 'first-march', kind: 'first-march' });

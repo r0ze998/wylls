@@ -37,7 +37,7 @@ import { worldContinues } from '../clock.mjs';
 import { turnsLine } from '../seasonterms.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
-import { campChoice, campsSittingOut, fightingCampsInSight, earliestReportAt, reportEtaAt, ownReportDue, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
+import { campChoice, campsSittingOut, fightingCampsInSight, earliestReportAt, reportEtaAt, ownReportDue, ownProvinceOf, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
 import { planRoute, arrivalWindow } from '../fmarch.mjs';
 import { MAX_PATH_STEPS } from '../seal.mjs';
 import { MAX_ROUTE_PROVINCES } from '../fkeepreach.mjs';
@@ -283,10 +283,13 @@ export function campStep(FS) {
   // (this page cannot send a march in this world: said as the keep step says it, and the step can be skipped)
   if (!marchOpenFor(FS)) return { text: L`${who}の軍勢が立ちました。${marchClosedText(FS)}${skip}`, go: { act: 'ob-skip', data: { step: 'camp' }, label: L`この手順を飛ばす` }, wait: null };
   const seen = (p, q, t) => viewTile(p, q, t, 2);
-  const c = campChoice(FS, ready, { seen, rough: (p, q, t) => roughAt(FS, p, q, t), reach: camp => campReach(FS, ready, camp) });
+  // (fix-loop25, Q-PM2-1 (a): the guide's one fog exception — a camp in a province of the viewer's OWN village is named
+  //  under the fog too, by position and whether it fights; hud/firstbattle.mjs ownProvinceOf says exactly what and why)
+  const own = ownProvinceOf(FS);
+  const c = campChoice(FS, ready, { seen, own, rough: (p, q, t) => roughAt(FS, p, q, t), reach: camp => campReach(FS, ready, camp) });
   // (fix-firstcamp, Q-LP22-1 (a): a camp in a province of 12 villages sits every battle out — the march there was a
   //  non-battle, "Held", no losses — so the guide passes it by and says why)
-  const sitOut = c ? c.passed : campsSittingOut(FS, ready, { seen });
+  const sitOut = c ? c.passed : campsSittingOut(FS, ready, { seen, own });
   // (named by the viewer's own village where it has one: in --demo the camp passed by is in the home province)
   const out = sitOut.length ? L`${provinceName(FS, sitOut[0].p, sitOut[0].q)}の野営地は近くにありますが、その州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っているため、戦いに加わりません（野営地が戦うのは、州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです）。` : '';
   // the way there and when the march would arrive (tiles, provinces, the arrival turn and its wait in the report line's words), and
@@ -295,6 +298,13 @@ export function campStep(FS) {
   const at = way?.arrive ? reportEtaAt(FS.clock, way.arrive.bell) : earliestReportAt(FS.clock, FS.nowBell, FS.season);
   const eta = at !== null ? (way?.arrive ? L`封をして出発すると、最初の戦いの報告は${dueText(at, now)}に出る見込みです。` : L`封をして出発すると、最初の戦いの報告は早くて${dueText(at, now)}に出ます。`) : '';
   const road = way?.line ? L`道のり：${way.line}。` : '';
+  // (fix-loop25: a camp named only by the exception — its tile under the fog — is said without its defender count, as the
+  //  march card says none for a tile out of sight; the odds and the troops advised are the page's own copy of the clash)
+  const fogNote = c?.camp?.fogged ? L`この野営地はあなたの村の州にあるため、霧の中でも場所だけを示しています（守り手の数は、見えるところまで近づくとわかります）。` : '';
+  if (c?.winnable && c.camp.fogged) {
+    return { text: out + L`最初の戦いは、${provinceName(FS, c.camp.p, c.camp.q, { own: false })}の蛮族の野営地にしましょう。${fogNote}いまの軍勢（${who}）なら、運が悪くても勝てる見込みです。${road + eta}報告は、このブラウザで計算し直して確かめられます。`,
+      go: { act: 'ob-go', data: {}, label: L`この野営地へ進軍を準備する` }, wait: null };
+  }
   if (c?.winnable) {
     return { text: out + L`最初の戦いは、${provinceName(FS, c.camp.p, c.camp.q, { own: false })}の蛮族の野営地（守り手 ${fmtNum(c.camp.troops)}）にしましょう。いまの軍勢（${who}）なら、運が悪くても勝てる見込みです。${road + eta}報告は、このブラウザで計算し直して確かめられます。`,
       go: { act: 'ob-go', data: {}, label: L`この野営地へ進軍を準備する` }, wait: null };
@@ -302,10 +312,14 @@ export function campStep(FS) {
   if (c) {
     const need = c.need ? L`${unitCount(UNIT_ORDER[ready.unit], c.need)} ほどにすると、運が悪くても勝てる見込みです。` : '';
     const chance = c.odds === 'even' ? L`勝ち目は五分です。` : L`勝ち目は低いです。`;
+    if (c.camp.fogged) {
+      return { text: out + L`いちばん近い蛮族の野営地（${provinceName(FS, c.camp.p, c.camp.q, { own: false })}）を、いまの軍勢（${who}）で攻めると、${chance}${need}訓練で兵を足してから向かいましょう。${skip}` + fogNote + road,
+        go: { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }, wait: null };
+    }
     return { text: out + L`いちばん近い蛮族の野営地（${provinceName(FS, c.camp.p, c.camp.q, { own: false })}、守り手 ${fmtNum(c.camp.troops)}）を、いまの軍勢（${who}）で攻めると、${chance}${need}訓練で兵を足してから向かいましょう。${skip}` + road,
       go: { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }, wait: null };
   }
-  if (fightingCampsInSight(FS, ready, { seen }).length) {
+  if (fightingCampsInSight(FS, ready, { seen, own }).length) {
     // (fix-camp-reach, Q-PM2-1 (c): fighting camps are in sight but none within this host's reach — a rim village saw
     //  only a ring-3 camp 125 rings away, whose march card said "No path there was found". Never named; the practice
     //  battle (#261) meanwhile, and the map to look further. The fog is unchanged: unseen camps stay unnamed)
@@ -420,8 +434,10 @@ export function conquestObjective(FS) {
     const hv = activeHolding(FS);
     // (fix-camp-reach: only a camp a march from the village could reach — the planner's limits and route)
     const fr = hv ? { unit: 0, troops: 100, p: hv.p, q: hv.q, tile: hv.tile } : null;
-    const fc = !x.raided && hv ? campChoice(FS, fr, { seen: (p, q, tl) => viewTile(p, q, tl, 2), rough: (p, q, tl) => roughAt(FS, p, q, tl), reach: camp => campReach(FS, fr, camp) }) : null;
-    const aim = fc?.need ? L`最初の戦いは近くの蛮族の野営地（守り手 ${fmtNum(fc.camp.troops)}）です。${unitCount(UNIT_ORDER[0], fc.need)} 以上を一つの軍勢にまとめると、運が悪くても勝てる見込みです。`
+    const fc = !x.raided && hv ? campChoice(FS, fr, { seen: (p, q, tl) => viewTile(p, q, tl, 2), own: ownProvinceOf(FS), rough: (p, q, tl) => roughAt(FS, p, q, tl), reach: camp => campReach(FS, fr, camp) }) : null;
+    // (fix-loop25: a camp under the fog in the village's own province — the one exception — without its defender count)
+    const aim = fc?.need && fc.camp.fogged ? L`最初の戦いは、あなたの村の州にある蛮族の野営地です（霧の中なので守り手の数は見えません）。${unitCount(UNIT_ORDER[0], fc.need)} 以上を一つの軍勢にまとめると、運が悪くても勝てる見込みです。`
+      : fc?.need ? L`最初の戦いは近くの蛮族の野営地（守り手 ${fmtNum(fc.camp.troops)}）です。${unitCount(UNIT_ORDER[0], fc.need)} 以上を一つの軍勢にまとめると、運が悪くても勝てる見込みです。`
       : t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
     // (fix-provisional-guide, loop-play23 BREAK-1: the first village is provisional for up to ≈4 h after its request — the
     //  program forms no host from it until hud/provisional.mjs villageConfirm's time, and only an action after that time

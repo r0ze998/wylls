@@ -156,7 +156,7 @@ test('W5 every refusal has words in both languages; every key has English', asyn
 
 test('W6 the page mounts the chat once, from the play start, with its own world and nation', async () => {
   const app = await readFile(new URL('frontier/app.mjs', WEB), 'utf8');
-  assert.ok(app.includes("import { installNationChat } from './hud/nationchat.mjs';"));
+  assert.ok(app.includes("import { installNationChat, sideDrawerKey, objectTokens, drawerOpened } from './hud/nationchat.mjs';"));
   assert.equal([...app.matchAll(/installNationChat\(/g)].length, 1);
   const at = app.indexOf('installNationChat(');
   assert.ok(at > app.indexOf("if (FS.mode === 'play') {", app.indexOf('const startWithSeason')), 'inside the play start');
