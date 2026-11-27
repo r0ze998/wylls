@@ -181,6 +181,22 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    camp first (the guide shows the way)" (fix-loop25; it said "choose a keep in reach and march" while the guide said
    "camp first": loop-play25 BREAK-2). After the camp step (or once it is skipped) the banner speaks of keeps as before.
    In the live checks (×60) a 500- or 200-Spearmen first host beat camps of 156–389 defenders.
+   "Should win" means the host still holds the camp's tile after the arrival turn at the worst roll, and the rules then
+   **clear** the camp that same turn, even with troops left (frontier-abi clash_model.rs: `whole == 0 || attackers_hold`).
+   The report says "Victory: the camp was cleared" and, when the camp still had troops, "The camp was cleared: N of its
+   troops were still standing after the fight, but the attackers held its tile …" (fix-loop26; it said "Held: the enemy is
+   still on the field too" for a 400 vs 271 camp, loop-play26 BREAK-2).
+   **The camp's province can fill while you walk** (fix-loop26, Q-LP26-1 (a)): the guide checks the 12-village rule when it
+   picks the camp, and in `--demo` the settlers can fill that province before your host arrives. The camp then sits the
+   battle out. The report has no camp side and says why ("The camp did not join the battle: 12 villages stand in this
+   province … There was no battle this turn on the tile your host reached. It lost no troops."), and its "Match" carries
+   "This Match recomputes the record of a turn with no battle in it: it does not check a battle." The guide does **not**
+   count it as your first battle: the camp step stays open ("Your host reached the camp of (place), but there was no
+   battle: 12 villages stand in that province … Your first battle is still ahead.") and names the next camp that fights
+   and that your host can reach. An arrival that found nobody on its tile (for example, a nation-mate cleared the camp a
+   turn earlier) is said the same way ("… but there was no battle (nobody stood against it on that tile)."). The "While you
+   wait" panel offers no such report as "your battle". The page reads this from the turn's CLASH record (`engagements` 0)
+   and keeps it for the page's life, also after the record has left the page's last 400 records.
 6. **March on a keep**: press the guide at the top right when it says "See the keeps in reach" (if it stays on
    "Check your host's readiness", open "Nation & territory" in the bottom bar once). Pick a keep's row and press "Send this order".
    The card the guide opens, "March on a keep · N keeps in reach", gives each row's arrival as "Turn 22 · arrival (13 tiles)"; the
