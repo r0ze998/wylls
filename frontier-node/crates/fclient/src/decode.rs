@@ -195,7 +195,9 @@ impl Season {
         use frontier_abi::v2::pacing::Pacing;
         self.conquest
             .as_ref()
-            .and_then(|c| Pacing::from_bytes(c.pacing, self.min_lead, c.depart_stamina, c.starter_host))
+            .and_then(|c| {
+                Pacing::from_bytes(c.pacing, self.min_lead, c.depart_stamina, c.starter_host)
+            })
             .unwrap_or(Pacing::LEGACY)
     }
 

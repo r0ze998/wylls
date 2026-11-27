@@ -377,8 +377,7 @@ pub(crate) fn starter_host(
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
         let resident = ap::resident_ok(r.u32(P::RESOLVED_NEXT)?, b);
-        let passable =
-            (tile as usize) < P::TILES && r.u64(P::PASSABLE_MASK)? & (1u64 << tile) != 0;
+        let passable = (tile as usize) < P::TILES && r.u64(P::PASSABLE_MASK)? & (1u64 << tile) != 0;
         let (mut total, mut own, mut free) = (0usize, 0usize, None);
         for i in 0..P::ENTRIES_N {
             let o = P::entry(i);

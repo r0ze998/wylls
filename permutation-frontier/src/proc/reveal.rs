@@ -58,8 +58,7 @@ use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 use permutation_rules::frontier::seal::{self as ks, Plain};
 use permutation_rules::frontier::stance::{Posture, Stance};
 use permutation_rules::frontier::travel::{
-    is_cavalry, CAVALRY_BPS, FLAT_HEX_SECS, MAX_PATH_STEPS, ROAD_BPS,
-    ROUGH_HEX_SECS,
+    is_cavalry, CAVALRY_BPS, FLAT_HEX_SECS, MAX_PATH_STEPS, ROAD_BPS, ROUGH_HEX_SECS,
 };
 use permutation_rules::hex::DIRECTIONS;
 
@@ -913,13 +912,19 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let secs = u32::try_from(doctrine.travel_secs(raw as u64)).map_err(|_| OVERFLOW)?;
     // world4-pacing-impl: the kernel's `check_arrival_bell` (lead 2), and only
     // when it refuses the Season's minimum lead (1 in a `pacing` 1 world).
-    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(hdr.genesis_ts, tr.depart_ts, secs, arrive, || {
-        season_ai
-            .try_borrow_data()
-            .ok()
-            .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
-            .map(|p| p.min_lead)
-    }) {
+    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(
+        hdr.genesis_ts,
+        tr.depart_ts,
+        secs,
+        arrive,
+        || {
+            season_ai
+                .try_borrow_data()
+                .ok()
+                .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
+                .map(|p| p.min_lead)
+        },
+    ) {
         return Err(FrontierError::ArrivalBell.into());
     }
     crate::heap::trace_checkpoint(0x5111);

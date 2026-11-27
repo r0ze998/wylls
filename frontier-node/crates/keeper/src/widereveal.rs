@@ -97,8 +97,7 @@ use frontier_abi::world_index::{
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::seal::{path_step, salt_of};
 use permutation_rules::frontier::travel::{
-    is_cavalry, FLAT_HEX_SECS, MAX_PATH_PROVINCES, MAX_PATH_STEPS,
-    ROUGH_HEX_SECS,
+    is_cavalry, FLAT_HEX_SECS, MAX_PATH_PROVINCES, MAX_PATH_STEPS, ROUGH_HEX_SECS,
 };
 use serde_json::{json, Value};
 use solana_address::Address;

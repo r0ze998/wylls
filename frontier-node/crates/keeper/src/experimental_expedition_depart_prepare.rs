@@ -648,7 +648,9 @@ where
         .map_err(|_| "HostCannotDepart")?;
     // ---- arrival window and tip, as the program bounds them
     let arrive = r.draft.command().arrive_bell;
-    if bell.checked_add(pace.min_lead).is_none_or(|min| arrive < min)
+    if bell
+        .checked_add(pace.min_lead)
+        .is_none_or(|min| arrive < min)
         || bell.checked_add(72).is_none_or(|max| arrive > max)
         || arrive >= season.end_bell
     {

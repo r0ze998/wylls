@@ -35,7 +35,7 @@ test('P1 P2 P3 a route not read is said as that, and kept apart from "no route"'
 });
 
 test('P4 the arrival is made from the route shown', () => {
-  order(sd, 'const r = planRoute(k, {', 'const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });',
+  order(sd, 'const r = planRoute(k, {', 'const earliest = earliestBell(k, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });',
     'const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;', 'c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;');
   assert.equal(code(sd).split('c.route = r.route').length - 1, 1, 'set in one place, with its arrival');
   assert.equal(code(sd).split('await ').length - 1, 1);

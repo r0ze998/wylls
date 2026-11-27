@@ -62,7 +62,12 @@ impl Pacing {
     /// and anything else 2; `depart_stamina` 0 is 74. `None` only for an
     /// unknown `pacing` value or a stamina above the cap (CreateSeason
     /// refuses both).
-    pub const fn from_bytes(mode: u8, min_lead: u8, depart_stamina: u8, starter_host: u16) -> Option<Pacing> {
+    pub const fn from_bytes(
+        mode: u8,
+        min_lead: u8,
+        depart_stamina: u8,
+        starter_host: u16,
+    ) -> Option<Pacing> {
         if mode == PACING_LEGACY {
             return Some(Pacing::LEGACY);
         }
@@ -74,7 +79,11 @@ impl Pacing {
         }
         Some(Pacing {
             mode,
-            min_lead: if min_lead == 1 { 1 } else { MIN_ARRIVAL_LEAD_BELLS },
+            min_lead: if min_lead == 1 {
+                1
+            } else {
+                MIN_ARRIVAL_LEAD_BELLS
+            },
             depart_stamina: if depart_stamina == 0 {
                 DEPART_STAMINA_LEGACY
             } else {
@@ -91,12 +100,22 @@ impl Pacing {
         let at = |o: usize| season.get(o).copied();
         let cq = SEASON_CQ_OFFSET;
         let host = u16::from_le_bytes([at(cq + L::STARTER_HOST)?, at(cq + L::STARTER_HOST + 1)?]);
-        Pacing::from_bytes(at(cq + L::PACING)?, at(S::MIN_LEAD)?, at(cq + L::DEPART_STAMINA)?, host)
+        Pacing::from_bytes(
+            at(cq + L::PACING)?,
+            at(S::MIN_LEAD)?,
+            at(cq + L::DEPART_STAMINA)?,
+            host,
+        )
     }
 
     /// The pacing a set of CreateSeason parameters gives.
     pub const fn of_params(p: &super::presets::SeasonParamsV2) -> Option<Pacing> {
-        Pacing::from_bytes(p.cq.pacing, p.base.min_lead, p.cq.depart_stamina, p.cq.starter_host)
+        Pacing::from_bytes(
+            p.cq.pacing,
+            p.base.min_lead,
+            p.cq.depart_stamina,
+            p.cq.starter_host,
+        )
     }
 
     /// Whether a first home may be placed at once up to the map's effective
@@ -169,9 +188,7 @@ pub fn check_arrival_bell_lazy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::v2::presets::{
-        S1_DEVNET_TERRITORY, S1_DEVNET_TERRITORY_FAST, SEASON_PARAMS_V2_LEN,
-    };
+    use crate::v2::presets::{S1_DEVNET_TERRITORY, S1_DEVNET_TERRITORY_FAST, SEASON_PARAMS_V2_LEN};
 
     #[test]
     fn lead_two_is_the_kernel() {
@@ -225,15 +242,24 @@ mod tests {
         // a march longer than a bell is bound by its travel time: unchanged
         assert_eq!(earliest_arrival_bell(g, 6_030, 1_800, 1), 14);
         assert_eq!(travel::earliest_arrival_bell(g, 6_030, 1_800), 14);
-        assert_eq!(check_arrival_bell(g, 6_030, 30, 10, 1), Err(TravelError::TooEarly { earliest: 11 }));
+        assert_eq!(
+            check_arrival_bell(g, 6_030, 30, 10, 1),
+            Err(TravelError::TooEarly { earliest: 11 })
+        );
         assert!(check_arrival_bell(g, 6_030, 30, 11, 1).is_ok());
     }
 
     #[test]
     fn world_3_reads_legacy_and_the_fast_preset_reads_its_bytes() {
-        assert_eq!(Pacing::of_params(&S1_DEVNET_TERRITORY), Some(Pacing::LEGACY));
+        assert_eq!(
+            Pacing::of_params(&S1_DEVNET_TERRITORY),
+            Some(Pacing::LEGACY)
+        );
         let f = Pacing::of_params(&S1_DEVNET_TERRITORY_FAST).unwrap();
-        assert_eq!((f.mode, f.min_lead, f.depart_stamina, f.starter_host), (1, 1, 74, 500));
+        assert_eq!(
+            (f.mode, f.min_lead, f.depart_stamina, f.starter_host),
+            (1, 1, 74, 500)
+        );
         assert!(f.first_home_at_once());
         // the Season account form: base bytes at 0..224 of the params map to the
         // Season's own offsets through CreateSeason; check the conquest block and lead.

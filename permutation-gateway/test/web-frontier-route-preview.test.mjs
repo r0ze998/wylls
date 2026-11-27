@@ -85,6 +85,8 @@ function pagePlanner() {
     palisadeHexesOf: fs => fs.blocked,
     planRoute: (k, a) => { calls++; return a.seeds.some(s => s.ring === 5) ? { ok: true, route: { secs: 1320, hexes: a.blocked.map(h => ({ q: h.q + 1, r: h.r })) } } : { ok: false, code: 'NoPath' }; },
     earliestBell: (k, { departTs, secs }) => Math.ceil((departTs + secs) / 600),
+    // (world4-pacing-impl: routeTo passes the Season's lead; world 3's Season reads 2)
+    minLeadOf: season => (season?.minLead === 1 ? 1 : 2),
     departMargin: rate => Math.max(90, rate * 2),
     arrivalWindow: (season, now, early) => ({ min: Math.max(now + season.minLead, early) }),
     marchCard: { routeHexes: c => c.route.hexes },

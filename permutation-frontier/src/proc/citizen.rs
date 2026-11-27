@@ -1471,37 +1471,37 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
         .i64(now.ts)
         .bytes(payer.key.as_ref());
     {
-    let mut jd = shard.try_borrow_mut_data()?;
-    // The wedge counter is the province's wedge (as SettleTicket and the
-    // release), not the nation: they differ under the dispersed placement.
-    shard_holdings(&mut jd, holding_wedge(coord), 1)?;
-    let mut cd = citizen.try_borrow_mut_data()?;
-    let mut hd = holding.try_borrow_mut_data()?;
-    let mut pd = province.try_borrow_mut_data()?;
-    events::emit(
-        Kind::HOME_PLACED,
-        pc.now_bell,
-        &key,
-        payload.get()?,
-        &mut [
-            Chained {
-                entity: EntityKind::JoinShard,
-                data: &mut jd,
-            },
-            Chained {
-                entity: EntityKind::Citizen,
-                data: &mut cd,
-            },
-            Chained {
-                entity: EntityKind::Holding,
-                data: &mut hd,
-            },
-            Chained {
-                entity: EntityKind::Province,
-                data: &mut pd,
-            },
-        ],
-    )?;
+        let mut jd = shard.try_borrow_mut_data()?;
+        // The wedge counter is the province's wedge (as SettleTicket and the
+        // release), not the nation: they differ under the dispersed placement.
+        shard_holdings(&mut jd, holding_wedge(coord), 1)?;
+        let mut cd = citizen.try_borrow_mut_data()?;
+        let mut hd = holding.try_borrow_mut_data()?;
+        let mut pd = province.try_borrow_mut_data()?;
+        events::emit(
+            Kind::HOME_PLACED,
+            pc.now_bell,
+            &key,
+            payload.get()?,
+            &mut [
+                Chained {
+                    entity: EntityKind::JoinShard,
+                    data: &mut jd,
+                },
+                Chained {
+                    entity: EntityKind::Citizen,
+                    data: &mut cd,
+                },
+                Chained {
+                    entity: EntityKind::Holding,
+                    data: &mut hd,
+                },
+                Chained {
+                    entity: EntityKind::Province,
+                    data: &mut pd,
+                },
+            ],
+        )?;
     }
     // world4-pacing-impl (Q-PT-4 a): the starter host of a `starter_host`
     // world, after HOME_PLACED (its MUSTER record chains after it). World 3

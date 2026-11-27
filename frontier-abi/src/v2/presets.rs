@@ -240,10 +240,10 @@ pub const PACING_FAST_V1: u8 = 1;
 pub const REVEAL_WINDOW_FAST_MIN: u32 = 300;
 /// The starter host's bounds in whole troops: the kernel's host bounds
 /// (`host::MIN_HOST_TROOPS` 100, `MAX_HOST_TROOPS` 30,000).
-pub const STARTER_HOST_MIN: u16 =
-    (permutation_rules::frontier::host::MIN_HOST_TROOPS / permutation_rules::fixed::MILLI as u32) as u16;
-pub const STARTER_HOST_MAX: u16 =
-    (permutation_rules::frontier::host::MAX_HOST_TROOPS / permutation_rules::fixed::MILLI as u32) as u16;
+pub const STARTER_HOST_MIN: u16 = (permutation_rules::frontier::host::MIN_HOST_TROOPS
+    / permutation_rules::fixed::MILLI as u32) as u16;
+pub const STARTER_HOST_MAX: u16 = (permutation_rules::frontier::host::MAX_HOST_TROOPS
+    / permutation_rules::fixed::MILLI as u32) as u16;
 
 /// `spawn_reach` 0: first homes in the heartland rings only (the ring rule).
 pub const SPAWN_RING: u8 = 0;
@@ -550,8 +550,7 @@ impl SeasonParamsV2 {
             return Err("continuous");
         }
         if self.cq.pacing > PACING_FAST_V1
-            || (self.cq.pacing != PACING_LEGACY
-                && self.base.program_version < PROGRAM_VERSION_S1)
+            || (self.cq.pacing != PACING_LEGACY && self.base.program_version < PROGRAM_VERSION_S1)
         {
             return Err("pacing");
         }
@@ -565,8 +564,7 @@ impl SeasonParamsV2 {
             return Err("depart_stamina");
         }
         if self.cq.starter_host != 0
-            && (!fast
-                || !(STARTER_HOST_MIN..=STARTER_HOST_MAX).contains(&self.cq.starter_host))
+            && (!fast || !(STARTER_HOST_MIN..=STARTER_HOST_MAX).contains(&self.cq.starter_host))
         {
             return Err("starter_host");
         }
@@ -1592,7 +1590,10 @@ mod tests {
             "world 3's preset bytes must not change"
         );
         let cq3 = S1_DEVNET_TERRITORY.cq.to_bytes();
-        assert!(cq3[cq_layout::PACING..].iter().all(|b| *b == 0), "world 3 has zero pacing bytes");
+        assert!(
+            cq3[cq_layout::PACING..].iter().all(|b| *b == 0),
+            "world 3 has zero pacing bytes"
+        );
         let f = S1_DEVNET_TERRITORY_FAST;
         assert_eq!(f.validate(), Ok(()));
         let mut back = f;
@@ -1613,7 +1614,10 @@ mod tests {
     fn pacing_bytes_need_the_fast_mode() {
         let w3 = S1_DEVNET_TERRITORY;
         for (what, f) in [
-            ("min_lead", (|p: &mut SeasonParamsV2| p.base.min_lead = 1) as fn(&mut SeasonParamsV2)),
+            (
+                "min_lead",
+                (|p: &mut SeasonParamsV2| p.base.min_lead = 1) as fn(&mut SeasonParamsV2),
+            ),
             ("reveal_window", |p| p.base.reveal_window = 300),
             ("depart_stamina", |p| p.cq.depart_stamina = 37),
             ("starter_host", |p| p.cq.starter_host = 500),

@@ -245,13 +245,19 @@ pub(super) fn inspect(
     let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
     // world4-pacing-impl: the kernel's check (lead 2), and only when it
     // refuses the Season's minimum lead (1 in a `pacing` 1 world).
-    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell, || {
-        season
-            .try_borrow_data()
-            .ok()
-            .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
-            .map(|p| p.min_lead)
-    }) {
+    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(
+        hdr.genesis_ts,
+        t.depart_ts,
+        travel_secs,
+        t.arrive_bell,
+        || {
+            season
+                .try_borrow_data()
+                .ok()
+                .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
+                .map(|p| p.min_lead)
+        },
+    ) {
         return Err(FrontierError::ArrivalBell.into());
     }
     Ok(RouteCost {
@@ -322,13 +328,19 @@ pub(super) fn inspect_reverse(
     let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
     // world4-pacing-impl: the kernel's check (lead 2), and only when it
     // refuses the Season's minimum lead (1 in a `pacing` 1 world).
-    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell, || {
-        season
-            .try_borrow_data()
-            .ok()
-            .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
-            .map(|p| p.min_lead)
-    }) {
+    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(
+        hdr.genesis_ts,
+        t.depart_ts,
+        travel_secs,
+        t.arrive_bell,
+        || {
+            season
+                .try_borrow_data()
+                .ok()
+                .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
+                .map(|p| p.min_lead)
+        },
+    ) {
         return Err(FrontierError::ArrivalBell.into());
     }
     Ok(RouteCost {

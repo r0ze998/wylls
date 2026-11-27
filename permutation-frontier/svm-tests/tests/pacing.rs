@@ -71,20 +71,31 @@ fn create_season_stores_the_pacing_bytes_and_legacy_stays_zero() {
     let cq = SEASON_CQ_OFFSET;
     assert_eq!(d[cq + cq_layout::PACING], PACING_FAST_V1);
     assert_eq!(d[cq + cq_layout::DEPART_STAMINA], 74);
-    assert_eq!(u16::from_le_bytes([d[cq + cq_layout::STARTER_HOST], d[cq + cq_layout::STARTER_HOST + 1]]), 500);
+    assert_eq!(
+        u16::from_le_bytes([
+            d[cq + cq_layout::STARTER_HOST],
+            d[cq + cq_layout::STARTER_HOST + 1]
+        ]),
+        500
+    );
     assert_eq!(d[SL::MIN_LEAD], 1);
     assert_eq!(u32_at(&d, SL::REVEAL_WINDOW), 300);
     let mut c = Chain::test_beacon();
     let w = running_v2(&mut c, 42, legacy());
     let d = c.data(&w.a.season);
-    assert!(d[cq + cq_layout::PACING..cq + cq_layout::RSV].iter().all(|b| *b == 0));
+    assert!(d[cq + cq_layout::PACING..cq + cq_layout::RSV]
+        .iter()
+        .all(|b| *b == 0));
     assert_eq!(d[SL::MIN_LEAD], 2);
 }
 
 #[test]
 fn create_season_refuses_new_world_values_without_pacing() {
     for (what, f) in [
-        ("min_lead 1", (|p: &mut SeasonParamsV2| p.base.min_lead = 1) as fn(&mut SeasonParamsV2)),
+        (
+            "min_lead 1",
+            (|p: &mut SeasonParamsV2| p.base.min_lead = 1) as fn(&mut SeasonParamsV2),
+        ),
         ("reveal 300", |p| p.base.reveal_window = 300),
         ("stamina 37", |p| p.cq.depart_stamina = 37),
         ("starter 500", |p| p.cq.starter_host = 500),
@@ -106,7 +117,13 @@ fn depart_world(
     id: u64,
     dirs: &[u8],
     lead: u32,
-) -> (Chain, World, permutation_frontier_svm_tests::world::holding::Estate, permutation_frontier_svm_tests::world::holding::March, permutation_frontier_svm_tests::chain::SendResult) {
+) -> (
+    Chain,
+    World,
+    permutation_frontier_svm_tests::world::holding::Estate,
+    permutation_frontier_svm_tests::world::holding::March,
+    permutation_frontier_svm_tests::chain::SendResult,
+) {
     let mut c = Chain::test_beacon();
     let w = running_v2(&mut c, id, p);
     w.to_bell(&mut c, B0, 5);
@@ -129,7 +146,10 @@ fn a_one_bell_arrival_departs_only_in_a_paced_world() {
     let hd = c.data(&w.a.holding(e.p as i32, e.q as i32, e.site));
     let t0 = H::transit(0);
     assert_eq!(u32_at(&hd, t0 + T::ARRIVE_BELL), B0 + 1);
-    assert_eq!(u16::from_le_bytes([hd[t0 + T::MARCH_STAMINA], hd[t0 + T::MARCH_STAMINA + 1]]), 74);
+    assert_eq!(
+        u16::from_le_bytes([hd[t0 + T::MARCH_STAMINA], hd[t0 + T::MARCH_STAMINA + 1]]),
+        74
+    );
     // (lead 2 still lands in both)
     let (_, _, _, _, r) = depart_world(legacy(), 46, &[0], 2);
     expect_lands(r, "Depart (lead 2, legacy)");
@@ -143,11 +163,17 @@ fn the_depart_stamina_is_the_seasons() {
     expect_lands(r, "Depart (stamina 37)");
     let hd = c.data(&w.a.holding(e.p as i32, e.q as i32, e.site));
     let t0 = H::transit(0);
-    assert_eq!(u16::from_le_bytes([hd[t0 + T::MARCH_STAMINA], hd[t0 + T::MARCH_STAMINA + 1]]), 37);
+    assert_eq!(
+        u16::from_le_bytes([hd[t0 + T::MARCH_STAMINA], hd[t0 + T::MARCH_STAMINA + 1]]),
+        37
+    );
     let (c, w, e, _, r) = depart_world(legacy(), 48, &[0, 0], 2);
     expect_lands(r, "Depart (legacy)");
     let hd = c.data(&w.a.holding(e.p as i32, e.q as i32, e.site));
-    assert_eq!(u16::from_le_bytes([hd[t0 + T::MARCH_STAMINA], hd[t0 + T::MARCH_STAMINA + 1]]), 74);
+    assert_eq!(
+        u16::from_le_bytes([hd[t0 + T::MARCH_STAMINA], hd[t0 + T::MARCH_STAMINA + 1]]),
+        74
+    );
 }
 
 #[test]
@@ -170,13 +196,25 @@ fn a_one_bell_march_reveals_in_a_paced_world_and_must_still_fit_its_path() {
 }
 
 /// A citizen of nation 0 placing a first home in a heartland province of `p`.
-fn place_first_home(p: SeasonParamsV2, id: u64) -> (Chain, World, fclient::ix::Site, permutation_frontier_svm_tests::chain::Landed) {
+fn place_first_home(
+    p: SeasonParamsV2,
+    id: u64,
+) -> (
+    Chain,
+    World,
+    fclient::ix::Site,
+    permutation_frontier_svm_tests::chain::Landed,
+) {
     let mut c = Chain::test_beacon();
     let w = running_v2(&mut c, id, p);
     w.open_genesis_rings(&mut c);
     let ps = w.open_provinces(&mut c, 2, Some(0));
     let who = w.citizen(&mut c, "first-home", 0);
-    let s = fclient::ix::Site { p: ps[0].0, q: ps[0].1, site: 0 };
+    let s = fclient::ix::Site {
+        p: ps[0].0,
+        q: ps[0].1,
+        site: 0,
+    };
     let d = w.citizen_data(&c, &who);
     let tx = fclient::ix::place_home(&w.a, &who.player(), s, who.faction, d[C::JOIN_SHARD]);
     let landed = expect_lands(c.send_client(&[tx], &[&who.wallet]), "PlaceHome");
@@ -188,7 +226,11 @@ fn place_home_gives_the_starter_host_only_in_a_paced_world() {
     // (S1_TEST keeps the wedge placement: wedge 0's heartland province is nation 0's)
     let (c, w, s, landed) = place_first_home(pacing_fast(S1_TEST), 51);
     println!("PlaceHome with starter host CU {}", landed.cu);
-    assert!(landed.cu <= 40_000, "PlaceHome CU {} over its 40,000 row", landed.cu);
+    assert!(
+        landed.cu <= 40_000,
+        "PlaceHome CU {} over its 40,000 row",
+        landed.cu
+    );
     let rec = one(&landed.logs, Kind::MUSTER);
     let pd = c.data(&w.a.province(s.p as i32, s.q as i32));
     let hd = c.data(&w.a.holding(s.p as i32, s.q as i32, s.site));
@@ -198,7 +240,10 @@ fn place_home_gives_the_starter_host_only_in_a_paced_world() {
         .collect();
     assert_eq!(entries.len(), 1, "one starter host");
     let e = entries[0];
-    assert_eq!(e.state, frontier_abi::layout::province::entry::STATE_MUSTER_PENDING);
+    assert_eq!(
+        e.state,
+        frontier_abi::layout::province::entry::STATE_MUSTER_PENDING
+    );
     assert_eq!(e.troops, 500 * 1000);
     assert_eq!(e.unit, 0);
     assert_eq!(e.tile, hd[H::TILE]);
@@ -208,7 +253,9 @@ fn place_home_gives_the_starter_host_only_in_a_paced_world() {
     assert_eq!(u32_at(&hd, H::reserve(0)), 0);
     let (c, w, s, landed) = place_first_home(S1_TEST, 52);
     println!("PlaceHome legacy CU {}", landed.cu);
-    assert!(permutation_frontier_svm_tests::records::of_kind(&landed.logs, Kind::MUSTER).is_empty());
+    assert!(
+        permutation_frontier_svm_tests::records::of_kind(&landed.logs, Kind::MUSTER).is_empty()
+    );
     let pd = c.data(&w.a.province(s.p as i32, s.q as i32));
     assert!((0..P::ENTRIES_N).all(|i| frontier_abi::entry::read_entry(&pd, i).unwrap().state == 0));
     let hd = c.data(&w.a.holding(s.p as i32, s.q as i32, s.site));
@@ -221,7 +268,12 @@ fn a_300_s_window_schedule_only_in_a_paced_world() {
         let mut c = Chain::test_beacon();
         let w = running_v2(&mut c, id, p);
         let from_bell = w.bell_at(c.now).expect("running") + 200;
-        let ix = permutation_frontier_svm_tests::ix::season::set_window_schedule(&w.a, w.authority.pubkey(), 300, from_bell);
+        let ix = permutation_frontier_svm_tests::ix::season::set_window_schedule(
+            &w.a,
+            w.authority.pubkey(),
+            300,
+            from_bell,
+        );
         let r = c.send(&[ix], &[&w.authority]);
         if ok {
             expect_lands(r, "SetWindowSchedule 300 (paced)");

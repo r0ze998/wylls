@@ -46,8 +46,16 @@ fn every_archived_world3_lane_transaction_replays_identically() {
     let new_path = std::env::var("PSF_PACING_SO").expect("PSF_PACING_SO");
     let new = Program::load(std::path::Path::new(&new_path)).expect("the program under test");
     let old = Program::load(&common::fixtures_dir().join(WORLD3_SO)).expect("world 3's .so");
-    assert_eq!(hex::encode(old.sha256()), WORLD3_SHA256, "the fixture is world 3's program");
-    assert_ne!(old.sha256(), new.sha256(), "PSF_PACING_SO is not another program");
+    assert_eq!(
+        hex::encode(old.sha256()),
+        WORLD3_SHA256,
+        "the fixture is world 3's program"
+    );
+    assert_ne!(
+        old.sha256(),
+        new.sha256(),
+        "PSF_PACING_SO is not another program"
+    );
     let old_so = Arc::new(old.so.as_ref().clone());
     let new_so = Arc::new(new.so.as_ref().clone());
     let mut names: Vec<String> = std::fs::read_dir(common::fixtures_dir())
@@ -81,7 +89,11 @@ fn every_archived_world3_lane_transaction_replays_identically() {
                     }
                     let (ox, oy) = (outcome(&x), outcome(&y));
                     if ox != oy {
-                        diffs.push(format!("{name} tx#{i}:\n world3: {}\n new:    {}", &ox[..ox.len().min(600)], &oy[..oy.len().min(600)]));
+                        diffs.push(format!(
+                            "{name} tx#{i}:\n world3: {}\n new:    {}",
+                            &ox[..ox.len().min(600)],
+                            &oy[..oy.len().min(600)]
+                        ));
                     }
                 }
                 (Err(e), Err(f)) if e == f => unreplayable += 1,
@@ -98,5 +110,9 @@ fn every_archived_world3_lane_transaction_replays_identically() {
         diffs.len()
     );
     assert!(replayed > 0, "nothing was re-executed");
-    assert!(diffs.is_empty(), "world 3 would change:\n{}", diffs.join("\n"));
+    assert!(
+        diffs.is_empty(),
+        "world 3 would change:\n{}",
+        diffs.join("\n")
+    );
 }

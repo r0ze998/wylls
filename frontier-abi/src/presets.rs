@@ -324,7 +324,10 @@ impl SeasonParams {
             (lead_ok, "min_lead"),
             (p.max_lead == 72, "max_lead"),
             (p.transit_slots == 4, "transit_slots"),
-            ((window_min..=1_800).contains(&p.reveal_window), "reveal_window"),
+            (
+                (window_min..=1_800).contains(&p.reveal_window),
+                "reveal_window",
+            ),
             (p.seed_margin >= 60, "seed_margin"),
             (p.archive_after >= 172_800, "archive_after"),
             (
