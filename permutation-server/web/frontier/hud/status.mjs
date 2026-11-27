@@ -84,8 +84,10 @@ const refusal = n => !!n && n.ok === false && !n.busy && !n.waiting && !n.loss;
  * unless the press set its own `FS.lastAct` (a send it made by itself: the muster's and the march's wait presses) or the
  * notice already says what it concerns (`unsent`). Null when there is nothing to change.
  */
-export function unownedRefusal({ noticeBefore, notice, lastActBefore, lastAct }) {
-  if (notice === noticeBefore || !refusal(notice) || lastAct !== lastActBefore || notice.unsent) return null;
+export function unownedRefusal({ noticeBefore, notice, lastActBefore, lastAct, sendLeft = null }) {
+  // (verify-pr303: `sendLeft` — the notice an earlier send left when it settled while this press was still running: that
+  //  refusal is the send's own, named and retried as it was)
+  if (notice === noticeBefore || !refusal(notice) || lastAct !== lastActBefore || notice.unsent || notice === sendLeft) return null;
   return { ...notice, unsent: UNSENT_UNNAMED, retry: false };
 }
 /** "Try again": the remembered send (`FS.lastAct`) run once more as it was — its action with its data, or its form with its values. */

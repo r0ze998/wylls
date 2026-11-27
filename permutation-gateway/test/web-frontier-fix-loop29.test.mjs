@@ -213,3 +213,39 @@ test('the wiring: the dispatcher hands the net the state before every press that
   // every send is an action of the controller (the retry runs ACTIONS[name])
   for (const s of app.SENDS) assert.equal(typeof ACTIONS[s], 'function', s);
 });
+
+// (verify-pr303) The net and a slow press: a send's refusal that lands while a press that is NOT a send is still running
+// (a read, a re-read) stays the send's — its line and its "Try again" — when that press settles; a new refusal the slow
+// press leaves after it is still its own (named nothing, no retry).
+for (const lang of ['ja', 'en']) {
+  test(`verify-pr303 (${lang}): an earlier send's refusal landing during a slow non-send press keeps its line and its retry`, async () => {
+    setLang(lang);
+    spy(ACTIONS, 'train', async () => { FS.notice = { busy: true }; await new Promise(r => setTimeout(r, 15)); FS.notice = { ...REFUSED }; });
+    spy(ACTIONS, 'me-retry', () => new Promise(r => setTimeout(r, 40)));
+    const el = { dataset: { act: 'train', unit: '0', n: '100' }, disabled: false, tagName: 'BUTTON', getAttribute: () => null };
+    for (const f of listeners.click) f({ target: { closest: () => el }, preventDefault() {} });
+    await press('me-retry');                          // pressed while the Train is in flight
+    await new Promise(r => setTimeout(r, 60));        // the Train refused (15 ms), then the read settles (40 ms)
+    assert.equal(FS.notice.unsent, undefined, 'the net left the Train\'s refusal alone');
+    const out = toast();
+    assert.ok(out.includes(L`訓練はまだされていません。`), out);
+    if (lang === 'en') { assert.match(out, /Nothing has been trained yet\./); assert.doesNotMatch(out, /season/i); }
+    calls.length = 0;
+    await press('notice-retry');
+    assert.deepEqual(calls.map(c => c[0]), ['train'], 'the retry is the Train');
+  });
+}
+test('verify-pr303: a slow non-send press that leaves its OWN refusal after an earlier send was refused is still caught by the net', async () => {
+  spy(ACTIONS, 'train');                                         // refused at once
+  spy(ACTIONS, 'outpost-send', async () => { await new Promise(r => setTimeout(r, 15)); FS.notice = { ok: false, code: 'NotResident', programCode: 26 }; });
+  const el = { dataset: { act: 'train', unit: '0', n: '100' }, disabled: false, tagName: 'BUTTON', getAttribute: () => null };
+  for (const f of listeners.click) f({ target: { closest: () => el }, preventDefault() {} });
+  await settle();
+  await press('outpost-send'); await new Promise(r => setTimeout(r, 30));
+  assert.equal(FS.notice.unsent, status.UNSENT_UNNAMED);
+  assert.doesNotMatch(toast(), /data-act="notice-retry"/);
+  // the pure rule
+  const n = { ...REFUSED };
+  assert.equal(status.unownedRefusal({ noticeBefore: { busy: true }, notice: n, lastActBefore: TRAIN, lastAct: TRAIN, sendLeft: n }), null, 'the send left it');
+  assert.deepEqual(status.unownedRefusal({ noticeBefore: null, notice: n, lastActBefore: TRAIN, lastAct: TRAIN, sendLeft: { ...REFUSED } }), { ...n, unsent: 'unnamed', retry: false });
+});

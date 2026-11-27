@@ -4981,9 +4981,14 @@ export function delegate(doc) {   // (exported for tests: fix-loop29 drives the 
   //  leaves, unless the press set FS.lastAct itself, names nothing and offers no retry (hud/status.mjs unownedRefusal) —
   //  FS.lastAct is the EARLIER send then, and "Try again" re-ran that: a refused muster said "Nothing has been trained
   //  yet." and its retry trained 100 Spearmen)
+  // (verify-pr303: `sendLeft` — the notice a send of the dispatcher left when it settled. A slow press that is not a send
+  //  and settles AFTER an earlier send's refusal must not take that refusal as its own: the send's toast keeps its line
+  //  and its "Try again")
+  let sendLeft = null;
   const run = (p, control = null, own = null) => Promise.resolve(p).catch(e => { FS.notice = { ok: false, code: e?.code ?? 'Error', text: String(e?.message ?? e) }; invalidate('panel'); })
     .then(() => {
-      const fixed = own ? status.unownedRefusal({ ...own, notice: FS.notice, lastAct: FS.lastAct }) : null;
+      if (control && !own) sendLeft = FS.notice;
+      const fixed = own ? status.unownedRefusal({ ...own, notice: FS.notice, lastAct: FS.lastAct, sendLeft }) : null;
       if (fixed) { FS.notice = fixed; invalidate('panel'); }
       if (control && FS.notice && FS.notice.ok === false && !FS.notice.busy) shake(control);
     });
