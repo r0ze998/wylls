@@ -15,6 +15,9 @@
 //!
 //! Model, not the live map: ring seeds here are sha256("tg8-ring" ‖ genesis seed ‖ ring) (a live world draws ring 4's from
 //! a drand round at its opening), and every site is free (the demo's test participants fill some).
+// (capture_demo and natural_play are behind the local-play features: built and run by the CI step that names them)
+#![cfg(feature = "localnet-expedition-play")]
+
 use frontier_abi::v2::kernel::keep as kkeep;
 use itest::capture_demo::{
     check_candidate, foreign_keep_candidates, pair_b_nation, pair_role, predict_home,
