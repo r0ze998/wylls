@@ -504,7 +504,7 @@ test('runChecks: before CreateSeason nothing post-create is expected; a finished
   const ps = PS_ALL.split('\n').filter((l) => !/run-gateway|server\.mjs|run-keeper|frontier-keeper/.test(l)).join('\n');
   const r = await world({ rpc: fakeRpc({ stored: 0 }), now: T - 3600, driver: '2026-11-23 19:34:37 JST driver start pid 92587', ps, join: null, tunnelLog: 'x',
     herald: { '/h/season': { status: 503, body: { code: 'NoSeasonYet', ok: false } }, '/h/status': { status: 200, body: { ingest: { state: 'ok' }, live: [995] } } } });
-  for (const k of ['proc.gateway', 'proc.keeper', 'proc.season-driver', 'gateway.health', 'keeper.api', 'herald.season', 'season.phase', 'join.check']) {
+  for (const k of ['proc.gateway', 'proc.keeper', 'proc.season-driver', 'gateway.health', 'keeper.api', 'keeper.landed', 'herald.season', 'season.phase', 'join.check']) {
     assert.equal(r.by[k].level, 'OK', `${k}: ${r.by[k].detail}`);
   }
   const done = await world({ ps: PS_ALL.split('\n').filter((l) => !/season-driver|gateway-starter|join-check/.test(l)).join('\n'), tunnelLog: 'x' });
@@ -762,6 +762,7 @@ test('runChecks postponed by marker or flag: driver / gateway / keeper absence i
     assert.match(r.by['season.phase'].detail, /Announced, creation postponed/, name);
     assert.match(r.by['gateway.health'].detail, /world creation postponed/, name);
     assert.match(r.by['keeper.api'].detail, /world creation postponed/, name);
+    assert.match(r.by['keeper.landed'].detail, /world creation postponed/, name);
     assert.match(r.by['join.check'].detail, /world creation postponed/, name);
     assert.equal(r.by['herald.season'].detail.startsWith('NoSeasonYet'), true, name);
     assert.ok(r.postponed, name);
@@ -772,7 +773,7 @@ test('runChecks postponed by marker or flag: driver / gateway / keeper absence i
   assert.match(m.by['world.creation'].detail, /marker <logs>\/devnet-create-postponed: owner t506s1572 11-24 12:07/);
   // every other line is the default one: the mode adds one line and changes text / level only where it says
   const d = await noWorld();
-  const changed = ['proc.season-driver', 'proc.gateway-starter', 'proc.join-check', 'proc.gateway-supervisor', 'proc.gateway', 'proc.keeper-supervisor', 'proc.keeper', 'balance.authority', 'season.phase', 'gateway.health', 'keeper.api', 'join.check'];
+  const changed = ['proc.season-driver', 'proc.gateway-starter', 'proc.join-check', 'proc.gateway-supervisor', 'proc.gateway', 'proc.keeper-supervisor', 'proc.keeper', 'balance.authority', 'season.phase', 'gateway.health', 'keeper.api', 'keeper.landed', 'join.check'];
   const strip = (c) => ({ ...c, detail: c.detail.replace(/\(\d+ ms\)/g, '(ms)').replace(/127\.0\.0\.1:\d+/g, 'host') });
   assert.deepEqual(m.out.filter((c) => c.key !== 'world.creation' && !changed.includes(c.key)).map(strip), d.out.filter((c) => !changed.includes(c.key)).map(strip));
 });
@@ -854,5 +855,30 @@ test('readKeeperJournal: reads a WAL journal read-only with the sqlite3 CLI (ski
     const empty = path.join(dir, 'empty.sqlite');
     execSync('sqlite3', [empty, 'CREATE TABLE attempts(sig TEXT, sent_slot INTEGER, landed_slot INTEGER, status TEXT);']);
     assert.deepEqual(readKeeperJournal(empty), { maxLanded: null, maxSent: null, sent: 0 });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('readKeeperJournal: a stopped keeper (no -wal/-shm) is read with immutable=1; a live one never is (verify-pr281)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-journal-'));
+  try {
+    const f = path.join(dir, 'keeper.journal.sqlite');
+    fs.writeFileSync(f, '');
+    const calls = [];
+    // macOS /usr/bin/sqlite3 refuses mode=ro on a WAL database whose -shm is gone: the fallback reads it immutable.
+    const refuseRo = (args) => { calls.push(args[3]); if (!args[3].includes('immutable=1')) throw new Error('unable to open database file'); return '7 9 1\n'; };
+    assert.deepEqual(readKeeperJournal(f, refuseRo), { maxLanded: 7, maxSent: 9, sent: 1 });
+    assert.deepEqual(calls, [`file:${f}?mode=ro`, `file:${f}?mode=ro&immutable=1`]);
+    // -shm present = a connection may have it open: never immutable (it could read a torn or stale state).
+    for (const side of ['-shm', '-wal']) {
+      fs.writeFileSync(f + side, '');
+      calls.length = 0;
+      assert.equal(readKeeperJournal(f, refuseRo), null, side);
+      assert.deepEqual(calls, [`file:${f}?mode=ro`], side);
+      fs.rmSync(f + side);
+    }
+    // in place first: a working mode=ro read is the only call
+    calls.length = 0;
+    assert.deepEqual(readKeeperJournal(f, (args) => { calls.push(args[3]); return ' 5 0\n'; }), { maxLanded: null, maxSent: 5, sent: 0 });
+    assert.equal(calls.length, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

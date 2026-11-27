@@ -148,7 +148,9 @@ Checks: the processes the logs say should be up (see "Process checks" below), de
 CreateSeason time (late CreateSeason / genesis seed → WARN/FAIL), balances of the deployer, authority and keeper A
 funders vs thresholds, herald `/h/season` + `/h/status` (ingest, alarms) and lag (herald live slot vs RPC slot),
 the gateway's public `/f/season`, keeper A's API (`/v1/status` without a token must answer 401: the token is not
-read, so duties/rent/lag come from its log), tunnel name vs the herald's `public-host`, the public page and
+read, so duties/rent/lag come from its log), `keeper.landed` (keeper A's journal read with `sqlite3 -readonly`: the newest
+`landed` write vs the herald live slot, WARN > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min or no landed write; a
+healthy keeper lands anchor/seed/beacon-log every bell even in a quiet world), tunnel name vs the herald's `public-host`, the public page and
 `/h/season` through the tunnel, the join check's result, disk free, and error/restart/STOP lines in the last
 500 lines of each `devnet-*.log`.
 

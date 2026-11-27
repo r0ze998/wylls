@@ -150,14 +150,25 @@ export function keeperLandedCheck(j, live) {
   return { level, detail: `${landed}; ${sent}; ${j.sent ?? '?'} sends unresolved` };
 }
 
-/** Reads {maxLanded, maxSent, sent} from the keeper journal with the sqlite3 CLI, read-only (null if unreadable). */
-export function readKeeperJournal(file, run = (args) => execFileSync('sqlite3', args, { encoding: 'utf8', timeout: 10_000 })) {
-  try {
-    if (!fs.existsSync(file)) return null;
-    const q = "SELECT (SELECT max(landed_slot) FROM attempts WHERE status = 'landed'), (SELECT max(sent_slot) FROM attempts), (SELECT count(*) FROM attempts WHERE status = 'sent');";
-    const [l, s, n] = run(['-readonly', '-separator', ' ', `file:${file}?mode=ro`, q]).replace(/\r?\n$/, '').split(' ');
+/**
+ * Reads {maxLanded, maxSent, sent} from the keeper journal with the sqlite3 CLI, read-only (null if unreadable).
+ * A WAL reader never blocks the keeper's writes. While the keeper runs, its `-shm` exists and `mode=ro` reads in place.
+ * When the keeper is stopped (a clean close removes `-wal` and `-shm`), macOS's /usr/bin/sqlite3 (3.54 "aapl") refuses
+ * a read-only open of a WAL database ("unable to open database file", verify-pr281); with neither file present nothing
+ * has the journal open and nothing is unflushed, so it is read again with `immutable=1` (no lock, no -shm).
+ */
+export function readKeeperJournal(file, run = (args) => execFileSync('sqlite3', args, { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] })) {
+  if (!fs.existsSync(file)) return null;
+  const q = "SELECT (SELECT max(landed_slot) FROM attempts WHERE status = 'landed'), (SELECT max(sent_slot) FROM attempts), (SELECT count(*) FROM attempts WHERE status = 'sent');";
+  const read = (uri) => {
+    const [l, s, n] = run(['-readonly', '-separator', ' ', uri, q]).replace(/\r?\n$/, '').split(' ');
     const num = (x) => (x === '' || x == null ? null : Number(x));
     return { maxLanded: num(l), maxSent: num(s), sent: num(n) };
+  };
+  try { return read(`file:${file}?mode=ro`); } catch { /* below */ }
+  try {
+    if (fs.existsSync(`${file}-wal`) || fs.existsSync(`${file}-shm`)) return null;
+    return read(`file:${file}?mode=ro&immutable=1`);
   } catch { return null; }
 }
 
@@ -648,7 +659,10 @@ export async function runChecks(o) {
     } catch (e) { add('FAIL', 'keeper.api', `no answer on :${P.keeper}: ${e.message}`); }
     const kl = keeperLandedCheck(o.keeperJournal !== undefined ? o.keeperJournal : readKeeperJournal(path.join(o.runDir, 'keeper-a', 'keeper.journal.sqlite')), heraldLive);
     add(kl.level, 'keeper.landed', kl.detail);
-  } else add('OK', 'keeper.api', postponed ? 'not started: world creation postponed' : 'not started yet (the driver starts it after CreateSeason)');
+  } else {
+    add('OK', 'keeper.api', postponed ? 'not started: world creation postponed' : 'not started yet (the driver starts it after CreateSeason)');
+    add('OK', 'keeper.landed', postponed ? 'not expected: world creation postponed' : 'not started yet (the driver starts keeper A after CreateSeason)');
+  }
 
   // tunnel name vs the herald's public host, and the public URL from outside (Cloudflare edge)
   const host = (readText(path.join(o.runDir, 'public-host')) ?? '').trim();
