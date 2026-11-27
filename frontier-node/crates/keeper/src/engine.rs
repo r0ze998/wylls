@@ -2400,17 +2400,26 @@ mod tests {
         let mut payers = payers();
         payers.refresh(&port, 0).await.unwrap();
         let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
-        for i in 0..40 {
-            e.ensure(
-                spec(&format!("w{i:02}"), Class::D, abi::tag::POST_ANCHOR),
-                1,
-            );
+        for i in 0..40u8 {
+            // Distinct instructions: the mock's blockhash is constant, so two
+            // writes drawing the same payer would otherwise sign the same
+            // transaction (verify-pr282: the journal refused the duplicate).
+            let mut w = spec(&format!("w{i:02}"), Class::D, abi::tag::POST_ANCHOR);
+            w.build = Arc::new(move |ctx| {
+                vec![tx::transfer(
+                    ctx.payer,
+                    Address::new_from_array([i; 32]),
+                    1 + u64::from(i),
+                )]
+            });
+            e.ensure(w, 1);
         }
         let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
         let sent = e.step(&port, &mut payers, Some(&j), 1).await.sent as u64;
-        assert!(sent > u64::from(BLOCKHASH_REFRESH_SENDS) * 2, "sent {sent}");
+        assert_eq!(sent, 40, "every write sent in one pass");
         let calls = port.blockhash_calls.load(SeqCst);
-        let want = sent.div_ceil(u64::from(BLOCKHASH_REFRESH_SENDS));
+        assert_eq!(BLOCKHASH_REFRESH_SENDS, 16);
+        let want = 3; // ⌈40 / 16⌉
         assert_eq!(calls, want, "{sent} sends → {want} blockhash fetches");
         assert!(j
             .in_flight()
