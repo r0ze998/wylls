@@ -36,3 +36,22 @@ test('the demo\'s words: the tag says "playable demo" and links only an https li
   assert.ok(note && /reloading the page starts over/.test(EN[note]));
   assert.doesNotMatch(Object.entries(EN).filter(([k]) => /体験版|本物の世界へ/.test(k)).map(([, v]) => v).join(' '), /season/i, 'never "season"');
 });
+
+test('landUpkeep: the season record says so and the territory player route answers (no land yet: player null); off, neither', async () => {
+  const on = await world({ nations: true, landUpkeep: true });
+  assert.equal(on.herald('/h/season', new URL('http://x/h/season')).body.sample.landUpkeep, true);
+  const r = on.herald(`/h/world/wide/territory/player/${W.KEYLESS_WALLET}`, new URL('http://x/'));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.v, 1);
+  assert.equal(r.body.player, null, 'nobody has land before a host of theirs takes a tile');
+  const off = await world({});
+  assert.equal(off.herald('/h/season', new URL('http://x/h/season')).body.sample.landUpkeep, undefined);
+  assert.equal(off.herald(`/h/world/wide/territory/player/${W.KEYLESS_WALLET}`, new URL('http://x/')), null);
+});
+
+test('the page reads the land summary in a sample world only when its record says landUpkeep, never through a relay', () => {
+  const c = web('frontier/controller.mjs');
+  assert.match(c, /const sample = !local && !dev && FS\.sample\?\.landUpkeep === true;/);
+  assert.match(c, /if \(!\(local \|\| dev \|\| sample\) \|\| !FS\.wallet/);
+  assert.match(c, /const g = local \? localDepartGate\(\) : devnetGate\(\);\n\s+if \(g\?\.ok !== true\) return undefined;/, 'no devnet gate in a sample world: the relay fallback asks nothing');
+});

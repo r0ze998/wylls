@@ -218,6 +218,18 @@ if (opt.loop) {
   await press('[data-act="drawer-close"]', { timeout: 2_000 }).catch(() => {});
   await tab('territory'); await sleep(1500);
   await shot(page, '07-land');
+  // the land logistics horizon: the viewer's land costs food each turn; the village card says how long the food lasts
+  let horizon = '';
+  for (let i = 0; i < 120 && !horizon; i++) {
+    await tab('holding');
+    horizon = (await page.locator('#hp-land-food-horizon').first().innerText({ timeout: 500 }).catch(() => '')).replace(/\s+/g, ' ').trim();
+    if (!horizon) await sleep(500);
+  }
+  check(!!horizon, `the land logistics horizon card is on the village card: "${horizon.slice(0, 160)}"`);
+  await page.locator('#hp-land-food-horizon').first().evaluate(el => el.scrollIntoView({ block: 'center' })).catch(() => {});
+  await sleep(400);
+  await shot(page, '08-horizon');
+  result.horizon = horizon;
   result.loopMs = Date.now() - tLoop;
   check(result.loopMs <= 180_000, `the loop (train → host → camp battle → report) took ${(result.loopMs / 1000).toFixed(0)} s`);
   const s1 = await summary();
