@@ -986,3 +986,12 @@ jobs:
           node build.mjs
           node smoke.mjs --lang en --loop
           node smoke.mjs --lang ja --prefix /wylls/
+          # fix-demo-wallet-p0: the build GitHub Pages deploys (pages-demo.yml) played AT https://r0ze998.github.io/wylls/
+          # (routed in the browser, not a loopback host): a clean browser, both entry URLs, EN + JA, desktop + phone,
+          # one order, no wallet prompt, no request off the site. The runs above are on 127.0.0.1, where the page found
+          # its test wallet by the loopback host name even when the Pages host did not.
+          node build.mjs --base /wylls/ --live-url ''
+          node check.mjs
+          for entry in '' frontier/index.html; do for lang in en ja; do for view in '' --mobile; do
+            node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path "$entry" --lang "$lang" $view --act
+          done; done; done
