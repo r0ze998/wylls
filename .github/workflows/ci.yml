@@ -983,3 +983,6 @@ jobs:
           node build.mjs
           node smoke.mjs --lang en --loop
           node smoke.mjs --lang ja --prefix /wylls/
+          # the saved world (reload, damaged/old saves, Start over) and the no-Ed25519 notice (demo-polish-2)
+          node smoke-save.mjs --lang en
+          node smoke-save.mjs --lang ja --only save,crypto

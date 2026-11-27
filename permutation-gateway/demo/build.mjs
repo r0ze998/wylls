@@ -13,6 +13,7 @@ import { cp, mkdir, readFile, rm, writeFile, readdir, stat } from 'node:fs/promi
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
+import { createHash } from 'node:crypto';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
@@ -29,7 +30,10 @@ const { values: opt } = parseArgs({ options: {
 } });
 const OUT = opt.out;
 if (opt.base && !/^\/(?:[\w.-]+\/)*$/.test(opt.base)) throw new Error(`--base must start and end with "/" (got ${opt.base})`);
-const DEMO = { turnSecs: Number(opt.turn), delaySecs: Number(opt.delay), landMs: Number(opt['land-ms']), liveUrl: opt['live-url'] };
+// (worldId: the save's world version, src/save.mjs — filled in below with a hash of the built world bundle, so a save
+//  is replayed only by the world build that wrote it)
+const WORLD_ID_SLOT = 'demo-world-id-to-be-filled';
+const DEMO = { turnSecs: Number(opt.turn), delaySecs: Number(opt.delay), landMs: Number(opt['land-ms']), liveUrl: opt['live-url'], worldId: WORLD_ID_SLOT };
 
 // What the page never needs in the demo (server-only pages, the art sources, the docs).
 const SKIP = [/\/art\/.*\.(?:blend|psd|kra|xcf|md)$/i, /\/README\.md$/i, /\.test\.mjs$/];
@@ -70,6 +74,12 @@ const res = await build({
   nodePaths: [join(HERE, 'node_modules')],
   plugins: [virtual], metafile: true, logLevel: 'warning',
 });
+// the world's id: sha256 of the bundle as built (with the slot in it), first 16 hex
+const worldFile = join(OUT, 'frontier', 'demo-world.js');
+const worldSrc = await readFile(worldFile, 'utf8');
+if (worldSrc.split(WORLD_ID_SLOT).length !== 2) throw new Error('walletless demo: the world id slot is not in the world bundle exactly once');
+const WORLD_ID = createHash('sha256').update(worldSrc).digest('hex').slice(0, 16);
+await writeFile(worldFile, worldSrc.replace(WORLD_ID_SLOT, WORLD_ID));
 
 // ------------------------------------------------------------------ the page bundle (first-load size)
 // The real page is about 340 ES modules (≈ 7 MiB with their comments) fetched in an import waterfall. esbuild bundles
@@ -163,4 +173,5 @@ const pageOut = Object.values(pageRes.metafile.outputs).reduce((n, o) => n + o.b
 console.log(`walletless demo → ${relative(process.cwd(), OUT) || '.'}: ${files} files, ${(bytes / 1048576).toFixed(1)} MiB (world bundle ${(world / 1024).toFixed(0)} KiB), ${Date.now() - t0} ms`);
 console.log(`  page bundle: ${pageIn} modules → ${Object.keys(pageRes.metafile.outputs).length} files, ${(pageOut / 1024).toFixed(0)} KiB; css ${(cssIn / 1024).toFixed(0)} → ${(cssOut / 1024).toFixed(0)} KiB`);
 console.log(`  base ${opt.base ? `${opt.base} (404.html sends missing paths there)` : '(none: no 404.html; pass --base /wylls/ for GitHub Pages)'}`);
+console.log(`  world id ${WORLD_ID} (a save from another world build starts fresh)`);
 console.log(`  turn ${DEMO.turnSecs} s, first toll after ${DEMO.delaySecs} s, live world link ${DEMO.liveUrl || '(none: pass --live-url https://… to show one)'}`);

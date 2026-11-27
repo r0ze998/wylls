@@ -250,6 +250,11 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .sample-tag .ic { width: 14px; height: 14px; color: var(--brass-hi); flex: none; }
 .sample-tag .sample-pace { color: var(--brass-hi); font-variant-numeric: tabular-nums; }
 .sample-tag .sample-live { color: var(--brass-hi); text-decoration: underline; text-underline-offset: 2px; margin-left: 4px; }   /* walletless demo: the link to the live world */
+.sample-tag .sample-reset { margin-left: 4px; padding: 1px 8px; min-height: 22px; border-radius: 6px; border: 1px solid var(--brass-lo); background: transparent; color: var(--brass-hi); font: inherit; font-weight: 600; cursor: pointer; }   /* walletless demo: Start over (demo-polish-2) */
+.sample-tag .sample-reset:hover, .sample-tag .sample-reset:focus-visible { background: var(--brass-lo); color: var(--ivory); }
+@media (max-width: 480px) { .sample-tag:has(.sample-reset) .sample-pace { display: none; } .sample-tag .sample-reset { margin-left: 2px; padding: 1px 6px; } }   /* (a phone: the tag keeps clear of the turn dial; the rate is in its title) */
+.nc-crypto strong { display: block; margin-bottom: 4px; }
+.nc-crypto p { margin: 0; font-weight: 500; }
 @media (max-width: 480px) { .sample-tag:has(.sample-live) { white-space: normal; max-width: 9em; flex-wrap: wrap; row-gap: 0; } .sample-tag:has(.sample-live) .sample-pace { display: none; } }   /* (a phone: the tag stays left of the turn dial) */
 .map-search:not([hidden]) ~ .sample-tag { display: none; }
 .map-search input { width: 100%; min-height: 36px; height: 36px; border-radius: 9px; border: 1px solid rgba(201,162,74,.6); background: var(--metal-glass); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: var(--ivory); padding: 0 12px; font-size: var(--t2); }
@@ -2603,6 +2608,8 @@ body[data-mode="spectate"] #panel-body > * + p:is(.muted, .as-of):not(.how-line)
    on dark metal, where the wash turned grey and the words could not be read. On metal it is an ember plate with pale
    words and a cut corner (the shape of "refused, nothing changed": the states of a decision, above). */
 .nation-confirm .notice.error { padding-left: 13px; border: 1px solid #ff8a70; border-radius: 3px; background: linear-gradient(180deg, #5a1d16, #47150f); color: #ffe9e4; font-weight: 600; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); box-shadow: inset 3px 0 0 #ff8a70; }
+/* (walletless demo, demo-polish-2: "your saved world could not be continued" — a plain status on the same metal, readable) */
+.nation-confirm .notice[data-demo-restore] { border: 1px solid var(--brass-lo); border-radius: 3px; background: rgba(0,0,0,.3); color: var(--hud-ink); }
 
 /* ---- the recorded world (map/widemode.mjs): the sheet of another reading of the world, in the HUD's own hand. Its
    foot lay under the dock; its title was the page's sans, its three small keys were the browser's own grey buttons, and

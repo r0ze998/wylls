@@ -131,6 +131,9 @@ export function renderNations(FS) {
   // The season's join gate (I-51), or a relay that answered InviteRequired.
   // A season with a prize pool is joined by paying its fee (x402), not with an invite.
   const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
+  // (walletless demo, Q-WD-8: a browser that cannot sign with Ed25519 cannot join; the notice says what to use instead
+  //  of a button that would fail. The demo's world tests the browser at load: sample.demo.crypto)
+  const demoCrypto = FS.sample?.demo && typeof FS.sample.demo.crypto === 'string' && FS.sample.demo.crypto !== 'ok' ? FS.sample.demo.crypto : null;
   const banners = cards.map(c => html`<li><button type="button" class="banner-pick bn${c.faction}" data-act="pick-faction" data-f="${c.faction}" data-nation="${c.faction}" data-flourish="attack" aria-pressed="${c.chosen ? 'true' : 'false'}"${raw(busy ? ' disabled' : '')}>
     <span class="bn-rim"><span class="bn-cloth"><span class="bn-face"></span>
       <span class="bn-field"><strong class="bn-name">${c.name}</strong><span class="bn-creed">${L`教義：${c.doctrine}`}</span>${c.ai ? html`<span class="bn-ai" data-ai="1">${L`AIあり`}</span>` : ''}</span></span></span>
@@ -144,7 +147,7 @@ export function renderNations(FS) {
     <div class="nc-what" data-stable="join-says">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
     <div class="nc-go">
       ${gated ? html`<label class="field nc-invite">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
-      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`最初のターンの始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
+      ${demoCrypto ? demoCryptoNotice(demoCrypto) : FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-stable="join-go" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`最初のターンの始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>${homeErrorActions(FS, busy)}` : ''}
@@ -154,7 +157,8 @@ export function renderNations(FS) {
       ? L`土地の候補を読み終えられなかったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。`
       : L`読み込みの間に世界かウォレットの状態が変わったので、さきほどの「始める」は取り消しました（何も送っていません）。もう一度押してください。`}</p>` : ''}
     ${nationFull(FS) ? fallbackNation(FS, busy) : ''}
-    <p class="nc-note">${FS.sample?.demo ? L`国を選ぶだけで始められます。ほかの五つの国の村を治めているのが人かAIかは、地図を見てもわかりません。この体験版はブラウザの中だけで動き、ページを開き直すと最初からになります。` : territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.localPlay ? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS.devnetPlay ? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
+    ${FS.sample?.demo ? demoRestoreNote(FS.sample.demo) : ''}
+    <p class="nc-note">${FS.sample?.demo ? (FS.sample.demo.save?.on ? L`国を選ぶだけで始められます。ほかの五つの国の村を治めているのが人かAIかは、地図を見てもわかりません。この体験版はブラウザの中だけで動き、進み具合はこのブラウザに保存されます（遊び始めてから、画面上の「最初から」でやり直せます）。` : L`国を選ぶだけで始められます。ほかの五つの国の村を治めているのが人かAIかは、地図を見てもわかりません。この体験版はブラウザの中だけで動き、ページを開き直すと最初からになります。`) : territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.localPlay ? L`この試験用の世界では、このページのテスト用ウォレットが自分で署名します（ウォレットの確認画面も、ゲーム内の鍵もありません）。` : FS.devnetPlay ? L`devnet では、あなたのウォレットが命令ごとに1回だけ署名し、手数料と家賃もウォレットから払います（devnet の SOL で、価値はありません。ゲーム内の鍵は作りません）。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}${deadlineLine(FS) ? html` <span class="nc-deadline-in">${deadlineLine(FS)}</span>` : ''}</p>
     ${deadlineLine(FS) ? html`<p class="nc-note nc-deadline">${deadlineLine(FS)}</p>` : ''}
     ${FS.localPlay?.aiNear ? html`<p class="nc-note nc-ai-near">${L`起動オプション --ai-near：あなたの最初の村が建つと、AIの住民が1人、いちばん近いほかの国に入り、近くに村を出します（その1人は、上の「AIあり」の印には入っていません）。`}</p>` : ''}
     ${renderWorldLines(FS)}
@@ -165,6 +169,22 @@ export function renderNations(FS) {
     <ul class="banners" data-stable="join-banners">${banners}</ul>
     ${confirm}
   </section>`;
+}
+
+/** The walletless demo in a browser without Ed25519 (or a page not on https): what to use instead (Q-WD-8). */
+export function demoCryptoNotice(code) {
+  return html`<div class="notice error nc-crypto" role="alert" data-demo-crypto="${code}"><strong>${L`このブラウザでは体験版を始められません`}</strong>
+    <p>${code === 'InsecureContext'
+    ? L`このページは安全な接続（https）で開かれていないため、ブラウザの署名の機能が使えません。体験版の https の住所で開いてください。`
+    : L`体験版は、ブラウザの署名の機能（WebCrypto の Ed25519）を使います。このブラウザはそれに対応していません。Chrome または Edge 137 以降、Firefox 129 以降、Safari 17 以降で開いてください。`}</p></div>`;
+}
+
+/** The walletless demo: why a saved world was not continued (an old demo version, or a save that could not be read). */
+export function demoRestoreNote(demo) {
+  const r = demo?.save?.restore;
+  if (r === 'old') return html`<p class="notice" role="status" data-demo-restore="old">${L`保存されていた体験版の世界は、体験版が新しくなる前のものなので、続きから遊べません。新しい世界で始めます。`}</p>`;
+  if (r === 'corrupt' || r === 'failed') return html`<p class="notice" role="status" data-demo-restore="${r}">${L`保存されていた体験版の世界を読み込めなかったので、新しい世界で始めます。`}</p>`;
+  return '';
 }
 
 function renderSessionFix(FS) {
