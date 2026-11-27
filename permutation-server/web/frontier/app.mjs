@@ -4022,7 +4022,7 @@ function notifyMarkup(FS) {
     </fieldset>
     <p class="hint">${L`知らせるのは、このページが読んでいるあなたの出来事だけです。何もこのブラウザの外へは送りません。`}</p>
     <h4>${L`カレンダー（.ics）`}</h4>
-    <p class="hint">${blocked === 'stopped' ? L`この世界の時計が止まっているため、予定の時刻を出せません。` : blocked ? L`世界の時刻を読み込み中です。` : evs.length ? L`これからの予定 ${fmtNum(evs.length)} 件（軍勢の出陣・進軍の到着・報告・砦）。ファイルをカレンダーのアプリに読み込んでください。時刻は目安です。予定が変わったら、もう一度書き出して読み込むと同じ予定が動きます。` : L`いまカレンダーに入れる予定はありません（出陣を待つ軍勢・進軍・砦の攻防があると出ます）。`}</p>
+    <p class="hint">${blocked === 'stopped' ? L`この世界の時計が止まっているため、予定の時刻を出せません。` : blocked === 'paceUnknown' ? L`この世界の時計の速さを測っています。速さが分かるまで、予定の時刻は出しません。` : blocked ? L`世界の時刻を読み込み中です。` : evs.length ? L`これからの予定 ${fmtNum(evs.length)} 件（軍勢の出陣・進軍の到着・報告・砦）。ファイルをカレンダーのアプリに読み込んでください。時刻は目安です。予定が変わったら、もう一度書き出して読み込むと同じ予定が動きます。` : L`いまカレンダーに入れる予定はありません（出陣を待つ軍勢・進軍・砦の攻防があると出ます）。`}</p>
     ${evs.length ? html`<ul class="notify-ics">${evs.slice(0, 5).map(e => html`<li>${when(e)} · ${e.title[lang()] ?? e.title.ja}</li>`)}</ul>` : ''}
     <div class="actions"><button type="button" class="btn" data-act="ics-download" ${evs.length ? '' : 'disabled'}>${L`カレンダーのファイルを保存`}</button>${FS.icsLast ? html`<span class="hint">${L`保存しました（${fmtNum(FS.icsLast.n)} 件）`}</span>` : ''}</div>
   </section>`;

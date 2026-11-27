@@ -50,7 +50,9 @@ test('BREAK-2: the march rows read the destination this device sent — before t
 const G = 1_800_000_000;
 function calFS({ bell = 100, marches } = {}) {
   const chainNow = G + bell * BELL_SECS + 30;
-  return { clock: { genesisTs: G }, chain: { now: () => chainNow, rate: 60 }, nowBell: bell, citizen: { faction: 0 }, holdings: [], provinces: new Map(), marches };
+  // (verify-pr271, after #271: the report time is the wait panel's reportEtaAt, which needs the clock's reveal window and
+  //  seed margin, as clock.mjs seasonClock gives them; without them no report time is written, never a guess)
+  return { clock: { genesisTs: G, window: () => 300, margin: 30 }, chain: { now: () => chainNow, rate: 60 }, nowBell: bell, citizen: { faction: 0 }, holdings: [], provinces: new Map(), marches };
 }
 test('BREAK-2: a local march row (no book entry, its transit and the destination it was sent to) is in the calendar file', () => {
   setLang('en');

@@ -16,7 +16,8 @@
 //! `Access-Control-Allow-Origin` (`server::security_headers`).
 //!
 //! **Rules** (Q-PT-12): [`PER_TURN`] messages per bell and [`PER_DAY`] per bell-day (144 bells, as the citizens' social
-//! service `limits.mjs`) per signer; at most [`MAX_CHARS`] characters, no control characters, no links (scheme,
+//! service `limits.mjs`) per signer; at most [`MAX_CHARS`] characters, not only spaces or invisible characters and no
+//! space at either end (one list with the page: [`TRIM_RANGES`], [`INVISIBLE_RANGES`]), no control characters, no links (scheme,
 //! `www.`, a domain with a known top-level name, an IPv4 address, with full-width / spaced / "dot" obfuscations folded
 //! first: [`link_in`]); messages are dropped [`KEEP_DAYS`] days (wall clock) after they were posted, reports too.
 //!
@@ -133,12 +134,76 @@ pub fn read_message(w: &World, nation: u8, wallet: &str, issued: i64, expires: i
 
 // ------------------------------------------------------------------ text rules
 
+/// Characters a text may not begin or end with (`UntrimmedText`): JavaScript's `String.prototype.trim` set and Rust's
+/// `char::is_whitespace` together (fix-tg3, owner-default Q-TG3-1 (a)). Neither language's own `trim` decides: they
+/// differ on U+FEFF (JS trims it) and U+0085 (Rust does), so a text only of U+FEFF passed here and was refused by the
+/// page. The page has the same list (hud/nationchat.mjs `TRIM_RANGES`); both are pinned to
+/// `tests/vectors/chat-invisible.json`.
+pub const TRIM_RANGES: &[(u32, u32)] = &[
+    (0x0009, 0x000D),
+    (0x0020, 0x0020),
+    (0x0085, 0x0085),
+    (0x00A0, 0x00A0),
+    (0x1680, 0x1680),
+    (0x2000, 0x200A),
+    (0x2028, 0x2029),
+    (0x202F, 0x202F),
+    (0x205F, 0x205F),
+    (0x3000, 0x3000),
+    (0xFEFF, 0xFEFF),
+];
+
+/// Characters that show nothing: Unicode's `Default_Ignorable_Code_Point` (DerivedCoreProperties, Unicode 16) and
+/// U+2800 BRAILLE PATTERN BLANK. A text made only of these and [`TRIM_RANGES`] is empty (`EmptyText`; fix-tg3,
+/// Q-TG3-1 (a): zero-width spaces, word joiners, the Hangul filler and blank braille were posted as "blank" messages).
+/// Inside a text they are kept as typed. Same list as the page (`INVISIBLE_RANGES`), pinned to the same vectors.
+pub const INVISIBLE_RANGES: &[(u32, u32)] = &[
+    (0x00AD, 0x00AD),
+    (0x034F, 0x034F),
+    (0x061C, 0x061C),
+    (0x115F, 0x1160),
+    (0x17B4, 0x17B5),
+    (0x180B, 0x180F),
+    (0x200B, 0x200F),
+    (0x202A, 0x202E),
+    (0x2060, 0x206F),
+    (0x2800, 0x2800),
+    (0x3164, 0x3164),
+    (0xFE00, 0xFE0F),
+    (0xFEFF, 0xFEFF),
+    (0xFFA0, 0xFFA0),
+    (0xFFF0, 0xFFF8),
+    (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A),
+    (0xE0000, 0xE0FFF),
+];
+
+fn in_ranges(c: char, r: &[(u32, u32)]) -> bool {
+    let u = c as u32;
+    r.iter().any(|&(a, b)| a <= u && u <= b)
+}
+
+/// Whether `c` is trimmed from a text's ends ([`TRIM_RANGES`]).
+pub fn is_trim(c: char) -> bool {
+    in_ranges(c, TRIM_RANGES)
+}
+
+/// Whether `c` shows nothing ([`INVISIBLE_RANGES`]).
+pub fn is_invisible(c: char) -> bool {
+    in_ranges(c, INVISIBLE_RANGES)
+}
+
+/// The text without [`TRIM_RANGES`] characters at its ends (the page's `trimText`).
+pub fn trim_text(t: &str) -> &str {
+    t.trim_matches(is_trim)
+}
+
 /// Why a text is refused, or `None`.
 pub fn text_problem(t: &str) -> Option<&'static str> {
-    if t.trim().is_empty() {
+    if t.chars().all(|c| is_trim(c) || is_invisible(c)) {
         return Some("EmptyText");
     }
-    if t != t.trim() {
+    if t != trim_text(t) {
         return Some("UntrimmedText");
     }
     if t.len() > MAX_BYTES || t.chars().count() > MAX_CHARS {
@@ -1474,6 +1539,85 @@ mod tests {
         assert_eq!(text_problem("a\u{202E}b"), Some("ControlCharacter"));
         assert_eq!(text_problem("see example.com"), Some("LinkNotAllowed"));
         assert_eq!(text_problem("hold the east keep\nthen march"), None);
+    }
+
+    /// fix-tg3 (Q-TG3-1 (a)): the "empty" / "trim" rule is the page's, by the shared vectors the page writes
+    /// (`tests/vectors/make-chat-invisible.mjs`): the same lists, the same code for every Unicode scalar value in every
+    /// template, and the hand cases (a text only of U+FEFF, zero-width spaces, the Hangul filler, blank braille).
+    #[test]
+    fn invisible_rule_is_the_vectors() {
+        let v: Value =
+            serde_json::from_str(include_str!("../tests/vectors/chat-invisible.json")).unwrap();
+        let ranges = |k: &str| -> Vec<(u32, u32)> {
+            v[k].as_array()
+                .unwrap()
+                .iter()
+                .map(|r| (r[0].as_u64().unwrap() as u32, r[1].as_u64().unwrap() as u32))
+                .collect()
+        };
+        assert_eq!(ranges("trim"), TRIM_RANGES, "trim list = the page's");
+        assert_eq!(
+            ranges("invisible"),
+            INVISIBLE_RANGES,
+            "invisible list = the page's"
+        );
+        let letter = |code: Option<&str>| -> String {
+            v["letters"][code.unwrap_or("null")]
+                .as_str()
+                .unwrap_or("?")
+                .to_string()
+        };
+        let templates: Vec<&str> = v["templates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_str().unwrap())
+            .collect();
+        let mut runs: Vec<(u32, u32, String)> = Vec::new();
+        for ch in (0u32..0x110000).filter_map(char::from_u32) {
+            let u = ch as u32;
+            let k: String = templates
+                .iter()
+                .map(|t| {
+                    let text: String = t
+                        .chars()
+                        .map(|x| {
+                            if x == 'c' {
+                                ch.to_string()
+                            } else {
+                                x.to_string()
+                            }
+                        })
+                        .collect();
+                    letter(text_problem(&text))
+                })
+                .collect();
+            match runs.last_mut() {
+                Some(l) if l.2 == k && (l.1 + 1 == u || (l.1 == 0xD7FF && u == 0xE000)) => l.1 = u,
+                _ => runs.push((u, u, k)),
+            }
+        }
+        let want: Vec<(u32, u32, String)> = v["outcomes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r[0].as_u64().unwrap() as u32,
+                    r[1].as_u64().unwrap() as u32,
+                    r[2].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(runs.len(), want.len(), "as many runs as the page's");
+        for (a, b) in runs.iter().zip(&want) {
+            assert_eq!(a, b, "the herald's codes = the page's");
+        }
+        for c in v["cases"].as_array().unwrap() {
+            let t = c["text"].as_str().unwrap();
+            assert_eq!(text_problem(t), c["code"].as_str(), "{t:?}");
+        }
+        assert_eq!(trim_text(" \u{FEFF}hi\u{85} "), "hi");
     }
 
     #[test]
