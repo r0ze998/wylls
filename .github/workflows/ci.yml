@@ -523,6 +523,8 @@ jobs:
           # the herald only verifies): 3 per turn under parallel posts and across the ±1 turn window, 40 per bell-day,
           # a replay refused also after a restart, nation-only reads and reports, bad token windows, 7-day expiry, and
           # the text rules = the page's on the shared vectors (tests/vectors/chat-text-rules.json). 127.0.0.1:0 only.
+          # test-gaps-4 (#274): K9 a nation's every answer (socket, posts, reads, reports, info, after a restart) is byte
+          # for byte the same whether another nation speaks; K10 a stale nextSeq on disk never reuses a kept id.
           cargo test --locked -p herald --test chat_keyfree
           # B5 (read-only devnet run): the recorded devnet answers replayed
           # offline on loopback (429 + Retry-After retried and bounded, a
