@@ -366,3 +366,35 @@ fn every_nation_and_every_second_home_of_it_either_gets_a_fort_or_says_why() {
         );
     }
 }
+
+// D-test-gaps-8-1 (found here, NOT fixed: tests only; inbox 2026-11-28 test-gaps-8): for a second player not placed yet,
+// `b_home_for` predicts its home as `predict_home(.., "{wallet}|0")` (the page's choice for ONE player: the wallet's seed,
+// the lowest-hash site). A `--two` pair's page places it otherwise since #130 (verify-pr130, LP6-12): controller.mjs
+// `homeSeed` is `"pair:{season}"` for both roles, and home.mjs `planHomes` with `pair: 'second'` takes the SECOND site of
+// the first province that has two free sites. So on the defend path the fort is chosen for a home B does not get; the
+// runner's `verify_pair` re-check then reads B's real home (`as_predicted: false`, or `pair_not_ready` if that one does
+// not reach the fort). It fails closed. Expected to fail until the owner decides (Q-TG8-1); run with `--ignored`.
+#[test]
+#[ignore = "D-test-gaps-8-1: b_home_for predicts an unplaced pair B with its wallet seed, the page uses the pair seed and the second site (Q-TG8-1)"]
+fn an_unplaced_second_players_predicted_home_is_where_the_pairs_page_places_it() {
+    let mut differ = vec![];
+    for seed in SEEDS {
+        let w = World::new(seed);
+        for nation in 0..6u8 {
+            let runner = predict_home(&w.heartland(nation), "B-wallet|0");
+            let (_, page_b) = w.pair_homes(nation, "pair:SEASON|0");
+            if runner != Some((page_b.0, page_b.1)) {
+                differ.push(format!(
+                    "seed {seed} nation {nation}: runner {runner:?}, page {:?}",
+                    (page_b.0, page_b.1)
+                ));
+            }
+        }
+    }
+    assert!(
+        differ.is_empty(),
+        "{} of 36 differ:\n{}",
+        differ.len(),
+        differ.join("\n")
+    );
+}
