@@ -5,6 +5,7 @@
 //! frontier-verify pull --program ID --season N --rpc URL --data DIR
 //!                      [--origin SIG] [--rpc-min-gap-ms N] [--page N]
 //!                      [--settle-tries N] [--no-finals] [--skip-no-program-ix]
+//!                      [--incremental [--chunk N]]
 //! ```
 //!
 //! The judge is then OFFLINE: `frontier-verify --fixture DIR/input.json.gz
@@ -49,6 +50,19 @@
 //! did write this season's accounts (a CPI into the program) leaves VG
 //! with a final state it cannot explain (FAIL, never a silent PASS).
 //!
+//! `--incremental` (off by default; verify-local-source): the catch-up
+//! fetches at most `--chunk` (default 100) transactions per pull and
+//! archives each chunk before the next (the default holds the whole new
+//! range in memory until its last `getTransaction`: 1,702 transactions /
+//! 9,038 s on 11-27, nothing archived if the run is stopped), and each
+//! transaction's balances are taken from the SAME `getTransaction` that
+//! archived it, appended to `DIR/balances.jsonl` after every chunk (the
+//! default reads them with a second identical call in step 4). Same
+//! sources, same input: ≈ 1 `getTransaction` per new transaction instead
+//! of 2, plus one `getSignaturesForAddress` listing (+ the continuity page)
+//! per chunk. A transaction served without balances is read again in
+//! step 4, as before.
+//!
 //! Every call goes through ONE pacer per endpoint
 //! ([`verify_core::input::rpc_client`]): `--rpc-min-gap-ms` apart (default
 //! 1000, at most 1 request a second; verify-pr251), HTTP 429/503 retried after the
@@ -77,6 +91,8 @@ struct Args {
     settle_tries: u32,
     finals: bool,
     skip_no_program_ix: bool,
+    /// `--incremental`: the per-pull fetch cap (`--chunk`, default 100).
+    incremental: Option<usize>,
 }
 
 fn fail(msg: &str) -> ! {
@@ -89,6 +105,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Args {
     let (mut program, mut season, mut rpc, mut data, mut origin) = (None, None, None, None, None);
     let (mut page, mut settle_tries, mut finals, mut gap) = (1_000usize, 3u32, true, 1_000u64);
     let mut skip_no_program_ix = false;
+    let (mut incremental, mut chunk) = (false, None::<usize>);
     // The ruleset hash the fixture's config names (the judge's --ruleset overrides it): S1's v3, which world 3's
     // Season carries (expedition_dispatch_ix: "S1's RULESET_HASH_V3, 12").
     let mut ruleset = frontier_abi::v2::presets::RULESET_HASH_V3;
@@ -124,9 +141,22 @@ fn parse(mut a: impl Iterator<Item = String>) -> Args {
             }
             "--no-finals" => finals = false,
             "--skip-no-program-ix" => skip_no_program_ix = true,
+            "--incremental" => incremental = true,
+            "--chunk" => {
+                chunk = Some(
+                    val()
+                        .parse()
+                        .ok()
+                        .filter(|n| (1..=1_000).contains(n))
+                        .unwrap_or_else(|| fail("bad --chunk (1..=1000)")),
+                )
+            }
             "--ruleset" => ruleset = input::hex_arr(&val()).unwrap_or_else(|e| fail(&e)),
             other => fail(&format!("unknown argument {other}")),
         }
+    }
+    if chunk.is_some() && !incremental {
+        fail("--chunk needs --incremental");
     }
     // One pacer per endpoint for the whole run (loopback included).
     input::set_rpc_min_gap_ms(gap);
@@ -141,15 +171,69 @@ fn parse(mut a: impl Iterator<Item = String>) -> Args {
         settle_tries,
         finals,
         skip_no_program_ix,
+        incremental: incremental.then(|| chunk.unwrap_or(DEFAULT_CHUNK)),
+    }
+}
+
+/// `--incremental`'s default `--chunk`.
+const DEFAULT_CHUNK: usize = 100;
+
+/// `--incremental`: `DIR/balances.jsonl` appended after each archived chunk
+/// with the balances its `getTransaction`s served.
+struct BalanceSink {
+    file: std::fs::File,
+    /// Balances written this run.
+    written: usize,
+}
+
+impl BalanceSink {
+    fn open(p: &std::path::Path) -> Result<BalanceSink, String> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .map_err(|e| format!("{}: {e}", p.display()))?;
+        Ok(BalanceSink { file, written: 0 })
+    }
+
+    fn write(&mut self, src: &mut findex::RpcPoll) -> Result<(), String> {
+        use std::io::Write as _;
+        let got = src.take_balances();
+        let mut n = 0;
+        for (sig, b) in got {
+            if let Some((pre, post)) = b {
+                writeln!(
+                    self.file,
+                    "{}",
+                    json!({"sig": sig.to_string(), "pre": pre, "post": post})
+                )
+                .map_err(|e| e.to_string())?;
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.file.sync_data().map_err(|e| e.to_string())?;
+            self.written += n;
+        }
+        Ok(())
     }
 }
 
 /// Pulls until caught up (or until a held-back tail stays held back).
-async fn catch_up(fx: &mut findex::Findex, src: &mut findex::RpcPoll) -> Result<usize, String> {
+/// With a `sink` (`--incremental`) each archived pull's balances are written
+/// before the next pull.
+async fn catch_up(
+    fx: &mut findex::Findex,
+    src: &mut findex::RpcPoll,
+    mut sink: Option<&mut BalanceSink>,
+) -> Result<usize, String> {
     let mut n = 0;
     let mut waits = 0;
     loop {
         let got = fx.ingest(src).await.map_err(|e| format!("{e:?}"))?;
+        if let Some(s) = sink.as_deref_mut() {
+            s.write(src)?;
+        }
         if got.is_empty() {
             if src.held_back() == 0 || waits >= HELD_WAITS {
                 break;
@@ -354,9 +438,17 @@ async fn run(args: &Args) -> Result<Value, String> {
     if let Some(o) = args.origin {
         src = src.with_origin(o);
     }
+    let mut sink = match args.incremental {
+        Some(cap) => {
+            src.max_batch = cap;
+            src.keep_balances = true;
+            Some(BalanceSink::open(&args.data.join("balances.jsonl"))?)
+        }
+        None => None,
+    };
     fx.resume(&mut src);
     let rpc = input::rpc_client(&args.rpc);
-    let mut archived = catch_up(&mut fx, &mut src).await?;
+    let mut archived = catch_up(&mut fx, &mut src, sink.as_mut()).await?;
     let mut summary = json!({
         "ok": true,
         "archive": store.join("archive").display().to_string(),
@@ -388,7 +480,7 @@ async fn run(args: &Args) -> Result<Value, String> {
             }
             // A transaction landed at or before the finals' slot: archive it
             // and read the finals again.
-            archived += catch_up(&mut fx, &mut src).await?;
+            archived += catch_up(&mut fx, &mut src, sink.as_mut()).await?;
         };
         let (consistent, final_slot, finals, late, txs) = settled;
         // The Rent sysvar and the lookup tables at the finals' point.
@@ -514,8 +606,8 @@ async fn run(args: &Args) -> Result<Value, String> {
             "late_signature_at_or_before_final_slot": late,
             "tries": tries,
         });
-        summary["balances"] =
-            json!({"fetched": fetched, "unserved": unserved, "cached": inp.chain.balances.len()});
+        summary["balances"] = json!({"fetched": fetched, "unserved": unserved, "cached": inp.chain.balances.len(),
+            "inline": sink.as_ref().map(|s| s.written)});
         summary["ruleset"] = json!(hex::encode(args.ruleset));
     } else {
         match input::program_hash(&args.rpc, &args.program).await {
@@ -539,5 +631,6 @@ async fn run(args: &Args) -> Result<Value, String> {
     summary["requests"] = json!(calls);
     summary["throttled"] = json!(throttled);
     summary["seconds"] = json!(t0.elapsed().as_secs_f64());
+    summary["incremental"] = json!(args.incremental.map(|c| json!({"chunk": c})));
     Ok(summary)
 }

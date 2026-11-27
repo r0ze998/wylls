@@ -5,7 +5,7 @@
 //   node scripts/devnet/verify-watch.mjs --rpc URL --program ID --season N --data DIR
 //        --verify-bin PATH [--pull-bin PATH] --program-so SO [--pinned-sha256 HEX] [--ruleset HEX]
 //        [--once | --every MIN] [--max-rps 1] [--settle-tries 3] [--until UNIX] [--devnet]
-//        [--keep-on-fail] [--skip-no-program-ix]
+//        [--keep-on-fail] [--skip-no-program-ix] [--incremental [--chunk N]]
 //   node scripts/devnet/verify-watch.mjs --judge-only --data DIR … (re-judge DIR/input.json.gz, no RPC)
 //
 // Each cycle: `PULL_BIN pull` (archive the new signatures since the stored cursor in DIR/findex — the verifier's
@@ -24,6 +24,9 @@
 // Owner questions Q-W3VW-1..4 are flags (defaults = the safe choice): --max-rps (default 1), --every MIN,
 // --keep-on-fail (default: the first FAIL stops the loop, exit 1; with it the loop goes on and exits 1 at --until),
 // --skip-no-program-ix (default off; pull leaves out transactions with no top-level instruction to the program).
+// --incremental [--chunk N] (default off; verify-local-source): the pull archives every N (default 100) new
+// transactions as it goes and takes each one's balances from the same getTransaction (≈ 1 getTransaction per new
+// transaction instead of 2; same devnet source, same judge input). Off = the pull exactly as before.
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -33,7 +36,7 @@ import { DEFAULTS, QUICKNET_PK, checkRpc, classify, gapMsFor, logLine, nextDelay
 const KEEP_REPORTS = 48;
 
 function parseArgs(argv) {
-  const o = { once: false, judgeOnly: false, devnet: false, keepOnFail: false, skipNoProgramIx: false, maxRps: DEFAULTS.maxRps, settleTries: DEFAULTS.settleTries, every: null, until: null };
+  const o = { once: false, judgeOnly: false, devnet: false, keepOnFail: false, skipNoProgramIx: false, incremental: false, chunk: null, maxRps: DEFAULTS.maxRps, settleTries: DEFAULTS.settleTries, every: null, until: null };
   const need = (i, k) => { if (i + 1 >= argv.length) usage(`${k} needs a value`); return argv[i + 1]; };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -56,6 +59,8 @@ function parseArgs(argv) {
       case '--devnet': o.devnet = true; break;
       case '--keep-on-fail': o.keepOnFail = true; break;
       case '--skip-no-program-ix': o.skipNoProgramIx = true; break;
+      case '--incremental': o.incremental = true; break;
+      case '--chunk': o.chunk = Number(need(i, k)); i++; break;
       case '-h': case '--help': usage(null); break;
       default: usage(`unknown argument ${k}`);
     }
@@ -69,6 +74,7 @@ function parseArgs(argv) {
     if (!r.ok) usage(`--rpc: ${r.why}`);
   }
   if (!o.once && !(o.every > 0)) usage('give --once or --every MIN');
+  if (o.chunk !== null && !(o.incremental && Number.isInteger(o.chunk) && o.chunk >= 1 && o.chunk <= 1000)) usage('--chunk N (1..1000) needs --incremental');
   o.pullBin ??= o.verifyBin;
   o.gapMs = gapMsFor(o.maxRps);
   return o;
@@ -132,7 +138,8 @@ async function cycle(o) {
   } else {
     const r = await run(o.pullBin, ['pull', '--program', o.program, '--season', String(o.season), '--rpc', o.rpc,
       '--data', o.data, '--rpc-min-gap-ms', String(o.gapMs), '--settle-tries', String(o.settleTries),
-      ...(o.ruleset ? ['--ruleset', o.ruleset] : []), ...(o.skipNoProgramIx ? ['--skip-no-program-ix'] : [])]);
+      ...(o.ruleset ? ['--ruleset', o.ruleset] : []), ...(o.skipNoProgramIx ? ['--skip-no-program-ix'] : []),
+      ...(o.incremental ? ['--incremental', ...(o.chunk !== null ? ['--chunk', String(o.chunk)] : [])] : [])]);
     const last = r.stdout.trim().split('\n').pop();
     try { pull = JSON.parse(last); } catch { pull = { ok: false, error: `exit ${r.code}: ${(r.stderr || r.stdout).trim().split('\n').pop()?.slice(0, 200)}` }; }
     if (pull.ok !== false) writeFileSync(path.join(o.data, 'last-pull.json'), JSON.stringify(pull, null, 1));
