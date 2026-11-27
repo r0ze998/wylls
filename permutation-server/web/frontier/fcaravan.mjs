@@ -15,7 +15,7 @@ export const ROAD_BPS = 5000;
 export const BPS_ONE = 10000;
 /** travel.rs: the longest path and the most Provinces it may cross. */
 export const MAX_PATH_STEPS = 32;
-export const MAX_PATH_PROVINCES = 4;
+export const MAX_PATH_PROVINCES = 4; // the one page copy: the march card's planner (fmarch.mjs, froute-bounded.mjs) and the reach guides (fkeepreach.mjs) import it
 /** caravan.rs: a caravan is slower than a host by half. */
 export const CARAVAN_SLOW_BPS = 15000;
 /** caravan.rs: the lamports a caravan escrows for its settlement. */

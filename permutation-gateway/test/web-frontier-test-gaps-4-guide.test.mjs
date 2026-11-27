@@ -15,9 +15,9 @@
 //      camp in sight is reachable; otherwise the named camp is reachable and the pill's press opens the card on it
 //   C3 campInBounds against the REAL rules (frontier.wasm plan_path + path_cost): every route the kernel accepts within
 //      3 provinces is in bounds (the 32-step half of the bound is sound)
-//   C4 (todo, D-test-gaps-4-1; behaviour NOT changed) the province half: the program counts the provinces a route's
-//      STEPS enter (travel.rs path_cost — the start's own province only if a step re-enters it), so a march reaches a
-//      camp 4 provinces away; campInBounds drops every such camp (`> MAX_ROUTE_PROVINCES - 1`)
+//   C4 (D-test-gaps-4-1, fixed by #277 fix-campreach-4; a todo until then) the province half: the program counts the
+//      provinces a route's STEPS enter (travel.rs path_cost — the start's own province only if a step re-enters it), so
+//      a march reaches a camp 4 provinces away; campInBounds keeps every such camp (fkeepreach.mjs provinceInReach)
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -360,7 +360,7 @@ test('C3 campInBounds vs the real rules: every route the kernel accepts within 3
   assert.equal(MAX_ROUTE_PROVINCES, 4);
 });
 
-test('C4 (todo D-test-gaps-4-1) campInBounds keeps a camp 4 provinces away that the program lets a march reach', { todo: 'D-test-gaps-4-1: hud/firstbattle.mjs campInBounds drops province distance > MAX_ROUTE_PROVINCES - 1 (3), but travel.rs path_cost counts only the provinces the steps ENTER (4 besides the start). Not changed by test-gaps-4: Q-TG4-1' }, async t => {
+test('C4 (D-test-gaps-4-1, #277) campInBounds keeps a camp 4 provinces away that the program lets a march reach', async t => {
   const k = await realKernel(t);
   if (!k) return;
   // the case found here: (0,0) tile 59 → (4,-2) tile 47, 27 steps over (1,0) (2,-1) (3,-1) (4,-2), accepted by path_cost

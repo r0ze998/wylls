@@ -91,7 +91,7 @@ import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_S
 import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
 import { raidOffers, domesticRaidOffers, s1VillageModel, s1PlanOffers, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, placeKey, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
-import { cachedReach, reachKey, reachableKeeps, MAX_ROUTE_PROVINCES } from './fkeepreach.mjs';
+import { cachedReach, reachKey, reachableKeeps, provinceInReach } from './fkeepreach.mjs';
 import { campInBounds } from './hud/firstbattle.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
 import { fogNow, viewKeeps, viewTile } from './map/fog.mjs';
@@ -2375,7 +2375,7 @@ export function wantHostReach(hostId) {
  */
 export function keepsPending(provinces, keeps, ringRead, ringSeeded = () => false, origins = [], faction = null, overviews = null) {
   const from = (origins ?? []).filter(o => Number.isInteger(o?.p) && Number.isInteger(o?.q));
-  const near = c => from.length === 0 || from.some(o => hexDistance(o.p, o.q, c.p, c.q) <= MAX_ROUTE_PROVINCES);
+  const near = c => from.length === 0 || from.some(o => provinceInReach(o, c));
   const nation = v => Number.isInteger(v) && v >= 0 && v <= 5;
   // (round 3: only a province whose keep could be a ROW of the list — fkeepreach.mjs contestableKeeps / defendableKeeps:
   //  held by another nation and not a heartland, or held by the viewer's nation and contested. The centre (control 6),
