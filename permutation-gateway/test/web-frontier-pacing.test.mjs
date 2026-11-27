@@ -81,6 +81,14 @@ test('AI residents: a paced world places the rim village at once, a refusal fall
   const again = decideNext(m2, view, { homes, wide, atOnce: true });
   assert.equal(again.name, 'PlaceHome');
   assert.equal(again.atOnce, true);
+  assert.deepEqual(again.fields, { p: 128, q: 0, site: 0 });
+  // (verify-pr279) TicketState again on the same site: the site itself is taken (a rim settler's village answers
+  // TicketState too) — no endless retry: the next site of the province is placed at once
+  noteOutcome(m2, again, 'failed', { code: 'LocalActRejected', programCode: 45 });
+  const moved = decideNext(m2, view, { homes, wide, atOnce: true });
+  assert.equal(moved.name, 'PlaceHome');
+  assert.equal(moved.atOnce, true);
+  assert.deepEqual(moved.fields, { p: 128, q: 0, site: 1 });
   // a world before the byte (world 3) files the rim request as before
   const legacy = decideNext(createResidentMemory(0, 0), view, { homes, wide });
   assert.equal(legacy.name, 'FileTicket');

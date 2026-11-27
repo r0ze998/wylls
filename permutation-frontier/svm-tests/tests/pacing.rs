@@ -282,3 +282,104 @@ fn a_300_s_window_schedule_only_in_a_paced_world() {
         }
     }
 }
+
+/// (verify-pr279) Q-PM2-3's safety argument on chain: a march arriving ONE bell after its departure into a defended
+/// province of a paced world. The destination's battle of `B0 + 1` must wait for the origin's battle of `B0`
+/// (`DepartureUnsettled` while the origin is unresolved and SettleDeparture not landed), and its result must not
+/// depend on that wait (the G7 lag property at lead 1): the CLASH input and outcome digests and the fates are the same
+/// whether the origin settled before the reveal or only after the destination's close.
+fn lead1_into_defended(hold: bool, real_origin: bool) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    use permutation_frontier_svm_tests::ix::host as hix;
+    use permutation_frontier_svm_tests::world::clash::THIRDS;
+    const DIRS: [u8; 2] = [0, 0];
+    let mut c = Chain::test_beacon();
+    let w = running_v2(&mut c, 60 + real_origin as u64, paced());
+    w.to_bell(&mut c, B0, 5);
+    let e = w.craft_estate(&mut c, "lag-a", 0, (2, 0), 0);
+    let origin = (e.p as i32, e.q as i32, e.tile);
+    let steps = permutation_frontier_svm_tests::world::holding::trace(origin, &DIRS);
+    let last = *steps.last().unwrap();
+    let dest = (last.p, last.q);
+    assert_ne!(dest, (origin.0, origin.1), "the march leaves its province");
+    let d = w.craft_estate(&mut c, "lag-d", 1, (dest.0 as i16, dest.1 as i16), 0);
+    open_path(&w, &mut c, origin, &DIRS);
+    w.craft_host(&mut c, &d, &d.province, 0, 0, 0, 600, last.tile);
+    let id = w.craft_host(&mut c, &e, &e.province, 0, 0, 0, 900, e.tile);
+    let arrive = B0 + 1;
+    let m = w.plan_march(id, 1, origin, &DIRS, arrive, 1, 0, SealCase::Valid);
+    let tip = w.tip_min(&c);
+    expect_lands(
+        c.send(&[w.depart_ix(&e, (e.p, e.q), &m, tip)], &[&e.wallet]),
+        "Depart (lead 1)",
+    );
+    let origin_region = World::region(origin.0, origin.1);
+    let dest_region = World::region(dest.0, dest.1);
+    let settle_origin = |c: &mut Chain| {
+        if real_origin {
+            w.set_resolved_next(c, &e.province, B0);
+            w.ready_bell(c, B0, origin_region, None);
+            for ix in w.gather_parts(c, (origin.0, origin.1), B0, &THIRDS) {
+                expect_lands(c.send(&[ix], &[&w.keeper]), "GatherClash (origin)");
+            }
+            expect_lands(
+                c.send(&[w.resolve_ix((origin.0, origin.1), B0)], &[&w.keeper]),
+                "ResolveFromInputs (origin)",
+            );
+        } else {
+            w.resolve_through(c, &e.province, B0);
+        }
+        let settle = hix::settle_departure(&w.a, w.keeper.pubkey(), (e.p, e.q), e.href(), 1);
+        expect_lands(c.send(&[settle], &[&w.keeper]), "SettleDeparture");
+        if w.anchor_a(c, B0, origin_region).is_none() {
+            expect_lands(w.post_anchor(c, B0, origin_region), "origin anchor");
+        }
+    };
+    if !hold {
+        settle_origin(&mut c);
+    }
+    if w.anchor_a(&c, arrive, dest_region).is_none() {
+        expect_lands(w.post_anchor(&mut c, arrive, dest_region), "PostAnchor");
+    }
+    let rv = w.reveal_ix(&w.keeper.pubkey(), &e, &m, 0, true);
+    expect_lands(c.send(&[rv], &[&w.keeper]), "Reveal (lead 1)");
+    w.set_resolved_next(&mut c, &d.province, arrive);
+    w.ready_bell(&mut c, arrive, dest_region, None);
+    if hold {
+        let g = w.gather_parts(&c, dest, arrive, &THIRDS);
+        assert_code(
+            c.fork().send(&[g[0].clone()], &[&w.keeper]),
+            E::DepartureUnsettled,
+        );
+        c.advance(2 * 600);
+        settle_origin(&mut c);
+    }
+    for ix in w.gather_parts(&c, dest, arrive, &THIRDS) {
+        expect_lands(c.send(&[ix], &[&w.keeper]), "GatherClash");
+    }
+    let l = expect_lands(
+        c.send(&[w.resolve_ix(dest, arrive)], &[&w.keeper]),
+        "ResolveFromInputs",
+    );
+    let clash = one(&l.logs, Kind::CLASH);
+    assert!(
+        clash.u64("engagements") > 0,
+        "the arrival fought the resident"
+    );
+    (
+        clash.field("input_digest", true).to_vec(),
+        clash.field("outcome_digest", true).to_vec(),
+        clash.field("fates", true).to_vec(),
+    )
+}
+
+#[test]
+fn a_one_bell_march_waits_for_its_origin_and_its_battle_does_not_depend_on_the_wait() {
+    for real_origin in [false, true] {
+        let unheld = lead1_into_defended(false, real_origin);
+        let held = lead1_into_defended(true, real_origin);
+        assert_eq!(
+            unheld, held,
+            "real_origin {real_origin}: lead-1 battle identical held and unheld"
+        );
+    }
+}

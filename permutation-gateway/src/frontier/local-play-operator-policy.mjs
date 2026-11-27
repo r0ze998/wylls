@@ -485,7 +485,13 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
   // (world4-pacing-impl: TicketState 45 — a lottery cohort is open in that province, which blocks PlaceHome there until
   //  it closes: wait two decisions and place at once again, rather than file a request that holds the province open
   //  for everyone else; any other refusal falls back to the request for that site)
-  if (decision.name === 'PlaceHome' && decision.atOnce && bad && (why.programCode === 45 || why.code === 'TicketState')) memory.ticketUntil = memory.decisions + 2;
+  // (verify-pr279: the program answers TicketState also when the SITE itself is taken — e.g. a rim settler's village —
+  //  which never passes: live, four residents retried a taken site 0 for 25+ turns. So one wait-and-retry per site; a
+  //  second TicketState on the same site marks it tried and the next site is taken)
+  const ticketState = why.programCode === 45 || why.code === 'TicketState';
+  const siteKey = decision.name === 'PlaceHome' ? `${decision.fields.p},${decision.fields.q},${decision.fields.site}` : null;
+  if (decision.name === 'PlaceHome' && decision.atOnce && bad && ticketState && !(memory.ticketStateSeen ?? []).includes(siteKey)) { (memory.ticketStateSeen ??= []).push(siteKey); memory.ticketUntil = memory.decisions + 2; }
+  else if (decision.name === 'PlaceHome' && decision.atOnce && bad && ticketState) memory.triedHomes.push(siteKey);
   else if (decision.name === 'PlaceHome' && decision.atOnce && (bad || outcome === 'unknown')) (memory.atOnceTried ??= []).push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
   else if (decision.name === 'PlaceHome' && (bad || outcome === 'unknown')) memory.triedHomes.push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
   if (decision.name === 'FileTicket') {

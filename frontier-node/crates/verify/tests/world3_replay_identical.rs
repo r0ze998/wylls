@@ -30,6 +30,17 @@ use verify_core::reexec::{judged_logs, Program, Replayed};
 const WORLD3_SO: &str = "devnet-playable-245ce1ab.so.gz";
 const WORLD3_SHA256: &str = "245ce1abcdb48d59aaec9e74eb571f5316e89302b02ae877bd3976b9245d0d34";
 
+/// The compute units the frontier program's top-level invocation reports (the last "consumed N of" line).
+fn cu_of(logs: &[String]) -> u64 {
+    logs.iter()
+        .filter_map(|l| {
+            let rest = l.split(" consumed ").nth(1)?;
+            rest.split(' ').next()?.parse::<u64>().ok()
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 fn outcome(r: &Replayed) -> String {
     let logs: Vec<&str> = judged_logs(&r.logs);
     let accounts: Vec<String> = r
@@ -45,7 +56,12 @@ fn outcome(r: &Replayed) -> String {
 fn every_archived_world3_lane_transaction_replays_identically() {
     let new_path = std::env::var("PSF_PACING_SO").expect("PSF_PACING_SO");
     let new = Program::load(std::path::Path::new(&new_path)).expect("the program under test");
-    let old = Program::load(&common::fixtures_dir().join(WORLD3_SO)).expect("world 3's .so");
+    // (verify-pr279) `PSF_WORLD3_SO`: a rebuild of origin/main's devnet-playable program instead of the committed
+    // fixture; it must still be world 3's program byte for byte (sha256 below).
+    let old_path = std::env::var("PSF_WORLD3_SO")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| common::fixtures_dir().join(WORLD3_SO));
+    let old = Program::load(&old_path).expect("world 3's .so");
     assert_eq!(
         hex::encode(old.sha256()),
         WORLD3_SHA256,
@@ -64,10 +80,22 @@ fn every_archived_world3_lane_transaction_replays_identically() {
         .filter(|n| n.starts_with("playable-") && n.ends_with(".json.gz"))
         .collect();
     names.sort();
+    let mut paths: Vec<(String, std::path::PathBuf)> = names
+        .iter()
+        .map(|n| (n.clone(), common::fixtures_dir().join(n)))
+        .collect();
+    // (verify-pr279) `PSF_WORLD3_ARCHIVE`: more verifier inputs (':'-separated paths), e.g. a read-only copy of the
+    // live world-3 archive pulled by scripts/devnet/verify-watch.mjs (`input.json.gz`).
+    if let Ok(more) = std::env::var("PSF_WORLD3_ARCHIVE") {
+        for p in more.split(':').filter(|p| !p.is_empty()) {
+            paths.push((p.to_string(), std::path::PathBuf::from(p)));
+        }
+    }
     let (mut files, mut txs, mut replayed, mut ok_txs, mut unreplayable) = (0, 0, 0, 0, 0);
     let mut diffs = vec![];
-    for name in &names {
-        let Ok(base) = verify_core::input::Input::load(&common::fixtures_dir().join(name)) else {
+    let mut cu_rows: Vec<String> = vec![];
+    for (name, path) in &paths {
+        let Ok(base) = verify_core::input::Input::load(path) else {
             println!("{name}: not loadable, skipped");
             continue;
         };
@@ -84,6 +112,12 @@ fn every_archived_world3_lane_transaction_replays_identically() {
             match (ra, rb) {
                 (Ok(x), Ok(y)) => {
                     replayed += 1;
+                    cu_rows.push(format!(
+                        "{name}\t{i}\t{}\t{}\t{}",
+                        cu_of(&x.logs),
+                        cu_of(&y.logs),
+                        x.err.is_none()
+                    ));
                     if x.err.is_none() {
                         ok_txs += 1;
                     }
@@ -109,6 +143,11 @@ fn every_archived_world3_lane_transaction_replays_identically() {
         "world3-replay: {files} recordings, {txs} transactions, {replayed} re-executed ({ok_txs} succeeded under world 3's program), {unreplayable} not re-executable by either (same reason), {} differing",
         diffs.len()
     );
+    // (verify-pr279) `PSF_CU_TSV`: every re-executed transaction's compute units under both programs
+    // (file, index, world 3's, the program under test's, succeeded) for a per-instruction CU comparison.
+    if let Ok(out) = std::env::var("PSF_CU_TSV") {
+        std::fs::write(&out, cu_rows.join("\n") + "\n").expect("PSF_CU_TSV");
+    }
     assert!(replayed > 0, "nothing was re-executed");
     assert!(
         diffs.is_empty(),
