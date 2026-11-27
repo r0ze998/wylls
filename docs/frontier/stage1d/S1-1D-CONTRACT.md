@@ -298,6 +298,18 @@ own loaded limits (`30-stage1-build-plan` §5 foresaw it: "足りなければ、
 same proportion. GatherClash, SendCaravan and the raids stay within
 their rows.
 
+*Amendment (reveal-cu-investigate, 2026-11-27; client side only).* The
+keeper now **requests** `fclient::budgets::REVEAL_REQUEST_CU_S1 = 32,000`
+for an S1 or playable-lane Reveal (`Budgets::canonical_s1`, so
+`canonical_lane` too). `REVEAL_CU_LIMIT_S1 = 28,000` is unchanged as the
+presets' `reveal_cu_limit` (so `tip_min`, the params hash and the program
+are unchanged), as `cu_limit_s1` and the vectors' `cu_limit_s1`, and as
+the svm G1 gate. The program reads the requested limit only as fee
+evidence. Reason: the worst Reveal as the keeper sends it (three
+ComputeBudget instructions, each parsed by the evidence reader) uses
+27,823 CU on the devnet build 245ce1ab, which leaves 177 under 28,000
+(`svm-tests` `g01_s1_reveal_worst_at_the_keeper_profile`).
+
 ## 6. Tests
 
 - Kernel: coverage table (sizes, symmetry, clipping), `wear_bps`, `wear`.

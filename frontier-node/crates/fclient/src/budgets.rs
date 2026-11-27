@@ -23,6 +23,23 @@ pub struct Budget {
     pub loaded_limit: u32,
 }
 
+/// The CU limit a keeper REQUESTS for an S1 (and playable-lane) Reveal:
+/// above `frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1` (28,000), which
+/// stays the Season's `reveal_cu_limit` (the sealed march's `tip_min`,
+/// I-08) and the program's G1 gate. The program never reads the requested
+/// limit except as fee evidence (`evidence.rs`), so asking for more changes
+/// no rule, no preset and no params hash. reveal-cu-investigate
+/// (2026-11-27): the worst S1 Reveal (first reveal of a province-bell, 32
+/// steps over 4 Provinces, 12 hostile towers in each) on the devnet world-3
+/// build 245ce1ab uses 27,823 CU as the keeper sends it (three
+/// ComputeBudget instructions at 150 CU each, and the program's evidence
+/// parser walks each of them), 177 under 28,000, where the svm gate's
+/// two-instruction profile reads 27,593. 32,000 keeps ≥ 13 % headroom for
+/// the cluster's cost tables and a later RequestHeapFrame; the priority fee
+/// grows with the limit (≈ +14 %, ~1.7k lamports a Reveal at p 0.433).
+pub const REVEAL_REQUEST_CU_S1: u32 = 32_000;
+const _: () = assert!(REVEAL_REQUEST_CU_S1 > frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1);
+
 /// The wide-experimental bit of a lane build's `program_version`
 /// (`frontier_abi::world_index::wide_ix::WIDE_EXPERIMENTAL_VERSION_BIT`;
 /// 0x4804 = S1 | this bit | the expedition bit).
@@ -72,13 +89,19 @@ impl Budgets {
     /// The S1 table: the v2 table with `L(kind)` at the S1 release's
     /// programdata length (`frontier_abi::v2::budgets::loaded_limit_s1`;
     /// the S1 `.so` is its own program, larger than the MC one) and the S1
-    /// CU limits (stage 1d: Reveal's, `cu_limit_s1`).
+    /// CU limits (stage 1d: Reveal's, `cu_limit_s1`), Reveal requested at
+    /// [`REVEAL_REQUEST_CU_S1`].
     pub fn canonical_s1() -> Budgets {
         let mut b = Budgets::canonical_v2();
         for (tag, x) in b.by_tag.iter_mut() {
             if let Some(ix) = frontier_abi::v2::Ix::from_tag(*tag) {
                 x.loaded_limit = frontier_abi::v2::budgets::loaded_limit_s1(ix);
-                x.cu_limit = frontier_abi::v2::budgets::cu_limit_s1(ix).min(abi::CU_MAX);
+                x.cu_limit = if ix == frontier_abi::v2::Ix::Reveal {
+                    REVEAL_REQUEST_CU_S1
+                } else {
+                    frontier_abi::v2::budgets::cu_limit_s1(ix)
+                }
+                .min(abi::CU_MAX);
             }
         }
         b
@@ -254,6 +277,37 @@ mod tests {
         assert_eq!(Budgets::canonical_for(abi::PROGRAM_VERSION_S1), s1);
     }
 
+    /// reveal-cu-investigate: S1 and playable-lane seasons request Reveal
+    /// at `REVEAL_REQUEST_CU_S1`, above the S1 limit (the Season's
+    /// `reveal_cu_limit` and the program's gate, unchanged), with ≥ 10 %
+    /// over the worst Reveal measured at the keeper's own profile (27,823
+    /// CU on the devnet world-3 build); MC and M1 seasons keep their rows.
+    #[test]
+    fn s1_and_lane_reveals_are_requested_with_headroom() {
+        const WORST_AT_KEEPER_PROFILE: u32 = 27_823;
+        let s1_limit = frontier_abi::v2::budgets::REVEAL_CU_LIMIT_S1;
+        assert_eq!(s1_limit, 28_000, "the Season / tip limit is not moved");
+        for v in [abi::PROGRAM_VERSION_S1, 0x4804, 0xC804] {
+            let r = Budgets::canonical_for(v).get(abi::tag::REVEAL);
+            assert_eq!(r.cu_limit, REVEAL_REQUEST_CU_S1, "version {v:#x}");
+            assert!(r.cu_limit > s1_limit, "version {v:#x}");
+            assert!(
+                WORST_AT_KEEPER_PROFILE as u64 * 10 <= r.cu_limit as u64 * 9,
+                "version {v:#x}: < 10 % headroom"
+            );
+        }
+        assert_eq!(
+            Budgets::canonical_for(abi::PROGRAM_VERSION_V2)
+                .get(abi::tag::REVEAL)
+                .cu_limit,
+            frontier_abi::v2::budgets::budget(frontier_abi::v2::Ix::Reveal).cu_limit
+        );
+        assert_eq!(
+            Budgets::canonical_for(abi::PROGRAM_VERSION_V1).get(abi::tag::REVEAL),
+            Budgets::canonical().get(abi::tag::REVEAL)
+        );
+    }
+
     /// MC §5.4: the v2 file loads, carries `L(kind)` for every v2 kind,
     /// and each new kind's limit is frontier-abi's v2 row.
     #[test]
@@ -291,12 +345,14 @@ mod tests {
         for row in abi::INSTRUCTIONS_V2.iter() {
             let ix = frontier_abi::v2::Ix::from_tag(row.tag).unwrap();
             let x = s1.get(row.tag);
-            assert_eq!(
-                x.cu_limit,
-                frontier_abi::v2::budgets::cu_limit_s1(ix),
-                "{}",
-                row.name
-            );
+            // Reveal is requested above its S1 limit (the Season's
+            // `reveal_cu_limit`, the tip's), every other row at it.
+            let want = if row.tag == abi::tag::REVEAL {
+                REVEAL_REQUEST_CU_S1
+            } else {
+                frontier_abi::v2::budgets::cu_limit_s1(ix)
+            };
+            assert_eq!(x.cu_limit, want, "{}", row.name);
             // Reveal has its own S1 limit; the instructions that settle a
             // holding (S1_SETTLES, and the keeper's S1_SETTLES_BY_KEEPER)
             // carry S1_SETTLE_EXTRA_CU more per holding; every other row
