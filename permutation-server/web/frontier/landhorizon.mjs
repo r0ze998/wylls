@@ -338,18 +338,27 @@ export const horizonLead = () => L`この食料で土地を何マス、何ター
  * on the very bell the grace ends releases nothing: the program settles first and may_decay needs unpaid_since
  * (verify-pr285), so that case is "paid in P", not "let go in P".
  */
-function paidAgainCase(h) {
-  if (!h?.paidAgain || h.sustainable || h.turnsUntilPaid == null) return null;
+//
+// (fix-lp28-paid-again, owner r0ze 2026-11-28 00:14 Q-LP28-1 (b)) also when production now covers upkeep (`sustainable`):
+// `{sustainable: true}` then. Before, that case said only "supported indefinitely" while the chain still said unpaid and
+// claims were blocked (loop-play28 BREAK-3: a Farm took production 52 → 64 food/h over 54.45, unpaid on bells 360–361,
+// paid on 362). The "While you wait" panel (hud/waitpanel.mjs) reads the same answer.
+export function paidAgainCase(h) {
+  if (!h?.paidAgain || h.turnsUntilPaid == null) return null;
   const paidIn = h.turnsUntilPaid;
   if (paidIn > 0 && h.graceTurnsLeft != null && h.graceTurnsLeft < paidIn) return null;
-  return { now: paidIn === 0, paidIn };
+  return { now: paidIn === 0, paidIn, sustainable: !!h.sustainable };
 }
 
 /** Compact HUD / popover line, or '' when there is nothing to say. */
 export function horizonHudLine(h, rate) {
   if (!h || !(h.tiles > 0) || !(h.upkeepMilliPerHour > 0)) return '';
-  if (h.sustainable) return L`いまの土地は、この食料の生産で維持できます。`;
   const pa = paidAgainCase(h);
+  // (Q-LP28-1 (b)) unpaid now, a coming payment pays it, and production covers upkeep from then on
+  if (pa?.sustainable && pa.now) return L`今の支払いで払われます。その後は、この食料の生産でずっと維持できます。`;
+  if (pa?.sustainable) return L`土地は未払いです。${formatHorizonTurns(pa.paidIn, rate)} 後の支払いで払われます。その後は、この食料の生産でずっと維持できます。`;
+  // (a sustainable land that is paid only after its grace ends falls to the release line below, as when production is short)
+  if (h.sustainable && !h.paidAgain) return L`いまの土地は、この食料の生産で維持できます。`;
   if (pa?.now && h.turnsUntilUnpaid != null) {
     return L`今の支払いで払われます。また未払いまで ${formatHorizonTurns(h.turnsUntilUnpaid, rate)}。手放しまで ${formatHorizonTurns(h.turnsUntilRelease, rate)}。`;
   }
@@ -374,7 +383,18 @@ export function horizonHudLine(h, rate) {
 /** Status paragraphs for the village card (no cue, no lead). */
 export function horizonStatusLines(h, rate) {
   if (!h || !(h.tiles > 0) || !(h.upkeepMilliPerHour > 0)) return [];
-  if (h.sustainable) {
+  const pa = paidAgainCase(h);
+  if (pa?.sustainable) {
+    // (Q-LP28-1 (b)) the #285 "paid again" sentence, then production supports the land; the distance room as below
+    const room = h.headroom, max = h.tiles + (room ?? 0);
+    const lead = pa.now
+      ? L`今の支払いで土地の維持費が払われ、未払いは終わります。その後は、いまの土地をこの食料の生産でずっと維持できます。`
+      : L`すでに未払いです。このままなら、${formatHorizonTurns(pa.paidIn, rate)} 後の支払いで払われ、その後は、いまの土地をこの食料の生産でずっと維持できます。`;
+    if (room > 0) return [lead, L`いまの距離なら、あと ${fmtNum(room)} マスまで維持できます（最大 ${fmtNum(max)} マス）。`];
+    if (room === 0) return [lead, L`いまの距離なら、これ以上マスを増やしても維持できません。`];
+    return [lead];
+  }
+  if (h.sustainable && !h.paidAgain) {
     const room = h.headroom, max = h.tiles + (room ?? 0);
     if (room > 0) {
       return [L`いまの土地は、この食料の生産で維持できます。いまの距離なら、あと ${fmtNum(room)} マスまで維持できます（最大 ${fmtNum(max)} マス）。`];
@@ -384,7 +404,6 @@ export function horizonStatusLines(h, rate) {
     }
     return [L`いまの土地は、この食料の生産で維持できます。`];
   }
-  const pa = paidAgainCase(h);
   if (pa?.now && h.turnsUntilUnpaid != null) {
     return [L`今の支払いで土地の維持費が払われ、未払いは終わります。このままなら、未払いはまた ${formatHorizonTurns(h.turnsUntilUnpaid, rate)} 後に始まります。土地の手放しは、その 24 ターン後（${formatHorizonTurns(h.turnsUntilRelease, rate)} 後）に始まります。`];
   }

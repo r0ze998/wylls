@@ -2730,6 +2730,9 @@ export default {
   "{0} の軍勢は、いま進軍できます。": "The host of {0} can march now.",
   "土地 {0} マスの維持費：毎時 食料 {1}（払えています）": n => plural(n, "Upkeep of {0} land tile: {1} food an hour (paid)", "Upkeep of {0} land tiles: {1} food an hour (paid)"),
   "土地の維持費が払えていません。手放し始めるまで：": "Land upkeep is unpaid. Tiles start to go: ",
+  // (fix-lp28-paid-again, Q-LP28-1 (b): the payment the land horizon projects pays it — no let-go countdown then)
+  "土地の維持費は未払いです。{0} ターン後の支払いで払われ、その後はこの食料の生産でずっと維持できます。払われるのは：": n => plural(n, "Land upkeep is unpaid. The payment in {0} turn pays it, and after that this food production supports the land indefinitely. Paid: ", "Land upkeep is unpaid. The payment in {0} turns pays it, and after that this food production supports the land indefinitely. Paid: "),
+  "土地の維持費は未払いです。今の支払いで払われ、その後はこの食料の生産でずっと維持できます。": "Land upkeep is unpaid. This payment pays it, and after that this food production supports the land indefinitely.",
   "{0}の砦のマス：{1} / {2} ターン保っています。州が手に入るのは": "Keep tile of {0}: held {1} / {2} turns. The province becomes your nation's ",
   "本物の戦いを、このブラウザで確かめる": "Verify a real battle in this browser",
   "あなたの戦いの報告を開き、「このブラウザで確かめる」で計算し直すと「一致」が出ます。": "Open your battle report and press \"Verify in this browser\": the recomputed result shows \"Match\".",

@@ -31,7 +31,7 @@ use fclient::ports::ChainPort;
 
 use crate::engine::{BuildCtx, Engine, Outcome, StepReport, WriteSpec, PAYER_CARE_KIND};
 use crate::journal::Journal;
-use crate::pools::Payers;
+use crate::pools::{PayerKey, Payers};
 use fclient::abi::Class;
 
 /// Least time between two care-only status reads while a care transfer is
@@ -59,10 +59,10 @@ pub struct CareSide {
 
 /// The care-relevant parts of the keeper, borrowed apart from the feed and
 /// index state a long read holds.
-pub struct CareCtx<'a, P: ChainPort> {
+pub struct CareCtx<'a, P: ChainPort, K: PayerKey = solana_keypair::Keypair> {
     pub port: &'a P,
     pub engine: &'a mut Engine,
-    pub payers: &'a mut Payers,
+    pub payers: &'a mut Payers<K>,
     pub journal: Option<&'a Journal>,
     pub care_last: &'a mut Option<(u64, i64, usize)>,
     /// Old `expired` care rows need reconciliation first (no care at all).
@@ -74,7 +74,7 @@ pub struct CareCtx<'a, P: ChainPort> {
 
 /// Plans the top-ups and sweeps of `payers` as class N writes (keys
 /// `care:<from>:<to>:<slot>`); returns how many.
-pub fn plan_care(payers: &Payers, engine: &mut Engine, slot: u64) -> usize {
+pub fn plan_care<K: PayerKey>(payers: &Payers<K>, engine: &mut Engine, slot: u64) -> usize {
     let plan = payers.care_plan();
     let n = plan.len();
     for tr in plan {
@@ -105,7 +105,7 @@ impl CareSide {
     }
 }
 
-impl<P: ChainPort> CareCtx<'_, P> {
+impl<P: ChainPort, K: PayerKey> CareCtx<'_, P, K> {
     /// Awaits `fut` (a long chain read) and, while it runs, a care step
     /// every [`CARE_SIDE_WAKE`]. Both are polled together; a care step that
     /// started is always finished (never dropped inside a send) before the

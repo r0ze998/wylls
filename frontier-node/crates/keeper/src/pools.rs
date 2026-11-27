@@ -26,15 +26,34 @@ use fclient::ports::{ChainPort, PortResult};
 
 use crate::config::KeeperConfig;
 
-pub struct Payers {
-    pub reveal: Pool,
-    pub delay: Pool,
-    pub funders: Funders,
+/// keeper-test-seam: the keeper's payers are generic over their signer
+/// `K`. Production payers are `Payers<Keypair>` (the default), derived from
+/// the master seed by [`Payers::new`] / [`Payers::with_budgets`]; tests use
+/// [`Payers::from_pools`] with signers that hold no key
+/// (`testkit::FakeSigner`), so a send pass runs key-free. Every method below
+/// is the same code for both.
+pub struct Payers<K = Keypair> {
+    pub reveal: Pool<K>,
+    pub delay: Pool<K>,
+    pub funders: Funders<K>,
     balances: HashMap<Address, u64>,
     pub refreshed_slot: Option<u64>,
     /// Keys that sign as fixed payers besides the pools (the claim key of
     /// ClaimDefence: the beneficiary, W4-C).
-    pub extra: Vec<Keypair>,
+    pub extra: Vec<K>,
+}
+
+/// keeper-test-seam: what the keeper needs of a payer's signer beyond
+/// [`Signer`]: a copy it can hold while the payers are borrowed mutably
+/// (the engine's send pass). For `Keypair` this is `Keypair::insecure_clone`.
+pub trait PayerKey: Signer {
+    fn insecure_clone(&self) -> Self;
+}
+
+impl PayerKey for Keypair {
+    fn insecure_clone(&self) -> Self {
+        Keypair::insecure_clone(self)
+    }
 }
 
 /// Write locks of the Reveal the floor is priced at: the first reveal of a
@@ -71,7 +90,7 @@ pub fn reveal_floor_for(
     })
 }
 
-impl Payers {
+impl Payers<Keypair> {
     /// Derives the pools of `cfg` from `master` with the canonical budgets
     /// table (`frontier-abi/vectors/budgets.json`). The reveal floor is
     /// `F_r` from R99 (§8.2) unless configured; ceilings are 2 × floor.
@@ -91,25 +110,39 @@ impl Payers {
         cfg: &KeeperConfig,
         budgets: &Budgets,
     ) -> Result<Payers, PoolError> {
+        Payers::with_budgets_keys(cfg, budgets, |pool, i| payers::derive(master, pool, i))
+    }
+}
+
+impl<K: Signer> Payers<K> {
+    /// [`Payers::with_budgets`] with each payer's signer from
+    /// `key(pool_id, i)` instead of `fclient::payers::derive` (keeper-test-seam:
+    /// tests pass `testkit::FakeSigner`, which holds no key). The same pools,
+    /// sizes, floors and checks, built in the same order.
+    pub fn with_budgets_keys(
+        cfg: &KeeperConfig,
+        budgets: &Budgets,
+        mut key: impl FnMut(&str, u32) -> K,
+    ) -> Result<Payers<K>, PoolError> {
         let fr = reveal_floor_for(cfg, budgets, None);
         Ok(Payers {
-            reveal: Pool::new(
-                master,
+            reveal: Pool::new_with(
                 REVEAL_POOL,
                 cfg.reveal_pool,
                 fr,
                 fr.saturating_mul(2),
                 cfg.dev,
+                |i| key(REVEAL_POOL, i),
             )?,
-            delay: Pool::new(
-                master,
+            delay: Pool::new_with(
                 DELAY_POOL,
                 cfg.delay_pool,
                 cfg.delay_floor,
                 cfg.delay_floor.saturating_mul(2),
                 cfg.dev,
+                |i| key(DELAY_POOL, i),
             )?,
-            funders: Funders::new(master, cfg.funders, cfg.dev)?,
+            funders: Funders::new_with(cfg.funders, cfg.dev, |i| key(payers::FUNDER_POOL, i))?,
             balances: HashMap::new(),
             refreshed_slot: None,
             extra: vec![],
@@ -117,7 +150,7 @@ impl Payers {
     }
 
     /// The pool a class draws from: W → reveal; D, N (and O in tests) → delay.
-    pub fn pool(&self, class: Class) -> &Pool {
+    pub fn pool(&self, class: Class) -> &Pool<K> {
         match class {
             Class::W => &self.reveal,
             _ => &self.delay,
@@ -160,11 +193,11 @@ impl Payers {
     }
 
     /// One uniform draw for a version of a `class` write (OS CSPRNG).
-    pub fn draw(&self, class: Class) -> &Keypair {
+    pub fn draw(&self, class: Class) -> &K {
         self.draw_with(class, &mut rand::rngs::OsRng)
     }
 
-    pub fn draw_with<R: Rng + ?Sized>(&self, class: Class, rng: &mut R) -> &Keypair {
+    pub fn draw_with<R: Rng + ?Sized>(&self, class: Class, rng: &mut R) -> &K {
         let bal = |a: &Address| self.balance(a);
         self.pool(class).draw(&bal, rng)
     }
@@ -185,7 +218,7 @@ impl Payers {
     /// One uniform draw (OS CSPRNG) among the `class` pool's payers that
     /// can pay `need` ([`Self::can_pay`]), those above the floor first;
     /// `None` when no payer can.
-    pub fn draw_funded(&self, class: Class, need: u64) -> Option<&Keypair> {
+    pub fn draw_funded(&self, class: Class, need: u64) -> Option<&K> {
         use rand::Rng as _;
         let pool = self.pool(class);
         let funded: Vec<usize> = (0..pool.keys.len())
@@ -216,7 +249,7 @@ impl Payers {
     }
 
     /// The keypair of a payer or funder.
-    pub fn keypair(&self, a: &Address) -> Option<&Keypair> {
+    pub fn keypair(&self, a: &Address) -> Option<&K> {
         self.reveal
             .keys
             .iter()

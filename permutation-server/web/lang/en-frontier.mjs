@@ -1126,6 +1126,13 @@ export default {
   'すでに未払いです。このままなら、{0} 後の支払いで払われます。未払いはまた {1} 後に始まります。土地の手放しは、その 24 ターン後（{2} 後）に始まります。': 'Upkeep is already unpaid. If nothing changes, the payment in {0} pays it. Upkeep goes unpaid again in {1}. Tiles start being let go 24 turns after that (in {2}).',
   'すでに未払いです。このままなら、{0} 後の支払いで払われ、その後は蔵の食料で {1} 以上は払えます。': 'Upkeep is already unpaid. If nothing changes, the payment in {0} pays it, and after that the stored food pays it for more than {1}.',
   '食料の生産は土地の維持費より少ないですが、蔵の食料で {0} 以上は払えます。': 'Food production is below the land upkeep, but the stored food pays it for more than {0}.',
+  // fix-lp28-paid-again (owner Q-LP28-1 (b)): unpaid now, a coming payment pays it, and production covers upkeep after that
+  '今の支払いで払われます。その後は、この食料の生産でずっと維持できます。': 'This payment pays the land. After that, this food production supports it indefinitely.',
+  '土地は未払いです。{0} 後の支払いで払われます。その後は、この食料の生産でずっと維持できます。': 'Land upkeep is unpaid. Paid in {0}. After that, this food production supports it indefinitely.',
+  '今の支払いで土地の維持費が払われ、未払いは終わります。その後は、いまの土地をこの食料の生産でずっと維持できます。': 'This payment pays the land upkeep, and the land is no longer unpaid. After that, this food production supports your current land indefinitely.',
+  'すでに未払いです。このままなら、{0} 後の支払いで払われ、その後は、いまの土地をこの食料の生産でずっと維持できます。': 'Upkeep is already unpaid. If nothing changes, the payment in {0} pays it, and after that this food production supports your current land indefinitely.',
+  'いまの距離なら、あと {0} マスまで維持できます（最大 {1} マス）。': n => plural(n, 'At the current distance you can support {0} more tile (up to {1} tiles).', 'At the current distance you can support {0} more tiles (up to {1} tiles).'),
+  'いまの距離なら、これ以上マスを増やしても維持できません。': 'At the current distance you cannot support any more tiles.',
   '物流の見通し': 'Logistics horizon',
   'バックミンスター・フラーの World Game では、富とは「いまの資源・技術・物流で、何人を何日先まで支えられるか」です。このゲームに人口はないので、ここでは「最初の村のいまの食料で、土地を何マス、何ターン先まで支えられるか」を出します。数字は、プログラムが土地の維持費を払うときと同じ計算です。2村目以降の食料は、本拠地に送らない限り含まれません。兵の食料の維持費は、いまのプログラムでは取られていないので、この数字には入っていません。': 'In Buckminster Fuller\'s World Game, wealth is "how many people, for how many forward days, we are now technically organized to cope with" — present resources, technique and logistics. This game has no population, so the card shows how many land tiles the first village\'s food can support, and for how many turns. The numbers are the same calculation the program uses when it charges land upkeep. Food from a second village is not included unless it is sent to the first. Troop food upkeep is not charged by the live program today, so it is not in this figure.',
 };

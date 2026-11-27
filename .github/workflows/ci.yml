@@ -540,6 +540,9 @@ jobs:
           cargo test --locked -p fclient --lib
           cargo test --locked -p fclient --test rpc_devnet_replay
           cargo test --locked -p keeper --test cluster_feed_v1
+          # keeper-test-seam: the key-free send-pass / care tests (see the playable-lane step) without features.
+          cargo test --locked -p keeper --lib -- tg6_ fkc_ v290_ test_gaps_6_
+          cargo test --locked -p keeper --test key_free_send_pass
           cargo test --locked -p verify --test devnet_b5_witness --test devnet_b5_program_accounts
       # verify-pr157: `scripts/play-local.sh` builds itest, herald and keeper with feature sets that no other
       # step compiles (the workspace lint above builds itest without features, so its feature-gated modules,
@@ -633,6 +636,11 @@ jobs:
           # send; 32 proven per read, care blocked until the last, then a top-up admitted; cache-only nulls never settle)
           # and #280's 32,000 CU Reveal request per lane in the keeper's unsigned message (+ the fee rise). No key.
           cargo test --locked -p keeper --features playable-lane --test test_gaps_6
+          # keeper-test-seam (Q-TG6-2): the #282/#290 send-pass and care-cadence tests (16 sends per blockhash, the 15 s
+          # refresh on tokio's paused clock, the sent Reveal CU, the side care inside a 107-min tick) sign with
+          # testkit::FakeSigner (no key, no seed) and read public drand info; key_free_send_pass pins that set.
+          cargo test --locked -p keeper --features playable-lane --lib -- tg6_ fkc_ v290_ test_gaps_6_
+          cargo test --locked -p keeper --features playable-lane --test key_free_send_pass
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
