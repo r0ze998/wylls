@@ -306,8 +306,12 @@ pub fn check_candidate(
 pub struct PairTarget {
     pub target: (i32, i32),
     pub keep_tile: u8,
-    /// The nation that holds the fort: the second player plays it (to defend), the first contests it.
+    /// The nation that holds the fort: the first player contests it.
     pub nation: u8,
+    /// The second player's nation: the fort's (it defends: not placed yet, the page suggests it; or already placed so), or
+    /// (fix-loop28, LP28 BREAK-2) the nation the second player had already placed its home for when the fort was chosen —
+    /// the page's nation choice is free (`pairGuideText`), and a pair that picked one nation (or a third) also contests it.
+    pub b_nation: u8,
     pub a_start: ((i32, i32), u8),
     pub a_steps: usize,
     /// The second player's home as the page will place it (or as it already is): province, site, its tile.
@@ -315,6 +319,31 @@ pub struct PairTarget {
     pub b_steps: usize,
 }
 pub type PairSlot = std::sync::Arc<std::sync::Mutex<Option<PairTarget>>>;
+
+impl PairTarget {
+    /// `"defend"` when the second player plays the fort's nation, else `"attack"` (both players contest the fort).
+    pub fn b_role(&self) -> &'static str {
+        pair_role(self.b_nation, self.nation)
+    }
+}
+
+/// The second player's role over a fort held by `holder`, playing `b_nation`.
+pub fn pair_role(b_nation: u8, holder: u8) -> &'static str {
+    if b_nation == holder {
+        "defend"
+    } else {
+        "attack"
+    }
+}
+
+/// (fix-loop28, LP28 BREAK-2) The second player's nation over a fort held by `holder` (never the first player's nation,
+/// [`foreign_keep_candidates`]): the nation of its home when it is already placed (whatever it is: the page leaves the choice
+/// free, so it defends only when that is the fort's), else the fort's own (the page suggests that one, and its home is
+/// predicted for it). Before this, an already-placed second player of any other nation refused every fort ("already plays
+/// nation …"), so a pair that both picked one nation — LP28's two Fjordal players — never got one: not ready.
+pub fn pair_b_nation(placed: Option<u8>, holder: u8) -> u8 {
+    placed.unwrap_or(holder)
+}
 
 /// The page's own first-home choice (`home.mjs` `planHomes` with `controller.mjs`'s seed `"{wallet}|0"`): among the
 /// provinces with free home sites for that nation, innermost ring first, then `hash32("{seed}|{p},{q}")`; in the first
@@ -507,9 +536,12 @@ fn free_site(state: &Shared, a: &Addresses, p: i16, q: i16) -> Option<u8> {
         .map(|i| i as u8)
 }
 
-/// The second player's home for the fort's nation `nation`: its own, if its Citizen already has one (and it is of that
-/// nation), else where the page will place it ([`predict_home`] over the chain's free sites, seed `"{wallet}|0"`).
-/// `((p, q), site, tile)`.
+/// A second player's home: `((p, q), site, tile)`.
+type BHome = ((i32, i32), u8, u8);
+
+/// The second player's home over a fort held by `nation`: its own, if its Citizen already has one (of whatever nation,
+/// [`pair_b_nation`]), else where the page will place it for the fort's nation ([`predict_home`] over the chain's free
+/// sites, seed `"{wallet}|0"`). `((p, q), site, tile)` and the second player's nation.
 fn b_home_for(
     state: &Shared,
     a: &Addresses,
@@ -518,7 +550,7 @@ fn b_home_for(
     cq: &ConquestParams,
     seed: &[u8; 32],
     rings: u16,
-) -> Result<((i32, i32), u8, u8), String> {
+) -> Result<(BHome, u8), String> {
     let c = lock(state);
     if let Some(acc) = c.account(&a.citizen(b)) {
         let cit = acc.data;
@@ -536,17 +568,22 @@ fn b_home_for(
                 at(HR::Q).ok_or("B's home slot")?,
                 *cit.get(slot + HR::SITE).ok_or("B's home slot")?,
             );
-            if cit.get(C::FACTION) != Some(&nation) {
-                return Err(format!(
-                    "the second player already plays nation {:?}, not {nation}",
-                    cit.get(C::FACTION)
-                ));
-            }
             let h = fclient::decode::Holding::decode(
                 &c.account(&a.holding(p, q, site)).ok_or("B's Holding")?.data,
             )
             .map_err(|e| format!("B's Holding: {e:?}"))?;
-            return Ok(((p, q), site, h.tile));
+            // (the march's host takes its nation from the Holding; the Citizen must say the same)
+            if cit.get(C::FACTION) != Some(&h.faction) || h.faction > 5 {
+                return Err(format!(
+                    "the second player's Citizen names nation {:?}, its Holding {}",
+                    cit.get(C::FACTION),
+                    h.faction
+                ));
+            }
+            return Ok((
+                ((p, q), site, h.tile),
+                pair_b_nation(Some(h.faction), nation),
+            ));
         }
     }
     let clock = lk::season_clock(&c, a)?;
@@ -588,7 +625,7 @@ fn b_home_for(
         .find(|(x, _)| *x == (p, q))
         .map(|(_, t)| t[site as usize])
         .ok_or("the predicted site's tile")?;
-    Ok(((p, q), site, tile))
+    Ok((((p, q), site, tile), pair_b_nation(None, nation)))
 }
 
 /// TEST-ONLY contest pair: once the second player's own PlaceHome has landed and the demo has chosen the fort, both routes
@@ -619,10 +656,10 @@ pub fn verify_pair(
         &c.account(&a.holding(p, q, site)).ok_or("B's Holding")?.data,
     )
     .map_err(|e| format!("B's Holding: {e:?}"))?;
-    if h.faction != t.nation {
+    if h.faction != t.b_nation {
         return Err(format!(
-            "the second player plays nation {}, the fort's is {}",
-            h.faction, t.nation
+            "the second player plays nation {}, the pair's is {} (the fort's {})",
+            h.faction, t.b_nation, t.nation
         ));
     }
     let view = |pc: (i32, i32)| -> Option<ProvinceView> {
@@ -656,7 +693,7 @@ pub fn verify_pair(
     let br = route_on(&bp, t.target, t.keep_tile, ((p, q), h.tile), view)
         .map_err(|e| format!("second player: {e}"))?;
     Ok(
-        json!({"target": {"p": t.target.0, "q": t.target.1, "keep_tile": t.keep_tile, "holder": keep.0}, "first_steps": ar.len(), "second_home": {"p": p, "q": q, "site": site, "tile": h.tile}, "second_steps": br.len(), "as_predicted": ((p, q), site) == (t.b_home.0, t.b_home.1)}),
+        json!({"target": {"p": t.target.0, "q": t.target.1, "keep_tile": t.keep_tile, "holder": keep.0}, "first_steps": ar.len(), "second_home": {"p": p, "q": q, "site": site, "tile": h.tile}, "second_nation": h.faction, "second_role": t.b_role(), "second_steps": br.len(), "as_predicted": ((p, q), site) == (t.b_home.0, t.b_home.1)}),
     )
 }
 
@@ -999,10 +1036,11 @@ pub async fn run(
                 //  will place it — must reach the same fort over the chain's records, or the next candidate is tried)
                 if let Some((b, slot)) = &pair {
                     let Some((holder, keep_tile, _)) = view(*target).and_then(|v| v.keep) else {
+                        refused.push(json!({"p": target.0, "q": target.1, "why": "second player: the fort has no keep"}));
                         continue;
                     };
                     match b_home_for(&state, &a, b, holder, &cq, &seed, d) {
-                        Ok(bh) => {
+                        Ok((bh, b_nation)) => {
                             let bpath = province_path(bh.0, *target, d as u32);
                             match bpath
                                 .ok_or_else(|| {
@@ -1016,6 +1054,7 @@ pub async fn run(
                                         target: *target,
                                         keep_tile,
                                         nation: holder,
+                                        b_nation,
                                         a_start: start,
                                         a_steps: route.len(),
                                         b_home: bh,
@@ -1041,9 +1080,10 @@ pub async fn run(
         }
     }
     let Some((target, steps, Some((holder, tile, _)))) = chosen else {
-        return Err(format!("no keep of another nation than {nation} in ring {d} is reachable by a march from the village tile {} of {home:?} ({} candidates refused): not ready", start.1, refused.len()));
+        // (fix-loop28: each refusal's reason is printed, LP28 BREAK-2 had only their count)
+        return Err(format!("no keep of another nation than {nation} in ring {d} is reachable by a march from the village tile {} of {home:?} ({} candidates refused: {}): not ready", start.1, refused.len(), Value::Array(refused)));
     };
-    let pair_line = pair.as_ref().and_then(|(_, slot)| slot.lock().unwrap().clone()).map(|t| json!({"second_player_nation": t.nation, "second_player_home": {"p": t.b_home.0.0, "q": t.b_home.0.1, "site": t.b_home.1, "tile": t.b_home.2}, "second_player_route_steps": t.b_steps}));
+    let pair_line = pair.as_ref().and_then(|(_, slot)| slot.lock().unwrap().clone()).map(|t| json!({"second_player_nation": t.b_nation, "second_player_role": t.b_role(), "second_player_home": {"p": t.b_home.0.0, "q": t.b_home.0.1, "site": t.b_home.1, "tile": t.b_home.2}, "second_player_route_steps": t.b_steps}));
     if pair.is_some() && pair_line.is_none() {
         return Err(format!(
             "no fort in ring {d} is reachable by both players: not ready"
@@ -1703,6 +1743,48 @@ mod tests {
             .unwrap();
         assert!(sim_at < send_at, "simulated before it is sent");
         assert!(flat.contains(&nows("if let Some(why) = refused_open { refused.push(json!({\"p\": target.0, \"q\": target.1, \"why\": why})); continue; }")));
+    }
+    #[test]
+    fn a_placed_second_player_of_any_nation_keeps_its_nation_and_the_fort_stays_a_candidate() {
+        // (fix-loop28, LP28 BREAK-2: both players Fjordal (5), B's home placed before the fort was chosen; every fort was
+        //  refused "the second player already plays nation 5, not N")
+        for holder in 0..6u8 {
+            assert_eq!(
+                pair_b_nation(None, holder),
+                holder,
+                "not placed: the fort's nation is suggested"
+            );
+            assert_eq!(pair_role(pair_b_nation(None, holder), holder), "defend");
+            for placed in 0..6u8 {
+                let b = pair_b_nation(Some(placed), holder);
+                assert_eq!(b, placed, "placed: its own nation, never refused");
+                assert_eq!(
+                    pair_role(b, holder),
+                    if placed == holder { "defend" } else { "attack" }
+                );
+            }
+        }
+        let src = include_str!("capture_demo.rs");
+        let b_home =
+            &src[src.find("fn b_home_for(").unwrap()..src.find("pub fn verify_pair(").unwrap()];
+        assert!(
+            !b_home.contains("already plays nation"),
+            "a placed second player is never refused for its nation"
+        );
+        assert!(
+            b_home.contains("pair_b_nation(Some(h.faction), nation)")
+                && b_home.contains("pair_b_nation(None, nation)")
+        );
+        let verify =
+            &src[src.find("pub fn verify_pair(").unwrap()..src.find("pub async fn run(").unwrap()];
+        assert!(
+            verify.contains("h.faction != t.b_nation"),
+            "the re-check holds the pair's own nation"
+        );
+        let run = &src[src.find("pub async fn run(").unwrap()..src.find("#[cfg(test)]").unwrap()];
+        assert!(run
+            .contains("\"second_player_nation\": t.b_nation, \"second_player_role\": t.b_role()"));
+        assert!(run.contains("candidates refused: {}): not ready\", start.1, refused.len(), Value::Array(refused))"), "the refusals are printed");
     }
     #[test]
     fn the_32_step_boundary_is_exact() {

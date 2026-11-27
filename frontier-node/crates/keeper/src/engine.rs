@@ -89,7 +89,6 @@ use solana_address::Address;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_signature::Signature;
-use solana_signer::Signer;
 
 use fclient::abi::{self, err, Class};
 use fclient::budgets::Budgets;
@@ -97,7 +96,7 @@ use fclient::ports::{ChainPort, Status};
 use fclient::{fees, tx};
 
 use crate::journal::{Attempt, Journal};
-use crate::pools::Payers;
+use crate::pools::{PayerKey, Payers};
 
 /// What a builder learns about the version it builds.
 #[derive(Clone, Copy, Debug)]
@@ -1364,10 +1363,10 @@ impl Engine {
 
     /// One slot: poll every version sent, settle the writes that ended, and
     /// send the next version of every write still waiting.
-    pub async fn step<P: ChainPort>(
+    pub async fn step<P: ChainPort, K: PayerKey>(
         &mut self,
         port: &P,
-        payers: &mut Payers,
+        payers: &mut Payers<K>,
         journal: Option<&Journal>,
         slot: u64,
     ) -> StepReport {
@@ -1810,10 +1809,10 @@ impl Engine {
     }
 
     /// Sends the next version of every write still waiting.
-    pub async fn send<P: ChainPort>(
+    pub async fn send<P: ChainPort, K: PayerKey>(
         &mut self,
         port: &P,
-        payers: &mut Payers,
+        payers: &mut Payers<K>,
         journal: Option<&Journal>,
         slot: u64,
         report: &mut StepReport,
@@ -1825,10 +1824,10 @@ impl Engine {
     /// [`Self::send`] for the writes of `kinds` only (`None`: every write).
     /// The keeper sends the beacon duty's anchors and seed caches as soon as
     /// they are planned (W6T-2).
-    pub async fn send_kinds<P: ChainPort>(
+    pub async fn send_kinds<P: ChainPort, K: PayerKey>(
         &mut self,
         port: &P,
-        payers: &mut Payers,
+        payers: &mut Payers<K>,
         journal: Option<&Journal>,
         slot: u64,
         report: &mut StepReport,
@@ -1854,7 +1853,7 @@ impl Engine {
         // keeper-stall-investigate: sends signed with this blockhash, and when
         // it was fetched. A long pass refreshes both the hash and the slot.
         let mut sends_on_hash: u32 = 0;
-        let mut hash_at = std::time::Instant::now();
+        let mut hash_at = crate::clock::now();
         for k in keys {
             if blockhash.is_some()
                 && (sends_on_hash >= BLOCKHASH_REFRESH_SENDS
@@ -2065,7 +2064,7 @@ impl Engine {
                         Ok((h, height)) if height > 0 => {
                             blockhash = Some(h);
                             last_valid_block_height = Some(height);
-                            hash_at = std::time::Instant::now();
+                            hash_at = crate::clock::now();
                         }
                         Ok((_, _)) => {
                             report
@@ -2267,6 +2266,7 @@ mod tests {
     use fclient::ports::{
         Account, ClockSysvar, Cursor, PortError, PortResult, SimResult, TxRecord,
     };
+    use solana_signer::Signer;
     use std::sync::Mutex;
 
     /// ⑱: the cap counts versions that can still land: status unknown and
@@ -2322,7 +2322,8 @@ mod tests {
         height_step_per_fetch: std::sync::atomic::AtomicU64,
         /// test-gaps-6: how many sends had happened at each `blockhash` call.
         fetch_at_sends: Mutex<Vec<usize>>,
-        /// test-gaps-6: the next `send` takes this long (real time).
+        /// test-gaps-6: the next `send` takes this long (tokio time: virtual
+        /// under a paused test clock).
         slow_next_send: Mutex<Option<std::time::Duration>>,
     }
 
@@ -2443,6 +2444,19 @@ mod tests {
         c.delay_floor = 1;
         c.reveal_floor = Some(1);
         Payers::new(&[9u8; 32], &c).unwrap()
+    }
+
+    /// keeper-test-seam: [`payers`] with key-free signers (`testkit::FakeSigner`):
+    /// the same config, pools and floors, no seed derivation and no signing.
+    fn key_free_payers() -> Payers<crate::testkit::FakeSigner> {
+        let mut c = KeeperConfig::new(
+            Address::new_from_array([1; 32]),
+            1,
+            Address::new_from_array([2; 32]),
+        );
+        c.delay_floor = 1;
+        c.reveal_floor = Some(1);
+        crate::testkit::fake_payers(&c, &Budgets::canonical())
     }
 
     fn spec(key: &str, class: Class, tag: u8) -> WriteSpec {
@@ -2633,19 +2647,25 @@ mod tests {
     /// BLOCKHASH_REFRESH_SENDS), and every journal row records the validity
     /// height of the hash it was signed with: 16 rows per height, 4 on the
     /// last. (11-27 devnet: one hash per pass let 41 of 134 land.)
-    #[tokio::test]
+    /// keeper-test-seam: key-free (fake signers) on a paused clock, so the
+    /// pass takes no time at all and only the count rule can act.
+    #[tokio::test(start_paused = true)]
     async fn tg6_hundred_send_pass_refreshes_every_16_sends() {
         use std::sync::atomic::Ordering::SeqCst;
         let port = Script::default();
         port.height_step_per_fetch.store(7, SeqCst);
-        let mut payers = payers();
+        let mut payers = key_free_payers();
         payers.refresh(&port, 0).await.unwrap();
         let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
         tg6_writes(&mut e, 100);
         let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
-        let t0 = std::time::Instant::now();
+        let t0 = crate::clock::now();
         let sent = e.step(&port, &mut payers, Some(&j), 1).await.sent;
-        assert!(t0.elapsed().as_secs() < 15, "the count rule, not the timer");
+        assert_eq!(
+            t0.elapsed(),
+            std::time::Duration::ZERO,
+            "the count rule, not the timer"
+        );
         assert_eq!(sent, 100);
         assert_eq!(
             *port.fetch_at_sends.lock().unwrap(),
@@ -2672,18 +2692,22 @@ mod tests {
         assert_eq!(e.never_landed, 16);
     }
 
-    /// test-gaps-6 (#282): the BLOCKHASH_REFRESH_SECS timer, on real time
-    /// (the engine reads `std::time::Instant`; no fake clock reaches it).
-    /// The first send takes 15.05 s, so the second send fetches a new hash
-    /// after one send, and the count rule then refreshes 16 sends later:
-    /// fetches before sends 0, 1 and 17 of 20. ≈ 15 s.
-    #[tokio::test]
+    /// test-gaps-6 (#282): the BLOCKHASH_REFRESH_SECS timer. The first send
+    /// takes 15.05 s, so the second send fetches a new hash after one send,
+    /// and the count rule then refreshes 16 sends later: fetches before
+    /// sends 0, 1 and 17 of 20.
+    /// keeper-test-seam: the engine's timer reads `crate::clock` (tokio's
+    /// clock), so this runs on a paused clock (the 15.05 s send auto-advances
+    /// virtual time; no real wait) and key-free (fake signers). A second
+    /// case shows a send 1 ms short of 15 s does not refresh.
+    #[tokio::test(start_paused = true)]
     async fn tg6_send_pass_refreshes_after_15_seconds() {
         use std::sync::atomic::Ordering::SeqCst;
         assert_eq!(BLOCKHASH_REFRESH_SECS, 15);
+        let wall = std::time::Instant::now();
         let port = Script::default();
         port.height_step_per_fetch.store(7, SeqCst);
-        let mut payers = payers();
+        let mut payers = key_free_payers();
         payers.refresh(&port, 0).await.unwrap();
         let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
         tg6_writes(&mut e, 20);
@@ -2698,11 +2722,27 @@ mod tests {
         assert_eq!(height(1), Some(157));
         assert_eq!(height(16), Some(157));
         assert_eq!(height(17), Some(164));
+        assert!(
+            wall.elapsed() < std::time::Duration::from_secs(2),
+            "virtual time, not real time"
+        );
+
+        // 14.999 s: under the timer, so only the count rule refreshes.
+        let port = Script::default();
+        port.height_step_per_fetch.store(7, SeqCst);
+        let mut payers = key_free_payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        tg6_writes(&mut e, 20);
+        *port.slow_next_send.lock().unwrap() = Some(std::time::Duration::from_millis(14_999));
+        assert_eq!(e.step(&port, &mut payers, None, 1).await.sent, 20);
+        assert_eq!(*port.fetch_at_sends.lock().unwrap(), vec![0, 16]);
     }
 
     /// test-gaps-6 (#280): the Reveal the engine signs for an S1 or a
     /// playable-lane world carries SetComputeUnitLimit 32,000 (MC / M1:
     /// their own rows), read back from the sent transaction.
+    /// keeper-test-seam: key-free (fake signers).
     #[tokio::test]
     async fn tg6_sent_reveal_requests_32000_cu_per_lane() {
         for (v, want) in [
@@ -2719,7 +2759,7 @@ mod tests {
             ),
         ] {
             let port = Script::default();
-            let mut payers = payers();
+            let mut payers = key_free_payers();
             payers.refresh(&port, 0).await.unwrap();
             let mut e = Engine::new(Budgets::canonical_for(v), EngineParams::default());
             e.ensure(spec("reveal:1:2", Class::W, abi::tag::REVEAL), 1);
