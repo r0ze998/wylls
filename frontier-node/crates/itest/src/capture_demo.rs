@@ -701,7 +701,6 @@ pub async fn run(
     let fold =
         |st: Shared, k: Keypair, s: tokio::sync::watch::Receiver<bool>, a: Addresses, n: u32| {
             let out = &out;
-            let clock = clock.clone();
             async move {
                 let bell_now = || clock.bell_at(lock(&st).unix_timestamp()).unwrap_or(0);
                 fold_retrying(
@@ -1277,9 +1276,9 @@ mod tests {
         let src = include_str!("capture_demo.rs");
         let run = &src[src.find("pub async fn run(").unwrap()..src.find("#[cfg(test)]").unwrap()];
         assert_eq!(run.matches("fold_retrying(").count(), 1, "one fold closure");
-        assert_eq!(
-            run.matches("        fold(\n").count() + run.matches("    fold(\n").count() >= 2,
-            true
+        assert!(
+            run.matches(" fold(\n").count() >= 2,
+            "both folds (participants, the ring)"
         );
         assert!(
             run.contains("FOLD_TRIES,") && run.contains("\"fold_retry\""),
