@@ -518,6 +518,11 @@ jobs:
           # fix-herald-gw-502: the /gw relay proxy when the relay answers early
           # and resets (429 kept, one write, no re-send). Loopback fakes only.
           cargo test --locked -p herald --test gw_relay_reset
+          # herald-pull-chunk: a 1,587-tx backlog archived in chunks of 50 (an account-read failure re-fetches ≤ 50), the
+          # live slot moving on its own Clock timer during pulls, /h/status ingest.backlog / lastArchivedSlot. Loopback
+          # fake RPC (127.0.0.1:0), unsigned wires with placeholder signatures: no key.
+          cargo test --locked -p findex --test pull_chunk
+          cargo test --locked -p herald --test pull_chunk
           # test-gaps-3: nation chat (#263) with no key. tests/chat.rs signs as players (key tests only), so CI ran no
           # chat test. This one replays literal posts and read tokens signed once by hand (tests/vectors/chat-signed.json;
           # the herald only verifies): 3 per turn under parallel posts and across the ±1 turn window, 40 per bell-day,

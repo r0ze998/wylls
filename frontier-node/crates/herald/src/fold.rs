@@ -97,12 +97,23 @@ pub struct IngestHealth {
     /// or `cross_checked`); `None` for an ordered feed. Kept across
     /// failures and successes alike.
     pub coverage: Option<Value>,
+    /// herald-pull-chunk: transactions the source listed but has not handed
+    /// back yet (findex `Source::backlog`: listed − archived); `None` =
+    /// unknown (an ordered feed, or not known since the last cursor
+    /// restore). Kept across failures and successes alike.
+    pub backlog: Option<u64>,
+    /// herald-pull-chunk: the slot of the newest archived transaction
+    /// (`None`: nothing archived yet). Health compares it between runs to
+    /// tell "behind, progressing" from "stuck".
+    pub last_archived_slot: Option<u64>,
 }
 
 impl IngestHealth {
     pub fn ok(&mut self) {
         *self = IngestHealth {
             coverage: self.coverage.take(),
+            backlog: self.backlog,
+            last_archived_slot: self.last_archived_slot,
             ..IngestHealth::default()
         };
     }
@@ -122,6 +133,8 @@ impl IngestHealth {
             "error": self.error, "failures": self.failures,
             "sinceMs": (self.failures > 0).then_some(self.since_ms),
             "coverage": self.coverage,
+            "backlog": match self.backlog { Some(b) => json!(b), None => json!("unknown") },
+            "lastArchivedSlot": self.last_archived_slot,
         })
     }
 }
