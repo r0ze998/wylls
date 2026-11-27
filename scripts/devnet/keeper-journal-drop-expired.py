@@ -18,6 +18,13 @@ tops up its pools again (`Engine::care_unresolved`).
          `superseded` (not chain evidence; `Journal::set_status` still accepts
          a later finalized status for them; not read by `in_flight`, not the
          legacy `expired` that blocks payer care). Dry run unless --yes.
+         --mark-landed (verify-pr282) also writes the sweep's FINALIZED
+         history answers: err null -> `landed`, else `failed` with its custom
+         code (a program write's AlreadyDone is journaled `failed`, not the
+         keeper's tag-aware `done`; accounting label only). Without it those
+         rows stay `sent` and a restarted keeper adopts them; it proves them
+         at most 32 per status read, and an unproven payer-care row blocks
+         every top-up meanwhile.
 
 No keys are read. Network: the --rpc URL only.
 """
@@ -123,6 +130,26 @@ def apply(a):
         c.execute("INSERT INTO alerts(slot, kind, detail) VALUES (0, 'journal-reconciled', ?)",
                   (f"keeper-journal-drop-expired: {n} expired never-landed attempts marked superseded (sweep {sw['at']}, height {sw['height']})",))
     print(f"marked {n} rows superseded")
+    if a.mark_landed:
+        m = {"landed": 0, "failed": 0, "skipped": 0}
+        with c:
+            for x in sw.get("landed", []):
+                if x.get("confirmation") != "finalized" or x.get("slot") is None:
+                    m["skipped"] += 1
+                    continue
+                err = x.get("err")
+                code = None
+                if isinstance(err, dict) and isinstance(err.get("InstructionError"), list):
+                    ie = err["InstructionError"]
+                    if len(ie) > 1 and isinstance(ie[1], dict) and isinstance(ie[1].get("Custom"), int):
+                        code = ie[1]["Custom"]
+                st = "landed" if err is None else "failed"
+                m[st] += c.execute(
+                    "UPDATE attempts SET status = ?2, landed_slot = ?3, code = ?4 WHERE sig = ?1 AND status = 'sent'",
+                    (x["sig"], st, x["slot"], code)).rowcount
+            c.execute("INSERT INTO alerts(slot, kind, detail) VALUES (0, 'journal-reconciled', ?)",
+                      (f"keeper-journal-drop-expired --mark-landed: {m} from finalized history (sweep {sw['at']})",))
+        print(f"marked from finalized history: {m}")
 
 
 def main():
@@ -137,6 +164,8 @@ def main():
     ap.add_argument("--journal", required=True)
     ap.add_argument("--sweep", required=True)
     ap.add_argument("--yes", action="store_true")
+    ap.add_argument("--mark-landed", action="store_true",
+                    help="also write the sweep's finalized history answers (landed / failed)")
     ap.add_argument("--copy-ok", action="store_true", help="the journal is a copy (skip the running-keeper check)")
     a = p.parse_args()
     sweep(a) if a.cmd == "sweep" else apply(a)
