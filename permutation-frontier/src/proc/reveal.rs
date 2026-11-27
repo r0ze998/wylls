@@ -911,12 +911,15 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     crate::heap::trace_checkpoint(0x5110);
     let doctrine = of_faction(tr.faction).ok_or(BAD_ACCOUNT)?;
     let secs = u32::try_from(doctrine.travel_secs(raw as u64)).map_err(|_| OVERFLOW)?;
-    // world4-pacing-impl: the Season's minimum lead (2 before the pacing
-    // bytes, where this is the kernel's `check_arrival_bell` exactly).
-    let lead = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?.min_lead;
-    if frontier_abi::v2::pacing::check_arrival_bell(hdr.genesis_ts, tr.depart_ts, secs, arrive, lead)
-        .is_err()
-    {
+    // world4-pacing-impl: the kernel's `check_arrival_bell` (lead 2), and only
+    // when it refuses the Season's minimum lead (1 in a `pacing` 1 world).
+    if !frontier_abi::v2::pacing::check_arrival_bell_lazy(hdr.genesis_ts, tr.depart_ts, secs, arrive, || {
+        season_ai
+            .try_borrow_data()
+            .ok()
+            .and_then(|d| crate::layout::conquest::season_pacing(&d).ok())
+            .map(|p| p.min_lead)
+    }) {
         return Err(FrontierError::ArrivalBell.into());
     }
     crate::heap::trace_checkpoint(0x5111);

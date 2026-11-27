@@ -143,6 +143,29 @@ pub fn check_arrival_bell(
     Ok(())
 }
 
+/// [`check_arrival_bell`] at the lead `lead()` gives, asked only when the
+/// kernel's own lead-2 check refuses: every arrival a lead-2 world accepts, a
+/// lead-1 world accepts too (the same latest bell, an earlier or equal
+/// earliest), so the common path runs exactly the kernel's code and reads no
+/// Season byte (world 3's Reveal costs what it did).
+pub fn check_arrival_bell_lazy(
+    genesis_ts: i64,
+    depart_ts: i64,
+    secs: u32,
+    chosen: u32,
+    lead: impl FnOnce() -> Option<u32>,
+) -> bool {
+    if travel::check_arrival_bell(genesis_ts, depart_ts, secs, chosen).is_ok() {
+        return true;
+    }
+    match lead() {
+        Some(l) if l < MIN_ARRIVAL_LEAD_BELLS => {
+            check_arrival_bell(genesis_ts, depart_ts, secs, chosen, l).is_ok()
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +189,28 @@ mod tests {
                             travel::check_arrival_bell(g, d, secs, c)
                         );
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_lazy_check_is_the_leaded_one() {
+        for d in (5_400..7_300).step_by(41) {
+            for secs in [0u32, 30, 599, 601, 1_800] {
+                for c in 8..20u32 {
+                    for lead in [1u32, 2] {
+                        assert_eq!(
+                            check_arrival_bell_lazy(0, d, secs, c, || Some(lead)),
+                            check_arrival_bell(0, d, secs, c, lead).is_ok(),
+                            "{d} {secs} {c} {lead}"
+                        );
+                    }
+                    // an unreadable Season refuses what lead 2 refuses
+                    assert_eq!(
+                        check_arrival_bell_lazy(0, d, secs, c, || None),
+                        travel::check_arrival_bell(0, d, secs, c).is_ok()
+                    );
                 }
             }
         }
