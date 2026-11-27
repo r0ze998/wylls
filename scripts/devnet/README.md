@@ -148,7 +148,9 @@ Checks: the processes the logs say should be up (see "Process checks" below), de
 CreateSeason time (late CreateSeason / genesis seed → WARN/FAIL), balances of the deployer, authority and keeper A
 funders vs thresholds, herald `/h/season` + `/h/status` (ingest, alarms) and lag (herald live slot vs RPC slot),
 the gateway's public `/f/season`, keeper A's API (`/v1/status` without a token must answer 401: the token is not
-read, so duties/rent/lag come from its log), tunnel name vs the herald's `public-host`, the public page and
+read, so duties/rent/lag come from its log), `keeper.landed` (keeper A's journal read with `sqlite3 -readonly`: the newest
+`landed` write vs the herald live slot, WARN > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min or no landed write; a
+healthy keeper lands anchor/seed/beacon-log every bell even in a quiet world), tunnel name vs the herald's `public-host`, the public page and
 `/h/season` through the tunnel, the join check's result, disk free, and error/restart/STOP lines in the last
 500 lines of each `devnet-*.log`.
 
@@ -185,7 +187,7 @@ driver is started again). In this mode:
 | `world.creation` | (no line) | `OK postponed, no world yet (marker …: reason)` |
 | `proc.season-driver` | not running = FAIL | not running = OK; **running = FAIL** (it would send CreateSeason) |
 | `proc.gateway-starter`, `proc.join-check` | not running = FAIL until their work is done | running or not = OK (they only wait) |
-| gateway / keeper A processes, `gateway.health`, `keeper.api`, `join.check` | OK "not yet" until the driver log shows them started | the same, worded "not expected: world creation postponed" |
+| gateway / keeper A processes, `gateway.health`, `keeper.api`, `keeper.landed`, `join.check` | OK "not yet" until the driver log shows them started | the same, worded "not expected: world creation postponed" |
 | `season.phase` Announced | FAIL 15 min after the scheduled time | OK `Announced, creation postponed`, with both deadlines (below); WARN once the 7-day create window has closed |
 | `season.phase` Aborted | FAIL | OK (announcement cancelled, no world yet) |
 | `balance.authority` | WARN below CreateSeason's need (≈56.13) | plain thresholds; the need is only quoted |
