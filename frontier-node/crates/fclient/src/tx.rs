@@ -6,7 +6,6 @@
 use solana_address::Address;
 use solana_hash::Hash;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_keypair::Keypair;
 use solana_message::Message;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -121,8 +120,9 @@ pub fn message(
     Message::new_with_blockhash(&all, Some(payer), blockhash)
 }
 
-/// Signs `msg` with every signer (the fee payer first).
-pub fn sign(msg: Message, signers: &[&Keypair]) -> Result<Transaction, String> {
+/// Signs `msg` with every signer (the fee payer first). Generic over the
+/// [`Signer`] (keeper-test-seam: production signs with `Keypair`s).
+pub fn sign<S: Signer + ?Sized>(msg: Message, signers: &[&S]) -> Result<Transaction, String> {
     // Not `.clone()` (clippy's clone_on_copy fires when the workspace turns
     // on solana-hash's `copy` feature) and not a move (without it, Hash is
     // not Copy): rebuild it from its bytes.
@@ -133,10 +133,10 @@ pub fn sign(msg: Message, signers: &[&Keypair]) -> Result<Transaction, String> {
 }
 
 /// Builds and signs in one step.
-pub fn build(
+pub fn build<S: Signer + ?Sized>(
     ixs: &[Instruction],
     budget: &TxBudget,
-    signers: &[&Keypair],
+    signers: &[&S],
     blockhash: &Hash,
 ) -> Result<Transaction, String> {
     let payer = signers.first().ok_or("no signer")?.pubkey();
@@ -285,6 +285,7 @@ pub fn fee_lamports(msg: &Message) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_keypair::Keypair;
 
     #[test]
     fn budget_prefix_round_trips() {

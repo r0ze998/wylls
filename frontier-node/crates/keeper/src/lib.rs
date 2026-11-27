@@ -53,6 +53,7 @@ pub mod archive;
 pub mod beacon;
 pub mod caravans;
 pub mod care;
+pub mod clock;
 pub mod clusterfeed;
 pub mod config;
 pub mod conquest;
@@ -160,7 +161,7 @@ use crate::holdings::HoldingDuty;
 use crate::journal::{Attempt, Journal};
 use crate::landindex::LandIndex;
 use crate::play::PlayDuty;
-use crate::pools::Payers;
+use crate::pools::{PayerKey, Payers};
 use crate::rings::RingDuty;
 use crate::rounds::Rounds;
 use crate::seeds::SeedFinder;
@@ -378,12 +379,15 @@ pub fn quantile(v: &[u64], q: f64) -> Option<u64> {
     Some(s[i])
 }
 
-pub struct Keeper<P: ChainPort, D: DrandPort> {
+/// keeper-test-seam: `K` is the payers' signer. Production keepers are
+/// `Keeper<P, D>` (`K` = `Keypair`, payers derived by [`Keeper::new`]);
+/// tests use [`Keeper::with_payer_keys`] with key-free signers.
+pub struct Keeper<P: ChainPort, D: DrandPort, K: PayerKey = fclient::Keypair> {
     pub cfg: KeeperConfig,
     pub port: P,
     pub drand: D,
     pub addrs: Addresses,
-    pub payers: Payers,
+    pub payers: Payers<K>,
     pub engine: Engine,
     pub journal: Option<Journal>,
     pub rounds: Rounds,
@@ -541,6 +545,40 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         master: &[u8; 32],
         journal: Option<Journal>,
     ) -> Result<Keeper<P, D>, String> {
+        Keeper::with_payer_keys(cfg, port, drand, journal, |pool, i| {
+            fclient::payers::derive(master, pool, i)
+        })
+    }
+
+    /// Sets the ClaimDefence signer: the beneficiary's key (§5.12: the
+    /// keeper that claims is the beneficiary of the slots).
+    pub fn set_claim_key(&mut self, kp: fclient::Keypair) -> Result<(), String> {
+        use solana_signer::Signer as _;
+        if kp.pubkey() != self.cfg.beneficiary {
+            return Err(format!(
+                "the claim key {} is not the beneficiary {}",
+                kp.pubkey(),
+                self.cfg.beneficiary
+            ));
+        }
+        self.cfg.claim_key = Some(kp.pubkey());
+        self.payers.extra.push(kp);
+        Ok(())
+    }
+}
+
+impl<P: ChainPort, D: DrandPort, K: PayerKey> Keeper<P, D, K> {
+    /// [`Keeper::new`] with each payer's signer from `key(pool_id, i)`
+    /// instead of the master seed's derivation (keeper-test-seam: tests pass
+    /// `testkit::FakeSigner`, which holds no key). Everything else is the
+    /// same construction.
+    pub fn with_payer_keys(
+        cfg: KeeperConfig,
+        port: P,
+        drand: D,
+        journal: Option<Journal>,
+        key: impl FnMut(&str, u32) -> K,
+    ) -> Result<Keeper<P, D, K>, String> {
         let budgets = match &cfg.budgets_file {
             Some(p) => Budgets::from_json(
                 &serde_json::from_slice(&std::fs::read(p).map_err(|e| e.to_string())?)
@@ -552,7 +590,8 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
         };
         // The reveal floor is priced at the Reveal this table requests
         // (integ-W6 review, W6-E F1).
-        let payers = Payers::with_budgets(master, &cfg, &budgets).map_err(|e| format!("{e:?}"))?;
+        let payers =
+            Payers::with_budgets_keys(&cfg, &budgets, key).map_err(|e| format!("{e:?}"))?;
         let params = EngineParams {
             d_start_milli: cfg.p_low_milli,
             p_low_milli: cfg.p_low_milli,
@@ -751,22 +790,6 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             },
             limits,
         )?);
-        Ok(())
-    }
-
-    /// Sets the ClaimDefence signer: the beneficiary's key (§5.12: the
-    /// keeper that claims is the beneficiary of the slots).
-    pub fn set_claim_key(&mut self, kp: fclient::Keypair) -> Result<(), String> {
-        use solana_signer::Signer as _;
-        if kp.pubkey() != self.cfg.beneficiary {
-            return Err(format!(
-                "the claim key {} is not the beneficiary {}",
-                kp.pubkey(),
-                self.cfg.beneficiary
-            ));
-        }
-        self.cfg.claim_key = Some(kp.pubkey());
-        self.payers.extra.push(kp);
         Ok(())
     }
 
@@ -3326,7 +3349,10 @@ mod tests {
             }
         }
 
-        pub type FkcKeeper = Keeper<CarePort, crate::testkit::FakeDrand>;
+        /// keeper-test-seam: key-free (fake payer signers, public drand
+        /// info), so these care tests run in PR CI.
+        pub type FkcKeeper =
+            Keeper<CarePort, crate::testkit::PublicDrand, crate::testkit::FakeSigner>;
 
         /// An S1 world (status SEEDED), as test-gaps-6 / `cq_keeper_follows_the_season_abi`.
         fn world_bytes() -> Vec<u8> {
@@ -3358,12 +3384,12 @@ mod tests {
             let program = Address::new_from_array([0x5f; 32]);
             let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
             cfg.roles = vec!["archive".into()];
-            let mut k = Keeper::new(
+            let mut k = Keeper::with_payer_keys(
                 cfg,
                 port,
-                crate::testkit::FakeDrand::new(),
-                &[1; 32],
+                crate::testkit::PublicDrand,
                 Some(journal),
+                crate::testkit::FakeSigner::payer,
             )
             .unwrap();
             k.port.delay = k.payers.delay.keys.iter().map(|x| x.pubkey()).collect();
@@ -3925,7 +3951,9 @@ mod tests {
     // These sign with the seed-derived test payers (`Keeper::new`), so they
     // run in the key-tests job (`cargo test --workspace`), not in push CI.
 
-    type Tg6Keeper = Keeper<crate::testkit::FakePort, crate::testkit::FakeDrand>;
+    /// keeper-test-seam: key-free (fake payer signers, public drand info).
+    type Tg6Keeper =
+        Keeper<crate::testkit::FakePort, crate::testkit::PublicDrand, crate::testkit::FakeSigner>;
 
     /// An S1 world account (the ABI's world header, status SEEDED), built as in
     /// `cq_keeper_follows_the_season_abi`.
@@ -3963,12 +3991,12 @@ mod tests {
         let program = Address::new_from_array([0x5f; 32]);
         let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
         cfg.roles = vec!["archive".into()];
-        let k = Keeper::new(
+        let k = Keeper::with_payer_keys(
             cfg,
             crate::testkit::FakePort::default(),
-            crate::testkit::FakeDrand::new(),
-            &[1; 32],
+            crate::testkit::PublicDrand,
             Some(journal),
+            crate::testkit::FakeSigner::payer,
         )
         .unwrap();
         k.port.put(
