@@ -152,8 +152,10 @@ export function wideClaimModel(FS, m) {
   // (owner-answers-ui, owner 2026-11-26 10:52 item 10: "Claim a tile" is off while land upkeep is unpaid, with its reason
   //  line — the warning above already says no new tile can be claimed; display only, the rule is unchanged)
   const tilePrice = land ? land.nextOre : TERRITORY_V1.cost.base;
+  // (fix-loop27, LP27 N-3: one reason line, the price that applies — below 10 ore with a dearer next tile it named 10
+  //  under "next tile: 18 ore"; now the next tile's price whenever it is above the base 10)
   return { targets: targets.map(t => ({ ...t, site: tried[`${t.p},${t.q}`] ?? 0, territory: !!terrOf(t), noFree: noFree(t) })), own: own.map(t => ({ ...t, noFree: noFree(t) })), need, short, full: owned >= 3, slot: Math.min(3, owned + 1), previous, foodStalled,
-    territory, tileShort: ore < TERRITORY_V1.cost.base, land, tilePrice, tilePriceShort: ore >= TERRITORY_V1.cost.base && ore < tilePrice, tileOff: ore < tilePrice || !!land?.unpaid, devnet: !local && !!FS?.devnetTerritory, preview: !local && FS?.devnetTerritory && FS.tilePreview?.step === 'preview' ? FS.tilePreview : null };
+    territory, tileShort: ore < TERRITORY_V1.cost.base && tilePrice <= TERRITORY_V1.cost.base, land, tilePrice, tilePriceShort: ore < tilePrice && tilePrice > TERRITORY_V1.cost.base, tileOff: ore < tilePrice || !!land?.unpaid, devnet: !local && !!FS?.devnetTerritory, preview: !local && FS?.devnetTerritory && FS.tilePreview?.step === 'preview' ? FS.tilePreview : null };
 }
 /**
  * (fix-loop18, LP18-4) Whether a territory province is known to have no tile left for "Claim a tile": `terr` its
