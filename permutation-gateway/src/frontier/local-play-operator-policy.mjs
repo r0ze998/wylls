@@ -301,7 +301,7 @@ export function decideNext(memory, view, opts) {
   const f = dear[0];
   return { ...d, dear: dear.map(e => `${e.t.p},${e.t.q}`), why: `${d.why} (skipped ${dear.length} nation-reach target(s) whose site tile costs more upkeep than the food surplus: ${f.t.p},${f.t.q} is ${f.x.dist} provinces from my nearest village, +${(f.x.addMilli / 1000).toFixed(2)} food/h > ${(f.x.surplusMilli / 1000).toFixed(2)} food/h spare)` };
 }
-function decideCore(memory, view, { homes, nowSecs, war = null, wide = null }) {
+function decideCore(memory, view, { homes, nowSecs, war = null, wide = null, atOnce = false }) {
   if (view === null || view === undefined) return { wait: true, why: 'the herald did not give a readable answer' };
   if (!view.joined) {
     if (!Number.isSafeInteger(nowSecs) || nowSecs <= 0) return { wait: true, why: 'no clock for the Join expiry' };
@@ -318,6 +318,11 @@ function decideCore(memory, view, { homes, nowSecs, war = null, wide = null }) {
     if (!next) return { wait: true, why: 'no untried heartland site of this nation' };
     // (wide play: past the heartland — a settled rim province — a first village is a one-site request, FileTicket: the
     //  program's PlaceHome names no province past the Season's base r_max)
+    // (world4-pacing-impl, owner Q-PM2-2 (a): a world whose Season has `pacing` 1 (`atOnce`) places the rim village at
+    //  once with PlaceHome on a settled rim province; a refused one (e.g. not settled yet, ⑭ R3) falls back to the
+    //  request lottery for the same site — `memory.atOnceTried`)
+    const k = `${next.p},${next.q},${next.site}`;
+    if (wide && ring(next.p, next.q) > 6 && atOnce && !(memory.atOnceTried ?? []).includes(k)) return { name: 'PlaceHome', atOnce: true, v: { holding: next, faction: view.faction }, fields: { p: next.p, q: next.q, site: next.site }, why: 'a citizen with no village: place the rim village at once (pacing 1)' };
     if (wide && ring(next.p, next.q) > 6) return { name: 'FileTicket', v: { sites: [next] }, fields: { sites: [next] }, why: 'a citizen with no village: request a rim site of its nation, beside the wide land' };
     return { name: 'PlaceHome', v: { holding: next, faction: view.faction }, fields: { p: next.p, q: next.q, site: next.site }, why: 'a citizen with no village: the next heartland site of its nation' };
   }
@@ -477,7 +482,18 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
   memory.decisions += 1;
   if (decision?.wait) return memory;
   const bad = outcome === 'refused' || outcome === 'failed';
-  if (decision.name === 'PlaceHome' && (bad || outcome === 'unknown')) memory.triedHomes.push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
+  // (world4-pacing-impl: TicketState 45 — a lottery cohort is open in that province, which blocks PlaceHome there until
+  //  it closes: wait two decisions and place at once again, rather than file a request that holds the province open
+  //  for everyone else; any other refusal falls back to the request for that site)
+  // (verify-pr279: the program answers TicketState also when the SITE itself is taken — e.g. a rim settler's village —
+  //  which never passes: live, four residents retried a taken site 0 for 25+ turns. So one wait-and-retry per site; a
+  //  second TicketState on the same site marks it tried and the next site is taken)
+  const ticketState = why.programCode === 45 || why.code === 'TicketState';
+  const siteKey = decision.name === 'PlaceHome' ? `${decision.fields.p},${decision.fields.q},${decision.fields.site}` : null;
+  if (decision.name === 'PlaceHome' && decision.atOnce && bad && ticketState && !(memory.ticketStateSeen ?? []).includes(siteKey)) { (memory.ticketStateSeen ??= []).push(siteKey); memory.ticketUntil = memory.decisions + 2; }
+  else if (decision.name === 'PlaceHome' && decision.atOnce && bad && ticketState) memory.triedHomes.push(siteKey);
+  else if (decision.name === 'PlaceHome' && decision.atOnce && (bad || outcome === 'unknown')) (memory.atOnceTried ??= []).push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
+  else if (decision.name === 'PlaceHome' && (bad || outcome === 'unknown')) memory.triedHomes.push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
   if (decision.name === 'FileTicket') {
     const k = `${decision.fields.sites[0].p},${decision.fields.sites[0].q},${decision.fields.sites[0].site}`;
     // (a filed site is not filed again either way: a request that lost its site — taken — moves on to the next)

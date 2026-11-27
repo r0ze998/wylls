@@ -76,6 +76,9 @@ scripts/play-local.sh [options]     TEST-ONLY local play-check (local in-memory 
                   browser's language; its top-right button switches 日本語 ⇄ English.
   --fresh         start a brand-new kept world (the default without --resume)
   --resume        reopen the last kept world: the same chain, village and AI residents (same browser, same port)
+  --pacing fast-v1  with --wide (TEST-ONLY launcher option --pacing): the NEXT world's pacing (world4-pacing-impl):
+                  first village at once on a settled rim province, a march may arrive 1 turn after it leaves, 300-s
+                  reveal window, 36-turn keep hold, a starter host at the founding. Not a decision: a local measurement
   --wide          the WIDE version (TEST-ONLY launcher option --wide-land): the world's settings are the devnet wide
                   preset S1_DEVNET_WIDE_7D, and during its setup the program's own instructions grow the map one ring
                   per bell (a synthetic setup clock) to the rim, ring 128, and open the wide land, rings 129-131 (108 provinces at first), with
@@ -176,6 +179,7 @@ while [ $# -gt 0 ]; do
     --speed) need_val "$@"; SPEED="$2"; SPEED_SET=1; shift 2 ;;
     --demo) DEMO=1; shift ;;
     --wide) WIDE=1; shift ;;
+    --pacing) need_val "$@"; PACING="$2"; shift 2 ;;
     --two) TWO=1; TWO_SET=1; shift ;;
     --minutes) need_val "$@"; MINUTES="$2"; shift 2 ;;
     --port) need_val "$@"; PORT="$2"; PORT_SET=1; shift 2 ;;
@@ -413,6 +417,9 @@ fi
 KEPT=0; if [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ]; then KEPT=1; fi
 if [ "$RESUME" = 1 ]; then DATA="$LASTK"; elif [ "$DEMO" = 0 ] && [ "$WIDE" = 0 ]; then DATA="$STATE/kept/$RUN_ID"; else DATA="$STATE/worlds/$RUN_ID"; fi
 
+if [ -n "${PACING:-}" ] && [ "$WIDE" != 1 ]; then
+  err "--pacing は --wide と一緒にだけ使えます" "--pacing is accepted only together with --wide"; exit 2
+fi
 launcher_args() {  # the launcher command line (artifact hash filled in at start)
   local sha="$1"
   printf '%s\n' "$LAUNCHER" --root "$ROOT" --data "$DATA" \
@@ -421,6 +428,8 @@ launcher_args() {  # the launcher command line (artifact hash filled in at start
   if [ "$WIDE" = 1 ]; then
     printf '%s\n' --wide-land "$WIDE_WORD"
     if [ "$WIDE_SCALE_OK" = 1 ]; then printf '%s\n' --wide-scale "$SPEED"; fi
+    # (TEST-ONLY world4-pacing-impl: the next world's pacing bytes; the launcher refuses any other word)
+    if [ -n "${PACING:-}" ]; then printf '%s\n' --pacing "$PACING"; fi
     # (the herald's compact output: a 129-ring map every turn at the TEST clock outgrows the plain output's guard)
     if grep -q "out\['wide-land'\] === undefined) throw fault('HeraldOutputNeedsCaptureDemo')" "$LAUNCHER" 2>/dev/null; then printf '%s\n' --herald-output compact-v2; fi
   elif [ "$DEMO" = 0 ]; then

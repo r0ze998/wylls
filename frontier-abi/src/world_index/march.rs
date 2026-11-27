@@ -681,6 +681,13 @@ impl From<TileError> for MarchError {
 /// `travel::MAX_ARRIVAL_LEAD_BELLS`), restated from the kernel.
 pub const MIN_ARRIVAL_LEAD_BELLS: u32 = permutation_rules::frontier::travel::MIN_ARRIVAL_LEAD_BELLS;
 pub const MAX_ARRIVAL_LEAD_BELLS: u32 = permutation_rules::frontier::travel::MAX_ARRIVAL_LEAD_BELLS;
+/// The smallest arrival lead any Season allows (world4-pacing-impl: a
+/// `pacing` 1 world's `min_lead` 1). The decoders that re-check a STORED
+/// record's timing structurally (the bridge and reverse transports) take
+/// this, not the Season's lead: the program checked the record against its
+/// own Season's lead when it wrote it, and a world with lead 2 (world 3)
+/// never writes a lead-1 record.
+pub const RECORD_MIN_LEAD_BELLS: u32 = 1;
 
 /// One march of a wide host: the legacy transit fields over wide
 /// identities.
@@ -777,6 +784,48 @@ impl WideTransit {
         flags: u8,
         rent_to: [u8; 32],
     ) -> Result<WideTransit, MarchError> {
+        Self::depart_with_lead(
+            host_identity,
+            host,
+            unit,
+            faction,
+            origin,
+            depart_bell,
+            arrive_bell,
+            depart_ts,
+            dep_mass,
+            march_stamina,
+            dealt_bps,
+            seal_root,
+            tip,
+            flags,
+            rent_to,
+            MIN_ARRIVAL_LEAD_BELLS,
+        )
+    }
+
+    /// [`Self::depart`] with the Season's minimum arrival lead
+    /// (world4-pacing-impl, `v2::pacing::Pacing::min_lead`: 2 in every
+    /// world before the pacing bytes, where this is [`Self::depart`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn depart_with_lead(
+        host_identity: u16,
+        host: WideHostRef,
+        unit: u8,
+        faction: u8,
+        origin: TileAddress,
+        depart_bell: u32,
+        arrive_bell: u32,
+        depart_ts: i64,
+        dep_mass: u32,
+        march_stamina: u16,
+        dealt_bps: u16,
+        seal_root: [u8; 32],
+        tip: u64,
+        flags: u8,
+        rent_to: [u8; 32],
+        min_lead: u32,
+    ) -> Result<WideTransit, MarchError> {
         if host_identity == super::holding::HOST_IDENTITY_UNALLOCATED {
             return Err(MarchError::HostIdentityUnallocated);
         }
@@ -793,7 +842,7 @@ impl WideTransit {
             depart_bell,
             arrive_bell,
         };
-        let lo = depart_bell.checked_add(MIN_ARRIVAL_LEAD_BELLS).ok_or(err)?;
+        let lo = depart_bell.checked_add(min_lead).ok_or(err)?;
         let hi = depart_bell.checked_add(MAX_ARRIVAL_LEAD_BELLS).ok_or(err)?;
         if arrive_bell < lo || arrive_bell > hi {
             return Err(MarchError::ArrivalBell {

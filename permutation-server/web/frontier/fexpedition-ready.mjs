@@ -2,6 +2,7 @@
 // frontier_abi::prologue and rules::host. No dispatch, signature or sealer.
 import { decode } from './fcodec.mjs';
 import { hostParts, hostId, seasonAddresses } from './faddr.mjs';
+import { pacingOf } from './fpacing.mjs';
 import { canonicalOutboundRoles } from './fexpedition-depart.mjs';
 import { parseU64, ringPosition } from './map/wide.mjs';
 import { encode } from '../sdk/base58.mjs';
@@ -61,7 +62,9 @@ function occupancy(holding, raw, issuer) {
       original(t.originP, t.originQ, 'BadData');
       uint(t.originTile, 60, 'BadData'); uint(t.unit, 7, 'BadData'); uint(t.faction, 5, 'BadData');
       const depart = uint(t.departBell, U32 - 72, 'BadData'), arrive = uint(t.arriveBell, U32, 'BadData');
-      check(arrive >= depart + 2 && arrive <= depart + 72, 'BadData');
+      // (world4-pacing-impl: a stored record is checked against the smallest lead any Season allows, 1 —
+      //  frontier-abi march::RECORD_MIN_LEAD_BELLS; the program checked it against its own Season's lead)
+      check(arrive >= depart + 1 && arrive <= depart + 72, 'BadData');
     }
     return { state: t.state, id };
   });
@@ -162,11 +165,14 @@ export function evaluateOriginalOutboundReady(input = {}) {
     }
     const stored = uint(entry.staminaValue, 65535), at = uint(entry.staminaBell), ready = uint(entry.readyBell);
     const available = bell <= at ? stored : Math.min(120, stored + bell - at);
-    out.stamina = { stored, storedBell: at, available, required: 74, readyBell: ready,
-      restBells: Math.max(0, ready - bell, available >= 74 ? 0 : Math.max(0, at - bell) + 74 - available) };
-    check(bell >= ready && available >= 74, 'Cooldown');
+    // (world4-pacing-impl: the Season's Depart stamina and minimum lead, as the program reads them — fpacing.mjs;
+    //  74 and 2 in every world before the pacing bytes)
+    const pace = pacingOf(season), need = pace.departStamina;
+    out.stamina = { stored, storedBell: at, available, required: need, readyBell: ready,
+      restBells: Math.max(0, ready - bell, available >= need ? 0 : Math.max(0, at - bell) + need - available) };
+    check(bell >= ready && available >= need, 'Cooldown');
     check(bell <= U32 - 72, 'Overflow');
-    out.arrival = { min: bell + 2, max: Math.min(bell + 72, end - 1), arriveBell };
+    out.arrival = { min: bell + pace.minLead, max: Math.min(bell + 72, end - 1), arriveBell };
     uint(arriveBell, U32, 'ArrivalBell');
     check(arriveBell >= out.arrival.min && arriveBell <= out.arrival.max, 'ArrivalBell');
     const minimum = minTipLamports(uint(season.minRevealPriorityMilli), uint(season.revealCuLimit), uint(season.revealLoadedLimit));

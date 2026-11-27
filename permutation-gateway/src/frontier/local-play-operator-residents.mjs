@@ -43,6 +43,7 @@ import { pathToFileURL } from 'node:url';
 import { encode } from '../../../permutation-server/web/sdk/base58.mjs';
 import { parseTransaction, wireTransaction } from '../../../permutation-server/web/sdk/solana-tx.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
+import { pacingOf } from '../../../permutation-server/web/frontier/fpacing.mjs';
 import { submitLocalAct, postLocalAct, followLocalAct } from '../../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { postLocalMarch } from '../../../permutation-server/web/frontier/flocalplay-march.mjs';
 import { RESIDENT_ALREADY_ACTED } from './resident-turns.mjs';
@@ -224,6 +225,18 @@ export function genesisOf(record, rulesetHash = null, decode = decodePrefix) {
 }
 
 /**
+ * world4-pacing-impl: whether the Season places a first village at once on a settled rim province (`pacing` 1, the
+ * page's fpacing.mjs `pacingOf`), from the same `/h/season` record; false when unreadable (every world before the byte).
+ */
+export function firstHomeAtOnceOf(record, rulesetHash = null, decode = decodePrefix) {
+  try {
+    if (!record || record.v !== 1 || typeof record.bytes_b64 !== 'string') return false;
+    const s = decode('Season', Buffer.from(record.bytes_b64, 'base64'), { profile: profileForHash(rulesetHash) ?? 2 });
+    return pacingOf(s).firstHomeAtOnce;
+  } catch { return false; }
+}
+
+/**
  * The turn a war resident's sent action is booked on (owner Q16-2): the later of the bell it was decided at and the
  * bell the chain is in when the send and its follow are over (`deps.liveBell`). A send started at the very end of a
  * turn runs on the chain in the NEXT one (seen 2026-11-19, verify-pr68: a Depart decided at bell 26 ran — and was
@@ -242,7 +255,7 @@ export function spentBell(nowBell, deps) {
  */
 /** Whether the resident plays a territory world (a target carries territory facts, or it owns a tile already). */
 const territoryWorld = (targets, memory) => (memory.ownTiles ?? []).length > 0 || (Array.isArray(targets) && targets.some(t => t?.territory));
-export async function residentTurn(r, { homes, deps, bell = null, wideTargets = null }) {
+export async function residentTurn(r, { homes, deps, bell = null, wideTargets = null, atOnce = false }) {
   const t = deps.now();
   // (a war resident's bell is the one its eyes read this round — the same chain clock —; its budget is asked after the
   //  decision, so a held turn (the settle wait) and the war rule's own "already acted" are said as what they are)
@@ -352,7 +365,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
         ...(code ? { code } : {}), ...(signature ? { signature } : {}), ...(detail ? { detail: JSON.stringify(detail).slice(0, 400) } : {}), budget: r.budget.state() };
     }
   }
-  const d = decideNext(r.memory, view, { homes, wide, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
+  const d = decideNext(r.memory, view, { homes, wide, atOnce, nowSecs: view?.joined === false ? await deps.nowSecs().catch(() => null) : null,
     war: snap ? { nowBell, reserve: snap.reserve, hostCount: snap.hostCount, march: snap.march, settling: snap.settling, army: snap.army, threatened: snap.threatened } : null });
   const seen = { joined: view?.joined ?? null, faction: view?.faction ?? null, village: view?.holding ? `${view.holding.p},${view.holding.q},${view.holding.site}` : null,
     ...(wide?.land ? { land: { food_per_hour: wide.land.foodMilliPerHour / 1000, upkeep_per_hour: wide.land.upkeepMilliPerHour / 1000, tiles: wide.land.tiles, remembered: (r.memory.ownTiles ?? []).length } } : {}),
@@ -422,7 +435,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   }
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
   let programCode = null;
-  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; programCode = Number.isInteger(sent.programCode) ? sent.programCode : null; }
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; programCode = Number.isInteger(sent.programCode) ? sent.programCode : Number.isInteger(sent.detail?.program_code) ? sent.detail.program_code : Number.isInteger(r.lastRefusal?.detail?.program_code) ? r.lastRefusal.detail.program_code : null; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);
@@ -521,12 +534,16 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     } }));
     return marchPosts.get(r.origin);
   }
-  let why = null, genesis = null;
+  let why = null, genesis = null, atOnce = false;
   const quiet = createQuietLog();
   while (!stop.signal.aborted) {
     // (the bell, once a round, for every resident's one action: the Season's genesis read until known, then the chain
     //  time; either unknown = nobody sends this round)
-    if (genesis === null) genesis = genesisOf(await deps.season().catch(() => null), residents[0]?.rulesetHash);
+    if (genesis === null) {
+      const rec = await deps.season().catch(() => null);
+      genesis = genesisOf(rec, residents[0]?.rulesetHash);
+      if (genesis !== null) atOnce = firstHomeAtOnceOf(rec, residents[0]?.rulesetHash);
+    }
     const bell = bellOf(genesis, await deps.nowSecs().catch(() => null));
     if (eyes) {
       try { await eyes.refresh(); } catch (e) { print(JSON.stringify({ at: new Date().toISOString(), turn: turns, step: 'eyes', outcome: 'no-answer', why: String(e?.message ?? e).slice(0, 120) })); await delay(o.cadenceMs, stop.signal); continue; }
@@ -536,7 +553,7 @@ export async function main(argv = process.argv.slice(2), { print = s => process.
     }
     const one = async r => {
       if (stop.signal.aborted || r.budget.state().stopped) return;   // (stopped for good: said once, when it stopped)
-      const line = await residentTurn(r, { homes: o.homes, deps, bell, wideTargets: o.wide ?? null });
+      const line = await residentTurn(r, { homes: o.homes, deps, bell, wideTargets: o.wide ?? null, atOnce });
       if (quiet.fresh(line)) print(JSON.stringify({ at: new Date().toISOString(), turn: turns, bell, ...line }));
     };
     // (a war world: every resident takes its turn at once — each has its own relay and its own wallet, and a refused

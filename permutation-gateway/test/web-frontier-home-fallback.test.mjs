@@ -198,7 +198,8 @@ test('the controller: a full heartland needs no home choice, the request is file
   // no new order: the request is the program's FileTicket, sent where it always was
   // (wide-local-playable: and the local wide world's one-site rim request, in the confirm, local wide worlds only)
   assert.equal(ctl.split("act('FileTicket'").length - 1, 2);
-  assert.equal(ctl.split("if (wideHomes() && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {").length - 1, 1);
+  // (world4-pacing-impl: the rim request is skipped only in a `pacing` 1 world whose rim province is settled — atOnce)
+  assert.equal(ctl.split("if (!atOnce && wideHomes() && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {").length - 1, 1);
   // both languages have the two sentences
   const en = source('lang/en-frontier-play.mjs');
   assert.ok(en.includes('"すぐに村を置ける本国の土地は、いま空いていません。代わりに、空いている土地へ村の申し込みを出します。":'));

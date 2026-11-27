@@ -25,6 +25,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { factionName, unitCount, clientText } from '../fi18n.mjs';
 import { UNIT_ORDER, SCOUT, SETTLER, actionBlocks } from '../fland.mjs';
 import { DEPART_STAMINA, DEPART_MARGIN_SECS, arrivalWindow, earliestBell, arrivalStamina, ENGAGE_STAMINA } from '../fmarch.mjs';
+import { minLeadOf } from '../fpacing.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { hostRows } from '../screens/host.mjs';
 import { sigilPath, FACTION_FILL, FACTION_DARK, FACTION_ON } from '../people/avatar.mjs';
@@ -217,7 +218,7 @@ export function arrivalTurn(FS, secs) {
   if (!FS.season || !Number.isFinite(secs)) return null;
   const bell = FS.nowBell ?? 0, now = FS.chain?.now?.() ?? null;
   let earliest = null;
-  try { earliest = FS.clock && FS.kernel && now !== null ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs }) : null; } catch { earliest = null; }
+  try { earliest = FS.clock && FS.kernel && now !== null ? earliestBell(FS.kernel, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs }) : null; } catch { earliest = null; }
   const min = arrivalWindow(FS.season, bell, earliest).min;
   return Number.isFinite(min) ? min : null;
 }

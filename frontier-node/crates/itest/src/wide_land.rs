@@ -108,6 +108,33 @@ pub fn params() -> SeasonParamsV2 {
     p
 }
 
+/// [`params`] with the NEXT world's pacing bytes (TEST-ONLY `--pacing fast-v1`, world4-pacing-impl):
+/// `frontier_abi::v2::presets::pacing_fast` on top of the local wide rules — the bytes world 4's preset
+/// `S1_DEVNET_TERRITORY_FAST` adds to world 3's.
+pub fn params_paced() -> SeasonParamsV2 {
+    frontier_abi::v2::presets::pacing_fast(params())
+}
+
+/// `--pacing fast-v1` out of the runner's arguments (TEST-ONLY, at most once; exactly that word): whether the wide
+/// world takes [`params_paced`].
+pub fn take_pacing_args(mut args: Vec<String>) -> Result<(Vec<String>, bool), String> {
+    let Some(i) = args.iter().position(|a| a == "--pacing") else {
+        return Ok((args, false));
+    };
+    let v = args.get(i + 1).cloned().ok_or("--pacing needs a value")?;
+    args.drain(i..i + 2);
+    if args.iter().any(|a| a == "--pacing") {
+        return Err("--pacing given twice".into());
+    }
+    if v != PACING_MODE {
+        return Err(format!("--pacing takes exactly `{PACING_MODE}`"));
+    }
+    Ok((args, true))
+}
+
+/// The word of [`take_pacing_args`].
+pub const PACING_MODE: &str = "fast-v1";
+
 /// The wide provinces opened on `ring`: per wedge, the `per_wedge` provinces in the middle of that wedge's arc (in
 /// the ring's walking order), wedges in order. Pure.
 pub fn wide_plan(ring: u64, per_wedge: usize) -> Vec<WideCoord> {

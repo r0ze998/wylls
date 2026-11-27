@@ -75,7 +75,7 @@ impl BridgeTransit {
         }
         // The existing constructor validates identity version, unit/faction,
         // origin world and arrival timing; decoding validates destination form.
-        WideTransit::depart(
+        WideTransit::depart_with_lead(
             transit.host_identity,
             transit.host,
             transit.unit,
@@ -91,6 +91,7 @@ impl BridgeTransit {
             0,
             0,
             transit.rent_to,
+            super::march::RECORD_MIN_LEAD_BELLS,
         )
         .map_err(|_| BridgeError::Departure)?;
         if WideTransit::from_bytes(&transit.to_bytes()).map_err(|_| BridgeError::State)? != transit
@@ -256,7 +257,7 @@ impl BridgeMarker {
                 ));
         let origin = super::TileAddress::new(key, bytes[T::ORIGIN_TILE])
             .map_err(|_| BridgeError::Departure)?;
-        let t = WideTransit::depart(
+        let t = WideTransit::depart_with_lead(
             super::HOST_IDENTITY_FULL_REF_V1,
             host,
             bytes[T::UNIT],
@@ -272,6 +273,7 @@ impl BridgeMarker {
             0,
             0,
             [0; 32],
+            super::march::RECORD_MIN_LEAD_BELLS,
         )
         .map_err(|_| BridgeError::Departure)?;
         BridgeTransit::new(ctx, 0, t)?;

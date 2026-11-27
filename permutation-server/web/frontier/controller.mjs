@@ -24,6 +24,7 @@ import { AGENTS_REFRESH_MS, delegatedTo, delegationOf, loadAgents, refusalNote, 
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
+import { minLeadOf, pacingOf } from './fpacing.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, buildItemOf, UNIT_ORDER, trainingCost } from './fland.mjs';
 import { BUILDINGS, TIERS, unitCount, failureText, departRefusedReason } from './fi18n.mjs';
 import { villageInUse } from './hud/rulebook.mjs';
@@ -2949,7 +2950,13 @@ export async function confirmHome() {
     //  r_max (16) even on a grown map; the world's runner settles it on the bell's beacon at the turn's end)
     // (and a wide devnet season, devnet gap P1: an opened rim province of the player's nation, settled by keeper A's
     //  `tickets` role on the bell's beacon)
-    if (wideHomes() && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {
+    // (world4-pacing-impl, owner Q-PM2-2 (a): a world whose Season has `pacing` 1 places the first village at once with
+    //  PlaceHome on a SETTLED rim province — the program bounds it by the map's effective r_max there and ⑭ R3 needs the
+    //  province settled; any other rim province, and every world before the byte (world 3), keeps the request lottery)
+    const atOnce = pacingOf(FS.season).firstHomeAtOnce
+      && Number((await loadEnvelope(site.p, site.q).catch(() => null))?.province?.nSitesUsed ?? 0) > 0;
+    if (!mine()) return;
+    if (!atOnce && wideHomes() && ringOf(site.p, site.q) > Number(FS.season?.conquestParams?.heartlandMaxRing ?? 3)) {
       const one = [{ p: site.p, q: site.q, site: site.site }];
       const filed = await act('FileTicket', { v: { sites: one }, fields: { sites: one }, label: () => L`辺境の村を申し込んでいます…`, say: () => L`辺境の村を申し込みました。ターンの終わりに決まります。`,
         // (fix-devnet-join-wait: the request is noted as the Join and PlaceHome are — a press after a reload or after a
@@ -3178,7 +3185,7 @@ async function setDestination(dest) {
     if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
     // (the route, the earliest turn and the arrival turn are worked out first and set together: a throw between them
     //  no longer leaves a route beside an arrival turn that was not made from it)
-    const earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
+    const earliest = earliestBell(k, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
     const arrive = arrivalWindow(FS.season, nowBell(), earliest).min;
     c.route = r.route; c.earliest = earliest; c.arriveBell = arrive;
     checkRouteOpen(c, dest, r.route);
@@ -3205,7 +3212,7 @@ export function composeTick() {
   const c = FS.compose;
   if (!c || c.sending || !c.route || !c.dest || !FS.season || !FS.clock) return false;
   // (the earliest turn only ever moves on)
-  const fresh = FS.kernel ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null;
+  const fresh = FS.kernel ? earliestBell(FS.kernel, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null;
   const earliest = fresh !== null && fresh > (c.earliest ?? 0) ? fresh : c.earliest;
   const w = arrivalWindow(FS.season, nowBell(), earliest);
   const arrive = Number.isInteger(c.arriveBell) ? Math.min(w.max, Math.max(w.min, c.arriveBell)) : c.arriveBell;
@@ -3516,18 +3523,18 @@ async function sendTheMarch() {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey, accounts: null, session: null,
       ...devnetDeps,
       onStep: s => { c.step = s; invalidate('panel'); },
-      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
+      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
     }) : localPlay ? await sendMarch(m, {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey, accounts: null, session: null,
       ...localMarchSenderNow().depsFor({ holding: { p: h.p, q: h.q, site: h.site }, province: { p: c.origin.p, q: c.origin.q } }),
       onStep: s => { c.step = s; invalidate('panel'); },
-      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
+      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
     }) : await sendMarchRetrying(m, {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey,
       storage: book.browserStorage, bookKey: bookKey(), session: FS.session,
       accounts: accountsFor('Depart', ctx({ holding: { p: h.p, q: h.q, site: h.site }, province: c.origin })),
       submit, track, onStep: s => { c.step = s; invalidate('panel'); },
-      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
+      earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
       refresh: async () => { await loadEnvelope(c.origin.p, c.origin.q).catch(() => null); FS.nowBell = nowBell(); return { nowBell: nowBell(), now: now(), resolvedNext: origin()?.resolvedNext ?? null, province: origin() }; },
       nudge: () => io.nudge(c.origin.p, c.origin.q, origin()?.resolvedNext ?? nowBell()),
       onRetry: x => {

@@ -21,6 +21,7 @@ import { kernelRulesetFor } from '../../../permutation-server/web/frontier/floca
 import { conquestEnabled, kernelFile, keepFromProvince } from '../../../permutation-server/web/frontier/fconquest.mjs';
 import { reachableKeeps } from '../../../permutation-server/web/frontier/fkeepreach.mjs';
 import { planRoute, sendMarch, earliestBell, arrivalWindow, tipOptions, departMargin, DEPART_STAMINA, freeTransitSlot } from '../../../permutation-server/web/frontier/fmarch.mjs';
+import { minLeadOf } from '../../../permutation-server/web/frontier/fpacing.mjs';
 import { sealMarch, checkBeacon } from '../../../permutation-server/web/frontier/seal.mjs';
 import { seasonClock, bellAt } from '../../../permutation-server/web/frontier/clock.mjs';
 import { hostsIn, actionBlocks } from '../../../permutation-server/web/frontier/fland.mjs';
@@ -305,7 +306,7 @@ export async function sendWarMarch(r, snap, eyes, { post } = {}) {
   // (the chain's time now, as the page's chain clock extrapolates it from its last sample at the measured rate)
   const nowSecs = () => w.now + Math.max(0, (Date.now() - w.sampledAt) / 1000) * (w.rate ?? 1);
   const margin = departMargin(w.rate ?? 1);
-  const earliest = earliestBell(k, { genesisTs: w.clock.genesisTs, departTs: nowSecs() + margin, secs: route.route.secs });
+  const earliest = earliestBell(k, { lead: minLeadOf(w.season), genesisTs: w.clock.genesisTs, departTs: nowSecs() + margin, secs: route.route.secs });
   const win = arrivalWindow(w.season, w.nowBell, earliest);
   const tip = tipOptions(w.season)[0].lamports;
   const A = seasonAddresses(r.identity.programId, String(w.season.seasonId));
@@ -316,6 +317,6 @@ export async function sendWarMarch(r, snap, eyes, { post } = {}) {
     rulesetHash: () => r.rulesetHash, signer: () => r.signer, ...(post ? { post } : {}), tries: 20, every: 1000 });
   const out = await sendMarch(m, { seal: req => sealMarch(req, { inline: true }), clock: w.clock, publicKey: w.beacon?.publicKey, accounts: null, session: null,
     ...sender.depsFor({ holding: { p: snap.holding.p, q: snap.holding.q, site: snap.holding.site }, province: { p: row.origin.p, q: row.origin.q } }),
-    earliestAtSend: () => earliestBell(k, { genesisTs: w.clock.genesisTs, departTs: nowSecs() + margin, secs: route.route.secs }) });
+    earliestAtSend: () => earliestBell(k, { lead: minLeadOf(w.season), genesisTs: w.clock.genesisTs, departTs: nowSecs() + margin, secs: route.route.secs }) });
   return { ...out, arriveBell: m.arriveBell, route: { steps: route.route.dirs?.length ?? null, provinces: route.route.provinces?.length ?? null, secs: route.route.secs } };
 }

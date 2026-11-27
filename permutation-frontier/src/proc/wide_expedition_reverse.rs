@@ -199,7 +199,9 @@ pub(super) fn execute_depart(p: &Pubkey, a: &[AccountInfo], wire: &[u8]) -> R<()
     if !super::super::host::seal_flag_ok(x.seal[0]) {
         return Err(FrontierError::BadData.into());
     }
-    if x.arrive_bell < bell.checked_add(2).ok_or(OVERFLOW)?
+    // world4-pacing-impl: the Season's Depart stamina and minimum lead.
+    let pace = crate::layout::conquest::season_pacing(&after[2])?;
+    if x.arrive_bell < bell.checked_add(pace.min_lead).ok_or(OVERFLOW)?
         || x.arrive_bell > bell.checked_add(72).ok_or(OVERFLOW)?
         || x.arrive_bell >= hdr.end_bell
     {
@@ -227,14 +229,14 @@ pub(super) fn execute_depart(p: &Pubkey, a: &[AccountInfo], wire: &[u8]) -> R<()
     }
     expect_key(external, &wm::transit_address(&ctx, &key(holding), x.slot))?;
     let mut host = e.to_host().map_err(|_| BAD_ACCOUNT)?;
-    host.depart(bell, super::super::host::DEPART_STAMINA, rn)
+    host.depart(bell, pace.depart_stamina, rn)
         .map_err(|e| super::super::host::host_err(e, FrontierError::NotResident))?;
     let dealt = hold::bps16(
         of_faction_v3(e.faction)
             .ok_or(BAD_ACCOUNT)?
             .dealt_bps(Posture::Stance(Stance::Hold), true),
     )?;
-    let t = WideTransit::depart(
+    let t = WideTransit::depart_with_lead(
         wm::HOST_IDENTITY_FULL_REF_V1,
         x.host,
         e.unit,
@@ -244,12 +246,13 @@ pub(super) fn execute_depart(p: &Pubkey, a: &[AccountInfo], wire: &[u8]) -> R<()
         x.arrive_bell,
         now.ts,
         e.troops,
-        super::super::host::DEPART_STAMINA,
+        pace.depart_stamina,
         dealt,
         cseal::wide_seal_root_of(&x.commit, &x.seal),
         0,
         0,
         key(payer),
+        pace.min_lead,
     )
     .map_err(march_err)?;
     let reverse =

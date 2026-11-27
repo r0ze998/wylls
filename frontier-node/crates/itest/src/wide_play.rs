@@ -89,6 +89,26 @@ pub fn rules_metadata(preset: &str, wide: bool) -> Value {
         "not_devnet": "the program, its presets and the devnet .so are unchanged; only this local world's CreateSeason bytes differ"})
 }
 
+/// TEST-ONLY `--pacing fast-v1` (world4-pacing-impl): the runner's statement also names the next world's pacing
+/// bytes this local world takes (`frontier_abi::v2::presets::pacing_fast`).
+pub fn add_pacing_metadata(v: &mut Value) {
+    use frontier_abi::v2::presets as p2;
+    let base = crate::wide_land::params();
+    let f = p2::pacing_fast(base);
+    let rows = [
+        json!({"byte": "conquest.pacing (83)", "preset": base.cq.pacing, "local": f.cq.pacing, "why": "Q-PM2-2 (a): first village at once on a settled rim province (the lottery stays the fallback)"}),
+        json!({"byte": "season.min_lead", "preset": base.base.min_lead, "local": f.base.min_lead, "why": "Q-PM2-3: a march may arrive 1 turn after it leaves"}),
+        json!({"byte": "season.reveal_window", "preset": base.base.reveal_window, "local": f.base.reveal_window, "why": "Q-PT-4 b: 300 s"}),
+        json!({"byte": "conquest.keep_bells", "preset": base.cq.keep_bells, "local": f.cq.keep_bells, "why": "Q-PT-4 e: every keep held 36 turns"}),
+        json!({"byte": "conquest.depart_stamina (84)", "preset": base.cq.depart_stamina, "local": f.cq.depart_stamina, "why": "Q-PT-4 d: a parameter at today's 74 (Q-PKM-3 open)"}),
+        json!({"byte": "conquest.starter_host (85)", "preset": base.cq.starter_host, "local": f.cq.starter_host, "why": "Q-PT-4 a: a starter host at the founding (size Q-W4P-1)"}),
+    ];
+    if let Some(c) = v["changed"].as_array_mut() {
+        c.extend(rows);
+    }
+    v["pacing"] = json!(crate::wide_land::PACING_MODE);
+}
+
 /// The ring-1 provinces of a centre-free Season, `(p, q, nation)` (the mixed nation of ⑭ R2). (0,0) is left out (the
 /// page's terrain kernel, module doc). None when the Season keeps its centre.
 pub fn centre_provinces(cq: &ConquestParams, seed: &[u8; 32]) -> Vec<(i16, i16, u8)> {

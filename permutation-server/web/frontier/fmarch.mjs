@@ -23,6 +23,7 @@ import * as book from './marchbook.mjs';
 import { tileHex } from './fgeo.mjs';
 import { planBounded } from './froute-bounded.mjs';
 import { isFinal } from './fland.mjs';
+import { earliestArrivalBell } from './fpacing.mjs';
 
 // ------------------------------------------------------------------ rules the composer pre-checks
 /**
@@ -158,9 +159,15 @@ export const DEPART_MARGIN_SECS = 90;
 export const DEPART_MARGIN_WALL = 2;
 export const departMargin = (rate = 1) => Math.min(300, Math.max(DEPART_MARGIN_SECS, DEPART_MARGIN_WALL * (Number.isFinite(Number(rate)) && Number(rate) > 1 ? Number(rate) : 1)));
 
-/** The earliest arrival bell of a route departing at chain time `departTs` (kernel), or null without a kernel. */
-export function earliestBell(kernel, { genesisTs, departTs, secs }) {
+/**
+ * The earliest arrival bell of a route departing at chain time `departTs` (kernel), or null without a kernel.
+ * `lead`: the Season's minimum arrival lead (fpacing.mjs `minLeadOf`; 2 when absent — every world before the pacing
+ * bytes, where the wasm kernel answers as before). A world with lead 1 (world4-pacing-impl, Q-PM2-3) takes the same
+ * arithmetic with its own lead (`earliestArrivalBell`), which the kernel module does not carry.
+ */
+export function earliestBell(kernel, { genesisTs, departTs, secs, lead = 2 }) {
   if (!kernel) return null;
+  if (Number(lead) === 1) return earliestArrivalBell(genesisTs, departTs, secs, 1);
   const r = kernel.call('earliest_arrival_bell', { genesis_ts: genesisTs, depart_ts: Math.floor(departTs), secs });
   return r.ok ? r.value : null;
 }

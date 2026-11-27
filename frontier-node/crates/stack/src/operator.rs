@@ -157,6 +157,12 @@ pub fn keep_holder_name(b: u8) -> &'static str {
 /// there by name so this operator needs no change when it lands.
 pub const NEW_WORLD_PRESET: &str = "S1_DEVNET_TERRITORY";
 
+/// The NEXT devnet world's preset (world 4 beside world 3, owner Q-PT-5 (a);
+/// world4-pacing-impl): world 3's preset with the decided pacing bytes
+/// (`frontier_abi::v2::presets::pacing_fast`). Its creation needs r0ze's
+/// separate FINAL OK; this operator only plans it (`--offline`) until then.
+pub const NEXT_WORLD_PRESET: &str = "S1_DEVNET_TERRITORY_FAST";
+
 /// The keep-holder bytes whose wide keeps all open unowned (owner 12:07:
 /// the new world starts with ALL wide land unowned).
 pub const NEUTRAL_KEEP_HOLDERS: [u8; 2] = [3, 4];
@@ -186,13 +192,14 @@ pub fn check_wide_rules(p: &Profile) -> Result<u8, String> {
             keep_holder_name(b)
         ));
     }
-    if p.preset == NEW_WORLD_PRESET
+    if (p.preset == NEW_WORLD_PRESET || p.preset == NEXT_WORLD_PRESET)
         && !p
             .keep_holder
             .is_some_and(|k| NEUTRAL_KEEP_HOLDERS.contains(&k))
     {
         return Err(format!(
-            "season.preset {NEW_WORLD_PRESET} needs wide.keepHolder Neutral or NeutralTerritoryV1 (owner 2026-11-24 12:07: all wide land unowned), not {}",
+            "season.preset {} needs wide.keepHolder Neutral or NeutralTerritoryV1 (owner 2026-11-24 12:07: all wide land unowned), not {}",
+            p.preset,
             p.keep_holder.map_or("the default MixedInterleaved", keep_holder_name)
         ));
     }
@@ -318,19 +325,23 @@ pub fn parse_profile(text: &str) -> Result<Profile, String> {
 
 /// The presets the operator may create, by the profile's `season.preset`
 /// (or `--preset`).
-pub const PRESETS: [&str; 5] = [
+pub const PRESETS: [&str; 6] = [
     "S1_LOCAL_7D",
     "S1_LOCAL_14D",
     "S1_DEVNET_WIDE_7D",
     "S1_DEVNET_WIDE_CONTINUOUS",
     NEW_WORLD_PRESET,
+    NEXT_WORLD_PRESET,
 ];
 
 /// The presets of the playable lane: program version [`PLAYABLE_VERSION`]
 /// and the wide land's WideSetRules after the season is Seeded. The
 /// continuous world (owner 2026-11-23: seasons abolished) is the same lane.
 pub fn is_wide_preset(name: &str) -> bool {
-    name == "S1_DEVNET_WIDE_7D" || name == "S1_DEVNET_WIDE_CONTINUOUS" || name == NEW_WORLD_PRESET
+    name == "S1_DEVNET_WIDE_7D"
+        || name == "S1_DEVNET_WIDE_CONTINUOUS"
+        || name == NEW_WORLD_PRESET
+        || name == NEXT_WORLD_PRESET
 }
 
 /// The preset's parameters as the season is created: the beacon key and
@@ -351,6 +362,7 @@ pub fn season_params(p: &Profile) -> Result<frontier_abi::v2::presets::SeasonPar
                     "season.preset {NEW_WORLD_PRESET}: not in this build's frontier-abi (it lands with #209, player territory); rebuild the operator after it merges"
                 )
             })?,
+        NEXT_WORLD_PRESET => v2::S1_DEVNET_TERRITORY_FAST,
         x => return Err(format!("season.preset {x}: one of {}", PRESETS.join(", "))),
     };
     let version = p.program_version.unwrap_or(if is_wide_preset(&p.preset) {
@@ -1794,7 +1806,9 @@ pub const USAGE: &str = "usage: frontier-operator --profile FILE [--preset NAME]
   MixedInterleaved). S1_DEVNET_TERRITORY (the new world: no ReleaseDormant,
   needs wide.keepHolder Neutral or NeutralTerritoryV1) exists once #209 is in
   this build. --rpc is --cluster-url. Presets: S1_LOCAL_7D, S1_LOCAL_14D,
-  S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS, S1_DEVNET_TERRITORY.
+  S1_DEVNET_WIDE_7D, S1_DEVNET_WIDE_CONTINUOUS, S1_DEVNET_TERRITORY,
+  S1_DEVNET_TERRITORY_FAST (the next world, world 4: world 3's preset with the
+  pacing bytes; its creation needs r0ze's separate FINAL OK).
   Exit: 0 done/plan printed, 1 failed, 2 refused, 3 waiting (t_create_min,
   or the season to be Seeded); run the same command again to resume.
   frontier-operator end-season --help: the season's end and clean-up

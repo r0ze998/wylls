@@ -503,7 +503,17 @@ pub fn rule_refusal(cx: &Ctx, dr: &Rec, p: &Plain, settle_tx: usize) -> Option<&
     }
     let doctrine = cx.rules().doctrine(tr.faction)?;
     let secs = u32::try_from(doctrine.travel_secs(secs)).ok()?;
-    if travel::check_arrival_bell(f.genesis_ts, tr.depart_ts, secs, arrive).is_err() {
+    // world4-pacing-impl: the Season's minimum lead (the kernel's 2 before
+    // the pacing bytes; the program's Reveal reads the same byte).
+    if frontier_abi::v2::pacing::check_arrival_bell(
+        f.genesis_ts,
+        tr.depart_ts,
+        secs,
+        arrive,
+        f.pacing().min_lead,
+    )
+    .is_err()
+    {
         return Some(reason::ARRIVAL_BELL);
     }
     // The shield clauses: only a holding site of another faction.

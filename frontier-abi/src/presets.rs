@@ -284,7 +284,22 @@ impl SeasonParams {
     /// Only the v2 conquest flag can select this path. Both the world end
     /// and the join deadline are absent, allowing future players to join.
     pub(crate) fn validate_world(&self, continuous: bool) -> Result<(), &'static str> {
+        self.validate_paced(continuous, false)
+    }
+
+    /// [`Self::validate_world`] for a world whose conquest block chose
+    /// `pacing` ≥ 1 (`fast`, world4-pacing-impl): `min_lead` may be 1 (else
+    /// exactly 2) and `reveal_window` may go down to
+    /// `v2::presets::REVEAL_WINDOW_FAST_MIN` (300 s; else 600). Every other
+    /// range is the same.
+    pub(crate) fn validate_paced(&self, continuous: bool, fast: bool) -> Result<(), &'static str> {
         let p = self;
+        let lead_ok = p.min_lead == 2 || (fast && p.min_lead == 1);
+        let window_min = if fast {
+            crate::v2::presets::REVEAL_WINDOW_FAST_MIN
+        } else {
+            600
+        };
         let end_ok = if continuous {
             p.end_bell == NO_END_BELL && p.join_close_bell == NO_END_BELL
         } else {
@@ -306,10 +321,13 @@ impl SeasonParams {
                 p.network == crate::layout::world::season::NETWORK_QUICKNET,
                 "network",
             ),
-            (p.min_lead == 2, "min_lead"),
+            (lead_ok, "min_lead"),
             (p.max_lead == 72, "max_lead"),
             (p.transit_slots == 4, "transit_slots"),
-            ((600..=1_800).contains(&p.reveal_window), "reveal_window"),
+            (
+                (window_min..=1_800).contains(&p.reveal_window),
+                "reveal_window",
+            ),
             (p.seed_margin >= 60, "seed_margin"),
             (p.archive_after >= 172_800, "archive_after"),
             (

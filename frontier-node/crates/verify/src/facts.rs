@@ -120,6 +120,21 @@ pub struct Facts {
 }
 
 impl Facts {
+    /// world4-pacing-impl: the world's pacing as its CreateSeason stated it
+    /// (`frontier_abi::v2::pacing`; the program reads the same bytes from the
+    /// Season): legacy for an M1 season, a season with `pacing` 0 (world 3),
+    /// or no CreateSeason in the archive.
+    pub fn pacing(&self) -> frontier_abi::v2::pacing::Pacing {
+        use frontier_abi::v2::pacing::Pacing;
+        match (&self.params, &self.cq) {
+            (Some(p), Some(cq)) => {
+                Pacing::from_bytes(cq.pacing, p.min_lead, cq.depart_stamina, cq.starter_host)
+                    .unwrap_or(Pacing::LEGACY)
+            }
+            _ => Pacing::LEGACY,
+        }
+    }
+
     /// The conquest step's parameters of a conquest season (the Season's
     /// genesis time and end, the CreateSeason conquest block); `None` for M1.
     pub fn step_params(&self) -> Option<frontier_abi::conquest_model::StepParams> {

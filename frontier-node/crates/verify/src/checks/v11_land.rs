@@ -725,7 +725,21 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             .zip(sb.holdings_by_wedge.iter())
             .enumerate()
             .all(|(i, (a, b))| if i == wedge { *a == b + 1 } else { a == b });
+        // world4-pacing-impl: the program's province bound — the Season's
+        // base `r_max` (every world before the pacing bytes; this verifier did
+        // not check it before, D-pacing-measure-2-3), or under `pacing` 1 the
+        // map's effective `r_max` (a first home at once on the settled rim).
+        // The starter host's Muster bumps the roster epoch once more.
+        let pace = f.pacing();
+        let bound = if pace.first_home_at_once() {
+            season.r_max.max(frontier.r_max_ext)
+        } else {
+            season.r_max
+        };
+        let epoch_ok = pa.roster_epoch == pb.roster_epoch.wrapping_add(1)
+            || (pace.starter_host > 0 && pa.roster_epoch == pb.roster_epoch.wrapping_add(2));
         Ok(spawn_ok
+            && coord.ring() <= bound as u32
             && (arg.p as i32, arg.q as i32, arg.site) == (p, q, site)
             && ix.key(2) == Some(f.ctx.season)
             && ix.key(4) == Some(f.ctx.frontier())
@@ -772,7 +786,7 @@ fn placed_home(cx: &mut Ctx, r: &crate::world::Rec) {
             && a.garrison == 0
             && a.shield_until_bell == shield_bell
             && pa.n_sites_used == pb.n_sites_used + 1
-            && pa.roster_epoch == pb.roster_epoch.wrapping_add(1)
+            && epoch_ok
             && pa.cohorts == pb.cohorts
             && sa.holdings == sb.holdings + 1
             && shard_counted

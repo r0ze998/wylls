@@ -11,6 +11,7 @@ import { L, fmtNum } from '../../lang.mjs';
 import { STANCES as STANCE_TEXT, unitCount } from '../fi18n.mjs';
 import { STANCES } from '../seal.mjs';
 import { RETREAT_CHOICES, tipOptions, arrivalWindow, earliestBell, DEPART_MARGIN_SECS } from '../fmarch.mjs';
+import { minLeadOf } from '../fpacing.mjs';
 import { UNIT_ORDER, holdingByRef, ticketTimes } from '../fland.mjs';
 import { bellStart, bellAt } from '../clock.mjs';
 import { icon } from '../hud/icons.mjs';
@@ -64,7 +65,7 @@ export function composerArrival(FS) {
   const now = FS.chain?.now?.() ?? 0;
   const nowBell = FS.clock && FS.chain ? bellAt(FS.clock.genesisTs, now) ?? 0 : FS.nowBell ?? 0;
   const fresh = FS.clock && FS.kernel && c.route ? earliestBell(FS.kernel, {
-    genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs: c.route.secs,
+    lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs: c.route.secs,
   }) : null;
   const earliest = fresh ?? c.earliest ?? null;
   const w = arrivalWindow(FS.season, nowBell, earliest);
@@ -123,7 +124,7 @@ export function routeArrival(FS, route) {
   const now = FS.chain?.now?.();
   if (!Number.isFinite(now)) return null;
   try {
-    const earliest = earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs: route.secs });
+    const earliest = earliestBell(FS.kernel, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: now + DEPART_MARGIN_SECS, secs: route.secs });
     if (!Number.isInteger(earliest)) return null;
     const bell = arrivalWindow(FS.season, bellAt(FS.clock.genesisTs, now) ?? 0, earliest).min;
     return Number.isInteger(bell) ? { bell, inSecs: Math.max(0, bellStart(FS.clock.genesisTs, bell) - now) } : null;

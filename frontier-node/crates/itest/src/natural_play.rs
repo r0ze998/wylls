@@ -447,7 +447,12 @@ pub async fn prepare_with(
                 .into(),
         );
     }
-    let p = if o.wide {
+    if o.pacing && !o.wide {
+        return Err("--pacing is accepted only together with --wide-land".into());
+    }
+    let p = if o.wide && o.pacing {
+        crate::wide_land::params_paced()
+    } else if o.wide {
         crate::wide_land::params()
     } else {
         params_for(o.continuous)
@@ -644,6 +649,9 @@ pub async fn prepare_with(
                 },
                 o.wide,
             );
+            if o.pacing {
+                crate::wide_play::add_pacing_metadata(&mut v);
+            }
             v["centre_provinces"] = json!(centre
                 .iter()
                 .map(|(p, q, n)| json!({"p": p, "q": q, "nation": n}))
@@ -929,6 +937,7 @@ mod resume {
             persist: Some(dir.clone()),
             map_origin: None,
             wide: false,
+            pacing: false,
         };
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -1032,6 +1041,7 @@ mod resume {
                 persist: Some(dir.clone()),
                 map_origin: None,
                 wide: false,
+                pacing: false,
             };
             assert!(prepare_with(&art, w, 41_380, 41_381, &other)
                 .await

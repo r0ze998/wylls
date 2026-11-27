@@ -781,7 +781,10 @@ FoldOccupancy adds `extra_holdings` to occupied sites, so Join's reserve and the
 | 80 | `continuous u8` (⑧ P1) |
 | 81 | `centre u8` (0 the Concord and the Seats; 1 no centre, ⑭ R2, 2026-11-19 — needs placement 2 and S1) |
 | 82 | `spawn_reach u8` (0 PlaceHome in the heartland rings only; 1–8: also a settled province, or one within this many provinces of a settled witness Province named as PlaceHome's optional 10th account — ⑭ R3, 2026-11-19, needs placement 2 and S1; `presets::spawn_allows`) |
-| 83 | rsv 45 |
+| 83 | `pacing u8` (0 legacy pacing, every world before the byte, world 3; 1 `PACING_FAST_V1`: a first home may be placed at once on a settled province up to the map's effective `r_max`, FileTicket lottery kept as the fallback, and the base part may take `min_lead` 1 and `reveal_window` 300..600 — world4-pacing-impl, owner Q-PM2-2 a / Q-PM2-3 / Q-PT-4, 2026-11-27, needs S1; `v2::pacing`) |
+| 84 | `depart_stamina u8` (0: the kernel's `march_stamina(32)` = 74; otherwise 1–120, needs `pacing` ≥ 1) |
+| 85 | `starter_host u16` (0 none; otherwise 100–30,000 whole troops PlaceHome musters at the founding, needs `pacing` ≥ 1) |
+| 87 | rsv 41 |
 
 - **CreateSeason validation:**
   - `relations == 0` and `flags == 0` (M3 values refused, `BadParams`);

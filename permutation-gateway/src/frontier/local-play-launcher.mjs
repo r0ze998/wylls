@@ -503,6 +503,13 @@ export { COEXIST_MODE };
  * `wide-world-experimental` to serve the page's recorded-world view.
  */
 export const WIDE_LAND_MODE = 'local-wide-land-v1';
+/**
+ * `--pacing fast-v1` (TEST-ONLY, world4-pacing-impl, only with `--wide-land`): the wide world's Season takes the NEXT
+ * world's pacing bytes (frontier-abi `pacing_fast`: first village at once on the settled rim, arrival 1 turn after the
+ * departure, reveal window 300 s, keep hold 36, Depart stamina 74, starter host 500), runner `--pacing fast-v1`; its
+ * first line names them (`local_rules.pacing`).
+ */
+export const PACING_MODE = 'fast-v1';
 /** The runner's first line and this start agree on the wide land: its statement with the option, none without (and its TEST clock scale, `--wide-scale`, exactly as asked). */
 export function runnerWideAgrees(meta, wide, scale = null) {
   const d = meta?.wide_land;
@@ -1250,7 +1257,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       ...(continuous ? ['--continuous', CONTINUOUS_MODE] : []),
       ...(persist ? ['--persist-dir', path.join(home, 'run')] : []),
       ...(mapOrigin !== null ? ['--map-origin', String(mapOrigin)] : []),
-      ...(wide ? ['--wide-land', WIDE_LAND_MODE, ...(c.wideScale ? ['--wide-scale', String(c.wideScale)] : [])] : []),
+      ...(wide ? ['--wide-land', WIDE_LAND_MODE, ...(c.wideScale ? ['--wide-scale', String(c.wideScale)] : []), ...(c.pacing ? ['--pacing', PACING_MODE] : [])] : []),
       // (TEST-ONLY war world: the keeper also serves the operator residents' villages, read from operators.json)
       // (TEST-ONLY wide world, wide-march-local: likewise, so the AI residents' marches into the wide land are revealed
       //  and settled)
@@ -1285,6 +1292,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     if (!runnerMapAgrees(meta, mapOrigin)) throw fault('RunnerNotReady', 503);
     // (the wide land likewise: stated exactly as asked, or not at all; what was grown is recorded with this start's logs)
     if (!runnerWideAgrees(meta, wide, wide && c.wideScale ? c.wideScale : null)) throw fault('RunnerNotReady', 503);
+    if ((meta?.local_rules?.pacing === PACING_MODE) !== (c.pacing === true)) throw fault('RunnerNotReady', 503);
     if (wide) await fs.writeFile(path.join(dir, 'wide-land.json'), JSON.stringify({ mode: WIDE_LAND_MODE, world: meta.wide_land, test_only: true }));
     if (freshMap) await fs.writeFile(path.join(dir, 'fresh-map.json'), JSON.stringify({ mode: FRESH_MAP_MODE, asked_origin: mapOrigin, world: runnerFreshMap(meta), resumed: meta.persist?.resumed === true, fixed_origin: MAP_ORIGIN_DEFAULT, test_only: true }));
     // (the runner's own instance id, when it states one on that line: handed to the relay so that the relay can tell
@@ -1545,6 +1553,8 @@ export const USAGE = `local-play launcher (this machine only)
        and the operator residents may start beside the wide land and claim it (0xD9, settled by the runner)]
     [--wide-scale <1-60>: TEST-ONLY, only with --wide-land: the wide world's clock from ready-for-join on, in game
        seconds per second (a rim village saves the ~30 game hours of a wide claim's settler cost in 30 min at 60)]
+    [--pacing fast-v1: TEST-ONLY, only with --wide-land: the next world's pacing bytes (first village at once on the
+       settled rim, 1-turn arrival, 300 s reveal window, 36-turn keep hold, starter host; world4-pacing-impl)]
     [--operator-residents <1-4>: TEST-ONLY, natural preset only: each new world also gets that many operator AI
        residents (⑤ option A): memory-only TEST wallets made by their own process, funded like the player, each with
        its own relay; they Join, PlaceHome and use the economy commands by a fixed offline rule, through the same
@@ -1590,7 +1600,7 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-near', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs', 'coop-board', 'operator-war', 'wide-land', 'wide-scale', 'coexist', 'world-goals', 'flag-keeps-hold', 'flag-keeps-need', 'flag-keeps-member']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option', 'operator-residents', 'operator-nations', 'operator-near', 'operator-max-acts', 'external-residents', 'continuous', 'persist', 'fresh-map', 'prize-epochs', 'coop-board', 'operator-war', 'wide-land', 'wide-scale', 'pacing', 'coexist', 'world-goals', 'flag-keeps-hold', 'flag-keeps-need', 'flag-keeps-member']);
   // (⑰ owner decision 2026-11-18 21:44 (t353u): no AI residents in paid periods. This launcher has no prize lane —
   //  paid windows run only under `frontier-stack up --continuous --prize-epochs` — so `--prize-epochs` is always
   //  refused here, and by name when operator AI residents (⑤A) or external AI residents (⑤B) are asked for with it)
@@ -1665,6 +1675,8 @@ export async function parseConfig(args) {
   if (out['wide-land'] !== undefined && out['wide-land'] !== WIDE_LAND_MODE) throw fault('InvalidWideLand');
   if (out['wide-land'] !== undefined && (!natural || out['capture-demo'] !== undefined || out['world-option'] !== undefined || out.continuous !== undefined || out.persist !== undefined || out['contest-pair'] !== undefined)) throw fault('WideLandNeedsNaturalWorld');
   if (out['wide-scale'] !== undefined && (out['wide-land'] === undefined || parseWideScale(out['wide-scale']) === null)) throw fault('InvalidWideLand');
+  // (TEST-ONLY world4-pacing-impl: the next world's pacing bytes on the wide world, exactly its one word)
+  if (out.pacing !== undefined && (out.pacing !== PACING_MODE || out['wide-land'] === undefined)) throw fault('InvalidPacing');
   // (the TEST-ONLY coexist lane: exactly its one word; natural worlds (kept, or the capture demo's TEST clock) without the wide land)
   if (out.coexist !== undefined && out.coexist !== COEXIST_MODE) throw fault('InvalidCoexist');
   if (out.coexist !== undefined && (!natural || out['wide-land'] !== undefined)) throw fault('CoexistNeedsNaturalWorld');
@@ -1691,7 +1703,7 @@ export async function parseConfig(args) {
   const worldGoals = out['world-goals'] === undefined ? undefined : goalRulesOf({ hold: out['flag-keeps-hold'], need: out['flag-keeps-need'], member: out['flag-keeps-member'] });
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), ...(worldGoals ? { worldGoals } : {}), ...(out['operator-war'] !== undefined ? { operatorWar: true } : {}), ...(out['wide-land'] !== undefined ? { wideLand: true } : {}), ...(out.coexist !== undefined ? { coexist: true } : {}), ...(out['wide-scale'] !== undefined ? { wideScale: parseWideScale(out['wide-scale']) } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(out['operator-near'] !== undefined ? { operatorNear: true } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out.continuous !== undefined ? { continuous: true } : {}), ...(out.persist !== undefined ? { persist: true } : {}), ...(out['fresh-map'] !== undefined ? { freshMap: true } : {}), ...(out['coop-board'] !== undefined ? { coopBoard: true } : {}), ...(worldGoals ? { worldGoals } : {}), ...(out['operator-war'] !== undefined ? { operatorWar: true } : {}), ...(out['wide-land'] !== undefined ? { wideLand: true } : {}), ...(out.coexist !== undefined ? { coexist: true } : {}), ...(out['wide-scale'] !== undefined ? { wideScale: parseWideScale(out['wide-scale']) } : {}), ...(out.pacing !== undefined ? { pacing: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), ...(operatorResidents !== undefined ? { operatorResidents } : {}), ...(operatorNations ? { operatorNations } : {}), ...(out['operator-near'] !== undefined ? { operatorNear: true } : {}), ...(operatorPace ? { operatorPace } : {}), ...(externalResidents !== undefined ? { externalResidents } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true });
   // (persisted worlds: their parent is private, made so here, and a looser one refuses the launcher's start)

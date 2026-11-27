@@ -639,13 +639,18 @@ where
     // The kernel's own departure rule with the program's charge
     // (`proc::host::DEPART_STAMINA` = the longest path's march stamina):
     // stamina, cooldown and resolution, on a scratch copy of the host.
+    // (world4-pacing-impl: the charge and the minimum lead are the Season's,
+    // `fclient::decode::Season::pacing`; 74 and 2 in every older world)
+    let pace = season.pacing();
     let mut kernel_host = entry.to_host().map_err(|_| "SourceLayout")?;
     kernel_host
-        .depart(bell, DEPART_STAMINA, rn)
+        .depart(bell, pace.depart_stamina, rn)
         .map_err(|_| "HostCannotDepart")?;
     // ---- arrival window and tip, as the program bounds them
     let arrive = r.draft.command().arrive_bell;
-    if bell.checked_add(2).is_none_or(|min| arrive < min)
+    if bell
+        .checked_add(pace.min_lead)
+        .is_none_or(|min| arrive < min)
         || bell.checked_add(72).is_none_or(|max| arrive > max)
         || arrive >= season.end_bell
     {
