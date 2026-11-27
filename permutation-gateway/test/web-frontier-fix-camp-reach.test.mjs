@@ -51,9 +51,11 @@ test('campInBounds: a march crosses at most 4 provinces and 32 steps — a ring-
   assert.equal(ringOf(RIM.p, RIM.q), 128, 'the fixture is a rim village (ring 128)');
   assert.equal(FB.campInBounds(host, RING3), false, '125+ provinces away');
   assert.equal(FB.campInBounds(host, OWN), true, 'its own province');
-  // province distance 3 may be in reach; 4 never is
+  // province distance 4 may be in reach (the route ENTERS at most 4 provinces, the start not counted: fix-campreach-4,
+  // Q-TG4-1 — it said 3); 5 never is
   assert.equal(FB.campInBounds({ p: 0, q: 0 }, { p: 3, q: 0 }), true);
-  assert.equal(FB.campInBounds({ p: 0, q: 0 }, { p: 4, q: 0 }), false);
+  assert.equal(FB.campInBounds({ p: 0, q: 0 }, { p: 4, q: 0 }), true);
+  assert.equal(FB.campInBounds({ p: 0, q: 0 }, { p: 5, q: 0 }), false);
   // with tiles: 3 provinces apart but the far edges are more than 32 hexes apart
   assert.equal(FB.campInBounds({ p: 0, q: 0, tile: 0 }, { p: 3, q: 0, tile: 60 }), false);
   assert.equal(FB.campInBounds({ p: 0, q: 0, tile: 60 }, { p: 1, q: 0, tile: 0 }), true);

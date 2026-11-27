@@ -17,7 +17,7 @@ import { campArrival } from './rulebook.mjs';
 import { SCOUT, SETTLER } from '../fland.mjs';
 import { tileHex, hexDistance } from '../fgeo.mjs';
 import { MAX_PATH_STEPS } from '../seal.mjs';
-import { MAX_ROUTE_PROVINCES } from '../fkeepreach.mjs';
+import { provinceInReach } from '../fkeepreach.mjs';
 
 /** Seconds the keeper is given, after the seed round, to resolve the turn (a guide figure; the report is "about"). */
 export const RESOLVE_SLACK_SECS = 60;
@@ -100,14 +100,15 @@ export const campFights = pr => pr?.camp?.state === 1 && garrisonsIn(pr) < CAMP_
 /**
  * (fix-camp-reach, pacing-measure-2 D-pacing-measure-2-4 / Q-PM2-1 (c)) Whether a march of host row `r` could reach the
  * camp on tile `tile` of province (p, q) at all, by the planner's own hard limits, without asking the rules module: a
- * route crosses at most MAX_ROUTE_PROVINCES provinces (so the camp's province is at most 3 provinces away) and takes at
- * most MAX_PATH_STEPS steps (so the camp's tile is at most 32 hexes away). False only when it certainly cannot: a rim
+ * route ENTERS at most MAX_ROUTE_PROVINCES provinces, the starting one not counted (fkeepreach.mjs provinceInReach, the
+ * rules' path_cost: so the camp's province is at most 4 provinces away; fix-campreach-4, Q-TG4-1 — it said 3) and takes
+ * at most MAX_PATH_STEPS steps (so the camp's tile is at most 32 hexes away). False only when it certainly cannot: a rim
  * village (ring 128) was guided to a ring-3 camp 125 rings away, whose march card said "No path there was found".
  */
 export function campInBounds(r, { p, q, tile }) {
   if (!r || !Number.isInteger(p) || !Number.isInteger(q)) return false;
   const rp = r.p ?? p, rq = r.q ?? q;
-  if (hexDist({ p, q }, { p: rp, q: rq }) > MAX_ROUTE_PROVINCES - 1) return false;
+  if (!provinceInReach({ p: rp, q: rq }, { p, q })) return false;
   if (!Number.isInteger(r.tile) || !Number.isInteger(tile)) return true;
   const a = tileHex(rp, rq, r.tile), b = tileHex(p, q, tile);
   return !a || !b || hexDistance(a.q, a.r, b.q, b.r) <= MAX_PATH_STEPS;

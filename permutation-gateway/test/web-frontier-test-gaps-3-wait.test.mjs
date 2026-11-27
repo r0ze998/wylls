@@ -169,9 +169,10 @@ test('W4 campChoice never picks a camp that sits out; every nearer camp that sit
     // the rule's own count, not the page's (clash_model.rs v2_garrison_state: a holding or a Free City; MAX_GARRISONS 12)
     const garrisons = pr => pr.siteMirror.slice(0, pr.siteCount).filter(s => s.state === 1 || s.state === 5).length;
     const ruleFights = pr => pr.camp.state === 1 && garrisons(pr) < 12;
-    // (fix-camp-reach, Q-PM2-1 (c): a camp beyond a march's reach — more than 3 provinces away, MAX_ROUTE_PROVINCES 4 —
-    //  is never picked either; the deliberate change of that PR, so "no pick" now means none in sight, fighting AND in reach)
-    const inReach = x => (Math.abs(x.p - host.p) + Math.abs(x.q - host.q) + Math.abs(x.p + x.q - host.p - host.q)) / 2 <= 3;
+    // (fix-camp-reach, Q-PM2-1 (c): a camp beyond a march's reach — more than MAX_ROUTE_PROVINCES 4 provinces away, the
+    //  start not counted (fix-campreach-4, Q-TG4-1: it was 3) — is never picked either; the deliberate change of that PR,
+    //  so "no pick" now means none in sight, fighting AND in reach)
+    const inReach = x => (Math.abs(x.p - host.p) + Math.abs(x.q - host.q) + Math.abs(x.p + x.q - host.p - host.q)) / 2 <= 4;
     const fights = [...provinces.values()].map(e => e.province).filter(pr => seen(pr.p, pr.q) && ruleFights(pr) && inReach(pr));
     if (!got) { assert.equal(fights.length, 0, 'no pick only when no camp in sight and in reach fights'); none++; continue; }
     const pr = provinces.get(`${got.camp.p},${got.camp.q}`).province;
