@@ -36,6 +36,14 @@ async function follow(f) {
 }
 await follow('app.bundle.mjs');
 let eagerBytes = 0; for (const f of eager) eagerBytes += (await stat(join(D, 'frontier', f))).size;
+// (verify-pr302) build.mjs rebases each bundled module's import.meta.url to where the module was
+// (`new URL("map/sprites.mjs", import.meta.url)`): without it every art, style and worker URL 404s in the browser,
+// and nothing above would notice. Every rebased module path must exist next to the bundle.
+const bundled = (await readdir(join(D, 'frontier'))).filter(f => /^(?:chunk-[A-Z0-9]+|[\w-]+\.bundle)\.mjs$/.test(f));
+const rebased = new Set();
+for (const f of bundled) for (const m of (await readFile(join(D, 'frontier', f), 'utf8')).matchAll(/new URL\("([\w./-]+\.mjs)",import\.meta\.url\)/g)) rebased.add(m[1]);
+const missing = []; for (const r of rebased) { try { await stat(join(D, 'frontier', r)); } catch { missing.push(r); } }
+check(rebased.size >= 10 && rebased.has('map/sprites.mjs') && missing.length === 0, `the page bundle rebases import.meta.url to its modules (${rebased.size} modules${missing.length ? `; missing: ${missing.join(' ')}` : ''})`);
 const world = await readFile(join(D, 'frontier', 'demo-world.js'), 'utf8');
 const worldBytes = (await stat(join(D, 'frontier', 'demo-world.js'))).size;
 check(worldBytes < 1048576, `world bundle ${(worldBytes / 1024).toFixed(0)} KiB (< 1,024 KiB)`);
