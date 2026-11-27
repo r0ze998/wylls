@@ -17,6 +17,7 @@ export default {
   "国を選ぶだけで始められます。ほかの五つの国の村を治めているのが人かAIかは、地図を見てもわかりません。この体験版はブラウザの中だけで動き、ページを開き直すと最初からになります。": "Choose a nation to begin. Whether the villages of the other five nations are ruled by people or by AI, the map will not tell you. This demo runs only in your browser; reloading the page starts over.",
   "ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（{0}）。": "A playable demo that runs only in your browser: no wallet, no sign-up. Reloading the page starts over. Times are game time ({0}).",
   "体験版": "Playable demo",
+  "体験版・ウォレット不要": "Playable demo · no wallet needed",
   "本物の世界へ": "The live world",
   "領土ルールの開発版です。チェーンにはつないでいません。進行はこのサーバー内に保存され、再起動すると最初からになります。時間表示はゲーム内の時間です（{0}）。": "Territory development world, not connected to a chain. Progress is kept by this server and resets when it restarts. Times are game time ({0}).",
   // Arrival control and the opening game.

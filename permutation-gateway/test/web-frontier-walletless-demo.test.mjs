@@ -55,3 +55,32 @@ test('the page reads the land summary in a sample world only when its record say
   assert.match(c, /if \(!\(local \|\| dev \|\| sample\) \|\| !FS\.wallet/);
   assert.match(c, /const g = local \? localDepartGate\(\) : devnetGate\(\);\n\s+if \(g\?\.ok !== true\) return undefined;/, 'no devnet gate in a sample world: the relay fallback asks nothing');
 });
+
+test('demo-polish-1: a demo world says nothing of the test-world end turn (1,008) while it is ahead; the join line and other worlds are unchanged', async () => {
+  const { deadlineLine, setTermsPace } = await import('../../permutation-server/web/frontier/seasonterms.mjs');
+  const { setLang } = await import('../../permutation-server/web/lang.mjs');
+  const FS = { season: { genesisTs: 0, endBell: 1008, joinCloseBell: 756 }, clock: { genesisTs: 0 }, chain: { now: () => 150 * 600 } };
+  setTermsPace(() => 60);
+  try {
+    setLang('en');
+    assert.match(deadlineLine(FS), /until turn 1,008/, 'a test world (not a demo) still says its limit');
+    assert.equal(deadlineLine({ ...FS, sample: { demo: { live: '' } } }), 'Joining is open until turn 756 (about 1 h 40 min left). ', 'the EN table keeps its trailing space (the end line used to follow)');
+    setLang('ja');
+    assert.equal(deadlineLine({ ...FS, sample: { demo: {} } }), '参加の受付は第756ターンまで（あと約 1 時間 40 分）。');
+    // once the end turn has passed the demo says so as every test world does (the program refuses new orders then)
+    assert.match(deadlineLine({ ...FS, sample: { demo: {} }, chain: { now: () => 1010 * 600 } }), /第1,008ターンで新しい命令の受付を終えました/);
+  } finally { setLang('ja'); setTermsPace(() => 1); }
+  assert.match(web('frontier/screens/conquest.mjs'), /: FS\.sample\?\.demo \? ''/, 'the standings card has no end-turn line in a demo world either');
+});
+
+test('demo-polish-1: the pre-join screen says "playable demo" in a demo world only (EN + JA, no "season")', () => {
+  const join = web('frontier/screens/join.mjs');
+  assert.match(join, /\$\{FS\.sample\?\.demo \? html`<span class="nh-demo" data-demo-label="1">\$\{L`体験版・ウォレット不要`\}<\/span>` : ''\}/);
+  assert.equal(EN['体験版・ウォレット不要'], 'Playable demo · no wallet needed');
+  assert.doesNotMatch(EN['体験版・ウォレット不要'], /season/i);
+});
+
+test('demo-polish-1: a demo world hides the map\'s "Records" button (no recorded wide world there; verify-pr301 F2)', () => {
+  const app = web('frontier/app.mjs');
+  assert.match(app, /const records = document\.querySelector\('\.wide-btn\[data-map="wide"\]'\);\n\s+if \(records && !records\.hidden\) records\.hidden = true;\n\s+return;/);
+});

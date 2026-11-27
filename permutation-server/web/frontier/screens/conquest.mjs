@@ -394,6 +394,7 @@ export function renderStandings(FS) {
     <p>${continuous ? L`この世界は続きます。戦期の区切り・勝敗・集計は未決定です。州・時間は、州を保った時間の記録です（1州を1時間で1州・時間）。` : intro}</p>
     ${continuous ? html`<p class="conquest-season-clock">${L`この世界は続きます（終わりの時刻はありません）。戦期は未決定です。`}</p>`
       : ended ? html`<p class="conquest-season-clock muted">${L`この試しの世界は第${fmtNum(endBell)}ターンで新しい命令の受付を終えました。試しの世界の上限で、勝ち負けの決まりではありません。`}${isFinal ? '' : html` ${L`最後の戦いの記録を待っています。`}`}</p>`
+      : FS.sample?.demo ? ''   /* (walletless demo: no test-world end turn while it is ahead; seasonterms deadlineLine) */
       : html`<p class="conquest-season-clock">${L`この試しの世界が新しい命令を受け付けるのは第${fmtNum(endBell)}ターンまでです（残り：${turnsLine(Math.max(0, endBell - (FS.nowBell ?? 0)))}）。試しの世界の上限で、勝ち負けの決まりではありません。`}</p>`}
     ${rows ? html`<table class="stores conquest-scores"><thead><tr><th>${L`記録順`}</th><th>${L`国`}</th><th>${L`支配する州`}</th><th>${L`州・時間`}</th></tr></thead><tbody>${rows.map(r => html`<tr class="${r.faction === FS.citizen?.faction ? 'is-mine' : ''}"><td>${fmtNum(r.rank)}</td><th scope="row"><span class="cs-nation kh-n${r.faction}">${crest(r.faction, 22)}<span>${factionName(r.faction)}</span></span>${r.faction === FS.citizen?.faction ? html` <span class="tag">${L`あなたの国`}</span>` : ''}</th><td>${fmtNum(r.provinces)}</td><td>${fmtNum(Math.round(Number(r.score) * seconds / 360) / 10)}</td></tr>`)}</tbody></table>
       <p class="muted">${L`第${fmtNum(record.bell)}ターンまでの州・時間の参考記録です。記録だけで、これで勝ち負けや賞金は決まりません。`}</p>` : html`<p class="muted">${cq?.status === 'error' ? L`記録を読み込めませんでした。再取得してください。` : L`州・時間の記録を読み込んでいます。`}</p>`}
