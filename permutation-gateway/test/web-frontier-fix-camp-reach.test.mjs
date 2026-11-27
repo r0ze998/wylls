@@ -1,8 +1,9 @@
 // fix-camp-reach (pacing-measure-2 D-pacing-measure-2-4, Q-PM2-1 (c)): the march-first guide names only a barbarian camp
 // the host can REACH — the planner's limits (≤ 4 provinces, ≤ 32 steps) and the march card's own route question (the rules'
 // planner, the arrival window) —, never one whose march card says "No path there was found". With no fighting camp in
-// sight and in reach: the practice battle (#261). The fog is unchanged (Q-PM2-1 (a) is r0ze's call): a camp under the fog
-// is never named, even the one in the village's own province.
+// sight and in reach: the practice battle (#261). Here the fog is unchanged: called without `own`, a camp under the fog is
+// never named. (fix-loop25, owner Q-PM2-1 (a) 2026-11-27: the page's callers pass `own: ownProvinceOf(FS)`, so the camp of
+// the viewer's OWN village's province is named under the fog too — web-frontier-fix-loop25.test.mjs.)
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
