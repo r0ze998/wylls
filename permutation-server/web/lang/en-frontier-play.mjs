@@ -2705,6 +2705,7 @@ export default {
   "カレンダー（.ics）": "Calendar (.ics)",
   "この世界の時計が止まっているため、予定の時刻を出せません。": "This world's clock is stopped, so no times can be given.",
   "世界の時刻を読み込み中です。": "Reading the world's time.",
+  "この世界の時計の速さを測っています。速さが分かるまで、予定の時刻は出しません。": "Measuring how fast this world's clock runs. No times are given until that is known.",
   "これからの予定 {0} 件（軍勢の出陣・進軍の到着・報告・砦）。ファイルをカレンダーのアプリに読み込んでください。時刻は目安です。予定が変わったら、もう一度書き出して読み込むと同じ予定が動きます。": n => plural(n, '{0} upcoming timer (host ready, march arrival, report, keep). Import the file into your calendar app. Times are estimates. If plans change, save and import again: the same events move.', '{0} upcoming timers (host ready, march arrival, report, keep). Import the file into your calendar app. Times are estimates. If plans change, save and import again: the same events move.'),
   "いまカレンダーに入れる予定はありません（出陣を待つ軍勢・進軍・砦の攻防があると出ます）。": "No timers to add right now (they appear when a host is resting, a march is under way, or a keep is contested).",
   "カレンダーのファイルを保存": "Save calendar file",

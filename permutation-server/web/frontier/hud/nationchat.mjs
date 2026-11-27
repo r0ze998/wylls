@@ -78,10 +78,40 @@ export function linkIn(t) {
   return false;
 }
 
+/**
+ * (fix-tg3, owner-default Q-TG3-1 (a)) Characters a text may not begin or end with: JavaScript's `trim` set and Rust's
+ * `char::is_whitespace` together. Neither language's own trim decides (they differ on U+FEFF and U+0085: the herald took
+ * a text only of U+FEFF that this page refused). The herald has the same list (chat.rs `TRIM_RANGES`); both are pinned to
+ * frontier-node/crates/herald/tests/vectors/chat-invisible.json.
+ */
+export const TRIM_RANGES = Object.freeze([[0x0009, 0x000D], [0x0020, 0x0020], [0x0085, 0x0085], [0x00A0, 0x00A0], [0x1680, 0x1680],
+  [0x2000, 0x200A], [0x2028, 0x2029], [0x202F, 0x202F], [0x205F, 0x205F], [0x3000, 0x3000], [0xFEFF, 0xFEFF]].map(Object.freeze));
+/**
+ * Characters that show nothing: Unicode's Default_Ignorable_Code_Point and U+2800 BRAILLE PATTERN BLANK. A text made only
+ * of these and TRIM_RANGES is empty (zero-width spaces, word joiners, the Hangul filler, blank braille). Inside a text they
+ * are kept as typed. Same list as the herald's `INVISIBLE_RANGES`.
+ */
+export const INVISIBLE_RANGES = Object.freeze([[0x00AD, 0x00AD], [0x034F, 0x034F], [0x061C, 0x061C], [0x115F, 0x1160], [0x17B4, 0x17B5],
+  [0x180B, 0x180F], [0x200B, 0x200F], [0x202A, 0x202E], [0x2060, 0x206F], [0x2800, 0x2800], [0x3164, 0x3164], [0xFE00, 0xFE0F],
+  [0xFEFF, 0xFEFF], [0xFFA0, 0xFFA0], [0xFFF0, 0xFFF8], [0x1BCA0, 0x1BCA3], [0x1D173, 0x1D17A], [0xE0000, 0xE0FFF]].map(Object.freeze));
+const inRanges = (ch, R) => { const u = ch.codePointAt(0); return R.some(([a, b]) => a <= u && u <= b); };
+/** Whether a character is trimmed from a text's ends. */
+export const isTrim = ch => inRanges(ch, TRIM_RANGES);
+/** Whether a character shows nothing. */
+export const isInvisible = ch => inRanges(ch, INVISIBLE_RANGES);
+/** The text without TRIM_RANGES characters at its ends (chat.rs `trim_text`). */
+export function trimText(t) {
+  const cs = [...String(t ?? '')];
+  let a = 0, b = cs.length;
+  while (a < b && isTrim(cs[a])) a++;
+  while (b > a && isTrim(cs[b - 1])) b--;
+  return cs.slice(a, b).join('');
+}
+
 /** Why a text would be refused (the herald's codes), or null. */
 export function textProblem(t) {
-  if (typeof t !== 'string' || !t.trim()) return 'EmptyText';
-  if (t !== t.trim()) return 'UntrimmedText';
+  if (typeof t !== 'string' || [...t].every(ch => isTrim(ch) || isInvisible(ch))) return 'EmptyText';
+  if (t !== trimText(t)) return 'UntrimmedText';
   if (new TextEncoder().encode(t).length > MAX_BYTES || [...t].length > MAX_CHARS) return 'TextTooLong';
   if (t.split('\n').length > MAX_LINES) return 'TooManyLines';
   // eslint-disable-next-line no-control-regex
@@ -561,7 +591,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   form.addEventListener('submit', async e => {
     e.preventDefault();
     if (busy) return;
-    const t = text.value.trim();
+    const t = trimText(text.value);
     const bad = textProblem(t);
     if (bad) { say(codeText(bad)); return; }
     busy = true; send.disabled = true; say(L`送っています…`);

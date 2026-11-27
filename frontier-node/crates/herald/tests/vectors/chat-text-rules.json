@@ -71,9 +71,9 @@
 {"text":"﻿x","problem":"UntrimmedText","link":false},
 {"text":"x﻿","problem":"UntrimmedText","link":false},
 {"text":"﻿","problem":"EmptyText","link":false},
-{"text":"x","problem":"ControlCharacter","link":false},
-{"text":"x","problem":"ControlCharacter","link":false},
-{"text":"","problem":"ControlCharacter","link":false},
+{"text":"x","problem":"UntrimmedText","link":false},
+{"text":"x","problem":"UntrimmedText","link":false},
+{"text":"","problem":"EmptyText","link":false},
 {"text":"ab","problem":"ControlCharacter","link":false},
 {"text":"a\nb\nc\nd\ne\nf","problem":null,"link":false},
 {"text":"a\nb\nc\nd\ne\nf\ng","problem":"TooManyLines","link":false},
@@ -119,12 +119,12 @@
 {"text":"x.com1","problem":null,"link":false},
 {"text":"x.co.jp","problem":"LinkNotAllowed","link":true},
 {"text":"b 東⁦東. ://","problem":"ControlCharacter","link":true},
-{"text":"io","problem":"ControlCharacter","link":false},
+{"text":"io","problem":"UntrimmedText","link":false},
 {"text":"集合(dot)\tv1.2İ","problem":"ControlCharacter","link":false},
 {"text":"😀Σ：","problem":"ControlCharacter","link":false},
 {"text":"_⁦hxxp[.][.]1","problem":"ControlCharacter","link":false},
 {"text":". [/]ftp","problem":null,"link":false},
-{"text":"‮","problem":"ControlCharacter","link":false},
+{"text":"‮","problem":"EmptyText","link":false},
 {"text":"mailtodiscord","problem":null,"link":false},
 {"text":"İＨＴＴＰ. ＨＴＴＰ","problem":null,"link":false},
 {"text":"⁦.・xn--","problem":"ControlCharacter","link":false},
@@ -187,7 +187,7 @@
 {"text":"‮東","problem":"ControlCharacter","link":false},
 {"text":" .","problem":"UntrimmedText","link":false},
 {"text":"：","problem":null,"link":false},
-{"text":"discord﹒a .","problem":"ControlCharacter","link":false},
+{"text":"discord﹒a .","problem":"UntrimmedText","link":false},
 {"text":"mailto­","problem":null,"link":false},
 {"text":" ","problem":"EmptyText","link":false},
 {"text":"gg.[/]mailto：","problem":"LinkNotAllowed","link":true},
@@ -205,7 +205,7 @@
 {"text":"ninjabx﻿","problem":"UntrimmedText","link":false},
 {"text":"\t·evil12me\t東wwwftp","problem":"UntrimmedText","link":false},
 {"text":"OK／","problem":null,"link":false},
-{"text":"・・﹒x／@","problem":"ControlCharacter","link":false},
+{"text":"・・﹒x／@","problem":"UntrimmedText","link":false},
 {"text":"3http12a(:)／． .","problem":null,"link":false},
 {"text":"。／gg. _/ dot ","problem":"UntrimmedText","link":false},
 {"text":"-\t1\t. ‍","problem":"ControlCharacter","link":false},
@@ -217,7 +217,7 @@
 {"text":"・a","problem":null,"link":false},
 {"text":"/‮­v1.2\t.OK：com","problem":"ControlCharacter","link":false},
 {"text":"東2_255","problem":null,"link":false},
-{"text":"᠎","problem":null,"link":false},
+{"text":"᠎","problem":"EmptyText","link":false},
 {"text":"砦httphttps","problem":null,"link":false},
 {"text":" . .⁦ninja","problem":"UntrimmedText","link":false},
 {"text":"2ninjamailtoio","problem":null,"link":false},
@@ -251,7 +251,7 @@
 {"text":"ドット·· .xn--‮","problem":"ControlCharacter","link":false},
 {"text":"⁦。OK·．ioOK","problem":"ControlCharacter","link":false},
 {"text":"‮Σ:mailtoxninja","problem":"ControlCharacter","link":false},
-{"text":"․evil東Noftp ","problem":"ControlCharacter","link":false},
+{"text":"․evil東Noftp ","problem":"UntrimmedText","link":false},
 {"text":" ⁦　İcom­12😀","problem":"UntrimmedText","link":false},
 {"text":"com・jpajpK","problem":null,"link":false},
 {"text":"3ドット_OKhttp砦 .ｃｏｍ1","problem":null,"link":false},
@@ -262,7 +262,7 @@
 {"text":"://・httpscom／\t","problem":"UntrimmedText","link":true},
 {"text":"﻿ .","problem":"UntrimmedText","link":false},
 {"text":"\n·. ​.","problem":"UntrimmedText","link":false},
-{"text":"jp","problem":"ControlCharacter","link":false},
+{"text":"jp","problem":"UntrimmedText","link":false},
 {"text":"@：ninjaｃｏｍjp砦evil:","problem":"ControlCharacter","link":false},
 {"text":"xdiscord1：","problem":"ControlCharacter","link":false},
 {"text":"x／xn--ｃｏｍ","problem":null,"link":false},
@@ -287,13 +287,13 @@
 {"text":"[.]᠎(dot) .212xn--﹒","problem":null,"link":false},
 {"text":"v1.2httpa/Σ(dot)­東","problem":null,"link":false},
 {"text":"v1.2é","problem":null,"link":false},
-{"text":"\t\t‮","problem":"UntrimmedText","link":false},
+{"text":"\t\t‮","problem":"EmptyText","link":false},
 {"text":"1﻿(dot)ｃｏｍ⁠","problem":"ControlCharacter","link":true},
 {"text":"(dot)．","problem":null,"link":false},
 {"text":" dot 😀 dot [/]@","problem":"UntrimmedText","link":false},
 {"text":"me⁦","problem":"ControlCharacter","link":false},
 {"text":"_:https ninjaevil","problem":null,"link":false},
-{"text":"xn--﻿․﻿K","problem":"ControlCharacter","link":false},
+{"text":"xn--﻿․﻿K","problem":"UntrimmedText","link":false},
 {"text":"hxxp dot https@xn--e.g.\n(:)","problem":null,"link":false},
 {"text":"‍v1.2","problem":null,"link":false},
 {"text":"12v1.2᠎­","problem":null,"link":false},
@@ -308,7 +308,7 @@
 {"text":"：OK-ＨＴＴＰ12","problem":null,"link":false},
 {"text":"2⁠／evil砦","problem":null,"link":false},
 {"text":"v1.2・@_‮2","problem":"ControlCharacter","link":false},
-{"text":"⁦","problem":"ControlCharacter","link":false},
+{"text":"⁦","problem":"EmptyText","link":false},
 {"text":"-wwwhxxp(dot)@mailtoggΣ","problem":null,"link":false},
 {"text":" ᠎集合{.}","problem":"UntrimmedText","link":false},
 {"text":"OK-","problem":null,"link":false},
@@ -340,7 +340,7 @@
 {"text":"{.}https⁠[/]://","problem":"LinkNotAllowed","link":true},
 {"text":" .／😀","problem":"UntrimmedText","link":false},
 {"text":" dot mailtohttps","problem":"UntrimmedText","link":false},
-{"text":"‍","problem":"ControlCharacter","link":false},
+{"text":"‍","problem":"EmptyText","link":false},
 {"text":"東e.g.com dot ·v1.2xn--集合https","problem":"LinkNotAllowed","link":true},
 {"text":"­．","problem":null,"link":false},
 {"text":"www://ＨＴＴＰevil(dot)K","problem":"ControlCharacter","link":true},
@@ -410,7 +410,7 @@
 {"text":"[/]mailtoe.g.","problem":null,"link":false},
 {"text":"(:)᠎xgg(:)·","problem":null,"link":false},
 {"text":"mailto-砦‮😀e.g.ｃｏｍx","problem":"ControlCharacter","link":false},
-{"text":"／bjpe.g.﹒biogg","problem":"ControlCharacter","link":false},
+{"text":"／bjpe.g.﹒biogg","problem":"UntrimmedText","link":false},
 {"text":"iowww᠎‮e.g.集合","problem":"ControlCharacter","link":false},
 {"text":"_᠎ＨＴＴＰ(dot)me(:)","problem":"LinkNotAllowed","link":true},
 {"text":"\u0007gg-​. \n：com","problem":"ControlCharacter","link":false},
@@ -425,7 +425,7 @@
 {"text":"ninjaftp⁦\u00073\t-","problem":"ControlCharacter","link":false},
 {"text":"httpOK-","problem":null,"link":false},
 {"text":"a․⁦","problem":"ControlCharacter","link":false},
-{"text":"xドットé😀","problem":"ControlCharacter","link":false},
+{"text":"xドットé😀","problem":"UntrimmedText","link":false},
 {"text":"\t .-","problem":"UntrimmedText","link":false},
 {"text":"­-_-evil‍com","problem":null,"link":false},
 {"text":"xn-- ·@﻿⁦_","problem":"ControlCharacter","link":false},
@@ -435,7 +435,7 @@
 {"text":"evil(dot)","problem":null,"link":false},
 {"text":"ＨＴＴＰ‍","problem":null,"link":false},
 {"text":"᠎[/]12‮(:)com{.}","problem":"ControlCharacter","link":false},
-{"text":"­","problem":null,"link":false},
+{"text":"­","problem":"EmptyText","link":false},
 {"text":"[.]@2ＨＴＴＰ東","problem":null,"link":false},
 {"text":"／ {.}","problem":null,"link":false},
 {"text":"İ​{.}","problem":null,"link":false},
@@ -458,7 +458,7 @@
 {"text":"東xn--ggv1.2ggcom","problem":null,"link":false},
 {"text":"砦255 dot OK[/]Σ\t・","problem":"ControlCharacter","link":false},
 {"text":"Nohttp@No","problem":null,"link":false},
-{"text":"mailto：a://","problem":"ControlCharacter","link":true},
+{"text":"mailto：a://","problem":"UntrimmedText","link":true},
 {"text":"é","problem":null,"link":false},
 {"text":"[/]／3","problem":null,"link":false},
 {"text":"éNo-","problem":null,"link":false},
@@ -488,7 +488,7 @@
 {"text":"12・ dot \u0007[.][.]","problem":"ControlCharacter","link":false},
 {"text":" :","problem":"UntrimmedText","link":false},
 {"text":"ninja","problem":null,"link":false},
-{"text":"​","problem":null,"link":false},
+{"text":"​","problem":"EmptyText","link":false},
 {"text":"／ dot ","problem":"UntrimmedText","link":false},
 {"text":" me_://／","problem":"UntrimmedText","link":true},
 {"text":"⁦[/]","problem":"ControlCharacter","link":false},
@@ -597,7 +597,7 @@
 {"text":"aドット­","problem":null,"link":false},
 {"text":" xn--12‮﹒","problem":"UntrimmedText","link":false},
 {"text":"集合gg(dot)","problem":null,"link":false},
-{"text":"😀\t. bggme","problem":"ControlCharacter","link":false},
+{"text":"😀\t. bggme","problem":"UntrimmedText","link":false},
 {"text":"​[/]com dot v1.2·​","problem":null,"link":false},
 {"text":"K⁠","problem":"ControlCharacter","link":false},
 {"text":"᠎1 dot Σ　　","problem":"UntrimmedText","link":false},
@@ -637,7 +637,7 @@
 {"text":"a","problem":"ControlCharacter","link":false},
 {"text":"‮www․KＨＴＴＰOKv1.2ｃｏｍ東","problem":"ControlCharacter","link":true},
 {"text":"．32","problem":"ControlCharacter","link":false},
-{"text":"᠎　","problem":"UntrimmedText","link":false},
+{"text":"᠎　","problem":"EmptyText","link":false},
 {"text":".","problem":null,"link":false},
 {"text":"1http255","problem":null,"link":false},
 {"text":"﹒  ᠎​","problem":null,"link":false},
@@ -663,7 +663,7 @@
 {"text":"　集合@-：io[/]","problem":"UntrimmedText","link":false},
 {"text":"io⁠","problem":null,"link":false},
 {"text":"mailtocom\tΣninja[/]․","problem":"ControlCharacter","link":false},
-{"text":"⁠﻿\tée.g.discord　x","problem":"ControlCharacter","link":false},
+{"text":"⁠﻿\tée.g.discord　x","problem":"UntrimmedText","link":false},
 {"text":"・:·​ .​砦ｃｏｍ﹒","problem":null,"link":false},
 {"text":"hxxp","problem":null,"link":false},
 {"text":"(:)com jpwww","problem":null,"link":false},
@@ -696,7 +696,7 @@
 {"text":" .砦@gg://砦İhxxphttps","problem":"UntrimmedText","link":true},
 {"text":"/","problem":null,"link":false},
 {"text":"255砦é","problem":null,"link":false},
-{"text":"砦xn--No./","problem":"ControlCharacter","link":false},
+{"text":"砦xn--No./","problem":"UntrimmedText","link":false},
 {"text":"⁦éio3","problem":"ControlCharacter","link":false},
 {"text":"\tevil\t[.]https[/]www　 .","problem":"UntrimmedText","link":true},
 {"text":"：․[.]","problem":null,"link":false},
@@ -721,11 +721,11 @@
 {"text":"é·","problem":null,"link":false},
 {"text":".gg","problem":null,"link":false},
 {"text":"ドットwwwxn--​ｃｏｍ{.}","problem":null,"link":false},
-{"text":"⁠‍","problem":"ControlCharacter","link":false},
+{"text":"⁠‍","problem":"EmptyText","link":false},
 {"text":"é://-a東io​ ‍","problem":"LinkNotAllowed","link":true},
 {"text":"e.g.Noéaioninjamailto dot com","problem":"LinkNotAllowed","link":true},
 {"text":"­{.}ドットdiscord","problem":null,"link":false},
-{"text":"\n­  ","problem":"UntrimmedText","link":false},
+{"text":"\n­  ","problem":"EmptyText","link":false},
 {"text":"-砦集合","problem":null,"link":false},
 {"text":"1{.}","problem":null,"link":false},
 {"text":"．(:)meΣwww","problem":null,"link":false},
@@ -795,7 +795,7 @@
 {"text":"ftp_ftpmailtoninjaé砦．","problem":null,"link":false},
 {"text":"：ftp12[.]12:","problem":null,"link":false},
 {"text":"⁠／_hxxp@\nwww","problem":null,"link":false},
-{"text":"\n­⁠　","problem":"UntrimmedText","link":false},
+{"text":"\n­⁠　","problem":"EmptyText","link":false},
 {"text":"[/]ドット3.evilhxxp","problem":"ControlCharacter","link":false},
 {"text":"1://.","problem":"LinkNotAllowed","link":true},
 {"text":"3jp","problem":null,"link":false},
@@ -820,7 +820,7 @@
 {"text":".é","problem":null,"link":false},
 {"text":"ドット﻿OK集合İhxxp ／OK","problem":null,"link":false},
 {"text":"😀xn--ftphttps22ninja1","problem":null,"link":false},
-{"text":"://😀ninja　東／e.g.","problem":"ControlCharacter","link":true},
+{"text":"://😀ninja　東／e.g.","problem":"UntrimmedText","link":true},
 {"text":"bcom","problem":null,"link":false},
 {"text":"ＨＴＴＰ‍⁦\ne.g.No","problem":"ControlCharacter","link":true},
 {"text":"://․me·3ninjaΣ","problem":"LinkNotAllowed","link":true},
@@ -839,7 +839,7 @@
 {"text":"255⁦·","problem":"ControlCharacter","link":false},
 {"text":"e.g. dot ．ggmailto","problem":null,"link":false},
 {"text":"‍2-","problem":null,"link":false},
-{"text":"https․­​‍ｃｏｍ2","problem":"ControlCharacter","link":false},
+{"text":"https․­​‍ｃｏｍ2","problem":"UntrimmedText","link":false},
 {"text":"　com😀᠎","problem":"UntrimmedText","link":false},
 {"text":"東ｃｏｍhttp_​@","problem":null,"link":false},
 {"text":"b­@","problem":null,"link":false},
@@ -938,7 +938,7 @@
 {"text":"．No[.]mailto","problem":null,"link":false},
 {"text":"1gghttpsbé","problem":null,"link":false},
 {"text":":// .İ(dot)😀​jp(dot)","problem":"LinkNotAllowed","link":true},
-{"text":"io","problem":"ControlCharacter","link":false},
+{"text":"io","problem":"UntrimmedText","link":false},
 {"text":"12‮。mailto·@","problem":"ControlCharacter","link":false},
 {"text":"v1.2(dot)12・evil","problem":null,"link":false},
 {"text":"(:) \t・﻿OK\n.","problem":"ControlCharacter","link":false},
@@ -994,7 +994,7 @@
 {"text":"e.g.‮v1.2​_","problem":"ControlCharacter","link":false},
 {"text":"e.g.b[/]e.g.。é­","problem":null,"link":false},
 {"text":"Σ:b1","problem":null,"link":false},
-{"text":"e.g.。[.]","problem":"ControlCharacter","link":false},
+{"text":"e.g.。[.]","problem":"UntrimmedText","link":false},
 {"text":"wwwjp2@砦xn--com","problem":null,"link":false},
 {"text":"@İ‍(dot)砦","problem":null,"link":false},
 {"text":"ftp⁠.[.]x\nhxxp","problem":"ControlCharacter","link":false},
@@ -1085,7 +1085,7 @@
 {"text":"OK. .\n","problem":"UntrimmedText","link":false},
 {"text":"com﹒com-discordK：hxxp","problem":"LinkNotAllowed","link":true},
 {"text":". 3᠎www。OK_xn--／","problem":"LinkNotAllowed","link":true},
-{"text":"2砦 .。gg\u0007. (:)","problem":"ControlCharacter","link":false},
+{"text":"2砦 .。gg\u0007. (:)","problem":"UntrimmedText","link":false},
 {"text":"io砦","problem":null,"link":false},
 {"text":"://．hxxpxn--","problem":"LinkNotAllowed","link":true},
 {"text":"(dot)/KΣ\u00072","problem":"ControlCharacter","link":false},
@@ -1140,7 +1140,7 @@
 {"text":"\n⁠@","problem":"UntrimmedText","link":false},
 {"text":"éKftp .\t\u0007-","problem":"ControlCharacter","link":false},
 {"text":"᠎・\u0007me [.] .​","problem":"ControlCharacter","link":false},
-{"text":"․東(dot)\tv1.2[.]http","problem":"ControlCharacter","link":false},
+{"text":"․東(dot)\tv1.2[.]http","problem":"UntrimmedText","link":false},
 {"text":"­：OK﹒https_","problem":null,"link":false},
 {"text":"­／://gg","problem":"LinkNotAllowed","link":true},
 {"text":"\u0007﻿","problem":"UntrimmedText","link":false},
@@ -1165,7 +1165,7 @@
 {"text":"12b2Σ：Σ","problem":"ControlCharacter","link":false},
 {"text":"：http・K dot 砦／ＨＴＴＰ.","problem":null,"link":false},
 {"text":"discordaドット⁦2。","problem":"ControlCharacter","link":false},
-{"text":"x・xn--aｃｏｍ ​","problem":"ControlCharacter","link":false},
+{"text":"x・xn--aｃｏｍ ​","problem":"UntrimmedText","link":false},
 {"text":"：gg","problem":null,"link":false},
 {"text":"x\nxn--://","problem":"LinkNotAllowed","link":true},
 {"text":"e.g.[.]","problem":null,"link":false},
@@ -1177,7 +1177,7 @@
 {"text":"(:). .⁠ｃｏｍ","problem":null,"link":false},
 {"text":"(dot)․K.東","problem":null,"link":false},
 {"text":"ＨＴＴＰmea3","problem":null,"link":false},
-{"text":"b．","problem":"ControlCharacter","link":false},
+{"text":"b．","problem":"UntrimmedText","link":false},
 {"text":"3[/]ＨＴＴＰ","problem":"ControlCharacter","link":false},
 {"text":"evil_","problem":null,"link":false},
 {"text":" ⁠ＨＴＴＰme@　K　﻿","problem":"UntrimmedText","link":false},
@@ -1185,9 +1185,9 @@
 {"text":"_. dot ／﹒hxxpevil","problem":null,"link":false},
 {"text":"／ＨＴＴＰ‍(dot)集合/ggme","problem":null,"link":false},
 {"text":"­_\t3wwwhttps","problem":"ControlCharacter","link":false},
-{"text":"᠎/12xb1","problem":"ControlCharacter","link":false},
+{"text":"᠎/12xb1","problem":"UntrimmedText","link":false},
 {"text":"東‮255255⁦ ","problem":"UntrimmedText","link":false},
-{"text":"\n ⁦　","problem":"UntrimmedText","link":false},
+{"text":"\n ⁦　","problem":"EmptyText","link":false},
 {"text":"jp1。／12","problem":null,"link":false},
 {"text":"ｃｏｍftp","problem":null,"link":false},
 {"text":"。[/]⁠","problem":null,"link":false},
@@ -1246,7 +1246,7 @@
 {"text":"⁦. me‍/hxxp. Σe.g.","problem":"ControlCharacter","link":false},
 {"text":"東　12OK．xn--wwwevil .","problem":null,"link":false},
 {"text":"me . ","problem":"UntrimmedText","link":false},
-{"text":"·No","problem":"ControlCharacter","link":false},
+{"text":"·No","problem":"UntrimmedText","link":false},
 {"text":"‮ ​[.]﻿。","problem":"ControlCharacter","link":false},
 {"text":"⁦httpshttp\n⁦　v1.2_","problem":"ControlCharacter","link":false},
 {"text":"3﻿x1comme／hxxp","problem":null,"link":false},
@@ -1342,7 +1342,7 @@
 {"text":"b‍砦3\n(:)io12","problem":null,"link":false},
 {"text":"2discord­․\n․‍\nhttp","problem":null,"link":false},
 {"text":"awww⁦","problem":"ControlCharacter","link":false},
-{"text":"@{.}{.}[.]e.g._(dot)","problem":"ControlCharacter","link":false},
+{"text":"@{.}{.}[.]e.g._(dot)","problem":"UntrimmedText","link":false},
 {"text":"砦122ftp砦3-","problem":null,"link":false},
 {"text":"mailtoevil­ninja","problem":"ControlCharacter","link":false},
 {"text":"\t⁠jpé東ftp(:) dot ","problem":"UntrimmedText","link":true},
@@ -1378,7 +1378,7 @@
 {"text":"xevil1{.}","problem":null,"link":false},
 {"text":"\n.{.}hxxp","problem":"UntrimmedText","link":false},
 {"text":"e.g.ninjae.g.：b・","problem":null,"link":false},
-{"text":"­ ","problem":"UntrimmedText","link":false},
+{"text":"­ ","problem":"EmptyText","link":false},
 {"text":"・\u0007/ dot ⁠com ﹒ ","problem":"UntrimmedText","link":false},
 {"text":"://hxxp","problem":"LinkNotAllowed","link":true},
 {"text":"http_ xn--@v1.2(:)gg_","problem":null,"link":false},
@@ -1390,7 +1390,7 @@
 {"text":"K(:)​᠎OK","problem":null,"link":false},
 {"text":"3discord","problem":null,"link":false},
 {"text":"ｃｏｍ：","problem":null,"link":false},
-{"text":"　ＨＴＴＰ。v1.2","problem":"ControlCharacter","link":false},
+{"text":"　ＨＴＴＰ。v1.2","problem":"UntrimmedText","link":false},
 {"text":"https\u0007ioxn--mailto[/]","problem":"ControlCharacter","link":false},
 {"text":"․1Σ","problem":null,"link":false},
 {"text":"é­ｃｏｍ-/www3","problem":null,"link":false},
@@ -1491,9 +1491,9 @@
 {"text":"\n﻿.2ninja","problem":"UntrimmedText","link":false},
 {"text":"b​. No","problem":null,"link":false},
 {"text":"2 (dot)","problem":null,"link":false},
-{"text":"[.]discord. hxxp","problem":"ControlCharacter","link":false},
+{"text":"[.]discord. hxxp","problem":"UntrimmedText","link":false},
 {"text":"gg(dot)(:)","problem":null,"link":false},
-{"text":"⁠","problem":null,"link":false},
+{"text":"⁠","problem":"EmptyText","link":false},
 {"text":"\n. x","problem":"UntrimmedText","link":false},
 {"text":"x{.}：.","problem":null,"link":false},
 {"text":"😀hxxp .ba. hxxpme","problem":"ControlCharacter","link":false},
@@ -1521,7 +1521,7 @@
 {"text":"(dot)[/]","problem":null,"link":false},
 {"text":"⁠httpftp/．Σ⁠：","problem":null,"link":false},
 {"text":"com://Nomailto😀 /","problem":"ControlCharacter","link":true},
-{"text":" ​","problem":"UntrimmedText","link":false},
+{"text":" ​","problem":"EmptyText","link":false},
 {"text":"é2b‍ .‮İ","problem":"ControlCharacter","link":false},
 {"text":"[/]http[/]discordggｃｏｍ","problem":"ControlCharacter","link":false},
 {"text":"​  dot :：éドット1","problem":null,"link":false},
@@ -1531,7 +1531,7 @@
 {"text":"(:)Σドットéx .. 。­","problem":null,"link":false},
 {"text":"hxxpドット․‮://K.","problem":"ControlCharacter","link":true},
 {"text":"/_mailto","problem":null,"link":false},
-{"text":"://evil・wwwjp ","problem":"ControlCharacter","link":true},
+{"text":"://evil・wwwjp ","problem":"UntrimmedText","link":true},
 {"text":"discorde.g.","problem":null,"link":false},
 {"text":"⁠mailtogg/‮me東砦","problem":"ControlCharacter","link":false},
 {"text":"/Σevil 　","problem":"UntrimmedText","link":false},
@@ -1541,14 +1541,14 @@
 {"text":"v1.2","problem":"ControlCharacter","link":false},
 {"text":"www。 mailto/","problem":"LinkNotAllowed","link":true},
 {"text":"K⁠／集合com­.ＨＴＴＰ","problem":null,"link":false},
-{"text":"😀ioNo(:)a(dot)ｃｏｍ","problem":"ControlCharacter","link":true},
+{"text":"😀ioNo(:)a(dot)ｃｏｍ","problem":"UntrimmedText","link":true},
 {"text":"http⁦(:)OK@","problem":"ControlCharacter","link":false},
 {"text":"v1.21·e.g.","problem":null,"link":false},
 {"text":"(:)ｃｏｍb․­ dot \n\n東","problem":null,"link":false},
 {"text":"ｃｏｍ_https","problem":null,"link":false},
 {"text":"discordgghttpevil·","problem":null,"link":false},
 {"text":"://․_","problem":"LinkNotAllowed","link":true},
-{"text":"255‍evil⁠ftp．","problem":"ControlCharacter","link":false},
+{"text":"255‍evil⁠ftp．","problem":"UntrimmedText","link":false},
 {"text":"：​mailto255․","problem":null,"link":false},
 {"text":"@:😀İ﻿","problem":"UntrimmedText","link":false},
 {"text":"v1.2  .․­2","problem":null,"link":false},
@@ -1585,7 +1585,7 @@
 {"text":"ＨＴＴＰ\n","problem":"UntrimmedText","link":false},
 {"text":"ドット‍v1.2.","problem":null,"link":false},
 {"text":"⁠memeΣdiscorde.g.2mailto","problem":"ControlCharacter","link":false},
-{"text":"ggＨＴＴＰドットｃｏｍxn--ftp2Σ","problem":"ControlCharacter","link":false},
+{"text":"ggＨＴＴＰドットｃｏｍxn--ftp2Σ","problem":"UntrimmedText","link":false},
 {"text":"集合⁦ 255(dot)․No․evil","problem":"ControlCharacter","link":false},
 {"text":"_\n東﻿・/[.]・ｃｏｍ","problem":null,"link":false},
 {"text":"­255／255ドット","problem":null,"link":false},
@@ -1613,7 +1613,7 @@
 {"text":"ftpninja😀v1.2","problem":null,"link":false},
 {"text":"@b‮\u0007_bOK-","problem":"ControlCharacter","link":false},
 {"text":" ᠎⁦．[/]Σ\t","problem":"UntrimmedText","link":false},
-{"text":"。‍ftp. NoNo​\u0007","problem":"ControlCharacter","link":false},
+{"text":"。‍ftp. NoNo​\u0007","problem":"UntrimmedText","link":false},
 {"text":"jpb255xn--://\n discordx","problem":"LinkNotAllowed","link":true},
 {"text":"．-[/]·・2io","problem":null,"link":false},
 {"text":":\u0007﹒jp ","problem":"UntrimmedText","link":false},
@@ -1656,7 +1656,7 @@
 {"text":" dot ://e.g.3ninja\nx","problem":"UntrimmedText","link":true},
 {"text":"東集合  dot ‍.","problem":null,"link":false},
 {"text":"http­😀・/","problem":null,"link":false},
-{"text":"­／","problem":"ControlCharacter","link":false},
+{"text":"­／","problem":"UntrimmedText","link":false},
 {"text":"discord-","problem":null,"link":false},
 {"text":"‍İ\nOK 12mailto﹒","problem":null,"link":false},
 {"text":"2﻿me‮_ .⁦","problem":"ControlCharacter","link":false},
@@ -1765,7 +1765,7 @@
 {"text":"\n：","problem":"UntrimmedText","link":false},
 {"text":"․hxxp[.]://­","problem":"LinkNotAllowed","link":true},
 {"text":"·／/(:)\t\n᠎İ／","problem":"ControlCharacter","link":false},
-{"text":"‍","problem":null,"link":false},
+{"text":"‍","problem":"EmptyText","link":false},
 {"text":"[/]：砦İ","problem":null,"link":false},
 {"text":"OKxn--OK​ｃｏｍ","problem":null,"link":false},
 {"text":"@⁦😀⁦me @東","problem":"ControlCharacter","link":false},
@@ -1797,7 +1797,7 @@
 {"text":". io","problem":null,"link":false},
 {"text":"[.]{.}[/]﻿\u0007Khttps","problem":"ControlCharacter","link":false},
 {"text":"(:)\u0007。砦᠎。","problem":"ControlCharacter","link":false},
-{"text":"／​","problem":"ControlCharacter","link":false},
+{"text":"／​","problem":"UntrimmedText","link":false},
 {"text":"OKＨＴＴＰ2://","problem":"LinkNotAllowed","link":true},
 {"text":"‮com3\u0007@ :。hxxp","problem":"ControlCharacter","link":false},
 {"text":"255wwwcom。  b","problem":null,"link":false},
@@ -1815,7 +1815,7 @@
 {"text":"/😀b／é","problem":null,"link":false},
 {"text":"\u0007v1.2。ｃｏｍ‍ドットKｃｏｍ","problem":"ControlCharacter","link":true},
 {"text":"_．me","problem":"LinkNotAllowed","link":true},
-{"text":"Σ ﹒・wwwv1.2(:)⁦","problem":"ControlCharacter","link":false},
+{"text":"Σ ﹒・wwwv1.2(:)⁦","problem":"UntrimmedText","link":false},
 {"text":"ＨＴＴＰ・","problem":null,"link":false},
 {"text":"　255ドット\u0007No_/‍","problem":"UntrimmedText","link":false},
 {"text":"\u0007-⁦evil․ninja","problem":"ControlCharacter","link":false},
@@ -1888,7 +1888,7 @@
 {"text":"\u0007me／․","problem":"ControlCharacter","link":false},
 {"text":"hxxp😀\n","problem":"UntrimmedText","link":false},
 {"text":"[.]᠎​","problem":null,"link":false},
-{"text":"⁠b","problem":"ControlCharacter","link":false},
+{"text":"⁠b","problem":"UntrimmedText","link":false},
 {"text":"122 OKｃｏｍ","problem":null,"link":false},
 {"text":"_⁦255jpmegg","problem":"ControlCharacter","link":false},
 {"text":"v1.2evil.é_v1.2集合⁠😀","problem":null,"link":false},
@@ -1909,7 +1909,7 @@
 {"text":"https dot ‍:me","problem":null,"link":false},
 {"text":"․·. . ","problem":"UntrimmedText","link":false},
 {"text":"😀éjp　.ΣK","problem":null,"link":false},
-{"text":" ᠎","problem":"UntrimmedText","link":false},
+{"text":" ᠎","problem":"EmptyText","link":false},
 {"text":"ftpmailto","problem":null,"link":false},
 {"text":"https(:)集合\tv1.2www dot ｃｏｍ﻿","problem":"UntrimmedText","link":true},
 {"text":"․　砦[.]😀","problem":null,"link":false},
@@ -2003,7 +2003,7 @@
 {"text":"1[/]OKjp\t@","problem":"ControlCharacter","link":false},
 {"text":".-・(dot)3․12-","problem":null,"link":false},
 {"text":"www(:)me😀","problem":null,"link":false},
-{"text":"​https1@jp","problem":"ControlCharacter","link":false},
+{"text":"​https1@jp","problem":"UntrimmedText","link":false},
 {"text":"⁦xn--﻿․·é","problem":"ControlCharacter","link":false},
 {"text":"http​é","problem":null,"link":false},
 {"text":"ninja⁠","problem":null,"link":false},
@@ -2067,7 +2067,7 @@
 {"text":"evil砦","problem":null,"link":false},
 {"text":":// 　:gg[/]‮/","problem":"ControlCharacter","link":true},
 {"text":"­/","problem":null,"link":false},
-{"text":"·ftpé‍⁠","problem":"ControlCharacter","link":false},
+{"text":"·ftpé‍⁠","problem":"UntrimmedText","link":false},
 {"text":"‮. ahttps .","problem":"ControlCharacter","link":false},
 {"text":"᠎{.}：:","problem":"ControlCharacter","link":false},
 {"text":"(dot)1﹒me","problem":"LinkNotAllowed","link":true},
@@ -2075,7 +2075,7 @@
 {"text":"[/]\njp","problem":null,"link":false},
 {"text":"﻿ＨＴＴＰ砦(dot)No","problem":"UntrimmedText","link":false},
 {"text":"@​bK-www\u0007www","problem":"ControlCharacter","link":false},
-{"text":"_me․​Σ﻿Σ://","problem":"ControlCharacter","link":true},
+{"text":"_me․​Σ﻿Σ://","problem":"UntrimmedText","link":true},
 {"text":"\u0007‮⁦・://集合﹒ ","problem":"UntrimmedText","link":true},
 {"text":"hxxp/／@com　","problem":"UntrimmedText","link":false},
 {"text":"@​","problem":null,"link":false},
@@ -2109,7 +2109,7 @@
 {"text":"2[/]　@(dot)ioftp{.}","problem":null,"link":false},
 {"text":"x😀","problem":null,"link":false},
 {"text":"・.12Nov1.2","problem":null,"link":false},
-{"text":" ninjaftp","problem":"ControlCharacter","link":false},
+{"text":" ninjaftp","problem":"UntrimmedText","link":false},
 {"text":"‮://io dot : ドット","problem":"ControlCharacter","link":true},
 {"text":"12。","problem":null,"link":false},
 {"text":"..","problem":null,"link":false},
@@ -2146,7 +2146,7 @@
 {"text":"[/]／﻿ggxwww(:)","problem":null,"link":false},
 {"text":"https1ftp[.]wwwNoax‮","problem":"ControlCharacter","link":false},
 {"text":"@İ.","problem":"ControlCharacter","link":false},
-{"text":"　ｃｏｍx","problem":"ControlCharacter","link":false},
+{"text":"　ｃｏｍx","problem":"UntrimmedText","link":false},
 {"text":" .discord-me⁦-x﻿","problem":"UntrimmedText","link":false},
 {"text":"ＨＴＴＰドット{.}","problem":null,"link":false},
 {"text":"﻿hxxp東2ninja​ .😀","problem":"UntrimmedText","link":false},
@@ -2181,7 +2181,7 @@
 {"text":":/me砦\t v1.2 ","problem":"UntrimmedText","link":false},
 {"text":"。‍httphttps(:)://www. b","problem":"LinkNotAllowed","link":true},
 {"text":"‍http(dot)gg\n","problem":"UntrimmedText","link":true},
-{"text":"25512／/","problem":"ControlCharacter","link":false},
+{"text":"25512／/","problem":"UntrimmedText","link":false},
 {"text":"／‍-","problem":null,"link":false},
 {"text":"://httphxxp-ドット。。","problem":"LinkNotAllowed","link":true},
 {"text":"://　jp﹒e.g.","problem":"LinkNotAllowed","link":true},
@@ -2190,7 +2190,7 @@
 {"text":"⁦https／­iojp://","problem":"ControlCharacter","link":true},
 {"text":"@e.g.","problem":null,"link":false},
 {"text":"[.]12．[.]ＨＴＴＰ","problem":"ControlCharacter","link":false},
-{"text":"⁦​","problem":"ControlCharacter","link":false},
+{"text":"⁦​","problem":"EmptyText","link":false},
 {"text":"No‍","problem":null,"link":false},
 {"text":"io　","problem":"UntrimmedText","link":false},
 {"text":" (:)・(dot)／‍(:). ","problem":"UntrimmedText","link":false},
@@ -2334,7 +2334,7 @@
 {"text":"No .é/3","problem":null,"link":false},
 {"text":"  jp","problem":"UntrimmedText","link":false},
 {"text":"jpninja᠎","problem":null,"link":false},
-{"text":" .集合 com東(dot)io_","problem":"ControlCharacter","link":false},
+{"text":" .集合 com東(dot)io_","problem":"UntrimmedText","link":false},
 {"text":"xjpme(:)OKninja","problem":null,"link":false},
 {"text":"comｃｏｍa_\n·﹒東\u0007","problem":"ControlCharacter","link":false},
 {"text":"OK：ftp﻿᠎","problem":null,"link":false},
@@ -2369,7 +2369,7 @@
 {"text":" {.}﹒","problem":"UntrimmedText","link":false},
 {"text":"﹒⁦","problem":"ControlCharacter","link":false},
 {"text":"-com．https⁠砦 ","problem":"UntrimmedText","link":false},
-{"text":"evilドット dot ：\u0007‍x","problem":"ControlCharacter","link":false},
+{"text":"evilドット dot ：\u0007‍x","problem":"UntrimmedText","link":false},
 {"text":"gg\u0007evil (dot) ドット﹒﹒","problem":"ControlCharacter","link":false},
 {"text":"/No","problem":null,"link":false},
 {"text":"ioNoΣé᠎","problem":null,"link":false},
@@ -2410,7 +2410,7 @@
 {"text":"12https-12Σ集合. ⁠","problem":null,"link":false},
 {"text":"[.] _集合․e.g.{.} ","problem":"UntrimmedText","link":false},
 {"text":"discord[/]","problem":null,"link":false},
-{"text":"⁦᠎","problem":"ControlCharacter","link":false},
+{"text":"⁦᠎","problem":"EmptyText","link":false},
 {"text":" ﻿","problem":"EmptyText","link":false},
 {"text":"東12mailto","problem":null,"link":false},
 {"text":"集合www dot 3-No 　 dot ","problem":"UntrimmedText","link":true},
@@ -2420,7 +2420,7 @@
 {"text":"2xevilninjaＨＴＴＰ﹒東・","problem":null,"link":false},
 {"text":"3ドット{.}.\tv1.2www","problem":"ControlCharacter","link":false},
 {"text":"。:1_😀\u0007：‮","problem":"ControlCharacter","link":false},
-{"text":"­­","problem":null,"link":false},
+{"text":"­­","problem":"EmptyText","link":false},
 {"text":"v1.2http(:)","problem":"LinkNotAllowed","link":true},
 {"text":"・:jp gg😀-","problem":null,"link":false},
 {"text":"Σ2","problem":null,"link":false},
@@ -2458,7 +2458,7 @@
 {"text":"·wwwjp😀_᠎","problem":null,"link":false},
 {"text":"⁠ . ․1砦:","problem":null,"link":false},
 {"text":"  [/]","problem":"UntrimmedText","link":false},
-{"text":"­evilio⁠ ","problem":"ControlCharacter","link":false},
+{"text":"­evilio⁠ ","problem":"UntrimmedText","link":false},
 {"text":"hxxpK.᠎.io","problem":null,"link":false},
 {"text":". ᠎ ./baＨＴＴＰ","problem":null,"link":false},
 {"text":"@@","problem":"ControlCharacter","link":false},
@@ -2480,7 +2480,7 @@
 {"text":"/ jp dot me．[.]","problem":"ControlCharacter","link":true},
 {"text":":OKe.g.a","problem":"ControlCharacter","link":false},
 {"text":"(:)\t　。1","problem":"ControlCharacter","link":false},
-{"text":"‮_2:12 .／東","problem":"ControlCharacter","link":false},
+{"text":"‮_2:12 .／東","problem":"UntrimmedText","link":false},
 {"text":"Σ .://集合","problem":"LinkNotAllowed","link":true},
 {"text":"Σjp://Σme","problem":"LinkNotAllowed","link":true},
 {"text":"／.1xn-- 。᠎","problem":null,"link":false},
@@ -2638,7 +2638,7 @@
 {"text":"İ3­砦b／","problem":null,"link":false},
 {"text":"discordmailto:wwwOKhxxpドット","problem":"LinkNotAllowed","link":true},
 {"text":"(dot)mailto·255ＨＴＴＰ dot [/]_‮","problem":"ControlCharacter","link":false},
-{"text":"2 dot {.}⁦","problem":"ControlCharacter","link":false},
+{"text":"2 dot {.}⁦","problem":"UntrimmedText","link":false},
 {"text":"\nhttpｃｏｍ東İNo﹒1","problem":"UntrimmedText","link":false},
 {"text":"www1\u0007İドット‍⁦@hxxp","problem":"ControlCharacter","link":false},
 {"text":"-😀：_﹒x\u0007@x","problem":"ControlCharacter","link":false},
@@ -2654,13 +2654,13 @@
 {"text":"mewww[/](:)⁠﹒﻿http","problem":null,"link":false},
 {"text":"／‍","problem":null,"link":false},
 {"text":"a\nxmailtoΣ　","problem":"UntrimmedText","link":false},
-{"text":"e.g.","problem":"ControlCharacter","link":false},
+{"text":"e.g.","problem":"UntrimmedText","link":false},
 {"text":"ドットK2 dot hxxp jp","problem":"ControlCharacter","link":false},
 {"text":"e.g.@ｃｏｍ ‮","problem":"ControlCharacter","link":false},
 {"text":"[.]：com{.}mailto","problem":null,"link":false},
 {"text":" dot Σmehttpsmecomme-","problem":"UntrimmedText","link":false},
 {"text":" me:　東(dot)","problem":"UntrimmedText","link":false},
-{"text":"mailto dot ","problem":"ControlCharacter","link":false},
+{"text":"mailto dot ","problem":"UntrimmedText","link":false},
 {"text":"(:)b😀Ke.g. ⁦","problem":"ControlCharacter","link":false},
 {"text":"3255. v1.2‮⁠io","problem":"ControlCharacter","link":false},
 {"text":"集合· dot 砦／","problem":null,"link":false},
@@ -2706,7 +2706,7 @@
 {"text":"😀⁦","problem":"ControlCharacter","link":false},
 {"text":"com. é{.}","problem":null,"link":false},
 {"text":"a集合⁦","problem":"ControlCharacter","link":false},
-{"text":"21gg. ","problem":"ControlCharacter","link":false},
+{"text":"21gg. ","problem":"UntrimmedText","link":false},
 {"text":"e.g.·OK","problem":null,"link":false},
 {"text":":砦v1.2 . e.g.。","problem":null,"link":false},
 {"text":"[/]me　http😀‮","problem":"ControlCharacter","link":false},
@@ -2714,7 +2714,7 @@
 {"text":"a­．éiohttp","problem":null,"link":false},
 {"text":"﹒\n‍\u0007httpsOK⁠‍­","problem":"ControlCharacter","link":false},
 {"text":"ninja1‍http","problem":null,"link":false},
-{"text":"‍ ","problem":"UntrimmedText","link":false},
+{"text":"‍ ","problem":"EmptyText","link":false},
 {"text":"‮⁦_1 .12İhxxp","problem":"ControlCharacter","link":false},
 {"text":"/https．","problem":null,"link":false},
 {"text":"ＨＴＴＰ@集合xégg᠎.mailto","problem":null,"link":false},
@@ -2742,7 +2742,7 @@
 {"text":"／ . . 2ninjaドットx","problem":null,"link":false},
 {"text":" OK\n","problem":"UntrimmedText","link":false},
 {"text":"İ😀3httpsv1.2www","problem":null,"link":false},
-{"text":"．ftp(:) ","problem":"ControlCharacter","link":true},
+{"text":"．ftp(:) ","problem":"UntrimmedText","link":true},
 {"text":"。1 .@。xn--://","problem":"LinkNotAllowed","link":true},
 {"text":"．bmailto﻿ ﻿jp","problem":null,"link":false},
 {"text":"／／　httpe.g.‮﹒","problem":"ControlCharacter","link":false},
@@ -2754,7 +2754,7 @@
 {"text":"x／/","problem":null,"link":false},
 {"text":": dot ⁦ioftp{.}","problem":"ControlCharacter","link":false},
 {"text":"😀v1.2ftp- gg：","problem":"ControlCharacter","link":false},
-{"text":"​​hxxp","problem":"ControlCharacter","link":false},
+{"text":"​​hxxp","problem":"UntrimmedText","link":false},
 {"text":"砦3ahttps","problem":null,"link":false},
 {"text":" .(:) dot \tcom2","problem":"UntrimmedText","link":false},
 {"text":"ＨＴＴＰ..⁦․:","problem":"ControlCharacter","link":false},
