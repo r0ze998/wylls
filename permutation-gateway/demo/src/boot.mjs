@@ -123,4 +123,5 @@ globalThis.fetch = async function demoFetch(input, init = {}) {
 };
 
 // (tests and the curious: what the world answered, what was refused; the world itself for a summary)
-globalThis.__wyllsDemo = Object.freeze({ log, world: () => world().then(x => x.live), config: DEMO });
+// (modules: the page bundle's own module instances, filled by src/page-app.mjs for tests; see there)
+globalThis.__wyllsDemo = Object.freeze({ log, world: () => world().then(x => x.live), config: DEMO, modules: {} });

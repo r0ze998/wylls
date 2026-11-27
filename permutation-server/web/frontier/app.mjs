@@ -359,6 +359,9 @@ function renderSampleTag() {
     const long = L`ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（${pace}）。`;
     setHtmlIfChanged(el, html`${icon('info')}<span>${L`体験版`}</span><span class="sample-pace">${pace}</span>${live ? html`<a class="sample-live" href="${live}" target="_blank" rel="noopener">${L`本物の世界へ`}</a>` : ''}`);
     if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }
+    // (the map's "Records" button opens the recorded wide world, which a demo world never has: verify-pr301 F2)
+    const records = document.querySelector('.wide-btn[data-map="wide"]');
+    if (records && !records.hidden) records.hidden = true;
     return;
   }
   const long = arrival ? L`領土ルールの開発版です。チェーンにはつないでいません。進行はこのサーバー内に保存され、再起動すると最初からになります。時間表示はゲーム内の時間です（${pace}）。` : L`見本の世界です。基本ゲームのルールで動きますが、チェーンにはつないでいません。画面の時間はこの世界の中の時間です（${pace}）。`;
