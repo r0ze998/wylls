@@ -161,7 +161,7 @@ export function renderNations(FS) {
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
-    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3><p>${L`六つの国が、果てのない辺境を分け合っています。国で決まるのは、村を置く土地と教義、そしてあなたの姿です。`}</p></header>
+    <header class="nations-head"><h3 id="join-faction">${L`国を選ぶ`}</h3>${FS.sample?.demo ? html`<span class="nh-demo" data-demo-label="1">${L`体験版・ウォレット不要`}</span>` : ''}<p>${L`六つの国が、果てのない辺境を分け合っています。国で決まるのは、村を置く土地と教義、そしてあなたの姿です。`}</p></header>
     <ul class="banners" data-stable="join-banners">${banners}</ul>
     ${confirm}
   </section>`;

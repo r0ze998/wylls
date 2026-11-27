@@ -4,6 +4,8 @@
 //
 //   node smoke.mjs [--dir dist] [--port 0] [--prefix /play/] [--lang en|ja] [--shots DIR] [--loop] [--headed]
 //
+// The page runs from its esbuild bundle: the page's modules are reached through __wyllsDemo.modules (the bundle's
+// own instances; importing fstate.mjs by URL would load a second, idle copy).
 // Asserts: cold load → the nation picker answers within 10 s; one click → a village (time measured); no request
 // leaves the static host (no devnet, no RPC, no herald/relay server: every /h and /gw read is answered in the page);
 // no console error, no page error, no HTTP error. With --loop (the 1–3 min loop): train, form a host, march it on the
@@ -47,7 +49,7 @@ async function press(sel, { timeout = 8_000 } = {}) {
   }
 }
 const tab = async name => {
-  const open = await page.evaluate(async ([n, m]) => { const { FS } = await import(eval(m)); return FS.tab === n && document.getElementById('panel')?.dataset.drawer === 'open'; }, [name, mod('fstate.mjs')]);
+  const open = await page.evaluate(async ([n, m]) => { const { FS } = globalThis.__wyllsDemo.modules['fstate.mjs'] ?? await import(eval(m)); return FS.tab === n && document.getElementById('panel')?.dataset.drawer === 'open'; }, [name, mod('fstate.mjs')]);
   return open || press(`#tabs [data-tab="${name}"]`);
 };
 const unfold = key => page.evaluate(k => { const d = document.querySelector(`details[data-fold="${k}"]`); if (d && !d.open) d.open = true; return !!d; }, key);
@@ -99,15 +101,17 @@ async function tileAt(at) {
   return page.evaluate(async at => {
     const rel = n => new URL(n, location.href).href;
     if (!window.__map) {
-      const { FrontierMap } = await import(rel('map/fmap.mjs'));
+      const mods = globalThis.__wyllsDemo.modules;
+      const { FrontierMap } = mods['map/fmap.mjs'] ?? await import(rel('map/fmap.mjs'));
       const P = FrontierMap.prototype, draw = P.draw;
       P.draw = function (...a) { window.__map = this; return draw.apply(this, a); };
       for (let i = 0; i < 80 && !window.__map; i++) { window.dispatchEvent(new Event('resize')); await new Promise(r => setTimeout(r, 50)); }
     }
     const m = window.__map, frame = () => new Promise(r => requestAnimationFrame(r));
     for (let still = 0, i = 0; still < 10 && i < 400; i++) { await frame(); still = m.cam.moving || m.reachFly ? 0 : still + 1; }
-    const { tileHex } = await import(rel('fgeo.mjs'));
-    const { project } = await import(rel('../map.mjs'));
+    const mods2 = globalThis.__wyllsDemo.modules;
+    const { tileHex } = mods2['fgeo.mjs'] ?? await import(rel('fgeo.mjs'));
+    const { project } = mods2['../map.mjs'] ?? await import(rel('../map.mjs'));
     const h = tileHex(at.p, at.q, at.tile), c = project(h.q, h.r);
     return m.project(c.x, c.y);
   }, at);
@@ -115,7 +119,7 @@ async function tileAt(at) {
 /** An open tile of the viewer's province next to the village (passable, no village, no camp, nobody on it). */
 const openTileNearHome = () => page.evaluate(async () => {
   const live = await globalThis.__wyllsDemo.world(), me = live.summary().me, [p, q] = me.village, pv = live.province(p, q);
-  const { TILE_OFFSETS, hexDistance } = await import(new URL('fgeo.mjs', location.href).href);
+  const { TILE_OFFSETS, hexDistance } = globalThis.__wyllsDemo.modules['fgeo.mjs'] ?? await import(new URL('fgeo.mjs', location.href).href);
   const home = TILE_OFFSETS[me.tile], d = t => hexDistance(TILE_OFFSETS[t].q, TILE_OFFSETS[t].r, home.q, home.r);
   const free = [...Array(61).keys()].filter(t => ((pv.passableMask >> BigInt(t)) & 1n) && !pv.sites.slice(0, pv.siteCount).includes(t) && !(pv.camp.state === 1 && pv.camp.tile === t) && !pv.entries.some(e => e.state && e.tile === t));
   const t = free.sort((a, b) => d(a) - d(b))[0];
@@ -151,6 +155,10 @@ await page.locator('[data-act="pick-faction"]').first().waitFor({ state: 'visibl
 const tPicker = Date.now() - t0;
 check(tPicker <= Number(opt.budget), `cold load → nation picker in ${tPicker} ms (budget ${opt.budget} ms)`);
 await shot(page, '01-picker');
+const pre = (await page.locator('[data-demo-label]').first().innerText().catch(() => '')).trim();
+check(JA ? pre === '体験版・ウォレット不要' : pre === 'Playable demo · no wallet needed', `the pre-join screen says what it is: "${pre}"`);
+const preText = await page.locator('body').innerText();
+check(!/1,008|1008/.test(preText), 'the pre-join screen does not show the test-world end turn (1,008)');
 const nation = Number(opt.nation);
 await page.locator('[data-act="pick-faction"]').nth(nation).click();
 const go = page.locator('[data-stable="join-go"]:not([disabled])').first();
@@ -165,6 +173,7 @@ check(!!me, `one click → own village (button ready at ${tReady} ms, village at
 check(tVillage <= Number(opt.budget) + 5_000, `village within ${Number(opt.budget) + 5_000} ms of the cold load`);
 await sleep(1500);
 await shot(page, '02-village');
+check(await page.evaluate(() => { const b = document.querySelector('.wide-btn[data-map="wide"]'); return !b || b.hidden; }), 'no "Records" (recorded wide world) button in the demo');
 const tag = (await page.locator('#sample-tag').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
 check(JA ? tag.includes('体験版') : tag.includes('Playable demo'), `the demo says what it is: "${tag}"`);
 const wantLive = await page.evaluate(() => globalThis.__wyllsDemo.config.liveUrl || '');

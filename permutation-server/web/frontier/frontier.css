@@ -1267,6 +1267,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .nations-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 2px 14px; width: max-content; max-width: 100%; margin: 0 auto 8px; padding: 5px 22px 6px; border: 1px solid var(--brass-lo); border-radius: 4px 4px 12px 12px; background: var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); text-align: center; }
 .nations-head h3 { margin: 0; font: 700 var(--t3)/1.4 var(--display); letter-spacing: .14em; color: var(--brass-hi); white-space: nowrap; }
 .nations-head p { margin: 0; font-size: var(--t1); line-height: 1.5; color: var(--hud-ink); }
+.nations-head .nh-demo { align-self: center; padding: 1px 9px; border: 1px solid var(--brass-lo); border-radius: 999px; background: var(--metal); color: var(--brass-hi); font-size: var(--t1); font-weight: 600; line-height: 1.5; letter-spacing: .02em; white-space: nowrap; }   /* walletless demo: what this is, on the pre-join screen */
 .banners { list-style: none; margin: 0; padding: 14px 0 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s3); position: relative; }
 /* the rail the banners hang from */
 .banners::before { content: ""; position: absolute; left: -8px; right: -8px; top: 5px; height: 7px; border-radius: 4px; background: linear-gradient(180deg, var(--brass-hi), var(--brass) 45%, var(--brass-lo)); box-shadow: 0 2px 5px rgba(0,0,0,.5), inset 0 -1px 0 rgba(0,0,0,.3); }
@@ -1374,6 +1375,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nations-head { display: grid; justify-content: stretch; gap: 0; width: auto; margin: 0 0 6px; padding: 0 44px 0 0; border: 0; background: none; box-shadow: none; text-align: left; }
   .nations-head h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .nations-head p { font-size: var(--t1); color: var(--hud-ink-2); }
+  .nations-head .nh-demo { justify-self: start; margin-bottom: 4px; }
   .banners { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 8px; padding-top: 12px; }
   .banners::before { display: none; }
   .banner-pick { --tail: 10px; min-height: var(--target); }
