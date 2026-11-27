@@ -175,11 +175,12 @@ const REFUSED_TEXT = Object.freeze({
  * captures of what the starter kit cannot buy; said in the season record); `claims`: true plays the labelled prototype of
  * the banner rule as well (a design, not a rule of the program: claims.mjs, claimsworld.mjs), or an object of its
  * script's options (`{threat: 'auto' | 'pole' | 'border' | 'none', deadline, afterRaise}`); off by default.
+ * `nations`: three more neighbour villages so every one of the six nations has one (the walletless demo); off by default.
  */
 /** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
 export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
 
-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false} = {}) {
+export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false} = {}) {
   const K = kernel();
   const turnSecs = Math.max(0.2, Number(turn) || LIVE.TURN_SECS), rate = 600 / turnSecs;
   const T1 = bs(LIVE.TURN + 1);   // the first toll: turn 43 begins
@@ -327,6 +328,13 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       { p: 1, q: 1, site: 2, hosts: [[1, 2, 200]] },                            // the next province inward
       { p: 2, q: -2, site: 1, hosts: [[1, 0, 400]] },                           // two provinces along the ring
     ];
+    // (walletless demo, `nations`: a village for each of the other three nations as well, so all six are on the map;
+    //  off by default — every other caller's world is what it was)
+    if (nations) lot.push(
+      { p: 2, q: -1, site: 0, hosts: [[1, 0, 300]] },                            // Aster, the province next door
+      { p: 0, q: -1, site: 3, hosts: [[1, 2, 250]] },                            // Dunmar, ring 1
+      { p: -1, q: 0, site: 0, hosts: [[1, 0, 350]] },                            // Borealis, ring 1
+    );
     lot.forEach((n, ni) => {
       const pv = provinces.get(key(n.p, n.q)), f = pv.siteMirror[n.site].faction;
       if (pv.siteMirror[n.site].state !== 1 || !(f < 6)) return;

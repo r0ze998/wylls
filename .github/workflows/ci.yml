@@ -841,6 +841,30 @@ jobs:
   # ------------------------------------------------------------ key tests
   # Every check that generates, derives or signs with a key, unchanged from
   # the jobs above. Never started by a push or a pull request.
+  walletless-demo:
+    # The walletless static demo (permutation-gateway/demo): the real page + the screens sample world in the browser.
+    # Key-free here: build the bundle and check it without a browser. Its Playwright play-through signs with the page's
+    # test Dev Wallet in the browser, so it runs only in the manual key-tests job below.
+    name: Walletless demo bundle (build + key-free checks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Build the static bundle and check it
+        working-directory: permutation-gateway/demo
+        run: |
+          npm ci --ignore-scripts
+          node build.mjs
+          node check.mjs
+      - name: Keep the bundle (download it to try the demo from any static host)
+        uses: actions/upload-artifact@v4
+        with:
+          name: walletless-demo
+          path: permutation-gateway/demo/dist
+          retention-days: 7
+
   key-tests:
     name: Key-using tests (manual, owner-approved only)
     if: github.event_name == 'workflow_dispatch' && inputs.key_tests == 'approved'
@@ -917,3 +941,11 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm test
+      - name: Walletless demo play-through (Playwright; the page signs with its test Dev Wallet)
+        working-directory: permutation-gateway/demo
+        run: |
+          npm ci --ignore-scripts
+          npx playwright-core install --with-deps chromium
+          node build.mjs
+          node smoke.mjs --lang en --loop
+          node smoke.mjs --lang ja --prefix /wylls/

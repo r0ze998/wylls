@@ -2910,3 +2910,5 @@ body[data-nchat="open"] .panel[data-drawer="open"][data-doc=""] { visibility: hi
   .panel[data-doc="wide"] .report.doc .versus-band { margin-bottom: var(--s2); padding: var(--s2) var(--s3); }
   .panel[data-doc="wide"] .report.doc .report-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 var(--s1); }
 }
+/* walletless demo: the tag's link to the live world */
+.sample-tag .sample-live { color: var(--brass-hi); text-decoration: underline; text-underline-offset: 2px; margin-left: 4px; }

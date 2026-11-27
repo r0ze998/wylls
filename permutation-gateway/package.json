@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Wylls chain gateway: crank, x402 entry, session-key relay, local test USDC",
   "scripts": {
-    "test": "node --test test/*.test.mjs screens/logic.screen.mjs"
+    "test": "node --test test/*.test.mjs screens/logic.screen.mjs",
+    "build:demo": "npm --prefix demo ci --ignore-scripts && node demo/build.mjs && node demo/check.mjs"
   },
   "dependencies": {
     "@magicblock-labs/ephemeral-rollups-sdk": "0.17.2",
