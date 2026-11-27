@@ -18,6 +18,18 @@ export default {
   "ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（{0}）。": "A playable demo that runs only in your browser: no wallet, no sign-up. Reloading the page starts over. Times are game time ({0}).",
   "体験版": "Playable demo",
   "体験版・ウォレット不要": "Playable demo · no wallet needed",
+  // (walletless demo, demo-claim-1: land is claimed one tile at a time by territory rule V1, not taken on arrival)
+  "近くの州のマスを、村の画面の「1マス取る」で鉱石を払って1つずつ自分の土地にします。": "Claim tiles in nearby provinces one at a time, paying ore: \"Claim a tile\" on the village screen.",
+  "小さな旗は、軍勢がいま立っている場所です。領地の所有は国の色で示します。軍勢が着いても土地は増えません。土地は「1マス取る」で取ります。": "Small flags show where hosts are standing. National colours show territory ownership. A host arriving does not add land: land is claimed with \"Claim a tile\".",
+  "国の色を塗ったマスが、現在その国の領地です。マスは「1マス取る」で1つずつ取ります（鉱石を払い、1ターンに1マス）。いま視界にないマスの所有は表示しません。": "Tiles filled with a nation's colour belong to that nation. Tiles are claimed one at a time with \"Claim a tile\" (paid in ore, one a turn). Ownership of tiles out of sight is not shown.",
+  "マスを取る": "Claim tiles",
+  "村の画面の「1マス取る」で、近くの州のマスを鉱石で1つずつ自分の土地にします（1ターンに1マス）。": "\"Claim a tile\" on the village screen makes one tile of a nearby province your land, paid in ore (one a turn).",
+  "土地を養う": "Feed your land",
+  "マスごとに本拠地の食料で維持費を払います。補給の見通しで、いまの食料で何マスまで養えるかがわかります。": "Each tile's upkeep is paid from your first village's food. The logistics horizon shows how many tiles your food can support.",
+  "このマスの維持費: 食料 {0}/時": "this tile's upkeep: {0} food/h",
+  "あなたのマス（州 {0},{1}）から": "from your tiles (province {0},{1})",
+  "州 {0},{1} のマスを1つ自分の土地にしました。": "One tile of province {0},{1} is now your land.",
+  "「1マス取る」はその州のマスを1つ、すぐ自分の土地にします（鉱石 {0}、持っているマス1つごとに +{1}%、1ターンに{2}マス）。本拠地、自分のマスがある州、自分の国の村がある州から {3} 州以内で取れます。土地の維持費は本拠地の食料から払います（1マス {4}/時、自分の村から{5}州より遠いと1州ごとに +{6}/時）。払えないと新しく取れず、{7}ターン後から遠いマスが1ターンに1つずつ手放されます。": "\"Claim a tile\" makes one tile of that province your land at once ({0} ore, +{1} % for each tile you own, {2} a turn). You can claim within {3} provinces of your first village, of a province where you own a tile, or of a province with a village of your nation. Land upkeep is paid from your first village's food ({4} food/h a tile, +{6} food/h for each province beyond {5} from your villages). If it cannot be paid you cannot claim more, and after {7} turns your farthest tiles are let go, one a turn.",
   "本物の世界へ": "The live world",
   "領土ルールの開発版です。チェーンにはつないでいません。進行はこのサーバー内に保存され、再起動すると最初からになります。時間表示はゲーム内の時間です（{0}）。": "Territory development world, not connected to a chain. Progress is kept by this server and resets when it restarts. Times are game time ({0}).",
   // Arrival control and the opening game.

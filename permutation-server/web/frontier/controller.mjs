@@ -39,6 +39,8 @@ import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from '.
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
 import { territoryOfRoute, nearerOwnVillage, tileStillMine } from './flocalplay-territory.mjs';
+import { landClaimOn } from './territory.mjs';
+import { sampleClaimRows, nextClaimOre, tileUpkeepV1 } from './sampleland.mjs';
 // (territory-card, owner Q-PDT-1 (a): the viewer's own territory summary, read-only, for the village card's land line)
 import { territoryPlayerAddress, decodeTerritoryPlayer, citizenTagOf, heraldTerritoryPlayer } from './flocalplay-territory.mjs';
 import { freeWideSites } from './flocalplay-wide.mjs';
@@ -1266,6 +1268,52 @@ const PROTO_SENT = {
   raise: () => L`旗を立てる命令を出しました（試作）。記録を待っています`, dress: () => L`旗の土地を広げる命令を出しました（試作）`, tend: () => L`旗の見回りを命じました（試作）`,
   take: () => L`旗を取る命令を出しました（試作）`, pull: () => L`旗を倒す命令を出しました（試作）`, strike: () => L`旗を取り下げる命令を出しました（試作）`,
 };
+/** (demo-claim-1) How long a demo tile claim's cost preview stays the one a second press confirms. */
+const SAMPLE_TILE_PREVIEW_MS = 60_000;
+/**
+ * (walletless demo, demo-claim-1, owner Q-WD-4 default) The single-tile claim in a sample world whose record says
+ * `landClaim`: the card's row (screens/holding.mjs sampleClaimModel) names the province; this browser picks the tile,
+ * the witness and the price by TERRITORY_V1 (sampleland.mjs). The first press shows the cost, the second (the preview's
+ * own button, `confirm`) sends `{p, q, tile, witness?}` to the in-page world (POST /gw/f/sample/territory), which judges
+ * it as the program does and answers at once. Nothing is signed or sent off the page.
+ */
+async function sampleTileClaim(d) {
+  const h = activeHolding(FS);
+  if (!h || !Number.isInteger(FS.citizen?.faction)) return;
+  const target = { p: String(d.p), q: String(d.q) };
+  const provinces = [...(FS.provinces?.values?.() ?? [])].filter(env => env?.province && env.sampleTerritory).map(env => ({ p: env.province.p, q: env.province.q, province: env.province, owners: env.sampleTerritory.owners }));
+  const mine = FS.ui?.ownTiles ?? {};
+  const row = sampleClaimRows({ provinces, home: { p: h.p, q: h.q }, faction: FS.citizen.faction, ownTiles: new Set(Object.keys(mine)) }).find(r => String(r.p) === target.p && String(r.q) === target.q) ?? null;
+  if (!row) return failed({ code: 'OutpostRule', programCode: 75, text: L`この州ではマスを取れません（自分の土地のない世界か、州が読めませんでした）。` });
+  if (row.tile === null) return failed({ code: 'NoFreeTile', retry: false, text: L`この州に取れるマスは残っていません。` });
+  const pv = FS.tilePreview;
+  const fresh = !!pv && pv.step === 'preview' && pv.demo && pv.target.p === target.p && pv.target.q === target.q && pv.tile === row.tile && Date.now() - pv.at <= SAMPLE_TILE_PREVIEW_MS;
+  if (!(fresh && d.confirm)) {
+    FS.tilePreview = { step: 'preview', demo: true, target, tile: row.tile, cost: { ore: nextClaimOre(FS.ownLand?.player?.tiles ?? 0), upkeepMilli: tileUpkeepV1(row.home) }, witness: row.witness, at: Date.now() };
+    setNotice(null);
+    return { ok: false, quiet: true };
+  }
+  FS.tilePreview = null;
+  busy(() => L`送信中…`);
+  let r;
+  try { r = await io.request('POST', '/f/sample/territory', { body: { p: Number(target.p), q: Number(target.q), tile: row.tile, ...(row.witness ? { witness: row.witness } : {}) } }); }
+  catch (e) { return failed({ code: e?.code ?? 'Unavailable' }); }
+  if (!r || r.ok === false) {
+    const ans = { ok: false, code: r?.code ?? 'Unavailable', programCode: r?.programCode };
+    const pc = Number(ans.programCode);
+    if (territoryRefusalText(pc)) return failed({ ...ans, ...(territoryNoRetry(pc) ? { retry: false } : {}), text: () => territoryRefusalText(pc) });
+    return failed(ans);
+  }
+  FS.ui = { ...(FS.ui ?? {}), ownTiles: { ...mine, [`${target.p},${target.q},${row.tile}`]: Date.now() } };
+  done(() => L`州 ${target.p},${target.q} のマスを1つ自分の土地にしました。`);
+  // (the card's tile count, next price, upkeep and logistics horizon follow the claim, as on the real page; the map's
+  //  tile and the village's ore with the next reads)
+  refreshOwnLand({ force: true }).catch(() => {});
+  loadEnvelope(Number(target.p), Number(target.q)).catch(() => {});
+  refreshSoon(300);
+  return r;
+}
+
 /**
  * One order of the prototype (POST /gw/f/proto/land): the sample world judges it by its own module and answers
  * `{ok: true}` (its record follows about a second later: the page reads again then, and everything on screen that
@@ -4808,6 +4856,7 @@ export const ACTIONS = {
   // village names the upkeep distance (TQ-2). A tile another player owns moves the next press on; "already yours"
   // is remembered.
   'territory-tile': async d => {
+    if (!localPlay && landClaimOn(FS)) return sampleTileClaim(d);
     const h = activeHolding(FS);
     if (!h || !(localPlay?.wideLand || devnetTerritoryNow())) return;
     const target = { p: String(d.p), q: String(d.q) };

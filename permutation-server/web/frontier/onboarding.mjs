@@ -16,7 +16,7 @@
 import { activeHolding } from './fstate.mjs';
 import { SCOUT, CITIZEN, freeByWedge, homeWedge, ticketTimes, baseProduction, hostOfHolding, TIER_BONUS_PCT } from './fland.mjs';
 import { seasonBase } from './fs1.mjs';
-import { territoryEnabled } from './territory.mjs';
+import { territoryEnabled, landClaimOn } from './territory.mjs';
 import { ringOf, wedgeOf, provinceIndex } from './fgeo.mjs';
 
 /** The steps, in order (design §7.11 table: 1–8). */
@@ -60,7 +60,8 @@ export function factsOf(FS) {
   const scoutHost = !!home && !!holding && (home.entries ?? []).some(e => e.state >= 1 && e.state <= 3 && e.unit === SCOUT && hostOfHolding(e.id, holding));
   const ownCombatHost = !!holding && [...(FS.provinces?.values?.() ?? [])].some(env => (env.province?.entries ?? []).some(e => e.state >= 1 && e.state <= 3 && e.unit < SCOUT && hostOfHolding(e.id, holding)));
   const trainedCombat = ownCombatHost || !!holding && (holding.reserve ?? []).slice(0, SCOUT).some(n => Number(n) >= 100);
-  const claimed = territoryEnabled(FS) && (FS.holdings ?? []).some(h => [...(FS.provinces?.values?.() ?? [])].some(env =>
+  // (demo-claim-1: in a `landClaim` world the step is done by a claimed tile — the viewer's territory summary)
+  const claimed = landClaimOn(FS) ? Number(FS.ownLand?.player?.tiles ?? 0) > 0 : territoryEnabled(FS) && (FS.holdings ?? []).some(h => [...(FS.provinces?.values?.() ?? [])].some(env =>
     [...(env.sampleTerritory?.history ?? []), ...(env.sampleTerritory?.changes ?? [])].some(change => capturedBy(change, h, FS.citizen?.faction))));
   return { arrivalControl: territoryEnabled(FS), trainedCombat, ownCombatHost, claimed, citizen: FS.citizen ?? null, stage: FS.land?.stage ?? (FS.citizen ? 'joined' : 'none'), holding, scoutHost, marches: FS.marches ?? [], programVersion: Number(FS.season?.programVersion ?? 1), now: FS.chain?.now?.() ?? 0 };
 }
