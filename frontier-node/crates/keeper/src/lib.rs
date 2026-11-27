@@ -3164,9 +3164,10 @@ mod tests {
     }
 
     // ---- fix-keeper-care: payer care beside a long tick, care rows first in
-    // the history search, no version from a payer that cannot pay. These
-    // sign with the seed-derived test payers (`Keeper::new`), so they run in
-    // the key-tests job (`cargo test --workspace`), not in push CI. Time is
+    // the history search, no version from a payer that cannot pay.
+    // keeper-test-seam: key-free (`Keeper::with_payer_keys` with
+    // `testkit::FakeSigner`, `testkit::PublicDrand`), so PR CI runs them
+    // (`-- fkc_ v290_`; tests/key_free_send_pass.rs pins the set). Time is
     // tokio's paused test clock: a 107-minute tick runs in milliseconds.
 
     use fclient::Signer as _;
@@ -3948,8 +3949,8 @@ mod tests {
     }
 
     // ---- test-gaps-6 (#282): payer care around a restart and a long tick.
-    // These sign with the seed-derived test payers (`Keeper::new`), so they
-    // run in the key-tests job (`cargo test --workspace`), not in push CI.
+    // keeper-test-seam: key-free (fake payer signers, public drand info), so
+    // PR CI runs them (`-- test_gaps_6_`).
 
     /// keeper-test-seam: key-free (fake payer signers, public drand info).
     type Tg6Keeper =

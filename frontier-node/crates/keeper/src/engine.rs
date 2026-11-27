@@ -2322,7 +2322,8 @@ mod tests {
         height_step_per_fetch: std::sync::atomic::AtomicU64,
         /// test-gaps-6: how many sends had happened at each `blockhash` call.
         fetch_at_sends: Mutex<Vec<usize>>,
-        /// test-gaps-6: the next `send` takes this long (real time).
+        /// test-gaps-6: the next `send` takes this long (tokio time: virtual
+        /// under a paused test clock).
         slow_next_send: Mutex<Option<std::time::Duration>>,
     }
 
