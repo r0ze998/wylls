@@ -831,10 +831,47 @@ test('keeperLandedCheck: landed age in slots → OK / WARN / FAIL; a busy keeper
   // devnet 11-27 11:04: newest landed slot 526,502,713 (21:04:37 the day before), herald ≈ 526,711,761, 51,139 sends open
   const real = keeperLandedCheck({ maxLanded: 526_502_713, maxSent: 526_704_145, sent: 51_139 }, 526_711_761);
   assert.equal(real.level, 'FAIL');
-  assert.match(real.detail, /newest landed write 209048 slots ago \(≈836 min\); newest send 7616 slots ago .*; 51139 sends unresolved/);
+  assert.match(real.detail, /newest landed write 209048 slots ago \(≈836 min, herald slot; rpc unavailable\); newest send 7616 slots ago .*; 51139 sends unresolved/);
   assert.equal(keeperLandedCheck({ maxLanded: null, maxSent: null, sent: 0 }, live).level, 'FAIL');
   assert.equal(keeperLandedCheck(null, live).level, 'WARN');
   assert.equal(keeperLandedCheck({ maxLanded: 1, maxSent: 1, sent: 0 }, NaN).level, 'WARN');
+});
+
+test('keeperLandedCheck: ages against the RPC slot, so a stalled herald cannot hide a stalled keeper (fix-health-landed)', () => {
+  // 11-27 16:18 log: herald live slot frozen at 526,783,504 (herald.lag FAIL 7,003), keeper.landed said OK 7,400 slots
+  const j = { maxLanded: 526_783_504 - 7_400, maxSent: 526_783_504 - 7_401, sent: 2_407 };
+  const herald = 526_783_504;
+  assert.equal(keeperLandedCheck(j, herald).level, 'OK', 'the #281 herald-only shape: what the log showed');
+  const warn = keeperLandedCheck(j, { rpc: 526_790_507, herald });
+  assert.equal(warn.level, 'WARN');
+  assert.match(warn.detail, /^newest landed write 14403 slots ago \(≈58 min, rpc slot\), herald-based 7400 slots; /);
+  // the herald stays frozen, the chain moves on: FAIL shows although the herald-based age is still 7,400
+  const fail = keeperLandedCheck(j, { rpc: herald + 20_000, herald });
+  assert.equal(fail.level, 'FAIL');
+  assert.match(fail.detail, /newest landed write 27400 slots ago \(≈110 min, rpc slot\), herald-based 7400 slots; newest send 27401 slots ago/);
+  // a herald that runs ahead cannot fake freshness either: the rpc slot decides
+  assert.equal(keeperLandedCheck({ maxLanded: 1_000, maxSent: 1_000, sent: 1 }, { rpc: 1_000 + KEEPER_LANDED_SLOTS.fail + 1, herald: 1_010 }).level, 'FAIL');
+  // rpc unavailable → herald slot, said so; no herald → rpc alone
+  const fb = keeperLandedCheck(j, { rpc: null, herald });
+  assert.equal(fb.level, 'OK');
+  assert.match(fb.detail, /\(≈30 min, herald slot; rpc unavailable\);/);
+  const noHerald = keeperLandedCheck(j, { rpc: herald + 20_000, herald: NaN });
+  assert.equal(noHerald.level, 'FAIL');
+  assert.match(noHerald.detail, /rpc slot\), no herald live slot;/);
+  assert.match(keeperLandedCheck({ maxLanded: null, maxSent: 5, sent: 1 }, { rpc: 10, herald: 10 }).detail, /^no landed write \(rpc slot\);/);
+  assert.equal(keeperLandedCheck(j, { rpc: null, herald: NaN }).level, 'WARN');
+});
+
+test('runChecks: keeper.landed uses the getSlot already read for herald.lag (no extra RPC call); herald stalled → FAIL', async () => {
+  const herald = { '/h/season': { status: 200, body: { statusName: 'Active', rings: [] } }, '/h/status': { status: 200, body: { ingest: { state: 'ok' }, alarms: {}, live: [100_000] } } };
+  const r = await world({ tunnelLog: 'x', herald, rpc: fakeRpc({ slot: 130_000 }), keeperJournal: { maxLanded: 100_000 - 7_400, maxSent: 100_000 - 7_401, sent: 9 } });
+  assert.equal(r.by['herald.lag'].level, 'FAIL');
+  assert.equal(r.by['keeper.landed'].level, 'FAIL');
+  assert.match(r.by['keeper.landed'].detail, /37400 slots ago \(≈150 min, rpc slot\), herald-based 7400 slots/);
+  assert.equal(r.rpcCalls.filter((m) => m === 'getSlot').length, 1);
+  const off = await world({ tunnelLog: 'x', herald, extra: { rpc: false }, keeperJournal: { maxLanded: 100_000 - 7_400, maxSent: 100_000 - 7_401, sent: 9 } });
+  assert.equal(off.by['keeper.landed'].level, 'OK');
+  assert.match(off.by['keeper.landed'].detail, /herald slot; rpc unavailable/);
 });
 
 test('runChecks: keeper.landed FAILs when the journal has no recent landing', async () => {

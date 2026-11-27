@@ -12,8 +12,8 @@
 // the stack; read a key, keeper.seed or keeper.token; send a transaction. Keeper
 // A's /v1/status needs the bearer token, so keeper A is checked by "the port
 // answers 401 without a token" plus its log, and by `keeper.landed`: its journal
-// read with `sqlite3 -readonly` (newest landed write vs the herald live slot; WARN
-// > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min at devnet's ≈ 0.24 s/slot;
+// read with `sqlite3 -readonly` (newest landed write vs the RPC slot, or the herald
+// live slot without RPC; WARN > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min at devnet's ≈ 0.24 s/slot;
 // keeper-stall-investigate, 11-26 21:04 → 11-27 nothing landed). Devnet RPC (owner approval B5): only
 // getGenesisHash / getSlot / getBalance / getAccountInfo, only to
 // https://api.devnet.solana.com (never mainnet), one call per --rpc-gap-ms
@@ -132,20 +132,30 @@ export function lowerBound(v, { warn, fail }) {
  * keeper.landed (keeper-stall-investigate): how long ago keeper A's newest write LANDED, from its journal (read-only).
  * `/v1/status` needs the token, and the keeper log has no per-tick lines, so neither showed that nothing had landed
  * for 14 h (11-26 21:04 → 11-27 11:04, FAIL 0 all the while). Slots, not minutes: devnet ran ≈ 0.24 s a slot then.
- * `j` = {maxLanded, maxSent, sent} (null fields when the journal has no such row); `live` = herald live slot.
+ * `j` = {maxLanded, maxSent, sent} (null fields when the journal has no such row).
+ * `slots` = {rpc, herald}: the age is measured against the RPC slot (fix-health-landed: 11-27 15:47–16:40 the herald's
+ * live slot froze, herald.lag FAILed, and keeper.landed still said "OK ≈30 min" because it aged against the frozen
+ * herald slot). The herald-based age is reported next to it. Without an RPC slot (--no-rpc, RPC failed) it falls back to
+ * the herald slot and says so. A bare number is taken as the herald slot (the #281 call shape).
  */
 export const KEEPER_LANDED_SLOTS = Object.freeze({ warn: 7_500, fail: 22_500 });
-export function keeperLandedCheck(j, live) {
+export function keeperLandedCheck(j, slots) {
+  const { rpc = null, herald = null } = typeof slots === 'number' ? { herald: slots } : (slots ?? {});
+  const rpcOk = Number.isFinite(rpc);
+  const heraldOk = Number.isFinite(herald);
   if (!j) return { level: 'WARN', detail: 'keeper journal not readable' };
-  if (!Number.isFinite(live)) return { level: 'WARN', detail: `no herald live slot to compare; newest landed slot ${j.maxLanded ?? 'none'}` };
-  const ago = (s) => (s == null ? null : live - s);
+  if (!rpcOk && !heraldOk) return { level: 'WARN', detail: `no rpc or herald live slot to compare; newest landed slot ${j.maxLanded ?? 'none'}` };
+  const ref = rpcOk ? rpc : herald;
+  const src = rpcOk ? 'rpc slot' : 'herald slot; rpc unavailable';
+  const ago = (s, at = ref) => (s == null ? null : at - s);
   const landedAgo = ago(j.maxLanded);
   const sentAgo = ago(j.maxSent);
   const min = (n) => `≈${Math.round((n * 0.24) / 60)} min`;
   let level = 'OK';
   if (landedAgo == null || landedAgo > KEEPER_LANDED_SLOTS.fail) level = 'FAIL';
   else if (landedAgo > KEEPER_LANDED_SLOTS.warn) level = 'WARN';
-  const landed = landedAgo == null ? 'no landed write' : `newest landed write ${landedAgo} slots ago (${min(landedAgo)})`;
+  let landed = landedAgo == null ? `no landed write (${src})` : `newest landed write ${landedAgo} slots ago (${min(landedAgo)}, ${src})`;
+  if (rpcOk && landedAgo != null) landed += heraldOk ? `, herald-based ${ago(j.maxLanded, herald)} slots` : ', no herald live slot';
   const sent = sentAgo == null ? 'no write sent' : `newest send ${sentAgo} slots ago (${min(sentAgo)})`;
   return { level, detail: `${landed}; ${sent}; ${j.sent ?? '?'} sends unresolved` };
 }
@@ -657,7 +667,7 @@ export async function runChecks(o) {
       const k = await getJson(`http://127.0.0.1:${P.keeper}/v1/status`, 5000);
       add(k.status === 401 ? 'OK' : 'WARN', 'keeper.api', `/v1/status without token → HTTP ${k.status}${k.status === 401 ? ' (API up; duties/rent/lag need the token, read from the log below)' : ''}`);
     } catch (e) { add('FAIL', 'keeper.api', `no answer on :${P.keeper}: ${e.message}`); }
-    const kl = keeperLandedCheck(o.keeperJournal !== undefined ? o.keeperJournal : readKeeperJournal(path.join(o.runDir, 'keeper-a', 'keeper.journal.sqlite')), heraldLive);
+    const kl = keeperLandedCheck(o.keeperJournal !== undefined ? o.keeperJournal : readKeeperJournal(path.join(o.runDir, 'keeper-a', 'keeper.journal.sqlite')), { rpc: rpcSlot, herald: heraldLive });
     add(kl.level, 'keeper.landed', kl.detail);
   } else {
     add('OK', 'keeper.api', postponed ? 'not started: world creation postponed' : 'not started yet (the driver starts it after CreateSeason)');
