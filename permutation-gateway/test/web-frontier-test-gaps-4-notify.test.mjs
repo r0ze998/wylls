@@ -27,6 +27,7 @@ import * as waitPanel from '../../permutation-server/web/frontier/hud/waitpanel.
 import { ownClashText } from '../../permutation-server/web/frontier/map/ownclash.mjs';
 import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { BELL_SECS, bellStart } from '../../permutation-server/web/frontier/clock.mjs';
+import { setTermsPace } from '../../permutation-server/web/frontier/seasonterms.mjs';
 
 const TZ = process.env.TZ;
 afterEach(() => { setLang('ja'); if (TZ === undefined) delete process.env.TZ; else process.env.TZ = TZ; });
@@ -124,7 +125,9 @@ test('I1 verify-pr270 kept 1×: a camp march sent 04:56:37 JST arriving turn 4 �
   const sentMs = Date.UTC(2026, 10, 26, 19, 56, 37);           // 04:56:37 JST on 11-27
   const genesis = 1_000_000_000, arrive = 4;
   const chainNow = bellStart(genesis, arrive) - 1099;
-  const FS = { clock: { genesisTs: genesis }, chain: { now: () => chainNow, rate: 1 }, nowBell: 2, citizen: { faction: 0 }, holdings: [], provinces: new Map(),
+  // (verify-pr271, after #271: the report time is the wait panel's reportEtaAt — the clock's reveal window and seed margin,
+  //  as clock.mjs seasonClock gives them; without them no report time is written, never a guess)
+  const FS = { clock: { genesisTs: genesis, window: () => 300, margin: 30 }, chain: { now: () => chainNow, rate: 1 }, nowBell: 2, citizen: { faction: 0 }, holdings: [], provinces: new Map(),
     marches: [{ entry: null, transit: { slot: 0, state: 1, hostId: '9001', arriveBell: arrive }, dest: { p: -1, q: 2, tile: 13 }, facts: { pipeline: null } }] };
   for (const tz of ['Asia/Tokyo', 'UTC', 'America/Los_Angeles']) {
     process.env.TZ = tz;
@@ -160,7 +163,11 @@ test('I1 1,000 random own marches at ×1 / ×30 / ×60: DTSTART = the arrival tu
       rows.at(-1).want = { host, arrive, resolved, shape };
     }
     const FS = { clock: { genesisTs: G }, chain: { now: () => chainNow, rate }, nowBell: bell, citizen: { faction: 0 }, holdings: [], provinces: new Map(), marches: rows };
-    const ev = parseIcs(cal.icsText(cal.calendarEvents(FS, { nowMs }), { nowMs }));
+    // (verify-pr271, after #271 Q-TG3-3: the calendar's pace is the wait panel's — seasonterms termsRate, which app.mjs
+    //  sets from the measured or the launcher's stated pace — not FS.chain.rate on its own; the page sets it so)
+    setTermsPace(() => rate);
+    let ev;
+    try { ev = parseIcs(cal.icsText(cal.calendarEvents(FS, { nowMs }), { nowMs })); } finally { setTermsPace(() => 1); }
     const uids = ev.map(e => e.UID);
     assert.equal(new Set(uids).size, uids.length, 'one VEVENT per subject');
     for (const { want } of rows) {

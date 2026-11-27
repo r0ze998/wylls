@@ -7,8 +7,8 @@
 //! as the other in-process tests in CI do.
 //!
 //!   K1 the herald's text rules = the page's on the shared vectors (`chat-text-rules.json`, written by the page's
-//!      test): the link rule agrees on every text; refusal codes agree except where a text carries U+FEFF or U+0085
-//!      (the two `trim`s differ), and there the page is never the laxer one (D-test-gaps-3-1)
+//!      test): the link rule and the refusal code agree on every text (fix-tg3, Q-TG3-1 (a): one explicit trim list
+//!      and one invisible list on both sides, so U+FEFF / U+0085 no longer differ; was D-test-gaps-3-1)
 //!   K2 the signed texts: `post_message` / `read_message` give every vector's message (the page's postText / readText
 //!      give them too); the vectors name this fixture's world
 //!   K3 twelve posts sent at once for one turn → exactly PER_TURN stored; nine signed across the ±1 turn window and
@@ -243,7 +243,6 @@ fn k1_text_rules_match_the_page_on_the_shared_vectors() {
     let v = text_rules();
     let cases = v["cases"].as_array().expect("cases");
     assert!(cases.len() > 2_500, "the shared corpus is there");
-    let mut diverged = 0;
     for c in cases {
         let t = c["text"].as_str().expect("text");
         let page = c["problem"].as_str();
@@ -253,35 +252,37 @@ fn k1_text_rules_match_the_page_on_the_shared_vectors() {
             page_link,
             "{t:?}: the link rule differs between the herald and the page"
         );
-        let herald = chat::text_problem(t);
-        if herald != page {
-            // (String::trim and JavaScript's trim differ on exactly two characters: U+0085 is White_Space in Rust,
-            //  U+FEFF is whitespace in JavaScript. D-test-gaps-3-1: the page refuses every such text the herald does)
-            assert!(
-                t.contains('\u{feff}') || t.contains('\u{85}'),
-                "{t:?}: herald {herald:?} vs page {page:?} without U+FEFF / U+0085"
-            );
-            assert!(
-                page.is_some(),
-                "{t:?}: the page lets through what the herald refuses ({herald:?})"
-            );
-            diverged += 1;
-        }
+        // (fix-tg3: no exception any more — the herald and the page answer the same code for every text)
+        assert_eq!(
+            chat::text_problem(t),
+            page,
+            "{t:?}: the refusal differs between the herald and the page"
+        );
     }
-    assert!(
-        diverged < cases.len() / 10,
-        "{diverged} divergent texts: more than the trim edge"
-    );
 }
 
-/// D-test-gaps-3-1 (expected to fail today; NOT fixed — tests only, owner question Q-TG3-1): the herald takes a post
-/// whose text is only U+FEFF (an invisible message; the page refuses it as EmptyText) and texts that begin or end with
-/// U+FEFF (the page: UntrimmedText). Run with `--ignored` to see it.
+/// D-test-gaps-3-1, fixed by fix-tg3 (owner-default Q-TG3-1 (a); was `#[ignore]`d as expected to fail): the herald
+/// refuses a post whose text is only U+FEFF or only other invisible characters (EmptyText, as the page), and texts that
+/// begin or end with U+FEFF (UntrimmedText, as the page).
 #[test]
-#[ignore = "D-test-gaps-3-1: herald trim keeps U+FEFF (the page's does not); behaviour not changed by test-gaps-3"]
-fn k1_expected_fail_the_herald_refuses_a_text_of_only_u_feff() {
+fn k1_the_herald_refuses_a_text_of_only_u_feff() {
     assert_eq!(chat::text_problem("\u{feff}"), Some("EmptyText"));
     assert_eq!(chat::text_problem("hold\u{feff}"), Some("UntrimmedText"));
+    assert_eq!(chat::text_problem("\u{feff}hold"), Some("UntrimmedText"));
+    for t in [
+        "\u{200b}",
+        "\u{2060}",
+        "\u{3164}",
+        "\u{2800}",
+        "\u{200b} \u{2060}\u{3164}\u{2800}",
+    ] {
+        assert_eq!(chat::text_problem(t), Some("EmptyText"), "{t:?}");
+    }
+    assert_eq!(
+        chat::text_problem("a\u{200b}b"),
+        None,
+        "an invisible character inside a text is kept"
+    );
 }
 
 #[test]

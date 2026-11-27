@@ -1387,7 +1387,10 @@ More → **Notifications (outside the page)**. Nothing here leaves the browser: 
   its report, a keep your nation is taking (or one it holds that may fall), unpaid upkeep letting land go — into a
   file for the calendar app you choose (titles in English and Japanese). Times are estimates. Save and import it again
   after plans change: the same events move. In a ×60 world the times are seconds or minutes away. A local world lists
-  your march from the turn you send it (the page reads where it goes from its own copy of the order).
+  your march from the turn you send it (the page reads where it goes from its own copy of the order). The report time
+  is the one the "While you wait" panel shows (the turn's end, the reveal window, the seed margin and about a minute).
+  In a fast world whose pace the page does not know yet (the launcher states it, so its worlds give times at once),
+  the page gives no times (the Calendar section says "Measuring how fast this world's clock runs").
 - Not yet: notifications when the browser is closed (Web Push, the next step; it needs a fixed public address).
 
 ## 16. Nation chat (every world; owner decisions Q-PT-11 (a), Q-PT-12)
