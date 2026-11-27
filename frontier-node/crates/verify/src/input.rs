@@ -792,8 +792,9 @@ pub async fn seal_point_in_time(url: &str, h: &mut History) {
 }
 
 /// The verifier's JSON-RPC client of `url` (B5): one [`Pacer`] per endpoint
-/// for the whole run, so every read of one public RPC is spaced and backs
-/// off together, and a 429/503 is retried after the server's `Retry-After`
+/// for the whole run, so every read of one public RPC is spaced (a 429
+/// backs off its method, a 503 every method: rpc-pacer-per-method), and a
+/// 429/503 is retried after the server's `Retry-After`
 /// instead of ending the run (measured 2026-11-21: the public devnet RPC
 /// allows about 10 calls of one method per 10 s, so the 11th
 /// `getTransaction` of a season stopped `frontier-verify` with `Http(429)`).

@@ -128,7 +128,7 @@ frontier-herald --data herald/ --program <PROGRAM_ID> --season <ID> \
   --public-host <the public host name> --rpc-min-gap-ms 150
 ```
 
-A TLS reverse proxy (hosting is the owner's decision, P2) forwards the public origin to `127.0.0.1:41040` and nothing else; the herald's security headers and CSP apply as on the local stack. No other port is public. The herald answers only requests whose `Host` names loopback or a `--public-host` name (port ignored), and refuses a `WS /h/ws` upgrade from any other browser `Origin` (2026-11-18, devnet-readiness B13; DNS-rebinding defence): the proxy must pass the original `Host` (or rewrite it to one of those names). `--rpc-min-gap-ms` spaces every herald call to the RPC (default 150 ms with `--source rpc`; HTTP 429/503 backs off).
+A TLS reverse proxy (hosting is the owner's decision, P2) forwards the public origin to `127.0.0.1:41040` and nothing else; the herald's security headers and CSP apply as on the local stack. No other port is public. The herald answers only requests whose `Host` names loopback or a `--public-host` name (port ignored), and refuses a `WS /h/ws` upgrade from any other browser `Origin` (2026-11-18, devnet-readiness B13; DNS-rebinding defence): the proxy must pass the original `Host` (or rewrite it to one of those names). `--rpc-min-gap-ms` spaces every herald call to the RPC (default 150 ms with `--source rpc`; an HTTP 429 backs off only its method, a 503 every method; `FCLIENT_PACER_SCOPE=process` restores "a 429 backs off every method", rpc-pacer-per-method).
 
 **Ports** stay in 41000–41999 on every host, never 4185, 4190, 4191, 4194, 18899, 17799, 28899, 27799, 26699, 5185 or 5191.
 

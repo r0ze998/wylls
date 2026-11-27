@@ -399,7 +399,7 @@ async fn main_inner() -> Result<(), String> {
             // G1/G3 checks (findex `RpcPoll::coverage`): without them the
             // archived range is reported unverifiable, not complete.
             // One pacer for every call to `--rpc` (the public devnet RPC is
-            // rate-limited per IP; HTTP 429/503 backs all off): 150 ms
+            // rate-limited per IP; a 429 backs off its method, a 503 all): 150 ms
             // unless `--rpc-min-gap-ms` says otherwise (0: unpaced).
             let gap: u64 = match a.get("rpc-min-gap-ms") {
                 Some(v) => v.parse().map_err(|_| "--rpc-min-gap-ms: a number")?,

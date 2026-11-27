@@ -58,59 +58,182 @@ pub const PUBLIC_RETRIES: u32 = 6;
 /// Request spacing for one public RPC endpoint, shared by every client that
 /// reads it from this process (devnet-readiness B2: the public devnet RPC
 /// is rate-limited per IP). Each call waits for its turn (`min_gap` after
-/// the previous one); an HTTP 429 or 503 pushes every client back by a
-/// penalty that doubles up to `max_penalty` and clears on the next success.
+/// the previous one, whatever its method: the process's total request rate
+/// never exceeds `1 / min_gap`).
+///
+/// Back-off (rpc-pacer-per-method): the public devnet RPC limits **per
+/// method** (B5, measured 2026-11-21: about 10 calls of one method per 10 s
+/// per IP, `Retry-After: 10`), so an HTTP 429 on method M pushes back only
+/// the next calls of M, by a penalty = max(2 × M's previous, 500 ms,
+/// `Retry-After`) capped at `max_penalty`, plus up to a quarter of jitter;
+/// it clears on M's next 200. Other methods keep their turns at `min_gap`
+/// (a getTransaction storm no longer freezes getAccountInfo /
+/// getMultipleAccounts / the Clock read of the same process). A 503 (the
+/// whole node is unavailable) and [`Pacer::throttled_for`] still push back
+/// every method, as before. [`PacerScope::Process`] (or
+/// `FCLIENT_PACER_SCOPE=process` in the environment when the pacer is
+/// built) restores the old behaviour: every 429 pushes back every method.
 #[derive(Debug)]
 pub struct Pacer {
     pub min_gap: Duration,
     pub max_penalty: Duration,
-    state: tokio::sync::Mutex<PacerState>,
+    pub scope: PacerScope,
+    /// The process-wide turn (FIFO: held across the gap wait).
+    gap: tokio::sync::Mutex<Option<tokio::time::Instant>>,
+    /// Penalties by method ([`ALL_METHODS`]: every method); never held
+    /// across an `.await`.
+    penalties: std::sync::Mutex<std::collections::BTreeMap<String, MethodState>>,
     /// HTTP requests made through this pacer (each retry counts).
     pub calls: AtomicU64,
     /// Of those, answered 429/503.
     pub throttles: AtomicU64,
 }
 
-#[derive(Debug)]
-struct PacerState {
-    next: Option<tokio::time::Instant>,
+/// What a 429 on one method pushes back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacerScope {
+    /// Only that method (default).
+    Method,
+    /// Every method of the process (the pacer before rpc-pacer-per-method).
+    Process,
+}
+
+impl PacerScope {
+    /// `FCLIENT_PACER_SCOPE`: `process` → [`PacerScope::Process`], anything
+    /// else (or unset) → [`PacerScope::Method`].
+    pub fn from_env() -> PacerScope {
+        match std::env::var("FCLIENT_PACER_SCOPE").as_deref() {
+            Ok("process") => PacerScope::Process,
+            _ => PacerScope::Method,
+        }
+    }
+}
+
+/// The penalty key that applies to every method (503, [`Pacer::throttled_for`],
+/// any 429 under [`PacerScope::Process`]).
+pub const ALL_METHODS: &str = "*";
+
+/// At most one throttle log line per method per this long.
+pub const THROTTLE_LOG_EVERY: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Default, Clone)]
+struct MethodState {
     penalty: Duration,
+    until: Option<tokio::time::Instant>,
+    calls: u64,
+    throttles: u64,
+    /// Throttles not yet logged, and when the last line was written.
+    unlogged: u64,
+    logged_at: Option<tokio::time::Instant>,
+}
+
+/// One method's counters ([`Pacer::methods`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodStats {
+    pub method: String,
+    pub calls: u64,
+    pub throttles: u64,
+    pub penalty: Duration,
 }
 
 impl Pacer {
+    /// A pacer of `min_gap` whose scope is [`PacerScope::from_env`].
     pub fn new(min_gap: Duration, max_penalty: Duration) -> Arc<Pacer> {
+        Pacer::with_scope(min_gap, max_penalty, PacerScope::from_env())
+    }
+
+    pub fn with_scope(min_gap: Duration, max_penalty: Duration, scope: PacerScope) -> Arc<Pacer> {
         Arc::new(Pacer {
             min_gap,
             max_penalty: max_penalty.max(Duration::from_millis(1)),
-            state: tokio::sync::Mutex::new(PacerState {
-                next: None,
-                penalty: Duration::ZERO,
-            }),
+            scope,
+            gap: tokio::sync::Mutex::new(None),
+            penalties: std::sync::Mutex::new(Default::default()),
             calls: AtomicU64::new(0),
             throttles: AtomicU64::new(0),
         })
     }
 
-    /// Waits for this caller's turn (FIFO: the lock is held across the
-    /// wait, so callers go one `min_gap` apart in arrival order).
-    pub async fn turn(&self) {
-        let mut st = self.state.lock().await;
-        let now = tokio::time::Instant::now();
-        if let Some(n) = st.next.filter(|n| *n > now) {
-            tokio::time::sleep_until(n).await;
-        }
-        st.next = Some(tokio::time::Instant::now() + self.min_gap);
+    fn map(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeMap<String, MethodState>> {
+        self.penalties.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The endpoint said "too many requests": everyone waits a penalty.
+    /// When `method` may go next because of penalties (its own or the
+    /// every-method one), if that is later than `now`.
+    fn held_until(&self, method: &str, now: tokio::time::Instant) -> Option<tokio::time::Instant> {
+        let m = self.map();
+        [method, ALL_METHODS]
+            .iter()
+            .filter_map(|k| m.get(*k).and_then(|s| s.until))
+            .filter(|u| *u > now)
+            .max()
+    }
+
+    /// Waits for a turn of any method (as [`Pacer::turn_for`] of a method
+    /// that is never throttled on its own).
+    pub async fn turn(&self) {
+        self.turn_for(ALL_METHODS).await
+    }
+
+    /// Waits until `method`'s penalty (and the every-method one) is over,
+    /// then for the process-wide turn: one `min_gap` after the previous
+    /// call of any method, in arrival order. A penalized method waits
+    /// outside the turn queue, so it does not hold up the others.
+    pub async fn turn_for(&self, method: &str) {
+        loop {
+            if let Some(u) = self.held_until(method, tokio::time::Instant::now()) {
+                tokio::time::sleep_until(u).await;
+                continue;
+            }
+            let mut next = self.gap.lock().await;
+            let now = tokio::time::Instant::now();
+            if self.held_until(method, now).is_some() {
+                // Throttled while queued: wait outside the queue again.
+                continue;
+            }
+            if let Some(n) = next.filter(|n| *n > now) {
+                tokio::time::sleep_until(n).await;
+                if self
+                    .held_until(method, tokio::time::Instant::now())
+                    .is_some()
+                {
+                    // Throttled during the gap: the turn is not used.
+                    continue;
+                }
+            }
+            *next = Some(tokio::time::Instant::now() + self.min_gap);
+            let mut m = self.map();
+            m.entry(method.to_string()).or_default().calls += 1;
+            return;
+        }
+    }
+
+    /// The endpoint said "too many requests": every method waits a penalty.
     pub async fn throttled(&self) {
         self.throttled_for(None).await
     }
 
     /// [`Pacer::throttled`], waiting at least `retry_after` (the server's
-    /// `Retry-After`, capped by `max_penalty`).
+    /// `Retry-After`, capped by `max_penalty`). Every method.
     pub async fn throttled_for(&self, retry_after: Option<Duration>) {
-        let mut st = self.state.lock().await;
+        self.penalize(ALL_METHODS, retry_after);
+    }
+
+    /// `method` was answered 429: under [`PacerScope::Method`] only its
+    /// next calls wait the penalty; under [`PacerScope::Process`] every
+    /// method's do.
+    pub async fn throttled_method(&self, method: &str, retry_after: Option<Duration>) {
+        let key = match self.scope {
+            PacerScope::Method => method,
+            PacerScope::Process => ALL_METHODS,
+        };
+        self.penalize(key, retry_after);
+        self.note_throttle(method);
+    }
+
+    fn penalize(&self, key: &str, retry_after: Option<Duration>) -> Duration {
+        let mut m = self.map();
+        let st = m.entry(key.to_string()).or_default();
         st.penalty = (st.penalty * 2)
             .max(Duration::from_millis(500))
             .max(retry_after.unwrap_or_default())
@@ -118,17 +241,92 @@ impl Pacer {
         // Jittered (verify-pr123): up to a quarter more, so clients of one
         // endpoint in other processes do not retry in lockstep.
         let until = tokio::time::Instant::now() + st.penalty + jitter(st.penalty / 4);
-        st.next = Some(st.next.map_or(until, |n| n.max(until)));
+        st.until = Some(st.until.map_or(until, |n| n.max(until)));
+        st.penalty
     }
 
-    /// A call succeeded: the penalty starts over.
+    /// Counts a 429 of `method` and logs it, at most once per
+    /// [`THROTTLE_LOG_EVERY`] per method (with how many were not logged).
+    fn note_throttle(&self, method: &str) {
+        let line = {
+            let mut m = self.map();
+            let shown = match self.scope {
+                PacerScope::Method => m.get(method),
+                PacerScope::Process => m.get(ALL_METHODS),
+            }
+            .map(|s| s.penalty)
+            .unwrap_or_default();
+            let st = m.entry(method.to_string()).or_default();
+            st.throttles += 1;
+            st.unlogged += 1;
+            let now = tokio::time::Instant::now();
+            let due = st
+                .logged_at
+                .is_none_or(|t| now.duration_since(t) >= THROTTLE_LOG_EVERY);
+            due.then(|| {
+                let n = std::mem::take(&mut st.unlogged);
+                st.logged_at = Some(now);
+                let who = match self.scope {
+                    PacerScope::Method => "it alone waits",
+                    PacerScope::Process => "every method waits",
+                };
+                format!(
+                    "fclient rpc: {method} throttled (429) x{n} since the last line; {who} {} ms",
+                    shown.as_millis()
+                )
+            })
+        };
+        if let Some(l) = line {
+            eprintln!("{l}");
+        }
+    }
+
+    /// A call succeeded: the every-method penalty starts over.
     pub async fn ok(&self) {
-        self.state.lock().await.penalty = Duration::ZERO;
+        self.ok_for(ALL_METHODS).await
     }
 
-    /// The current penalty (tests, status).
+    /// `method` was answered 200: its penalty starts over (and the
+    /// every-method one, which a 200 proves over too).
+    pub async fn ok_for(&self, method: &str) {
+        let mut m = self.map();
+        for k in [method, ALL_METHODS] {
+            if let Some(s) = m.get_mut(k) {
+                s.penalty = Duration::ZERO;
+            }
+        }
+    }
+
+    /// The largest current penalty of any method (tests, status).
     pub async fn penalty(&self) -> Duration {
-        self.state.lock().await.penalty
+        self.map()
+            .values()
+            .map(|s| s.penalty)
+            .max()
+            .unwrap_or_default()
+    }
+
+    /// `method`'s current penalty (the every-method one included).
+    pub fn penalty_of(&self, method: &str) -> Duration {
+        let m = self.map();
+        [method, ALL_METHODS]
+            .iter()
+            .filter_map(|k| m.get(*k).map(|s| s.penalty))
+            .max()
+            .unwrap_or_default()
+    }
+
+    /// Per-method turns, 429s and current penalty (status pages).
+    pub fn methods(&self) -> Vec<MethodStats> {
+        self.map()
+            .iter()
+            .map(|(k, s)| MethodStats {
+                method: k.clone(),
+                calls: s.calls,
+                throttles: s.throttles,
+                penalty: s.penalty,
+            })
+            .collect()
     }
 }
 
@@ -201,7 +399,7 @@ impl RpcClient {
         let mut tries = 0u32;
         let resp = loop {
             if let Some(p) = &self.pacer {
-                p.turn().await;
+                p.turn_for(method).await;
             }
             let resp =
                 crate::http::post_json_with(&self.url, &req, self.max_response_bytes, &self.https)
@@ -218,8 +416,11 @@ impl RpcClient {
                 }
             }
             match &self.pacer {
+                // A 429 is the method's limit (devnet: per method per IP);
+                // a 503 is the whole node's: every method backs off.
+                Some(p) if resp.status == 429 => p.throttled_method(method, hint).await,
                 Some(p) if busy => p.throttled_for(hint).await,
-                Some(p) if resp.status == 200 => p.ok().await,
+                Some(p) if resp.status == 200 => p.ok_for(method).await,
                 _ => {}
             }
             if !busy || tries >= self.retries {
@@ -1381,6 +1582,351 @@ mod tests {
                 parse_latest_blockhash_result(&invalid),
                 Err(PortError::Decode("lastValidBlockHeight".into()))
             );
+        }
+    }
+
+    // ------------------------------------------- rpc-pacer-per-method
+
+    /// A fake transport over the pacer alone: each call takes its turn,
+    /// is stamped, and is answered by `answer(method, since start)`
+    /// (429 / 503 / 200), which the pacer is told as `RpcClient::call`
+    /// tells it.
+    /// (method, when its turn came, the status it was answered).
+    type Stamp = (String, tokio::time::Instant, u16);
+    /// The fake server: (method, time since start) → HTTP status.
+    type Answer = Box<dyn Fn(&str, Duration) -> u16 + Send + Sync>;
+
+    struct Fake {
+        pacer: Arc<Pacer>,
+        t0: tokio::time::Instant,
+        stamps: std::sync::Mutex<Vec<Stamp>>,
+        answer: Answer,
+    }
+
+    impl Fake {
+        fn new(
+            gap_ms: u64,
+            max_ms: u64,
+            scope: PacerScope,
+            answer: impl Fn(&str, Duration) -> u16 + Send + Sync + 'static,
+        ) -> Arc<Fake> {
+            Arc::new(Fake {
+                pacer: Pacer::with_scope(
+                    Duration::from_millis(gap_ms),
+                    Duration::from_millis(max_ms),
+                    scope,
+                ),
+                t0: tokio::time::Instant::now(),
+                stamps: Default::default(),
+                answer: Box::new(answer),
+            })
+        }
+
+        async fn call(&self, method: &str) -> u16 {
+            self.pacer.turn_for(method).await;
+            let now = tokio::time::Instant::now();
+            let status = (self.answer)(method, now - self.t0);
+            self.stamps
+                .lock()
+                .unwrap()
+                .push((method.to_string(), now, status));
+            match status {
+                429 => self.pacer.throttled_method(method, None).await,
+                503 => self.pacer.throttled_for(None).await,
+                _ => self.pacer.ok_for(method).await,
+            }
+            status
+        }
+
+        fn stamps(&self) -> Vec<Stamp> {
+            let mut v = self.stamps.lock().unwrap().clone();
+            v.sort_by_key(|s| s.1);
+            v
+        }
+
+        /// Every two consecutive calls (any methods) at least `gap` apart.
+        fn assert_gap(&self) {
+            let gap = self.pacer.min_gap;
+            let v = self.stamps();
+            for w in v.windows(2) {
+                assert!(
+                    w[1].1 - w[0].1 >= gap,
+                    "{} then {} only {:?} apart (< {gap:?})",
+                    w[0].0,
+                    w[1].0,
+                    w[1].1 - w[0].1
+                );
+            }
+        }
+    }
+
+    fn run_mt<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+
+    /// (3a) getTransaction is answered 429 for the first 1.5 s; meanwhile
+    /// getAccountInfo keeps flowing one min gap apart and is never held up
+    /// by getTransaction's penalty (before: every 429 froze it too).
+    #[test]
+    fn pm1_a_get_transaction_storm_does_not_freeze_get_account_info() {
+        run_mt(async {
+            let f = Fake::new(20, 30_000, PacerScope::Method, |m, t| {
+                if m == "getTransaction" && t < Duration::from_millis(1500) {
+                    429
+                } else {
+                    200
+                }
+            });
+            let fa = f.clone();
+            let storm = tokio::spawn(async move {
+                // Retries until answered (as PUBLIC_RETRIES, unbounded here).
+                for _ in 0..3 {
+                    while fa.call("getTransaction").await == 429 {}
+                }
+            });
+            let t = tokio::time::Instant::now();
+            for _ in 0..40 {
+                assert_eq!(f.call("getAccountInfo").await, 200);
+            }
+            let reads = t.elapsed();
+            // 40 calls at 20 ms, sharing the turns with getTransaction's
+            // few: well under the 1.5 s storm plus its ≥ 500 ms penalties.
+            assert!(reads < Duration::from_millis(1400), "{reads:?}");
+            assert!(f.pacer.penalty_of("getAccountInfo").is_zero());
+            assert!(f.pacer.penalty_of("getTransaction") >= Duration::from_millis(500));
+            storm.await.unwrap();
+            f.assert_gap();
+            let v = f.stamps();
+            let tx: Vec<_> = v.iter().filter(|s| s.0 == "getTransaction").collect();
+            // 429s at ~0, 0.5, 1.5 s (penalties 500 ms, 1 s, jitter ≤ 25 %),
+            // then 3 answered: few calls, not one per gap.
+            assert!(tx.len() <= 7, "{}", tx.len());
+            for w in tx.windows(2).filter(|w| w[0].2 == 429) {
+                assert!(
+                    w[1].1 - w[0].1 >= Duration::from_millis(500),
+                    "{:?}",
+                    w[1].1 - w[0].1
+                );
+            }
+            assert!(
+                f.pacer.penalty_of("getTransaction").is_zero(),
+                "reset by its 200"
+            );
+            let st = f.pacer.methods();
+            let gai = st.iter().find(|s| s.method == "getAccountInfo").unwrap();
+            assert_eq!((gai.calls, gai.throttles), (40, 0));
+        });
+    }
+
+    /// (4) The old behaviour stays one switch away: under
+    /// `PacerScope::Process` the same storm holds getAccountInfo back too.
+    #[test]
+    fn pm2_process_scope_is_the_old_pacer() {
+        run_mt(async {
+            let f = Fake::new(20, 30_000, PacerScope::Process, |m, _| {
+                if m == "getTransaction" {
+                    429
+                } else {
+                    200
+                }
+            });
+            assert_eq!(f.call("getTransaction").await, 429);
+            let t = tokio::time::Instant::now();
+            assert_eq!(f.call("getAccountInfo").await, 200);
+            assert!(
+                t.elapsed() >= Duration::from_millis(500),
+                "{:?}",
+                t.elapsed()
+            );
+            assert!(
+                f.pacer.penalty_of("getTransaction").is_zero(),
+                "any 200 resets it"
+            );
+            // ...and the method scope does not wait.
+            let g = Fake::new(20, 30_000, PacerScope::Method, |m, _| {
+                if m == "getTransaction" {
+                    429
+                } else {
+                    200
+                }
+            });
+            assert_eq!(g.call("getTransaction").await, 429);
+            let t = tokio::time::Instant::now();
+            assert_eq!(g.call("getAccountInfo").await, 200);
+            assert!(
+                t.elapsed() < Duration::from_millis(300),
+                "{:?}",
+                t.elapsed()
+            );
+        });
+    }
+
+    /// (3b) Per method: doubling from 500 ms, Retry-After as a floor, the
+    /// cap, jitter ≤ 25 %, and a reset by that method's 200 only.
+    #[test]
+    fn pm3_penalty_cap_jitter_and_reset_are_per_method() {
+        run(async {
+            let p = Pacer::with_scope(
+                Duration::from_millis(1),
+                Duration::from_secs(3),
+                PacerScope::Method,
+            );
+            let ms = Duration::from_millis;
+            let mut seen = vec![];
+            for _ in 0..4 {
+                let t = tokio::time::Instant::now();
+                p.throttled_method("getTransaction", None).await;
+                let pen = p.penalty_of("getTransaction");
+                let held = p.held_until("getTransaction", t).unwrap() - t;
+                assert!(
+                    held >= pen && held <= pen + pen / 4 + ms(5),
+                    "{held:?} vs {pen:?}"
+                );
+                seen.push(pen);
+            }
+            assert_eq!(
+                seen,
+                vec![ms(500), ms(1000), ms(2000), ms(3000)],
+                "capped at 3 s"
+            );
+            p.throttled_method("getMultipleAccounts", Some(Duration::from_secs(10)))
+                .await;
+            assert_eq!(
+                p.penalty_of("getMultipleAccounts"),
+                ms(3000),
+                "Retry-After capped"
+            );
+            p.throttled_method("getSlot", Some(Duration::from_secs(2)))
+                .await;
+            assert_eq!(
+                p.penalty_of("getSlot"),
+                ms(2000),
+                "Retry-After as the floor"
+            );
+            assert!(p.penalty_of("getAccountInfo").is_zero());
+            assert!(p
+                .held_until("getAccountInfo", tokio::time::Instant::now())
+                .is_none());
+            p.ok_for("getTransaction").await;
+            assert!(p.penalty_of("getTransaction").is_zero());
+            assert_eq!(
+                p.penalty_of("getMultipleAccounts"),
+                ms(3000),
+                "not reset by another's 200"
+            );
+            assert_eq!(p.penalty().await, ms(3000), "the largest");
+            // After the reset, the next 429 starts over at 500 ms.
+            p.throttled_method("getTransaction", None).await;
+            assert_eq!(p.penalty_of("getTransaction"), ms(500));
+        });
+    }
+
+    /// (3c) Five methods hammering at once, one of them throttled now and
+    /// then, one 503: the process never goes faster than one call per gap.
+    #[test]
+    fn pm4_total_rate_never_exceeds_one_per_min_gap() {
+        run_mt(async {
+            let n = std::sync::Arc::new(AtomicU64::new(0));
+            let n2 = n.clone();
+            let f = Fake::new(15, 400, PacerScope::Method, move |m, _| {
+                let k = n2.fetch_add(1, Ordering::Relaxed);
+                if k == 30 {
+                    503
+                } else if m == "getTransaction" && k.is_multiple_of(3) {
+                    429
+                } else {
+                    200
+                }
+            });
+            let methods = [
+                "getTransaction",
+                "getAccountInfo",
+                "getMultipleAccounts",
+                "getSignaturesForAddress",
+                "getSlot",
+            ];
+            let t = tokio::time::Instant::now();
+            let tasks: Vec<_> = methods
+                .iter()
+                .map(|m| {
+                    let f = f.clone();
+                    let m = m.to_string();
+                    tokio::spawn(async move {
+                        for _ in 0..12 {
+                            f.call(&m).await;
+                        }
+                    })
+                })
+                .collect();
+            for t in tasks {
+                t.await.unwrap();
+            }
+            let el = t.elapsed();
+            f.assert_gap();
+            let v = f.stamps();
+            assert_eq!(v.len(), 60);
+            // 60 calls ⇒ ≥ 59 gaps.
+            assert!(el >= Duration::from_millis(15 * 59), "{el:?}");
+            assert_eq!(f.pacer.methods().iter().map(|s| s.calls).sum::<u64>(), 60);
+            // The 503 pushed back every method: no call within 500 ms of it.
+            let at = v.iter().find(|s| s.2 == 503).unwrap().1;
+            let next = v.iter().find(|s| s.1 > at).unwrap().1;
+            assert!(next - at >= Duration::from_millis(400), "{:?}", next - at);
+        });
+    }
+
+    /// (2) The throttle line is written at most once per method per minute
+    /// (with the count of the ones not written), per method.
+    #[test]
+    fn pm5_throttle_log_once_per_minute_per_method() {
+        run(async {
+            let p = Pacer::with_scope(
+                Duration::from_millis(1),
+                Duration::from_secs(1),
+                PacerScope::Method,
+            );
+            let unlogged = |m: &str| p.map().get(m).map(|s| (s.unlogged, s.throttles));
+            p.throttled_method("getTransaction", None).await;
+            assert_eq!(
+                unlogged("getTransaction"),
+                Some((0, 1)),
+                "the first is logged"
+            );
+            for _ in 0..5 {
+                p.throttled_method("getTransaction", None).await;
+            }
+            assert_eq!(
+                unlogged("getTransaction"),
+                Some((5, 6)),
+                "within a minute: held"
+            );
+            p.throttled_method("getSlot", None).await;
+            assert_eq!(
+                unlogged("getSlot"),
+                Some((0, 1)),
+                "another method has its own minute"
+            );
+            // A minute later the next one is written with the 5 held back.
+            p.map().get_mut("getTransaction").unwrap().logged_at =
+                Some(tokio::time::Instant::now() - THROTTLE_LOG_EVERY);
+            p.throttled_method("getTransaction", None).await;
+            assert_eq!(unlogged("getTransaction"), Some((0, 7)));
+        });
+    }
+
+    #[test]
+    fn pm6_scope_from_env_defaults_to_method() {
+        // Read only (no set_var in a threaded test binary): whatever the
+        // runner's environment, the parse is total.
+        let s = PacerScope::from_env();
+        match std::env::var("FCLIENT_PACER_SCOPE").as_deref() {
+            Ok("process") => assert_eq!(s, PacerScope::Process),
+            _ => assert_eq!(s, PacerScope::Method),
         }
     }
 }
