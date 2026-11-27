@@ -2153,6 +2153,13 @@ mod tests {
         cache_only: std::sync::atomic::AtomicBool,
         /// verify-pr282: blocks the chain moves on during each status read.
         blocks_per_status_read: std::sync::atomic::AtomicU64,
+        /// test-gaps-6: blocks the chain moves on after each `blockhash`
+        /// answer (each fetch gets a later validity height).
+        height_step_per_fetch: std::sync::atomic::AtomicU64,
+        /// test-gaps-6: how many sends had happened at each `blockhash` call.
+        fetch_at_sends: Mutex<Vec<usize>>,
+        /// test-gaps-6: the next `send` takes this long (real time).
+        slow_next_send: Mutex<Option<std::time::Duration>>,
     }
 
     impl Default for Script {
@@ -2169,6 +2176,9 @@ mod tests {
                 blockhash_calls: std::sync::atomic::AtomicU64::new(0),
                 cache_only: std::sync::atomic::AtomicBool::new(false),
                 blocks_per_status_read: std::sync::atomic::AtomicU64::new(0),
+                height_step_per_fetch: std::sync::atomic::AtomicU64::new(0),
+                fetch_at_sends: Mutex::new(vec![]),
+                slow_next_send: Mutex::new(None),
             }
         }
     }
@@ -2197,6 +2207,10 @@ mod tests {
             Ok(SimResult::default())
         }
         async fn send(&self, w: &[u8]) -> PortResult<Signature> {
+            let slow = self.slow_next_send.lock().unwrap().take();
+            if let Some(d) = slow {
+                tokio::time::sleep(d).await;
+            }
             let t = tx::from_wire(w).unwrap();
             let sig = tx::signature(&t);
             if let Some(st) = (self.answer.lock().unwrap())(&t) {
@@ -2242,12 +2256,16 @@ mod tests {
             Ok(vec![])
         }
         async fn blockhash(&self) -> PortResult<(Hash, u64)> {
-            self.blockhash_calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            use std::sync::atomic::Ordering::SeqCst;
+            self.blockhash_calls.fetch_add(1, SeqCst);
+            self.fetch_at_sends
+                .lock()
+                .unwrap()
+                .push(self.sent.lock().unwrap().len());
+            let step = self.height_step_per_fetch.load(SeqCst);
             Ok((
                 Hash::new_from_array([3; 32]),
-                self.blockhash_height
-                    .load(std::sync::atomic::Ordering::SeqCst),
+                self.blockhash_height.fetch_add(step, SeqCst),
             ))
         }
     }
@@ -2426,6 +2444,130 @@ mod tests {
             .unwrap()
             .iter()
             .all(|a| a.last_valid_block_height == Some(150)));
+    }
+
+    /// test-gaps-6: `n` distinct D writes (distinct transfers, so two writes
+    /// drawing the same payer never sign the same transaction).
+    fn tg6_writes(e: &mut Engine, n: usize) {
+        for i in 0..n {
+            let mut w = spec(&format!("w{i:03}"), Class::D, abi::tag::POST_ANCHOR);
+            w.build = Arc::new(move |ctx| {
+                let mut to = [0u8; 32];
+                to[..8].copy_from_slice(&(i as u64 + 1).to_le_bytes());
+                vec![tx::transfer(
+                    ctx.payer,
+                    Address::new_from_array(to),
+                    1 + i as u64,
+                )]
+            });
+            e.ensure(w, 1);
+        }
+    }
+
+    /// test-gaps-6 (#282): a 100-send pass fetches a new blockhash before
+    /// sends 0, 16, 32, 48, 64, 80 and 96 (exactly every
+    /// BLOCKHASH_REFRESH_SENDS), and every journal row records the validity
+    /// height of the hash it was signed with: 16 rows per height, 4 on the
+    /// last. (11-27 devnet: one hash per pass let 41 of 134 land.)
+    #[tokio::test]
+    async fn tg6_hundred_send_pass_refreshes_every_16_sends() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let port = Script::default();
+        port.height_step_per_fetch.store(7, SeqCst);
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        tg6_writes(&mut e, 100);
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let t0 = std::time::Instant::now();
+        let sent = e.step(&port, &mut payers, Some(&j), 1).await.sent;
+        assert!(t0.elapsed().as_secs() < 15, "the count rule, not the timer");
+        assert_eq!(sent, 100);
+        assert_eq!(
+            *port.fetch_at_sends.lock().unwrap(),
+            vec![0, 16, 32, 48, 64, 80, 96]
+        );
+        for i in 0..100usize {
+            let rows = j.attempts_of(&format!("w{i:03}")).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(
+                rows[0].last_valid_block_height,
+                Some(150 + 7 * (i as u64 / 16)),
+                "send {i}"
+            );
+        }
+        // The engine's versions carry the same heights (they drive #282's
+        // never-landed settle): a poll past the first hash's validity + 300
+        // settles exactly the 16 sends of that hash.
+        port.blockhash_height.store(
+            150 + EXPIRED_MARGIN_BLOCKS + 1 + BLOCKHASH_VALID_BLOCKS,
+            SeqCst,
+        );
+        port.height_step_per_fetch.store(0, SeqCst);
+        e.poll(&port, Some(&j), 2).await;
+        assert_eq!(e.never_landed, 16);
+    }
+
+    /// test-gaps-6 (#282): the BLOCKHASH_REFRESH_SECS timer, on real time
+    /// (the engine reads `std::time::Instant`; no fake clock reaches it).
+    /// The first send takes 15.05 s, so the second send fetches a new hash
+    /// after one send, and the count rule then refreshes 16 sends later:
+    /// fetches before sends 0, 1 and 17 of 20. ≈ 15 s.
+    #[tokio::test]
+    async fn tg6_send_pass_refreshes_after_15_seconds() {
+        use std::sync::atomic::Ordering::SeqCst;
+        assert_eq!(BLOCKHASH_REFRESH_SECS, 15);
+        let port = Script::default();
+        port.height_step_per_fetch.store(7, SeqCst);
+        let mut payers = payers();
+        payers.refresh(&port, 0).await.unwrap();
+        let mut e = Engine::new(Budgets::placeholder(), EngineParams::default());
+        tg6_writes(&mut e, 20);
+        *port.slow_next_send.lock().unwrap() = Some(std::time::Duration::from_millis(15_050));
+        let j = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let sent = e.step(&port, &mut payers, Some(&j), 1).await.sent;
+        assert_eq!(sent, 20);
+        assert_eq!(*port.fetch_at_sends.lock().unwrap(), vec![0, 1, 17]);
+        let height =
+            |i: usize| j.attempts_of(&format!("w{i:03}")).unwrap()[0].last_valid_block_height;
+        assert_eq!(height(0), Some(150));
+        assert_eq!(height(1), Some(157));
+        assert_eq!(height(16), Some(157));
+        assert_eq!(height(17), Some(164));
+    }
+
+    /// test-gaps-6 (#280): the Reveal the engine signs for an S1 or a
+    /// playable-lane world carries SetComputeUnitLimit 32,000 (MC / M1:
+    /// their own rows), read back from the sent transaction.
+    #[tokio::test]
+    async fn tg6_sent_reveal_requests_32000_cu_per_lane() {
+        for (v, want) in [
+            (abi::PROGRAM_VERSION_S1, 32_000u32),
+            (0x4804, 32_000),
+            (0xC804, 32_000),
+            (
+                abi::PROGRAM_VERSION_V2,
+                Budgets::canonical_v2().get(abi::tag::REVEAL).cu_limit,
+            ),
+            (
+                abi::PROGRAM_VERSION_V1,
+                Budgets::canonical().get(abi::tag::REVEAL).cu_limit,
+            ),
+        ] {
+            let port = Script::default();
+            let mut payers = payers();
+            payers.refresh(&port, 0).await.unwrap();
+            let mut e = Engine::new(Budgets::canonical_for(v), EngineParams::default());
+            e.ensure(spec("reveal:1:2", Class::W, abi::tag::REVEAL), 1);
+            assert_eq!(e.step(&port, &mut payers, None, 1).await.sent, 1, "{v:#x}");
+            let t = port.sent.lock().unwrap()[0].clone();
+            let b = tx::parse_budget(&t.message);
+            assert_eq!(b.effective_cu_limit(), want, "version {v:#x}");
+            assert_eq!(
+                b.effective_loaded_limit(),
+                Budgets::canonical_for(v).get(abi::tag::REVEAL).loaded_limit
+            );
+        }
     }
 
     /// keeper-stall-investigate: devnet 11-26 15:04, 93 care transfers signed

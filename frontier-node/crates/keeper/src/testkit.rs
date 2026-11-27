@@ -39,6 +39,15 @@ pub struct FakePort {
     pub rpc_error: Mutex<Option<String>>,
     /// `simulate()` calls (the wire bytes go to the RPC there too).
     pub simulated: AtomicU64,
+    /// test-gaps-6: `getLatestBlockhash`'s `lastValidBlockHeight` (0 = 150).
+    pub valid_height: AtomicU64,
+    /// test-gaps-6: a history search answers `null` for every unknown
+    /// signature (`statuses_absent`); off = no evidence, as before.
+    pub absent_unknown: std::sync::atomic::AtomicBool,
+    /// test-gaps-6: `feed()` calls, and the count at each `send` (did the
+    /// transaction go out before or after the tick's feed pull?).
+    pub feed_calls: AtomicU64,
+    pub send_feed_calls: Mutex<Vec<u64>>,
 }
 
 impl FakePort {
@@ -101,17 +110,32 @@ impl ChainPort for FakePort {
         let t = tx::from_wire(w).map_err(|e| PortError::Decode(format!("{e:?}")))?;
         let sig = tx::signature(&t);
         self.sent.lock().unwrap().push(t);
+        self.send_feed_calls
+            .lock()
+            .unwrap()
+            .push(self.feed_calls.load(Ordering::SeqCst));
         Ok(sig)
     }
     async fn statuses(&self, sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
         let m = self.statuses.lock().unwrap();
         Ok(sigs.iter().map(|s| m.get(s).cloned()).collect())
     }
+    async fn statuses_absent(
+        &self,
+        sigs: &[Signature],
+    ) -> PortResult<(Vec<Option<Status>>, Vec<bool>)> {
+        let v = self.statuses(sigs).await?;
+        let on = self.absent_unknown.load(Ordering::SeqCst);
+        let absent = v.iter().map(|s| on && s.is_none()).collect();
+        Ok((v, absent))
+    }
     async fn feed(&self, _: Cursor) -> PortResult<Vec<TxRecord>> {
+        self.feed_calls.fetch_add(1, Ordering::SeqCst);
         Ok(vec![])
     }
     async fn blockhash(&self) -> PortResult<(Hash, u64)> {
-        Ok((Hash::new_from_array([3; 32]), 150))
+        let h = self.valid_height.load(Ordering::SeqCst);
+        Ok((Hash::new_from_array([3; 32]), if h == 0 { 150 } else { h }))
     }
 }
 
