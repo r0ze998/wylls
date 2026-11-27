@@ -11,7 +11,7 @@
 //      text escaping round-trips; DTSTART/DTEND are UTC (`Z`) and the same file whatever the computer's time zone
 //      (Tokyo, Los Angeles, Chatham +12:45, UTC); the event time = the panel's wall time for the same chain time
 //      (calendar wallMsOf = screens/shell.mjs wallOf) at ×1 and ×60
-//   N4 (todo, D-test-gaps-3-2/3; behaviour NOT changed) the .ics report time is the wait panel's report time; the
+//   N4 (fix-tg3 made these real tests; were todo D-test-gaps-3-2/3) the .ics report time is the wait panel's report time; the
 //      calendar writes no time while a fast clock's pace is unknown (the panel says none then)
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -228,22 +228,29 @@ test('N3 the .ics: folding, escaping, UTC times in every time zone, and the pane
   setChainNow(null);
 });
 
-// ------------------------------------------------------------------ N4 (expected to fail today: reported, not fixed)
-test('N4a (todo D-test-gaps-3-2) the .ics report time = the wait panel\'s report time for the same march', { todo: 'D-test-gaps-3-2: calendar REPORT_LAG_SECS 90 s after the arrival turn vs firstbattle reportEtaAt (window + margin + 60 s = 720 s at the rules\' 600 s window); not changed by test-gaps-3' }, () => {
+// ------------------------------------------------------------------ N4 (fix-tg3: owner-default Q-TG3-2 (a), Q-TG3-3 — were todo)
+test('N4a the .ics report time = the wait panel\'s report time for the same march (fix-tg3, Q-TG3-2 (a))', () => {
   const FS = fixtureFS();
-  const ev = cal.calendarEvents(FS, { nowMs: 1_790_000_000_000 }).find(e => e.kind === 'reportDue');
-  const panelAt = reportEtaAt(FS.clock, FS.marches[0].entry.arriveBell);
-  const calAt = bellEnd(G, FS.marches[0].entry.arriveBell) + cal.REPORT_LAG_SECS;
-  assert.ok(ev, 'a report event');
-  assert.equal(calAt, panelAt, `.ics says ${calAt - bellEnd(G, 103)} s after the turn, the panel ${panelAt - bellEnd(G, 103)} s`);
+  setTermsPace(() => 1);
+  setChainNow(() => FS.chain.now());
+  try {
+    const nowMs = 1_790_000_000_000;
+    const ev = cal.calendarEvents(FS, { nowMs }).find(e => e.kind === 'reportDue');
+    const panelAt = reportEtaAt(FS.clock, FS.marches[0].entry.arriveBell);
+    assert.ok(ev, 'a report event');
+    assert.equal(panelAt - bellEnd(G, 103), 720, 'the panel: the turn\'s end + window 600 + margin 60 + 60 s');
+    assert.equal(ev.startMs, Math.round(wallOf(panelAt, null, nowMs) * 1000), '.ics = the panel\'s wall time of reportEtaAt');
+    assert.equal(cal.REPORT_LAG_SECS, undefined, 'no calendar-only lag');
+  } finally { setTermsPace(() => 1); setChainNow(null); }
 });
 
-test('N4b (todo D-test-gaps-3-3) a fast clock whose pace is not known yet: the calendar writes no time (the panel says none)', { todo: 'D-test-gaps-3-3: calendarBlocked ignores ChainClock.rateKnown and writes times at the placeholder rate 1; not changed by test-gaps-3' }, () => {
+test('N4b a fast clock whose pace is not known yet: the calendar writes no time (the panel says none) (fix-tg3, Q-TG3-3)', () => {
   const FS = fixtureFS({ rate: 1, accelerated: true, rateKnown: false });
   setTermsPace(() => null);
   setChainNow(() => FS.chain.now());
   try {
     assert.equal(wallOf(FS.chain.now() + 600), null, 'the panel: no wall time while the pace is unknown');
-    assert.deepEqual(cal.calendarEvents(FS, { nowMs: 1_790_000_000_000 }), [], 'the calendar should not guess either');
+    assert.equal(cal.calendarBlocked(FS), 'paceUnknown');
+    assert.deepEqual(cal.calendarEvents(FS, { nowMs: 1_790_000_000_000 }), [], 'the calendar does not guess either');
   } finally { setTermsPace(() => 1); setChainNow(null); }
 });
