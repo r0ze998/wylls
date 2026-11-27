@@ -2083,6 +2083,9 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 "errors": self.engine.status_read_errors.0,
                 "errors_in_a_row": self.engine.status_read_errors.1,
                 "last_error": self.engine.status_read_errors.2,
+                // keeper-stall-investigate: versions settled as never landed
+                // (unknown status, chain past their blockhash validity).
+                "never_landed": self.engine.never_landed,
             },
             "refusals": self.refusals_status(slot),
             "kinds": kinds,
