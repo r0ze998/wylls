@@ -11,7 +11,10 @@
 //! - a selected test, or a helper it builds its keeper or payers with, uses
 //!   a key path: `Payers::new`, `Payers::with_budgets(`, `payers()` (the
 //!   seed-derived engine helper), `Keeper::new(`, `FakeDrand`, `Keypair`,
-//!   `derive(`, `TestKey`, `set_claim_key`.
+//!   `derive(`, `TestKey`, `set_claim_key`, or
+//! - (verify-pr296) any other `fn` or `mod` anywhere in `src/` contains a
+//!   prefix: cargo's filter is a substring match on the full test path, so
+//!   such an item would run in PR CI without this review.
 
 use std::path::Path;
 
@@ -142,6 +145,80 @@ fn ci_filter_selects_exactly_the_reviewed_key_free_tests() {
             assert!(!uses(b, k), "helper {h} uses a key path `{k}`");
         }
     }
+}
+
+/// Every `.rs` file under `src/`, relative to it (`care.rs`, `a/b.rs`).
+fn src_files(dir: &Path, rel: &str, out: &mut Vec<String>) {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|e| e.unwrap().path())
+        .collect();
+    entries.sort();
+    for p in entries {
+        let name = p.file_name().unwrap().to_str().unwrap().to_string();
+        let r = if rel.is_empty() {
+            name.clone()
+        } else {
+            format!("{rel}/{name}")
+        };
+        if p.is_dir() {
+            src_files(&p, &r, out);
+        } else if name.ends_with(".rs") {
+            out.push(r);
+        }
+    }
+}
+
+/// verify-pr296: `cargo test -- tg6_ …` selects every test whose full path
+/// CONTAINS a prefix, in any module of the lib, not only the names in
+/// engine.rs / lib.rs that start with one. So no `fn` or `mod` anywhere in
+/// `src/` may contain a prefix unless it is one of the names the two tests
+/// above review (a key-deriving `care::tests::seeded_fkc_probe` would
+/// otherwise run in PR CI unchecked).
+#[test]
+fn no_other_lib_item_matches_the_ci_filter() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = vec![];
+    src_files(&root, "", &mut files);
+    let mut reviewed: Vec<String> = selected("engine.rs", "engine::tests::");
+    reviewed.extend(selected("lib.rs", "tests::"));
+    let mut bad = vec![];
+    for f in &files {
+        let s = src(f);
+        for line in s.lines() {
+            let t = line.trim_start();
+            let t = t.strip_prefix("pub(crate) ").unwrap_or(t);
+            let t = t.strip_prefix("pub ").unwrap_or(t);
+            let (kind, rest) = if let Some(r) = t.strip_prefix("async fn ") {
+                ("fn", r)
+            } else if let Some(r) = t.strip_prefix("fn ") {
+                ("fn", r)
+            } else if let Some(r) = t.strip_prefix("mod ") {
+                ("mod", r)
+            } else {
+                continue;
+            };
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !PREFIXES.iter().any(|p| name.contains(p)) {
+                continue;
+            }
+            let ok = kind == "fn"
+                && (f == "engine.rs" || f == "lib.rs")
+                && reviewed
+                    .iter()
+                    .any(|r| r.rsplit("::").next() == Some(&name));
+            if !ok {
+                bad.push(format!("{f}: {kind} {name}"));
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "selected by the PR CI filter but not reviewed by this guard: {bad:?}"
+    );
 }
 
 #[test]
