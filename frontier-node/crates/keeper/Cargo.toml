@@ -98,6 +98,9 @@ coexist-lane = ["frontier-abi/coexist-lane"]
 
 [dev-dependencies]
 localnet.workspace = true
+# fix-keeper-care: the care-cadence tests run a 107-minute tick on tokio's
+# paused test clock (`start_paused`); dev only, never the binary.
+tokio = { workspace = true, features = ["test-util"] }
 # integ-W4 review (W4-C): the play scenario plans its marches with the bots'
 # kernel path planner (a workspace crate; no new external crate).
 agents = { path = "../agents" }

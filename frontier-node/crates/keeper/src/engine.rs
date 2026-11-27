@@ -335,6 +335,9 @@ pub struct StepReport {
     /// Retry-ladder rungs taken `(key, cu_limit, heap)`.
     pub ladder: Vec<(String, u32, Option<u32>)>,
     pub send_errors: Vec<(String, String)>,
+    /// fix-keeper-care: writes not sent because no payer of theirs could
+    /// pay the fee and keep its rent-exempt reserve ([`Engine::payer_reserve`]).
+    pub unfunded: usize,
 }
 
 /// Counters per duty kind.
@@ -390,6 +393,15 @@ pub struct Engine {
     orphan_valid_height: HashMap<Signature, u64>,
     /// Versions settled as never landed ([`EXPIRED_MARGIN_BLOCKS`]).
     pub never_landed: u64,
+    /// fix-keeper-care: lamports a payer keeps after a version's fee (the
+    /// rent-exempt minimum of a data-less System account at the cluster's
+    /// rent; the keeper sets it each tick). A payer whose last read balance
+    /// is below `payer_reserve + fee` is not asked to sign: the runtime
+    /// would refuse the transaction, which is a dropped send that only a
+    /// history search can settle. 0: fee only.
+    pub payer_reserve: u64,
+    /// fix-keeper-care: sends skipped for want of a funded payer (total).
+    pub unfunded_skips: u64,
     /// In-memory reason for an abandoned signature. The journal still owns
     /// its fee/status; durable notification recovery is a separate concern.
     cancelled_orphans: HashMap<Signature, (String, CancelReason)>,
@@ -614,6 +626,8 @@ impl Engine {
             orphans: vec![],
             orphan_valid_height: HashMap::new(),
             never_landed: 0,
+            payer_reserve: 0,
+            unfunded_skips: 0,
             cancelled_orphans: HashMap::new(),
             held_replans: HashMap::new(),
             adopted: HashMap::new(),
@@ -698,8 +712,9 @@ impl Engine {
         &mut self,
         port: &P,
         sigs: &[Signature],
+        first: &[bool],
     ) -> (Vec<Option<Status>>, Vec<bool>) {
-        match port.statuses_absent(sigs).await {
+        match port.statuses_absent_first(sigs, first).await {
             Ok((v, absent)) if absent.len() == v.len() => {
                 self.status_read_errors.1 = 0;
                 (v, absent)
@@ -1370,13 +1385,98 @@ impl Engine {
         journal: Option<&Journal>,
         slot: u64,
     ) -> StepReport {
-        let mut report = StepReport::default();
+        self.poll_inner(port, journal, slot, None).await
+    }
+
+    /// [`Self::poll`] for the versions and orphans of one write kind only
+    /// (fix-keeper-care: the payer-care transfers, polled on their own
+    /// cadence while a long tick reads the feed). One status read of just
+    /// those signatures, so the port's capped history search reaches them
+    /// whatever else is unresolved.
+    pub async fn poll_kind<P: ChainPort>(
+        &mut self,
+        port: &P,
+        journal: Option<&Journal>,
+        slot: u64,
+        kind: &str,
+    ) -> StepReport {
+        self.poll_inner(port, journal, slot, Some(kind)).await
+    }
+
+    /// Signatures of `kind` still unresolved (pending versions + orphans).
+    pub fn unresolved_of_kind(&self, kind: &str) -> usize {
+        let pending: usize = self
+            .pending
+            .values()
+            .filter(|p| p.spec.kind == kind)
+            .map(|p| {
+                p.versions
+                    .iter()
+                    .filter(|v| !p.settled.contains(&v.sig))
+                    .count()
+            })
+            .sum();
+        pending
+            + self
+                .orphans
+                .iter()
+                .filter(|o| {
+                    self.uncounted_fees
+                        .get(&o.0)
+                        .is_some_and(|(k, _)| k == kind)
+                })
+                .count()
+    }
+
+    async fn poll_inner<P: ChainPort>(
+        &mut self,
+        port: &P,
+        journal: Option<&Journal>,
+        slot: u64,
+        only: Option<&str>,
+    ) -> StepReport {
+        let report = StepReport::default();
         let mut sigs: Vec<(String, Version)> = vec![];
         for (k, p) in &self.pending {
+            if only.is_some_and(|kind| p.spec.kind != kind) {
+                continue;
+            }
             for v in p.versions.iter().filter(|v| !p.settled.contains(&v.sig)) {
                 sigs.push((k.clone(), v.clone()));
             }
         }
+        // A kind-only poll reads (and settles) only that kind's orphans; the
+        // others wait, in order, for the next full poll.
+        let other_orphans = match only {
+            Some(kind) => {
+                let all = std::mem::take(&mut self.orphans);
+                let (mine, other): (Vec<_>, Vec<_>) = all.into_iter().partition(|o| {
+                    self.uncounted_fees
+                        .get(&o.0)
+                        .is_some_and(|(k, _)| k == kind)
+                });
+                self.orphans = mine;
+                other
+            }
+            None => vec![],
+        };
+        let report = self.poll_read(port, journal, slot, sigs, report).await;
+        if !other_orphans.is_empty() {
+            let added = std::mem::take(&mut self.orphans);
+            self.orphans = other_orphans;
+            self.orphans.extend(added);
+        }
+        report
+    }
+
+    async fn poll_read<P: ChainPort>(
+        &mut self,
+        port: &P,
+        journal: Option<&Journal>,
+        slot: u64,
+        sigs: Vec<(String, Version)>,
+        mut report: StepReport,
+    ) -> StepReport {
         // verify-pr259: one status read per poll for the pending versions
         // AND the orphans. `RpcPort::statuses` runs its capped history
         // search at most once per `history_every` across all calls; with two
@@ -1407,10 +1507,28 @@ impl Engine {
         } else {
             None
         };
+        // fix-keeper-care: payer-care signatures first in the capped history
+        // search. Every top-up waits for them (`care_unresolved`), and
+        // rotating 32 per read through thousands of unresolved program
+        // writes reached them about once a tick (11-27: 84 care rows stayed
+        // `sent` for hours).
+        let first: Vec<bool> = sigs
+            .iter()
+            .map(|(k, _)| {
+                self.pending
+                    .get(k)
+                    .is_some_and(|p| p.spec.kind == PAYER_CARE_KIND)
+            })
+            .chain(self.orphans.iter().map(|o| {
+                self.uncounted_fees
+                    .get(&o.0)
+                    .is_some_and(|(kind, _)| kind == PAYER_CARE_KIND)
+            }))
+            .collect();
         let (mut sts, mut absent) = if flat.is_empty() {
             (vec![], vec![])
         } else {
-            self.read_statuses(port, &flat).await
+            self.read_statuses(port, &flat, &first).await
         };
         let read_ok = !flat.is_empty() && sts.len() == flat.len();
         // Orphan answers, in `self.orphans` order (orphans added below by
@@ -1896,61 +2014,107 @@ impl Engine {
                 },
                 None => payers.draw(p.spec.class).insecure_clone(),
             };
-            let ctx = BuildCtx {
-                payer: payer.pubkey(),
-                version: p.versions.len() as u32,
-                slots_waiting,
-            };
-            let ixs = (p.spec.build)(&ctx);
-            let b = self.budgets.get(p.spec.tag);
-            let mut budget = tx::TxBudget {
-                cu_limit: p.cu_limit,
-                cu_price: 0,
-                loaded_limit: b.loaded_limit,
-                heap: p.heap,
-            };
-            if blockhash.is_none() {
-                // The chain's slot now (a late tick sends in a later slot
-                // than it read at its start).
-                if chain_slot.is_none() {
-                    chain_slot = port.clock().await.ok().map(|c| c.slot);
-                }
-                match port.blockhash().await {
-                    Ok((h, height)) if height > 0 => {
-                        blockhash = Some(h);
-                        last_valid_block_height = Some(height);
-                        hash_at = std::time::Instant::now();
-                    }
-                    Ok((_, _)) => {
-                        report
-                            .send_errors
-                            .push((k.clone(), "blockhash: no last valid block height".into()));
-                        return;
-                    }
-                    Err(e) => {
-                        report
-                            .send_errors
-                            .push((k.clone(), format!("blockhash: {e}")));
-                        return;
+            // fix-keeper-care: no version from a payer that cannot pay. A
+            // transaction whose fee payer would fall below its rent-exempt
+            // reserve is refused by the runtime: on 11-27 every delay payer
+            // sat at that reserve and keeper A sent thousands of such
+            // versions, none of which could land. The write stays pending
+            // and goes out once payer care has topped a payer up. Checked
+            // before the blockhash is fetched (no RPC when every payer is
+            // drained) at the least possible fee, and below at the real one.
+            let min_need = self
+                .payer_reserve
+                .saturating_add(fees::LAMPORTS_PER_SIGNATURE);
+            let mut payer = if payers.can_pay(&payer.pubkey(), min_need) {
+                payer
+            } else {
+                match (
+                    p.spec.fixed_payer,
+                    payers.draw_funded(p.spec.class, min_need),
+                ) {
+                    (None, Some(alt)) => alt.insecure_clone(),
+                    _ => {
+                        report.unfunded += 1;
+                        self.unfunded_skips += 1;
+                        continue;
                     }
                 }
-            }
-            // `Hash` is `Copy` only under solana-hash's `copy` feature, which
-            // this crate alone does not enable: rebuild it from its bytes.
-            let bh = blockhash
-                .as_ref()
-                .map(|h| Hash::new_from_array(h.to_bytes()))
-                .expect("blockhash");
-            let shape = tx::shape(&tx::message(&ixs, &budget, &ctx.payer, &bh));
-            let cost = fees::cost(
-                budget.cu_limit,
-                shape.sigs as u8,
-                shape.writes as u8,
-                budget.loaded_limit,
-            );
-            budget.cu_price = fees::cu_price_for(bid, cost, budget.cu_limit);
-            let fee = fees::LAMPORTS_PER_SIGNATURE * shape.sigs as u64
-                + fees::priority_fee(budget.cu_price, budget.cu_limit);
+            };
+            let mut redrawn = false;
+            let priced = loop {
+                let ctx = BuildCtx {
+                    payer: payer.pubkey(),
+                    version: p.versions.len() as u32,
+                    slots_waiting,
+                };
+                let ixs = (p.spec.build)(&ctx);
+                let b = self.budgets.get(p.spec.tag);
+                let mut budget = tx::TxBudget {
+                    cu_limit: p.cu_limit,
+                    cu_price: 0,
+                    loaded_limit: b.loaded_limit,
+                    heap: p.heap,
+                };
+                if blockhash.is_none() {
+                    // The chain's slot now (a late tick sends in a later slot
+                    // than it read at its start).
+                    if chain_slot.is_none() {
+                        chain_slot = port.clock().await.ok().map(|c| c.slot);
+                    }
+                    match port.blockhash().await {
+                        Ok((h, height)) if height > 0 => {
+                            blockhash = Some(h);
+                            last_valid_block_height = Some(height);
+                            hash_at = std::time::Instant::now();
+                        }
+                        Ok((_, _)) => {
+                            report
+                                .send_errors
+                                .push((k.clone(), "blockhash: no last valid block height".into()));
+                            return;
+                        }
+                        Err(e) => {
+                            report
+                                .send_errors
+                                .push((k.clone(), format!("blockhash: {e}")));
+                            return;
+                        }
+                    }
+                }
+                // `Hash` is `Copy` only under solana-hash's `copy` feature, which
+                // this crate alone does not enable: rebuild it from its bytes.
+                let bh = blockhash
+                    .as_ref()
+                    .map(|h| Hash::new_from_array(h.to_bytes()))
+                    .expect("blockhash");
+                let shape = tx::shape(&tx::message(&ixs, &budget, &ctx.payer, &bh));
+                let cost = fees::cost(
+                    budget.cu_limit,
+                    shape.sigs as u8,
+                    shape.writes as u8,
+                    budget.loaded_limit,
+                );
+                budget.cu_price = fees::cu_price_for(bid, cost, budget.cu_limit);
+                let fee = fees::LAMPORTS_PER_SIGNATURE * shape.sigs as u64
+                    + fees::priority_fee(budget.cu_price, budget.cu_limit);
+                let need = fee.saturating_add(self.payer_reserve);
+                if payers.can_pay(&ctx.payer, need) {
+                    break Some((ctx, ixs, budget, fee, bh));
+                }
+                if !redrawn && p.spec.fixed_payer.is_none() {
+                    if let Some(alt) = payers.draw_funded(p.spec.class, need) {
+                        payer = alt.insecure_clone();
+                        redrawn = true;
+                        continue;
+                    }
+                }
+                break None;
+            };
+            let Some((ctx, ixs, budget, fee, bh)) = priced else {
+                report.unfunded += 1;
+                self.unfunded_skips += 1;
+                continue;
+            };
             if !p.versions.is_empty() && fees_out + fee > self.params.per_write_cap {
                 continue; // wait on the versions already out (§8.2 duplicates bound)
             }

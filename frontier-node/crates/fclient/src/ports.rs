@@ -238,6 +238,18 @@ pub trait ChainPort: Send + Sync {
             Ok((s, vec![false; n]))
         }
     }
+    /// [`ChainPort::statuses_absent`] whose capped history search (if the
+    /// port has one) asks for the signatures flagged in `first` before any
+    /// other; `first` may be shorter than `sigs` (unflagged). Default: the
+    /// plain read (fix-keeper-care).
+    fn statuses_absent_first(
+        &self,
+        sigs: &[Signature],
+        first: &[bool],
+    ) -> impl Future<Output = PortResult<(Vec<Option<Status>>, Vec<bool>)>> + Send {
+        let _ = first;
+        self.statuses_absent(sigs)
+    }
     /// Program transactions (incl. failed) after `after`, in slot order.
     fn feed(&self, after: Cursor) -> impl Future<Output = PortResult<Vec<TxRecord>>> + Send;
     /// [`ChainPort::feed`] and, from the same read, how far the source's

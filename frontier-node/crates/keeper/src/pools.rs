@@ -175,6 +175,40 @@ impl Payers {
         self.pool(class).effective_n(&bal)
     }
 
+    /// fix-keeper-care: whether `a` can pay `need` lamports by its last
+    /// read balance (a payer never read yet is assumed able: the first care
+    /// pass reads every balance).
+    pub fn can_pay(&self, a: &Address, need: u64) -> bool {
+        self.balances.get(a).is_none_or(|b| *b >= need)
+    }
+
+    /// One uniform draw (OS CSPRNG) among the `class` pool's payers that
+    /// can pay `need` ([`Self::can_pay`]), those above the floor first;
+    /// `None` when no payer can.
+    pub fn draw_funded(&self, class: Class, need: u64) -> Option<&Keypair> {
+        use rand::Rng as _;
+        let pool = self.pool(class);
+        let funded: Vec<usize> = (0..pool.keys.len())
+            .filter(|&i| self.can_pay(&pool.keys[i].pubkey(), need))
+            .collect();
+        let above: Vec<usize> = funded
+            .iter()
+            .copied()
+            .filter(|&i| self.balance(&pool.keys[i].pubkey()) >= pool.floor)
+            .collect();
+        let from = if above.is_empty() { funded } else { above };
+        if from.is_empty() {
+            return None;
+        }
+        let i = from[rand::rngs::OsRng.gen_range(0..from.len())];
+        Some(&pool.keys[i])
+    }
+
+    /// Sets a cached balance (tests; the next refresh overwrites it).
+    pub fn set_balance(&mut self, a: Address, lamports: u64) {
+        self.balances.insert(a, lamports);
+    }
+
     /// Debits a version's fee (and any rent it may create) until the next refresh.
     pub fn note_spend(&mut self, payer: &Address, lamports: u64) {
         let b = self.balances.entry(*payer).or_default();
