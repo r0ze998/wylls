@@ -145,3 +145,68 @@ async fn without_a_cap_one_pull_takes_everything() {
     assert_eq!(poll.backlog(), Some(0));
     assert_eq!(RpcPoll::coverage(&poll)["heldBack"], 0);
 }
+
+/// verify-pr288: the chunked archive holds exactly the records (`TxRecord`
+/// ==, seq and post-states included) of one unchunked run, also when
+/// account reads fail on a chunk's first or last read or mid-chunk: no
+/// transaction lost or doubled across a chunk boundary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chunked_archive_equals_the_unchunked_one() {
+    async fn run(cap: usize, fails: &[u64], name: &str) -> (Vec<fclient::ports::TxRecord>, usize) {
+        let chain = Chain::with_transfers(TOTAL, 1_000);
+        let url = chunk_rpc::start(chain.clone()).await;
+        let d = tmp(name);
+        let mut fx = Findex::open(&d, fclient::addr::system_program(), None, 1 << 22).unwrap();
+        let mut src = Enriched::new(
+            RpcPoll::new(url.clone(), recipient()).with_max_batch(cap),
+            url.clone(),
+            fclient::addr::system_program(),
+        );
+        fx.resume(&mut src);
+        let mut fails = fails.iter();
+        let arm = |f: Option<&u64>| {
+            chain
+                .fail_accounts_call
+                .store(f.copied().unwrap_or(0), std::sync::atomic::Ordering::SeqCst)
+        };
+        arm(fails.next());
+        let mut errs = 0usize;
+        loop {
+            match fx.ingest(&mut src).await {
+                Ok(got) if got.is_empty() => break,
+                Ok(got) => assert!(got.len() <= cap),
+                Err(_) => {
+                    errs += 1;
+                    arm(fails.next());
+                }
+            }
+            fx.commit().unwrap();
+        }
+        assert_eq!(fx.archive.verify(), Ok(TOTAL), "{name}");
+        let mut recs = vec![];
+        fx.archive
+            .for_each_after(0, |r| {
+                recs.push(r);
+                Ok(())
+            })
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+        (recs, errs)
+    }
+    let (whole, _) = run(usize::MAX, &[], "whole").await;
+    assert_eq!(whole.len() as u64, TOTAL);
+    // Calls 101 / 150: the 3rd chunk's first / last account read; then the
+    // retried chunk's 24th (call 175 = 151 + 24); cap 37: chunk 2's first.
+    for (cap, fails, name) in [
+        (N, vec![101, 175], "n50"),
+        (N, vec![150], "n50-last"),
+        (37, vec![38], "n37"),
+    ] {
+        let (recs, errs) = run(cap, &fails, name).await;
+        assert_eq!(errs, fails.len(), "{name}: every armed failure hit");
+        assert!(
+            recs == whole,
+            "{name}: archive differs from the unchunked run"
+        );
+    }
+}

@@ -180,3 +180,24 @@ async fn the_clock_ticks_during_one_long_pull() {
     h.await.unwrap().unwrap();
     let _ = std::fs::remove_dir_all(&data);
 }
+
+/// verify-pr288: a pull that succeeds after failures (`IngestHealth::ok`)
+/// keeps `backlog` and `lastArchivedSlot`; the loop records the backlog
+/// before the pull's outcome, so dropping either here would blank it in
+/// `/h/status` right after every recovery (health would then read
+/// "behind, NOT progressing" for want of a lastArchivedSlot).
+#[test]
+fn a_recovered_pull_keeps_backlog_and_last_archived_slot() {
+    let mut h = herald_fold::fold::IngestHealth {
+        backlog: Some(412),
+        last_archived_slot: Some(900),
+        ..Default::default()
+    };
+    h.failed("getMultipleAccounts: 429", 1, false);
+    assert_eq!(h.json()["state"], "failing");
+    h.ok();
+    let j = h.json();
+    assert_eq!(j["state"], "ok");
+    assert_eq!(j["backlog"], json!(412));
+    assert_eq!(j["lastArchivedSlot"], json!(900));
+}
