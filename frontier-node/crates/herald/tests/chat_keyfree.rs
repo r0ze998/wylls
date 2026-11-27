@@ -23,6 +23,11 @@
 //!   K8 (fog-leak-audit) a message id tells nothing of other nations: nation 1's ids step by NATIONS whatever nation 4
 //!      posts between them, also across a restart (ids were one counter over every nation: the gaps counted the
 //!      other nations' messages)
+//!   K9 (test-gaps-4, verify-pr274's probe made key-free) everything a nation-1 member gets — the socket's frames, the
+//!      post answers, reads at every `after` cursor, reports on every id, `/h/chat/info`, and again after a restart — is
+//!      byte for byte the same (headers, lengths, bodies; the Date header aside) whether nation 4 spoke or kept still
+//!   K10 (test-gaps-4, verify-pr274 B4 caught by no test) a store whose `nextSeq` is behind its own kept messages (a
+//!      hand-edited or partly written file) still gives every new id above every kept id of that nation
 
 mod common;
 
@@ -553,4 +558,261 @@ async fn k8_message_ids_tell_nothing_of_other_nations() {
         .map(|m| m["id"].as_str().unwrap_or("").to_string())
         .collect();
     assert_eq!(got, [a0, a1, a1 + nations].map(|i| i.to_string()));
+}
+
+/// One request (Connection: close) → the whole answer as text, its `Date` header removed (the only line the wall clock
+/// writes): headers, length and body are compared byte for byte.
+async fn http_raw(port: u16, method: &str, path: &str, body: Option<&Value>) -> String {
+    let b = body.map(Value::to_string).unwrap_or_default();
+    let req = if body.is_some() {
+        format!(
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{b}",
+            b.len()
+        )
+    } else {
+        format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n")
+    };
+    let fut = async {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect");
+        s.write_all(req.as_bytes()).await.expect("write");
+        let mut got = vec![];
+        s.read_to_end(&mut got).await.expect("read");
+        got
+    };
+    let got = tokio::time::timeout(Duration::from_secs(10), fut)
+        .await
+        .expect("answer within 10 s");
+    String::from_utf8_lossy(&got)
+        .split("\r\n")
+        .filter(|l| !l.to_ascii_lowercase().starts_with("date:"))
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+/// What a nation-1 member (a1, with c1 posting beside) sees of a world where nation 4 (b1) speaks (`busy`) or not.
+async fn nation_one_view(busy: bool, tag: &str) -> Vec<String> {
+    let v = signed();
+    let dir = tmp(tag);
+    let clock = Arc::new(AtomicU64::new(T0_MS));
+    let w = world_in(&dir, clock.clone(), &v).await;
+    let tok = token(&v, "a1");
+    let mut out = vec![];
+    let mut sock = herald_fold::ws::Client::connect(&format!("127.0.0.1:{}", w.port), "/h/chat/ws")
+        .await
+        .expect("ws");
+    sock.send_text(&json!({"op": "auth", "token": tok}).to_string())
+        .await
+        .expect("auth");
+    let frame = |t: Option<String>| t.unwrap_or_else(|| "<none>".into());
+    out.push(format!(
+        "ws {}",
+        frame(
+            tokio::time::timeout(Duration::from_secs(5), sock.next_text())
+                .await
+                .ok()
+                .flatten()
+        )
+    ));
+    let other = |id: &'static str| post_body(&v, id);
+    if busy {
+        assert!(
+            http_raw(w.port, "POST", "/h/chat/post", Some(&other("b1-own")))
+                .await
+                .contains(" 200 ")
+        );
+    }
+    out.push(format!(
+        "post a1 {}",
+        http_raw(
+            w.port,
+            "POST",
+            "/h/chat/post",
+            Some(&post_body(&v, "day-300-0"))
+        )
+        .await
+    ));
+    if busy {
+        // (a nation-4 member claiming nation 1 is refused; it moves nothing either)
+        assert!(
+            !http_raw(w.port, "POST", "/h/chat/post", Some(&other("b1-as-1")))
+                .await
+                .contains(" 200 ")
+        );
+    }
+    out.push(format!(
+        "post c1 {}",
+        http_raw(
+            w.port,
+            "POST",
+            "/h/chat/post",
+            Some(&post_body(&v, "window-300-0"))
+        )
+        .await
+    ));
+    out.push(format!(
+        "post a1 {}",
+        http_raw(
+            w.port,
+            "POST",
+            "/h/chat/post",
+            Some(&post_body(&v, "day-300-1"))
+        )
+        .await
+    ));
+    for _ in 0..3 {
+        out.push(format!(
+            "ws {}",
+            frame(
+                tokio::time::timeout(Duration::from_secs(5), sock.next_text())
+                    .await
+                    .ok()
+                    .flatten()
+            )
+        ));
+    }
+    // nothing else comes on the socket (nation 4's message is not pushed to nation 1)
+    out.push(format!(
+        "ws {}",
+        frame(
+            tokio::time::timeout(Duration::from_millis(400), sock.next_text())
+                .await
+                .ok()
+                .flatten()
+        )
+    ));
+    let read_at = |after: Option<String>| {
+        let mut b = json!({ "token": tok });
+        if let Some(a) = after {
+            b["after"] = json!(a);
+        }
+        b
+    };
+    let mut cursors: Vec<Option<String>> = vec![None];
+    cursors.extend((0..14u64).map(|i| Some(i.to_string())));
+    cursors.push(Some("99".into()));
+    for a in &cursors {
+        out.push(format!(
+            "read {a:?} {}",
+            http_raw(w.port, "POST", "/h/chat/read", Some(&read_at(a.clone()))).await
+        ));
+    }
+    for id in 0..14u64 {
+        let b = json!({"token": tok, "id": id.to_string(), "reason": "spam"});
+        out.push(format!(
+            "report {id} {}",
+            http_raw(w.port, "POST", "/h/chat/report", Some(&b)).await
+        ));
+    }
+    out.push(format!(
+        "info {}",
+        http_raw(w.port, "GET", "/h/chat/info", None).await
+    ));
+    // after a restart: the next post and the whole read
+    drop(sock);
+    drop(w);
+    let w2 = world_in(&dir, clock, &v).await;
+    out.push(format!(
+        "post after restart {}",
+        http_raw(
+            w2.port,
+            "POST",
+            "/h/chat/post",
+            Some(&post_body(&v, "day-300-2"))
+        )
+        .await
+    ));
+    out.push(format!(
+        "read after restart {}",
+        http_raw(w2.port, "POST", "/h/chat/read", Some(&read_at(None))).await
+    ));
+    out
+}
+
+#[tokio::test]
+async fn k9_a_nation_sees_the_same_bytes_whether_another_nation_speaks() {
+    let quiet = nation_one_view(false, "chat-k9-quiet").await;
+    let busy = nation_one_view(true, "chat-k9-busy").await;
+    assert_eq!(quiet.len(), busy.len());
+    // (the run did what it says: three nation-1 messages stored and read, a report taken, nation 4's id refused as unknown)
+    assert!(quiet[0].contains("ready"), "{}", quiet[0]);
+    assert!(
+        quiet
+            .iter()
+            .filter(|l| l.starts_with("post") && l.contains(" 200 "))
+            .count()
+            == 4
+    );
+    assert!(quiet
+        .iter()
+        .any(|l| l.starts_with("report") && l.contains("\"already\":false")));
+    assert!(quiet
+        .iter()
+        .any(|l| l.starts_with("report") && l.contains("NoSuchMessage")));
+    assert_eq!(
+        quiet.iter().filter(|l| l.as_str() == "ws <none>").count(),
+        1
+    );
+    for (q, b) in quiet.iter().zip(busy.iter()) {
+        assert_eq!(q, b, "nation 1 can tell that nation 4 spoke");
+    }
+}
+
+#[tokio::test]
+async fn k10_a_stale_next_seq_on_disk_never_reuses_a_kept_id() {
+    let nations = permutation_rules::frontier::structure::NATIONS as u64;
+    let v = signed();
+    let dir = tmp("chat-k10");
+    let clock = Arc::new(AtomicU64::new(T0_MS));
+    let id_of = |r: &Value| -> u64 {
+        r["message"]["id"]
+            .as_str()
+            .expect("id")
+            .parse()
+            .expect("u64")
+    };
+    let w = world_in(&dir, clock.clone(), &v).await;
+    let mut kept = vec![];
+    for id in ["day-300-0", "day-300-1", "window-300-0"] {
+        let (s, r) = post(&w, &post_body(&v, id)).await;
+        assert_eq!(s, 200, "{r}");
+        kept.push(id_of(&r));
+    }
+    let (s, r) = post(&w, &post_body(&v, "b1-own")).await;
+    assert_eq!(s, 200, "{r}");
+    let b0 = id_of(&r);
+    drop(w);
+    // the file as a partial write or a hand edit leaves it: every nation's next number back at 0
+    let path = dir.join("chat").join("messages.json");
+    let mut m: Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("messages.json")).expect("json");
+    assert!(m["nextSeq"].is_array(), "the store writes nextSeq");
+    m["nextSeq"] = json!(vec!["0"; nations as usize]);
+    std::fs::write(&path, m.to_string()).expect("write");
+    let w2 = world_in(&dir, clock, &v).await;
+    let (s, r) = post(&w2, &post_body(&v, "day-300-2")).await;
+    assert_eq!(s, 200, "{r}");
+    let next = id_of(&r);
+    assert_eq!(next % nations, 1, "still nation 1's");
+    assert!(
+        kept.iter().all(|k| next > *k),
+        "{next} above every kept id {kept:?}"
+    );
+    assert_eq!(
+        next,
+        kept.iter().max().unwrap() + nations,
+        "the very next number of nation 1"
+    );
+    let (s, r) = read(&w2, &token(&v, "a1")).await;
+    assert_eq!(s, 200, "{r}");
+    let ids: Vec<u64> = r["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .map(|m| m["id"].as_str().unwrap().parse().unwrap())
+        .collect();
+    let uniq: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(uniq.len(), ids.len(), "no id given twice: {ids:?}");
+    assert!(!ids.contains(&b0), "nation 4's message is not nation 1's");
 }
