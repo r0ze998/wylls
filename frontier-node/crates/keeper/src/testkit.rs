@@ -513,3 +513,83 @@ pub fn set_leave(d: &mut [u8], i: usize, pend_bell: u32, op_a: u8, op_ref: u32) 
     d[o + e::OP_A] = op_a;
     put(d, o + e::OP_REF, &op_ref.to_le_bytes());
 }
+
+/// keeper-test-seam: a payer signer that holds **no key**. Its address is a
+/// SHA-256 of `(pool, i)` (not an ed25519 public key; nothing is derived or
+/// generated), and its "signature" of a message is a deterministic SHA-256
+/// expansion of `(address, message)`: distinct per payer and message, the
+/// same twice for the same pair (as ed25519 signatures are). Nothing checks
+/// signatures in the keeper's fakes, so a send pass runs exactly as with
+/// `Keypair`s, with no key file, seed or signing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FakeSigner(pub Address);
+
+impl FakeSigner {
+    /// Payer `i` of `pool` (the [`crate::pools::Payers::with_budgets_keys`] factory).
+    pub fn payer(pool: &str, i: u32) -> FakeSigner {
+        use sha2::{Digest, Sha256};
+        let a: [u8; 32] = Sha256::new()
+            .chain_update(b"keeper-test-seam fake payer")
+            .chain_update(pool.as_bytes())
+            .chain_update(i.to_le_bytes())
+            .finalize()
+            .into();
+        FakeSigner(Address::new_from_array(a))
+    }
+}
+
+impl solana_signer::Signer for FakeSigner {
+    fn try_pubkey(&self) -> Result<Address, solana_signer::SignerError> {
+        Ok(self.0)
+    }
+    fn try_sign_message(&self, message: &[u8]) -> Result<Signature, solana_signer::SignerError> {
+        use sha2::{Digest, Sha256};
+        let lo: [u8; 32] = Sha256::new()
+            .chain_update(b"keeper-test-seam fake signature")
+            .chain_update(self.0.as_ref())
+            .chain_update(message)
+            .finalize()
+            .into();
+        let hi: [u8; 32] = Sha256::digest(lo).into();
+        let mut s = [0u8; 64];
+        s[..32].copy_from_slice(&lo);
+        s[32..].copy_from_slice(&hi);
+        Ok(Signature::from(s))
+    }
+    fn is_interactive(&self) -> bool {
+        false
+    }
+}
+
+impl crate::pools::PayerKey for FakeSigner {
+    fn insecure_clone(&self) -> Self {
+        self.clone()
+    }
+}
+
+/// keeper-test-seam: key-free payers for a keeper config, as
+/// [`crate::pools::Payers::with_budgets`] would build them (same pools, sizes and
+/// floors) but with [`FakeSigner`]s.
+pub fn fake_payers(
+    cfg: &crate::config::KeeperConfig,
+    budgets: &fclient::budgets::Budgets,
+) -> crate::pools::Payers<FakeSigner> {
+    crate::pools::Payers::with_budgets_keys(cfg, budgets, FakeSigner::payer).expect("fake payers")
+}
+
+/// keeper-test-seam: a drand port with **no key**: it serves the public
+/// quicknet chain info (`fclient::beacon::quicknet_info`, public data) and
+/// has no round yet (every round `None`, as [`FakeDrand`] answers before
+/// its `now`). For keeper tests that never verify a beacon; [`FakeDrand`]
+/// derives the BLS test key.
+#[derive(Default)]
+pub struct PublicDrand;
+
+impl DrandPort for PublicDrand {
+    async fn round(&self, _r: u64) -> Result<Option<Beacon>, PortError> {
+        Ok(None)
+    }
+    fn info(&self) -> ChainInfo {
+        fclient::beacon::quicknet_info()
+    }
+}

@@ -5,8 +5,9 @@
 //! Literal journal rows, literal addresses and an in-memory chain port only.
 //! No key is generated, derived or signed: the port refuses `send`, and the
 //! #280 test builds the keeper's message unsigned. The send-pass blockhash
-//! refresh (#282) and the Keeper-level care tests sign with seed-derived
-//! test payers, so they live in the keeper's lib tests (key-tests job).
+//! refresh (#282) and the Keeper-level care tests live in the keeper's lib
+//! tests; since keeper-test-seam they sign with `testkit::FakeSigner` (no
+//! key) and PR CI runs them too (`-- tg6_ fkc_ v290_ test_gaps_6_`).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};

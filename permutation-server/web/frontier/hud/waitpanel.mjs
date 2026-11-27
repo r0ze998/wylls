@@ -24,6 +24,8 @@ import { FLAG } from '../onboarding.mjs';
 import { conquestFacts } from '../screens/conquestguide.mjs';
 import { ownLandView } from '../flocalplay-territory.mjs';
 import { villageConfirm, confirmPending } from './provisional.mjs';
+import { horizonFromFS } from '../screens/holding.mjs';
+import { paidAgainCase, horizonHudLine } from '../landhorizon.mjs';
 
 /** How many suggestions the panel lists at most. */
 export const WAIT_SUGGESTIONS = 3;
@@ -36,8 +38,9 @@ const at = (FS, bell) => (FS?.clock && Number.isInteger(bell) ? bellStart(Number
 /**
  * The panel's content: `{timers: [{id, kind, at, ...}], suggestions: [{id, act, data}], soonest}` or null when the viewer
  * has no village yet (no own state to speak of). `offer`: hud/firstbattle.mjs battleOffer's answer (fog already applied).
+ * `horizon`: the village card's land projection (screens/holding.mjs horizonFromFS; read from FS when not given).
  */
-export function waitModel(FS, { offer = null } = {}) {
+export function waitModel(FS, { offer = null, horizon } = {}) {
   if (FS?.mode !== 'play' || !activeHolding(FS)) return null;
   const h = activeHolding(FS);
   const flags = new Set(FS.ui?.dismissed ?? []);
@@ -97,7 +100,9 @@ export function waitModel(FS, { offer = null } = {}) {
   const player = FS.ownLand && Object.hasOwn(FS.ownLand, 'player') ? FS.ownLand.player : null;
   if (player) {
     const v = ownLandView(player, FS.nowBell ?? 0);
-    if (v.tiles > 0) timers.push({ id: 'upkeep', kind: v.unpaid ? 'upkeepUnpaid' : 'upkeep', at: v.unpaid && Number.isInteger(v.turnsLeft) ? at(FS, (FS.nowBell ?? 0) + v.turnsLeft) : null, tiles: v.tiles, perHour: v.upkeepMilliPerHour / 1000, turnsLeft: v.turnsLeft });
+    const pa = v.tiles > 0 && v.unpaid ? upkeepPaidAgain(FS, horizon) : null;
+    if (pa) timers.push({ id: 'upkeep', kind: 'upkeepPaidAgain', at: pa.now ? null : at(FS, (FS.nowBell ?? 0) + pa.paidIn), tiles: v.tiles, paidIn: pa.paidIn, now: pa.now, sustainable: pa.sustainable, line: pa.line });
+    else if (v.tiles > 0) timers.push({ id: 'upkeep', kind: v.unpaid ? 'upkeepUnpaid' : 'upkeep', at: v.unpaid && Number.isInteger(v.turnsLeft) ? at(FS, (FS.nowBell ?? 0) + v.turnsLeft) : null, tiles: v.tiles, perHour: v.upkeepMilliPerHour / 1000, turnsLeft: v.turnsLeft });
   }
   // 4 the keep hold the viewer's own host or march is part of
   let x = null;
@@ -130,6 +135,23 @@ export function waitModel(FS, { offer = null } = {}) {
   if (busy < queueSlots(h.tier)) suggestions.push({ id: 'build', act: 'cg-go', data: { pop: 'build' } });
   const timed = timers.filter(t => Number.isFinite(t.at)).sort((a, b) => a.at - b.at);
   return { timers, suggestions: suggestions.slice(0, WAIT_SUGGESTIONS), soonest: timed[0] ?? null };
+}
+
+/**
+ * (fix-lp28-paid-again, owner Q-LP28-1 (b); loop-play28 BREAK-3) An unpaid land the village card's projection sees paid by
+ * a coming payment before its grace ends (landhorizon.mjs paidAgainCase): `{paidIn, now, sustainable, line}` — the panel
+ * then says that payment, not a let-go countdown — or null (no projection, or the release really comes: the countdown
+ * stays). The projection is only taken while it is for the same unpaid record (its grace equals the chain record's).
+ * `line`: the card's compact line, for a land production does not cover (it goes unpaid again later).
+ */
+export function upkeepPaidAgain(FS, horizon) {
+  let h = horizon;
+  if (h === undefined) { try { h = horizonFromFS(FS); } catch { h = null; } }
+  const pa = paidAgainCase(h);
+  if (!pa) return null;
+  const v = ownLandView(FS?.ownLand?.player, FS?.nowBell ?? 0);
+  if (!v.unpaid || h.graceTurnsLeft !== v.turnsLeft) return null;
+  return { ...pa, line: pa.sustainable ? '' : horizonHudLine(h, h.rate) };
 }
 
 /**
@@ -217,6 +239,11 @@ export function timerLine(FS, t) {
     case 'hostReady': return html`${L`${who(t)} の軍勢は、いま進軍できます。`}`;
     case 'upkeep': return html`${L`土地 ${fmtNum(t.tiles)} マスの維持費：毎時 食料 ${fmtNum(t.perHour)}（払えています）`}`;
     case 'upkeepUnpaid': return html`${L`土地の維持費が払えていません。手放し始めるまで：`}<strong>${due || L`まもなく`}</strong>`;
+    case 'upkeepPaidAgain':
+      if (!t.sustainable) return html`${t.line}`;
+      return t.now
+        ? html`${L`土地の維持費は未払いです。今の支払いで払われ、その後はこの食料の生産でずっと維持できます。`}`
+        : html`${L`土地の維持費は未払いです。${fmtNum(t.paidIn)} ターン後の支払いで払われ、その後はこの食料の生産でずっと維持できます。払われるのは：`}<strong>${due || L`まもなく`}</strong>`;
     case 'villageWait': return html`${t.latest ? L`あなたの村は仮の村です。確定できるのは遅くとも` : L`あなたの村は仮の村です。確定できるのは`}<strong>${due}</strong>${L`から。その時刻を過ぎたら、収穫などの行動をひとつすると確定し、軍勢を編成できます。`}`;
     case 'villageWaitUnknown': return html`${L`あなたの村は仮の村です。確定できるのは遅くとも申し込みから約 4 時間後で、そのあと行動をひとつすると確定します。`}`;
     case 'villageNow': return html`${L`あなたの村は、いま確定できます：`}<strong>${L`次の行動（収穫など）をひとつすると確定します`}</strong>`;

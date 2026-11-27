@@ -74,14 +74,18 @@ pub fn reveal_floor_at(r99: u64, n: usize, reveal_cost: u64, arrival_rents: u64)
 }
 
 /// A pool of derived payers with its balance band.
-pub struct Pool {
+///
+/// keeper-test-seam: generic over the payer's [`Signer`] so tests can run
+/// the pool's draws and care with signers that hold no key. Production
+/// pools are `Pool<Keypair>` (the default), built only by [`Pool::new`].
+pub struct Pool<K = Keypair> {
     pub id: String,
-    pub keys: Vec<Keypair>,
+    pub keys: Vec<K>,
     pub floor: u64,
     pub ceiling: u64,
 }
 
-impl Pool {
+impl Pool<Keypair> {
     /// `n` payers; refuses fewer than the pool's minimum unless `dev`.
     pub fn new(
         master_seed: &[u8; 32],
@@ -91,6 +95,22 @@ impl Pool {
         ceiling: u64,
         dev: bool,
     ) -> Result<Pool, PoolError> {
+        Pool::new_with(id, n, floor, ceiling, dev, |i| derive(master_seed, id, i))
+    }
+}
+
+impl<K: Signer> Pool<K> {
+    /// [`Pool::new`] with payer `i`'s signer from `key(i)` instead of
+    /// [`derive`] (keeper-test-seam: tests pass signers that hold no key).
+    /// The same size and band checks, then `key(0) … key(n − 1)` in order.
+    pub fn new_with(
+        id: &str,
+        n: usize,
+        floor: u64,
+        ceiling: u64,
+        dev: bool,
+        key: impl FnMut(u32) -> K,
+    ) -> Result<Pool<K>, PoolError> {
         let min = match id {
             REVEAL_POOL | RELAY_POOL => MIN_REVEAL,
             DELAY_POOL => MIN_DELAY,
@@ -107,7 +127,7 @@ impl Pool {
         if floor > ceiling {
             return Err(PoolError::FloorAboveCeiling);
         }
-        let keys = (0..n as u32).map(|i| derive(master_seed, id, i)).collect();
+        let keys = (0..n as u32).map(key).collect();
         Ok(Pool {
             id: id.into(),
             keys,
@@ -135,11 +155,7 @@ impl Pool {
     /// One uniform draw among the payers above the floor. When none is
     /// above it the draw is over all payers: the keeper alerts but never
     /// stops sending W writes (I-49).
-    pub fn draw<R: Rng + ?Sized>(
-        &self,
-        balance: &dyn Fn(&Address) -> u64,
-        rng: &mut R,
-    ) -> &Keypair {
+    pub fn draw<R: Rng + ?Sized>(&self, balance: &dyn Fn(&Address) -> u64, rng: &mut R) -> &K {
         let el = self.eligible(balance);
         if el.is_empty() {
             &self.keys[rng.gen_range(0..self.keys.len())]
@@ -149,7 +165,7 @@ impl Pool {
     }
 
     /// Draw with the OS CSPRNG.
-    pub fn draw_os(&self, balance: &dyn Fn(&Address) -> u64) -> &Keypair {
+    pub fn draw_os(&self, balance: &dyn Fn(&Address) -> u64) -> &K {
         self.draw(balance, &mut rand::rngs::OsRng)
     }
 }
@@ -169,12 +185,24 @@ impl Transfer {
 }
 
 /// Funders (≥ 4) that top up and receive sweeps, drawn at random.
-pub struct Funders {
-    pub keys: Vec<Keypair>,
+pub struct Funders<K = Keypair> {
+    pub keys: Vec<K>,
 }
 
-impl Funders {
+impl Funders<Keypair> {
     pub fn new(master_seed: &[u8; 32], n: usize, dev: bool) -> Result<Funders, PoolError> {
+        Funders::new_with(n, dev, |i| derive(master_seed, FUNDER_POOL, i))
+    }
+}
+
+impl<K: Signer> Funders<K> {
+    /// [`Funders::new`] with funder `i`'s signer from `key(i)` (keeper-test-seam;
+    /// see [`Pool::new_with`]).
+    pub fn new_with(
+        n: usize,
+        dev: bool,
+        key: impl FnMut(u32) -> K,
+    ) -> Result<Funders<K>, PoolError> {
         if n < MIN_FUNDERS && !dev {
             return Err(PoolError::TooSmall {
                 pool: FUNDER_POOL.into(),
@@ -183,9 +211,7 @@ impl Funders {
             });
         }
         Ok(Funders {
-            keys: (0..n as u32)
-                .map(|i| derive(master_seed, FUNDER_POOL, i))
-                .collect(),
+            keys: (0..n as u32).map(key).collect(),
         })
     }
 }
@@ -193,9 +219,9 @@ impl Funders {
 /// Payer care: every payer below the floor is topped up to the band's
 /// middle from a random funder that can afford it; every payer above the
 /// ceiling sweeps down to the middle into a random funder.
-pub fn plan_care<R: Rng + ?Sized>(
-    pool: &Pool,
-    funders: &Funders,
+pub fn plan_care<K: Signer, R: Rng + ?Sized>(
+    pool: &Pool<K>,
+    funders: &Funders<K>,
     balance: &dyn Fn(&Address) -> u64,
     rng: &mut R,
 ) -> Vec<Transfer> {
