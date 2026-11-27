@@ -173,7 +173,16 @@ export function ownClashesFrom(list, prev, next) {
   const add = (d, bell) => { if (d && Number.isInteger(bell) && !out.some(x => x.p === d.p && x.q === d.q && x.bell === bell)) out.unshift({ p: d.p, q: d.q, tile: d.tile ?? null, bell }); };
   for (const m of next?.marches?.values() ?? []) if (m.pipeline === 'resolved') add(m.dest, m.bell);
   for (const [k, m] of prev?.marches ?? []) if (!next?.marches?.has(k) && Number.isInteger(next?.bell) && Number.isInteger(m.bell) && next.bell > m.bell) add(m.dest, m.bell);
-  return out.sort((a, b) => b.bell - a.bell).slice(0, OWN_CLASHES_MAX);
+  // (fix-loop26: each keeps the engagements of its CLASH record once one is read — the snapshot's `fights` —, so a turn
+  //  nobody fought stays known as that after the record has left the page's chronicle (its last 400 records: at ×60 with
+  //  AI residents the record of the first march was gone by turn 69, and the guide counted the no-battle arrival as the
+  //  first battle again). Only a number the record gave is kept; nothing is said of a clash whose record was never read)
+  const kept = out.map(x => {
+    if (Number.isFinite(x.engagements)) return x;
+    const n = next?.fights?.get?.(`${x.p},${x.q},${x.bell}`);
+    return Number.isFinite(n) ? { ...x, engagements: n } : x;
+  });
+  return kept.sort((a, b) => b.bell - a.bell).slice(0, OWN_CLASHES_MAX);
 }
 
 const SIDE_TEXT = { gain: () => L`あなたの国が得た`, loss: () => L`あなたの国が失った`, attack: () => L`あなたの国が攻めている`, defend: () => L`あなたの国が守っている` };

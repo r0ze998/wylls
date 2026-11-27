@@ -50,6 +50,7 @@ import { leaderFigure } from '../people/leaders.mjs';
 import { playerFace } from '../people/faces.mjs';
 import { sideOutcome, verdictKey } from '../people/outcome.mjs';
 import { keepDefenders } from '../people/battle.mjs';
+import { garrisonsIn } from '../hud/firstbattle.mjs';
 
 // ------------------------------------------------------------------ the resolve_clash codec (borsh)
 /** Postures in borsh order: Stance(Hold|Assault|Flank|Brace), then Disarray. */
@@ -399,8 +400,13 @@ export function outcomeRows(args, outcome, mine = () => false) {
   const gres = new Map(outcome.garrisons.map(g => [String(g.id), g]));
   for (const g of args.garrisons) {
     const r = gres.get(String(g.id));
-    rows.push({ id: String(g.id), kind: g.faction === NEUTRAL ? 'camp' : 'garrison', faction: g.faction, before: troopsOf(g.troops), after: r ? troopsOf(r.troops) : null,
-      posture: g.posture, walls: g.walls, tile: g.tile, fate: r && r.troops === 0 && g.troops > 0 ? 'Destroyed' : null, mine: !!mine(g.id) });
+    // (fix-loop26, loop-play26 BREAK-2: the camp is cleared when the attackers hold its tile, whatever it has left —
+    //  frontier-abi clash_model.rs `whole == 0 || gr.attackers_hold` → state 0, troops 0. Read as its kernel troops, a
+    //  400 vs 271 camp the chain had cleared was stamped "Held: the enemy is still on the field too", 271→199)
+    const cleared = g.faction === NEUTRAL && !!r?.attackersHold;
+    rows.push({ id: String(g.id), kind: g.faction === NEUTRAL ? 'camp' : 'garrison', faction: g.faction, before: troopsOf(g.troops), after: r ? (cleared ? 0 : troopsOf(r.troops)) : null,
+      posture: g.posture, walls: g.walls, tile: g.tile, fate: r && (cleared || (r.troops === 0 && g.troops > 0)) ? 'Destroyed' : null, mine: !!mine(g.id),
+      ...(cleared ? { cleared: true, left: troopsOf(r.troops) } : {}) });
   }
   return rows.sort((a, b) => a.faction - b.faction || ['garrison', 'camp', 'resident', 'arrival'].indexOf(a.kind) - ['garrison', 'camp', 'resident', 'arrival'].indexOf(b.kind));
 }
@@ -424,6 +430,12 @@ export function rowsWithOutcome(rows, outcome, before = null) {
   const garrisons = new Map((outcome.garrisons ?? []).map(g => [String(g.id), g]));
   const big = v => { try { return BigInt(v ?? 0); } catch { return 0n; } };
   return rows.map(r => {
+    // (fix-loop26: a camp whose tile the attackers hold is cleared — as outcomeRows —; said with what it had left even
+    //  when the Province after the turn already gave 0: live, 400 vs 271, the kernel's camp kept 197.659 troops)
+    if (r.kind === 'camp' && !r.cleared) {
+      const g = garrisons.get(String(CAMP_ID_BASE - big(before?.camp?.gen)));
+      if (g?.attackersHold) return { ...r, after: 0, fate: 'Destroyed', cleared: true, left: Math.min(troopsOf(g.troops), r.before) };
+    }
     if (r.after !== null && r.after !== undefined) return r;
     if (r.kind === 'arrival' || r.kind === 'resident') {
       const f = fighters.get(`${r.kind === 'arrival' ? 'a' : 'r'}${r.id}`);
@@ -499,12 +511,63 @@ export function recordRows({ inputs, before = null, after = null, destroyed = nu
     const left = after?.siteMirror?.[j] ? Math.min(troopsOf(after.siteMirror[j].garrison), troopsOf(m.garrison)) : null;
     rows.push({ id: String(id), kind: 'garrison', faction: m.faction, before: troopsOf(m.garrison), after: left, posture: 3, tile: sites[j], fate: left === 0 ? 'Destroyed' : null, mine: !!mine(id) });
   });
-  if (before.camp?.state === 1 && tiles.has(before.camp.tile)) {
+  // (fix-loop26, loop-play26 BREAK-1: a camp in a province of MAX_GARRISONS holdings sits the turn out — the rule's own
+  //  `camp.present() && garrisons.len() < MAX_GARRISONS`, as buildClashArgs above — so it is no side of the clash. Listed
+  //  as one, it read "Held: the enemy is still on the field too", Barbarian camp 196→196, for a turn nobody fought;
+  //  noFightOf says why instead)
+  if (before.camp?.state === 1 && tiles.has(before.camp.tile) && garrisonsIn(before) < MAX_GARRISONS) {
     const left = after ? (after.camp?.state === 1 ? Number(after.camp.troops) : 0) : null;
     rows.push({ id: 'camp', kind: 'camp', faction: NEUTRAL, before: Number(before.camp.troops), after: left, posture: 0, tile: before.camp.tile, fate: left === 0 ? 'Destroyed' : null, mine: false });
   }
   if (kd) rows.push({ id: 'keep', kind: 'garrison', faction: kd.side.faction, before: kd.side.before, after: kd.side.after, posture: 3, tile: kd.tile, fate: kd.side.after === 0 ? 'Destroyed' : null, mine: false, keep: true });
   return rows.sort((a, b) => a.faction - b.faction || ['garrison', 'camp', 'resident', 'arrival'].indexOf(a.kind) - ['garrison', 'camp', 'resident', 'arrival'].indexOf(b.kind));
+}
+
+/**
+ * (fix-loop26) The rows a report `r` (FS.report) shows: the recomputed outcome's once verified, else the records'
+ * (recordRows), with what a matching recomputation said laid over them (rowsWithOutcome). `render` and app.mjs ask this.
+ */
+export function reportRows(r, mine = () => false) {
+  const v = r?.verify;
+  const recRows = () => recordRows({ inputs: r?.clash?.inputs, before: r?.before ?? null, after: r?.after ?? null, destroyed: r?.destroyed ?? null }, mine);
+  return v?.outcome && v.args ? outcomeRows(v.args, v.outcome, mine) : v?.outcome && v.result === 'match' ? rowsWithOutcome(recRows(), v.outcome, r?.before ?? null) : recRows();
+}
+
+/**
+ * (fix-loop26, loop-play26 BREAK-1 / Q-LP26-1 rec (a)) Whether the viewer's own arrival in report `r` met no battle, and
+ * why: `{noFight, cause: 'garrisons' | 'none', garrisons, campTroops}` or null (it fought, or it is no arrival of the
+ * viewer's). 'garrisons': the camp stood on the arrival tile in a province of MAX_GARRISONS holdings (the Province
+ * before the turn, the report's own copy), so it sat the turn out — `noFight` unless another side stood on that tile.
+ * 'none': the CLASH record (or the recomputation) counts no engagement and no other side is on the arrival tile.
+ */
+export function noFightOf(r, rows) {
+  const own = (rows ?? []).filter(x => x.mine && x.kind === 'arrival');
+  if (!own.length) return null;
+  const tiles = new Set(own.map(x => x.tile).filter(Number.isInteger));
+  const foes = rows.some(x => !x.mine && x.faction !== own[0].faction && (!tiles.size || !Number.isInteger(x.tile) || tiles.has(x.tile)));
+  const raw = r?.verify?.outcome?.engagements ?? r?.clash?.report?.decoded?.engagements;
+  const eng = raw === null || raw === undefined ? null : Number(raw);
+  const pv = r?.before ?? null;
+  if (pv?.camp?.state === 1 && tiles.has(pv.camp.tile) && garrisonsIn(pv) >= MAX_GARRISONS) {
+    return { noFight: !foes, cause: 'garrisons', garrisons: garrisonsIn(pv), campTroops: Number(pv.camp.troops) };
+  }
+  if (eng === 0 && !foes) return { noFight: true, cause: 'none', garrisons: null, campTroops: null };
+  return null;
+}
+
+/** (fix-loop26, BREAK-2) The line that says a camp was cleared with troops left: the attackers held its tile (outcomeRows). */
+function renderCleared(rows) {
+  const c = (rows ?? []).find(x => x.kind === 'camp' && x.cleared && x.left > 0);
+  if (!c) return '';
+  return html`<p class="muted report-cleared" data-report-cleared="1">${L`野営地は制圧されました。戦いの後も野営地の兵は ${fmtNum(c.left)} 残っていましたが、攻め手がそのマスを押さえたため、野営地は消えました（攻め手にマスを押さえられた野営地は、兵が残っていても制圧されます）。`}</p>`;
+}
+
+/** (fix-loop26) The line that says a turn had no battle, and why (noFightOf). */
+function renderNoFight(nf) {
+  if (!nf) return '';
+  const camp = nf.cause === 'garrisons' ? L`野営地は戦いに加わりませんでした。この州には村が ${fmtNum(nf.garrisons)} 立っていて、野営地が戦うのは州の村が ${fmtNum(MAX_GARRISONS)} 未満のときだけです。` : '';
+  const none = nf.noFight ? L`このターン、あなたの軍勢が着いたマスでは戦いがありませんでした。兵は失っていません。` : '';
+  return html`<p class="notice report-nofight" role="status" data-report-nofight="${nf.cause}">${icon('alert')}<span>${camp}${none}</span></p>`;
 }
 
 // ------------------------------------------------------------------ the headline
@@ -833,8 +896,8 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
   // (before verification: the records the page holds, the viewer's own side among them: recordRows)
   // (verified, but the page's own transcription of the inputs is not kept — a keep's defenders —: the record's rows, with
   // what the kernel recomputed and the chain's record confirmed laid over what the page could not read: rowsWithOutcome)
-  const recRows = () => recordRows({ inputs: r.clash?.inputs, before: r.before ?? null, after: r.after ?? null, destroyed: r.destroyed ?? null }, mine);
-  const rows = v?.outcome && v.args ? outcomeRows(v.args, v.outcome, mine) : v?.outcome && v.result === 'match' ? rowsWithOutcome(recRows(), v.outcome, r.before ?? null) : recRows();
+  const rows = reportRows(r, mine);
+  const nf = noFightOf(r, rows);
   const seed = v?.seed;
   // a conquest season (the film's scene 5): what is recomputed here is said in words, and the record's own reference —
   // its slot, and its transaction signature when the herald's clash view carries one — is printed, never made up.
@@ -853,7 +916,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
     <div class="row"><dt>${L`交戦`}</dt><dd>${fmtNum(v?.outcome?.engagements ?? rep.decoded?.engagements ?? 0)}</dd></div>
     ${cq && Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html`<div class="row"><dt>${L`記録のスロット`}</dt><dd>${fmtNum(Number(rep.slot))}</dd></div>` : ''}</dl>
     ${cq && recSig ? html`<p class="rep-ref">${sigChip(recSig, { label: L`戦いの記録の署名` })}</p>` : ''}`;
-  const verdict = v ? html`<p class="notice ${v.result === 'match' ? 'ok' : v.result === 'mismatch' ? 'error' : 'unchecked'}" role="status" data-verify-result="${v.result}">${cq && v.result === 'match' ? html`<span class="rep-match">${L`一致`}</span>` : ''}<span>${resultText(v)}</span></p>` : '';
+  const verdict = v ? html`<p class="notice ${v.result === 'match' ? 'ok' : v.result === 'mismatch' ? 'error' : 'unchecked'}" role="status" data-verify-result="${v.result}">${cq && v.result === 'match' ? html`<span class="rep-match">${L`一致`}</span>` : ''}<span>${resultText(v)}</span></p>${v.result === 'match' && nf?.noFight ? html`<p class="muted rep-match-nofight" data-match-nofight="1">${L`この「一致」は、戦いのなかったターンの記録を計算し直したものです。戦いの確かめではありません。`}</p>` : ''}` : '';
   const steps = v ? html`${renderSteps(v)}${v.builder === 'page' ? html`<p class="muted">${L`入力は、このページが決められた手順どおりに組み立てました。`}</p>` : ''}` : '';
   const tiles = tileDetail(rows);
   return html`<section aria-labelledby="report-title" class="report doc">${head}
@@ -862,7 +925,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
     ${renderPrediction(rows, r.bell, forecastOf)}
     ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
     <div class="doc-cols">
-      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}${renderWhy(fieldWhy(rows, summaryOf(rows)), FS, r)}</div>
+      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}${renderNoFight(nf)}${renderCleared(rows)}${renderWhy(fieldWhy(rows, summaryOf(rows)), FS, r)}</div>
       <div class="doc-col">
         ${FS.sample ? html`<p class="muted report-sample">${L`見本の世界の報告です。数はこの見本の世界が計算したもので、チェーンの記録ではありません。`}</p>` : ''}
         ${v?.outcome ? '' : r.before ? html`<p class="muted">${L`確かめる前は、記録にある数を表示しています（到着の結果と、ターンの前後の州の記録）。`}</p>` : FS.sample ? '' : html`<p class="muted">${L`確かめる前は、チェーンに記録された到着の結果だけを表示しています。`}</p>`}

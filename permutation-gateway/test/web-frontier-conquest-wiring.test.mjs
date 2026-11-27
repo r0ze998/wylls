@@ -137,7 +137,9 @@ test('a verified report of a march on a keep says its result: the recomputed out
   assert.equal(rowsWithOutcome(rows, null), rows);
   // the page uses it only when the recomputed outcome is the chain's record, and then says so of "what if"
   const report = src('screens/report.mjs');
-  assert.match(report, /v\?\.outcome && v\.result === 'match' \? rowsWithOutcome\(recRows\(\), v\.outcome, r\.before \?\? null\) : recRows\(\)/);
+  assert.match(report, /v\?\.outcome && v\.result === 'match' \? rowsWithOutcome\(recRows\(\), v\.outcome, r\?\.before \?\? null\) : recRows\(\)/);
+  // (fix-loop26: render asks the same rows through reportRows, which noFightOf and app.mjs verifyReport share)
+  assert.match(report, /const rows = reportRows\(r, mine\);/);
   assert.match(report, /「練習で試す」は、この戦いでは使えません/);
 });
 

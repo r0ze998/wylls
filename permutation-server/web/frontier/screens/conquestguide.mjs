@@ -37,7 +37,7 @@ import { worldContinues } from '../clock.mjs';
 import { turnsLine } from '../seasonterms.mjs';
 import { maxTrain } from '../hud/rulebook.mjs';
 import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
-import { campChoice, campsSittingOut, fightingCampsInSight, earliestReportAt, reportEtaAt, ownReportDue, ownProvinceOf, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
+import { campChoice, campsSittingOut, fightingCampsInSight, earliestReportAt, reportEtaAt, ownReportDue, ownProvinceOf, firstBattleStillAhead, CAMP_GARRISON_CAP } from '../hud/firstbattle.mjs';
 import { planRoute, arrivalWindow } from '../fmarch.mjs';
 import { MAX_PATH_STEPS } from '../seal.mjs';
 import { MAX_ROUTE_PROVINCES } from '../fkeepreach.mjs';
@@ -110,11 +110,16 @@ export function conquestFacts(FS) {
   // (pt-first-battle) the first march has left: any march of the viewer — on the page's list, counted by the Citizen
   // (`arrivals`), or sealed by this page and not answered "no" — or the step was skipped by the viewer
   const sentOrder = (FS.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused');
-  const raided = away || Number(FS.citizen?.arrivals ?? 0) > 0 || sentOrder || (FS.ui?.dismissed ?? []).includes(FLAG.skip('camp'));
+  // (fix-loop26, loop-play26 BREAK-1 / Q-LP26-1 rec (a): an arrival the CLASH record says nobody fought — the camp sat
+  //  it out, its province having filled to 12 villages while the host walked — is not the first battle: the step stays
+  //  open (hud/firstbattle.mjs firstBattleStillAhead) and campStep says why and names the next camp that fights)
+  const skipped = (FS.ui?.dismissed ?? []).includes(FLAG.skip('camp'));
+  const noFight = skipped ? null : firstBattleStillAhead(FS);
+  const raided = skipped || (!noFight && (away || Number(FS.citizen?.arrivals ?? 0) > 0 || sentOrder));
   return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0 || away,
     // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
     stood: stoodHosts(rows).length > 0 || away, forming: formingHosts(rows)[0] ?? null,
-    marched: !!(standing || revealed || sealed || contest || gain), raided,
+    marched: !!(standing || revealed || sealed || contest || gain), raided, noFight,
     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,
     repelled: contest || standing ? null : repelled };
@@ -267,6 +272,28 @@ function waitingSuggestion(FS, r, t) {
  * forecast and the seal are.
  */
 export function campStep(FS) {
+  let nf = null;
+  try { nf = firstBattleStillAhead(FS); } catch { nf = null; }
+  const s = campStepNow(FS, nf);
+  const lead = nf ? noFightLead(FS, nf) : '';
+  return lead ? { ...s, text: lead + s.text } : s;
+}
+
+/**
+ * (fix-loop26, loop-play26 BREAK-1 / Q-LP26-1 rec (a)) What the camp step says first when the viewer's march arrived
+ * and nobody fought (hud/firstbattle.mjs firstBattleStillAhead): where, and why — the camp sat out because 12 villages
+ * stand in its province, or nobody stood against the host there —, and that the first battle is still ahead.
+ */
+export function noFightLead(FS, a) {
+  if (!a) return '';
+  // (named by the viewer's own village where it has one, as the passed-by line below: the --demo home province fills first)
+  const where = provinceName(FS, a.p, a.q);
+  return a.why === 'garrisons'
+    ? L`軍勢は${where}の野営地に着きましたが、戦いはありませんでした。その州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っているため、野営地は戦いに加わりませんでした（野営地が戦うのは、州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです）。最初の戦いはまだこれからです。`
+    : L`軍勢は${where}に着きましたが、戦いはありませんでした（そのマスで向かってくる相手はいませんでした）。最初の戦いはまだこれからです。`;
+}
+
+function campStepNow(FS, nf = null) {
   let rows = [];
   try { rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { rows = []; }
   // (a formed host whose province is only finishing the last turn counts as ready — keephand.mjs choosableWait, the keep
@@ -291,7 +318,7 @@ export function campStep(FS) {
   //  non-battle, "Held", no losses — so the guide passes it by and says why)
   const sitOut = c ? c.passed : campsSittingOut(FS, ready, { seen, own });
   // (named by the viewer's own village where it has one: in --demo the camp passed by is in the home province)
-  const out = sitOut.length ? L`${provinceName(FS, sitOut[0].p, sitOut[0].q)}の野営地は近くにありますが、その州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っているため、戦いに加わりません（野営地が戦うのは、州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです）。` : '';
+  const out = sitOut.length && !(nf && sitOut[0].p === nf.p && sitOut[0].q === nf.q) ? L`${provinceName(FS, sitOut[0].p, sitOut[0].q)}の野営地は近くにありますが、その州には村が ${fmtNum(CAMP_GARRISON_CAP)} 立っているため、戦いに加わりません（野営地が戦うのは、州の村が ${fmtNum(CAMP_GARRISON_CAP)} 未満のときだけです）。` : '';
   // the way there and when the march would arrive (tiles, provinces, the arrival turn and its wait in the report line's words), and
   // the report expected after that arrival turn; without a route, the earliest a sealed march can be reported
   const way = c ? campWay(FS, ready, c.camp) : null;

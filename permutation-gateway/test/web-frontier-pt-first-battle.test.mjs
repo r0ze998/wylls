@@ -134,9 +134,10 @@ test('the page offers only what the fog lets through: app.mjs feeds battleOffer 
   const at = app.indexOf('function waitMarkup(');
   const body = app.slice(at, app.indexOf('\n}', at));
   assert.match(body, /reportScreen\.clashesFrom\(shownChronicle\(\) \?\? \[\], 12\)\.filter\(c => clashHere\(c\.p, c\.q, c\.bell\)\)/);
-  assert.match(body, /battleOffer\(\{ own: myReports\(F\), visible \}\)/);
+  // (fix-loop26: an own arrival nobody fought — CLASH engagements 0 — is no battle to offer)
+  assert.match(body, /battleOffer\(\{ own: myReports\(F\)\.filter\(c => ownEngagements\(F, c\.p, c\.q, c\.bell\) !== 0\), visible \}\)/);
   // a 「一致」 is kept once, and stops the offer
-  assert.match(app, /if \(v\?\.result === 'match' && FS\.mode === 'play' && !\(FS\.ui\?\.dismissed \?\? \[\]\)\.includes\(FLAG\.verified\)\) \{ setFlag\(FLAG\.verified\);/);
+  assert.match(app, /if \(v\?\.result === 'match' && FS\.mode === 'play' && !noFight && !\(FS\.ui\?\.dismissed \?\? \[\]\)\.includes\(FLAG\.verified\)\) \{ setFlag\(FLAG\.verified\);/);
   assert.match(app, /'practice-first': \(\) => \{ const st = practiceScreen\.practiceState\(\{ faction: FS\.citizen\?\.faction, scenario: 'camp' \}\); st\.firstBattle = true;/);
 });
 

@@ -69,7 +69,7 @@ import { readOverviews, forgetOverviewRefusals, ringMissMarks } from './map/over
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import * as waitPanel from './hud/waitpanel.mjs';
-import { battleOffer } from './hud/firstbattle.mjs';
+import { battleOffer, ownEngagements } from './hud/firstbattle.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
 import { installCoopBoard } from './hud/coopboard.mjs';
@@ -508,7 +508,8 @@ function waitMarkup(F = FS) {
   let offer = null;
   try {
     const visible = F === FS ? reportScreen.clashesFrom(shownChronicle() ?? [], 12).filter(c => clashHere(c.p, c.q, c.bell)) : [];
-    offer = battleOffer({ own: myReports(F), visible });
+    // (fix-loop26: an own arrival the CLASH record says nobody fought is no battle to offer — hud/firstbattle.mjs ownEngagements)
+    offer = battleOffer({ own: myReports(F).filter(c => ownEngagements(F, c.p, c.q, c.bell) !== 0), visible });
   } catch { offer = null; }
   try {
     // (fix-loop24, BREAK-5: what the panel last said stands until new data is in — hud/waitpanel.mjs steadyWaitModel)
@@ -4773,7 +4774,11 @@ async function verifyReport() {
   rep.verifying = false;
   if (FS.report === rep) { rep.verify = v; invalidate('panel'); }
   // (pt-first-battle: the first 「一致」 this browser saw is kept, so the "While you wait" panel stops offering a battle to check)
-  if (v?.result === 'match' && FS.mode === 'play' && !(FS.ui?.dismissed ?? []).includes(FLAG.verified)) { setFlag(FLAG.verified); invalidate('rail'); }
+  // (fix-loop26, loop-play26 BREAK-1: not the 「一致」 of a turn nobody fought — screens/report.mjs noFightOf —: the panel
+  //  goes on offering a real battle to check)
+  let noFight = false;
+  try { noFight = FS.report === rep && !!reportScreen.noFightOf(rep, reportScreen.reportRows(rep, mineOf(FS.holdings)))?.noFight; } catch { noFight = false; }
+  if (v?.result === 'match' && FS.mode === 'play' && !noFight && !(FS.ui?.dismissed ?? []).includes(FLAG.verified)) { setFlag(FLAG.verified); invalidate('rail'); }
 }
 
 const retreatChoiceOf = bps => (RETREAT_CHOICES.find(c => c.bps === (bps ?? 0))?.id ?? 'never');

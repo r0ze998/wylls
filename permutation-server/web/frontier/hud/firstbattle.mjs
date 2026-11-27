@@ -229,3 +229,90 @@ export function battleOffer({ own = [], visible = [] } = {}) {
   if (other) return { kind: 'real', p: other.p, q: other.q, bell: other.bell, mine: false };
   return { kind: 'practice' };
 }
+
+// ------------------------------------------------------------------ (fix-loop26) an arrival with no battle
+// loop-play26 BREAK-1 (Q-LP26-1 rec (a), Grok): in a `--demo` world the camp the guide named had fewer than 12 villages
+// in its province when it was picked, and 12 by the arrival turn (demo settlers), so it sat the battle out. The report
+// read "Held: the enemy is still on the field too" (300→300 vs 196→196) with no reason, the guide counted the march
+// as the first battle and moved on, and the 「一致」 attached to a fight that never happened. The rule's own word for
+// it is the CLASH record's `engagements` (permutation-rules frontier/clash.rs: one per attacker–defender pairing on a
+// tile; 0 = nobody fought anywhere in the province that turn). Page only: nothing here changes a rule.
+
+/** The `engagements` of the CLASH record of (p, q, bell) the page holds (FS.chronicle), or null when none is read. */
+export function clashEngagements(FS, p, q, bell) {
+  const list = FS?.chronicle ?? [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const r = list[i]?.record ?? list[i];
+    if (r?.name === 'CLASH' && Number(r.p) === p && Number(r.q) === q && Number(r.bell) === bell) {
+      const n = Number(r.engagements);
+      return Number.isFinite(n) ? n : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * (fix-loop26) The engagements of the viewer's OWN clash at (p, q, bell): the CLASH record the page holds, else what the
+ * page's own clash list kept of it once read (hud/feed.mjs ownClashesFrom — the record leaves the chronicle's last 400
+ * records), else null.
+ */
+export function ownEngagements(FS, p, q, bell) {
+  const n = clashEngagements(FS, p, q, bell);
+  if (n !== null) return n;
+  const k = (FS?.ownClashes ?? []).find(c => c?.p === p && c?.q === q && c?.bell === bell && Number.isFinite(c.engagements));
+  return k ? k.engagements : null;
+}
+
+/**
+ * Why the camp of decoded Province `pr` did not fight an arrival on `tile`: 'garrisons' — it stands on that tile but
+ * CAMP_GARRISON_CAP holdings stand in its province (`campFights` false) —, else null (no camp there, or it would fight).
+ */
+export function campSatOutOn(pr, tile) {
+  const c = pr?.camp;
+  if (!c || c.state !== 1 || !Number.isInteger(tile) || c.tile !== tile) return null;
+  return garrisonsIn(pr) >= CAMP_GARRISON_CAP ? 'garrisons' : null;
+}
+
+/**
+ * The viewer's own resolved arrivals the page knows (its march rows whose turn is resolved, and hud/feed.mjs
+ * ownClashesFrom's list), newest first, each with what the CLASH record says: `[{p, q, tile, bell, engagements,
+ * why}]` — `engagements` null while the record is not read; `why` (only for engagements 0) 'garrisons' when the camp
+ * stands on the arrival tile in a province of 12 villages (the page's copy of the province now), else 'none'.
+ */
+export function ownArrivals(FS) {
+  const out = [];
+  const add = (d, bell) => {
+    if (!d || !Number.isInteger(d.p) || !Number.isInteger(d.q) || !Number.isInteger(bell)) return;
+    const tile = Number.isInteger(d.tile) ? d.tile : null;
+    const was = out.find(x => x.p === d.p && x.q === d.q && x.bell === bell);
+    if (was) { if (was.tile === null && tile !== null) was.tile = tile; return; }
+    out.push({ p: d.p, q: d.q, tile, bell });
+  };
+  for (const m of FS?.marches ?? []) if (m?.facts?.pipeline === 'resolved') add(m.dest, m.entry?.arriveBell ?? m.transit?.arriveBell);
+  for (const c of FS?.ownClashes ?? []) add(c, c?.bell);
+  return out.map(a => {
+    const engagements = ownEngagements(FS, a.p, a.q, a.bell);
+    const pr = FS?.provinces?.get?.(`${a.p},${a.q}`)?.province ?? null;
+    const why = engagements === 0 ? (campSatOutOn(pr, a.tile) ?? 'none') : null;
+    return { ...a, engagements, why };
+  }).sort((a, b) => b.bell - a.bell);
+}
+
+/**
+ * (fix-loop26) Whether the viewer's first battle has still not happened although its march(es) arrived: every own
+ * arrival the page knows was resolved with no engagement (the CLASH record says 0), no other march of the viewer is
+ * out or sealed, and the Citizen counts no more arrivals than those. → the newest such arrival (`ownArrivals` row),
+ * or null. The guide then keeps the camp step open and says why; anything unknown (a record not read yet, a march
+ * still out) counts as the first battle, as before.
+ */
+export function firstBattleStillAhead(FS) {
+  const all = ownArrivals(FS);
+  if (!all.length || all.some(a => a.engagements !== 0)) return null;
+  const seen = a => all.some(x => x.p === a.p && x.q === a.q && x.bell === a.bell);
+  const out = (FS?.marches ?? []).some(m => m?.facts?.pipeline !== 'resolved');
+  const sealed = (FS?.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused' && !o.home
+    && !(o.dest && seen({ p: o.dest.p, q: o.dest.q, bell: Number(o.arriveBell) })));
+  if (out || sealed) return null;
+  if (Number(FS?.citizen?.arrivals ?? 0) > all.length) return null;
+  return all[0];
+}
