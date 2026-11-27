@@ -25,6 +25,7 @@ import { territoryEnabled } from '../territory.mjs';
 import { reachableKeeps } from '../fkeepreach.mjs';
 import { palisadeHexesOf } from '../s1walk.mjs';
 import { earliestBell, departMargin } from '../fmarch.mjs';
+import { minLeadOf } from '../fpacing.mjs';
 import { SCOUT, SETTLER } from '../fland.mjs';
 import { subjectOf, marchCheck } from '../hud/subject.mjs';
 import { reachWhy } from './keeps.mjs';
@@ -82,7 +83,7 @@ export function keepReachOf(fs, h) {
   const secsPerTurn = Number(fs.season?.bellSecs ?? 600) || 600, departTs = (fs.chain?.now?.() ?? 0) + departMargin(fs.chain?.rate);
   const turnOf = secs => {
     let b = null;
-    try { b = fs.clock ? earliestBell(fs.kernel, { genesisTs: fs.clock.genesisTs, departTs, secs }) : null; } catch { b = null; }
+    try { b = fs.clock ? earliestBell(fs.kernel, { lead: minLeadOf(fs.season), genesisTs: fs.clock.genesisTs, departTs, secs }) : null; } catch { b = null; }
     return int(b) ? Math.max(b, nowBell + Number(fs.season?.minLead ?? 0)) : nowBell + Math.max(1, Math.ceil(secs / secsPerTurn));
   };
   const out = [], lit = new Set();

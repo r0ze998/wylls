@@ -74,6 +74,9 @@ function checkWorldMode(bytes, season) {
   // (⑭ R3: byte 82 `spawn_reach`, 0 the heartland rings only, 1..8 provinces from the settled land)
   const spawnReach = season.conquestParams?.spawnReach ?? 0;
   if (!Number.isInteger(spawnReach) || spawnReach < 0 || spawnReach > 8) throw new CodecError('BadWorldMode', 'unknown spawn rule');
+  // (world4-pacing-impl: byte 83 `pacing`, 0 every world before it, 1 the next world's pacing; absent before it)
+  const pacing = season.conquestParams?.pacing ?? 0;
+  if (pacing !== 0 && pacing !== 1) throw new CodecError('BadWorldMode', 'unknown pacing mode');
   const base = SEASON_CQ_V2?.[1];
   if (base === undefined || !CQ_V2) throw new CodecError('BadLayout', 'missing conquest block');
   for (const [, off, len, ty] of CQ_V2.fields) {

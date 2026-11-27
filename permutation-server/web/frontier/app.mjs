@@ -186,6 +186,7 @@ import { createRouteCache } from './map/routecache.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
 import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, departMargin, planRoute, earliestBell, arrivalWindow, marchCosts } from './fmarch.mjs';
+import { minLeadOf } from './fpacing.mjs';
 import { MAX_PATH_STEPS } from './seal.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, UI_PREFIX } from './fui.mjs';
 import * as hud from './hud/hud.mjs';
@@ -1469,7 +1470,7 @@ function routeTo(A, to) {
   if (!r.ok) return { ok: false, code: r.code };
   // Time keeps moving even within one turn. Only the path is cached; the
   // arrival is recalculated from the current clock, rate and lead window.
-  const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
+  const early = FS.clock ? earliestBell(k, { lead: minLeadOf(FS.season), genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
   return { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
 }
 
