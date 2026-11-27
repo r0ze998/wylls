@@ -79,7 +79,7 @@ jobs:
       - name: CI stays key-free on push and pull request
         run: |
           python3 -c 'import yaml' 2>/dev/null || pip install --user pyyaml==6.0.2
-          python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml
+          python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml .github/workflows/pages-demo.yml
       - name: Local play kit (scripts/play-local.sh) arguments and refusals (no build, no world)
         run: python3 -I scripts/tests/test_play_local.py
 
@@ -584,12 +584,15 @@ jobs:
       # at most 4 folds, any other refusal or an unknown outcome stopped at once) is tested only under
       # localnet-land-play, which the step above compiles but never runs. These are pure: a bell model and literal
       # `Sent` outcomes, no chain, no socket, no key (the filter runs no other itest lib test).
-      - name: Local-play demo setup's fold retry (pure tests; key-free)
+      # test-gaps-8: the two-player demo's fort choice (#299, LP28 BREAK-2: two players of one nation, B placed first) on
+      # maps the program's own generator makes for 6 genesis seeds: pure (no chain, no socket, no key).
+      - name: Local-play demo setup's fold retry and pair fort choice (pure tests; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node
         run: |
           cargo test --locked -p itest --features localnet-land-play --lib capture_demo::tests::
           cargo test --locked -p itest --features localnet-land-play --test test_gaps_7_fold
+          cargo test --locked -p itest --features localnet-land-play --test test_gaps_8_pair
       # Q16-1 = A (prize gate): the verifier's PLAYABLE lane (program version
       # 0x4804) is behind the `playable-lane` feature, which no other step
       # builds. Lint it, and run its checks over the committed recordings

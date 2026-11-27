@@ -18,6 +18,12 @@ const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if
 
 const index = await readFile(join(D, 'index.html'), 'utf8');
 check(/url=frontier\/index\.html/.test(index) && !/(?:href|src|url)=["']?\//.test(index), 'index.html opens frontier/index.html by a relative link');
+let notFound = null; try { notFound = await readFile(join(D, '404.html'), 'utf8'); } catch {}
+if (notFound !== null) {
+  const to = notFound.match(/url=(\/[^"]*)"/)?.[1];
+  check(!!to && /^\/(?:[\w.-]+\/)*$/.test(to) && notFound.includes(`href="${to}"`), `404.html sends missing paths to the demo at ${to ?? '(none)'}`);
+}
+check(await stat(join(D, '.nojekyll')).then(() => true, () => false), '.nojekyll is there (no Jekyll pass on the host)');
 const pages = (await readdir(join(D, 'frontier'))).filter(f => f.endsWith('.html'));
 for (const f of ['index.html', 'practice.html', 'spectate.html']) {
   const s = await readFile(join(D, 'frontier', f), 'utf8');

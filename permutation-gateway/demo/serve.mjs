@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // A plain static file server for the built demo (testing only — the demo needs no server of its own):
 //   node serve.mjs [--dir dist] [--port 0] [--prefix /play/] [--gzip]
-// Serves files only (no /h, no /gw): anything else is a 404, as a static host answers.
+// Serves files only (no /h, no /gw): anything else is a 404, as a static host answers (with dist/404.html when the
+// build wrote one, as GitHub Pages does).
 // --gzip: text files (html, js, css, json, svg) are sent gzip-encoded when the browser asks, as GitHub Pages,
 // Cloudflare Pages, Netlify and Vercel do; images and wasm are sent as they are (the conservative case).
 import { createServer } from 'node:http';
@@ -41,7 +42,10 @@ export async function serveStatic({ dir, port = 0, prefix = '/', gzip = false } 
         }
       }
     } catch { /* 404 */ }
-    if (code === 404) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found'); }
+    if (code === 404) {
+      const page = await readFile(join(root, '404.html')).catch(() => null);
+      res.writeHead(404, { 'Content-Type': page ? TYPES['.html'] : 'text/plain' }); res.end(page ?? 'not found');
+    }
     requests.push({ path: url.pathname, code });
   });
   await new Promise((ok, no) => { server.once('error', no); server.listen(port, '127.0.0.1', ok); });
