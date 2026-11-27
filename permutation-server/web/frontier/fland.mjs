@@ -343,6 +343,19 @@ export function accrualAt(a, t) {
   return v < 0n ? 0n : v;
 }
 
+/**
+ * (fix-landhorizon, Q-TG5-1 (a)) One store exactly as the program holds it at chain time `t`: milli-units and the
+ * carried sub-unit remainder (`frac`, 0..3599), from the same settle (Holding::settle) as projectedHolding. storesAt
+ * rounds to whole units for display; anything that predicts a later settle (the land horizon) reads this instead.
+ */
+export function storeExactAt(holding, t, index) {
+  const a = projectedHolding(holding, t).stores[index];
+  if (!a) return null;
+  const s = { ...a, value: BigInt(a.value), frac: BigInt(a.frac ?? 0), rate: BigInt(a.rate), cap: BigInt(a.cap), t0: BigInt(a.t0) };
+  settleAccrual(s, BigInt(Math.floor(Number(t))));
+  return { value: Number(s.value), frac: Number(s.frac), rate: Number(s.rate), cap: Number(s.cap), t0: Number(s.t0) };
+}
+
 /** Stores in whole units at chain time `t`: `[{resource, value, perHour, cap}]` (stores hold milli-units). */
 export function storesAt(holding, t, resources) {
   return projectedHolding(holding, t).stores.map((a, i) => ({
