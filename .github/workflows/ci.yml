@@ -629,6 +629,10 @@ jobs:
           cargo test --locked -p keeper --features playable-lane --test expedition_feed_guard
           cargo test --locked -p keeper --features playable-lane --test verify_pr121_guard_mutations
           cargo test --locked -p keeper --features playable-lane --test verify_pr124_conquest_mutations
+          # test-gaps-6: #282's never-landed settle over a 134-row care backlog (literal journal rows, a port that refuses
+          # send; 32 proven per read, care blocked until the last, then a top-up admitted; cache-only nulls never settle)
+          # and #280's 32,000 CU Reveal request per lane in the keeper's unsigned message (+ the fee rise). No key.
+          cargo test --locked -p keeper --features playable-lane --test test_gaps_6
       - name: Operator playable lane (lints, offline plan, send gate; key-free)
         if: hashFiles('frontier-node/Cargo.toml') != ''
         working-directory: frontier-node

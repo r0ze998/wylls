@@ -19,7 +19,7 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, buildItemOf, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction, garrisonRoom } from '../fland.mjs';
+import { storesAt, storeExactAt, holdingFacts, BUILD_ITEMS, buildItemOf, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction, garrisonRoom } from '../fland.mjs';
 import { settled, buildOffers, promotionOffer, queueNow, queueSlots, trainCost, shortOf, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 import { costChips, costWords, shortWords, took, unitGood, whyText } from '../hud/orderparts.mjs';
 import { holdingName } from '../people/ui.mjs';
@@ -235,15 +235,18 @@ export function horizonFromFS(FS) {
   const player = FS?.ownLand?.player;
   if (!payer || !player || !(Number(player.tiles) > 0) || !(Number(player.upkeepMilliPerHour) > 0)) return null;
   const now = Number(FS.chain?.now?.() ?? 0);
-  const food = storesAt(settled(payer, now), now, RESOURCE_ORDER).find(s => s.resource === 'Food');
+  // (fix-landhorizon, Q-TG5-1 (a)) the exact milli-food store and its carried remainder, as the program pays from —
+  // not storesAt's whole food (which dropped up to 999 milli-food and the remainder: "unpaid" up to tens of turns early)
+  const food = storeExactAt(settled(payer, now), now, RESOURCE_ORDER.indexOf('Food'));
   if (!food) return null;
   const census = villageCensus(FS, payer, now);
   // (verify-pr272: the food's checkpoint against the land's clock — the two reads can be a keeper pass apart)
   const clock = alignLandClock(player.paidTo, payer.stores?.[RESOURCE_ORDER.indexOf('Food')]?.t0);
   const proj = projectHorizon({
-    stockMilli: Math.round(Number(food.value) * 1000),
-    productionMilliPerHour: Math.round(Number(food.perHour) * 1000),
-    capMilli: Math.round(Number(food.cap ?? 2000) * 1000),
+    stockMilli: food.value,
+    stockFrac: food.frac,
+    productionMilliPerHour: food.rate,
+    capMilli: food.cap,
     upkeepMilliPerHour: Number(player.upkeepMilliPerHour ?? 0),
     paidTo: clock.paidTo,
     remainder: Number(player.remainder ?? 0),

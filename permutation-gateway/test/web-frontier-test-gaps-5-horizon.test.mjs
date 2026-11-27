@@ -7,7 +7,7 @@
 //        the real-time conversion (turns × 600 s ÷ pace);
 //   LH4  net ≥ 0: "up to M tiles" is the largest land at the farthest distance the oracle keeps paid for good;
 //   LH5  the page glue (horizonFromFS) on the chain's exact store is never LATER than the chain;
-//   LH6/LH7 (todo, D-test-gaps-5-1 / -2): two real display bugs the oracle found, pinned as expected failures.
+//   LH6/LH7 (D-test-gaps-5-1 / -2): two display bugs the oracle found; fixed by fix-landhorizon (Q-TG5-1 (a), Q-TG5-2 (a)).
 // Behaviour is not changed here. Key-free: no wallet, no key, no request.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -129,7 +129,7 @@ test('LH1 the oracle is the program\'s settle_upkeep: pinned to territory.rs, an
 });
 
 // ------------------------------------------------------------------ LH2
-/** What the card must say for `st`, from the oracle (null for the two todo cases below: paid-again with net < 0). */
+/** What the card must say for `st`, from the oracle (paid-again: the turn it pays; the card's sentence for it is LH7). */
 function expected(st) {
   const o = simulate(st);
   const net = st.prod - st.upkeep;
@@ -164,7 +164,7 @@ test('LH2 3,000 random lands: the projection equals a direct settle-by-settle si
         assert.equal(h.letting, e.branch === 'letting', why); break;
       default:
         // paid again (the settle due now or a later one pays): the turn it pays is the oracle's; the card's sentence for
-        // this case is LH7 (todo)
+        // this case is LH7
         assert.equal(h.unpaidAlready, false, why); assert.equal(h.turnsUntilPaid, e.paidAt, why);
         if (e.branch === 'paid-again-sustainable') assert.equal(h.sustainable, true, why);
     }
@@ -309,12 +309,12 @@ test('LH5 the page glue (horizonFromFS) on the chain\'s exact store is never lat
   assert.ok(n > 1_500 && equal > n / 2, `${equal}/${n} exact`);
 });
 
-// D-test-gaps-5-1 (found here; behaviour unchanged): horizonFromFS passes the store as whole food
-// (fland.mjs storesAt: value / 1000n, × 1000 again) and drops the store's carried sub-unit remainder (frac). The chain
-// pays from the exact milli-food store, so the card says "unpaid in N turns" up to 999 milli-food early: about 1 land in 5
+// D-test-gaps-5-1 (found here; fixed by fix-landhorizon, Q-TG5-1 (a): the glue now reads fland.mjs storeExactAt). It passed the store as whole food
+// (fland.mjs storesAt: value / 1000n, × 1000 again) and dropped the store's carried sub-unit remainder (frac). The chain
+// pays from the exact milli-food store, so the card said "unpaid in N turns" up to 999 milli-food early: about 1 land in 5
 // is 1–13 turns early, and near net 0 (a few milli-food short a turn) tens of turns early or "N turns" where the chain
-// lasts beyond MAX_STEPS. Expected to fail until the glue passes the milli store and its remainder.
-test('LH6 (todo, D-test-gaps-5-1) the card\'s turn count on the chain\'s exact store equals the chain\'s', { todo: 'D-test-gaps-5-1: horizonFromFS truncates the store to whole food and drops its remainder (inbox test-gaps-5)' }, () => {
+// lasts beyond MAX_STEPS.
+test('LH6 (D-test-gaps-5-1, fixed) the card\'s turn count on the chain\'s exact store equals the chain\'s', () => {
   const r = rng(6006);
   const off = [];
   for (let i = 0; i < 2_000; i++) {
@@ -332,12 +332,12 @@ test('LH6 (todo, D-test-gaps-5-1) the card\'s turn count on the chain\'s exact s
   assert.deepEqual(off.slice(0, 5), [], `${off.length} lands differ`);
 });
 
-// D-test-gaps-5-2 (found here; behaviour unchanged): an UNPAID land whose store now covers the due settle and a turn's
+// D-test-gaps-5-2 (found here; fixed by fix-landhorizon, Q-TG5-2 (a): "paid at this payment, unpaid again in M"). An UNPAID land whose store now covers the due settle and a turn's
 // reserve (food came in: a harvest, a caravan) with production still below upkeep. The chain pays at this settle
 // (unpaid_since cleared) and goes unpaid again M turns later. projectHorizon stops at the paying settle with
-// turnsUntilUnpaid left at its initial 0, so the card says "This payment will leave the land unpaid. Tiles start being let
+// turnsUntilUnpaid left at its initial 0, so the card said "This payment will leave the land unpaid. Tiles start being let
 // go 24 turns after that" — the opposite of what the settle does.
-test('LH7 (todo, D-test-gaps-5-2) an unpaid land the due settle pays again: the card says when it goes unpaid AGAIN, not "this payment leaves it unpaid"', { todo: 'D-test-gaps-5-2: projectHorizon reports turnsUntilUnpaid 0 for a land that the due settle pays (inbox test-gaps-5)' }, () => {
+test('LH7 (D-test-gaps-5-2, fixed) an unpaid land the due settle pays again: the card says when it goes unpaid AGAIN, not "this payment leaves it unpaid"', () => {
   const st = { tiles: 73, hist: [73], upkeep: 73 * 990, prod: 40_000, cap: 2_000_000, stock: 300_000, now: 1_786_000_300, bell: 200, remainder: 0, paidTo: 1_786_000_000, since: 195 };
   const o = simulate(st);
   assert.equal(o.paidAt, 0, 'the chain: the due settle pays');

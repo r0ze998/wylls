@@ -66,18 +66,26 @@ export function settleUpkeep({
   };
 }
 
-/** Accrue `productionMilliPerHour` for `dt` seconds onto stock, with a sub-hour remainder, capped. */
+/**
+ * Accrue `productionMilliPerHour` for `dt` seconds onto the store, exactly as the program's Holding::settle does
+ * (fland.mjs settleAccrual, fix-landhorizon Q-TG5-1 (a)): the carried sub-unit remainder `frac` (0..3599) is a
+ * Euclidean remainder kept across settles, even at the cap; a growing store only grows while under the cap (a store
+ * at or over it stays as it is); a shrinking one stops at 0.
+ */
 export function accrueFood(stockMilli, productionMilliPerHour, dtSecs, capMilli, frac = 0) {
+  const H = BigInt(HOUR);
   const cap = big(Math.max(0, toInt(capMilli, 2_000 * 1000)));
-  let stock = big(Math.max(0, toInt(stockMilli)));
-  const prod = big(toInt(productionMilliPerHour));
+  const stock = big(Math.max(0, toInt(stockMilli)));
+  const rate = big(toInt(productionMilliPerHour));
   const dt = big(Math.max(0, toInt(dtSecs)));
-  const total = stock * BigInt(HOUR) + prod * dt + big(Math.max(0, toInt(frac)));
-  stock = total / BigInt(HOUR);
-  const nextFrac = total % BigInt(HOUR);
-  if (stock > cap) return { stockMilli: Number(cap), frac: 0 };
-  if (stock < 0n) return { stockMilli: 0, frac: 0 };
-  return { stockMilli: Number(stock), frac: Number(nextFrac) };
+  const f = big(Math.max(0, toInt(frac)));
+  if (dt <= 0n) return { stockMilli: Number(stock), frac: Number(f) };
+  const num = f + rate * dt;
+  const rem = ((num % H) + H) % H;
+  const next = stock + (num - rem) / H;
+  let value = stock;
+  if (rate >= 0n) { if (stock < cap) value = next < cap ? next : cap; } else value = next < 0n ? 0n : next;
+  return { stockMilli: Number(value), frac: Number(rem) };
 }
 
 /** Farthest distance bucket that holds a tile (`hist` is 64 × u16), or null. */
@@ -111,6 +119,7 @@ export function headroomAt(incomeMilliPerHour, currentUpkeepMilliPerHour, distan
  */
 export function projectHorizon({
   stockMilli = 0,
+  stockFrac = 0,
   productionMilliPerHour = 0,
   capMilli = 2_000 * 1000,
   upkeepMilliPerHour = 0,
@@ -130,7 +139,8 @@ export function projectHorizon({
   const cap = Math.max(0, toInt(capMilli, 2_000 * 1000));
   let stock = Math.max(0, toInt(stockMilli));
   const stock0 = stock; // (verify-pr272: the snapshot reports the store now, not where the projection stopped)
-  let frac = 0;
+  // (fix-landhorizon, Q-TG5-1 (a)) the store's carried sub-unit remainder, as the program keeps it
+  let frac = Math.max(0, Math.min(HOUR - 1, toInt(stockFrac)));
   let paid = paidTo == null ? now : toInt(paidTo);
   let rem = Math.max(0, toInt(remainder));
   let since = unpaidSince != null && Number.isInteger(Number(unpaidSince)) ? toInt(unpaidSince) : null;
@@ -168,6 +178,8 @@ export function projectHorizon({
       turnsUntilRelease: null,
       letting: false,
       turnsUntilPaid: null,
+      paidAgain: false,
+      graceTurnsLeft: null,
     });
   }
 
@@ -182,67 +194,65 @@ export function projectHorizon({
     return s;
   };
 
-  let turnsUntilUnpaid = since != null ? 0 : null;
-  let turnsUntilPaid = null;
   const wasUnpaid = since != null;
+  const since0 = since;
+  // A paid land: the first settle that leaves it unpaid. An unpaid one: the first settle that pays it (`paidAt`) and,
+  // while production stays below upkeep, the next one that leaves it unpaid again (`againAt`, Q-TG5-2 (a)).
+  let unpaidAt = null, paidAt = null, againAt = null;
+  const record = (s, k) => {
+    if (!wasUnpaid) { if (!s.paid && unpaidAt == null) unpaidAt = k; return; }
+    if (paidAt == null) { if (s.paid) paidAt = k; return; }
+    if (!s.paid && againAt == null) againAt = k;
+  };
 
   // A settle already due (the store is already at `now`) runs first, with
-  // no extra accrual — storesAt has already brought the stock to now.
-  if (paid < now) {
-    const s = apply(now, bell0);
-    if (!s.paid && turnsUntilUnpaid == null) turnsUntilUnpaid = 0;
-    if (wasUnpaid && s.paid && turnsUntilPaid == null) turnsUntilPaid = 0;
-  }
+  // no extra accrual — the store has already been settled to now.
+  if (paid < now) record(apply(now, bell0), 0);
 
-  let t = now;
-  let bell = bell0;
+  const reserveN = Number(turnReserve(upkeep));
   for (let k = 1; k <= MAX_STEPS; k++) {
-    if (since == null && turnsUntilUnpaid == null && net >= 0 && stock >= Number(turnReserve(upkeep))) {
+    if (since == null && net >= 0 && stock >= reserveN) {
       // Paid, and production covers upkeep: it will stay paid.
       break;
     }
-    if (since != null && turnsUntilPaid == null && (upkeep - production) * TURN_SECS >= 2 * HOUR
-      && stock + Math.ceil((Math.max(0, production) * TURN_SECS) / HOUR) + 1 < Number(turnReserve(upkeep))) {
+    if (since != null && paidAt == null && (upkeep - production) * TURN_SECS >= 2 * HOUR
+      && stock + Math.ceil((Math.max(0, production) * TURN_SECS) / HOUR) + 1 < reserveN) {
       // (verify-pr272) Unpaid, and a turn's production is at least 2 milli-food short of a turn's upkeep: every
       // settle now takes the store and the next turn holds less — it stays unpaid (the release follows `since`).
       break;
     }
-    if (wasUnpaid && since == null && turnsUntilPaid != null) break;
-    if (!wasUnpaid && since != null && turnsUntilUnpaid != null) {
-      // Unpaid has started; we only need the release offset from that bell.
-      break;
-    }
-    const t2 = t + TURN_SECS;
+    if (!wasUnpaid && unpaidAt != null) break; // unpaid has started; the release is 24 turns after it
+    if (wasUnpaid && paidAt != null && (net >= 0 || againAt != null)) break;
     const grown = accrueFood(stock, production, TURN_SECS, cap, frac);
     stock = grown.stockMilli;
     frac = grown.frac;
-    t = t2;
-    bell = bell0 + k;
-    const s = apply(t2, bell);
-    if (!s.paid && turnsUntilUnpaid == null) turnsUntilUnpaid = k;
-    if (wasUnpaid && s.paid && turnsUntilPaid == null) turnsUntilPaid = k;
+    record(apply(now + k * TURN_SECS, bell0 + k), k);
   }
 
-  const unpaidAlready = wasUnpaid && (turnsUntilPaid == null || turnsUntilPaid > 0);
-  // If it began unpaid and we never saw a paying settle, it is still unpaid.
-  const stillUnpaid = since != null;
-  const unpaidAt = stillUnpaid ? since : null;
-  const release = stillUnpaid && unpaidAt != null
-    ? { turnsUntilRelease: Math.max(0, unpaidAt + DECAY_AFTER_BELLS - bell0), letting: graceOf(unpaidAt, bell0).letting }
-    : turnsUntilUnpaid != null
-      ? { turnsUntilRelease: turnsUntilUnpaid + DECAY_AFTER_BELLS, letting: false }
+  // Unpaid now and no settle within the horizon pays it: the release follows unpaid_since.
+  const unpaidNow = wasUnpaid && paidAt == null;
+  const paidAgain = wasUnpaid && paidAt != null;
+  const nextUnpaid = wasUnpaid ? againAt : unpaidAt;
+  const release = unpaidNow
+    ? { turnsUntilRelease: Math.max(0, since0 + DECAY_AFTER_BELLS - bell0), letting: graceOf(since0, bell0).letting }
+    : nextUnpaid != null
+      ? { turnsUntilRelease: nextUnpaid + DECAY_AFTER_BELLS, letting: false }
       : { turnsUntilRelease: null, letting: false };
 
-  const sustainable = net >= 0 && !stillUnpaid;
-  // (verify-pr272) Paid, short of food, but no unpaid settle within MAX_STEPS turns: "more than MAX_STEPS turns".
-  const beyondTurns = !sustainable && !stillUnpaid && turnsUntilUnpaid == null ? MAX_STEPS : null;
+  const sustainable = net >= 0 && !unpaidNow && nextUnpaid == null;
+  // (verify-pr272) Paid (or paid again), short of food, but no unpaid settle within MAX_STEPS turns: "more than MAX_STEPS turns".
+  const beyondTurns = !sustainable && !unpaidNow && nextUnpaid == null ? MAX_STEPS : null;
   return snapshot({
     sustainable,
-    unpaidAlready: stillUnpaid && wasUnpaid,
-    turnsUntilUnpaid: stillUnpaid && wasUnpaid ? 0 : turnsUntilUnpaid,
+    unpaidAlready: unpaidNow,
+    // (Q-TG5-2 (a)) for a land a coming settle pays, the turns until it goes unpaid AGAIN (null: not within the horizon)
+    turnsUntilUnpaid: unpaidNow ? 0 : nextUnpaid,
     turnsUntilRelease: release.turnsUntilRelease,
     letting: release.letting,
-    turnsUntilPaid: wasUnpaid && !stillUnpaid ? (turnsUntilPaid ?? 0) : (wasUnpaid ? turnsUntilPaid : null),
+    turnsUntilPaid: wasUnpaid ? paidAt : null,
+    paidAgain,
+    // an unpaid land: turns left of its 24-turn grace now (0 = letting go); null for a paid one
+    graceTurnsLeft: wasUnpaid ? Math.max(0, since0 + DECAY_AFTER_BELLS - bell0) : null,
     beyondTurns,
   });
 }
@@ -279,7 +289,8 @@ export function holdHorizon(h, { consistent = true, key = '', bell = 0 } = {}) {
   const o = held.h;
   return {
     ...h,
-    sustainable: o.sustainable, unpaidAlready: o.unpaidAlready, letting: o.letting, beyondTurns: o.beyondTurns,
+    sustainable: o.sustainable, unpaidAlready: o.unpaidAlready, letting: o.letting, beyondTurns: o.beyondTurns, paidAgain: o.paidAgain,
+    graceTurnsLeft: down(o.graceTurnsLeft),
     turnsUntilUnpaid: down(o.turnsUntilUnpaid), turnsUntilRelease: down(o.turnsUntilRelease), turnsUntilPaid: down(o.turnsUntilPaid),
   };
 }
@@ -320,10 +331,36 @@ export function otherVillageNote({ villageCount = 1, otherFoodMilli = 0, otherPr
 /** The village-card lead (plain wording; Fuller's definition lives in the glossary). */
 export const horizonLead = () => L`この食料で土地を何マス、何ターン先まで支えられるか`;
 
+/**
+ * (fix-landhorizon, Q-TG5-2 (a)) An unpaid land that a coming settle pays while production stays below upkeep:
+ * `{now: true}` when the settle due now pays it, `{now: false, paidIn}` for a later one. null otherwise, and when the
+ * 24-turn grace would end first (the already-unpaid sentence, with its release, says that case). A settle that pays
+ * on the very bell the grace ends releases nothing: the program settles first and may_decay needs unpaid_since
+ * (verify-pr285), so that case is "paid in P", not "let go in P".
+ */
+function paidAgainCase(h) {
+  if (!h?.paidAgain || h.sustainable || h.turnsUntilPaid == null) return null;
+  const paidIn = h.turnsUntilPaid;
+  if (paidIn > 0 && h.graceTurnsLeft != null && h.graceTurnsLeft < paidIn) return null;
+  return { now: paidIn === 0, paidIn };
+}
+
 /** Compact HUD / popover line, or '' when there is nothing to say. */
 export function horizonHudLine(h, rate) {
   if (!h || !(h.tiles > 0) || !(h.upkeepMilliPerHour > 0)) return '';
   if (h.sustainable) return L`いまの土地は、この食料の生産で維持できます。`;
+  const pa = paidAgainCase(h);
+  if (pa?.now && h.turnsUntilUnpaid != null) {
+    return L`今の支払いで払われます。また未払いまで ${formatHorizonTurns(h.turnsUntilUnpaid, rate)}。手放しまで ${formatHorizonTurns(h.turnsUntilRelease, rate)}。`;
+  }
+  if (pa?.now) return L`今の支払いで払われます。また未払いまで ${formatHorizonTurns(h.beyondTurns ?? MAX_STEPS, rate)} 以上。`;
+  if (pa && h.turnsUntilUnpaid != null) {
+    return L`土地は未払いです。${formatHorizonTurns(pa.paidIn, rate)} 後の支払いで払われます。また未払いまで ${formatHorizonTurns(h.turnsUntilUnpaid, rate)}。手放しまで ${formatHorizonTurns(h.turnsUntilRelease, rate)}。`;
+  }
+  if (pa) return L`土地は未払いです。${formatHorizonTurns(pa.paidIn, rate)} 後の支払いで払われます。また未払いまで ${formatHorizonTurns(h.beyondTurns ?? MAX_STEPS, rate)} 以上。`;
+  if (h.paidAgain && h.graceTurnsLeft != null && !h.unpaidAlready) {
+    return h.graceTurnsLeft === 0 ? L`土地は未払いで、手放しが始まっています。` : L`土地は未払いです。手放しまで ${formatHorizonTurns(h.graceTurnsLeft, rate)}。`;
+  }
   if (h.unpaidAlready && h.letting) return L`土地は未払いで、手放しが始まっています。`;
   if (h.unpaidAlready) return L`土地は未払いです。手放しまで ${formatHorizonTurns(h.turnsUntilRelease, rate)}。`;
   if (h.turnsUntilUnpaid === 0) return L`今の支払いで未払いが始まります。`;
@@ -346,6 +383,25 @@ export function horizonStatusLines(h, rate) {
       return [L`いまの土地は、この食料の生産で維持できます。いまの距離なら、これ以上マスを増やしても維持できません。`];
     }
     return [L`いまの土地は、この食料の生産で維持できます。`];
+  }
+  const pa = paidAgainCase(h);
+  if (pa?.now && h.turnsUntilUnpaid != null) {
+    return [L`今の支払いで土地の維持費が払われ、未払いは終わります。このままなら、未払いはまた ${formatHorizonTurns(h.turnsUntilUnpaid, rate)} 後に始まります。土地の手放しは、その 24 ターン後（${formatHorizonTurns(h.turnsUntilRelease, rate)} 後）に始まります。`];
+  }
+  if (pa?.now) {
+    return [L`今の支払いで土地の維持費が払われ、未払いは終わります。食料の生産は土地の維持費より少ないですが、蔵の食料で ${formatHorizonTurns(h.beyondTurns ?? MAX_STEPS, rate)} 以上は払えます。`];
+  }
+  if (pa && h.turnsUntilUnpaid != null) {
+    return [L`すでに未払いです。このままなら、${formatHorizonTurns(pa.paidIn, rate)} 後の支払いで払われます。未払いはまた ${formatHorizonTurns(h.turnsUntilUnpaid, rate)} 後に始まります。土地の手放しは、その 24 ターン後（${formatHorizonTurns(h.turnsUntilRelease, rate)} 後）に始まります。`];
+  }
+  if (pa) {
+    return [L`すでに未払いです。このままなら、${formatHorizonTurns(pa.paidIn, rate)} 後の支払いで払われ、その後は蔵の食料で ${formatHorizonTurns(h.beyondTurns ?? MAX_STEPS, rate)} 以上は払えます。`];
+  }
+  if (h.paidAgain && h.graceTurnsLeft != null && !h.unpaidAlready) {
+    // paid later than the 24-turn grace ends: the release comes first (what follows it is not projected)
+    return h.graceTurnsLeft === 0
+      ? [L`すでに未払いです。いちばん遠いマスの手放しが始まっています。`]
+      : [L`すでに未払いです。このままなら、土地の手放しは ${formatHorizonTurns(h.graceTurnsLeft, rate)} 後に始まります。`];
   }
   if (h.unpaidAlready && h.letting) {
     return [L`すでに未払いです。いちばん遠いマスの手放しが始まっています。`];
