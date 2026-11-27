@@ -3795,4 +3795,129 @@ mod tests {
         // Once per send pass of the tick (duties, then the final pass).
         assert!(k.engine.unfunded_skips >= 10);
     }
+
+    /// verify-pr290 (break V4): a care-only poll (`Engine::poll_kind`)
+    /// reads and settles only the care orphans; every other restart-adopted
+    /// orphan stays tracked for the next full poll.
+    #[tokio::test(start_paused = true)]
+    async fn v290_care_only_poll_keeps_the_other_orphans() {
+        let port = fkc::CarePort::new(Duration::ZERO, None);
+        let mut k = fkc::keeper(
+            port,
+            fkc::stuck_journal(3, 5),
+            1_000_000_000_000,
+            fkc::RENT_FLOOR,
+        );
+        k.start().await.unwrap();
+        assert_eq!(k.engine.unresolved_of_kind("anchor"), 5);
+        assert_eq!(k.engine.unresolved_of_kind(PAYER_CARE_KIND), 3);
+        k.engine
+            .poll_kind(&k.port, k.journal.as_ref(), fkc::SLOT, PAYER_CARE_KIND)
+            .await;
+        assert_eq!(k.engine.unresolved_of_kind("anchor"), 5);
+        // Past validity, after the history gate: the care rows settle as
+        // never landed, the anchors are still tracked.
+        k.port.height.store(
+            fkc::past_old_validity(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        tokio::time::advance(fclient::rpc::HISTORY_EVERY).await;
+        k.engine
+            .poll_kind(&k.port, k.journal.as_ref(), fkc::SLOT, PAYER_CARE_KIND)
+            .await;
+        assert_eq!(k.engine.unresolved_of_kind(PAYER_CARE_KIND), 0);
+        assert_eq!(k.engine.never_landed, 3);
+        assert_eq!(
+            k.engine.unresolved_of_kind("anchor"),
+            5,
+            "the other orphans wait for the next full poll"
+        );
+        // The next full poll still reads them.
+        tokio::time::advance(fclient::rpc::HISTORY_EVERY).await;
+        k.engine.poll(&k.port, k.journal.as_ref(), fkc::SLOT).await;
+        assert_eq!(k.engine.unresolved_of_kind("anchor"), 0);
+        assert_eq!(k.engine.never_landed, 8);
+    }
+
+    /// verify-pr290 (break V5): a payer that can pay one signature fee on
+    /// top of its reserve but not the version's real (priority) fee is not
+    /// asked to sign; the write waits.
+    #[tokio::test(start_paused = true)]
+    async fn v290_payer_short_of_the_real_fee_signs_nothing() {
+        let port = fkc::CarePort::new(Duration::ZERO, None);
+        let mut k = fkc::keeper(
+            port,
+            Journal::open(std::path::Path::new(":memory:")).unwrap(),
+            0,
+            fkc::RENT_FLOOR,
+        );
+        k.start().await.unwrap();
+        k.engine.payer_reserve = fkc::RENT_FLOOR;
+        let marginal = fkc::RENT_FLOOR + fclient::fees::LAMPORTS_PER_SIGNATURE;
+        for d in k.port.delay.clone() {
+            k.payers.set_balance(d, marginal);
+        }
+        let memo = Address::new_from_array([0x77; 32]);
+        for i in 0..10u8 {
+            k.engine.ensure(
+                WriteSpec {
+                    key: format!("anchor:{i}:0"),
+                    kind: "anchor",
+                    tag: tag::POST_BEACON,
+                    class: Class::D,
+                    bell: Some(i as u32),
+                    region: Some(0),
+                    build: Arc::new(move |_| {
+                        vec![solana_instruction::Instruction::new_with_bytes(
+                            memo,
+                            &[i],
+                            vec![],
+                        )]
+                    }),
+                    deadline_slot: None,
+                    not_before_slot: 0,
+                    fixed_payer: None,
+                },
+                fkc::SLOT,
+            );
+        }
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (0, 10));
+        assert!(k.port.inner.sent.lock().unwrap().is_empty());
+        assert_eq!(k.engine.pending_len(), 10);
+        // One payer with the real fee: every write goes out from it, and
+        // each fee was above one signature (the first check alone passes).
+        let rich = k.payers.delay.keys[3].pubkey();
+        k.payers.set_balance(rich, fkc::RENT_FLOOR + 1_000_000);
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT + 1,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (10, 0));
+        for t in k.port.inner.sent.lock().unwrap().iter() {
+            assert_eq!(t.message.account_keys[0], rich);
+        }
+        for a in k.journal.as_ref().unwrap().in_flight().unwrap() {
+            assert!(
+                a.fee > fclient::fees::LAMPORTS_PER_SIGNATURE,
+                "fee {}",
+                a.fee
+            );
+        }
+    }
 }
