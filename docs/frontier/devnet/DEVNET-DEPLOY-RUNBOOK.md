@@ -1062,6 +1062,11 @@ wide_per_wedge = 6
 rpc_min_gap_ms = 250
 ```
 
+With `feed = "rpc"` the keeper keeps its polled feed in `keeper-a/keeper.journal.sqlite.feed/` (key `feed_store`, default
+beside the journal; keeper-feed-persist): the FIRST start of a keeper built with it reads the whole program history
+(one `getTransaction` per program transaction), every later restart only the new tail. Keep the directory with the
+journal; a store moved aside (`*.discarded-<ms>`, after a detected history gap) can be deleted once the keeper caught up.
+
 `wide-tickets`, `expeditions`, `wide-resolve` and `wide_rings` need the keeper built with `--features playable-lane`
 (`config.rs` `check_wide`); `expeditions` needs `beacon`, `gather` and `resolve`; `wide-resolve` needs `beacon`;
 `provinces_reach` (at most 8, `PROVINCES_REACH_MAX`; 3 is the preset's `outpost_range`) and `wide_rings` (at most 8) need `rings`. Unknown keys are refused.

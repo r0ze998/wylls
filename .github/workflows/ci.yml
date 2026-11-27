@@ -535,6 +535,7 @@ jobs:
           cargo test --locked -p fclient --lib
           cargo test --locked -p fclient --test rpc_devnet_replay
           cargo test --locked -p keeper --test cluster_feed_v1
+          cargo test --locked -p keeper --test cluster_feed_store
           cargo test --locked -p verify --test devnet_b5_witness --test devnet_b5_program_accounts
       # verify-pr157: `scripts/play-local.sh` builds itest, herald and keeper with feature sets that no other
       # step compiles (the workspace lint above builds itest without features, so its feature-gated modules,

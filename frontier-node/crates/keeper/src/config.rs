@@ -20,6 +20,8 @@
 //! journal = "keeper.journal.sqlite"
 //! beneficiary_key_file = "beneficiary.key"   # W4-C: ClaimDefence signer (= beneficiary)
 //! backup_delay_slots = 0                      # W6T-2: a backup keeper's settle delay
+//! # feed = "rpc" only: where the polled feed persists (default "<journal>.feed"; "off": in memory only)
+//! feed_store = "keeper.journal.sqlite.feed"
 //! ```
 //!
 //! The parser reads the flat subset of TOML the file uses (`key = value`
@@ -29,7 +31,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use solana_address::Address;
 
@@ -414,6 +416,12 @@ pub struct KeeperConfig {
     /// `feed = "rpc"`: a second RPC endpoint the poller cross-checks
     /// (findex G3); optional.
     pub feed_witness: Option<String>,
+    /// `feed = "rpc"`: where the polled feed log persists so a restarted
+    /// keeper reads only the new tail (keeper-feed-persist,
+    /// `crate::clusterfeed` module note). Default: the directory
+    /// `<journal>.feed` beside the journal; `"off"`: in memory only (every
+    /// restart re-reads the whole history, as before).
+    pub feed_store: FeedStoreConf,
     /// Least time between two JSON-RPC calls of this keeper to its `rpc`
     /// (every client shares one pacer; an HTTP 429/503 backs all off).
     /// Default 0 (unpaced) with `feed = "localnet"`, 150 ms with `"rpc"`
@@ -432,6 +440,17 @@ pub struct KeeperConfig {
 pub enum FeedSource {
     Localnet,
     Rpc,
+}
+
+/// `keeper.toml` `feed_store` ([`KeeperConfig::feed_store`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedStoreConf {
+    /// `<journal>.feed` (the default).
+    BesideJournal,
+    /// `"off"`.
+    Off,
+    /// A directory of its own.
+    Dir(PathBuf),
 }
 
 impl KeeperConfig {
@@ -500,8 +519,26 @@ impl KeeperConfig {
             feed_max_backoff_ms: 60_000,
             feed_origin: None,
             feed_witness: None,
+            feed_store: FeedStoreConf::BesideJournal,
             rpc_min_gap_ms: None,
             api_rpc_gap_ms: None,
+        }
+    }
+
+    /// The feed store directory for a keeper whose journal is `journal`
+    /// (`None`: `feed = "localnet"` or `feed_store = "off"`).
+    pub fn feed_store_dir(&self, journal: &Path) -> Option<PathBuf> {
+        if self.feed != FeedSource::Rpc {
+            return None;
+        }
+        match &self.feed_store {
+            FeedStoreConf::Off => None,
+            FeedStoreConf::Dir(d) => Some(d.clone()),
+            FeedStoreConf::BesideJournal => {
+                let mut p = journal.as_os_str().to_owned();
+                p.push(".feed");
+                Some(PathBuf::from(p))
+            }
         }
     }
 
@@ -547,6 +584,9 @@ impl KeeperConfig {
                 }
                 if self.feed_origin.is_some() || self.feed_witness.is_some() {
                     return Err("`feed_origin` / `feed_witness` need feed = \"rpc\"".into());
+                }
+                if self.feed_store != FeedStoreConf::BesideJournal {
+                    return Err("`feed_store` needs feed = \"rpc\"".into());
                 }
             }
             FeedSource::Rpc => {
@@ -831,6 +871,14 @@ impl KeeperConfig {
         }
         if let Some(v) = take("feed_witness") {
             c.feed_witness = Some(s(v, "feed_witness")?);
+        }
+        if let Some(v) = take("feed_store") {
+            let d = s(v, "feed_store")?;
+            c.feed_store = match d.as_str() {
+                "off" => FeedStoreConf::Off,
+                "" => return Err("`feed_store`: a directory or \"off\"".into()),
+                _ => FeedStoreConf::Dir(PathBuf::from(d)),
+            };
         }
         c.check_feed()?;
         c.check_wide()?;
