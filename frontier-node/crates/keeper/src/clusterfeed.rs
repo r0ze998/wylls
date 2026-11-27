@@ -84,6 +84,8 @@ pub struct FeedStore {
     dir: PathBuf,
     program: Address,
     archive: Archive,
+    /// A write failed and the archive could not be reopened from disk.
+    stale: bool,
 }
 
 /// What [`Polled::with_store`] found.
@@ -109,7 +111,24 @@ impl FeedStore {
             dir: dir.to_path_buf(),
             program,
             archive,
+            stale: false,
         })
+    }
+
+    /// Reopens the archive from disk after a failed write (its in-memory
+    /// manifest may be ahead of the durable one).
+    fn reopen(&mut self) -> Result<(), String> {
+        match Archive::open(&self.dir, findex::archive::SEGMENT_BYTES) {
+            Ok(a) => {
+                self.archive = a;
+                self.stale = false;
+                Ok(())
+            }
+            Err(e) => {
+                self.stale = true;
+                Err(format!("reopening the store failed ({e})"))
+            }
+        }
     }
 
     /// Moves the store aside (never deleted) and opens a fresh one.
@@ -372,15 +391,35 @@ impl Polled {
             None => recs,
             Some(_) if recs.is_empty() => recs,
             Some(st) => {
-                let cursor = st.wrap(&self.poll);
-                match st.archive.append(&recs, cursor) {
-                    Ok(stored) => stored,
-                    Err(e) => {
+                // A failed write left the archive ahead of the disk and it
+                // could not be reopened then: never append behind it.
+                if st.stale {
+                    if let Err(r) = st.reopen() {
                         if let Some(b) = &before {
                             self.poll.restore(b);
                         }
                         return Err(PortError::Unavailable(format!(
-                            "cluster feed: the feed store could not be written ({e}); the batch is pulled again"
+                            "cluster feed: the feed store is not writable: {r}"
+                        )));
+                    }
+                }
+                let cursor = st.wrap(&self.poll);
+                match st.archive.append(&recs, cursor) {
+                    Ok(stored) => stored,
+                    Err(e) => {
+                        // The archive may have advanced in memory (frames
+                        // written, the manifest not): reopen it from disk,
+                        // which drops the unnamed frames and holds the
+                        // durable manifest, i.e. `before`.
+                        let again = match st.reopen() {
+                            Ok(()) => "the batch is pulled again".to_string(),
+                            Err(r) => format!("{r}; retried before the next write"),
+                        };
+                        if let Some(b) = &before {
+                            self.poll.restore(b);
+                        }
+                        return Err(PortError::Unavailable(format!(
+                            "cluster feed: the feed store could not be written ({e}); {again}"
                         )));
                     }
                 }

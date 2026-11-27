@@ -427,10 +427,31 @@ async fn s6_a_failed_store_write_serves_nothing_and_loses_nothing() {
             .collect::<Vec<_>>(),
         vec![(5, sig(5)), (6, sig(6))]
     );
+    // The frames land but the manifest cannot be replaced (the directory
+    // is read-only, the segment writable): the archive ran ahead in memory;
+    // it is reopened from disk, so the retry numbers 7, 8 again.
+    push(&chain, 7, 8);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    tokio::time::sleep(Duration::from_millis(220)).await;
+    let e = p.feed(Cursor(6)).await.unwrap_err();
+    assert!(
+        matches!(&e, PortError::Unavailable(m) if m.contains("feed store could not be written")),
+        "{e:?}"
+    );
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    tokio::time::sleep(Duration::from_millis(820)).await;
+    let page = p.feed(Cursor(6)).await.unwrap();
+    assert_eq!(
+        page.iter()
+            .map(|r| (r.seq, r.signature.to_string()))
+            .collect::<Vec<_>>(),
+        vec![(7, sig(7)), (8, sig(8))]
+    );
+    let live = read_all(&p).await.unwrap();
     drop(p);
     let (p, o) = stored(url, &dir, program());
-    assert_eq!(o, StoreOpened::Restored(6));
-    assert_eq!(read_all(&p).await.unwrap().len(), 6);
+    assert_eq!(o, StoreOpened::Restored(8));
+    assert_eq!(read_all(&p).await.unwrap(), live);
     let _ = std::fs::remove_dir_all(&root);
 }
 
