@@ -7,7 +7,8 @@
 //! 2. creates **test participants** (each its own in-memory key, funded by the test chain's faucet) who Join and
 //!    PlaceHome on the player's wedge until its folded occupancy passes θ (6,500 bps, the stricter value) — the
 //!    program's own area-expansion rule (`map.rs` `ring_occupancy_met`);
-//! 3. at least a turn after the last opening: FoldOccupancy 0/1/2, OpenRing, then the ring seed exactly as the keeper
+//! 3. at least a turn after the last opening: FoldOccupancy 0/1/2 (a part refused FoldStale — the bell turned between
+//!    parts — restarts the whole fold at the next bell, at most `FOLD_TRIES` folds), OpenRing, then the ring seed exactly as the keeper
 //!    consumes it (its recorded round, public Quicknet, BLS-verified), then OpenProvince of the next-ring provinces
 //!    next to the player's home province.
 //!
@@ -393,6 +394,61 @@ pub fn settlers_needed(occupied: u32, open: u32, theta_bps: u64) -> u32 {
     want.saturating_sub(occupied)
 }
 
+/// (fix-loop27) How many times the demo's fold may start from part 0 when a part comes back `FoldStale`.
+pub const FOLD_TRIES: u32 = 4;
+
+/// (fix-loop27) Whether a FoldOccupancy outcome is the program's FoldStale refusal (44): a part landed with that error.
+/// Only a landed refusal counts — an `Unknown` outcome is never retried.
+pub fn is_fold_stale(sent: &Sent) -> bool {
+    matches!(sent, Sent::Failed(e) if e.contains(&format!("(code Some({}))", fclient::abi::err::FOLD_STALE)))
+}
+
+/// (fix-loop27, LP27 BREAK-1) FoldOccupancy 0, 1, 2 through `part`; on a FoldStale part, `next_bell` waits for the next
+/// bell to begin and the whole fold starts again from part 0 (the program's same-bell check is unchanged: a fold only
+/// counts when its three parts land in one bell). At most `tries` attempts; each retry is reported through `log`. Any
+/// other refusal or an unknown outcome stops at once, worded as before (nothing else is resent). Returns the retries.
+pub async fn fold_retrying<P, PF, N, NF>(
+    mut part: P,
+    mut next_bell: N,
+    tries: u32,
+    log: impl Fn(Value),
+) -> Result<u32, String>
+where
+    P: FnMut(u8) -> PF,
+    PF: std::future::Future<Output = Sent>,
+    N: FnMut() -> NF,
+    NF: std::future::Future<Output = Result<u32, String>>,
+{
+    let mut attempt = 1u32;
+    'fold: loop {
+        for p in 0..3u8 {
+            let what = format!("FoldOccupancy {p}");
+            match part(p).await {
+                Sent::Landed(_) => {}
+                sent @ Sent::Failed(_) if is_fold_stale(&sent) => {
+                    if attempt >= tries {
+                        return Err(format!(
+                            "{what}: {sent:?} (FoldStale on {tries} folds in a row; not resent again)"
+                        ));
+                    }
+                    let Sent::Failed(why) = &sent else {
+                        unreachable!()
+                    };
+                    let why = why.chars().take(160).collect::<String>();
+                    let bell = next_bell().await?;
+                    log(
+                        json!({"attempt": attempt, "stale_part": p, "restart_bell": bell, "of": tries, "why": why}),
+                    );
+                    attempt += 1;
+                    continue 'fold;
+                }
+                other => return Err(format!("{what}: {other:?} (not resent)")),
+            }
+        }
+        return Ok(attempt - 1);
+    }
+}
+
 pub(crate) async fn send(
     state: &Shared,
     k: &Keypair,
@@ -605,7 +661,8 @@ pub fn verify_pair(
 }
 
 /// Runs the demo setup on `state` (the natural world's chain, after the player's PlaceHome on `home`). Prints one line
-/// per step through `out`. Stops at the first refusal or unknown outcome (nothing is resent) or on `stop`.
+/// per step through `out`. Stops at the first refusal or unknown outcome (nothing is resent) or on `stop` — except a
+/// FoldStale fold part, which restarts that fold at the next bell ([`fold_retrying`], at most [`FOLD_TRIES`] folds).
 pub async fn run(
     state: Shared,
     a: Addresses,
@@ -633,19 +690,58 @@ pub async fn run(
         json!({"chain_unix": lock(&state).unix_timestamp()}),
     ));
     let opener = funded(&state, 500_000_000_000, &stop).await?;
-    let fold = |st: Shared, k: Keypair, mut s: tokio::sync::watch::Receiver<bool>, a: Addresses| async move {
-        for part in 0..3u8 {
-            send(
-                &st,
-                &k,
-                ix::fold_occupancy(&a, k.pubkey(), part),
-                &format!("FoldOccupancy {part}"),
-                &mut s,
-            )
-            .await?;
-        }
-        Ok::<(), String>(())
+    // the Season's clock (read once; FoldOccupancy's bells and the wait for the opening's next bell)
+    let clock = {
+        let c = lock(&state);
+        lk::season_clock(&c, &a)?
     };
+    // (fix-loop27, LP27 BREAK-1) the three parts must land in one bell (`map.rs` FoldStale); at ×60 a bell is 10 s and a
+    // loaded machine can straddle it. A FoldStale part restarts the WHOLE fold from part 0 at the start of the next
+    // bell (part 0 restamps `fold_bell`), at most FOLD_TRIES times, each retry printed; any other outcome still stops.
+    let fold =
+        |st: Shared, k: Keypair, s: tokio::sync::watch::Receiver<bool>, a: Addresses, n: u32| {
+            let out = &out;
+            let clock = clock.clone();
+            async move {
+                let bell_now = || clock.bell_at(lock(&st).unix_timestamp()).unwrap_or(0);
+                fold_retrying(
+                    |part| {
+                        let (st, k, a, mut s) =
+                            (st.clone(), k.insecure_clone(), a.clone(), s.clone());
+                        async move {
+                            let ix = ix::fold_occupancy(&a, k.pubkey(), part);
+                            submit_and_wait(
+                                &st,
+                                &k,
+                                ix,
+                                &format!("FoldOccupancy {part}"),
+                                Duration::from_secs(60),
+                                &mut s,
+                            )
+                            .await
+                        }
+                    },
+                    || {
+                        let from = bell_now();
+                        let s = s.clone();
+                        let bell_now = &bell_now;
+                        async move {
+                            while bell_now() <= from {
+                                if *s.borrow() {
+                                    return Err("stopped".to_string());
+                                }
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                            }
+                            Ok(bell_now())
+                        }
+                    },
+                    FOLD_TRIES,
+                    |v| out(line("fold_retry", scale, n, v)),
+                )
+                .await
+                .map(|_| ())
+            }
+        };
     // 2. test participants on the player's wedge, up to θ
     let wedge_of = |p: i32, q: i32| ProvinceCoord::new(p, q).wedge();
     let wh = wedge_of(home.0 as i32, home.1 as i32).ok_or("the home has no wedge")? as usize;
@@ -660,6 +756,7 @@ pub async fn run(
             opener.insecure_clone(),
             stop.clone(),
             a.clone(),
+            settlers,
         )
         .await?;
         let fd = bytes(&state, &a.frontier())?;
@@ -721,10 +818,6 @@ pub async fn run(
     }
     out(line("settled", scale, settlers, json!({"wedge": wh})));
     // 3. a turn after the last opening: fold, OpenRing, the ring seed, the neighbours
-    let clock = {
-        let c = lock(&state);
-        lk::season_clock(&c, &a)?
-    };
     let last = u32::from_le_bytes(
         bytes(&state, &a.frontier())?[FR::LAST_RING_OPEN_BELL..][..4]
             .try_into()
@@ -741,6 +834,7 @@ pub async fn run(
         opener.insecure_clone(),
         stop.clone(),
         a.clone(),
+        settlers,
     )
     .await?;
     let d = u16::from_le_bytes(
@@ -969,6 +1063,239 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// (fix-loop27) The program's FoldOccupancy rule (`map.rs`): part 0 stamps the bell; parts 1 and 2 need the same
+    /// bell and the previous part, else FoldStale (44). Each send costs `cost` seconds of a `bell_s`-second bell.
+    struct FoldModel {
+        now: f64,
+        bell_s: f64,
+        cost: f64,
+        fold_bell: u32,
+        fold_part: u8,
+        folded: Vec<u32>,
+        sent: Vec<u8>,
+    }
+    impl FoldModel {
+        fn bell(&self) -> u32 {
+            (self.now / self.bell_s) as u32
+        }
+        fn send(&mut self, part: u8) -> Sent {
+            self.sent.push(part);
+            self.now += self.cost;
+            let b = self.bell();
+            let stale = || {
+                Sent::Failed(format!("FoldOccupancy {part} failed: InstructionError(4, Custom(44)) (code Some(44)) []"))
+            };
+            match part {
+                0 => {
+                    self.fold_bell = b;
+                    self.fold_part = 1;
+                }
+                1 | 2 if self.fold_part != part || self.fold_bell != b => return stale(),
+                1 => self.fold_part = 2,
+                _ => {
+                    self.fold_part = 0;
+                    self.folded.push(b);
+                }
+            }
+            Sent::Landed(format!("sig{}", self.sent.len()))
+        }
+    }
+    fn run_model(m: FoldModel, tries: u32) -> (Result<u32, String>, FoldModel, Vec<Value>) {
+        let m = std::cell::RefCell::new(m);
+        let logs = std::cell::RefCell::new(vec![]);
+        let r = futures_lite_block(fold_retrying(
+            |p| {
+                let r = m.borrow_mut().send(p);
+                async move { r }
+            },
+            || {
+                let mut g = m.borrow_mut();
+                let from = g.bell();
+                // the wait: the clock runs to the start of the next bell
+                g.now = (from + 1) as f64 * g.bell_s;
+                let b = g.bell();
+                async move { Ok(b) }
+            },
+            tries,
+            |v| logs.borrow_mut().push(v),
+        ));
+        (r, m.into_inner(), logs.into_inner())
+    }
+    fn futures_lite_block<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(f)
+    }
+    fn model(now: f64, cost: f64) -> FoldModel {
+        FoldModel {
+            now,
+            bell_s: 10.0,
+            cost,
+            fold_bell: 0,
+            fold_part: 0,
+            folded: vec![],
+            sent: vec![],
+        }
+    }
+
+    #[test]
+    fn a_fold_straddling_a_bell_restarts_from_part_0_at_the_next_bell_and_lands() {
+        // ×60: a 10-s bell; a loaded machine takes 3 s a part, starting 5 s into bell 7 → part 1 lands in bell 8
+        let (r, m, logs) = run_model(model(75.0, 3.0), FOLD_TRIES);
+        assert_eq!(r, Ok(1), "one retry");
+        assert_eq!(
+            m.sent,
+            vec![0, 1, 0, 1, 2],
+            "the whole fold again from part 0"
+        );
+        assert_eq!(
+            m.folded,
+            vec![9],
+            "folded in ONE bell (the program's check unchanged)"
+        );
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0]["stale_part"], 1);
+        assert_eq!(logs[0]["restart_bell"], 9);
+        assert_eq!(logs[0]["attempt"], 1);
+        assert_eq!(logs[0]["of"], FOLD_TRIES);
+        assert!(logs[0]["why"].as_str().unwrap().contains("Custom(44)"));
+        // part 2 straddling too
+        let (r, m, logs) = run_model(model(73.0, 3.0), FOLD_TRIES);
+        assert_eq!(
+            (r, m.sent, logs[0]["stale_part"].clone()),
+            (Ok(1), vec![0, 1, 2, 0, 1, 2], json!(2))
+        );
+        // no straddle: no retry, nothing logged
+        let (r, m, logs) = run_model(model(70.0, 3.0), FOLD_TRIES);
+        assert_eq!((r, m.sent, logs.len()), (Ok(0), vec![0, 1, 2], 0));
+    }
+
+    #[test]
+    fn a_fold_that_never_fits_a_bell_stops_after_fold_tries_worded() {
+        // 6 s a part: three parts never fit one 10-s bell
+        let (r, m, logs) = run_model(model(0.0, 6.0), FOLD_TRIES);
+        let e = r.unwrap_err();
+        assert!(e.starts_with("FoldOccupancy 1: Failed("), "{e}");
+        assert!(
+            e.contains("Custom(44)")
+                && e.contains(&format!("FoldStale on {FOLD_TRIES} folds in a row")),
+            "{e}"
+        );
+        assert_eq!(
+            m.sent.len(),
+            2 * FOLD_TRIES as usize,
+            "bounded: {:?}",
+            m.sent
+        );
+        assert_eq!(logs.len(), FOLD_TRIES as usize - 1);
+        assert!(m.folded.is_empty());
+    }
+
+    #[test]
+    fn only_a_landed_fold_stale_is_retried() {
+        let s = |e: &str| Sent::Failed(e.into());
+        assert!(is_fold_stale(&s(
+            "FoldOccupancy 2 failed: InstructionError(4, Custom(44)) (code Some(44)) [..]"
+        )));
+        assert!(!is_fold_stale(&s(
+            "FoldOccupancy 2 failed: InstructionError(4, Custom(45)) (code Some(45)) [..]"
+        )));
+        assert!(!is_fold_stale(&s(
+            "FoldOccupancy 2 failed: x (code Some(440)) [..]"
+        )));
+        assert!(!is_fold_stale(&Sent::Unknown {
+            signature: "s".into(),
+            why: "Custom(44) (code Some(44))".into()
+        }));
+        assert!(!is_fold_stale(&Sent::Landed("s".into())));
+        for (out, word) in [
+            (
+                s("FoldOccupancy 1 failed: InstructionError(4, Custom(45)) (code Some(45)) []"),
+                "Failed(",
+            ),
+            (
+                Sent::Unknown {
+                    signature: "s".into(),
+                    why: "did not land".into(),
+                },
+                "Unknown {",
+            ),
+        ] {
+            let calls = std::cell::Cell::new(0);
+            let waits = std::cell::Cell::new(0);
+            let r = futures_lite_block(fold_retrying(
+                |p| {
+                    calls.set(calls.get() + 1);
+                    let o = if p == 0 {
+                        Sent::Landed("s".into())
+                    } else {
+                        out.clone()
+                    };
+                    async move { o }
+                },
+                || {
+                    waits.set(waits.get() + 1);
+                    async { Ok(0) }
+                },
+                FOLD_TRIES,
+                |_| panic!("no retry line"),
+            ));
+            let e = r.unwrap_err();
+            assert!(
+                e.starts_with("FoldOccupancy 1: ")
+                    && e.contains(word)
+                    && e.ends_with("(not resent)"),
+                "{e}"
+            );
+            assert_eq!(
+                (calls.get(), waits.get()),
+                (2, 0),
+                "stops at once, as before"
+            );
+        }
+        // a stop while waiting for the next bell ends the fold
+        let r = futures_lite_block(fold_retrying(
+            |p| {
+                let o = if p == 0 {
+                    Sent::Landed("s".into())
+                } else {
+                    Sent::Failed("(code Some(44))".into())
+                };
+                async move { o }
+            },
+            || async { Err("stopped".to_string()) },
+            FOLD_TRIES,
+            |_| {},
+        ));
+        assert_eq!(r, Err("stopped".into()));
+    }
+
+    #[test]
+    fn both_demo_folds_go_through_the_retrying_fold() {
+        let src = include_str!("capture_demo.rs");
+        let run = &src[src.find("pub async fn run(").unwrap()..src.find("#[cfg(test)]").unwrap()];
+        assert_eq!(run.matches("fold_retrying(").count(), 1, "one fold closure");
+        assert_eq!(
+            run.matches("        fold(\n").count() + run.matches("    fold(\n").count() >= 2,
+            true
+        );
+        assert!(
+            run.contains("FOLD_TRIES,") && run.contains("\"fold_retry\""),
+            "bounded and printed"
+        );
+        assert!(
+            !run.contains("send(\n                &st,"),
+            "no fold part through the stop-at-once send"
+        );
+        let fold_at = run.find("let fold =").unwrap();
+        let wait_at = run.find("while bell_now() <= from {").unwrap();
+        assert!(
+            fold_at < wait_at && wait_at < run.find("// 2. test participants").unwrap(),
+            "waits for the next bell"
+        );
+    }
     #[test]
     fn the_demo_options_are_explicit_exact_and_together() {
         let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -1332,7 +1659,10 @@ mod tests {
         );
         assert!(
             run.contains("passable: pv.passable_mask")
-                && run.contains("c.keep).map(|k| (k.holder, k.tile, k.heartland_safe))"),
+                && run
+                    .split_whitespace()
+                    .collect::<String>()
+                    .contains("c.keep).map(|k|(k.holder,k.tile,k.heartland_safe))"),
             "the chain's own records"
         );
         assert!(
@@ -1362,13 +1692,18 @@ mod tests {
             "Holding and Citizen nations agree, or not ready"
         );
         // (review: a refused OpenProvince is simulated first and moves on to the next candidate; nothing is sent for it)
-        let open_at = run.find("let ix = ix::open_province(").unwrap();
-        let sim_at = run[open_at..]
-            .find("lk::simulate_ix(&c, &opener, &ix)")
+        // (fix-loop27: rustfmt 41612da8e split these lines; the pins compare without whitespace)
+        let flat: String = run.split_whitespace().collect();
+        let nows = |x: &str| x.split_whitespace().collect::<String>();
+        let open_at = flat.find(&nows("let ix = ix::open_province(")).unwrap();
+        let sim_at = flat[open_at..]
+            .find(&nows("lk::simulate_ix(&c, &opener, &ix)"))
             .unwrap();
-        let send_at = run[open_at..].find("send(&state, &opener, ix, ").unwrap();
+        let send_at = flat[open_at..]
+            .find(&nows("send(&state, &opener, ix, "))
+            .unwrap();
         assert!(sim_at < send_at, "simulated before it is sent");
-        assert!(run.contains("if let Some(why) = refused_open { refused.push(json!({\"p\": target.0, \"q\": target.1, \"why\": why})); continue; }"));
+        assert!(flat.contains(&nows("if let Some(why) = refused_open { refused.push(json!({\"p\": target.0, \"q\": target.1, \"why\": why})); continue; }")));
     }
     #[test]
     fn the_32_step_boundary_is_exact() {
