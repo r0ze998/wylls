@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CREATE_WINDOW_SECS, DEVNET_RPC, alertedReport, bondRefundDeadline, decodeSeason, etimeSeconds, expectedProcs, jst, lagLevel, logLevel, lowerBound, makeRpc, mergeState,
+  CREATE_WINDOW_SECS, DEVNET_RPC, SLOT_S_DEFAULT, alertedReport, bondRefundDeadline, decodeSeason, etimeSeconds, expectedProcs, heraldLag, jst, lagLevel, logLevel, lowerBound, makeRpc, mergeState,
   milestonesFrom, overallOf, parsePs, phaseCheck, postponedFrom, postponedStale, procCheck, procOverrides, scanLog, timelineText, tunnelHost,
 } from '../health.mjs';
 
@@ -918,4 +918,43 @@ test('readKeeperJournal: a stopped keeper (no -wal/-shm) is read with immutable=
     assert.deepEqual(readKeeperJournal(f, (args) => { calls.push(args[3]); return ' 5 0\n'; }), { maxLanded: null, maxSent: 5, sent: 0 });
     assert.equal(calls.length, 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// herald-pull-chunk: herald.lag from /h/status ingest.backlog + lastArchivedSlot (and the previous run's, via --state)
+test('heraldLag: a backlog is WARN while lastArchivedSlot advances, FAIL when it stands still', () => {
+  assert.equal(SLOT_S_DEFAULT, 0.4);
+  assert.deepEqual(heraldLag({ lag: 5, backlog: 0, lastArchived: 900 }), { level: 'OK', note: null });
+  assert.equal(heraldLag({ lag: 2000, backlog: NaN }).level, 'FAIL', 'no backlog field: the live-slot lag decides, as before');
+  const p = heraldLag({ lag: 3, backlog: 300, lastArchived: 950, prevArchived: 900 });
+  assert.equal(p.level, 'WARN');
+  assert.match(p.note, /behind, progressing: backlog 300 txs, archived through slot 950 \(\+50 slots/);
+  assert.equal(heraldLag({ lag: 3, backlog: 300, lastArchived: 900, prevArchived: 900 }).level, 'FAIL');
+  assert.match(heraldLag({ lag: 3, backlog: 300, lastArchived: 900, prevArchived: 900 }).note, /NOT progressing/);
+  assert.equal(heraldLag({ lag: 3, backlog: 300, lastArchived: 950 }).level, 'WARN', 'no previous run: WARN, not FAIL');
+  assert.equal(heraldLag({ lag: 3, backlog: 300, prevArchived: 900 }).level, 'FAIL', 'no lastArchivedSlot to show progress');
+  // verify-pr288: a rebuilt archive (fresh --data dir) catching up from older slots is WARN once, not FAIL
+  const rebuilt = heraldLag({ lag: 3, backlog: 1587, lastArchived: 400, prevArchived: 900 });
+  assert.equal(rebuilt.level, 'WARN');
+  assert.match(rebuilt.note, /below the last run's 900 \(a new or rebuilt archive\?\)/);
+});
+
+test('runChecks: herald.lag behind-progressing / not-progressing, the state keeps lastArchivedSlot, --slot-s', async () => {
+  const status = (ingest) => ({
+    '/h/season': { status: 200, body: { statusName: 'Running', rings: [1, 2], ringsOpened: 2, rMax: 16, rulesetHash: 'ab'.repeat(32) } },
+    '/h/status': { status: 200, body: { ingest: { state: 'ok', failures: 0, error: null, ...ingest }, alarms: { badRecords: 0 }, events: '9', provinces: 2, ws: { open: 1 }, live: [995, 0] } },
+  });
+  const behind = { backlog: 412, lastArchivedSlot: 900 };
+  let r = await world({ herald: status(behind), tunnelLog: 'x', extra: { prevState: { herald: { lastArchivedSlot: 850 } } } });
+  assert.equal(r.by['herald.lag'].level, 'WARN');
+  assert.match(r.by['herald.lag'].detail, /lag 5 slots \(≈2 s at 0\.4 s\/slot\); behind, progressing: backlog 412 txs/);
+  assert.deepEqual(mergeState({}, r).herald.lastArchivedSlot, 900);
+  r = await world({ herald: status(behind), tunnelLog: 'x', extra: { prevState: { herald: { lastArchivedSlot: 900 } } } });
+  assert.equal(r.by['herald.lag'].level, 'FAIL');
+  assert.match(r.by['herald.lag'].detail, /NOT progressing/);
+  // caught up (backlog 0) or unknown: the live lag decides; measured seconds a slot when given
+  r = await world({ herald: status({ backlog: 0, lastArchivedSlot: 990 }), tunnelLog: 'x', extra: { slotS: 0.24 } });
+  assert.equal(r.by['herald.lag'].level, 'OK');
+  assert.match(r.by['herald.lag'].detail, /lag 5 slots \(≈1 s at 0\.24 s\/slot\)$/);
+  r = await world({ herald: status({ backlog: 'unknown', lastArchivedSlot: 990 }), tunnelLog: 'x' });
+  assert.equal(r.by['herald.lag'].level, 'OK');
 });
