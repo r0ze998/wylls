@@ -895,6 +895,10 @@ test('heraldLag: a backlog is WARN while lastArchivedSlot advances, FAIL when it
   assert.match(heraldLag({ lag: 3, backlog: 300, lastArchived: 900, prevArchived: 900 }).note, /NOT progressing/);
   assert.equal(heraldLag({ lag: 3, backlog: 300, lastArchived: 950 }).level, 'WARN', 'no previous run: WARN, not FAIL');
   assert.equal(heraldLag({ lag: 3, backlog: 300, prevArchived: 900 }).level, 'FAIL', 'no lastArchivedSlot to show progress');
+  // verify-pr288: a rebuilt archive (fresh --data dir) catching up from older slots is WARN once, not FAIL
+  const rebuilt = heraldLag({ lag: 3, backlog: 1587, lastArchived: 400, prevArchived: 900 });
+  assert.equal(rebuilt.level, 'WARN');
+  assert.match(rebuilt.note, /below the last run's 900 \(a new or rebuilt archive\?\)/);
 });
 
 test('runChecks: herald.lag behind-progressing / not-progressing, the state keeps lastArchivedSlot, --slot-s', async () => {

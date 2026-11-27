@@ -188,12 +188,16 @@ export const SLOT_S_DEFAULT = 0.4;
  * herald-pull-chunk: herald.lag from /h/status. A herald that reports `ingest.backlog` (listed − archived) reads its
  * Clock on its own timer, so `live` stays current while it catches up: a backlog > 0 is "behind, progressing" (WARN)
  * when `ingest.lastArchivedSlot` advanced since the previous run (--state), "behind, not progressing" (FAIL) when it
- * did not, and WARN when there is no previous run to compare. No backlog (0, "unknown", or an older herald without
+ * did not, and WARN when there is no previous run to compare or lastArchivedSlot went below the previous run's (a new
+ * or rebuilt archive). No backlog (0, "unknown", or an older herald without
  * the field): the live-slot lag in slots decides, as before. → {level, note}
  */
 export function heraldLag({ lag, backlog, lastArchived, prevArchived }) {
   if (Number.isFinite(backlog) && backlog > 0) {
     if (!Number.isFinite(prevArchived)) return { level: 'WARN', note: `behind: backlog ${backlog} txs, archived through slot ${lastArchived ?? '?'} (no previous run to compare)` };
+    // verify-pr288: a lastArchivedSlot below the last run's is a new or rebuilt archive catching up (a fresh --data
+    // dir), not a stuck one: WARN once; the next run compares against this value, so a stuck rebuild still FAILs.
+    if (Number.isFinite(lastArchived) && lastArchived < prevArchived) return { level: 'WARN', note: `behind: backlog ${backlog} txs, archived through slot ${lastArchived}, below the last run's ${prevArchived} (a new or rebuilt archive?)` };
     if (Number.isFinite(lastArchived) && lastArchived > prevArchived) return { level: 'WARN', note: `behind, progressing: backlog ${backlog} txs, archived through slot ${lastArchived} (+${lastArchived - prevArchived} slots since the last run)` };
     return { level: 'FAIL', note: `behind, NOT progressing: backlog ${backlog} txs, archived through slot ${lastArchived ?? '?'} (same as the last run)` };
   }
