@@ -504,7 +504,33 @@ impl RpcClient {
             .await?;
         Ok(parse_balances(&v))
     }
+
+    /// verify-local-source: ONE finalized `getTransaction(sig)` read as both
+    /// the record ([`parse_transaction`]) and its balances
+    /// ([`parse_balances`]; `None` when served without them) — what
+    /// [`RpcClient::get_finalized_transaction`] followed by
+    /// [`RpcClient::get_transaction_balances`] read with two calls of the
+    /// same request. `Ok(None)`: not served (not retrievable yet).
+    pub async fn get_finalized_transaction_with_balances(
+        &self,
+        sig: &Signature,
+    ) -> PortResult<Option<TxWithBalances>> {
+        let v = self
+            .call(
+                "getTransaction",
+                json!([sig.to_string(), {"encoding": "base64", "commitment": "finalized", "maxSupportedTransactionVersion": MAX_TX_VERSION}]),
+            )
+            .await?;
+        if v.is_null() {
+            return Ok(None);
+        }
+        Ok(Some((parse_transaction(sig, &v)?, parse_balances(&v))))
+    }
 }
+
+/// A record and its balances read from one `getTransaction`
+/// ([`RpcClient::get_finalized_transaction_with_balances`]).
+pub type TxWithBalances = (TxRecord, Option<(Vec<u64>, Vec<u64>)>);
 
 /// Parses a `getTransaction` result (base64 encoding).
 pub fn parse_transaction(sig: &Signature, v: &Value) -> PortResult<TxRecord> {

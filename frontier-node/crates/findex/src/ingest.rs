@@ -550,7 +550,25 @@ pub struct RpcPoll {
     /// (the witness behind, or a transaction not retrievable yet): an empty
     /// pull with signatures held back is not "caught up".
     held_back: usize,
+    /// verify-local-source: at most this many transactions fetched per pull
+    /// (the oldest listed ones; the rest stay held back for the next pull),
+    /// so a long catch-up archives as it goes instead of holding the whole
+    /// range in memory until its last `getTransaction`. `None` (the default):
+    /// every listed signature in one pull.
+    pub max_fetch: Option<usize>,
+    /// verify-local-source: read each transaction's `meta.preBalances` /
+    /// `postBalances` from the SAME `getTransaction` that archives it (taken
+    /// with [`RpcPoll::take_balances`]) instead of a caller's second call.
+    /// Off by default.
+    pub keep_balances: bool,
+    /// The balances the last pulls read ([`RpcPoll::keep_balances`]), one
+    /// per handed-back record (`None`: served without them).
+    balances: Vec<(Signature, TxBalances)>,
 }
+
+/// A transaction's `(preBalances, postBalances)`; `None`: served without
+/// them ([`RpcPoll::keep_balances`]).
+pub type TxBalances = Option<(Vec<u64>, Vec<u64>)>;
 
 /// Coverage reasons ([`RpcPoll::coverage`]).
 pub mod reason {
@@ -589,7 +607,17 @@ impl RpcPoll {
             gap: None,
             witness_behind: 0,
             held_back: 0,
+            max_fetch: None,
+            keep_balances: false,
+            balances: vec![],
         }
+    }
+
+    /// The balances read since the last call ([`RpcPoll::keep_balances`]),
+    /// in archive order. Cleared by [`Source::restore`] (a batch that was not
+    /// archived gives none back).
+    pub fn take_balances(&mut self) -> Vec<(Signature, TxBalances)> {
+        std::mem::take(&mut self.balances)
     }
 
     /// Sets the origin anchor (the program's first signature).
@@ -900,18 +928,32 @@ impl RpcPoll {
         }
         let mut out = vec![];
         let listed = newest_first.len();
-        for s in newest_first.into_iter().rev() {
+        let cap = self.max_fetch.unwrap_or(usize::MAX).max(1);
+        for s in newest_first.into_iter().rev().take(cap) {
             // The cursor advances with each transaction handed back, so a
             // failure after some of them returns those (they are archived,
             // the failing one is retried next pull); returning the error
             // instead would drop them while the cursor had moved past.
-            let got = match self.rpc.get_finalized_transaction(&s.signature).await {
+            let got = if self.keep_balances {
+                self.rpc
+                    .get_finalized_transaction_with_balances(&s.signature)
+                    .await
+            } else {
+                self.rpc
+                    .get_finalized_transaction(&s.signature)
+                    .await
+                    .map(|r| r.map(|r| (r, None)))
+            };
+            let got = match got {
                 Ok(got) => got,
                 Err(e) if out.is_empty() => return Err(e),
                 Err(_) => break,
             };
             match got {
-                Some(r) => {
+                Some((r, bal)) => {
+                    if self.keep_balances {
+                        self.balances.push((s.signature, bal));
+                    }
                     if out.is_empty() {
                         if first_pull {
                             self.cov_first_slot = Some(s.slot);
@@ -990,6 +1032,7 @@ impl Source for RpcPoll {
         // `seen` still hides transactions that were never archived.
         self.seen.clear();
         self.seen_order.clear();
+        self.balances.clear();
         self.refused = None;
         self.last = None;
         self.last_slot = None;
