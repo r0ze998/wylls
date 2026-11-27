@@ -11,7 +11,10 @@
 // What it does NOT do, ever: stop, signal or start a process; write any file of
 // the stack; read a key, keeper.seed or keeper.token; send a transaction. Keeper
 // A's /v1/status needs the bearer token, so keeper A is checked by "the port
-// answers 401 without a token" plus its log. Devnet RPC (owner approval B5): only
+// answers 401 without a token" plus its log, and by `keeper.landed`: its journal
+// read with `sqlite3 -readonly` (newest landed write vs the herald live slot; WARN
+// > 7,500 slots ≈ 30 min, FAIL > 22,500 ≈ 90 min at devnet's ≈ 0.24 s/slot;
+// keeper-stall-investigate, 11-26 21:04 → 11-27 nothing landed). Devnet RPC (owner approval B5): only
 // getGenesisHash / getSlot / getBalance / getAccountInfo, only to
 // https://api.devnet.solana.com (never mainnet), one call per --rpc-gap-ms
 // (default 1100), the genesis hash checked before any other call.
@@ -123,6 +126,39 @@ export function lowerBound(v, { warn, fail }) {
   if (v < fail) return 'FAIL';
   if (v < warn) return 'WARN';
   return 'OK';
+}
+
+/**
+ * keeper.landed (keeper-stall-investigate): how long ago keeper A's newest write LANDED, from its journal (read-only).
+ * `/v1/status` needs the token, and the keeper log has no per-tick lines, so neither showed that nothing had landed
+ * for 14 h (11-26 21:04 → 11-27 11:04, FAIL 0 all the while). Slots, not minutes: devnet ran ≈ 0.24 s a slot then.
+ * `j` = {maxLanded, maxSent, sent} (null fields when the journal has no such row); `live` = herald live slot.
+ */
+export const KEEPER_LANDED_SLOTS = Object.freeze({ warn: 7_500, fail: 22_500 });
+export function keeperLandedCheck(j, live) {
+  if (!j) return { level: 'WARN', detail: 'keeper journal not readable' };
+  if (!Number.isFinite(live)) return { level: 'WARN', detail: `no herald live slot to compare; newest landed slot ${j.maxLanded ?? 'none'}` };
+  const ago = (s) => (s == null ? null : live - s);
+  const landedAgo = ago(j.maxLanded);
+  const sentAgo = ago(j.maxSent);
+  const min = (n) => `≈${Math.round((n * 0.24) / 60)} min`;
+  let level = 'OK';
+  if (landedAgo == null || landedAgo > KEEPER_LANDED_SLOTS.fail) level = 'FAIL';
+  else if (landedAgo > KEEPER_LANDED_SLOTS.warn) level = 'WARN';
+  const landed = landedAgo == null ? 'no landed write' : `newest landed write ${landedAgo} slots ago (${min(landedAgo)})`;
+  const sent = sentAgo == null ? 'no write sent' : `newest send ${sentAgo} slots ago (${min(sentAgo)})`;
+  return { level, detail: `${landed}; ${sent}; ${j.sent ?? '?'} sends unresolved` };
+}
+
+/** Reads {maxLanded, maxSent, sent} from the keeper journal with the sqlite3 CLI, read-only (null if unreadable). */
+export function readKeeperJournal(file, run = (args) => execFileSync('sqlite3', args, { encoding: 'utf8', timeout: 10_000 })) {
+  try {
+    if (!fs.existsSync(file)) return null;
+    const q = "SELECT (SELECT max(landed_slot) FROM attempts WHERE status = 'landed'), (SELECT max(sent_slot) FROM attempts), (SELECT count(*) FROM attempts WHERE status = 'sent');";
+    const [l, s, n] = run(['-readonly', '-separator', ' ', `file:${file}?mode=ro`, q]).replace(/\r?\n$/, '').split(' ');
+    const num = (x) => (x === '' || x == null ? null : Number(x));
+    return { maxLanded: num(l), maxSent: num(s), sent: num(n) };
+  } catch { return null; }
 }
 
 /** Herald lag in slots → level (≈0.4 s a slot: 150 ≈ 1 min, 1500 ≈ 10 min). */
@@ -577,6 +613,7 @@ export async function runChecks(o) {
     else if (s.status === 200 && s.body) add('OK', 'herald.season', `${s.body.statusName ?? '?'}; rings ${s.body.rings?.length ?? 0}, ringsOpened ${s.body.ringsOpened ?? '?'}, rMax ${s.body.rMax ?? '?'}, ruleset ${String(s.body.rulesetHash ?? '').slice(0, 12)}… (${s.ms} ms)`);
     else add('FAIL', 'herald.season', `HTTP ${s.status} ${s.text.slice(0, 120)}`);
   } catch (e) { add('FAIL', 'herald.season', `no answer: ${e.message}`); }
+  let heraldLive = NaN;
   try {
     const s = await getJson(`http://127.0.0.1:${P.herald}/h/status`);
     if (s.status !== 200 || !s.body) add('FAIL', 'herald.status', `HTTP ${s.status}`);
@@ -587,6 +624,7 @@ export async function runChecks(o) {
       const lvl = alarms.length || ingest.state !== 'ok' || ingest.failures ? 'WARN' : 'OK';
       add(lvl, 'herald.status', `ingest ${ingest.state}${ingest.failures ? ` failures ${ingest.failures}` : ''}${ingest.error ? ` error ${String(ingest.error).slice(0, 80)}` : ''}; events ${b.events}, provinces ${b.provinces}, ws open ${b.ws?.open ?? 0}; alarms ${alarms.length ? alarms.join(' ') : 'none'}`);
       const live = Array.isArray(b.live) ? Number(b.live[0]) : NaN;
+      heraldLive = live;
       if (rpcSlot != null) {
         const lag = rpcSlot - live;
         add(lagLevel(lag), 'herald.lag', `herald live slot ${live}, rpc ${rpcSlot}, lag ${lag} slots (≈${Math.round(lag * 0.4)} s)`);
@@ -608,6 +646,8 @@ export async function runChecks(o) {
       const k = await getJson(`http://127.0.0.1:${P.keeper}/v1/status`, 5000);
       add(k.status === 401 ? 'OK' : 'WARN', 'keeper.api', `/v1/status without token → HTTP ${k.status}${k.status === 401 ? ' (API up; duties/rent/lag need the token, read from the log below)' : ''}`);
     } catch (e) { add('FAIL', 'keeper.api', `no answer on :${P.keeper}: ${e.message}`); }
+    const kl = keeperLandedCheck(o.keeperJournal !== undefined ? o.keeperJournal : readKeeperJournal(path.join(o.runDir, 'keeper-a', 'keeper.journal.sqlite')), heraldLive);
+    add(kl.level, 'keeper.landed', kl.detail);
   } else add('OK', 'keeper.api', postponed ? 'not started: world creation postponed' : 'not started yet (the driver starts it after CreateSeason)');
 
   // tunnel name vs the herald's public host, and the public URL from outside (Cloudflare edge)

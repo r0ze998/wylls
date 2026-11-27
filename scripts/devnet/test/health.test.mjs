@@ -357,7 +357,7 @@ function fakeRpc({ genesis = DEVNET_GENESIS, slot = 1000, stored = 2, owner = DE
   return { fn, calls };
 }
 
-async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keeperLog = '', tunnelLog, join = '{"ok":true}', ps = PS_ALL, df = 100, rpc = fakeRpc(), now = T + 3600, publicHost, publicOn = true, overrides, marker, extra = {} } = {}) {
+async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keeperLog = '', tunnelLog, join = '{"ok":true}', ps = PS_ALL, df = 100, rpc = fakeRpc(), now = T + 3600, publicHost, publicOn = true, overrides, marker, keeperJournal = { maxLanded: 990, maxSent: 994, sent: 3 }, extra = {} } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-test-'));
   const logs = path.join(dir, 'logs');
   const run = path.join(dir, 'run');
@@ -386,7 +386,7 @@ async function world({ herald, gateway, keeper, pub, driver = DRIVER_DONE, keepe
   try {
     const r = await runChecks({
       rpc: true, public: publicOn, logs, runDir: run, logLines: 500, rpcGapMs: 0, rpcFetch: rpc.fn, now,
-      ports: { herald: ph, gateway: 1, gatewayPublic: pg, keeper: pk }, joinResult, psText: ps, dfText: DF(df), publicScheme: 'http', ...extra,
+      ports: { herald: ph, gateway: 1, gatewayPublic: pg, keeper: pk }, joinResult, psText: ps, dfText: DF(df), publicScheme: 'http', keeperJournal, ...extra,
     });
     return { ...r, by: Object.fromEntries(r.out.map((c) => [c.key, c])), rpcCalls: rpc.calls };
   } finally {
@@ -401,7 +401,7 @@ test('runChecks: a healthy, joinable stack is all OK', async () => {
   assert.deepEqual(r.out.filter((c) => c.level !== 'OK'), []);
   assert.equal(overallOf(r.out).level, 'OK');
   for (const k of ['proc.gateway', 'proc.keeper', 'proc.herald', 'rpc.genesis', 'balance.deployer', 'season.phase', 'herald.season',
-    'herald.status', 'herald.lag', 'gateway.health', 'keeper.api', 'public.page', 'public.season', 'join.check', 'disk.free']) {
+    'herald.status', 'herald.lag', 'gateway.health', 'keeper.api', 'keeper.landed', 'public.page', 'public.season', 'join.check', 'disk.free']) {
     assert.ok(r.by[k], `check ${k} present`);
   }
   assert.match(r.by['season.phase'].detail, /joinable/);
@@ -815,4 +815,44 @@ test('runChecks postponed but the world was created: the marker is stale, defaul
   const c = await noWorld({ marker: { logs: 'x\n' }, now: T2 + 120, rpc: fakeRpc({ seasonData: seasonBytes({ stored: 1, tCreate: T2 }), sol: 57 }) });
   assert.equal(c.by['season.phase'].level, 'WARN');
   assert.match(c.by['season.phase'].detail, /the world exists, remove the marker/);
+});
+
+// ---------- keeper.landed (keeper-stall-investigate) ----------
+import { execFileSync as execSync } from 'node:child_process';
+import { KEEPER_LANDED_SLOTS, keeperLandedCheck, readKeeperJournal } from '../health.mjs';
+
+test('keeperLandedCheck: landed age in slots → OK / WARN / FAIL; a busy keeper that lands nothing is a FAIL', () => {
+  const live = 1_000_000;
+  assert.equal(keeperLandedCheck({ maxLanded: live - 100, maxSent: live - 10, sent: 5 }, live).level, 'OK');
+  assert.equal(keeperLandedCheck({ maxLanded: live - KEEPER_LANDED_SLOTS.warn, maxSent: live, sent: 5 }, live).level, 'OK');
+  assert.equal(keeperLandedCheck({ maxLanded: live - KEEPER_LANDED_SLOTS.warn - 1, maxSent: live, sent: 5 }, live).level, 'WARN');
+  assert.equal(keeperLandedCheck({ maxLanded: live - KEEPER_LANDED_SLOTS.fail - 1, maxSent: live, sent: 5 }, live).level, 'FAIL');
+  // devnet 11-27 11:04: newest landed slot 526,502,713 (21:04:37 the day before), herald ≈ 526,711,761, 51,139 sends open
+  const real = keeperLandedCheck({ maxLanded: 526_502_713, maxSent: 526_704_145, sent: 51_139 }, 526_711_761);
+  assert.equal(real.level, 'FAIL');
+  assert.match(real.detail, /newest landed write 209048 slots ago \(≈836 min\); newest send 7616 slots ago .*; 51139 sends unresolved/);
+  assert.equal(keeperLandedCheck({ maxLanded: null, maxSent: null, sent: 0 }, live).level, 'FAIL');
+  assert.equal(keeperLandedCheck(null, live).level, 'WARN');
+  assert.equal(keeperLandedCheck({ maxLanded: 1, maxSent: 1, sent: 0 }, NaN).level, 'WARN');
+});
+
+test('runChecks: keeper.landed FAILs when the journal has no recent landing', async () => {
+  const r = await world({ tunnelLog: 'x', keeperJournal: { maxLanded: 995 - KEEPER_LANDED_SLOTS.fail - 1, maxSent: 990, sent: 40 } });
+  assert.equal(r.by['keeper.landed'].level, 'FAIL');
+  assert.equal(overallOf(r.out).level, 'FAIL');
+});
+
+test('readKeeperJournal: reads a WAL journal read-only with the sqlite3 CLI (skipped without sqlite3)', (t) => {
+  try { execSync('sqlite3', ['-version'], { encoding: 'utf8' }); } catch { t.skip('no sqlite3 CLI'); return; }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'health-journal-'));
+  try {
+    const f = path.join(dir, 'keeper.journal.sqlite');
+    execSync('sqlite3', [f, "PRAGMA journal_mode=WAL; CREATE TABLE attempts(sig TEXT PRIMARY KEY, sent_slot INTEGER, landed_slot INTEGER, status TEXT);"
+      + "INSERT INTO attempts VALUES('a', 10, 12, 'landed'), ('b', 20, NULL, 'sent'), ('c', 30, NULL, 'sent'), ('d', 5, 40, 'superseded');"]);
+    assert.deepEqual(readKeeperJournal(f), { maxLanded: 12, maxSent: 30, sent: 2 });
+    assert.equal(readKeeperJournal(path.join(dir, 'absent.sqlite')), null);
+    const empty = path.join(dir, 'empty.sqlite');
+    execSync('sqlite3', [empty, 'CREATE TABLE attempts(sig TEXT, sent_slot INTEGER, landed_slot INTEGER, status TEXT);']);
+    assert.deepEqual(readKeeperJournal(empty), { maxLanded: null, maxSent: null, sent: 0 });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

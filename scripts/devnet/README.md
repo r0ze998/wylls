@@ -185,7 +185,7 @@ driver is started again). In this mode:
 | `world.creation` | (no line) | `OK postponed, no world yet (marker …: reason)` |
 | `proc.season-driver` | not running = FAIL | not running = OK; **running = FAIL** (it would send CreateSeason) |
 | `proc.gateway-starter`, `proc.join-check` | not running = FAIL until their work is done | running or not = OK (they only wait) |
-| gateway / keeper A processes, `gateway.health`, `keeper.api`, `join.check` | OK "not yet" until the driver log shows them started | the same, worded "not expected: world creation postponed" |
+| gateway / keeper A processes, `gateway.health`, `keeper.api`, `keeper.landed`, `join.check` | OK "not yet" until the driver log shows them started | the same, worded "not expected: world creation postponed" |
 | `season.phase` Announced | FAIL 15 min after the scheduled time | OK `Announced, creation postponed`, with both deadlines (below); WARN once the 7-day create window has closed |
 | `season.phase` Aborted | FAIL | OK (announcement cancelled, no world yet) |
 | `balance.authority` | WARN below CreateSeason's need (≈56.13) | plain thresholds; the need is only quoted |
