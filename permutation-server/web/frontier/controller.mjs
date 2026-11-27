@@ -1281,6 +1281,10 @@ async function sampleTileClaim(d) {
   const h = activeHolding(FS);
   if (!h || !Number.isInteger(FS.citizen?.faction)) return;
   const target = { p: String(d.p), q: String(d.q) };
+  // (verify-pr306: the target's owners read again before the tile is picked — the AI nations claim in provinces the page
+  //  does not re-read on its own, and the lowest free tile by an old read was often one they had taken: SiteTaken at
+  //  every press, turn after turn. The in-page world answers at once; nothing leaves the page)
+  await loadEnvelope(Number(target.p), Number(target.q)).catch(() => null);
   const provinces = [...(FS.provinces?.values?.() ?? [])].filter(env => env?.province && env.sampleTerritory).map(env => ({ p: env.province.p, q: env.province.q, province: env.province, owners: env.sampleTerritory.owners }));
   const mine = FS.ui?.ownTiles ?? {};
   const row = sampleClaimRows({ provinces, home: { p: h.p, q: h.q }, faction: FS.citizen.faction, ownTiles: new Set(Object.keys(mine)) }).find(r => String(r.p) === target.p && String(r.q) === target.q) ?? null;

@@ -193,3 +193,26 @@ test('the page: the claim card and the second press, EN for every new line, and 
   assert.doesNotMatch([...keys, rule].map(k => EN[k]).join(' '), /season/i);
   assert.doesNotMatch(web('frontier/sampleland.mjs').replace(/\/\/.*$/gm, ''), /season/i);
 });
+
+test('verify-pr306: the world itself takes no land on arrival or battle in a landClaim world (AI hosts march); with landUpkeep alone it still does', async () => {
+  // (resolveTerritory's `arrival: false` alone is tested above; this pins that the landClaim world passes it: over 30
+  //  turns the AI nations' hosts march and fight, and only claims may move a field)
+  const reasons = s => { const n = {}; for (const t of s.territory) for (const h of [...(t.history ?? []), ...(t.changes ?? [])]) n[h.reason] = (n[h.reason] ?? 0) + 1; return n; };
+  const ctl = await world({ landUpkeep: true, stage: 'holding' });
+  for (let i = 0; i < 30; i++) ctl.advance();
+  assert.ok((reasons(ctl.summary()).arrival ?? 0) > 0, 'the control world (arrival control on) did see arrivals take fields');
+  const live = await world({ landClaim: true, stage: 'holding' });
+  for (let i = 0; i < 30; i++) live.advance();
+  const s = live.summary();
+  assert.deepEqual(reasons(s), {}, 'no field changed hands by arrival or battle');
+  // the AI nations claimed instead, by the same judge, up to Q-DC-1's 12 each
+  const npc = Object.values(s.land.npc);
+  assert.ok(npc.length >= 5 && npc.every(x => x.tiles >= 1 && x.tiles <= 12), JSON.stringify(s.land.npc));
+});
+
+test('verify-pr306: the demo claim reads its province again before it picks the tile (the AI nations claim where the page does not re-read)', () => {
+  const c = web('frontier/controller.mjs');
+  const body = c.slice(c.indexOf('async function sampleTileClaim(d)'), c.indexOf('const PROTO_SENT') > c.indexOf('async function sampleTileClaim(d)') ? c.indexOf('const PROTO_SENT') : c.indexOf('/**\n * One order of the prototype'));
+  const read = body.indexOf('await loadEnvelope(Number(target.p), Number(target.q))'), pick = body.indexOf('sampleClaimRows(');
+  assert.ok(read > 0 && pick > read, 'loadEnvelope(target) comes before sampleClaimRows in sampleTileClaim');
+});
