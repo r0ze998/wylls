@@ -165,7 +165,7 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    there was found". A `--wide` rim village whose camps in sight are all out of reach gets "No camp in reach yet: no barbarian
    camp in sight is within this host's reach (one march goes at most 4 provinces and 32 tiles). Meanwhile, try a practice
    battle …" and "Fight a practice clash".
-   **The one fog exception** (fix-loop25, owner decision 2026-11-27, Q-PM2-1 (a)): the guide may name the barbarian camp of a
+   **The one fog exception** (fix-loop25, owner decision 2026-11-27, Q-PM2-1 (a); code: hud/firstbattle.mjs ownProvinceOf): the guide may name the barbarian camp of a
    province where **you have a village of your own** even when its tile is under the fog (a rim village sees only 4–6 tiles
    around itself, and its only camp in reach often stands further out in the same province). Only that province: a camp in a
    neighbouring province, or in a province where only a nation-mate has a village, stays unnamed while it is under the fog.

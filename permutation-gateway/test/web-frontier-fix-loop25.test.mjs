@@ -83,7 +83,7 @@ function fakeDoc() {
 const tick = () => new Promise(r => setTimeout(r, 0));
 const findBy = (n, f) => { if (f(n)) return n; for (const c of n.children ?? []) { const x = findBy(c, f); if (x) return x; } return null; };
 
-/** A mounted chat with a wallet that signs, a herald that answers, and a socket the test drives. */
+/** A mounted chat with a herald that answers (key-free: the wallet stand-in cannot sign). */
 async function mountChat({ onOpen = () => {}, focusDrawer = () => {} } = {}) {
   setLang('en');
   const doc = fakeDoc(), anchor = doc.createElement('div');
@@ -95,7 +95,7 @@ async function mountChat({ onOpen = () => {}, focusDrawer = () => {} } = {}) {
   };
   const sockets = [];
   function WS() { this.readyState = 1; this.send = () => {}; this.close = () => {}; sockets.push(this); }
-  const wallet = { address: 'MeWallet1111', signMessage: async bytes => ({ signature: new Uint8Array(64), signedMessage: bytes }) };
+  const wallet = { address: 'MeWallet1111' };   // (no signing here: the read/unread path is in web-frontier-fix-loop25-chat-read.test.mjs)
   const ref = chat.installNationChat({ anchor, host: doc.body, doc, fetch, storage: { getItem: () => null, setItem() {} }, WebSocket: WS,
     timers: { setInterval: () => 1, clearInterval() {}, setTimeout: () => 1, clearTimeout() {} },
     state: () => ({ wallet, nation: 1, world: 7, program: 'P' }), onOpen, focusDrawer });
@@ -107,8 +107,6 @@ async function mountChat({ onOpen = () => {}, focusDrawer = () => {} } = {}) {
   const text = findBy(panel, x => x.attrs?.get('id') === 'nchat-text');
   return { doc, ref, toggle, panel, badge, gate, text, sockets };
 }
-let msgId = 100;
-const say = (sock, wallet = 'OtherWallet2') => sock.onmessage({ data: JSON.stringify({ op: 'msg', message: { id: String(++msgId), wallet, turn: 5, text: 'hello' } }) });
 
 test('BREAK-1: the player opening the chat asks the page to close its side drawer (once, on opening only), and the keyboard goes into the chat', async () => {
   let opens = 0;
@@ -126,17 +124,11 @@ test('BREAK-1: the player opening the chat asks the page to close its side drawe
   assert.ok(before.includes("    if (!open) { try { onOpen(); } catch (e) { console.error('frontier nation chat:', e); } }\n    show(!open);"));
 });
 
-test('BREAK-1: a side drawer that opens closes the chat; the unread badge goes on counting; the keyboard goes to the drawer only when it was in the chat', async () => {
+test('BREAK-1: a side drawer that opens closes the chat; the keyboard goes to the drawer only when it was in the chat (the unread badge: web-frontier-fix-loop25-chat-read.test.mjs)', async () => {
   let toDrawer = 0;
-  const { doc, ref, toggle, panel, badge, gate, text, sockets } = await mountChat({ focusDrawer: () => toDrawer++ });
+  const { doc, ref, toggle, panel } = await mountChat({ focusDrawer: () => toDrawer++ });
   toggle.fire('click');
-  gate.fire('click');                       // sign once to read: the socket opens
-  for (let i = 0; i < 6; i++) await tick();
-  assert.equal(sockets.length, 1, 'reading, live');
-  assert.equal(doc.activeElement, text, 'the composer has the keyboard');
-  say(sockets[0]);
-  assert.equal(badge.hidden, true, 'open: nothing unread');
-  // the drawer opens (e.g. the village lands and its welcome opens) while the player types: the chat closes
+  assert.ok(panel.contains(doc.activeElement), 'the keyboard is in the chat');
   assert.equal(ref.yieldToDrawer(), true);
   assert.equal(panel.hidden, true);
   assert.equal(ref.isOpen, false);
@@ -144,22 +136,11 @@ test('BREAK-1: a side drawer that opens closes the chat; the unread badge goes o
   assert.equal(doc.body.dataset.nchat, undefined);
   assert.equal(toDrawer, 1, 'the keyboard was in the chat: it goes to the drawer');
   assert.ok(!panel.contains(doc.activeElement), 'never left inside the hidden panel');
-  // messages go on arriving: the badge counts them (the socket is kept)
-  say(sockets[0]); say(sockets[0]);
-  assert.equal(badge.hidden, false);
-  assert.equal(badge.textContent, '2');
-  assert.match(toggle.getAttribute('aria-label'), /2/);
-  say(sockets[0], 'MeWallet1111');
-  assert.equal(badge.textContent, '2', 'one\'s own words are not unread');
-  // a closed chat: nothing to yield
-  assert.equal(ref.yieldToDrawer(), false);
-  // the player opens it again: the count is read
+  assert.equal(ref.yieldToDrawer(), false, 'a closed chat: nothing to yield');
   toggle.fire('click');
-  assert.equal(badge.hidden, true);
-  // the drawer opened by a press outside the chat (a tab): the keyboard stays where the press left it
   const tab = doc.createElement('button'); doc.body.append(tab); tab.focus();
   ref.yieldToDrawer();
-  assert.equal(doc.activeElement, tab);
+  assert.equal(doc.activeElement, tab, 'a press outside the chat keeps the keyboard where it is');
   assert.equal(toDrawer, 1);
 });
 

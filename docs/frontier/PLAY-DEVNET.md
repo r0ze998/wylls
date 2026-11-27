@@ -94,9 +94,11 @@ value; no in-game key is made).”
    “While you wait” panel (verify a real battle or a practice battle in this browser within minutes; Q-PT-1, Q-PT-3),
    the “World goals” card (below), “Claim a tile” turned off while land upkeep is unpaid, and notifications outside the
    page with a calendar file. Also newer than the devnet page: the guide's first camp chosen among camps that fight and that
-   your host can reach (#265, #273), wait times on your own clock and a keep forecast that counts a tired arrival (#267),
+   your host can reach (#265, #273), and named even under the fog when it stands in the province of your own village
+   (fix-loop25; only that province, without its defender count), a first-host banner that says "camp first" like the
+   guide (fix-loop25), wait times on your own clock and a keep forecast that counts a tired arrival (#267),
    a provisional village that says when it can be confirmed (#268), and the nation chat (#263; the devnet herald has no
-   chat either). They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, steps 6 and 7), §4.1, §15 and §16. The devnet page gets them only when its page files are
+   chat either; one right-side panel at a time: the chat and the side drawer close each other, fix-loop25). They are described in [PLAY-LOCAL.md](PLAY-LOCAL.md) §3 (step 5a, steps 6 and 7), §4.1, §15 and §16. The devnet page gets them only when its page files are
    updated, and that has not been decided yet. Until then the page works as written in this guide.
 
 Good to know:
