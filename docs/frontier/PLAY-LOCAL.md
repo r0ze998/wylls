@@ -586,8 +586,10 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
    land upkeep, and the land is no longer unpaid. After that, …" when the payment now due pays it), then the room at the
    current distance. The "While you wait" panel follows the same projection: "Land upkeep is unpaid. The payment in N
    turns pays it, and after that this food production supports the land indefinitely. Paid: (time)" — no countdown to
-   the let-go then; the countdown ("Tiles start to go: …") stays when the 24 unpaid turns end first or no payment pays
-   it. Before, the card said only "supported indefinitely" while the chain still said unpaid and claims were blocked,
+   the let-go then ("Land upkeep is unpaid. This payment pays it, …" with no time when the payment now due pays it). A
+   land a payment pays while production stays below upkeep gets the resource HUD's shorter "paid again" line in the
+   panel instead of the countdown. The countdown ("Tiles start to go: …") stays when the 24 unpaid turns end first, no
+   payment pays it, or the page has no projection yet. Before, the card said only "supported indefinitely" while the chain still said unpaid and claims were blocked,
    and the panel counted down to a let-go that did not come (loop-play28). Food in a second village
    is not counted unless it is sent to the first (and on a `--wide` local world you cannot send a caravan). The numbers
    are the same settle the program uses. This game has no population, so the measure is tiles and turns — after
