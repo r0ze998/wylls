@@ -579,7 +579,16 @@ wait" say when it can be confirmed and offer "Harvest to confirm your village" o
    payment can pay, only when tiles start being let go ("Upkeep is already unpaid. If nothing changes, tiles start being
    let go in …"; nothing after a release is forecast). The resource HUD says it shorter ("This payment pays the land.
    Unpaid again in …"). The wording of the last two cases is fix-landhorizon's default (Q-FLH-1, not answered yet; the
-   numbers do not depend on it). Food in a second village
+   numbers do not depend on it). When the land is still unpaid but food production now covers the upkeep (a Farm
+   finished, say), the card says the same "paid again" sentence and then that the production supports the land
+   (fix-lp28-paid-again, owner decision Q-LP28-1 (b)): "Upkeep is already unpaid. If nothing changes, the payment in (P)
+   pays it, and after that this food production supports your current land indefinitely." (or "This payment pays the
+   land upkeep, and the land is no longer unpaid. After that, …" when the payment now due pays it), then the room at the
+   current distance. The "While you wait" panel follows the same projection: "Land upkeep is unpaid. The payment in N
+   turns pays it, and after that this food production supports the land indefinitely. Paid: (time)" — no countdown to
+   the let-go then; the countdown ("Tiles start to go: …") stays when the 24 unpaid turns end first or no payment pays
+   it. Before, the card said only "supported indefinitely" while the chain still said unpaid and claims were blocked,
+   and the panel counted down to a let-go that did not come (loop-play28). Food in a second village
    is not counted unless it is sent to the first (and on a `--wide` local world you cannot send a caravan). The numbers
    are the same settle the program uses. This game has no population, so the measure is tiles and turns — after
    Buckminster Fuller's World Game ("how many people, for how many forward days, we are now technically organized to
