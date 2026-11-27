@@ -1109,7 +1109,7 @@ export default {
   '土地は未払いです。手放しまで {0}。': 'Land upkeep is unpaid. Tiles start being let go in {0}.',
   '今の支払いで未払いが始まります。': 'This payment will leave the land unpaid.',
   '未払いまで {0}。手放しまで {1}。': 'Unpaid in {0}. Tiles start being let go in {1}.',
-  'いまの土地は、この食料の生産で維持できます。いまの距離なら、あと {0} マスまで維持できます（最大 {1} マス）。': 'Your current land can be supported indefinitely by this food production. At the current distance you can support {0} more tiles (up to {1} tiles).',
+  'いまの土地は、この食料の生産で維持できます。いまの距離なら、あと {0} マスまで維持できます（最大 {1} マス）。': n => plural(n, 'Your current land can be supported indefinitely by this food production. At the current distance you can support {0} more tile (up to {1} tiles).', 'Your current land can be supported indefinitely by this food production. At the current distance you can support {0} more tiles (up to {1} tiles).'),
   'いまの土地は、この食料の生産で維持できます。いまの距離なら、これ以上マスを増やしても維持できません。': 'Your current land can be supported indefinitely by this food production. At the current distance you cannot support any more tiles.',
   'すでに未払いです。いちばん遠いマスの手放しが始まっています。': 'Upkeep is already unpaid. Your farthest tiles are being let go.',
   'すでに未払いです。このままなら、土地の手放しは {0} 後に始まります。': 'Upkeep is already unpaid. If nothing changes, tiles start being let go in {0}.',
