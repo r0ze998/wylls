@@ -52,6 +52,7 @@ pub mod api_guard;
 pub mod archive;
 pub mod beacon;
 pub mod caravans;
+pub mod care;
 pub mod clusterfeed;
 pub mod config;
 pub mod conquest;
@@ -151,7 +152,7 @@ use fclient::ports::{ChainPort, DrandPort, Signature, Status};
 use crate::archive::ArchiveDuty;
 use crate::beacon::BeaconDuty;
 use crate::config::KeeperConfig;
-use crate::engine::{BuildCtx, Engine, EngineParams, Outcome, WriteSpec, PAYER_CARE_KIND};
+use crate::engine::{Engine, EngineParams, Outcome, PAYER_CARE_KIND};
 use crate::explore::ExploreDuty;
 use crate::fold::FoldDuty;
 use crate::genesis::GenesisDuty;
@@ -437,6 +438,8 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     /// without proving that the transfer never landed. Requires an operator
     /// reconciliation before care can safely resume.
     care_legacy_unknown: bool,
+    /// fix-keeper-care: payer care beside the tick's long chain reads.
+    pub care_side: care::CareSide,
     /// The season's ABI the engine's budgets follow (R-22: an MC season
     /// takes `frontier-abi/vectors/v2/budgets.json` unless `budgets_file`
     /// overrides it).
@@ -620,6 +623,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             season_closed: false,
             care_last: None,
             care_legacy_unknown: false,
+            care_side: care::CareSide::default(),
             budgets_version: abi::PROGRAM_VERSION_V1,
             #[cfg(feature = "wide-world-experimental")]
             wide_observer: None,
@@ -913,7 +917,20 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             self.play.index.feed.begin_pull();
             let mut result = Ok(());
             for _ in 0..crate::landindex::PAGES_PER_TICK {
-                let page = match self.port.feed(self.index.cursor).await {
+                let tick_slot = self.last_slot.unwrap_or(0);
+                let page = match (care::CareCtx {
+                    port: &self.port,
+                    engine: &mut self.engine,
+                    payers: &mut self.payers,
+                    journal: self.journal.as_ref(),
+                    care_last: &mut self.care_last,
+                    legacy: self.care_legacy_unknown,
+                    side: &mut self.care_side,
+                    tick_slot,
+                })
+                .during(self.port.feed(self.index.cursor))
+                .await
+                {
                     Ok(page) => page,
                     Err(e) => {
                         result = Err(e.to_string());
@@ -966,8 +983,21 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             {
                 self.wide_legacy_pulled = true;
             }
-            let land = self.index.pull(&self.port, &self.addrs).await;
-            let play = self.play.index.pull(&self.port, &self.addrs).await;
+            let tick_slot = self.last_slot.unwrap_or(0);
+            let mut cc = care::CareCtx {
+                port: &self.port,
+                engine: &mut self.engine,
+                payers: &mut self.payers,
+                journal: self.journal.as_ref(),
+                care_last: &mut self.care_last,
+                legacy: self.care_legacy_unknown,
+                side: &mut self.care_side,
+                tick_slot,
+            };
+            let land = cc.during(self.index.pull(&self.port, &self.addrs)).await;
+            let play = cc
+                .during(self.play.index.pull(&self.port, &self.addrs))
+                .await;
             land.and(play).map(|_| ()).map_err(|e| e.to_string())
         };
         if let Some(block) = self
@@ -1246,19 +1276,6 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             < fclient::payers::MIN_REVEAL.min(self.payers.reveal.keys.len())
             || self.payers.effective_n(Class::D)
                 < fclient::payers::MIN_DELAY.min(self.payers.delay.keys.len());
-        let care_pending = self.care_legacy_unknown || self.engine.care_unresolved();
-        if care_due(&self.cfg, self.care_last, slot, now, low, care_pending) {
-            self.payers
-                .refresh_at_least(
-                    &self.port,
-                    slot,
-                    self.engine.care_settled_slot().unwrap_or(0),
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            let planned = self.plan_care(slot);
-            self.care_last = Some((slot, now, planned));
-        }
         if let Some(b) = bell {
             if self.effective_n.last().is_none_or(|x| x.0 != b) {
                 let (w, d) = (
@@ -1285,8 +1302,56 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             .engine
             .poll(&self.port, self.journal.as_ref(), slot)
             .await;
+        // fix-keeper-care: care outcomes a side poll saw during the last
+        // tick's long reads.
+        let mut side = std::mem::take(&mut self.care_side.outcomes);
+        side.extend(std::mem::take(&mut r.outcomes));
+        r.outcomes = side;
         self.take_outcomes(&r.outcomes, bell.unwrap_or(0));
         phase(&mut rep, "poll", 0);
+        // fix-keeper-care: the payers' reserve (the rent-exempt minimum of a
+        // data-less account at the cluster's last read rent; fee only until
+        // the rent is read) below which no version is signed.
+        self.engine.payer_reserve = self
+            .rent
+            .last()
+            .and_then(|r| r.sysvar.minimum_balance(0))
+            .unwrap_or(0);
+        // Payer care after the poll (D-test-gaps-6-1: a care transfer the
+        // poll just proved never-landed no longer blocks this tick's care),
+        // and its transfers go out at once, before any duty spends from the
+        // payers or the feed is read (D-test-gaps-6-2).
+        let care_pending = self.care_legacy_unknown || self.engine.care_unresolved();
+        if care_due(&self.cfg, self.care_last, slot, now, low, care_pending) {
+            self.payers
+                .refresh_at_least(
+                    &self.port,
+                    slot,
+                    self.engine.care_settled_slot().unwrap_or(0),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            let planned = self.plan_care(slot);
+            self.care_last = Some((slot, now, planned));
+            if planned > 0 {
+                self.engine
+                    .send_kinds(
+                        &self.port,
+                        &mut self.payers,
+                        self.journal.as_ref(),
+                        slot,
+                        &mut r,
+                        Some(&[PAYER_CARE_KIND]),
+                    )
+                    .await;
+                if r.sent > 0 {
+                    rep.chain_at_send = self.engine.last_send_chain_slot;
+                }
+            }
+            // A care pass in the tick restarts the side cadence.
+            self.care_side.note_tick_care();
+        }
+        phase(&mut rep, "care", 0);
         // (devnet-end-season) after the tombstone nothing is left to do: no duty plans, no write is sent.
         if self.season_closed {
             rep.idle = true;
@@ -1980,27 +2045,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
 
     /// Top-ups and sweeps as class N transfers signed by their source.
     fn plan_care(&mut self, slot: u64) -> usize {
-        let plan = self.payers.care_plan();
-        let n = plan.len();
-        for tr in plan {
-            let ix = tr.instruction();
-            self.engine.ensure(
-                WriteSpec {
-                    key: format!("care:{}:{}:{slot}", tr.from, tr.to),
-                    kind: PAYER_CARE_KIND,
-                    tag: 0,
-                    class: Class::N,
-                    bell: None,
-                    region: None,
-                    build: Arc::new(move |_: &BuildCtx| vec![ix.clone()]),
-                    deadline_slot: None,
-                    not_before_slot: 0,
-                    fixed_payer: Some(tr.from),
-                },
-                slot,
-            );
-        }
-        n
+        care::plan_care(&self.payers, &mut self.engine, slot)
     }
 
     /// The status JSON (`GET /v1/status`).
@@ -2086,6 +2131,17 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                 // keeper-stall-investigate: versions settled as never landed
                 // (unknown status, chain past their blockhash validity).
                 "never_landed": self.engine.never_landed,
+            },
+            // fix-keeper-care: care beside long reads, and sends skipped
+            // for want of a payer that can pay.
+            "care": {
+                "unresolved": self.engine.unresolved_of_kind(PAYER_CARE_KIND),
+                "side_steps": self.care_side.steps,
+                "side_passes": self.care_side.passes,
+                "side_sent": self.care_side.sent,
+                "side_last_error": self.care_side.last_error,
+                "payer_reserve": self.engine.payer_reserve,
+                "unfunded_skips": self.engine.unfunded_skips,
             },
             "refusals": self.refusals_status(slot),
             "kinds": kinds,
@@ -2367,6 +2423,7 @@ pub const W2F_TAGS: [u8; 9] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::WriteSpec;
 
     #[test]
     fn locally_cancelled_landing_creates_distinct_alert() {
@@ -3070,5 +3127,600 @@ mod tests {
         assert!(super::api_paused_at_pass_start(false, true));
         assert!(super::api_paused_at_pass_start(true, false));
         assert!(super::api_paused_at_pass_start(true, true));
+    }
+
+    // ---- fix-keeper-care: payer care beside a long tick, care rows first in
+    // the history search, no version from a payer that cannot pay. These
+    // sign with the seed-derived test payers (`Keeper::new`), so they run in
+    // the key-tests job (`cargo test --workspace`), not in push CI. Time is
+    // tokio's paused test clock: a 107-minute tick runs in milliseconds.
+
+    use fclient::Signer as _;
+    use std::time::Duration;
+
+    mod fkc {
+        use super::*;
+        use fclient::ports::{Account, ClockSysvar, Cursor, SimResult, TxRecord};
+        use solana_hash::Hash;
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
+        use tokio::time::Instant;
+
+        /// keeper A's first tick on 11-27 (feed rebuild from cursor 0).
+        pub const FEED_FOR: Duration = Duration::from_secs(107 * 60);
+        /// The delay payers' rent-exempt reserve at 5,080 lamports/byte.
+        pub const RENT_FLOOR: u64 = 650_240;
+        pub const SLOT: u64 = 1_000;
+        /// Validity height of the journal rows a previous process left.
+        pub const OLD_VALID: u64 = 10_000;
+
+        /// FakePort plus: a feed whose first read takes `feed_for` (and
+        /// drains the delay payers `drain_at` into it), a capped and gated
+        /// history search like `RpcPort`'s (32 signatures per search, at
+        /// most one per 20 s, care first via `history_pick`; a signature
+        /// the fake does not know is a history `null`), a settable block
+        /// height, and the time and feed progress of every send and call.
+        pub struct CarePort {
+            pub inner: crate::testkit::FakePort,
+            pub t0: Instant,
+            pub feed_for: Duration,
+            pub drain_at: Option<Duration>,
+            pub drained: AtomicBool,
+            pub feed_done: AtomicBool,
+            pub height: AtomicU64,
+            pub delay: Vec<Address>,
+            pub history_last: Mutex<Option<Instant>>,
+            pub next_first: std::sync::atomic::AtomicUsize,
+            pub next_rest: std::sync::atomic::AtomicUsize,
+            /// (time since t0, feed finished?) per send.
+            pub sends: Mutex<Vec<(Duration, bool)>>,
+            /// (time since t0, method) per RPC call a real port would make.
+            pub calls: Mutex<Vec<(Duration, &'static str)>>,
+            /// Signatures each history search asked for.
+            pub searched: Mutex<Vec<Vec<Signature>>>,
+        }
+
+        impl CarePort {
+            pub fn new(feed_for: Duration, drain_at: Option<Duration>) -> CarePort {
+                CarePort {
+                    inner: crate::testkit::FakePort::default(),
+                    t0: Instant::now(),
+                    feed_for,
+                    drain_at,
+                    drained: AtomicBool::new(false),
+                    feed_done: AtomicBool::new(false),
+                    height: AtomicU64::new(150),
+                    delay: vec![],
+                    history_last: Mutex::new(None),
+                    next_first: Default::default(),
+                    next_rest: Default::default(),
+                    sends: Mutex::new(vec![]),
+                    calls: Mutex::new(vec![]),
+                    searched: Mutex::new(vec![]),
+                }
+            }
+            fn note(&self, m: &'static str) {
+                self.calls.lock().unwrap().push((self.t0.elapsed(), m));
+            }
+            pub fn sys(lamports: u64) -> Account {
+                Account {
+                    lamports,
+                    data: vec![],
+                    owner: fclient::addr::system_program(),
+                    executable: false,
+                }
+            }
+            pub fn drain_delay(&self) {
+                for d in &self.delay {
+                    self.inner.put(*d, Self::sys(RENT_FLOOR));
+                }
+            }
+        }
+
+        impl ChainPort for CarePort {
+            async fn clock(&self) -> fclient::ports::PortResult<ClockSysvar> {
+                self.note("clock");
+                self.inner.clock().await
+            }
+            async fn accounts(
+                &self,
+                keys: &[Address],
+                min_slot: u64,
+            ) -> fclient::ports::PortResult<Vec<Option<Account>>> {
+                // getMultipleAccounts takes 100 keys per call.
+                for _ in 0..keys.len().div_ceil(100) {
+                    self.note("getMultipleAccounts");
+                }
+                self.inner.accounts(keys, min_slot).await
+            }
+            async fn simulate(&self, w: &[u8]) -> fclient::ports::PortResult<SimResult> {
+                self.inner.simulate(w).await
+            }
+            async fn send(&self, w: &[u8]) -> fclient::ports::PortResult<Signature> {
+                self.note("sendTransaction");
+                self.sends
+                    .lock()
+                    .unwrap()
+                    .push((self.t0.elapsed(), self.feed_done.load(SeqCst)));
+                self.inner.send(w).await
+            }
+            async fn statuses(
+                &self,
+                sigs: &[Signature],
+            ) -> fclient::ports::PortResult<Vec<Option<Status>>> {
+                Ok(self.statuses_absent_first(sigs, &[]).await?.0)
+            }
+            async fn statuses_absent(
+                &self,
+                sigs: &[Signature],
+            ) -> fclient::ports::PortResult<(Vec<Option<Status>>, Vec<bool>)> {
+                self.statuses_absent_first(sigs, &[]).await
+            }
+            async fn statuses_absent_first(
+                &self,
+                sigs: &[Signature],
+                first: &[bool],
+            ) -> fclient::ports::PortResult<(Vec<Option<Status>>, Vec<bool>)> {
+                for _ in 0..sigs.len().div_ceil(fclient::rpc::STATUS_CHUNK) {
+                    self.note("getSignatureStatuses");
+                }
+                let mut out = self.inner.statuses(sigs).await?;
+                let mut absent = vec![false; sigs.len()];
+                let unseen: Vec<usize> = (0..sigs.len()).filter(|&i| out[i].is_none()).collect();
+                let due = {
+                    let mut last = self.history_last.lock().unwrap();
+                    let ok = last.is_none_or(|t| t.elapsed() >= fclient::rpc::HISTORY_EVERY);
+                    if ok && !unseen.is_empty() {
+                        *last = Some(Instant::now());
+                    }
+                    ok
+                };
+                if due && !unseen.is_empty() {
+                    self.note("getSignatureStatuses(history)");
+                    let pick = fclient::rpc::history_pick(
+                        &unseen,
+                        first,
+                        fclient::rpc::HISTORY_PER_CALL,
+                        &self.next_first,
+                        &self.next_rest,
+                    );
+                    self.searched
+                        .lock()
+                        .unwrap()
+                        .push(pick.iter().map(|&i| sigs[i]).collect());
+                    for i in pick {
+                        absent[i] = true;
+                        out[i] = None;
+                    }
+                }
+                Ok((out, absent))
+            }
+            async fn feed(&self, _: Cursor) -> fclient::ports::PortResult<Vec<TxRecord>> {
+                self.note("feed");
+                if !self.feed_done.load(SeqCst) {
+                    let start = self.t0.elapsed();
+                    if let Some(at) = self.drain_at.filter(|at| *at > start) {
+                        tokio::time::sleep(at - start).await;
+                        self.drain_delay();
+                        self.drained.store(true, SeqCst);
+                    }
+                    let end = self.feed_for.saturating_sub(self.t0.elapsed());
+                    tokio::time::sleep(end).await;
+                    self.feed_done.store(true, SeqCst);
+                }
+                Ok(vec![])
+            }
+            async fn blockhash(&self) -> fclient::ports::PortResult<(Hash, u64)> {
+                self.note("getLatestBlockhash");
+                Ok((Hash::new_from_array([3; 32]), self.height.load(SeqCst)))
+            }
+        }
+
+        pub type FkcKeeper = Keeper<CarePort, crate::testkit::FakeDrand>;
+
+        /// An S1 world (status SEEDED), as test-gaps-6 / `cq_keeper_follows_the_season_abi`.
+        fn world_bytes() -> Vec<u8> {
+            use fclient::abi::layout::{h, season as ls};
+            let mut d = vec![0u8; fclient::abi::size::SEASON];
+            crate::testkit::put(&mut d, 0, fclient::abi::magic::SEASON);
+            crate::testkit::put(
+                &mut d,
+                h::LAYOUT_VERSION,
+                &abi::LAYOUT_VERSION_V2.to_le_bytes(),
+            );
+            d[ls::STATUS] = status::SEEDED;
+            crate::testkit::put(
+                &mut d,
+                ls::PROGRAM_VERSION,
+                &abi::PROGRAM_VERSION_S1.to_le_bytes(),
+            );
+            crate::testkit::put(&mut d, ls::END_BELL, &1_008u32.to_le_bytes());
+            let cq = frontier_abi::v2::presets::MC_TEST.cq.to_bytes();
+            let o = frontier_abi::v2::presets::SEASON_CQ_OFFSET;
+            d[o..o + cq.len()].copy_from_slice(&cq);
+            d
+        }
+
+        /// A keeper with the `archive` role (every tick reads the feed),
+        /// funders with `funders` lamports each, reveal payers above their
+        /// floor, delay payers at `delay` lamports each.
+        pub fn keeper(port: CarePort, journal: Journal, funders: u64, delay: u64) -> FkcKeeper {
+            let program = Address::new_from_array([0x5f; 32]);
+            let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+            cfg.roles = vec!["archive".into()];
+            let mut k = Keeper::new(
+                cfg,
+                port,
+                crate::testkit::FakeDrand::new(),
+                &[1; 32],
+                Some(journal),
+            )
+            .unwrap();
+            k.port.delay = k.payers.delay.keys.iter().map(|x| x.pubkey()).collect();
+            k.port
+                .inner
+                .put(k.addrs.season, crate::testkit::acct(program, world_bytes()));
+            for f in &k.payers.funders.keys {
+                k.port.inner.put(f.pubkey(), CarePort::sys(funders));
+            }
+            for r in &k.payers.reveal.keys {
+                k.port
+                    .inner
+                    .put(r.pubkey(), CarePort::sys(k.payers.reveal.floor * 3 / 2));
+            }
+            for d in &k.payers.delay.keys {
+                k.port.inner.put(d.pubkey(), CarePort::sys(delay));
+            }
+            k.port.inner.set_clock(SLOT, 1_000_000);
+            k
+        }
+
+        /// (index into `inner.sent`, delay payer) of every System transfer
+        /// that tops up a delay payer.
+        pub fn delay_top_ups(k: &FkcKeeper) -> Vec<(usize, Address)> {
+            let delay: BTreeSet<Address> = k.port.delay.iter().copied().collect();
+            let sys = fclient::addr::system_program();
+            k.port
+                .inner
+                .sent
+                .lock()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| {
+                    let keys = &t.message.account_keys;
+                    t.message.instructions.iter().find_map(|ix| {
+                        let to = keys[*ix.accounts.get(1)? as usize];
+                        (keys[ix.program_id_index as usize] == sys
+                            && ix.data.first() == Some(&2)
+                            && delay.contains(&to))
+                        .then_some((i, to))
+                    })
+                })
+                .collect()
+        }
+
+        /// A journal holding what a previous process left in flight: `care`
+        /// payer-care transfers after `other` anchors (signatures 1, 2, …
+        /// in that order), all signed with
+        /// hashes valid to `OLD_VALID` and never landed.
+        pub fn stuck_journal(care: usize, other: usize) -> Journal {
+            let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+            let payer = Address::new_from_array([0x63; 32]).to_string();
+            for i in 0..care + other {
+                let mut sig = [0u8; 64];
+                sig[..8].copy_from_slice(&(i as u64 + 1).to_le_bytes());
+                let mut a = recovery_attempt(Signature::from(sig).to_string());
+                a.payer = payer.clone();
+                a.sent_slot = 900;
+                a.first_valid_slot = 900;
+                a.last_valid_block_height = Some(OLD_VALID);
+                // The anchors first: on 11-27 the care rows sat behind
+                // thousands of older program writes.
+                if i >= other {
+                    a.kind = PAYER_CARE_KIND.into();
+                    a.object_key = format!("care:funder:delay{}:900", i - other);
+                    a.class = "N".into();
+                } else {
+                    a.object_key = format!("anchor:{i}:0");
+                }
+                journal.record_attempt(&a).unwrap();
+            }
+            journal
+        }
+
+        /// The chain's block height past every old row's validity + margin.
+        pub fn past_old_validity() -> u64 {
+            OLD_VALID
+                + crate::engine::EXPIRED_MARGIN_BLOCKS
+                + 1
+                + crate::engine::BLOCKHASH_VALID_BLOCKS
+        }
+    }
+
+    /// fix-keeper-care (brief test 1): a 107-minute first tick (the 11-27
+    /// feed rebuild) during which the delay payers fall to their rent
+    /// reserve 30 minutes in: the side care tops all 32 up within 2 minutes,
+    /// while the tick's feed read is still running, exactly once; and at
+    /// rest (no care in flight, payers funded) care makes ≤ 1 RPC call per
+    /// 10 s.
+    #[tokio::test(start_paused = true)]
+    async fn fkc_long_first_tick_tops_up_payers_within_two_minutes() {
+        let drain = Duration::from_secs(30 * 60);
+        let port = fkc::CarePort::new(fkc::FEED_FOR, Some(drain));
+        let mut k = fkc::keeper(
+            port,
+            Journal::open(std::path::Path::new(":memory:")).unwrap(),
+            1_000_000_000_000,
+            0,
+        );
+        // Delay payers start funded (1.5 × floor), so the tick's own care
+        // plans nothing for them.
+        for d in k.port.delay.clone() {
+            k.port
+                .inner
+                .put(d, fkc::CarePort::sys(k.payers.delay.floor * 3 / 2));
+        }
+        k.start().await.unwrap();
+        k.tick().await.unwrap();
+        let took = k.port.t0.elapsed();
+        assert!(took >= fkc::FEED_FOR, "the tick ran {took:?}");
+        assert!(k.port.drained.load(std::sync::atomic::Ordering::SeqCst));
+        let ups = fkc::delay_top_ups(&k);
+        assert_eq!(ups.len(), 32, "every drained delay payer, once");
+        let to: BTreeSet<Address> = ups.iter().map(|u| u.1).collect();
+        assert_eq!(to.len(), 32, "no payer twice");
+        let sends = k.port.sends.lock().unwrap().clone();
+        for (i, _) in &ups {
+            let (at, feed_done) = sends[*i];
+            assert!(!feed_done, "top-up {i} waited for the feed read");
+            assert!(
+                at >= drain && at <= drain + Duration::from_secs(120),
+                "top-up {i} at {at:?}, drained at {drain:?}"
+            );
+        }
+        // RPC at rest: the 30 minutes before the drain.
+        let rest: Vec<_> = k
+            .port
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(t, m)| *t > Duration::from_secs(1) && *t < drain && *m != "feed")
+            .cloned()
+            .collect();
+        assert!(
+            rest.len() as u64 <= drain.as_secs() / 10,
+            "{} calls in {drain:?} at rest",
+            rest.len()
+        );
+        assert!(!rest.is_empty(), "the side care does read the balances");
+        let st = k.status_json(fkc::SLOT, 1_000_000, None);
+        assert_eq!(st["care"]["side_sent"], 32);
+        assert_eq!(st["care"]["unresolved"], 32);
+    }
+
+    /// fix-keeper-care (brief test 2, the 11-27 journal): a previous process
+    /// left 84 payer-care transfers and 4,000 anchors in flight, all
+    /// dropped. After a restart the care rows are proven never-landed first
+    /// (the history search takes them before the anchors) and the delay
+    /// payers at the rent reserve are topped up within 2 minutes of the
+    /// tick's start, during its 107-minute feed read.
+    #[tokio::test(start_paused = true)]
+    async fn fkc_stuck_care_rows_from_a_previous_process_settle_after_restart() {
+        let port = fkc::CarePort::new(fkc::FEED_FOR, None);
+        port.height.store(
+            fkc::past_old_validity(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        let mut k = fkc::keeper(
+            port,
+            fkc::stuck_journal(84, 4_000),
+            1_000_000_000_000,
+            fkc::RENT_FLOOR,
+        );
+        assert_eq!(k.start().await.unwrap(), 4_084);
+        assert!(k.engine.care_unresolved());
+        assert_eq!(k.engine.unresolved_of_kind(PAYER_CARE_KIND), 84);
+        // The restart's recovery read spent the history turn (20 s gate).
+        tokio::time::advance(fclient::rpc::HISTORY_EVERY).await;
+        let t_tick = k.port.t0.elapsed();
+        let before = k.port.searched.lock().unwrap().len();
+        k.tick().await.unwrap();
+        let j = k.journal.as_ref().unwrap();
+        let care_left = (0..84)
+            .filter(|i| {
+                j.attempts_of(&format!("care:funder:delay{i}:900")).unwrap()[0].status == "sent"
+            })
+            .count();
+        assert_eq!(care_left, 0, "every old care row settled");
+        let ups = fkc::delay_top_ups(&k);
+        assert_eq!(ups.len(), 32);
+        let sends = k.port.sends.lock().unwrap().clone();
+        for (i, _) in &ups {
+            let (at, feed_done) = sends[*i];
+            assert!(!feed_done);
+            assert!(at - t_tick <= Duration::from_secs(120), "top-up at {at:?}");
+        }
+        // Care went first: the first searches were care only, and no
+        // anchor was settled meanwhile (they rotate in later polls).
+        let searched = k.port.searched.lock().unwrap().clone();
+        let care_sigs: BTreeSet<Signature> = (4_000..4_084u64)
+            .map(|i| {
+                let mut s = [0u8; 64];
+                s[..8].copy_from_slice(&(i + 1).to_le_bytes());
+                Signature::from(s)
+            })
+            .collect();
+        let first_care: usize = searched[before..]
+            .iter()
+            .take_while(|s| s.iter().all(|x| care_sigs.contains(x)))
+            .map(|s| s.len())
+            .sum();
+        assert!(first_care >= 84, "care first: {first_care}");
+        assert_eq!(k.engine.never_landed, 84);
+    }
+
+    /// The same journal without care priority (every signature unflagged,
+    /// the rotation main had): after 6 searches (2 min) most care rows are
+    /// still unresolved, which is why care stayed blocked on 11-27.
+    #[test]
+    fn fkc_plain_rotation_reaches_few_care_rows() {
+        use std::sync::atomic::AtomicUsize;
+        let unseen: Vec<usize> = (0..4_084).collect();
+        // The rotation is wherever earlier reads left it (here 200 in).
+        let (a, b) = (AtomicUsize::new(0), AtomicUsize::new(200));
+        let mut reached = BTreeSet::new();
+        for _ in 0..6 {
+            for i in fclient::rpc::history_pick(&unseen, &[], 32, &a, &b) {
+                if i < 84 {
+                    reached.insert(i);
+                }
+            }
+        }
+        assert_eq!(reached.len(), 0, "plain rotation reached {}", reached.len());
+        let mut first = vec![false; 4_084];
+        first[..84].iter_mut().for_each(|f| *f = true);
+        let (c, d) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let mut prio = BTreeSet::new();
+        for _ in 0..3 {
+            prio.extend(fclient::rpc::history_pick(&unseen, &first, 32, &c, &d));
+        }
+        assert!((0..84).all(|i| prio.contains(&i)));
+    }
+
+    /// fix-keeper-care (brief test 3): with every delay payer at its rent
+    /// reserve and the funders empty (care cannot help), a tick's worth of
+    /// delay writes produces 0 sends, 0 journal rows and no blockhash read;
+    /// once one payer is funded the writes go out, all from it.
+    #[tokio::test(start_paused = true)]
+    async fn fkc_drained_payer_produces_no_sends() {
+        let port = fkc::CarePort::new(Duration::ZERO, None);
+        let mut k = fkc::keeper(
+            port,
+            Journal::open(std::path::Path::new(":memory:")).unwrap(),
+            0,
+            fkc::RENT_FLOOR,
+        );
+        k.start().await.unwrap();
+        k.engine.payer_reserve = fclient::rent::RentSysvar {
+            lamports_per_byte_year: 5_080,
+            exemption_threshold: 1.0,
+            burn_percent: 0,
+        }
+        .minimum_balance(0)
+        .unwrap();
+        assert_eq!(k.engine.payer_reserve, fkc::RENT_FLOOR);
+        let memo = Address::new_from_array([0x77; 32]);
+        for i in 0..10u8 {
+            k.engine.ensure(
+                WriteSpec {
+                    key: format!("anchor:{i}:0"),
+                    kind: "anchor",
+                    tag: tag::POST_BEACON,
+                    class: Class::D,
+                    bell: Some(i as u32),
+                    region: Some(0),
+                    build: Arc::new(move |_| {
+                        vec![solana_instruction::Instruction::new_with_bytes(
+                            memo,
+                            &[i],
+                            vec![],
+                        )]
+                    }),
+                    deadline_slot: None,
+                    not_before_slot: 0,
+                    fixed_payer: None,
+                },
+                fkc::SLOT,
+            );
+        }
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (0, 10));
+        assert!(k.port.inner.sent.lock().unwrap().is_empty());
+        assert!(k.journal.as_ref().unwrap().in_flight().unwrap().is_empty());
+        assert!(!k
+            .port
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, m)| *m == "getLatestBlockhash"));
+        assert_eq!(
+            k.engine.pending_len(),
+            10,
+            "the writes wait, they are not dropped"
+        );
+        // One payer funded: every write goes out from it.
+        let rich = k.payers.delay.keys[5].pubkey();
+        k.payers.set_balance(rich, 10_000_000);
+        let mut r = crate::engine::StepReport::default();
+        k.engine
+            .send(
+                &k.port,
+                &mut k.payers,
+                k.journal.as_ref(),
+                fkc::SLOT + 1,
+                &mut r,
+            )
+            .await;
+        assert_eq!((r.sent, r.unfunded), (10, 0));
+        for t in k.port.inner.sent.lock().unwrap().iter() {
+            assert_eq!(t.message.account_keys[0], rich);
+        }
+        assert_eq!(
+            k.status_json(fkc::SLOT, 0, None)["care"]["unfunded_skips"],
+            10
+        );
+    }
+
+    /// D-test-gaps-6-1 and -2 (the expected behaviour of test-gaps-6's two
+    /// ignored tests): a care transfer the tick's poll proves never-landed
+    /// does not cost the tick, and the top-ups go out before the feed read.
+    #[tokio::test(start_paused = true)]
+    async fn fkc_proven_dropped_care_tops_up_in_the_same_tick_before_the_feed() {
+        let port = fkc::CarePort::new(fkc::FEED_FOR, None);
+        port.height.store(
+            fkc::past_old_validity(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        let mut k = fkc::keeper(
+            port,
+            fkc::stuck_journal(1, 0),
+            1_000_000_000_000,
+            fkc::RENT_FLOOR,
+        );
+        k.start().await.unwrap();
+        // The restart's recovery read spent the port's history turn; the
+        // first tick comes after the gate (20 s), as it does live.
+        tokio::time::advance(fclient::rpc::HISTORY_EVERY).await;
+        k.tick().await.unwrap();
+        assert_eq!(k.engine.never_landed, 1);
+        let ups = fkc::delay_top_ups(&k);
+        assert_eq!(ups.len(), 32);
+        let sends = k.port.sends.lock().unwrap().clone();
+        let feed_first = k
+            .port
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(_, m)| *m == "feed")
+            .map(|c| c.0)
+            .unwrap();
+        for (i, _) in ups {
+            assert!(
+                sends[i].0 <= feed_first,
+                "top-up {i} after the feed read began"
+            );
+        }
     }
 }
