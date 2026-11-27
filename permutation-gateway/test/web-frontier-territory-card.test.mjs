@@ -118,7 +118,11 @@ test('Q-PDT-1: "Claim a tile" is off below the NEXT tile\'s price, and the card 
   const at = (tiles, ore) => wideClaimModel(world([], { ownLand: ownLand({ tiles }) }), { holding: home, have: have.map((v, i) => (i === ORE ? ore : v)) });
   assert.deepEqual([at(50, 19).tileOff, at(50, 19).tilePriceShort, at(50, 19).tilePrice, at(50, 19).tileShort], [true, true, 20, false]);
   assert.deepEqual([at(50, 20).tileOff, at(50, 20).tilePriceShort], [false, false]);
-  assert.deepEqual([at(50, 9).tileOff, at(50, 9).tilePriceShort, at(50, 9).tileShort], [true, false, true], 'below 10: the old sentence');
+  // (fix-loop27, LP27 N-3) below 10 ore with a dearer next tile: the next tile's price, not "less than 10"
+  assert.deepEqual([at(50, 9).tileOff, at(50, 9).tilePriceShort, at(50, 9).tilePrice, at(50, 9).tileShort], [true, true, 20, false], 'below 10, next tile 20: the price sentence only');
+  assert.deepEqual([at(0, 9).tileOff, at(0, 9).tilePriceShort, at(0, 9).tilePrice, at(0, 9).tileShort], [true, false, 10, true], 'below 10, next tile 10: the 10 sentence');
+  assert.deepEqual([at(0, 10).tileOff, at(0, 10).tilePriceShort, at(0, 10).tileShort], [false, false, false]);
+  for (const [t, o] of [[50, 9], [50, 19], [0, 9], [41, 0], [41, 17]]) assert.ok(!(at(t, o).tileShort && at(t, o).tilePriceShort), `one reason line at ${t} tiles, ${o} ore`);
   const unread = wideClaimModel(world(), { holding: home, have: have.map((v, i) => (i === ORE ? 10 : v)) });
   assert.deepEqual([unread.tileOff, unread.tilePrice], [false, 10], 'unread: the base price, as before');
   const src = web('frontier/screens/holding.mjs');

@@ -358,7 +358,10 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   panel.append(head, rules, gate, logBox, empty, form, status, mutedBox);
   host.append(panel);
 
-  const say = t => { status.textContent = t ?? ''; };
+  // (fix-loop27, LP27 N-2) the status line keeps HOW to word it (a function), not the words: a language change redraws
+  // it with the rest of the panel (labels()) — "Sent" no longer stays English after switching to 日本語
+  let said = null;
+  const say = t => { said = typeof t === 'function' ? t : null; status.textContent = (said ? said() : t) ?? ''; };
   const me = () => state().wallet?.address ?? null;
   const nationNow = () => state().nation;
   const isMember = () => Number.isInteger(nationNow()) && !!me();
@@ -387,6 +390,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     gateBtn.textContent = L`国の話し合いを開く（ウォレットで 1 回署名）`;
     empty.textContent = L`まだ発言はありません。国のみんなにあいさつしてみましょう。`;
     mutedSum.textContent = L`ミュート中の人（${muted.size}）`;
+    if (said) status.textContent = said();
     counter();
     drawGate();
     drawLog();
@@ -413,7 +417,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
       const li = el(doc, 'li');
       const b = el(doc, 'button', { type: 'button', class: 'nchat-unmute', 'data-wallet': w }, L`${shortWallet(w)} のミュートを解く`);
       // (the pressed button goes away with the list: the keyboard is put back on the list's summary, else the composer)
-      b.addEventListener('click', () => { muted.delete(w); saveMuted(storage, info, muted); say(L`${shortWallet(w)} のミュートを解きました`); labels(); (muted.size ? mutedSum : text).focus?.(); });
+      b.addEventListener('click', () => { muted.delete(w); saveMuted(storage, info, muted); say(() => L`${shortWallet(w)} のミュートを解きました`); labels(); (muted.size ? mutedSum : text).focus?.(); });
       li.append(b);
       return li;
     }));
@@ -430,7 +434,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     if (m.wallet !== me()) {
       const acts = el(doc, 'span', { class: 'nchat-acts' });
       const mute = el(doc, 'button', { type: 'button', class: 'nchat-mute', 'aria-label': L`${shortWallet(m.wallet)} をミュート` }, L`ミュート`);
-      mute.addEventListener('click', () => { muted.add(m.wallet); saveMuted(storage, info, muted); say(L`${shortWallet(m.wallet)} の発言を隠しました（このブラウザだけ）`); labels(); text.focus?.(); });
+      mute.addEventListener('click', () => { muted.add(m.wallet); saveMuted(storage, info, muted); say(() => L`${shortWallet(m.wallet)} の発言を隠しました（このブラウザだけ）`); labels(); text.focus?.(); });
       const rep = el(doc, 'button', { type: 'button', class: 'nchat-report', 'aria-expanded': reporting === m.id ? 'true' : 'false', 'aria-label': L`${shortWallet(m.wallet)} の発言を通報` }, L`通報`);
       rep.addEventListener('click', () => { reporting = reporting === m.id ? null : m.id; drawLog(); (reporting ? doc.getElementById?.(`nchat-reason-${m.id}`) : rep)?.focus?.(); });
       acts.append(mute, rep);
@@ -471,7 +475,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
       go.disabled = true;
       const r = await client.report(m.id, sel.value);
       reporting = null; drawLog(); backTo(m.id);
-      say(r.ok ? (r.already ? L`この発言はもう通報してあります` : L`通報しました。運営が確かめます。`) : codeText(r.code));
+      say(() => r.ok ? (r.already ? L`この発言はもう通報してあります` : L`通報しました。運営が確かめます。`) : codeText(r.code));
     });
     no.addEventListener('click', () => { reporting = null; drawLog(); backTo(m.id); });
     f.append(lab, sel, go, no);
@@ -495,7 +499,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     if (!client.token) return;
     const r = await client.read(null);
     if (stopped) return;
-    if (!r.ok) { if (['TokenExpired', 'NotThisNation', 'Expelled', 'NotACitizen', 'NotJoined'].includes(r.code)) { client.forget(); closeSocket(); } say(codeText(r.code)); labels(); return; }
+    if (!r.ok) { if (['TokenExpired', 'NotThisNation', 'Expelled', 'NotACitizen', 'NotJoined'].includes(r.code)) { client.forget(); closeSocket(); } say(() => codeText(r.code)); labels(); return; }
     messages = []; take(r.messages);
     labels();
   }
@@ -513,7 +517,7 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
       else if (m.op === 'msg') { if (take([m.message])) labels(); }
       else if (m.op === 'deleted') { messages = messages.filter(x => x.id !== m.id); labels(); }
       else if (m.op === 'resync') readAll();
-      else if (m.op === 'error') { say(codeText(m.code)); if (m.code !== 'AuthFirst') { client.forget(); labels(); } }
+      else if (m.op === 'error') { say(() => codeText(m.code)); if (m.code !== 'AuthFirst') { client.forget(); labels(); } }
     };
     s.onclose = () => {
       if (sock !== s || stopped || !client.token) return;
@@ -579,8 +583,8 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
   });
   gateBtn.addEventListener('click', async () => {
     if (busy) return;
-    busy = true; gateBtn.disabled = true; say(L`ウォレットの署名を待っています…`);
-    try { await client.open(info); say(''); await readAll(); connect(); startPolling(); labels(); text.focus?.(); } catch (e) { say(codeText(e.code)); } finally { busy = false; gateBtn.disabled = false; }
+    busy = true; gateBtn.disabled = true; say(() => L`ウォレットの署名を待っています…`);
+    try { await client.open(info); say(''); await readAll(); connect(); startPolling(); labels(); text.focus?.(); } catch (e) { say(() => codeText(e.code)); } finally { busy = false; gateBtn.disabled = false; }
   });
   text.addEventListener('input', counter);
   text.addEventListener('keydown', e => {
@@ -593,12 +597,12 @@ export function installNationChat({ base = '', anchor, host, state, doc = global
     if (busy) return;
     const t = trimText(text.value);
     const bad = textProblem(t);
-    if (bad) { say(codeText(bad)); return; }
-    busy = true; send.disabled = true; say(L`送っています…`);
+    if (bad) { say(() => codeText(bad)); return; }
+    busy = true; send.disabled = true; say(() => L`送っています…`);
     try {
       const r = await client.post(info, t);
-      if (r.ok) { text.value = ''; counter(); say(L`送りました`); if (take([r.message])) labels(); }
-      else say(codeText(r.code));
+      if (r.ok) { text.value = ''; counter(); say(() => L`送りました`); if (take([r.message])) labels(); }
+      else say(() => codeText(r.code));
     } finally { busy = false; send.disabled = false; text.focus?.(); }
   });
 
