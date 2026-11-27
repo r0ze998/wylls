@@ -183,6 +183,9 @@ export function readKeeperJournal(file, run = (args) => execFileSync('sqlite3', 
   } catch { return null; }
 }
 
+/** A slot (or slot count) for a note: the number, or "?" when it is not a finite number (never "NaN"). */
+export const slotText = (x) => (Number.isFinite(x) ? String(x) : '?');
+
 /** Herald lag in slots → level (≈0.4 s a slot: 150 ≈ 1 min, 1500 ≈ 10 min). */
 export function lagLevel(lag) {
   if (!Number.isFinite(lag)) return 'FAIL';
@@ -201,15 +204,16 @@ export const SLOT_S_DEFAULT = 0.4;
  * did not, and WARN when there is no previous run to compare or lastArchivedSlot went below the previous run's (a new
  * or rebuilt archive). No backlog (0, "unknown", or an older herald without
  * the field): the live-slot lag in slots decides, as before. → {level, note}
+ * A slot that is not a finite number (missing, null, a string) prints "?" (fix-health-nan, D-test-gaps-7-1).
  */
 export function heraldLag({ lag, backlog, lastArchived, prevArchived }) {
   if (Number.isFinite(backlog) && backlog > 0) {
-    if (!Number.isFinite(prevArchived)) return { level: 'WARN', note: `behind: backlog ${backlog} txs, archived through slot ${lastArchived ?? '?'} (no previous run to compare)` };
+    if (!Number.isFinite(prevArchived)) return { level: 'WARN', note: `behind: backlog ${backlog} txs, archived through slot ${slotText(lastArchived)} (no previous run to compare)` };
     // verify-pr288: a lastArchivedSlot below the last run's is a new or rebuilt archive catching up (a fresh --data
     // dir), not a stuck one: WARN once; the next run compares against this value, so a stuck rebuild still FAILs.
     if (Number.isFinite(lastArchived) && lastArchived < prevArchived) return { level: 'WARN', note: `behind: backlog ${backlog} txs, archived through slot ${lastArchived}, below the last run's ${prevArchived} (a new or rebuilt archive?)` };
     if (Number.isFinite(lastArchived) && lastArchived > prevArchived) return { level: 'WARN', note: `behind, progressing: backlog ${backlog} txs, archived through slot ${lastArchived} (+${lastArchived - prevArchived} slots since the last run)` };
-    return { level: 'FAIL', note: `behind, NOT progressing: backlog ${backlog} txs, archived through slot ${lastArchived ?? '?'} (same as the last run)` };
+    return { level: 'FAIL', note: `behind, NOT progressing: backlog ${backlog} txs, archived through slot ${slotText(lastArchived)} (same as the last run)` };
   }
   return { level: lagLevel(lag), note: null };
 }
@@ -680,8 +684,8 @@ export async function runChecks(o) {
       const tail = hl.note ? `; ${hl.note}` : '';
       if (rpcSlot != null) {
         const lag = rpcSlot - live;
-        add(hl.level, 'herald.lag', `herald live slot ${live}, rpc ${rpcSlot}, lag ${lag} slots (≈${Math.round(lag * slotS)} s at ${slotS} s/slot)${tail}`);
-      } else add(hl.note ? hl.level : 'OK', 'herald.lag', `herald live slot ${live} (no RPC slot to compare)${tail}`);
+        add(hl.level, 'herald.lag', `herald live slot ${slotText(live)}, rpc ${rpcSlot}, lag ${slotText(lag)} slots (≈${slotText(Math.round(lag * slotS))} s at ${slotS} s/slot)${tail}`);
+      } else add(hl.note ? hl.level : 'OK', 'herald.lag', `herald live slot ${slotText(live)} (no RPC slot to compare)${tail}`);
     }
   } catch (e) { add('FAIL', 'herald.status', `no answer: ${e.message}`); }
 

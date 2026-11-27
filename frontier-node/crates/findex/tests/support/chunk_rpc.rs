@@ -5,14 +5,18 @@
 //! (one call can be made to fail), and `getAccountInfo` of the Clock sysvar
 //! whose slot ticks on every read. Every method's calls are counted. No
 //! network beyond loopback, no key (unsigned wires, placeholder signatures).
+//! test-gaps-7: every request's arrival is stamped, getTransaction can be
+//! answered HTTP 429 (a per-method storm) and the Clock read can fail; both
+//! are off by default, so the answers above are unchanged.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use axum::{extract::State, routing::post, Json, Router};
+use axum::response::{IntoResponse, Response};
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
 use base64::Engine;
 use fclient::{tx, Address, Hash};
 use serde_json::{json, Value};
@@ -29,6 +33,16 @@ pub struct Chain {
     pub clock_slot: Arc<AtomicU64>,
     /// A pause in every getTransaction (a slow, rate-limited node).
     pub tx_delay_us: Arc<AtomicU64>,
+    /// test-gaps-7: answer every getTransaction HTTP 429 (devnet's
+    /// per-method limit) while set.
+    pub tx_429: Arc<AtomicBool>,
+    /// test-gaps-7: the `Retry-After` seconds sent with those 429s (0: none).
+    pub tx_429_retry_after: Arc<AtomicU64>,
+    /// test-gaps-7: answer every getAccountInfo (the Clock) with a JSON-RPC
+    /// error while set.
+    pub clock_fail: Arc<AtomicBool>,
+    /// test-gaps-7: (method, arrival) of every request, in arrival order.
+    pub stamps: Arc<Mutex<Vec<(String, Instant)>>>,
 }
 
 /// The account every transfer goes to (the "program" the poller lists).
@@ -74,14 +88,48 @@ impl Chain {
     }
 }
 
-async fn rpc(State(s): State<Chain>, Json(req): Json<Value>) -> Json<Value> {
-    let id = req.get("id").cloned().unwrap_or(json!(1));
-    let p = req.get("params").cloned().unwrap_or(json!([]));
+async fn rpc(State(s): State<Chain>, Json(req): Json<Value>) -> Response {
     let method = req
         .get("method")
         .and_then(|m| m.as_str())
         .unwrap_or("")
         .to_string();
+    s.stamps
+        .lock()
+        .unwrap()
+        .push((method.clone(), Instant::now()));
+    if method == "getTransaction" && s.tx_429.load(Ordering::SeqCst) {
+        *s.calls.lock().unwrap().entry("429".into()).or_insert(0) += 1;
+        let ra = s.tx_429_retry_after.load(Ordering::SeqCst);
+        let body = Json(
+            json!({"jsonrpc": "2.0", "id": req.get("id").cloned().unwrap_or(json!(1)),
+            "error": {"code": 429, "message": "Too many requests for a specific RPC call"}}),
+        );
+        return if ra > 0 {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                [("Retry-After", ra.to_string())],
+                body,
+            )
+                .into_response()
+        } else {
+            (StatusCode::TOO_MANY_REQUESTS, body).into_response()
+        };
+    }
+    if method == "getAccountInfo" && s.clock_fail.load(Ordering::SeqCst) {
+        *s.calls.lock().unwrap().entry(method.clone()).or_insert(0) += 1;
+        return Json(
+            json!({"jsonrpc": "2.0", "id": req.get("id").cloned().unwrap_or(json!(1)),
+            "error": {"code": -32000, "message": "temporary clock read failure"}}),
+        )
+        .into_response();
+    }
+    rpc_ok(s, req, method).await.into_response()
+}
+
+async fn rpc_ok(s: Chain, req: Value, method: String) -> Json<Value> {
+    let id = req.get("id").cloned().unwrap_or(json!(1));
+    let p = req.get("params").cloned().unwrap_or(json!([]));
     let n = {
         let mut c = s.calls.lock().unwrap();
         let e = c.entry(method.clone()).or_insert(0);
