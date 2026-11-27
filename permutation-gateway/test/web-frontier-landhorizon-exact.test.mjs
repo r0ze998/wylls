@@ -126,7 +126,7 @@ function randomPage(r, { unpaid = false } = {}) {
   // the keeper's pass settles the home with the land: food t0 = paidTo (alignLandClock's consistent case)
   return {
     value: int(r, 0, 2) ? int(r, 0, 30_000) : int(r, 0, 600_000), frac: int(r, 0, 3599), prod, cap: 2_000_000, t0: paidTo,
-    tiles, upkeep, paidTo, now, bell: 700, remainder: int(r, 0, 3599), since: unpaid ? 700 - int(r, 0, 23) : null,
+    tiles, upkeep, paidTo, now, bell: 700, remainder: int(r, 0, 3599), since: unpaid ? 700 - int(r, 0, 40) : null, // (verify-pr285) past the grace too: lands already being let go
   };
 }
 
@@ -231,7 +231,7 @@ test('X4 unpaid lands on random stores: paid / unpaid-again / release turns equa
         seen.now++;
         assert.match(card, /^This payment pays the land upkeep/, why);
         if (o.againAt !== null) assert.ok(card.includes(`unpaid again in ${turns('en', o.againAt, 60)}`), why);
-      } else if (grace > o.paidAt) {
+      } else if (grace >= o.paidAt) { // (verify-pr285) paid on the grace's last bell: the settle comes first, nothing is let go
         seen.later++;
         setLang('en');
         assert.ok(card.startsWith(`Upkeep is already unpaid. If nothing changes, the payment in ${turns('en', o.paidAt, 60)} pays it`), `${card}\n${why}`);
@@ -264,4 +264,32 @@ test('X5 source pins: the glue reads the exact store; every new sentence has its
   assert.ok(block.split('\n').length >= 9, 'the new English block');
   assert.doesNotMatch(block, /season|シーズン/i);
   assert.doesNotMatch(lh.replace(/seasonterms\.mjs/g, ''), /season/i, 'the module says nothing of a season (its import aside)');
+});
+
+test('X6 (verify-pr285) paid on the bell the 24-turn grace ends: the settle comes first and nothing is let go — "paid in P", one bell earlier "let go"', () => {
+  // the program: WideTerritorySettle runs before TerritoryDecay in the same second, and may_decay needs unpaid_since
+  const st = { value: 5_400, frac: 0, prod: 40_000, cap: 2_000_000, t0: 1_786_000_000, tiles: 73, upkeep: 73 * 990, paidTo: 1_786_000_000, now: 1_786_000_000, bell: 200, remainder: 0 };
+  const P = project({ ...st, since: 199 }).turnsUntilPaid;
+  assert.ok(P > 0, `a later settle pays (${P})`);
+  try {
+    for (const [grace, paid] of [[P - 1, false], [P, true], [P + 1, true]]) {
+      if (grace < 0) continue;
+      const h = project({ ...st, since: st.bell + grace - DECAY_AFTER_BELLS });
+      assert.equal(h.turnsUntilPaid, P); assert.equal(h.graceTurnsLeft, grace);
+      setLang('en');
+      const card = horizonStatusLines(h, 60).join(' ');
+      setLang('en');
+      const hud = horizonHudLine(h, 60);
+      if (paid) {
+        assert.ok(card.startsWith(`Upkeep is already unpaid. If nothing changes, the payment in ${turns('en', P, 60)} pays it`), `grace ${grace}: ${card}`);
+        assert.ok(hud.startsWith(`Land upkeep is unpaid. Paid in ${turns('en', P, 60)}.`), `grace ${grace}: ${hud}`);
+      } else {
+        assert.doesNotMatch(card, /pays it/, `grace ${grace}: the release comes first: ${card}`);
+      }
+      setLang('ja');
+      const cj = horizonStatusLines(h, 60).join(' ');
+      if (paid) assert.ok(cj.startsWith(`すでに未払いです。このままなら、${turns('ja', P, 60)} 後の支払いで払われます。`), `grace ${grace}: ${cj}`);
+      else assert.doesNotMatch(cj, /支払いで払われ/, cj);
+    }
+  } finally { setLang('ja'); }
 });

@@ -334,12 +334,14 @@ export const horizonLead = () => L`この食料で土地を何マス、何ター
 /**
  * (fix-landhorizon, Q-TG5-2 (a)) An unpaid land that a coming settle pays while production stays below upkeep:
  * `{now: true}` when the settle due now pays it, `{now: false, paidIn}` for a later one. null otherwise, and when the
- * 24-turn grace would end first (the already-unpaid sentence, with its release, says that case).
+ * 24-turn grace would end first (the already-unpaid sentence, with its release, says that case). A settle that pays
+ * on the very bell the grace ends releases nothing: the program settles first and may_decay needs unpaid_since
+ * (verify-pr285), so that case is "paid in P", not "let go in P".
  */
 function paidAgainCase(h) {
   if (!h?.paidAgain || h.sustainable || h.turnsUntilPaid == null) return null;
   const paidIn = h.turnsUntilPaid;
-  if (paidIn > 0 && h.graceTurnsLeft != null && h.graceTurnsLeft <= paidIn) return null;
+  if (paidIn > 0 && h.graceTurnsLeft != null && h.graceTurnsLeft < paidIn) return null;
   return { now: paidIn === 0, paidIn };
 }
 
