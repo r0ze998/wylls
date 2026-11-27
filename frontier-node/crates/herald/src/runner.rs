@@ -202,6 +202,9 @@ impl Ingest {
             })
             .map_err(|e| e.to_string())?;
         let last = fold.st.last_slot;
+        if findex.archive.last_seq() > 0 {
+            fold.ingest.last_archived_slot = Some(last);
+        }
         let mut ing = Ingest {
             cfg,
             findex,
@@ -316,6 +319,8 @@ impl Ingest {
             for r in &got {
                 f.apply(r);
             }
+            let newest = got.iter().map(|r| r.slot).max();
+            f.ingest.last_archived_slot = f.ingest.last_archived_slot.max(newest);
             send(&self.diffs, &mut f, t_ms);
             f.st.last_slot
         };
@@ -351,20 +356,93 @@ impl Ingest {
         }
     }
 
+    /// Records the source's backlog ([`findex::Source::backlog`]) for
+    /// `/h/status`.
+    pub fn note_backlog(&self, b: Option<u64>) {
+        if let Ok(mut f) = self.fold.write() {
+            f.ingest.backlog = b;
+        }
+    }
+
     /// Records the chain's latest slot and Clock for the live views.
     pub fn observe_clock(&self, slot: u64, unix: i64) {
-        if let Ok(mut f) = self.fold.write() {
-            f.live = Some((slot, unix));
+        observe_clock_on(&self.fold, slot, unix);
+    }
+}
+
+fn observe_clock_on(fold: &RwLock<Fold>, slot: u64, unix: i64) {
+    if let Ok(mut f) = fold.write() {
+        f.live = Some((slot, unix));
+    }
+}
+
+/// A failed Clock read is logged at most once a minute.
+const CLOCK_LOG_EVERY: Duration = Duration::from_secs(60);
+
+/// herald-pull-chunk: reads the Clock every `every`, on its own, so the
+/// live slot (`/h/status` `live`, the live views) keeps moving while a pull
+/// is in progress. A failed read leaves the last one; it is logged at most
+/// once per [`CLOCK_LOG_EVERY`] (with the count of failures since). Never
+/// returns.
+async fn clock_loop<P: fclient::ports::ChainPort>(clock: &P, fold: &RwLock<Fold>, every: Duration) {
+    let mut failed: u64 = 0;
+    let mut logged: Option<std::time::Instant> = None;
+    loop {
+        match clock.clock().await {
+            Ok(ck) => observe_clock_on(fold, ck.slot, ck.unix_timestamp),
+            Err(e) => {
+                failed += 1;
+                if logged.is_none_or(|t| t.elapsed() >= CLOCK_LOG_EVERY) {
+                    eprintln!("herald: clock read failed ({failed} since the last log line): {e}");
+                    logged = Some(std::time::Instant::now());
+                    failed = 0;
+                }
+            }
         }
+        tokio::time::sleep(every).await;
     }
 }
 
 /// Runs the loop until `stop` turns true: pull, fold, publish; sleep `poll`
-/// when nothing new arrived; checkpoint on the way out.
+/// when nothing new arrived; checkpoint on the way out. The Clock is read
+/// every `poll` on its own ([`run_with`]).
 pub async fn run<S: Source, P: fclient::ports::ChainPort>(
+    ing: Ingest,
+    src: S,
+    clock: Option<P>,
+    poll: Duration,
+    stop: watch::Receiver<bool>,
+) -> Result<(), String> {
+    run_with(ing, src, clock, poll, poll, stop).await
+}
+
+/// [`run`] with the Clock read every `clock_every` (herald-pull-chunk:
+/// beside the pulls, not after each one, so a long pull never freezes the
+/// live slot).
+pub async fn run_with<S: Source, P: fclient::ports::ChainPort>(
+    ing: Ingest,
+    src: S,
+    clock: Option<P>,
+    poll: Duration,
+    clock_every: Duration,
+    stop: watch::Receiver<bool>,
+) -> Result<(), String> {
+    let fold = ing.fold.clone();
+    let ticks = async {
+        match &clock {
+            Some(c) => clock_loop(c, &fold, clock_every.max(Duration::from_millis(1))).await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        r = ingest_loop(ing, src, poll, stop) => r,
+        _ = ticks => unreachable!("the clock loop never returns"),
+    }
+}
+
+async fn ingest_loop<S: Source>(
     mut ing: Ingest,
     mut src: S,
-    clock: Option<P>,
     poll: Duration,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), String> {
@@ -375,6 +453,7 @@ pub async fn run<S: Source, P: fclient::ports::ChainPort>(
         }
         let step = ing.step(&mut src).await;
         ing.note_coverage(src.coverage());
+        ing.note_backlog(src.backlog());
         let n = match step {
             Ok(n) => {
                 ing.note_ingest(None);
@@ -393,11 +472,6 @@ pub async fn run<S: Source, P: fclient::ports::ChainPort>(
                 0
             }
         };
-        if let Some(c) = &clock {
-            if let Ok(ck) = c.clock().await {
-                ing.observe_clock(ck.slot, ck.unix_timestamp);
-            }
-        }
         if n == 0 {
             tokio::select! {
                 _ = tokio::time::sleep(poll) => {}

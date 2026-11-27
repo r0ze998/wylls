@@ -72,6 +72,13 @@ pub trait Source: Send {
     fn ledger_seq(&self) -> bool {
         false
     }
+    /// herald-pull-chunk: transactions the source has listed but not yet
+    /// handed back (listed − archived) as of its last pull; `None` when it
+    /// cannot tell (an ordered feed, no pull yet, or the cursor was just
+    /// replaced). `/h/status` reports it as `ingest.backlog`.
+    fn backlog(&self) -> Option<u64> {
+        None
+    }
     /// verifier-alt-archive (F2): a snapshot of each lookup table in
     /// `wants` (table, the archived transaction that first uses it, its
     /// slot), read before the batch is archived ([`fclient::alt::snapshot`]:
@@ -547,9 +554,21 @@ pub struct RpcPoll {
     /// Consecutive pulls the witness was behind the whole batch.
     witness_behind: u32,
     /// Signatures the node listed that the last pull did not hand back
-    /// (the witness behind, or a transaction not retrievable yet): an empty
-    /// pull with signatures held back is not "caught up".
+    /// (the witness behind, a transaction not retrievable yet, or past
+    /// `max_batch`): an empty pull with signatures held back is not
+    /// "caught up".
     held_back: usize,
+    /// herald-pull-chunk: the most transactions one pull fetches and hands
+    /// back (`usize::MAX`: no cap, the default). The rest stay listed and
+    /// are fetched by the next pulls: the cursor advances per transaction
+    /// (the same path as a transaction not retrievable yet), so each chunk
+    /// is archived, folded and published on its own, and a wrapper that
+    /// restores the cursor on failure loses at most one chunk.
+    pub max_batch: usize,
+    /// [`Source::backlog`]: `held_back` after the last pull that listed,
+    /// kept across a pull that failed before listing; `None` after a
+    /// cursor restore (and before the first pull).
+    backlog: Option<usize>,
 }
 
 /// Coverage reasons ([`RpcPoll::coverage`]).
@@ -589,7 +608,15 @@ impl RpcPoll {
             gap: None,
             witness_behind: 0,
             held_back: 0,
+            max_batch: usize::MAX,
+            backlog: None,
         }
+    }
+
+    /// Caps one pull at `n` transactions ([`RpcPoll::max_batch`]; 0 = 1).
+    pub fn with_max_batch(mut self, n: usize) -> RpcPoll {
+        self.max_batch = n.max(1);
+        self
     }
 
     /// Sets the origin anchor (the program's first signature).
@@ -887,6 +914,7 @@ impl RpcPoll {
                     WitnessSaw::Behind if self.witness_behind < WITNESS_BEHIND_MAX => {
                         self.witness_behind += 1;
                         self.held_back = newest_first.len();
+                        self.backlog = Some(self.held_back);
                         return Ok(vec![]);
                     }
                     WitnessSaw::Behind | WitnessSaw::Lacks => {
@@ -900,7 +928,14 @@ impl RpcPoll {
         }
         let mut out = vec![];
         let listed = newest_first.len();
+        // Nothing fetched yet: everything listed (and held back) is behind.
+        self.backlog = Some(self.held_back + listed);
+        let cap = self.max_batch.max(1);
         for s in newest_first.into_iter().rev() {
+            if out.len() >= cap {
+                // herald-pull-chunk: the rest is fetched by the next pulls.
+                break;
+            }
             // The cursor advances with each transaction handed back, so a
             // failure after some of them returns those (they are archived,
             // the failing one is retried next pull); returning the error
@@ -935,6 +970,7 @@ impl RpcPoll {
             }
         }
         self.held_back += listed - out.len();
+        self.backlog = Some(self.held_back);
         Ok(out)
     }
 }
@@ -990,6 +1026,7 @@ impl Source for RpcPoll {
         // `seen` still hides transactions that were never archived.
         self.seen.clear();
         self.seen_order.clear();
+        self.backlog = None;
         self.refused = None;
         self.last = None;
         self.last_slot = None;
@@ -1054,6 +1091,9 @@ impl Source for RpcPoll {
     fn coverage(&self) -> Option<Value> {
         Some(RpcPoll::coverage(self))
     }
+    fn backlog(&self) -> Option<u64> {
+        self.backlog.map(|b| b as u64)
+    }
 }
 
 fn truncate(s: &str, n: usize) -> String {
@@ -1077,6 +1117,9 @@ pub struct Enriched<S: Source> {
     pub rpc: RpcClient,
     /// Keys never fetched (program ids, sysvars).
     pub skip: HashSet<Address>,
+    /// [`Source::backlog`] as of the last pull: the inner source's, plus
+    /// the transactions a failed enrichment handed back to it.
+    backlog: Option<u64>,
 }
 
 impl<S: Source> Enriched<S> {
@@ -1088,6 +1131,7 @@ impl<S: Source> Enriched<S> {
             inner,
             rpc: RpcClient::new(url),
             skip,
+            backlog: None,
         }
     }
 
@@ -1122,10 +1166,13 @@ impl<S: Source> Source for Enriched<S> {
         let mut got = match self.inner.pull().await {
             Ok(got) => got,
             Err(e) => {
+                let b = self.inner.backlog();
                 self.inner.restore(&before);
+                self.backlog = b;
                 return Err(e);
             }
         };
+        self.backlog = self.inner.backlog();
         for r in got.iter_mut() {
             if r.err.is_some() || !r.post.is_empty() {
                 continue;
@@ -1142,8 +1189,11 @@ impl<S: Source> Source for Enriched<S> {
                 Ok(accts) => accts,
                 Err(e) => {
                     // `inner.pull` may already have moved past the entire
-                    // batch, but none of it has reached the archive yet.
+                    // batch, but none of it has reached the archive yet
+                    // (with `RpcPoll::max_batch`, at most one chunk).
+                    let b = self.inner.backlog().map(|b| b + got.len() as u64);
                     self.inner.restore(&before);
+                    self.backlog = b;
                     return Err(e);
                 }
             };
@@ -1155,6 +1205,7 @@ impl<S: Source> Source for Enriched<S> {
         self.inner.cursor()
     }
     fn restore(&mut self, v: &Value) {
+        self.backlog = None;
         self.inner.restore(v)
     }
     fn coverage(&self) -> Option<Value> {
@@ -1162,6 +1213,9 @@ impl<S: Source> Source for Enriched<S> {
     }
     fn ledger_seq(&self) -> bool {
         self.inner.ledger_seq()
+    }
+    fn backlog(&self) -> Option<u64> {
+        self.backlog
     }
     /// The same RPC as the post-states (verifier-alt-archive).
     async fn lookup_snapshots(
