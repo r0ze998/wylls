@@ -3920,4 +3920,218 @@ mod tests {
             );
         }
     }
+
+    // ---- test-gaps-6 (#282): payer care around a restart and a long tick.
+    // These sign with the seed-derived test payers (`Keeper::new`), so they
+    // run in the key-tests job (`cargo test --workspace`), not in push CI.
+
+    type Tg6Keeper = Keeper<crate::testkit::FakePort, crate::testkit::FakeDrand>;
+
+    /// An S1 world account (the ABI's world header, status SEEDED), built as in
+    /// `cq_keeper_follows_the_season_abi`.
+    fn tg6_world_bytes() -> Vec<u8> {
+        use fclient::abi::layout::{h, season as ls};
+        let mut d = vec![0u8; fclient::abi::size::SEASON];
+        crate::testkit::put(&mut d, 0, fclient::abi::magic::SEASON);
+        crate::testkit::put(
+            &mut d,
+            h::LAYOUT_VERSION,
+            &abi::LAYOUT_VERSION_V2.to_le_bytes(),
+        );
+        d[ls::STATUS] = status::SEEDED;
+        crate::testkit::put(
+            &mut d,
+            ls::PROGRAM_VERSION,
+            &abi::PROGRAM_VERSION_S1.to_le_bytes(),
+        );
+        crate::testkit::put(&mut d, ls::END_BELL, &1_008u32.to_le_bytes());
+        let cq = frontier_abi::v2::presets::MC_TEST.cq.to_bytes();
+        let o = frontier_abi::v2::presets::SEASON_CQ_OFFSET;
+        d[o..o + cq.len()].copy_from_slice(&cq);
+        d
+    }
+
+    const TG6_SLOT: u64 = 1_000;
+    /// The delay payers sit at the rent-exempt minimum (11-26 21:04).
+    const TG6_RENT_FLOOR: u64 = 650_240;
+
+    /// A keeper with the `archive` role (so every tick pulls the feed, as
+    /// keeper A's first tick re-read the program's history for ≈ 110 min on
+    /// 11-27), funders full, reveal payers full, every delay payer at the
+    /// rent floor.
+    fn tg6_keeper(journal: Journal) -> Tg6Keeper {
+        let program = Address::new_from_array([0x5f; 32]);
+        let mut cfg = KeeperConfig::new(program, 7, Address::new_from_array([0xbe; 32]));
+        cfg.roles = vec!["archive".into()];
+        let k = Keeper::new(
+            cfg,
+            crate::testkit::FakePort::default(),
+            crate::testkit::FakeDrand::new(),
+            &[1; 32],
+            Some(journal),
+        )
+        .unwrap();
+        k.port.put(
+            k.addrs.season,
+            crate::testkit::acct(program, tg6_world_bytes()),
+        );
+        let sys = |lamports| fclient::ports::Account {
+            lamports,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        };
+        for f in &k.payers.funders.keys {
+            k.port.put(f.pubkey(), sys(1_000_000_000_000));
+        }
+        for r in &k.payers.reveal.keys {
+            k.port.put(r.pubkey(), sys(k.payers.reveal.floor * 3 / 2));
+        }
+        for d in &k.payers.delay.keys {
+            k.port.put(d.pubkey(), sys(TG6_RENT_FLOOR));
+        }
+        k.port.set_clock(TG6_SLOT, 1_000_000);
+        k
+    }
+
+    /// Indexes (into `port.sent`) of the System transfers that top up a
+    /// delay payer.
+    fn tg6_delay_top_ups(k: &Tg6Keeper) -> Vec<usize> {
+        let delay: BTreeSet<Address> = k.payers.delay.keys.iter().map(|x| x.pubkey()).collect();
+        let sys = fclient::addr::system_program();
+        k.port
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| {
+                let keys = &t.message.account_keys;
+                t.message.instructions.iter().any(|ix| {
+                    keys[ix.program_id_index as usize] == sys
+                        && ix.data.first() == Some(&2)
+                        && ix
+                            .accounts
+                            .get(1)
+                            .is_some_and(|a| delay.contains(&keys[*a as usize]))
+                })
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The journal of a keeper whose last care transfer never reached the
+    /// chain (signed with a hash now 301 blocks past its validity).
+    fn tg6_dropped_care_journal() -> Journal {
+        let journal = Journal::open(std::path::Path::new(":memory:")).unwrap();
+        let mut a = recovery_attempt(Signature::from([0x62; 64]).to_string());
+        a.kind = PAYER_CARE_KIND.into();
+        a.object_key = "care:funder:delay:900".into();
+        a.payer = Address::new_from_array([0x63; 32]).to_string();
+        a.sent_slot = 900;
+        a.first_valid_slot = 900;
+        a.last_valid_block_height = Some(10_000);
+        journal.record_attempt(&a).unwrap();
+        journal
+    }
+
+    fn tg6_dropped(k: &Tg6Keeper) {
+        use std::sync::atomic::Ordering::SeqCst;
+        k.port.absent_unknown.store(true, SeqCst);
+        k.port.valid_height.store(
+            10_000
+                + crate::engine::EXPIRED_MARGIN_BLOCKS
+                + 1
+                + crate::engine::BLOCKHASH_VALID_BLOCKS,
+            SeqCst,
+        );
+    }
+
+    /// #282 end to end at the Keeper: a restart adopts a care transfer that
+    /// never landed; the poll proves it (history `null`, chain past validity
+    /// + 300), journals it `superseded`, and the delay payers are topped up
+    /// again (by the next tick at the latest; since fix-keeper-care in that
+    /// same tick, so the new top-ups are what is unresolved after it).
+    #[tokio::test]
+    async fn test_gaps_6_restart_with_a_dropped_care_transfer_tops_up_again() {
+        let mut k = tg6_keeper(tg6_dropped_care_journal());
+        tg6_dropped(&k);
+        assert_eq!(k.start().await.unwrap(), 1);
+        assert!(k.engine.care_unresolved());
+        k.tick().await.unwrap();
+        assert_eq!(k.engine.never_landed, 1);
+        // verify-pr290: the tick's care runs after its poll and sends at
+        // once, so the top-ups are already out (and in flight).
+        assert_eq!(tg6_delay_top_ups(&k).len(), k.payers.delay.keys.len());
+        assert!(k.engine.care_unresolved());
+        let row = &k
+            .journal
+            .as_ref()
+            .unwrap()
+            .attempts_of("care:funder:delay:900")
+            .unwrap()[0];
+        assert_eq!(row.status, "superseded");
+        k.port.set_clock(TG6_SLOT + 1, 1_000_400);
+        k.tick().await.unwrap();
+        let ups = tg6_delay_top_ups(&k);
+        assert_eq!(
+            ups.len(),
+            k.payers.delay.keys.len(),
+            "every delay payer at the rent floor gets a top-up"
+        );
+        assert_eq!(k.engine.never_landed, 1);
+    }
+
+    /// The first tick's care pass (planned at the tick's start) is sent in
+    /// that same tick.
+    #[tokio::test]
+    async fn test_gaps_6_first_tick_care_is_sent_in_that_tick() {
+        let mut k = tg6_keeper(Journal::open(std::path::Path::new(":memory:")).unwrap());
+        k.start().await.unwrap();
+        k.tick().await.unwrap();
+        let planned = k.care_last.expect("care ran on the first tick").2;
+        assert!(planned >= k.payers.delay.keys.len());
+        assert_eq!(tg6_delay_top_ups(&k).len(), k.payers.delay.keys.len());
+    }
+
+    /// test-gaps-6 finding D-test-gaps-6-1 (fixed by fix-keeper-care, #290):
+    /// `tick` evaluated the care gate BEFORE its poll, and the poll is where a
+    /// dropped care transfer is proven never-landed. So a keeper restarted
+    /// onto a provably dropped care transfer cannot top up in its first
+    /// tick; on 11-27 that tick ran ≈ 110 min (the feed rebuild). Failed
+    /// before #290.
+    #[tokio::test]
+    async fn test_gaps_6_proven_dropped_care_does_not_cost_a_whole_tick() {
+        let mut k = tg6_keeper(tg6_dropped_care_journal());
+        tg6_dropped(&k);
+        k.start().await.unwrap();
+        k.tick().await.unwrap();
+        assert_eq!(k.engine.never_landed, 1, "proven in the first tick");
+        assert!(
+            !tg6_delay_top_ups(&k).is_empty(),
+            "the delay payers at the rent floor are topped up in the same tick"
+        );
+    }
+
+    /// test-gaps-6 finding D-test-gaps-6-2 (fixed by fix-keeper-care, #290):
+    /// care was planned at the tick's start, but `payer-care` is not in the early
+    /// send (`BEACON_KINDS`: anchor, anchor-multi, seed), so the top-ups go
+    /// out only in the tick's final send, after the feed pull. On 11-27 the
+    /// first tick planned care at 13:24 and the payers were refilled at
+    /// 15:20, while that tick's anchors (paid by the same low delay payers)
+    /// went out at once. This test states the expected behaviour (top-ups
+    /// sent before the feed is read); failed before #290.
+    #[tokio::test]
+    async fn test_gaps_6_care_top_ups_go_out_before_the_feed_pull() {
+        let mut k = tg6_keeper(Journal::open(std::path::Path::new(":memory:")).unwrap());
+        k.start().await.unwrap();
+        k.tick().await.unwrap();
+        assert!(k.port.feed_calls.load(std::sync::atomic::Ordering::SeqCst) > 0);
+        let at = k.port.send_feed_calls.lock().unwrap().clone();
+        let ups = tg6_delay_top_ups(&k);
+        assert!(!ups.is_empty());
+        for i in ups {
+            assert_eq!(at[i], 0, "top-up {i} was sent after {} feed reads", at[i]);
+        }
+    }
 }
