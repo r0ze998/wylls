@@ -756,7 +756,9 @@ pub async fn inspect(
     }
 }
 
-impl<P: ChainPort + SnapshotPort + Send + Sync, D: DrandPort> crate::Keeper<P, D> {
+impl<P: ChainPort + SnapshotPort + Send + Sync, D: DrandPort, K: crate::pools::PayerKey>
+    crate::Keeper<P, D, K>
+{
     /// On-demand read-only review using this keeper's existing read port and
     /// engine facts. Does not start the keeper, mutate its tick/status, initialize
     /// payers, enable a gate, enqueue or construct an executable candidate.
