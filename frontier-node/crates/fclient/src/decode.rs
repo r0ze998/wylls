@@ -186,6 +186,19 @@ impl Season {
         self.program_version >= crate::abi::PROGRAM_VERSION_V2
     }
 
+    /// world4-pacing-impl: the world's pacing (`frontier_abi::v2::pacing`:
+    /// minimum arrival lead, Depart stamina, starter host, first home at once),
+    /// read as the program reads it. Legacy for an M1 season and for every
+    /// world before the pacing bytes (world 3); an unknown `pacing` value
+    /// (which CreateSeason refuses) reads legacy too.
+    pub fn pacing(&self) -> frontier_abi::v2::pacing::Pacing {
+        use frontier_abi::v2::pacing::Pacing;
+        self.conquest
+            .as_ref()
+            .and_then(|c| Pacing::from_bytes(c.pacing, self.min_lead, c.depart_stamina, c.starter_host))
+            .unwrap_or(Pacing::LEGACY)
+    }
+
     /// True only when the chain's v2 conquest flag and the end bell agree.
     /// A missing or malformed conquest block never implies an endless world.
     /// This reads an existing account; it does not enable continuous creation.

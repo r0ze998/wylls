@@ -1309,6 +1309,19 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
             cq.spawn_reach,
         )
     };
+    // world4-pacing-impl (Q-PM2-2 a): in a `pacing` 1 world a first home may
+    // also be placed at once past the base `r_max` (on a settled rim
+    // province: ⑭ R3 below still needs it settled or a settled witness), up
+    // to the map's effective `r_max` — FileTicket's own bound. Every world
+    // before the byte (world 3) keeps the base `r_max`, and its rim village
+    // stays the FileTicket lottery (also the fallback here).
+    let pace = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?;
+    let r_max = if pace.first_home_at_once() {
+        present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
+        super::map::effective_r_max(&season_ai.try_borrow_data()?, &frontier.try_borrow_data()?)?
+    } else {
+        r_max
+    };
     let coord = ProvinceCoord::checked(x.p as i32, x.q as i32, r_max)
         .map_err(|_| FrontierError::BadData)?;
     // ⑭ R3: the heartland rings, or (a season with `spawn_reach`) a settled
@@ -1457,6 +1470,7 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
         .u8(gen)
         .i64(now.ts)
         .bytes(payer.key.as_ref());
+    {
     let mut jd = shard.try_borrow_mut_data()?;
     // The wedge counter is the province's wedge (as SettleTicket and the
     // release), not the nation: they differ under the dispersed placement.
@@ -1487,7 +1501,26 @@ pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &supe
                 data: &mut pd,
             },
         ],
-    )
+    )?;
+    }
+    // world4-pacing-impl (Q-PT-4 a): the starter host of a `starter_host`
+    // world, after HOME_PLACED (its MUSTER record chains after it). World 3
+    // stores 0: nothing here runs.
+    if pace.starter_host > 0 {
+        super::host::starter_host(
+            citizen,
+            holding,
+            province,
+            x.p,
+            x.q,
+            x.site,
+            faction,
+            tile,
+            pc.now_bell,
+            pace.starter_host,
+        )?;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------ SettleTicket

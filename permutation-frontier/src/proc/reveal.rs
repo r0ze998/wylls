@@ -58,7 +58,7 @@ use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 use permutation_rules::frontier::seal::{self as ks, Plain};
 use permutation_rules::frontier::stance::{Posture, Stance};
 use permutation_rules::frontier::travel::{
-    check_arrival_bell, is_cavalry, CAVALRY_BPS, FLAT_HEX_SECS, MAX_PATH_STEPS, ROAD_BPS,
+    is_cavalry, CAVALRY_BPS, FLAT_HEX_SECS, MAX_PATH_STEPS, ROAD_BPS,
     ROUGH_HEX_SECS,
 };
 use permutation_rules::hex::DIRECTIONS;
@@ -911,7 +911,12 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     crate::heap::trace_checkpoint(0x5110);
     let doctrine = of_faction(tr.faction).ok_or(BAD_ACCOUNT)?;
     let secs = u32::try_from(doctrine.travel_secs(raw as u64)).map_err(|_| OVERFLOW)?;
-    if check_arrival_bell(hdr.genesis_ts, tr.depart_ts, secs, arrive).is_err() {
+    // world4-pacing-impl: the Season's minimum lead (2 before the pacing
+    // bytes, where this is the kernel's `check_arrival_bell` exactly).
+    let lead = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?.min_lead;
+    if frontier_abi::v2::pacing::check_arrival_bell(hdr.genesis_ts, tr.depart_ts, secs, arrive, lead)
+        .is_err()
+    {
         return Err(FrontierError::ArrivalBell.into());
     }
     crate::heap::trace_checkpoint(0x5111);

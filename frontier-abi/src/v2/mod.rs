@@ -14,6 +14,7 @@
 //! | [`prologue`] | §5.5, §5.6 | v2 account lists, `check_present_v2`, the capture lock |
 //! | [`entry`] | §3.1, §3.2 | the retire-style Leave and the lead host |
 //! | [`addr`] | §5.2.6 | the MarchState seed `mc` |
+//! | [`pacing`] | world4-pacing-impl | the next world's pacing bytes (min lead, first home at once, Depart stamina, starter host) and the lead-taking arrival bound |
 //! | [`kernel`] | §7 | **temporary** bridge to the CQ1-A kernels (see its doc) |
 //!
 //! The shared models live beside v1's: [`crate::conquest_model`] (§5.7)
@@ -32,6 +33,7 @@ pub mod ix;
 pub mod kernel;
 pub mod layout;
 pub mod log;
+pub mod pacing;
 pub mod presets;
 pub mod prologue;
 pub mod rights;

@@ -243,7 +243,9 @@ pub(super) fn inspect(
     let (raw_secs, watched_secs) = walk(&steps, &lands, cavalry)?;
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
     let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
-    check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell)
+    // world4-pacing-impl: the Season's minimum lead (the kernel's 2 before it).
+    let lead = crate::layout::conquest::season_pacing(&season.try_borrow_data()?)?.min_lead;
+    frontier_abi::v2::pacing::check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell, lead)
         .map_err(|_| FrontierError::ArrivalBell)?;
     Ok(RouteCost {
         raw_secs,
@@ -311,7 +313,9 @@ pub(super) fn inspect_reverse(
     )?;
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
     let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
-    check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell)
+    // world4-pacing-impl: the Season's minimum lead (the kernel's 2 before it).
+    let lead = crate::layout::conquest::season_pacing(&season.try_borrow_data()?)?.min_lead;
+    frontier_abi::v2::pacing::check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell, lead)
         .map_err(|_| FrontierError::ArrivalBell)?;
     Ok(RouteCost {
         raw_secs,

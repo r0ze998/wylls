@@ -619,7 +619,16 @@ pub fn set_window_schedule(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let now = prologue::now()?;
     let hdr = prologue::season(season_ai, p, Some(&crate::RULESET_HASH), &EARLY, now.ts)?;
     check_authority(season_ai, authority)?;
-    if !beacon::window_valid(x.window) || x.from_bell >= hdr.end_bell {
+    // world4-pacing-impl (Q-PT-4 b): a `pacing` 1 world may also schedule a
+    // window of 300..600 s (its CreateSeason range); every other world keeps
+    // the kernel's 600..=1,800.
+    let fast = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?.mode
+        == frontier_abi::v2::presets::PACING_FAST_V1;
+    let window_ok = beacon::window_valid(x.window)
+        || (fast
+            && x.window >= frontier_abi::v2::presets::REVEAL_WINDOW_FAST_MIN
+            && x.window < beacon::WINDOW_MIN);
+    if !window_ok || x.from_bell >= hdr.end_bell {
         return Err(FrontierError::BadData.into());
     }
     let now_bell = hdr.bell(now.ts).unwrap_or(0);

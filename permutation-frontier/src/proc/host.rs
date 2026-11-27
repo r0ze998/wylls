@@ -329,6 +329,115 @@ pub(crate) fn muster_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::A
     )
 }
 
+/// world4-pacing-impl (Q-PT-4 a): the starter host a first home's PlaceHome
+/// gives in a Season with `starter_host` > 0 — Muster's own entry (a
+/// Spearman host of `troops` whole troops on the home tile, stance Hold,
+/// muster-pending, joining the roster at `b + 1`, the Holding's first host
+/// identity) and Muster's MUSTER record, as if the founder had trained and
+/// mustered them in the founding bell. When Muster itself would refuse (the
+/// Province not resident through `b - 1`, or its roster or the nation's
+/// share full) the troops go to the Holding's Spearman reserve instead, so
+/// a later Muster forms the same host. Never called in a world without the
+/// byte (world 3).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn starter_host(
+    citizen: &AccountInfo,
+    holding: &AccountInfo,
+    province: &AccountInfo,
+    hp: i16,
+    hq: i16,
+    site: u8,
+    faction: u8,
+    tile: u8,
+    b: u32,
+    troops: u16,
+) -> R<()> {
+    const UNIT: u8 = 0; // Spearman (`catalog::unit_of`)
+    let unit = catalog::unit_of(UNIT).ok_or(BAD_ACCOUNT)?;
+    let (gen, seq) = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        (r.u8(H::GEN)?, r.u32(H::HOST_SEQ)?)
+    };
+    let id = addr::host_id(hp as i32, hq as i32, site, gen, seq).ok_or(BAD_ACCOUNT)?;
+    let milli: MilliTroops = (troops as u32)
+        .checked_mul(MILLI as u32)
+        .ok_or_else(|| kernel(sub::HOST_TOO_LARGE))?;
+    let host = Host::muster(
+        id,
+        frontier_abi::addr::holding_key_of_host(id),
+        faction,
+        unit,
+        milli,
+        b,
+    )
+    .map_err(|e| host_err(e, FrontierError::BadData))?;
+    let dealt = bps16(doctrine(faction)?.dealt_bps(Posture::Stance(Stance::Hold), false))?;
+    let slot = {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        let resident = ap::resident_ok(r.u32(P::RESOLVED_NEXT)?, b);
+        let passable =
+            (tile as usize) < P::TILES && r.u64(P::PASSABLE_MASK)? & (1u64 << tile) != 0;
+        let (mut total, mut own, mut free) = (0usize, 0usize, None);
+        for i in 0..P::ENTRIES_N {
+            let o = P::entry(i);
+            match r.u8(o + E::STATE)? {
+                E::STATE_FREE => {
+                    if free.is_none() {
+                        free = Some(i);
+                    }
+                }
+                E::STATE_ROSTER | E::STATE_MUSTER_PENDING => {
+                    total += 1;
+                    if r.u8(o + E::FACTION)? == faction {
+                        own += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if resident && passable && total < P::ROSTER_CAP && own < P::FACTION_CAP {
+            free
+        } else {
+            None
+        }
+    };
+    let Some(slot) = slot else {
+        // Muster would refuse now: the troops wait in the reserve.
+        let mut hd = holding.try_borrow_mut_data()?;
+        Rw(&mut hd).add_u32(H::reserve(UNIT as usize), troops as u32)?;
+        return Ok(());
+    };
+    let e = Entry::from_host(&host, tile, E::STATE_MUSTER_PENDING, dealt, b + 1);
+    put_entry(province, slot, &e)?;
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        let mut w = Rw(&mut pd);
+        bump_epoch(&mut w)?;
+        let n = w.u8(P::N_ENTRIES)?.saturating_add(1);
+        w.set_u8(P::N_ENTRIES, n)?;
+    }
+    {
+        let mut hd = holding.try_borrow_mut_data()?;
+        Rw(&mut hd).set_u32(H::HOST_SEQ, seq.checked_add(1).ok_or(OVERFLOW)?)?;
+    }
+    let payload = Buf::<7>::new()
+        .u8(UNIT)
+        .u32(troops as u32)
+        .u8(tile)
+        .u8(slot as u8);
+    super::holding::emit3(
+        Kind::MUSTER,
+        b,
+        &id.to_le_bytes(),
+        payload.get()?,
+        citizen,
+        holding,
+        Some(province),
+    )
+}
+
 // ------------------------------------------------------------ Dissolve
 
 /// 0x44 Dissolve(host): P + `[holding w] [province w]` (where the host
@@ -609,8 +718,11 @@ pub const fn seal_flag_ok(b0: u8) -> bool {
     b0 & 0x80 != 0 && b0 & 0x40 == 0
 }
 
-/// The stamina a march is charged at Depart (I-32): the longest path's.
+/// The stamina a march is charged at Depart (I-32): the longest path's — in
+/// every world before the pacing bytes; a Season's `depart_stamina` byte
+/// (world4-pacing-impl, `crate::layout::conquest::season_pacing`) replaces it.
 pub const DEPART_STAMINA: u16 = march_stamina(MAX_PATH_STEPS as u32);
+const _: () = assert!(DEPART_STAMINA == frontier_abi::v2::pacing::DEPART_STAMINA_LEGACY);
 
 /// 0x50 Depart: P + `[holding w] [province w] [system]`; data `host_id,
 /// commit, seal, arrive_bell, tip, transit_slot`. Checks in the order of
@@ -677,14 +789,18 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::A
             return Err(FrontierError::HostInTransit.into());
         }
     }
+    // world4-pacing-impl: the stamina charged and the minimum arrival lead
+    // are the Season's (74 and 2 in every world before the pacing bytes).
+    let pace = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?;
+    let stamina = pace.depart_stamina;
     let mut host = e.to_host().map_err(|_| BAD_ACCOUNT)?;
-    host.depart(b, DEPART_STAMINA, rn)
+    host.depart(b, stamina, rn)
         .map_err(|er| host_err(er, FrontierError::NotResident))?;
     // 4. W6T-1 (w6-s7): the arrival must also be a bell of the season
     // (`< end_bell`): no anchor, resolve or SettleTransit exists at or
     // after `end_bell`, so such a march could never settle. The last
     // useful Depart bell is `end_bell - 3`.
-    let lo = b.checked_add(2).ok_or(OVERFLOW)?;
+    let lo = b.checked_add(pace.min_lead).ok_or(OVERFLOW)?;
     let hi = b.checked_add(72).ok_or(OVERFLOW)?;
     if x.arrive_bell < lo || x.arrive_bell > hi || x.arrive_bell >= pl.pc.season.end_bell {
         return Err(FrontierError::ArrivalBell.into());
@@ -744,7 +860,7 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::A
         w.set_u32(t0 + T::ARRIVE_BELL, x.arrive_bell)?;
         w.set_i64(t0 + T::DEPART_TS, now)?;
         w.set_u32(t0 + T::DEP_MASS, e.troops)?;
-        w.set_u16(t0 + T::MARCH_STAMINA, DEPART_STAMINA)?;
+        w.set_u16(t0 + T::MARCH_STAMINA, stamina)?;
         w.set_u16(t0 + T::DEALT_BPS, dealt)?;
         w.set_u32(t0 + T::TROOPS_AFTER, 0)?;
         w.set_u16(t0 + T::STAMINA_AFTER, 0)?;
@@ -765,7 +881,7 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::A
         .u32(b)
         .u32(x.arrive_bell)
         .u32(e.troops)
-        .u16(DEPART_STAMINA)
+        .u16(stamina)
         .u64(x.tip)
         .bytes(&seal_root)
         .bytes(&x.commit)

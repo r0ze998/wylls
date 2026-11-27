@@ -67,6 +67,11 @@ pub struct NaturalOptions {
     /// TEST-ONLY `--wide-land local-wide-land-v1` (`wide_land`): the Season from `S1_DEVNET_WIDE_7D`, grown to the rim
     /// and into the wide land during the setup. Memory-only and finite: never with `continuous` or `persist`.
     pub wide: bool,
+    /// TEST-ONLY `--pacing fast-v1` (world4-pacing-impl, only with `wide`): the wide world's Season takes the NEXT
+    /// world's pacing bytes (`frontier_abi::v2::presets::pacing_fast`: first village at once on the settled rim,
+    /// min arrival lead 1, reveal window 300 s, keep hold 36, Depart stamina 74, starter host 500) on top of the local
+    /// rules, so the next world's pace can be measured locally. Without it every byte is today's.
+    pub pacing: bool,
 }
 
 /// `--continuous local-continuous-v1` (exactly that word), `--persist-dir <absolute path>` and `--map-origin <unix

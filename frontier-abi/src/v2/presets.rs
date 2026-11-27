@@ -60,7 +60,10 @@ pub mod cq_layout {
         CONTINUOUS @ 80 : "u8" = 1;
         CENTRE @ 81 : "u8" = 1;
         SPAWN_REACH @ 82 : "u8" = 1;
-        RSV @ 83 : "rsv" = 45;
+        PACING @ 83 : "u8" = 1;
+        DEPART_STAMINA @ 84 : "u8" = 1;
+        STARTER_HOST @ 85 : "u16" = 2;
+        RSV @ 87 : "rsv" = 41;
     );
 }
 
@@ -210,7 +213,37 @@ pub struct ConquestParams {
     /// settled one that the transaction names as a witness
     /// ([`spawn_allows`]). Needs placement 2 and an S1 season.
     pub spawn_reach: u8,
+    /// Byte 83 (world4-pacing-impl, owner Q-PM2-2 a / Q-PT-4, 2026-11-26/27):
+    /// [`PACING_LEGACY`] (0, every world before the byte, world 3) or
+    /// [`PACING_FAST_V1`]: a first home may be placed at once on a settled
+    /// province up to the map's effective `r_max` (the rim; the legacy
+    /// FileTicket lottery stays the fallback), and the base part may take
+    /// `min_lead` 1 and a `reveal_window` below 600 s. Needs an S1 season.
+    pub pacing: u8,
+    /// Byte 84: the stamina a Depart charges (I-32's "the longest path's").
+    /// 0 (every world before the byte): the kernel's `march_stamina(32)` = 74;
+    /// otherwise `1..=STAMINA_CAP` (120). Needs `pacing` ≥ 1.
+    pub depart_stamina: u8,
+    /// Byte 85 (`u16`): whole troops of the starter host PlaceHome musters at
+    /// a first home's founding (Muster's own entry: joins the roster the next
+    /// bell). 0 (every world before the byte): none. Otherwise within the
+    /// kernel's host bounds (100..=30,000). Needs `pacing` ≥ 1.
+    pub starter_host: u16,
 }
+
+/// `pacing` 0: the legacy pacing (every world before byte 83, world 3).
+pub const PACING_LEGACY: u8 = 0;
+/// `pacing` 1 (world4-pacing-impl): first village at once on a settled rim
+/// province; `min_lead` 1 and `reveal_window` 300..600 become legal.
+pub const PACING_FAST_V1: u8 = 1;
+/// The smallest `reveal_window` a [`PACING_FAST_V1`] world may take (s).
+pub const REVEAL_WINDOW_FAST_MIN: u32 = 300;
+/// The starter host's bounds in whole troops: the kernel's host bounds
+/// (`host::MIN_HOST_TROOPS` 100, `MAX_HOST_TROOPS` 30,000).
+pub const STARTER_HOST_MIN: u16 =
+    (permutation_rules::frontier::host::MIN_HOST_TROOPS / permutation_rules::fixed::MILLI as u32) as u16;
+pub const STARTER_HOST_MAX: u16 =
+    (permutation_rules::frontier::host::MAX_HOST_TROOPS / permutation_rules::fixed::MILLI as u32) as u16;
 
 /// `spawn_reach` 0: first homes in the heartland rings only (the ring rule).
 pub const SPAWN_RING: u8 = 0;
@@ -323,7 +356,10 @@ impl ConquestParams {
             & wr_u16(&mut d, L::R_MAX_CEILING, self.r_max_ceiling)
             & wr_u8(&mut d, L::CONTINUOUS, self.continuous)
             & wr_u8(&mut d, L::CENTRE, self.centre)
-            & wr_u8(&mut d, L::SPAWN_REACH, self.spawn_reach);
+            & wr_u8(&mut d, L::SPAWN_REACH, self.spawn_reach)
+            & wr_u8(&mut d, L::PACING, self.pacing)
+            & wr_u8(&mut d, L::DEPART_STAMINA, self.depart_stamina)
+            & wr_u16(&mut d, L::STARTER_HOST, self.starter_host);
         d
     }
 
@@ -335,6 +371,7 @@ impl ConquestParams {
             || d[L::CONTINUOUS] > 1
             || d[L::CENTRE] > CENTRE_FREE
             || d[L::SPAWN_REACH] > SPAWN_REACH_MAX
+            || d[L::PACING] > PACING_FAST_V1
             || d[L::RSV..CONQUEST_PARAMS_LEN].iter().any(|b| *b != 0)
         {
             return None;
@@ -376,6 +413,9 @@ impl ConquestParams {
             continuous: rd_u8(d, L::CONTINUOUS)?,
             centre: rd_u8(d, L::CENTRE)?,
             spawn_reach: rd_u8(d, L::SPAWN_REACH)?,
+            pacing: rd_u8(d, L::PACING)?,
+            depart_stamina: rd_u8(d, L::DEPART_STAMINA)?,
+            starter_host: rd_u16(d, L::STARTER_HOST)?,
         })
     }
 
@@ -509,7 +549,28 @@ impl SeasonParamsV2 {
         if self.cq.continuous > 1 {
             return Err("continuous");
         }
-        self.base.validate_world(self.cq.continuous == 1)?;
+        if self.cq.pacing > PACING_FAST_V1
+            || (self.cq.pacing != PACING_LEGACY
+                && self.base.program_version < PROGRAM_VERSION_S1)
+        {
+            return Err("pacing");
+        }
+        let fast = self.cq.pacing == PACING_FAST_V1;
+        // world4-pacing-impl: the Depart stamina and the starter host are
+        // new-world bytes (0 = the legacy rule) and need `pacing` ≥ 1.
+        if self.cq.depart_stamina != 0
+            && (!fast
+                || self.cq.depart_stamina as u16 > permutation_rules::frontier::host::STAMINA_CAP)
+        {
+            return Err("depart_stamina");
+        }
+        if self.cq.starter_host != 0
+            && (!fast
+                || !(STARTER_HOST_MIN..=STARTER_HOST_MAX).contains(&self.cq.starter_host))
+        {
+            return Err("starter_host");
+        }
+        self.base.validate_paced(self.cq.continuous == 1, fast)?;
         if self.base.program_version != PROGRAM_VERSION_V2
             && self.base.program_version != PROGRAM_VERSION_S1
             && self.base.program_version != PROGRAM_VERSION_CUSTODY
@@ -621,6 +682,9 @@ pub const FRONTIER_7: ConquestParams = ConquestParams {
     continuous: 0,
     centre: CENTRE_CONCORD,
     spawn_reach: SPAWN_RING,
+    pacing: PACING_LEGACY,
+    depart_stamina: 0,
+    starter_host: 0,
 };
 
 /// Frontier-28's conquest block (§3.12).
@@ -881,6 +945,40 @@ pub const fn no_dormant_release(p: SeasonParamsV2) -> SeasonParamsV2 {
 /// after the upgrade).
 pub const S1_DEVNET_TERRITORY: SeasonParamsV2 = no_dormant_release(S1_DEVNET_WIDE_CONTINUOUS);
 
+/// The keep hold of a [`pacing_fast`] world (Q-PT-4 e: 72 → 36 bells, every
+/// keep; a params byte, no program change).
+pub const KEEP_BELLS_FAST: u16 = 36;
+/// The reveal window of a [`pacing_fast`] world (Q-PT-4 b: 600 → 300 s).
+pub const REVEAL_WINDOW_FAST: u32 = REVEAL_WINDOW_FAST_MIN;
+/// The Depart stamina of a [`pacing_fast`] world: today's 74, as a parameter
+/// (Q-PT-4 d; the number is r0ze's open Q-PKM-3).
+pub const DEPART_STAMINA_FAST: u8 = crate::v2::pacing::DEPART_STAMINA_LEGACY as u8;
+/// The starter host of a [`pacing_fast`] world, whole troops (Q-PT-4 a; the
+/// size is open, Q-W4P-1: 500 = what the march-first guide trains and forms).
+pub const STARTER_HOST_FAST: u16 = 500;
+
+/// `p` as a NEXT-world (world 4) season with the decided pacing (owner
+/// Q-PM2-2 (a), Q-PM2-3, Q-PT-4 a/b/d/e; world4-pacing-impl):
+/// [`PACING_FAST_V1`] (first village at once on a settled rim province, the
+/// rim ticket lottery kept as the fallback), `min_lead` 1, `reveal_window`
+/// 300 s, `keep_bells` 36, `depart_stamina` 74 (a parameter at today's
+/// value), `starter_host` 500. Every other byte unchanged.
+pub const fn pacing_fast(p: SeasonParamsV2) -> SeasonParamsV2 {
+    let mut q = p;
+    q.cq.pacing = PACING_FAST_V1;
+    q.base.min_lead = 1;
+    q.base.reveal_window = REVEAL_WINDOW_FAST;
+    q.cq.keep_bells = KEEP_BELLS_FAST;
+    q.cq.depart_stamina = DEPART_STAMINA_FAST;
+    q.cq.starter_host = STARTER_HOST_FAST;
+    q
+}
+
+/// **The next devnet world** (world 4, beside world 3; Q-PT-5 (a) — its
+/// creation needs r0ze's separate FINAL OK): [`S1_DEVNET_TERRITORY`] through
+/// [`pacing_fast`]. Not announced, not created.
+pub const S1_DEVNET_TERRITORY_FAST: SeasonParamsV2 = pacing_fast(S1_DEVNET_TERRITORY);
+
 /// `outpost_tier_min` of [`S1_DEVNET_WIDE_7D`]: Hamlet (`holding::Tier::Hamlet
 /// as u8`), so a fresh rim first village anchors a wide claim (owner Q-W1, the
 /// local wide world's rule). Every other preset keeps Town (1).
@@ -898,7 +996,7 @@ pub const fn devnet_wide(p: SeasonParamsV2) -> SeasonParamsV2 {
 }
 
 /// Every S1 preset with its name (vectors).
-pub const PRESETS_S1: [(&str, SeasonParamsV2); 7] = [
+pub const PRESETS_S1: [(&str, SeasonParamsV2); 8] = [
     ("S1_LOCAL_7D", S1_LOCAL_7D),
     ("S1_LOCAL_14D", S1_LOCAL_14D),
     ("S1_TEST", S1_TEST),
@@ -906,6 +1004,7 @@ pub const PRESETS_S1: [(&str, SeasonParamsV2); 7] = [
     ("S1_DEVNET_WIDE_7D", S1_DEVNET_WIDE_7D),
     ("S1_DEVNET_WIDE_CONTINUOUS", S1_DEVNET_WIDE_CONTINUOUS),
     ("S1_DEVNET_TERRITORY", S1_DEVNET_TERRITORY),
+    ("S1_DEVNET_TERRITORY_FAST", S1_DEVNET_TERRITORY_FAST),
 ];
 
 #[cfg(test)]
@@ -966,6 +1065,10 @@ mod tests {
             }
             if name == "S1_DEVNET_TERRITORY" {
                 assert_eq!(no_dormant_release(continuous(devnet_wide(S1_LOCAL_7D))), p);
+                continue;
+            }
+            if name == "S1_DEVNET_TERRITORY_FAST" {
+                assert_eq!(pacing_fast(S1_DEVNET_TERRITORY), p);
                 continue;
             }
             let mc = PRESETS
@@ -1051,7 +1154,9 @@ mod tests {
         let mut mc = MC_LOCAL_7D;
         mc.cq.spawn_reach = 1;
         assert!(mc.validate().is_err());
-        assert_eq!(cq_layout::RSV, 83);
+        // world4-pacing-impl: 83..87 are the pacing bytes, reserved from 87
+        assert_eq!(cq_layout::PACING, 83);
+        assert_eq!(cq_layout::RSV, 87);
     }
 
     /// ⑭ R3's rule table: the ring rule is today's PlaceHome exactly; the
@@ -1401,7 +1506,9 @@ mod tests {
         bad[77] = 3; // (2 is PLACEMENT_MIXED since ⑧ wide land (i))
         assert!(ConquestParams::from_bytes(&bad).is_none());
         // byte 81 is `centre` since ⑭ R2 (1 decodes, 2 is refused); 82 is
-        // `spawn_reach` since ⑭ R3 (≤ 8 decodes, 9 is refused); 83 stays reserved
+        // `spawn_reach` since ⑭ R3 (≤ 8 decodes, 9 is refused); 83 is `pacing`
+        // since world4-pacing-impl (1 decodes, 2 is refused), 84..87 its bytes;
+        // 87 stays reserved
         bad = raw;
         bad[81] = 2;
         assert!(ConquestParams::from_bytes(&bad).is_none());
@@ -1409,7 +1516,10 @@ mod tests {
         bad[82] = 9;
         assert!(ConquestParams::from_bytes(&bad).is_none());
         bad = raw;
-        bad[83] = 1;
+        bad[83] = 2;
+        assert!(ConquestParams::from_bytes(&bad).is_none());
+        bad = raw;
+        bad[87] = 1;
         assert!(ConquestParams::from_bytes(&bad).is_none());
     }
 
@@ -1464,5 +1574,76 @@ mod tests {
         assert_eq!(finite.validate(), Err("release_after_secs"));
         finite.cq.release_after_secs = S1_DEVNET_WIDE_7D.cq.release_after_secs;
         assert!(finite.validate().is_err());
+    }
+
+    /// world4-pacing-impl: world 3's preset is byte for byte what it was
+    /// (the vectors' REV3-payout hash 38fe3208…, as on main before the
+    /// pacing bytes; the operator's own world-3 hash 50edfaaa… — beacon key and
+    /// program version applied — is checked by `frontier-operator --offline`),
+    /// and the next world's preset differs from it in exactly the six decided
+    /// bytes.
+    #[test]
+    fn world_3_params_hash_is_unchanged_and_world_4_differs_only_in_pacing() {
+        let payout = permutation_rules::frontier::payout::PayoutParams::REV3.to_borsh();
+        let h3 = params_hash_v2(&S1_DEVNET_TERRITORY.to_bytes(), &payout);
+        assert_eq!(
+            &h3[..4],
+            &[0x38, 0xfe, 0x32, 0x08],
+            "world 3's preset bytes must not change"
+        );
+        let cq3 = S1_DEVNET_TERRITORY.cq.to_bytes();
+        assert!(cq3[cq_layout::PACING..].iter().all(|b| *b == 0), "world 3 has zero pacing bytes");
+        let f = S1_DEVNET_TERRITORY_FAST;
+        assert_eq!(f.validate(), Ok(()));
+        let mut back = f;
+        back.cq.pacing = 0;
+        back.cq.depart_stamina = 0;
+        back.cq.starter_host = 0;
+        back.cq.keep_bells = S1_DEVNET_TERRITORY.cq.keep_bells;
+        back.base.min_lead = 2;
+        back.base.reveal_window = 600;
+        assert_eq!(back, S1_DEVNET_TERRITORY);
+        assert_ne!(params_hash_v2(&f.to_bytes(), &payout), h3);
+        assert_eq!(SeasonParamsV2::from_bytes(&f.to_bytes()), Some(f));
+    }
+
+    /// The new-world bytes are refused without `pacing` 1, and the base
+    /// ranges move only with it (deliberate-break cases).
+    #[test]
+    fn pacing_bytes_need_the_fast_mode() {
+        let w3 = S1_DEVNET_TERRITORY;
+        for (what, f) in [
+            ("min_lead", (|p: &mut SeasonParamsV2| p.base.min_lead = 1) as fn(&mut SeasonParamsV2)),
+            ("reveal_window", |p| p.base.reveal_window = 300),
+            ("depart_stamina", |p| p.cq.depart_stamina = 37),
+            ("starter_host", |p| p.cq.starter_host = 500),
+        ] {
+            let mut p = w3;
+            f(&mut p);
+            assert_eq!(p.validate(), Err(what), "{what} without pacing");
+            p.cq.pacing = PACING_FAST_V1;
+            assert_eq!(p.validate(), Ok(()), "{what} with pacing");
+        }
+        let mut p = S1_DEVNET_TERRITORY_FAST;
+        p.base.reveal_window = 299;
+        assert_eq!(p.validate(), Err("reveal_window"));
+        p = S1_DEVNET_TERRITORY_FAST;
+        p.base.min_lead = 0;
+        assert_eq!(p.validate(), Err("min_lead"));
+        p = S1_DEVNET_TERRITORY_FAST;
+        p.cq.depart_stamina = 121;
+        assert_eq!(p.validate(), Err("depart_stamina"));
+        p = S1_DEVNET_TERRITORY_FAST;
+        p.cq.starter_host = 99;
+        assert_eq!(p.validate(), Err("starter_host"));
+        p.cq.starter_host = 30_001;
+        assert_eq!(p.validate(), Err("starter_host"));
+        let mut mc = MC_LOCAL_7D;
+        mc.cq.pacing = PACING_FAST_V1;
+        assert_eq!(mc.validate(), Err("pacing"));
+        // legacy windows still refuse 599 without pacing
+        let mut q = w3;
+        q.base.reveal_window = 599;
+        assert_eq!(q.validate(), Err("reveal_window"));
     }
 }

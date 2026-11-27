@@ -28,8 +28,14 @@ fn main() {
         if wide_scale.is_some() && !wide {
             return Err("--wide-scale is accepted only together with --wide-land".into());
         }
+        // (TEST-ONLY world4-pacing-impl: the next world's pacing bytes, only with the wide land)
+        let (rest, pacing) = itest::wide_land::take_pacing_args(rest)?;
+        if pacing && !wide {
+            return Err("--pacing is accepted only together with --wide-land".into());
+        }
         let mut world_opts = world_opts;
         world_opts.wide = wide;
+        world_opts.pacing = pacing;
         let (rest, demo) = itest::capture_demo::take_demo_args(rest)?;
         if wide && demo.is_some() {
             return Err("--wide-land is not accepted with --capture-demo".into());

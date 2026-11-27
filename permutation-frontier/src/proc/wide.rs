@@ -171,7 +171,7 @@ use permutation_rules::frontier::siege;
 use permutation_rules::frontier::stance::{Posture, Stance};
 use permutation_rules::frontier::terrain::wide::generate_province_wide;
 use permutation_rules::frontier::travel::{
-    check_arrival_bell, is_cavalry, FLAT_HEX_SECS, MAX_PATH_PROVINCES, MAX_PATH_STEPS,
+    is_cavalry, FLAT_HEX_SECS, MAX_PATH_PROVINCES, MAX_PATH_STEPS,
     ROUGH_HEX_SECS,
 };
 
@@ -4407,7 +4407,9 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
             .ok_or(BAD_ACCOUNT)?
             .dealt_bps(Posture::Stance(Stance::Hold), true),
     )?;
-    let transit = WideTransit::depart(
+    // world4-pacing-impl: the Season's Depart stamina and minimum lead.
+    let pace = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?;
+    let transit = WideTransit::depart_with_lead(
         h.host_identity,
         host,
         e.unit,
@@ -4417,12 +4419,13 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
         x.arrive_bell,
         now.ts,
         e.troops,
-        super::host::DEPART_STAMINA,
+        pace.depart_stamina,
         dealt,
         seal_root,
         x.tip,
         T::FLAG_FEE_ESCROWED | T::FLAG_BOND_ESCROWED,
         key(payer),
+        pace.min_lead,
     )
     .map_err(march_err)?;
     if e.state != E::STATE_ROSTER {
@@ -4432,7 +4435,7 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
         return Err(FrontierError::HostBusy.into());
     }
     let mut kh = e.to_host().map_err(|_| BAD_ACCOUNT)?;
-    kh.depart(now_bell, super::host::DEPART_STAMINA, rn)
+    kh.depart(now_bell, pace.depart_stamina, rn)
         .map_err(|er| super::host::host_err(er, FrontierError::NotResident))?;
     // 4. a bell of the season (the window is step 3's).
     if x.arrive_bell >= hdr.end_bell {
@@ -4571,7 +4574,7 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
             now_bell,
             x.arrive_bell,
             e.troops,
-            super::host::DEPART_STAMINA,
+            pace.depart_stamina,
             x.tip,
             fee,
             bond,
@@ -5446,7 +5449,11 @@ pub fn reveal(p: &Pubkey, a: &[AccountInfo], x: &wix::Reveal) -> R<()> {
     let raw = walk_wide(&plain, t.origin, &lands, is_cavalry(unit))?;
     let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
     let secs = u32::try_from(doctrine.travel_secs(raw as u64)).map_err(|_| OVERFLOW)?;
-    if check_arrival_bell(hdr.genesis_ts, t.depart_ts, secs, arrive).is_err() {
+    // world4-pacing-impl: the Season's minimum lead (the kernel's 2 before it).
+    let lead = crate::layout::conquest::season_pacing(&season_ai.try_borrow_data()?)?.min_lead;
+    if frontier_abi::v2::pacing::check_arrival_bell(hdr.genesis_ts, t.depart_ts, secs, arrive, lead)
+        .is_err()
+    {
         return Err(FrontierError::ArrivalBell.into());
     }
     if let Some((state, owner, shield_bell)) = dest_site {

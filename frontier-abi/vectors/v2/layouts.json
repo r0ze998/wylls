@@ -4324,9 +4324,27 @@
           "ty": "u8"
         },
         {
-          "name": "RSV",
+          "name": "PACING",
           "off": 83,
-          "len": 45,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "DEPART_STAMINA",
+          "off": 84,
+          "len": 1,
+          "ty": "u8"
+        },
+        {
+          "name": "STARTER_HOST",
+          "off": 85,
+          "len": 2,
+          "ty": "u16"
+        },
+        {
+          "name": "RSV",
+          "off": 87,
+          "len": 41,
           "ty": "rsv"
         }
       ]

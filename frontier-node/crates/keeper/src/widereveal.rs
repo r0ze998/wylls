@@ -97,7 +97,7 @@ use frontier_abi::world_index::{
 use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::seal::{path_step, salt_of};
 use permutation_rules::frontier::travel::{
-    check_arrival_bell, is_cavalry, FLAT_HEX_SECS, MAX_PATH_PROVINCES, MAX_PATH_STEPS,
+    is_cavalry, FLAT_HEX_SECS, MAX_PATH_PROVINCES, MAX_PATH_STEPS,
     ROUGH_HEX_SECS,
 };
 use serde_json::{json, Value};
@@ -883,7 +883,16 @@ pub fn plan_reveal(
     let doctrine = tri!(of_faction_v3(t.faction).ok_or(Block::Unreadable("transit")));
     let secs = tri!(u32::try_from(doctrine.travel_secs(raw as u64))
         .map_err(|_| Block::Overflow("travel seconds")));
-    if check_arrival_bell(season.genesis_ts, t.depart_ts, secs, arrive).is_err() {
+    // world4-pacing-impl: the Season's minimum lead, as the program's wide Reveal.
+    if frontier_abi::v2::pacing::check_arrival_bell(
+        season.genesis_ts,
+        t.depart_ts,
+        secs,
+        arrive,
+        season.pacing().min_lead,
+    )
+    .is_err()
+    {
         return Step::Done(Err(Block::ArrivalBell));
     }
     // The destination site under the committed tile, and the shield.

@@ -75,7 +75,7 @@ impl ReverseTransit {
         {
             return Err(Error::State);
         }
-        let initial = WideTransit::depart(
+        let initial = WideTransit::depart_with_lead(
             t.host_identity,
             t.host,
             t.unit,
@@ -91,6 +91,7 @@ impl ReverseTransit {
             0,
             0,
             t.rent_to,
+            super::march::RECORD_MIN_LEAD_BELLS,
         )
         .map_err(|_| Error::State)?;
         if WideTransit::from_bytes(&t.to_bytes()).map_err(|_| Error::Shape)? != t

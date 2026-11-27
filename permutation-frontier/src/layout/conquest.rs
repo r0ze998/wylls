@@ -32,6 +32,17 @@ pub fn season_cq(season: &[u8]) -> R<ConquestParams> {
     ConquestParams::of_season(season).ok_or(BAD_ACCOUNT)
 }
 
+/// world4-pacing-impl: the Season's pacing ([`frontier_abi::v2::pacing`]:
+/// min arrival lead, first home at once, Depart stamina, starter host). A
+/// Season with no conquest block (M1) is legacy; a refused combination is
+/// `BadAccount` (CreateSeason never stores one).
+pub fn season_pacing(season: &[u8]) -> R<frontier_abi::v2::pacing::Pacing> {
+    if season.len() < SEASON_CQ_OFFSET + CONQUEST_PARAMS_LEN {
+        return Ok(frontier_abi::v2::pacing::Pacing::LEGACY);
+    }
+    frontier_abi::v2::pacing::Pacing::of_season(season).ok_or(BAD_ACCOUNT)
+}
+
 /// The flag at conquest-block byte 80 on an already-existing world. Older
 /// finite worlds have zero in this formerly reserved byte. An unknown
 /// nonzero value must not let EndSeason pass through as a finite world.
