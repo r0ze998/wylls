@@ -37,8 +37,12 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
   horizon card therefore does not appear in the demo yet.
 - A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). Reloading starts a new world
   (same seed); the demo clears its own `ps-*` storage at load and keeps only the language.
-- The season record carries `sample.demo = {live}`: the page's tag says "Playable demo / 体験版" and links the
-  live world (`--live-url`, default the GitHub repository).
+- The season record carries `sample.demo = {live}`: the page's tag says "Playable demo / 体験版" and, only when
+  `--live-url https://…` is given, links the live world ("The live world / 本物の世界へ"). There is no default: the
+  label promises a world to play, so it must not point at the source repository (Q-WD-1).
+- Hosting: put the demo on an origin that never serves the real page. At load the demo clears every `ps-*` key of
+  its origin's `localStorage` (keeping only `ps-lang`), so on a shared origin it would wipe the real page's saved
+  wallet choice and in-game key.
 
 ## Build options
 

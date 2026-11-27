@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Build the walletless static demo: `node build.mjs [--out dist] [--live-url URL] [--turn 12] [--delay 4]`.
+// Build the walletless static demo: `node build.mjs [--out dist] [--live-url URL] [--turn 12] [--delay 3]`.
 //
 //   dist/                 a copy of permutation-server/web/ (the real page: HTML, JS modules, CSS, art, i18n, wasm)
 //   dist/index.html       the one URL to share: opens frontier/ (the game page) at once
@@ -18,7 +18,9 @@ const REPO = join(HERE, '..', '..');
 const WEB = join(REPO, 'permutation-server', 'web');
 const { values: opt } = parseArgs({ options: {
   out: { type: 'string', default: join(HERE, 'dist') },
-  'live-url': { type: 'string', default: 'https://github.com/r0ze998/wylls' },
+  // (no default: the tag's "The live world" link appears only when a real, public live-world page is given — a link to the
+  //  source repository under that label would mislead players; verify-pr301, Q-WD-1)
+  'live-url': { type: 'string', default: '' },
   turn: { type: 'string', default: '12' }, delay: { type: 'string', default: '3' }, 'land-ms': { type: 'string', default: '400' },
 } });
 const OUT = opt.out;
@@ -88,4 +90,4 @@ async function walk(d) { for (const e of await readdir(d, { withFileTypes: true 
 await walk(OUT);
 const world = Object.values(res.metafile.outputs)[0].bytes;
 console.log(`walletless demo → ${relative(process.cwd(), OUT) || '.'}: ${files} files, ${(bytes / 1048576).toFixed(1)} MiB (world bundle ${(world / 1024).toFixed(0)} KiB), ${Date.now() - t0} ms`);
-console.log(`  turn ${DEMO.turnSecs} s, first toll after ${DEMO.delaySecs} s, live world link ${DEMO.liveUrl}`);
+console.log(`  turn ${DEMO.turnSecs} s, first toll after ${DEMO.delaySecs} s, live world link ${DEMO.liveUrl || '(none: pass --live-url https://… to show one)'}`);

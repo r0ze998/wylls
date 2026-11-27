@@ -167,8 +167,9 @@ await sleep(1500);
 await shot(page, '02-village');
 const tag = (await page.locator('#sample-tag').innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
 check(JA ? tag.includes('体験版') : tag.includes('Playable demo'), `the demo says what it is: "${tag}"`);
-const live = await page.locator('#sample-tag a.sample-live').getAttribute('href').catch(() => null);
-check(!!live && live.startsWith('https://'), `the tag links the live world (${live})`);
+const wantLive = await page.evaluate(() => globalThis.__wyllsDemo.config.liveUrl || '');
+const live = (await page.locator('#sample-tag a.sample-live').count()) ? await page.locator('#sample-tag a.sample-live').getAttribute('href') : null;
+check(wantLive ? live === wantLive && live.startsWith('https://') : live === null, wantLive ? `the tag links the live world (${live})` : `no live-world link without --live-url (${live})`);
 const s0 = await summary();
 check(s0.neighbours.length >= 6 && new Set(s0.neighbours.map(n => n.nation)).size === 6, `all six nations have a village on the map (${s0.neighbours.map(n => n.nation).join(',')})`);
 
