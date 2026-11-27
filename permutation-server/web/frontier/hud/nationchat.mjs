@@ -242,13 +242,15 @@ export function chatPlacement(body, width) {
  *     left it.
  * The same rule as the title screen's (chatPlacement): never two panels over each other.
  * The drawer's key (pure): null for no side drawer; else its kind, with the selection for a selection's card and the
- * order for an order card (`token(obj)` → a number per object: a new choice is a new object, hud/drawer.mjs
- * drawerHeadFor). A redraw of the same drawer keeps its key, so it never closes the chat.
+ * order (and its destination) for an order card (`token(obj)` → a number per object: a new choice is a new object,
+ * hud/drawer.mjs drawerHeadFor). A redraw of the same drawer keeps its key, so it never closes the chat.
  */
 export function sideDrawerKey(d, { selected = null, compose = null, wide = new Set(), stage = new Set(), token = () => 0 } = {}) {
   if (!d?.kind || wide.has(d.kind) || stage.has(d.kind)) return null;
   const sel = d.kind === 'inspect' || d.kind === 'spectate' ? `|s${selected ? token(selected) : 0}` : '';
-  const ord = d.kind === 'march' ? `|c${compose ? token(compose) : 0}` : '';
+  // (the order's destination too: a place chosen on the map for an order set aside under the chat brings the card back)
+  const dest = compose?.dest && typeof compose.dest === 'object' ? `@${compose.dest.p},${compose.dest.q},${compose.dest.tile}` : '';
+  const ord = d.kind === 'march' ? `|c${compose ? token(compose) : 0}${dest}` : '';
   return `${d.kind}${sel}${ord}`;
 }
 /** A number per object, kept with the object (WeakMap): the identity `sideDrawerKey` compares. */

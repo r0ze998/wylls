@@ -41,6 +41,12 @@ test('sideDrawerKey: no key for no drawer, a wide document or the nation stage; 
   assert.notEqual(k({ kind: 'inspect' }, { selected: sel }), k({ kind: 'inspect' }, { selected: sel2 }), 'a new choice (a new object, even of equal content)');
   assert.notEqual(k({ kind: 'march' }, { compose: ord }), k({ kind: 'march' }, { compose: ord2 }), 'another order');
   assert.equal(k({ kind: 'hosts' }, { selected: sel }), k({ kind: 'hosts' }, { selected: sel2 }), 'a tab ignores the map\'s selection');
+  // the order's destination: a place chosen for an order set aside under the chat is an opening (the card comes back)
+  const o3 = { host: 'h' };
+  const before = k({ kind: 'march' }, { compose: o3 });
+  o3.dest = { p: 1, q: 2, tile: 3 };
+  assert.notEqual(k({ kind: 'march' }, { compose: o3 }), before);
+  assert.equal(k({ kind: 'march' }, { compose: o3 }), k({ kind: 'march' }, { compose: o3 }), 'a redraw of the same order and place');
   assert.deepEqual(chat.drawerOpened(null, 'hosts'), { opened: true, key: 'hosts' });
   assert.deepEqual(chat.drawerOpened('hosts', 'hosts'), { opened: false, key: 'hosts' }, 'a redraw is no opening');
   assert.deepEqual(chat.drawerOpened('hosts', null), { opened: false, key: null }, 'a closing is no opening');
