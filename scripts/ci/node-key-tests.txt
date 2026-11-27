@@ -344,6 +344,7 @@ permutation-gateway/test/web-frontier-onboarding.test.mjs
 permutation-gateway/test/web-frontier-opening-world.test.mjs
 permutation-gateway/test/web-frontier-outbound-arrival-pick.test.mjs
 permutation-gateway/test/web-frontier-outbound-clock.test.mjs
+permutation-gateway/test/web-frontier-pacing.test.mjs
 permutation-gateway/test/web-frontier-pending-vs-formed-host.test.mjs
 permutation-gateway/test/web-frontier-placement.test.mjs
 permutation-gateway/test/web-frontier-players.test.mjs

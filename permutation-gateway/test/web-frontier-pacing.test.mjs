@@ -71,6 +71,16 @@ test('AI residents: a paced world places the rim village at once, a refusal fall
   const back = decideNext(m, view, { homes, wide, atOnce: true });
   assert.equal(back.name, 'FileTicket', 'the same site by request after the refusal');
   assert.deepEqual(back.fields.sites[0], { p: 128, q: 0, site: 0 });
+  // TicketState (an open cohort in the province): wait, then place at once again — no request
+  const m2 = createResidentMemory(0, 0);
+  const a2 = decideNext(m2, view, { homes, wide, atOnce: true });
+  noteOutcome(m2, a2, 'failed', { code: 'LocalActRejected', programCode: 45 });
+  assert.equal(decideNext(m2, view, { homes, wide, atOnce: true }).wait, true);
+  noteOutcome(m2, { wait: true }, 'wait');
+  noteOutcome(m2, { wait: true }, 'wait');
+  const again = decideNext(m2, view, { homes, wide, atOnce: true });
+  assert.equal(again.name, 'PlaceHome');
+  assert.equal(again.atOnce, true);
   // a world before the byte (world 3) files the rim request as before
   const legacy = decideNext(createResidentMemory(0, 0), view, { homes, wide });
   assert.equal(legacy.name, 'FileTicket');

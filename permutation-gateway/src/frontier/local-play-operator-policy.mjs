@@ -482,7 +482,11 @@ export function noteOutcome(memory, decision, outcome, why = {}) {
   memory.decisions += 1;
   if (decision?.wait) return memory;
   const bad = outcome === 'refused' || outcome === 'failed';
-  if (decision.name === 'PlaceHome' && decision.atOnce && (bad || outcome === 'unknown')) (memory.atOnceTried ??= []).push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
+  // (world4-pacing-impl: TicketState 45 — a lottery cohort is open in that province, which blocks PlaceHome there until
+  //  it closes: wait two decisions and place at once again, rather than file a request that holds the province open
+  //  for everyone else; any other refusal falls back to the request for that site)
+  if (decision.name === 'PlaceHome' && decision.atOnce && bad && (why.programCode === 45 || why.code === 'TicketState')) memory.ticketUntil = memory.decisions + 2;
+  else if (decision.name === 'PlaceHome' && decision.atOnce && (bad || outcome === 'unknown')) (memory.atOnceTried ??= []).push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
   else if (decision.name === 'PlaceHome' && (bad || outcome === 'unknown')) memory.triedHomes.push(`${decision.fields.p},${decision.fields.q},${decision.fields.site}`);
   if (decision.name === 'FileTicket') {
     const k = `${decision.fields.sites[0].p},${decision.fields.sites[0].q},${decision.fields.sites[0].site}`;

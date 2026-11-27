@@ -435,7 +435,7 @@ export async function residentTurn(r, { homes, deps, bell = null, wideTargets = 
   }
   // (the runner's definite rejection — LocalActRejected, 2026-11-19 — counts as before, when it was LocalActSendRefused: failed)
   let programCode = null;
-  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; programCode = Number.isInteger(sent.programCode) ? sent.programCode : null; }
+  if (!sent.ok) { outcome = sent.code === 'LocalActRejected' ? 'failed' : 'refused'; code = sent.code; programCode = Number.isInteger(sent.programCode) ? sent.programCode : Number.isInteger(sent.detail?.program_code) ? sent.detail.program_code : Number.isInteger(r.lastRefusal?.detail?.program_code) ? r.lastRefusal.detail.program_code : null; }
   else {
     signature = sent.signature;
     const f = await deps.follow(signature, r);
