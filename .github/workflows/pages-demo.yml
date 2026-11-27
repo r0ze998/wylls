@@ -29,6 +29,7 @@ on:
       - 'permutation-server/web/**'
       - 'frontier-abi/vectors/presets.json'
       - 'permutation-gateway/test/frontier-vectors.json'
+      - 'permutation-gateway/test/fixtures/frontier/make-fixtures.mjs' # screens/world.mjs bundles it (verify-pr305)
       - '.github/workflows/pages-demo.yml'
   workflow_dispatch:
 
