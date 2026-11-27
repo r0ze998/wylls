@@ -239,6 +239,11 @@ pub struct KeeperConfig {
     pub reveal_floor: Option<u64>,
     /// Delay-pool floor (lamports); default 0.5 SOL (§8.2).
     pub delay_floor: u64,
+    /// keeper-send-spare (Q-FKC-1 b): lamports a payer must hold on top of
+    /// the fee and its own rent-exempt minimum before it signs a version, to
+    /// cover the rent of an account the write creates. 0 (default): fee +
+    /// rent-exempt minimum only, as before.
+    pub send_spare_lamports: u64,
     pub daily_budget_lamports: u64,
     /// Most lamports the versions of one write may cost (§8.2 duplicates bound).
     pub per_write_cap_lamports: u64,
@@ -454,6 +459,7 @@ impl KeeperConfig {
             peace_start: None,
             reveal_floor: None,
             delay_floor: fclient::payers::DELAY_FLOOR_DEFAULT,
+            send_spare_lamports: 0,
             daily_budget_lamports: 50_000_000_000,
             per_write_cap_lamports: 20_000_000,
             beneficiary,
@@ -682,6 +688,7 @@ impl KeeperConfig {
         num!("p_delay_milli", p_delay_milli, u64);
         num!("p_low_milli", p_low_milli, u64);
         num!("delay_floor", delay_floor, u64);
+        num!("send_spare_lamports", send_spare_lamports, u64);
         num!("daily_budget_lamports", daily_budget_lamports, u64);
         num!("per_write_cap_lamports", per_write_cap_lamports, u64);
         num!("fallback_lag_slots", fallback_lag_slots, u64);
@@ -1036,6 +1043,22 @@ mod tests {
                 assert!(e.contains(missing), "{missing}: {e}");
             }
         }
+    }
+
+    #[test]
+    fn send_spare_lamports_defaults_to_0_and_parses() {
+        let p = Address::new_from_array([5; 32]);
+        let b = Address::new_from_array([6; 32]);
+        let base = format!("program = \"{p}\"\nseason = 1\nbeneficiary = \"{b}\"\n");
+        assert_eq!(
+            KeeperConfig::from_toml(&base).unwrap().send_spare_lamports,
+            0
+        );
+        for n in [0u64, 1, 2_394_240] {
+            let c = KeeperConfig::from_toml(&format!("{base}send_spare_lamports = {n}\n")).unwrap();
+            assert_eq!(c.send_spare_lamports, n);
+        }
+        assert!(KeeperConfig::from_toml(&format!("{base}send_spare_lamports = -1\n")).is_err());
     }
 
     #[test]

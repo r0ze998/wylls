@@ -117,6 +117,7 @@ funders = 4                              # ≥ 4
 r99_reveals = 150                        # W6-E recommendation for M1-size seasons (default 4000)
 # reveal_floor = 8000000                 # lamports; overrides the R99 formula
 # delay_floor = 500000000
+# send_spare_lamports = 0                # a payer signs only at ≥ fee + its rent-exempt minimum + this (lamports); covers the rent of an account the write creates (Q-FKC-1, default 0)
 p_def_milli = 2000                       # ≤ 2000 and ≤ the season's defence cap
 p_delay_milli = 500
 # p_low_milli = 100
