@@ -959,6 +959,83 @@ test('runChecks: herald.lag behind-progressing / not-progressing, the state keep
   assert.equal(r.by['herald.lag'].level, 'OK');
 });
 
+// test-gaps-7 (#288): herald.lag's whole decision table, an older herald without ingest.backlog / lastArchivedSlot, and
+// what --state carries between runs. Each row is [lag, backlog, lastArchived, prevArchived] → level.
+test('heraldLag decision table: no backlog → the live lag; backlog > 0 → progress since the last run decides', () => {
+  const rows = [
+    // no backlog (an older herald: NaN; caught up: 0; nonsense: negative) → lagLevel(lag) as before #288
+    [[5, NaN, NaN, NaN], 'OK'], [[200, NaN, NaN, 900], 'WARN'], [[2000, NaN, 950, 900], 'FAIL'], [[NaN, NaN, NaN, NaN], 'FAIL'],
+    [[5, 0, 950, 900], 'OK'], [[151, 0, 950, 950], 'WARN'], [[1501, 0, 950, 900], 'FAIL'], [[150, 0, NaN, NaN], 'OK'],
+    [[5, -3, 950, 900], 'OK'], [[2000, -3, 950, 950], 'FAIL'],
+    // backlog > 0, no previous run → WARN whatever the lag
+    [[5, 1, 950, NaN], 'WARN'], [[5, 300, NaN, NaN], 'WARN'],
+    // backlog > 0, archived further than last run → WARN "progressing"; not further → FAIL; lower (rebuilt) → WARN
+    [[3, 300, 950, 900], 'WARN'], [[3, 300, 901, 900], 'WARN'], [[3, 300, 900, 900], 'FAIL'], [[3, 300, NaN, 900], 'FAIL'],
+    [[3, 300, 899, 900], 'WARN'],
+  ];
+  for (const [[lag, backlog, lastArchived, prevArchived], want] of rows) {
+    const r = heraldLag({ lag, backlog, lastArchived, prevArchived });
+    assert.equal(r.level, want, JSON.stringify({ lag, backlog, lastArchived, prevArchived, r }));
+    assert.equal(r.note == null, !(backlog > 0), 'a note exactly when the backlog decides');
+  }
+  // Pinned as built (test-gaps-7 Q-TG7-1): with a backlog the live lag is not consulted, so a herald whose Clock is
+  // frozen (live 5,000 slots behind) but whose archive advances is WARN, not FAIL.
+  assert.equal(heraldLag({ lag: 5000, backlog: 300, lastArchived: 950, prevArchived: 900 }).level, 'WARN');
+  assert.equal(heraldLag({ lag: NaN, backlog: 300, lastArchived: 950, prevArchived: 900 }).level, 'WARN');
+});
+
+test('runChecks: an older herald without ingest.backlog / lastArchivedSlot is judged by the live lag, and --state keeps the last value', async () => {
+  const status = (ingest, live = 995) => ({
+    '/h/season': { status: 200, body: { statusName: 'Running', rings: [1, 2], ringsOpened: 2, rMax: 16, rulesetHash: 'ab'.repeat(32) } },
+    '/h/status': { status: 200, body: { ingest: { state: 'ok', failures: 0, error: null, ...ingest }, alarms: { badRecords: 0 }, events: '9', provinces: 2, ws: { open: 1 }, live: [live, 0] } },
+  });
+  const prev = { herald: { lastArchivedSlot: 900, at: 'x' } };
+  // rpc slot 1000 (fakeRpc): live 995 → lag 5 OK; live 700 → 300 WARN; live -1000 → 2000 FAIL. No note in any.
+  for (const [live, want] of [[995, 'OK'], [700, 'WARN'], [-1000, 'FAIL']]) {
+    const r = await world({ herald: status({}, live), tunnelLog: 'x', extra: { prevState: prev } });
+    assert.equal(r.by['herald.lag'].level, want, r.by['herald.lag'].detail);
+    assert.match(r.by['herald.lag'].detail, /slots \(≈-?\d+ s at 0\.4 s\/slot\)$/, 'no backlog note');
+    assert.equal(r.herald, null, 'nothing to record');
+    assert.deepEqual(mergeState(prev, r).herald, prev.herald, 'the previous lastArchivedSlot is kept, not erased');
+  }
+  // the null and "unknown" an upgraded herald sends before its first listing: the live lag too
+  for (const ingest of [{ backlog: 'unknown', lastArchivedSlot: null }, { backlog: null }]) {
+    const r = await world({ herald: status(ingest), tunnelLog: 'x', extra: { prevState: prev } });
+    assert.equal(r.by['herald.lag'].level, 'OK');
+  }
+  // A fresh herald (nothing archived yet: lastArchivedSlot null) behind a previous run's state FAILs, and the state
+  // keeps the old value until its first chunk lands (verify-pr288 §5 item 8 caveat, pinned).
+  const fresh = await world({ herald: status({ backlog: 1587, lastArchivedSlot: null }), tunnelLog: 'x', extra: { prevState: prev } });
+  assert.equal(fresh.by['herald.lag'].level, 'FAIL');
+  assert.match(fresh.by['herald.lag'].detail, /behind, NOT progressing: backlog 1587 txs, archived through slot \S+ \(same as the last run\)/);
+  assert.equal(mergeState(prev, fresh).herald.lastArchivedSlot, 900);
+  // Two runs during a catch-up: WARN while the archive moves, FAIL when it stops, WARN again once it moves.
+  let st = {};
+  const levels = [];
+  for (const las of [1000, 1100, 1100, 1250]) {
+    const r = await world({ herald: status({ backlog: 400, lastArchivedSlot: las }), tunnelLog: 'x', extra: { prevState: st } });
+    levels.push(r.by['herald.lag'].level);
+    st = mergeState(st, r);
+    assert.equal(st.herald.lastArchivedSlot, las);
+  }
+  assert.deepEqual(levels, ['WARN', 'WARN', 'FAIL', 'WARN']);
+});
+
+// test-gaps-7 finding D-test-gaps-7-1: runChecks passed NaN for a missing lastArchivedSlot and heraldLag's
+// `lastArchived ?? '?'` kept it, so the line read "archived through slot NaN". Fixed by #300 (fix-health-nan,
+// slotText); this was a `todo` until then (verify-pr297 merged it as a normal test).
+test('runChecks: a herald with no lastArchivedSlot yet reads "archived through slot ?" (D-test-gaps-7-1)', async () => {
+  assert.match(heraldLag({ lag: 5, backlog: 1587, prevArchived: 900 }).note, /archived through slot \? /);
+  const r = await world({
+    herald: {
+      '/h/season': { status: 200, body: { statusName: 'Running', rings: [1, 2], ringsOpened: 2, rMax: 16, rulesetHash: 'ab'.repeat(32) } },
+      '/h/status': { status: 200, body: { ingest: { state: 'ok', failures: 0, error: null, backlog: 1587, lastArchivedSlot: null }, alarms: { badRecords: 0 }, events: '9', provinces: 2, ws: { open: 1 }, live: [995, 0] } },
+    },
+    tunnelLog: 'x', extra: { prevState: { herald: { lastArchivedSlot: 900 } } },
+  });
+  assert.doesNotMatch(r.by['herald.lag'].detail, /NaN/);
+});
+
 // fix-health-nan (D-test-gaps-7-1): a missing / null / non-number lastArchivedSlot (or live slot) prints "?", never
 // "NaN"; the WARN/FAIL decision is unchanged (Q-TG7-1 is the owner's — the level is pinned against heraldLag/lagLevel).
 const ODD = [undefined, null, NaN, Infinity, -Infinity, '1234', '', true, {}, []];
