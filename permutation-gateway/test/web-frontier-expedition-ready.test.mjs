@@ -158,7 +158,7 @@ test('source pins retain runtime finality, resident, pending, stamina, arrival a
   const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
   const depart = read('permutation-frontier/src/proc/wide_expedition_exec.rs');
   for (const name of ['ap::finality_due', 'capture_lock_of', 'ap::resident_ok', 'host_in_transit_with_bridge',
-    'e.busy()', 'host.depart(', 'bell.checked_add(2)', 'bell.checked_add(72)', 'x.arrive_bell >= hdr.end_bell', 'fees::min_tip_lamports', 'start.finish']) assert.ok(depart.includes(name), name);
+    'e.busy()', 'host.depart(', 'bell.checked_add(pace.min_lead)', 'bell.checked_add(72)', 'x.arrive_bell >= hdr.end_bell', 'fees::min_tip_lamports', 'start.finish']) assert.ok(depart.includes(name), name);
   const prologue = read('frontier-abi/src/prologue.rs');
   assert.match(prologue, /resolved_next as u64 \+ 1 >= b as u64/);
   assert.match(prologue, /h\.state == H::STATE_PROVISIONAL/);
