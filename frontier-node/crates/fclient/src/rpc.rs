@@ -871,6 +871,34 @@ pub const HISTORY_PER_CALL: usize = 32;
 /// 1,000 unknown signatures are all re-read in ≈ 10 min.
 pub const HISTORY_EVERY: Duration = Duration::from_secs(20);
 
+/// The signatures (indexes into the call's list) one capped history search
+/// asks for: the `unseen` ones flagged in `first` before the others, each
+/// group rotating on its own counter so every signature of a long list is
+/// reached in turn (fix-keeper-care).
+pub fn history_pick(
+    unseen: &[usize],
+    first: &[bool],
+    cap: usize,
+    next_first: &std::sync::atomic::AtomicUsize,
+    next_rest: &std::sync::atomic::AtomicUsize,
+) -> Vec<usize> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (prio, rest): (Vec<usize>, Vec<usize>) = unseen
+        .iter()
+        .partition(|&&i| first.get(i).copied().unwrap_or(false));
+    let mut pick = Vec::with_capacity(cap.min(unseen.len()));
+    for (group, next) in [(&prio, next_first), (&rest, next_rest)] {
+        let n = group.len();
+        let take = n.min(cap - pick.len());
+        if take == 0 {
+            continue;
+        }
+        let start = next.fetch_add(take, Relaxed) % n;
+        pick.extend((0..take).map(|k| group[(start + k) % n]));
+    }
+    pick
+}
+
 /// `ChainPort` over JSON-RPC.
 pub struct RpcPort {
     pub rpc: RpcClient,
@@ -879,6 +907,8 @@ pub struct RpcPort {
     pub localnet: bool,
     /// Rotation of the capped history search ([`HISTORY_PER_CALL`]).
     history_next: std::sync::atomic::AtomicUsize,
+    /// Rotation among the priority signatures ([`ChainPort::statuses_absent_first`]).
+    history_next_first: std::sync::atomic::AtomicUsize,
     /// Least time between two history searches ([`HISTORY_EVERY`] for a
     /// remote URL, zero on loopback: a local node answers at once).
     pub history_every: Duration,
@@ -892,6 +922,7 @@ impl RpcPort {
             program,
             localnet: false,
             history_next: Default::default(),
+            history_next_first: Default::default(),
             history_every: Duration::ZERO,
             history_last: Default::default(),
         }
@@ -910,6 +941,7 @@ impl RpcPort {
             program,
             localnet: false,
             history_next: Default::default(),
+            history_next_first: Default::default(),
             history_every: Duration::ZERO,
             history_last: Default::default(),
         }
@@ -971,6 +1003,7 @@ impl RpcPort {
             program,
             localnet: true,
             history_next: Default::default(),
+            history_next_first: Default::default(),
             history_every: Duration::ZERO,
             history_last: Default::default(),
         }
@@ -1143,6 +1176,18 @@ impl ChainPort for RpcPort {
         &self,
         sigs: &[Signature],
     ) -> PortResult<(Vec<Option<Status>>, Vec<bool>)> {
+        self.statuses_absent_first(sigs, &[]).await
+    }
+
+    /// [`ChainPort::statuses_absent`] whose capped history search takes the
+    /// `first`-flagged signatures the status cache did not know before any
+    /// other (fix-keeper-care: the keeper's payer-care transfers, which gate
+    /// every top-up, waited behind thousands of unresolved program writes).
+    async fn statuses_absent_first(
+        &self,
+        sigs: &[Signature],
+        first: &[bool],
+    ) -> PortResult<(Vec<Option<Status>>, Vec<bool>)> {
         let mut out: Vec<Option<Status>> = vec![None; sigs.len()];
         let mut absent = vec![false; sigs.len()];
         // Signatures the status cache answered `null` for (unknown to it).
@@ -1173,13 +1218,13 @@ impl ChainPort for RpcPort {
             }
         }
         if !unseen.is_empty() && self.history_due() {
-            let n = unseen.len();
-            let take = n.min(HISTORY_PER_CALL);
-            let start = self
-                .history_next
-                .fetch_add(take, std::sync::atomic::Ordering::Relaxed)
-                % n;
-            let pick: Vec<usize> = (0..take).map(|k| unseen[(start + k) % n]).collect();
+            let pick = history_pick(
+                &unseen,
+                first,
+                HISTORY_PER_CALL,
+                &self.history_next_first,
+                &self.history_next,
+            );
             for chunk in pick.chunks(HISTORY_CHUNK) {
                 let ss: Vec<Signature> = chunk.iter().map(|&i| sigs[i]).collect();
                 // A failed history chunk stays unknown; the next call tries others.
@@ -1439,6 +1484,44 @@ mod tests {
     }
 
     use super::*;
+
+    /// fix-keeper-care: the history search takes the flagged signatures the
+    /// status cache did not know first (here 3 care transfers among 100
+    /// program writes), then rotates through the rest; a long list of
+    /// flagged ones rotates on its own.
+    #[test]
+    fn history_pick_takes_flagged_signatures_first() {
+        use std::sync::atomic::AtomicUsize;
+        let unseen: Vec<usize> = (0..103).collect();
+        let mut first = vec![false; 103];
+        for i in [7, 50, 101] {
+            first[i] = true;
+        }
+        let (a, b) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let p = history_pick(&unseen, &first, 32, &a, &b);
+        assert_eq!(p.len(), 32);
+        assert_eq!(&p[..3], &[7, 50, 101]);
+        assert!(p[3..].iter().all(|i| !first[*i]));
+        // The rest rotates: the next call starts after the 29 taken.
+        let q = history_pick(&unseen, &first, 32, &a, &b);
+        assert_eq!(&q[..3], &[7, 50, 101]);
+        assert_eq!(q[3], p[31] + 1);
+        // No flags: the plain rotation of every unseen signature.
+        let (c, d) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        assert_eq!(
+            history_pick(&unseen, &[], 32, &c, &d),
+            (0..32).collect::<Vec<_>>()
+        );
+        // 80 flagged: only flagged ones, 32 per call, rotating among them.
+        let all = vec![true; 80];
+        let u: Vec<usize> = (0..80).collect();
+        let (e, f) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..3 {
+            seen.extend(history_pick(&u, &all, 32, &e, &f));
+        }
+        assert_eq!(seen.len(), 80, "every flagged signature within 3 calls");
+    }
 
     /// security-audit: one loopback JSON-RPC answer per connection (a thread); → the URL.
     /// The server reads the whole request and outlives the client's read

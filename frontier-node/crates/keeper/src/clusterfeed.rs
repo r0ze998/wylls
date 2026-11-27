@@ -271,6 +271,14 @@ impl ChainPort for ClusterPort {
     {
         self.port.statuses_absent(sigs)
     }
+    fn statuses_absent_first(
+        &self,
+        sigs: &[Signature],
+        first: &[bool],
+    ) -> impl std::future::Future<Output = PortResult<(Vec<Option<Status>>, Vec<bool>)>> + Send
+    {
+        self.port.statuses_absent_first(sigs, first)
+    }
     async fn feed(&self, after: Cursor) -> PortResult<Vec<TxRecord>> {
         match &self.feed {
             None => self.port.feed(after).await,
