@@ -87,6 +87,7 @@ import { TERRITORY_V1, territoryPlayerAddress, citizenTagOf, claimCostV1 } from 
 import * as G from './demogoal.mjs';
 import { judgeTileClaim, keepTileOf, nationVillageIn, provinceDistance, tileUpkeepV1 } from '../../permutation-server/web/frontier/sampleland.mjs';
 import * as TV from './travelers.mjs';
+import * as DC from '../../permutation-server/web/frontier/democamps.mjs';
 
 const { GENESIS_TS, BELL, LATEST_UNIX, LATEST_SLOT, HOME, CAMP_TILE, HOSTS, PROGRAM, SEASON_ID } = W;
 const { ES, OP, TS, TF, QK, FATE, OUTCOME, NO_BELL, NO_TILE, MILLI } = R;
@@ -190,7 +191,7 @@ const REFUSED_TEXT = Object.freeze({
 /** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
 export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
 
-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false, landUpkeep = false, landClaim = false, goal = false, travelers = false } = {}) {
+export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false, landUpkeep = false, landClaim = false, goal = false, camps = false, travelers = false } = {}) {
   // (`landClaim` plays on the land of `landUpkeep`)
   if (landClaim) landUpkeep = true;
   const K = kernel();
@@ -401,6 +402,75 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     const s = hexBytes(ringSeed);
     return { tile: cands[R.below(R.rand(s, 'frontier/camp/tile', id), cands.length)], troops: 100 + R.below(R.rand(s, 'frontier/camp/troops', id), 301) };
   }
+  // ------------------------------------------------------------------ the demo's NPC camps (`camps`, the walletless demo; democamps.mjs)
+  // (off by default: every other caller's world is what it was. The camps are the program's own Camp records — the clash,
+  //  the camp mask and the Works are untouched —; the demo places them, scales and regrows them, and pays loot)
+  const CAMPS = camps && nations ? createCamps(typeof camps === 'object' ? camps : {}) : null;
+  function createCamps(over) {
+    const rules = Object.freeze({ ...DC.DEMO_CAMPS, ...over });
+    const list = new Map();
+    for (const pv of provinces.values()) {
+      // every province: the day's check never comes (the kernel skips it too: Camp.NEXT_CHECK_DAY), so the demo's rule alone places camps
+      const tile = rules.rings.includes(pv.ring) ? DC.campTile(pv, TILE_OFFSETS, rules) : -1;
+      if (tile < 0) { pv.camp = { tile: pv.camp.tile, state: 0, troops: 0, nextCheckDay: DC.NEVER, gen: pv.camp.gen }; continue; }
+      const troops = DC.campTroops(null, 0, rules);
+      pv.camp = { tile, state: 1, troops, nextCheckDay: DC.NEVER, gen: pv.camp.gen + 1 };
+      list.set(key(pv.p, pv.q), { p: pv.p, q: pv.q, ring: pv.ring, tile, comebacks: 0, clearedBell: null, backAt: null, spawnedBell: null, troops, cleared: 0 });
+    }
+    return { rules, list, posted: null, log: [] };
+  }
+  /** At the start of a province's resolve: the first after the player's village scales every camp by its distance; a cleared camp comes back. */
+  function campsBefore(pv, b, t) {
+    if (!CAMPS) return;
+    if (ME && CAMPS.posted === null) {
+      CAMPS.posted = b;
+      for (const c of CAMPS.list.values()) {
+        const x = provinces.get(key(c.p, c.q));
+        if (x.camp.state !== 1) continue;
+        c.troops = x.camp.troops = DC.campTroops(hexDistance(c.p, c.q, ME.p, ME.q), 0, CAMPS.rules);
+        x.rosterEpoch++;
+      }
+      CAMPS.log.push({ bell: b, kind: 'scaled', home: [ME.p, ME.q] });
+    }
+    const c = CAMPS.list.get(key(pv.p, pv.q));
+    if (!c || pv.camp.state === 1 || c.backAt === null || b < c.backAt) return;
+    // (on its own tile, once nobody stands there and no arrival of this bell or a later one is bound for it)
+    const bound = [...st.slots.values()].flat().some(s => s.p === pv.p && s.q === pv.q && s.bell >= b && s.tile === c.tile);
+    if (bound || pv.entries.some(e => e.state !== ES.FREE && e.tile === c.tile)) return;
+    c.comebacks++;
+    c.troops = DC.campTroops(ME ? hexDistance(c.p, c.q, ME.p, ME.q) : null, c.comebacks, CAMPS.rules);
+    pv.camp = { tile: c.tile, state: 1, troops: c.troops, nextCheckDay: DC.NEVER, gen: pv.camp.gen + 1 };
+    c.backAt = null; c.spawnedBell = b;
+    pv.rosterEpoch++;
+    emit(43, bellOf(t), { p: pv.p, q: pv.q, tile: c.tile, troops: c.troops, day: Math.floor(b / R.BELLS_PER_DAY) });
+    CAMPS.log.push({ bell: b, kind: 'back', p: pv.p, q: pv.q, tile: c.tile, troops: c.troops, comeback: c.comebacks });
+  }
+  /** After a resolve that cleared a camp: the loot into the winner's village (the camp mask's winner, the one the Works go to), and the report says it. */
+  function campsAfter(pv, b, t, ap, ci, before) {
+    if (!CAMPS || !ap.campCleared) return;
+    const c = CAMPS.list.get(key(pv.p, pv.q));
+    if (!c) return;
+    c.clearedBell = b; c.cleared++;
+    c.backAt = CAMPS.rules.regrowBells > 0 ? b + CAMPS.rules.regrowBells : null;
+    const pos = DC.maskWinner(ap.campMask), rec = pos >= 0 ? ci.arrivals[pos] : null, H = rec ? holdingOfHost(BigInt(rec.hostId)) : null;
+    const want = DC.lootOf(before.troops, CAMPS.rules), got = { food: 0, ore: 0, gold: 0 };
+    if (H) for (const [k, r] of Object.entries(DC.LOOT_RES)) {
+      const s = H.stores[r];
+      R.settleAccrual(s, Math.floor(t));
+      const room = Math.max(0, s.cap - s.value);
+      got[k] = Math.floor(Math.min(want[k] * MILLI, room) / MILLI);
+      s.value += got[k] * MILLI;
+    }
+    const rec2 = { v: 1, p: pv.p, q: pv.q, tile: before.tile, bell: b, defenders: before.troops, winner: H ? { nation: H.faction, viewer: H === ME, troops: Math.floor(rec.troops / MILLI), survivors: Math.floor(rec.troopsAfter / MILLI) } : null, loot: got, full: want, backAt: c.backAt };
+    CAMPS.log.push({ kind: 'cleared', ...rec2 });
+    const rep = st.reports.get(`${pv.p},${pv.q},${b}`);
+    if (rep) rep.demoCamp = rec2;
+  }
+  /** What the season record says of the camps (`sample.camps`: the page says a camp's loot from it). */
+  const campsSample = () => ({ v: 1, kind: 'bandit-camps', lootMilli: { ...CAMPS.rules.lootMilli }, regrowBells: CAMPS.rules.regrowBells, regrowBps: CAMPS.rules.regrowBps });
+  /** The camps as the world record and the tests read them. */
+  const campsRecord = () => ({ v: 1, rules: { ...CAMPS.rules }, posted: CAMPS.posted,
+    camps: [...CAMPS.list.values()].map(c => { const x = provinces.get(key(c.p, c.q)).camp; return { p: c.p, q: c.q, ring: c.ring, tile: c.tile, up: x.state === 1, troops: x.state === 1 ? x.troops : 0, loot: x.state === 1 ? DC.lootOf(x.troops, CAMPS.rules) : null, cleared: c.cleared, comebacks: c.comebacks, backAt: c.backAt }; }) });
   const encodeProvince = pv => W.encode('Province', { ...pv, nEntries: pv.entries.filter(e => e.state !== ES.FREE).length, nSitesUsed: pv.siteMirror.filter(m => m.state === 1).length });
 
   // ------------------------------------------------------------------ the log (PS2 records, as the herald pages them)
@@ -866,6 +936,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     return { camp: c ? { tile: c.tile, state: 1, troops: c.troops, nextCheckDay: day + 1, gen: pv.camp.gen + 1 } : { ...pv.camp, nextCheckDay: day + 1 }, spawned: !!c, day };
   }
   function resolveBell(pv, b, t) {
+    campsBefore(pv, b, t);
     const fieldState = territoryFor(pv);
     // GatherClash: each revealed arrival with its host's values after its origin's clash (prog/clash.rs:408-530)
     const recs = new Array(24).fill(null), slots = slotsOf(pv.p, pv.q, b);
@@ -932,6 +1003,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       decoded: { fighters: [], engagements: outcome.engagements, fates: ap.fates }, heraldCheck: 'match', builder: 'kernel', recomputedDigest: digest, checkError: null,
       // (what of this resolve the kernel does not export, said in the record itself)
       sample: 'the clash is the rules kernel\'s (resolve_from_inputs); its write-back into the Province is the sample world\'s transcription of the program\'s (frontier-abi clash_model apply, settle_bell)' });
+    campsAfter(pv, b, t, ap, ci, campBefore);
     return close(pv, b, ciAfter);
   }
   /** The bell's own file of the province (immutable from now on, as the herald closes a bell): the Province after it, its arrival slots, its ClashInputs. */
@@ -1322,7 +1394,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     /** The fake herald while the world is live: `{status, body}`, or null for what the still fixture answers. */
     herald(path, url) {
       let m;
-      if (path === '/h/season') { this.seen(); const c = this.clock(); return answer({ ...seasonRecord(), headSeq: String(c.headSeq), latestUnix: c.latestUnix, latestSlot: c.latestSlot, sample: sampleNow() }); }
+      if (path === '/h/season') { this.seen(); const c = this.clock(); return answer({ ...seasonRecord(), headSeq: String(c.headSeq), latestUnix: c.latestUnix, latestSlot: c.latestSlot, sample: CAMPS ? { ...sampleNow(), camps: campsSample() } : sampleNow() }); }
       settle();
       if ((m = /^\/h\/province\/(-?\d+),(-?\d+)\/(latest|\d+)$/.exec(path))) {
         const pv = provinces.get(key(Number(m[1]), Number(m[2])));
@@ -1380,6 +1452,31 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     travelLog: TRAVEL ? () => TRAVEL.log : null,
     province: (p, q) => { settle(); const pv = provinces.get(key(p, q)); return pv ? structuredClone(pv) : null; },
     npcLog: st.npcLog,
+    // (demo-npc-camps; kept apart from the goal's hooks below `proto`, so the two PRs merge without a conflict here)
+    /** The demo's NPC camps (`camps`): their record and log; null when it is off. */
+    camps: CAMPS ? () => { settle(); return campsRecord(); } : null,
+    campsLog: CAMPS ? () => CAMPS.log : null,
+    /**
+     * For tests and headless playtests only (never reached by the page, which signs its orders): the viewer joins
+     * `faction` and places its first village on the first free site of the nation's ring-2 provinces, by the same
+     * startOrder the relay runs after its signature checks; `march(host, dest)` departs one of the viewer's hosts by
+     * the neighbours' own script (sealed, revealed by the keeper).
+     */
+    campsTest: CAMPS ? {
+      join(faction, at = null) {
+        const t = Math.floor(settle()), acc = { wallet: viewer.wallet, citizen: viewer.citizen };
+        const j = startOrder('Join', { faction, session: new Uint8Array(32).fill(0x22), session_expiry: t + 30 * R.DAY }, acc, t);
+        if (!j?.ok) return j;
+        const spot = at ?? ringProvinces(2).filter(({ p, q }) => wedgeOf(p, q) === faction).map(({ p, q }) => provinces.get(key(p, q)))
+          .flatMap(pv => [...Array(pv.siteCount).keys()].filter(s => pv.siteMirror[s].state === 0 && !(pv.camp.state === 1 && pv.sites[s] === pv.camp.tile)).map(site => ({ p: pv.p, q: pv.q, site })))[0];
+        return startOrder('PlaceHome', spot, { ...acc, province: A.of('Province', spot), holding: A.of('Holding', spot) }, t);
+      },
+      march(host, dest) {
+        const t = Math.floor(settle()), b = bellOf(t), at = [...provinces.values()].find(pv => entryOf(pv, host)), e = at && entryOf(at, host);
+        if (!e) return no('NotResident');
+        return scriptMarch(ME, BigInt(host), at, e, dest, b, t);
+      },
+    } : null,
     /** The prototype of the banner rule in this world (claimsworld.mjs), or null when it is off. */
     proto,
     /** The single-player goal (`goal`): its record (GET /h/demo/goal), its log of waves; null when it is off. */

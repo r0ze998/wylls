@@ -27,6 +27,7 @@ import { landClaimOn } from '../territory.mjs';
 import { conquestObjective, renderConquestGuide } from './conquestguide.mjs';
 import { turnLine } from '../seasonterms.mjs';
 import { latestVillageOrder, villageRereadOffered } from './villageorders.mjs';
+import { campsOn } from '../democamps.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
@@ -150,6 +151,8 @@ export function arrivalObjective(FS, st = onboardingState(factsOf(FS), FS.ui?.di
     // (the walletless demo's goal, demo-solo-goal: the first march may go straight to a rival nation's flag castle)
     if (demoGoal(FS)) text = L`軍勢を選び、届く範囲の空き地か、ほかの国の旗の城（左上の目標カードの「ここへ進軍」）を選んで出発しましょう。城を取ると、勝利までの保持の時間が数え始めます。`;
     go = marchObjective(FS);
+    // (walletless demo, demo-npc-camps: the bandit camps on the map pay loot)
+    if (campsOn(FS)) text += L`地図のテントは蛮族の野営地で、数は守り手です。倒すと食料・鉱石・金が手に入ります（見えているマスを押すと戦利品が出ます）。`;
   } else if (id === 'claim') {
     title = L`到着と領土の確保を待つ`;
     go = { act: 'tab', data: { tab: 'territory' }, label: L`領土の変化を見る` };

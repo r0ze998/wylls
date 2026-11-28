@@ -36,6 +36,7 @@ import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/
 import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs';
 import { landOf, landTile, landTileLines } from '../land.mjs';
 import { s1On } from '../fs1.mjs';
+import { campsOn, lootOf } from '../democamps.mjs';
 import { renderS1Tile, raidOffers } from '../screens/s1.mjs';
 
 /** Site states as the overview carries them (herald SITE_STATE) and the v2 mirror (3 = released, free again; 5 = a Free City). */
@@ -127,7 +128,8 @@ export function inspectModel(FS, terrainOf) {
     tile.hosts.push({ id: String(e.id), faction: e.faction, owner: hostOwner(FS.roster, e.id), unit: UNIT_ORDER[e.unit] ?? null, troops: troopsOf(e.troops), pending: e.state === 2 });
   }
   // (a camp's troops are whole troops in the account, Camp.TROOPS: not the thousandths a host's are)
-  if (here === 3 && prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: Number(prov.camp.troops) };
+  // (walletless demo, demo-npc-camps: the demo's camp markers show every camp through the fog, so its tile card says it too)
+  if ((here === 3 || campsOn(FS)) && prov?.camp?.state === 1 && prov.camp.tile === s.idx) tile.camp = { troops: Number(prov.camp.troops) };
   // S1: a vault or a structure on this tile, from the herald's public feeds and by the map's own rules (map/s1marks.mjs:
   // drawn whatever the survey, the viewer's by the owner tag)
   if (FS.s1) {
@@ -289,6 +291,9 @@ export function render(FS, terrainOf, activities = null) {
   if ((held || site?.state === 'freeCity') && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);
   if (m.clash) chips.push(chip(L`このターンに衝突あり`, 'bad', 'swords'));
+  // (walletless demo, demo-npc-camps: a bandit camp's loot, by the world record's rule — web/frontier/democamps.mjs)
+  const campRule = t?.camp ? campsOn(FS) : null;
+  if (campRule) { const x = lootOf(t.camp.troops, campRule); chips.push(chip(L`倒すと戦利品：食料 ${fmtNum(x.food)}・鉱石 ${fmtNum(x.ore)}・金 ${fmtNum(x.gold)}`, 'ok', 'check')); }
   // every chip explains itself (UX design 12.6; the second check: the viewer's own village carried 「シンダー 敵対」 with
   // nothing to say whose stance toward whom). On another nation's village the chip says how that nation stands toward
   // the viewer's; how the other nations of the province stand is a fact of the province and waits under "details".
