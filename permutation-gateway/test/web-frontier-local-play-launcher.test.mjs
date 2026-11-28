@@ -733,13 +733,13 @@ test('a document that cannot hold the language key (the plain stub of web-fronti
   assert.equal(doc.byId('local-play-title').textContent, '新しい世界で遊ぶ');
 });
 
-test('the source: five launcher routes and no other, no storage, no markup from a reply; the page wiring is untouched', () => {
+test('the source: six launcher routes and no other, no storage, no markup from a reply; the page wiring is untouched', () => {
   const read = file => readFileSync(new URL(`../../permutation-server/web/frontier/${file}`, import.meta.url), 'utf8');
   const lp = read('flocalplay.mjs'), code = lp.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assert.deepEqual([...new Set([...code.matchAll(/'(\/local-play\/[^']*)'/g)].map(m => m[1]))].sort(), ['/local-play/keeper', '/local-play/pair', '/local-play/start', '/local-play/stop', '/local-play/worlds'], 'the only launcher routes the page knows (pair: TEST-ONLY contest pair, frontier-local-play-pair-guide.test.mjs)');
+  assert.deepEqual([...new Set([...code.matchAll(/'(\/local-play\/[^']*)'/g)].map(m => m[1]))].sort(), ['/local-play/demo-fort', '/local-play/keeper', '/local-play/pair', '/local-play/start', '/local-play/stop', '/local-play/worlds'], 'the only launcher routes the page knows (pair: TEST-ONLY contest pair, frontier-local-play-pair-guide.test.mjs; demo-fort: TEST-ONLY capture demo, fix-lp29-fog-fort, web-frontier-fix-lp29-fog-fort.test.mjs)');
   // (that it names no signing call either is the hooks test of web-frontier-local-play.test.mjs, which runs under the guard too)
   assert.doesNotMatch(code, /localStorage|sessionStorage|indexedDB|document\.cookie|console\.|innerHTML|outerHTML|insertAdjacentHTML|\.style\b|keyFromSeed|fsession|sendTransaction|fetch\(|sendBeacon|XMLHttpRequest|WebSocket|eval\(|Function\(/);
-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-keystore.mjs', './flocalplay-lane.mjs', './flocalplay-march.mjs', './flocalplay-session.mjs']);
+  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fdemofort.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-keystore.mjs', './flocalplay-lane.mjs', './flocalplay-march.mjs', './flocalplay-session.mjs']);
   assert.match(code, /import \{ mountSessionNotice, pairGuideView \} from '\.\/flocalplay-session\.mjs';/, 'the standing notice (a display only) and the pair answer\'s check (frontier-local-play-pair-guide.test.mjs)');
   assert.match(code, /import \{ confirmWorldEnd, worldEndOf \} from '\.\/flocalplay-instance\.mjs';/, 'and the one read that confirms its end (web-frontier-local-play-world-instance.test.mjs); worldEndOf only reads the start answer\'s expiry (no request)');
   assert.equal(code.split('confirmWorldEnd(').length - 1, 1, 'called once, after the world was verified');
@@ -760,7 +760,7 @@ test('the source: five launcher routes and no other, no storage, no markup from 
   //  failed by the network (app.mjs loadSeason → flocalplay-ended.mjs createWorldWatch: one at a time, spaced, never
   //  again once the end is known). The same route, the same body — this page's own public address —, the same bounded
   //  request; the gate itself never calls it. web-frontier-world-ended.test.mjs, web-frontier-fix-b6-b9.test.mjs)
-  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', stopBody, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
+  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/demo-fort', { wallet }, 'LauncherDemoFortFailed'", "'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', stopBody, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
   assert.match(code, /const checkWorld = async \(\) => \{\n    if \(!launcher \|\| !done \|\| !handle \|\| handle\.destroyed\) return null;\n    const wallet = handle\.address;\n    const result = await askLauncher\('\/local-play\/keeper', \{ wallet \}, 'LauncherKeeperFailed'\);\n    return !handle \|\| handle\.destroyed \|\| handle\.address !== wallet \? null : result;\n  \};/);
   assert.equal(code.split('checkWorld(').length - 1, 0, 'the gate never asks it by itself: it is handed to the page (worldChecks, the gate\'s own handle)');
   assert.match(read('app.mjs'), /if \(!r\.ok && r\.code === 'network'\) worldWatch\?\.readFailed\(\);/, 'the page asks only after a herald read failed by the network');

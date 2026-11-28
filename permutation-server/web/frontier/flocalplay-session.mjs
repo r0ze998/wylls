@@ -71,10 +71,15 @@ export function pairGuideView(body, role, scope, nowMs) {
   if (!sameWorld) return { state: 'unavailable' };
   if (t.state === 'pending') return { state: 'pending' };
   const int = (v, lo, hi) => Number.isSafeInteger(v) && v >= lo && v <= hi, pq = v => int(v, -1000, 1000);
-  const ok = ['predicted', 'ready', 'not_ready'].includes(t.state) && int(t.nation, 0, 5) && int(t.opponentNation, 0, 5) && t.nation !== t.opponentNation
+  // (fix-lp29-fog-fort, owner 2026-11-28 Q-FL28-1 / Q-LP29-1 (b): an ATTACK pair — both players contest a fort of a third
+  //  nation (`holder`), the second player's nation already chosen, the same as the first's or another. A defend pair
+  //  carries no role: the second player is offered the fort's nation, never the first's)
+  const attack = t.role === 'attack';
+  const sides = attack ? int(t.holder, 0, 5) && t.holder !== t.nation && t.holder !== t.opponentNation : t.role === undefined && t.holder === undefined && t.nation !== t.opponentNation;
+  const ok = ['predicted', 'ready', 'not_ready'].includes(t.state) && int(t.nation, 0, 5) && int(t.opponentNation, 0, 5) && sides
     && t.fort && pq(t.fort.p) && pq(t.fort.q) && int(t.fort.tile, 0, 60) && t.home && pq(t.home.p) && pq(t.home.q) && int(t.home.site, 0, 255) && int(t.home.tile, 0, 60);
   if (!ok) return { state: 'unavailable' };
-  return { state: t.state, nation: t.nation, opponentNation: t.opponentNation, fort: { p: t.fort.p, q: t.fort.q, tile: t.fort.tile }, home: { p: t.home.p, q: t.home.q, site: t.home.site, tile: t.home.tile } };
+  return { state: t.state, nation: t.nation, opponentNation: t.opponentNation, fort: { p: t.fort.p, q: t.fort.q, tile: t.fort.tile }, home: { p: t.home.p, q: t.home.q, site: t.home.site, tile: t.home.tile }, ...(attack ? { role: 'attack', holder: t.holder } : {}) };
 }
 /** The pair's guide in sentences for the SECOND player (who may defend): null for no view. The choice of nation stays free. */
 export function pairGuideText(view) {
@@ -82,6 +87,14 @@ export function pairGuideText(view) {
   if (view.state === 'unavailable') return L`二人用の対戦の情報を確認できませんでした（何も送信していません）。少ししてから、もう一度押してください。`;
   if (view.state === 'pending') return L`二人用の対戦はまだ決まっていません。相手が村を置くと、争う砦と国が決まります。少ししてから、もう一度確認してください。`;
   const nation = nationName(view.nation), opp = nationName(view.opponentNation);
+  // (fix-lp29-fog-fort, Q-FL28-1 (b): an attack pair — the two of you contest the same fort; nothing to choose)
+  if (view.role === 'attack') {
+    const holder = nationName(view.holder);
+    const both = L`二人用の試験：あなたと相手（${opp}）は、どちらも 州 ${view.fort.p},${view.fort.q} の砦（${holder} が保持）に届きます。あなたは ${nation} として、州 ${view.home.p},${view.home.q} の村から向かえます。`;
+    if (view.state === 'ready') return `${both} ${L`二人の道を、世界の記録で確かめました。`}`;
+    if (view.state === 'not_ready') return `${both} ${L`ただし、この世界では二人の争奪を用意できませんでした。終了して、新しい世界から始めてください。`}`;
+    return both;
+  }
   if (view.state === 'ready') return L`二人用の試験：相手（${opp}）の軍勢は 州 ${view.fort.p},${view.fort.q} の砦（${nation} が保持）に向かいます。あなたは ${nation} として、州 ${view.home.p},${view.home.q} の村からこの砦を守れます。二人の道を、世界の記録で確かめました。`;
   const base = L`二人用の試験：相手（${opp}）の軍勢は 州 ${view.fort.p},${view.fort.q} の砦（${nation} が保持）に向かいます。国を選ぶとき ${nation} を選ぶと、あなたはこの砦を守る側になります（標準の村候補は 州 ${view.home.p},${view.home.q} です）。ほかの国も選べますが、そのときは二人の争奪は用意されません。`;
   if (view.state === 'not_ready') return `${base} ${L`ただし、この世界では二人の争奪を用意できませんでした。終了して、新しい世界から始めてください。`}`;
