@@ -862,7 +862,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
     ${renderPrediction(rows, r.bell, forecastOf)}
     ${renderStake(r, keepStake(r, rows, FS.conquest?.keeps?.get?.(`${r.p},${r.q}`) ?? null))}
     <div class="doc-cols">
-      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}${renderWhy(fieldWhy(rows, summaryOf(rows)), FS, r)}</div>
+      <div class="doc-col">${renderHeadline(summaryOf(rows), r)}${renderSpoils(rep.demoCamp)}${renderWhy(fieldWhy(rows, summaryOf(rows)), FS, r)}</div>
       <div class="doc-col">
         ${FS.sample ? html`<p class="muted report-sample">${L`見本の世界の報告です。数はこの見本の世界が計算したもので、チェーンの記録ではありません。`}</p>` : ''}
         ${v?.outcome ? '' : r.before ? html`<p class="muted">${L`確かめる前は、記録にある数を表示しています（到着の結果と、ターンの前後の州の記録）。`}</p>` : FS.sample ? '' : html`<p class="muted">${L`確かめる前は、チェーンに記録された到着の結果だけを表示しています。`}</p>`}
@@ -942,6 +942,19 @@ function renderHeadline(sum, r) {
   return html`<div class="report-head report-${sum.result}">${stamp(vd.key, vd.tone)}<p class="report-result"><strong>${vd.text}</strong></p>
     <p>${L`あなたの損害 ${sum.lostKnown === false ? '—' : fmtNum(sum.lost)} / ${fmtNum(sum.before)}`}${sum.reached === null || vd.key === 'arrived' ? '' : sum.reached ? html` · ${L`行き先に着いた`}` : html` · ${L`行き先に残れなかった`}`}</p>
     ${fates.length && !saidFates ? html`<p class="muted">${fates.map(f => FATE_TEXT[f] ?? f).join(' · ')}</p>` : ''}${leaderLine(sum.faction, LINE_OF[vd.key] ?? 'none')}${buttons}</div>`;
+}
+
+/**
+ * (walletless demo, demo-npc-camps) The loot of a bandit camp the viewer's host cleared in this clash: the sample world's
+ * report record carries it (`demoCamp`, web/frontier/democamps.mjs); a real report never does. What went into the village's
+ * stores (a full store takes less), and when the camp comes back.
+ */
+export function renderSpoils(c) {
+  if (!c || c.v !== 1 || !c.winner?.viewer || !c.loot) return '';
+  const got = c.loot, full = c.full ?? got;
+  const short = ['food', 'ore', 'gold'].some(k => Number(got[k]) < Number(full[k]));
+  return html`<div class="report-spoils notice ok" data-demo-spoils="1"><p><strong>${L`戦利品：食料 +${fmtNum(got.food)}・鉱石 +${fmtNum(got.ore)}・金 +${fmtNum(got.gold)}`}</strong></p>
+    <p class="muted">${short ? L`村の蔵がいっぱいの分は受け取れませんでした。` : L`村の蔵に入りました。`}${Number.isInteger(c.backAt) ? L`野営地はターン ${fmtNum(c.backAt)} 以降、そのマスが空いていれば、もっと強くなって戻ってきます。` : ''}</p></div>`;
 }
 
 /**
