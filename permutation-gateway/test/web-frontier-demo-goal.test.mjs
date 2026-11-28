@@ -153,7 +153,7 @@ test('a player who takes three castles and holds them wins; the same inputs make
 test('the page: the guide points at the goal in a demo world only; the card and result say it in EN and JA, never "season"', async () => {
   const ob = src('../../permutation-server/web/frontier/screens/onboarding.mjs');
   assert.match(ob, /export function demoGoal\(FS\) \{\n  const g = FS\.sample\?\.demo \? FS\.sample\?\.goal : null;/);
-  for (const ja of ['次は目標：旗の城', 'ほかの国の旗の城を{0}つ取り、それぞれ{1}ターン守り続けると勝ちです。ほかの国も同じ城を狙い、あなたの城と土地を攻めてきます。左上の目標カードに、城と保持の時間が出ています。',
+  for (const ja of ['次は目標：旗の城', 'ほかの国の旗の城を{0}つ取り、それぞれ{1}ターン守り続けると勝ちです。ほかの国も同じ城を狙い、あなたが取った城を攻めてきます。あなたの土地にも軍勢を送ってきますが、土地は進軍では奪われません。左上の目標カードに、城と保持の時間が出ています。',
     '軍勢を選び、届く範囲の空き地か、ほかの国の旗の城（左上の目標カードの「ここへ進軍」）を選んで出発しましょう。城を取ると、勝利までの保持の時間が数え始めます。']) {
     assert.ok(EN[ja], `EN for ${ja}`);
     assert.doesNotMatch(String(typeof EN[ja] === 'function' ? EN[ja](3, 20) : EN[ja]), /season/i);
@@ -192,4 +192,27 @@ test('the page\'s world (`landClaim`, #306): the flag castles still change hands
   assert.ok(moved.length >= 3, `castles changed hands (${moved.length})`);
   assert.deepEqual(moved.filter(k => !castles.has(k)), [], 'only castle tiles change by arrival or battle');
   assert.ok(live.goal().castles.some(k => k.holder !== k.nation), 'a castle is held by another nation');
+});
+
+test('phones: the goal card keeps out of the open drawer and is not rebuilt under a tap (demo-goal-polish-1)', () => {
+  // (verify-pr316 §6: on a 390 px phone an unfolded card lay over the Hosts drawer's "March" button — a march could not
+  //  be started; reproduced in demo-goal-polish-1: elementFromPoint(March) = #demo-goal .dg-body)
+  const s = src('../demo/src/goalhud.mjs');
+  assert.match(s, /panel\?\.dataset\.drawer === 'open'/, 'reads the drawer state');
+  assert.match(s, /card\.classList\.toggle\('dg-auto-fold', open && !composing\)/, 'header only over an open drawer when nothing is composed');
+  assert.match(s, /panel\.getBoundingClientRect\(\)\.top - card\.getBoundingClientRect\(\)\.top/, 'no taller than the room above the drawer');
+  assert.match(s, /#demo-goal\.dg-auto-fold \.dg-body,#demo-goal\.dg-off\{display:none\}/);
+  assert.match(s, /const frame = \(\) => \{ try \{ fit\(\); placeFlags\(\);/, 'fitted every frame (the drawer opens between two polls)');
+  assert.match(s, /if \(!force && pressing && Date\.now\(\) - pressing < 3000\) return;/, 'no rebuild while a pointer is down on the card');
+});
+
+test('game length: hold 20; a human-paced player wins in about 15–20 min, an idle one loses (demo-goal-polish-1 tuning)', async () => {
+  assert.equal(G.DEMO_GOAL.holdBells, 20);
+  const { game } = await import('../demo/goal-playtest.mjs');
+  const normal = [], idle = [];
+  for (const nation of [0, 2, 4]) { normal.push(await game({ nation, strategy: 'normal', turns: 200, set: {}, seed: 1 })); idle.push(await game({ nation, strategy: 'idle', turns: 200, set: {}, seed: 1 })); }
+  for (const r of normal) assert.equal(r.result, 'won', `${r.nation} normal: ${r.result} after ${r.turns}`);
+  const med = normal.map(r => r.turns).sort((a, b) => a - b)[1];
+  assert.ok(med >= 70 && med <= 105, `median ${med} turns (12 s each)`);
+  for (const r of idle) assert.equal(r.result, 'lost', `${r.nation} idle`);
 });

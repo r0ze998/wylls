@@ -180,16 +180,18 @@ The demo is a complete single-player game: the real flag-keeps win condition (`s
 compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `DEMO_GOAL` there.
 
 - **Flag castles**: one per nation (6), each on the tile nearest the centre of the nation's ring-1 province, guarded
-  from the start by 110 troops of the nation's AI village. A castle's holder is its tile's arrival-control owner (a lone
-  surviving host of one nation after a resolve takes it; leaving does not give it up).
-- **Win**: hold **3** castles of other nations, each for **15 turns** (3 min at 12 s a turn), as the real rule counts:
+  from the start by 110 troops of the nation's AI village. A castle's holder is its tile's owner. Castle tiles are the only
+  tiles that change hands by conquest (a lone surviving host of one nation after a resolve takes it; leaving does not
+  give it up); every other tile is claimed one at a time (#306).
+- **Win**: hold **3** castles of other nations, each for **20 turns** (4 min at 12 s a turn), as the real rule counts:
   only captured castles (never your own nation's), each from when it was taken, a capture resets that castle's timer.
   Need = half of the 6 castles (the real `needOf`) = half of the 5 rivals' rounded up.
 - **Lose**: an AI nation meets the same rule first (a same-turn tie is your win).
 - **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave, capped at
   2,000): the rival leader (two nations along from yours) every wave, +20 % troops, racing for castles (retake its own,
   stop a nation one castle short, hold what it has, capture the nearest); one more AI nation a wave (they take turns)
-  takes its own castle back or raids you (your castles, else your land). Your own nation's AI village only defends.
+  takes its own castle back or raids you (your castles, else your land: a raid on land only brings a host there to fight
+  yours, since land never changes hands by marching). Your own nation's AI village only defends.
 - **On the page** (`src/goalhud.mjs`, bundled into the page): the goal card at the top left (castles, holders, hold
   timers, rivals, the next wave; "March here" on a castle while a march is open), a pennant over each castle on the map,
   and the result screen (Victory / Defeat, the time, Play again = Start over without the question). The guide's march

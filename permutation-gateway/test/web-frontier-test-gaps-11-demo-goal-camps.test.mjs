@@ -139,8 +139,8 @@ test('3 #316 the hold timer in the world: a castle lost resets it (captured 0), 
 });
 
 test('4 #316 an idle player of EVERY nation: the AI never takes a castle in the grace, never wins before posted + grace + hold; it loses to the leader; the record agrees with the real judge every turn', async () => {
-  // X = grace + hold game turns (with the Q-DSG-5 defaults 28 + 15 = 43, 8.6 min at 12 s a turn; read from DEMO_GOAL,
-  // so a tuning PR such as #321's hold 20 moves X with it)
+  // X = grace + hold game turns (since #321: 28 + 20 = 48, 9.6 min at 12 s a turn; read from DEMO_GOAL, so a tuning PR
+  // moves X with it)
   assert.ok(G.DEMO_GOAL.graceBells >= 1 && G.DEMO_GOAL.holdBells >= 1 && G.DEMO_GOAL.perNation === 1);
   const earliest = G.DEMO_GOAL.graceBells + G.DEMO_GOAL.holdBells;
   for (let n = 0; n < G.NATIONS; n++) {
