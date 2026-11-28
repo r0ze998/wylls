@@ -276,6 +276,7 @@ permutation-gateway/test/web-frontier-fix-loop12.test.mjs
 permutation-gateway/test/web-frontier-fix-loop16.test.mjs
 permutation-gateway/test/web-frontier-fix-loop27.test.mjs
 permutation-gateway/test/web-frontier-fix-loop29.test.mjs
+permutation-gateway/test/web-frontier-fix-loop31.test.mjs
 permutation-gateway/test/web-frontier-fix-loop5.test.mjs
 permutation-gateway/test/web-frontier-fix-loop7.test.mjs
 permutation-gateway/test/web-frontier-fix-loop8-cosmetic.test.mjs
