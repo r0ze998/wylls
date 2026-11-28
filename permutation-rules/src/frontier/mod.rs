@@ -499,3 +499,9 @@ pub fn ruleset_hash_v4() -> [u8; 32] {
 /// Player territory (preview, owner Q-2): parameter seams only; off by default.
 #[cfg(feature = "territory-preview")]
 pub mod territory;
+
+// Appended last for the same reason as `territory`.
+/// ⑪(b) declarative extension effects, first local slice (Lock / Release):
+/// off by default, nothing else reads it.
+#[cfg(feature = "declarative-effects")]
+pub mod effects;

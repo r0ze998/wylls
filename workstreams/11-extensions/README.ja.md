@@ -2,6 +2,10 @@
 
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** 検証器の穴 H1〜H4 は main で塞いだ（PR #49）。拡張そのもの（案 (b) 宣言型の効果）は、所有者の決定 t335u により最初の遊べる devnet の後で、未着手。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
+> **状況 2026-11-28（`29dc7e695` の上、draft PR）：** ⑪(b) に着手。規則カーネル `permutation-rules` の機能フラグ `declarative-effects`（既定で無効）に最初の切片 `frontier::effects`（Lock／Release と Require／Set／Add、検証器側の `replay`）を入れ、この試作との一致を `ext-kernel/tests/kernel_slice.rs` で確かめる。program は変えていない。計画は [item11b-plan](../../docs/design/extensions/item11b-plan.md)。下の「案 B … 採用していない（2026-10-30）」は、所有者の決定 2026-11-18（⑪ = (b)、最初の遊べる devnet の後）で置き換わった。
+
+> **所有者の回答 2026-11-28 19:45：** Q-11B-1 = A（⑪(b) は world 4 の upgrade に入れる。最初は Lock/Release だけの小さな版）、Q-11B-2 = A（v1 に Burn は無い）。下の「Burn … 採用していない」は v1 でもそのまま。Q-11B-3〜5 は未回答。
+
 作業日 2026-10-30〜11-08（r13 まで）、2026-11-18（検証器の穴を main で確認・追加修正、[18](18-verifier-early-patches.ja.md)。⑪の決定 (b) により拡張そのものは最初の devnet の後）。**r13: 公開統合候補 `cf517b55` で ABI と coverage の契約を照合した。V0 の偽造の判定は、知っている版のときだけにした（パッチ 0013）。****r11: V27 で JoinResident の policy、link、resident の正規アドレス（PDA。オーナーの許可の範囲）を照合する（パッチ 0011）。****r9: 正しい NFT 参加（JoinResident）を検証する V27（パッチ 0009、⑳の 45d95e31 の上）。****r7: ④の現在版 `8e96f24d` へ 1 つで当たる検証器パッチ 0006、②⑳の新しい命令・記録との照合、DIVERT の PASS の経路を塞いだ。****r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない（r13 時点。その後、検証器のパッチ 0003〜0017 は main の `frontier-node/crates/verify` に適用され、2026-11-18 の PR は同じ crate を直接変える）。
 
 > **これは本番に任意コード実行を開く決定ではない。案 B、Burn、運営の停止権限はいずれも採用していない（2026-10-30）。** 以下の結果はホスト上の試験で、オンチェーンの保証ではない（[08](08-host-vs-onchain.ja.md)）。 比較と試作の許可の範囲で、案を比べ、推奨案をホスト上の隔離した crate で試作した。例の機能（「見張りの誓い」）は例であり、採用したゲームルールではない。
