@@ -197,8 +197,18 @@ test('#309 CI wiring: the PR job runs the smoke at the real Pages host, 2 entrie
   assert.match(step, /node check\.mjs --dir dist-pages\n/);
   assert.match(step, /for entry in '' frontier\/index\.html; do for lang in en ja; do for view in '' --mobile; do\n/);
   const runs = step.split('\n').filter(l => /smoke(-[\w-]+)?\.mjs/.test(l) && !l.trim().startsWith('#'));
-  assert.equal(runs.length, 1);
-  assert.equal(runs[0].trim(), 'node smoke.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --path "$entry" --lang "$lang" $view --pre-join');
+  // (#318 demo-npc-merchants adds the travelers' smoke: two more runs, both on the same bundle and host, both --pre-join)
+  assert.deepEqual(runs.map(l => l.trim()), [
+    'node smoke.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --path "$entry" --lang "$lang" $view --pre-join',
+    'node smoke-travelers.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --lang en --pre-join',
+    'node smoke-travelers.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --lang ja --mobile --pre-join',
+  ]);
+  // the travelers' smoke under --pre-join never presses the start button: the join is only in its else branch
+  const TRAV = text('permutation-gateway/demo/smoke-travelers.mjs');
+  const travPre = TRAV.slice(TRAV.indexOf("if (opt['pre-join']) {"), TRAV.indexOf('} else {', TRAV.indexOf("if (opt['pre-join']) {")));
+  assert.ok(travPre.length > 0, 'smoke-travelers.mjs has a --pre-join branch');
+  assert.doesNotMatch(travPre, /join-go|pick-faction/, 'its --pre-join branch never joins');
+  assert.match(travPre, /s\[0\] === 0 && s\[1\] <= 1/, 'and counts the load-time preflight apart (0 other signatures)');
   const pages = text('.github/workflows/pages-demo.yml');
   assert.match(pages, /BASE: \/\$\{\{ github\.event\.repository\.name \}\}\//);
   assert.match(pages, /node build\.mjs --base "\$BASE" --live-url "\$LIVE_URL"\n/, 'pages-demo.yml: the same build arguments');
