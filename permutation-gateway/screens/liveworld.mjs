@@ -231,7 +231,13 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     if (!territories.has(id)) territories.set(id, createTerritory(pv));
     return territories.get(id);
   };
-  const territoryOf = pv => { const t = territoryFor(pv); settleHomeTerritory(t, pv); return territorySnapshot(t); };
+  // (fix-tg11-since, Q-TG11-1 (a): a read never writes the land. Every province's record is made once when the world is
+  //  made — below, before the agenda — and only the world's own steps change it: a resolve (which grants a new village
+  //  its tile at that bell) and the orders. Before, the record was made at its first read and a read granted a new home
+  //  at once, so a village's `since` depended on when the page read it, and a save's replay — no reads between its
+  //  inputs — made a different world: D-test-gaps-11-2. A read shows a home not yet resolved as the record would grant
+  //  it now, on a copy)
+  const territoryOf = pv => { const t = territoryFor(pv), c = { ...t, owners: [...t.owners], since: [...t.since] }; settleHomeTerritory(c, pv); return territorySnapshot(c); };
   // ------------------------------------------------------------------ the viewer's land and its upkeep (`landUpkeep`, the walletless demo)
   const LAND = { tiles: new Map(), paidTo: null, remainder: 0, unpaidSince: null, lastDecayBell: 0, released: 0, claimed: 0, lastClaimBell: 0, claimsInBell: 0 };
   const LAND_U = TERRITORY_V1.upkeep;
@@ -297,7 +303,9 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     if (LAND.paidTo !== null) settleLandUpkeep(b, t);
     const ore = ME.stores[R.RES.Ore];
     R.settleAccrual(ore, Math.floor(t));
-    const o = Number.isInteger(tile) && tile >= 0 && tile < 61 ? fs.owners[tile] : 255;
+    // (verify-pr324: the owner as a read shows it — a village placed since the last resolve holds its tile already, as
+    //  before fix-tg11-since, so its tile is 'Owned', not free; it depends on the province only, not on the reads)
+    const o = Number.isInteger(tile) && tile >= 0 && tile < 61 ? territoryOf(pv).owners[tile] : 255;
     const owner = LAND.tiles.has(k) ? 'claimer' : o === 255 ? 'nobody' : 'other';
     const r = judgeTileClaim({ tile, keepTile: keepTileOf(pv), owner, nearest, owned: LAND.tiles.size, claimsThisTurn: LAND.lastClaimBell === b ? LAND.claimsInBell : 0,
       upkeepUnpaid: LAND.unpaidSince !== null, balance: Math.max(0, Math.floor(ore.value / 1000)) });
@@ -1220,6 +1228,8 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
   ];
   // what happened before the world starts has happened: each step begins at the first bell whose time is still to come
   for (const [name, at] of STEPS) { let b = LIVE.TURN - 6; while (at(b) <= START) b++; st.next[name] = b; }
+  // (fix-tg11-since: the land of every province is made with the world, not at its first read)
+  for (const pv of provinces.values()) territoryFor(pv);
   /** Bring the world up to the clock: every step that is due, in time order; the quota's day. */
   function settle() {
     const t = now();
@@ -1505,6 +1515,8 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
      * and revealed by the keeper, as the neighbours' are).
      */
     testPlay: {
+      /** (fix-tg11-since) Every province's land record as the world keeps it (not as a read shows it), `p,q` → a copy. */
+      land() { settle(); return Object.fromEntries([...territories].map(([k, t]) => [k, structuredClone({ ...t, withdrawn: [...t.withdrawn].sort() })])); },
       join(faction, at = null) {
         const t = Math.floor(settle()), acc = { wallet: viewer.wallet, citizen: viewer.citizen };
         const j = startOrder('Join', { faction, session: new Uint8Array(32).fill(0x22), session_expiry: t + 30 * R.DAY }, acc, t);
