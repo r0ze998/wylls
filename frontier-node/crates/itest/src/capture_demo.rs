@@ -922,7 +922,7 @@ pub async fn run(
             break;
         }
         for _ in 0..need {
-            let Some(&(fp, fq, nation)) = fill
+            let Some(&(_, _, nation)) = fill
                 .iter()
                 .find(|h| free_site(&state, &a, h.0, h.1).is_some())
             else {
