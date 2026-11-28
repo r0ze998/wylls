@@ -298,8 +298,12 @@ test('only on a conquest season: elsewhere nothing is told, asked for or called 
   assert.equal(a.hold, true);
   own.off();
   const mount = src('map/keepmount.mjs');
-  assert.match(mount, /const own = mountOwnClash\(\{ state, enabled: fs => keepFeedOf\(fs\)\.enabled, clash \}\);/, 'the page\'s own herald reader (web-frontier-clash-origin.test.mjs)');
-  assert.match(mount, /if \(feed\.enabled\) \{ try \{ autoPanDefault\(fs\); own\.sync\(\); \}/);
+  assert.match(mount, /const own = mountOwnClash\(\{ state, enabled: ownClashOn, clash \}\);/, 'the page\'s own herald reader (web-frontier-clash-origin.test.mjs)');
+  // (fix-loop32, LP32 BREAK-1: the watch also runs in a sample world's arrival-control territory — the walletless demo —,
+  //  where the keep board is off: web-frontier-fix-loop32.test.mjs)
+  assert.match(mount, /if \(feed\.enabled\) \{ try \{ autoPanDefault\(fs\); \}/);
+  assert.match(mount, /if \(ownClashOn\(fs\)\) \{ try \{ own\.sync\(\); \}/);
+  assert.match(mount, /export const ownClashOn = fs => conquestEnabled\(fs\?\.season\) \|\| territoryEnabled\(fs\);/);
 });
 
 test('the stage asks before it stages, and a start that is called off is over at once', () => {

@@ -137,6 +137,7 @@ const CSS = `
 #demo-result .dr-acts{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
 #demo-result button{border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer;border:1px solid #1d2a26;background:#fff}
 #demo-result button.primary{background:#1f4d44;color:#fff;border-color:#1f4d44}
+body[data-doc="wide"] #demo-goal{visibility:hidden}
 @media (max-width:700px){#demo-goal{top:150px;left:8px;width:calc(100vw - 80px);max-height:52vh}#demo-goal.folded{width:auto;max-width:calc(100vw - 80px)}}
 `;
 
@@ -158,7 +159,9 @@ export function startGoalHud(doc = globalThis.document) {
   doc.body.appendChild(card);
   const flags = doc.createElement('div');
   flags.id = 'demo-castles';
-  doc.body.appendChild(flags);
+  // (fix-loop32, LP32 BREAK-7: the map's markers live in the page's own <main id="frontier">, the stacking context of the map
+  //  and the HUD: from <body> their z-index 2 put them over everything in it — the right drawer, its report, the notices)
+  (doc.getElementById('frontier') ?? doc.body).appendChild(flags);
   let map = null, last = null, dismissed = null, html = '', pressing = 0;
   // (a tap on the card's buttons must not be lost to the poll's re-render: a button replaced between pointerdown and
   //  click never gets the click — demo-goal-polish-1, the "March here" a phone could not press. While a pointer is down

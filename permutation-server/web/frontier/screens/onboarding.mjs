@@ -37,6 +37,7 @@ const TITLE = {
   train: () => L`兵を訓練する`,
   muster: () => L`軍勢を編成する`,
   claim: () => L`領土を確保する`,
+  castle: () => L`旗の城を取る`,
   practice: () => L`練習の衝突`,
   march: () => L`最初の封をした進軍`,
   report: () => L`最初の報告`,
@@ -59,6 +60,8 @@ const DO = {
   muster: () => L`控えの兵を一つの軍勢にまとめます。編成が反映されると、地図上で動かせます。`,
   // (walletless demo, demo-claim-1: a `landClaim` world takes no land on arrival — tiles are claimed with ore)
   claim: FS => (landClaimOn(FS) ? L`近くの州のマスを、村の画面の「1マス取る」で鉱石を払って1つずつ自分の土地にします。` : L`空き地は到着して確保します。敵の土地は戦いに勝って占領します。`),
+  // (fix-loop32: the walletless demo's sixth step, onboarding.mjs GOAL_STEPS)
+  castle: () => L`ほかの国の旗の城へ軍勢を進軍させて取りましょう（左上の目標カードの「ここへ進軍」）。城を取ると、勝利までの保持の時間が数え始めます。`,
   scout: () => L`斥候を訓練して軍勢に編成し、隣の2マスを探索します。`,
   practice: () => L`練習モードで蛮族の野営地を襲ってみます。チェーンには何も送りません。`,
   // (the seal in the one sentence the order card, the legend and the help say: hud/glossary.mjs sealLine)
@@ -153,6 +156,8 @@ export function arrivalObjective(FS, st = onboardingState(factsOf(FS), FS.ui?.di
     go = marchObjective(FS);
     // (walletless demo, demo-npc-camps: the bandit camps on the map pay loot)
     if (campsOn(FS)) text += L`地図のテントは蛮族の野営地で、数は守り手です。倒すと食料・鉱石・金が手に入ります（見えているマスを押すと戦利品が出ます）。`;
+  } else if (id === 'castle') {
+    go = marchObjective(FS);
   } else if (id === 'claim') {
     title = L`到着と領土の確保を待つ`;
     go = { act: 'tab', data: { tab: 'territory' }, label: L`領土の変化を見る` };
