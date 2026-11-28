@@ -121,6 +121,9 @@ const CSS = `
 #demo-goal li button{background:#c9a24a;color:#1a1408;border:0;border-radius:6px;padding:3px 7px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;flex:none}
 #demo-goal .dg-rival{color:#ffb4a6;font-weight:600}
 #demo-goal .dg-muted{opacity:.8;font-size:12px}
+#demo-goal.dg-auto-fold .dg-body,#demo-goal.dg-off{display:none}
+#demo-goal.composing .dg-me,#demo-goal.composing .dg-rule,#demo-goal.composing .dg-rival,#demo-goal.composing .dg-muted{display:none}
+#demo-goal li button{min-height:30px;touch-action:manipulation}
 .demo-castle{position:fixed;z-index:2;pointer-events:none;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;font:700 11px/1 system-ui,sans-serif}
 .demo-castle svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 .demo-castle span{margin-top:1px;padding:1px 4px;border-radius:4px;background:rgba(18,38,34,.88);color:#ffd24d;white-space:nowrap}
@@ -154,7 +157,13 @@ export function startGoalHud(doc = globalThis.document) {
   const flags = doc.createElement('div');
   flags.id = 'demo-castles';
   doc.body.appendChild(flags);
-  let map = null, last = null, dismissed = null, html = '';
+  let map = null, last = null, dismissed = null, html = '', pressing = 0;
+  // (a tap on the card's buttons must not be lost to the poll's re-render: a button replaced between pointerdown and
+  //  click never gets the click — demo-goal-polish-1, the "March here" a phone could not press. While a pointer is down
+  //  on the card, the card is not rebuilt; the next poll catches up.)
+  const narrow = () => !!globalThis.matchMedia?.('(max-width: 700px)').matches;
+  card.addEventListener('pointerdown', () => { pressing = Date.now(); });
+  for (const ev of ['pointerup', 'pointercancel']) card.addEventListener(ev, () => setTimeout(() => { pressing = 0; }, 400));
   // the page's map instance (its draw is patched once to learn it; the flags are drawn over it)
   const P = FrontierMap.prototype, draw = P.draw;
   P.draw = function (...a) { map = this; return draw.apply(this, a); };
@@ -162,7 +171,7 @@ export function startGoalHud(doc = globalThis.document) {
   card.addEventListener('click', e => {
     const b = e.target.closest?.('[data-dg]');
     if (!b) return;
-    if (b.dataset.dg === 'fold') { card.classList.toggle('folded'); render(true); }
+    if (b.dataset.dg === 'fold') { card.classList.toggle('folded'); pressing = 0; render(true); }
   });
   doc.addEventListener('click', e => {
     const b = e.target.closest?.('[data-dr]');
@@ -175,6 +184,7 @@ export function startGoalHud(doc = globalThis.document) {
     if (!g) { card.hidden = true; return; }
     const t = T(), m = cardModel(g);
     const composing = !!doc.getElementById('mc-title');
+    if (!force && pressing && Date.now() - pressing < 3000) return;
     let body;
     if (!m.posted) body = `<p>${esc(t.pick(m.need, m.hold))}</p>`;
     else {
@@ -187,7 +197,7 @@ export function startGoalHud(doc = globalThis.document) {
         return `<li class="${c.counting && !mine ? 'dg-rivalbar' : ''}" data-castle="${c.nation}"><span class="dg-flag" style="background:${c.holder === null ? '#9a9a92' : NATION_FILL[c.holder]}"></span><span class="dg-name">${esc(t.castle(nationName(c.nation)))}<span class="dg-sub">${esc(holder)}${sub ? ` · ${esc(sub)}` : ''}</span>${bar}</span>${go}</li>`;
       }).join('');
       const rivals = m.rivals.slice(0, 3).map(r => `<p class="dg-rival">${esc(t.rival(nationName(r.nation), r.captured, m.need, r.left))}</p>`).join('');
-      body = `<p>${esc(t.rule(m.need, m.hold))}</p><p class="dg-me" data-dg-me="${m.captured}">${esc(t.yours(m.captured, m.need))}</p><ul>${items}</ul>${rivals}
+      body = `<p class="dg-rule">${esc(t.rule(m.need, m.hold))}</p><p class="dg-me" data-dg-me="${m.captured}">${esc(t.yours(m.captured, m.need))}</p><ul>${items}</ul>${rivals}
         ${m.nextWave !== null ? `<p class="dg-muted">${esc(t.wave(m.nextWave, m.waveTroops))}</p>` : ''}${composing ? '' : `<p class="dg-muted">${esc(t.howto)}</p>`}`;
     }
     const folded = card.classList.contains('folded');
@@ -233,6 +243,21 @@ export function startGoalHud(doc = globalThis.document) {
   }
   setInterval(poll, 700);
   poll();
-  const frame = () => { try { placeFlags(); } catch { /* the map is being rebuilt */ } globalThis.requestAnimationFrame(frame); };
+  // On a phone the card must never lie over the open drawer (demo-goal-polish-1: an unfolded card covered the Hosts
+  // drawer's "March" button, so a march could not be started). With the drawer open the card keeps to the space above
+  // it: just its header while nothing is composed, the castles and their "March here" while a march is; none at all
+  // when the drawer leaves no room.
+  function fit() {
+    const panel = doc.getElementById('panel'), open = narrow() && panel?.dataset.drawer === 'open';
+    const composing = !!doc.getElementById('mc-title');
+    card.classList.toggle('dg-auto-fold', open && !composing);
+    card.classList.toggle('composing', composing && narrow());
+    if (!open) { if (card.style.maxHeight) card.style.maxHeight = ''; card.classList.remove('dg-off'); return; }
+    const room = Math.floor(panel.getBoundingClientRect().top - card.getBoundingClientRect().top - 6);
+    card.classList.toggle('dg-off', room < 34);
+    const mh = `${Math.max(34, room)}px`;
+    if (card.style.maxHeight !== mh) card.style.maxHeight = mh;
+  }
+  const frame = () => { try { fit(); placeFlags(); } catch { /* the map is being rebuilt */ } globalThis.requestAnimationFrame(frame); };
   globalThis.requestAnimationFrame(frame);
 }

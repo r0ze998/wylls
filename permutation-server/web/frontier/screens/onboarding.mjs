@@ -163,7 +163,7 @@ function renderArrivalGuide(FS, st, open) {
   // (the walletless demo's goal, demo-solo-goal: after the six steps the guide points at the goal itself)
   const goal = demoGoal(FS);
   if (!o && goal) return html`<section class="vcard onboarding" data-demo-goal-guide="1"><h3>${L`次は目標：旗の城`}</h3>
-    <p>${L`ほかの国の旗の城を${goal.need}つ取り、それぞれ${goal.holdBells}ターン守り続けると勝ちです。ほかの国も同じ城を狙い、あなたの城と土地を攻めてきます。左上の目標カードに、城と保持の時間が出ています。`}</p>
+    <p>${L`ほかの国の旗の城を${goal.need}つ取り、それぞれ${goal.holdBells}ターン守り続けると勝ちです。ほかの国も同じ城を狙い、あなたが取った城を攻めてきます。あなたの土地にも軍勢を送ってきますが、土地は進軍では奪われません。左上の目標カードに、城と保持の時間が出ています。`}</p>
     <button type="button" class="btn primary" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></section>`;
   if (!o) return html`<section class="vcard onboarding"><h3>${factsOf(FS).claimed ? L`最初の領土を確保しました` : TITLE.done()}</h3>
     <p>${L`建設と訓練に資源を配分し、次の土地へ軍勢を送りましょう。斥候の探索や村の昇格も続けられます。`}</p>
