@@ -42,11 +42,18 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
 
 ## The world
 
-- `createLive({opening, territory, nations})`: the guest picks one of six nations and gets a first village at
-  once; every nation has an AI village (`nations`), and they march into the guest's province and take land.
-- Land is the sample world's arrival-control rule (`screens/territory.mjs`: a host that arrives alone on an open
-  tile takes it for its nation), with the real V1 food upkeep (`landUpkeep`): the land logistics horizon card shows.
-  It is not the live game's "take 1 tile" claim (Q-WD-4).
+- `createLive({opening, territory, nations, landUpkeep, landClaim})`: the guest picks one of six nations and gets a
+  first village at once; every nation has an AI village (`nations`) that marches into the guest's province.
+- Land is the live game's single-tile claim (`landClaim`, demo-claim-1, Q-WD-4): no tile is taken on arrival. The
+  village card's "Your land / あなたの土地" card (`web/frontier/screens/sampleclaim.mjs`, built from the real card's
+  parts) lists the provinces in reach; "Claim a tile" shows the cost (ore, and the tile's food upkeep), the
+  preview's own "Claim a tile" claims at once. The judge is the kernel's (`web/frontier/sampleland.mjs`:
+  frontier-abi `judge_claim` + permutation-rules `may_claim` through `territory-rules.mjs`, numbers TERRITORY_V1:
+  10 ore + 2 % per tile owned, reach 3 from the home / an own tile / the nation's land, one a turn, none while
+  upkeep is unpaid). The real V1 food upkeep (`landUpkeep`) is paid from the first village, and the land
+  logistics horizon on the card follows every claim. The other nations' villages claim too, by the same judge.
+  Simpler than the program: every province of the demo map (rings 0–2) is territory land (the program's is ring
+  129 and out), the camp's tile stands for the keep's, nothing is signed, and tiles do not change hands in battle.
 - A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). A reload continues the saved
   world (see Save / resume below); without a save, or with an old or damaged one, it is a new world (same seed) and the
   demo clears its own `ps-*` storage at load, keeping only the language.
@@ -65,6 +72,39 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
 - Hosting: put the demo on an origin that never serves the real page. The demo clears every `ps-*` key of
   its origin's `localStorage` (keeping only `ps-lang`) whenever it starts a fresh world (no save, an old one, or
   Start over), so on a shared origin it would wipe the real page's saved wallet choice and in-game key.
+
+## Bandit camps (demo-npc-camps)
+
+`createLive({camps: true})` (boot.mjs turns it on; off for every other caller): bandit camps ("Barbarian camp" /
+「蛮族の野営地」, the page's own word) that a player marches on and beats for loot. The rule's numbers are
+`DEMO_CAMPS` in `permutation-server/web/frontier/democamps.mjs` (pure; the world and the page read the same file).
+
+- **They are the program's camps**: the Province's one Camp record, a neutral garrison in the clash the page's
+  `frontier.wasm` resolves, cleared when an arrival beats it (`camp_mask`; the program's 10 Works go to the winner as
+  before). Nothing of the march or the clash is new. The program's day check (camp.rs `place`: chance ½ a game day,
+  100–400 troops, ring 2 only) is switched off by `NEXT_CHECK_DAY` = 0xffffffff (the kernel then skips it too).
+- **Placement**: one camp in every ring-1 and ring-2 province (18), on the passable tile farthest from every village
+  site (taken or free; ≥ 3 tiles on this map), in ring 1 at least 3 tiles from the centre (the flag castle's place);
+  ties by a fixed hash. Deterministic: the same map every time.
+- **Defenders**: 300 + 200 per province between the camp and the player's first village (300 / 500 / 700 / 900 /
+  1,100), set at the first resolve after the village is placed (700 before it).
+- **Loot** (the demo's; the program pays only Works): food 0.3, ore 0.1, gold 0.05 per defender the camp had when the
+  clash that cleared it began, into the winner's first village (a full store takes less). A camp of 300 pays 90 food,
+  30 ore, 15 gold — enough to train about 150 Spearmen. The battle report shows it (`demoCamp` on the clash record).
+- **Comeback**: 20 turns after it is cleared, on the same tile, once no host stands there and no arrival is bound for
+  it, 20 % stronger each time (cap 1,500). A host left on the tile keeps it away.
+- **On the page**: a tent marker with the defenders over every standing camp, also under the fog (`src/camphud.mjs`;
+  the page draws a camp only in sight); the tile card says the camp and "Loot if beaten: …"; the guide's march step says
+  what the tents are. The AI nations never march on a camp (Q-NPC-1), and camps never leave their tile (Q-NPC-2).
+- **Save**: nothing new is saved. The save is the world's inputs, replayed (below); the camps are part of the
+  deterministic world, so a reload makes them again — cleared, comeback turn, loot and all (`smoke.mjs --camps --reload`).
+- `node camps-playtest.mjs [--nation all] [--turns 75] [--strategy hunter,reckless,none] [--ratio 0.9] [--chunk 500]
+  [--set baseTroops=…,perProvince=…,lootMilli=f:o:g,regrowBells=…]`: headless games in Node (the numbers'
+  playtests: reports/demo-npc-camps.md).
+- `node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html --camps --reload
+  [--lang ja]`: the browser play-through (train, form a host, march on the nearest camp, the report's loot, reload);
+  it signs with the page's test Dev Wallet like `--loop` (manual key-tests job). `--pre-join` checks the camps are on
+  the map and signs nothing.
 
 ## GitHub Pages (https://r0ze998.github.io/wylls/)
 
@@ -109,3 +149,31 @@ http://127.0.0.1:41850/wylls/ (`serve.mjs` answers a missing path with `dist/404
 serves it at whatever missing URL was asked for, so its link must be absolute); it sends the player to the demo.
 Every other file stays relative and works under any prefix. `dist/.nojekyll` is always written (the page has files
 named `_*.mjs`, which a Jekyll pass would drop).
+
+## The goal: win or lose (demo-solo-goal; owner 2026-11-28 14:32, Option A "本番の縮小版")
+
+The demo is a complete single-player game: the real flag-keeps win condition (`src/frontier/world-goals.mjs`),
+compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `DEMO_GOAL` there.
+
+- **Flag castles**: one per nation (6), each on the tile nearest the centre of the nation's ring-1 province, guarded
+  from the start by 110 troops of the nation's AI village. A castle's holder is its tile's arrival-control owner (a lone
+  surviving host of one nation after a resolve takes it; leaving does not give it up).
+- **Win**: hold **3** castles of other nations, each for **15 turns** (3 min at 12 s a turn), as the real rule counts:
+  only captured castles (never your own nation's), each from when it was taken, a capture resets that castle's timer.
+  Need = half of the 6 castles (the real `needOf`) = half of the 5 rivals' rounded up.
+- **Lose**: an AI nation meets the same rule first (a same-turn tie is your win).
+- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave, capped at
+  2,000): the rival leader (two nations along from yours) every wave, +20 % troops, racing for castles (retake its own,
+  stop a nation one castle short, hold what it has, capture the nearest); one more AI nation a wave (they take turns)
+  takes its own castle back or raids you (your castles, else your land). Your own nation's AI village only defends.
+- **On the page** (`src/goalhud.mjs`, bundled into the page): the goal card at the top left (castles, holders, hold
+  timers, rivals, the next wave; "March here" on a castle while a march is open), a pennant over each castle on the map,
+  and the result screen (Victory / Defeat, the time, Play again = Start over without the question). The guide's march
+  step and its last card point at the goal. EN and JA; never "season".
+- **Save**: nothing new is saved — the castles, holders and timers come back with the replayed world (#308).
+- `node goal-playtest.mjs [--strategy active,human,idle,turtle] [--set holdBells=15,...]`: headless games in Node
+  (the same world and kernel, a scripted player) — the tuning tool.
+- `node smoke-goal.mjs --path win|lose [--lang ja] [--fast 4] [--reload] [--url https://r0ze998.github.io/wylls/]`:
+  Playwright, at the Pages host name, played to the result screen through the page's controls (manual key-tests job:
+  the page signs with its test Dev Wallet). `--fast` steps the demo's clock (`__wyllsDemo.skip`, the clock the save
+  reads) while no march of yours is out; `--reload` reloads mid-hold and checks every castle and timer.

@@ -42,6 +42,7 @@ import { claimTargets, settlerCost, mergeOpened, nationLandsOfCells } from '../f
 import { expeditionHoldsOf } from '../flocalplay-expedition.mjs';
 import { wideSlots } from '../fwide.mjs';
 import { outpostCard } from './outpostcard.mjs';
+import { sampleClaimModel, sampleClaimCard } from './sampleclaim.mjs';
 import { landUpkeepMilli, withLand, signedNet, landPart, landPayer } from '../landfood.mjs';
 import { projectHorizon, otherVillageNote, horizonLead, horizonStatusLines, alignLandClock, holdHorizon } from '../landhorizon.mjs';
 
@@ -169,7 +170,7 @@ export function provinceFull(terr, owners, mine = () => false) {
   return true;
 }
 /** (fix-loop18, LP18-4) The row's words beside a shut "Claim a tile" of a full province. */
-const noFreeNote = t => (t.noFree ? html` <span class="blocked" data-nofree="1">${L`この州に取れるマスは残っていません。`}</span>` : '');
+export const noFreeNote = t => (t.noFree ? html` <span class="blocked" data-nofree="1">${L`この州に取れるマスは残っていません。`}</span>` : '');
 /** (devnet-territory-dev) The tile claim's cost preview on a devnet territory world (fdevnet-territory.mjs): ore from the
  * first home's store, SOL from the wallet (the records the claim creates + the fee); the next press signs and sends. */
 function tilePreviewBlock(pv, busy) {
@@ -186,7 +187,7 @@ function tilePreviewBlock(pv, busy) {
     <button type="button" class="btn small ghost" data-act="territory-tile-cancel">${L`やめる`}</button></div>`;
 }
 /** (territory-card) Upkeep in food per hour from milli-food per hour: up to three decimals (TERRITORY_V1.upkeep is in milli-food). */
-const upkeepText = milli => fmtNum(milli / 1000, { maximumFractionDigits: 3 });
+export const upkeepText = milli => fmtNum(milli / 1000, { maximumFractionDigits: 3 });
 /**
  * (territory-card, owner Q-PDT-1 (a)) The card's lines about the viewer's own land: tiles owned, the next tile's price
  * (whole ore), upkeep per hour (food from the first village), and while upkeep is unpaid a warning with the turns left
@@ -692,7 +693,7 @@ export function render(FS) {
     <div class="actions"><button type="button" class="btn primary" data-act="harvest" ${raw(actionBusy || m.blocks.Harvest.length ? 'disabled' : '')}>${icon('grain')}${L`収穫する`}</button>
       <span class="muted">${full.length ? L`${full.map(s => RESOURCES[s.resource]).join(' / ')}が満杯：これ以上は増えません。使いましょう` : L`資源は画面を閉じても毎時増減します（生産から維持費を引いた量）。収穫は、いまの量を蔵の記録に納めるだけです。`}</span></div>
     ${m.stores.some(s => s.landPerHour > 0) ? html`<p class="muted" id="hp-land-food">${L`食料の毎時は、あなたの土地の維持費を引いたあとの量です（「土地」がその分。ターンごとにこの村の食料から払われます）。`}</p>` : ''}
-    ${m.stores.some(s => s.landPerHour > 0) && !wideClaimModel(FS, m) ? ownLandHorizonBlock(m.horizon, { id: 'hp-land-food-horizon', rate: termsRate(), villageCount: m.horizon?.villageCount, otherFoodMilli: m.horizon?.otherFoodMilli, otherProdMilliPerHour: m.horizon?.otherProdMilliPerHour, caravansOff: caravansOff(FS) }) : ''}
+    ${m.stores.some(s => s.landPerHour > 0) && !wideClaimModel(FS, m) && !sampleClaimModel(FS, m) ? ownLandHorizonBlock(m.horizon, { id: 'hp-land-food-horizon', rate: termsRate(), villageCount: m.horizon?.villageCount, otherFoodMilli: m.horizon?.otherFoodMilli, otherProdMilliPerHour: m.horizon?.otherProdMilliPerHour, caravansOff: caravansOff(FS) }) : ''}
     ${blockedLine(m.blocks.Harvest)}</section>`;
 
   const queueName = q => queueItemLabel(q.q);
@@ -773,7 +774,7 @@ export function render(FS) {
   const orderNote = renderVillageOrders(FS, m.settled, m.now, { rereadShown: holdingRead(FS).reread.can });
   // (devnet-page-outpost: the second/third village on a devnet season whose gateway carries FileOutpost —
   //  screens/outpostcard.mjs — rides in the wide card's place, after it; the list below is as it was)
-  const claimCard = wideClaimCard(FS, m, actionBusy), outpost = outpostCard(FS, m, actionBusy);
+  const claimCard = wideClaimCard(FS, m, actionBusy) || sampleClaimCard(FS, m, actionBusy), outpost = outpostCard(FS, m, actionBusy);
   const wideCard = claimCard && outpost ? html`${claimCard}${outpost}` : claimCard || outpost;
   return [...(wideStatus ? [wideStatus] : []), readNote || orderNote ? html`${head}${readNote}${orderNote}` : head, stores, ...(wideCard ? [wideCard] : []), build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }

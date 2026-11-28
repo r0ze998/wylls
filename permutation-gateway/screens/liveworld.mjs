@@ -84,6 +84,9 @@ import { pack, unpack, pathStep, encodePath, commit as sealCommit, ctHash as sea
 import { buildClashArgs, resolveArgs, decodeClashOut, campId } from '../../permutation-server/web/frontier/screens/report.mjs';
 import { settleUpkeep } from '../../permutation-server/web/frontier/landhorizon.mjs';
 import { TERRITORY_V1, territoryPlayerAddress, citizenTagOf, claimCostV1 } from '../../permutation-server/web/frontier/flocalplay-territory.mjs';
+import * as G from './demogoal.mjs';
+import { judgeTileClaim, keepTileOf, nationVillageIn, provinceDistance, tileUpkeepV1 } from '../../permutation-server/web/frontier/sampleland.mjs';
+import * as DC from '../../permutation-server/web/frontier/democamps.mjs';
 
 const { GENESIS_TS, BELL, LATEST_UNIX, LATEST_SLOT, HOME, CAMP_TILE, HOSTS, PROGRAM, SEASON_ID } = W;
 const { ES, OP, TS, TF, QK, FATE, OUTCOME, NO_BELL, NO_TILE, MILLI } = R;
@@ -187,7 +190,9 @@ const REFUSED_TEXT = Object.freeze({
 /** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
 export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
 
-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false, landUpkeep = false} = {}) {
+export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false, landUpkeep = false, landClaim = false, goal = false, camps = false } = {}) {
+  // (`landClaim` plays on the land of `landUpkeep`)
+  if (landClaim) landUpkeep = true;
   const K = kernel();
   const turnSecs = Math.max(0.2, Number(turn) || LIVE.TURN_SECS), rate = 600 / turnSecs;
   const T1 = bs(LIVE.TURN + 1);   // the first toll: turn 43 begins
@@ -227,7 +232,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
   };
   const territoryOf = pv => { const t = territoryFor(pv); settleHomeTerritory(t, pv); return territorySnapshot(t); };
   // ------------------------------------------------------------------ the viewer's land and its upkeep (`landUpkeep`, the walletless demo)
-  const LAND = { tiles: new Map(), paidTo: null, remainder: 0, unpaidSince: null, lastDecayBell: 0, released: 0, claimed: 0, lastClaimBell: 0 };
+  const LAND = { tiles: new Map(), paidTo: null, remainder: 0, unpaidSince: null, lastDecayBell: 0, released: 0, claimed: 0, lastClaimBell: 0, claimsInBell: 0 };
   const LAND_U = TERRITORY_V1.upkeep;
   /** Provinces from the viewer's nearest own village (V1 measures to the first home: the viewer has one village). */
   const landDistance = (p, q) => (ME ? hexDistance(p, q, ME.p, ME.q) : 0);
@@ -236,6 +241,8 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
   /** A field change in province pv at bell b: a tile the viewer's own host took is the viewer's; one taken from it is not. */
   function landNote(pv, changes, b) {
     if (!landUpkeep || !ME) return;
+    // (`landClaim`: no field changes hands by arrival — resolveField below — and the viewer's land is its claims)
+    if (landClaim) return;
     for (const c of changes) {
       const k = `${pv.p},${pv.q},${c.tile}`;
       if (c.to === ME.faction && c.hostId && holdingOfHost(BigInt(c.hostId)) === ME) {
@@ -246,15 +253,92 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       } else if (LAND.tiles.has(k)) LAND.tiles.delete(k);
     }
   }
-  const resolveField = (state, pv, b, opts) => { const r = resolveTerritory(state, pv, b, opts); landNote(pv, r.changes ?? [], b); return r; };
-  /** Once a turn: the land's upkeep from the first village's food (settle_upkeep), then the unpaid land's decay. */
-  function settleLand(b, t) {
-    if (!landUpkeep || !ME || LAND.paidTo === null) return;
+  // (`landClaim` + `goal`, verify-pr316: the flag castles still change hands by conquest — arrival and battle — as the
+  //  real flag keeps do; every other tile is claimed. `castleTiles` is filled when the goal is made, below)
+  const castleTiles = new Map();
+  const resolveField = (state, pv, b, opts) => { const r = resolveTerritory(state, pv, b, landClaim ? { ...opts, arrival: castleTiles.get(key(pv.p, pv.q)) ?? false } : opts); landNote(pv, r.changes ?? [], b); return r; };
+  /** The land's upkeep settled up to `t` (TerritoryPlayer settle_upkeep from the first village's food): every claim settles first (T-5). */
+  function settleLandUpkeep(b, t) {
     const food = ME.stores[R.RES.Food];
     R.settleAccrual(food, Math.floor(t));
     const r = settleUpkeep({ rate: landRate(), paidTo: LAND.paidTo, nowTs: Math.floor(t), nowBell: b, remainder: LAND.remainder, unpaidSince: LAND.unpaidSince, available: food.value });
     food.value -= r.take;
     LAND.paidTo = r.paidTo; LAND.remainder = r.remainder; LAND.unpaidSince = r.unpaidSince;
+  }
+  /**
+   * (`landClaim`, demo-claim-1) The single-tile claim (0xDA op 7 WideClaimTile as proc/wide_territory.rs claim_tile_as
+   * judges it): `{p, q, tile, witness?: {kind: 'own'|'nation', p, q}}` → `{ok: true, tile, cost, tiles, nextOre,
+   * upkeepMilliPerHour}` or `{ok: false, code, programCode, refused}`. The judge is sampleland.mjs judgeTileClaim
+   * (= frontier-abi judge_claim + permutation-rules may_claim, TERRITORY_V1); nothing is signed or sent.
+   */
+  function claimTile(body, t) {
+    const no = (refused, code, programCode) => ({ ok: false, refused, code, programCode });
+    if (!ME) return no('NoVillage', 'NotOwner', 20);
+    if (ME.state !== 2) return no('NotFinal', 'NotFinal', 24);
+    const p = Number(body?.p), q = Number(body?.q), tile = Number(body?.tile), w = body?.witness ?? null;
+    const pv = Number.isInteger(p) && Number.isInteger(q) ? provinces.get(key(p, q)) : null;
+    if (!pv) return no('BadData', 'BadData', 1);
+    const b = bellOf(t), fs = territoryFor(pv), k = `${p},${q},${tile}`;
+    // (the reach witness: a province with a tile of the claimer's, or one with a village of its nation; as the program, a
+    //  witness that is not so is refused — OutpostRule for an own-tile witness without a tile, BadAccount for another)
+    const nearest = { home: hexDistance(p, q, ME.p, ME.q) };
+    if (w) {
+      const wp = provinces.get(key(Number(w.p), Number(w.q)));
+      if (!wp || !['own', 'nation'].includes(w.kind)) return no('BadAccount', 'BadAccount', 2);
+      if (w.kind === 'own') {
+        if (![...LAND.tiles.values()].some(x => x.p === wp.p && x.q === wp.q)) return no('Range', 'OutpostRule', 75);
+        nearest.own = provinceDistance(wp, pv);
+      } else {
+        if (!nationVillageIn(wp, ME.faction)) return no('BadAccount', 'BadAccount', 2);
+        nearest.nationLand = provinceDistance(wp, pv);
+      }
+    }
+    if (LAND.paidTo !== null) settleLandUpkeep(b, t);
+    const ore = ME.stores[R.RES.Ore];
+    R.settleAccrual(ore, Math.floor(t));
+    const o = Number.isInteger(tile) && tile >= 0 && tile < 61 ? fs.owners[tile] : 255;
+    const owner = LAND.tiles.has(k) ? 'claimer' : o === 255 ? 'nobody' : 'other';
+    const r = judgeTileClaim({ tile, keepTile: keepTileOf(pv), owner, nearest, owned: LAND.tiles.size, claimsThisTurn: LAND.lastClaimBell === b ? LAND.claimsInBell : 0,
+      upkeepUnpaid: LAND.unpaidSince !== null, balance: Math.max(0, Math.floor(ore.value / 1000)) });
+    if (!r.ok) return r;
+    ore.value -= r.cost * 1000;
+    if (LAND.paidTo === null) LAND.paidTo = Math.floor(t);
+    LAND.tiles.set(k, { p, q, tile, bell: b, distance: landDistance(p, q) });
+    fs.owners[tile] = ME.faction; fs.since[tile] = Math.min(b, fs.bell);
+    if (LAND.lastClaimBell === b) LAND.claimsInBell++; else { LAND.lastClaimBell = b; LAND.claimsInBell = 1; }
+    LAND.claimed++;
+    pv.eventSeq = Number(pv.eventSeq ?? 0) + 1;
+    return { ok: true, tile, cost: r.cost, tiles: LAND.tiles.size, nextOre: claimCostV1(LAND.tiles.size), upkeepMilliPerHour: landRate(), bell: b };
+  }
+  /** (`landClaim`) The other nations' villages claim too, by the same judge: one tile every other turn, the nearest free tile of their reach. */
+  const NPC_LAND = new Map();
+  function npcClaims(b, t) {
+    if (!landClaim) return;
+    for (const H of all().filter(x => x.npc)) {
+      const id = `${H.p},${H.q},${H.site}`, mine = NPC_LAND.get(id) ?? { tiles: 0, last: -1 };
+      if ((b + H.site) % 2 !== 0 || mine.tiles >= 12) continue;
+      let best = null;
+      for (const pv of provinces.values()) {
+        const d = hexDistance(pv.p, pv.q, H.p, H.q);
+        if (d > TERRITORY_V1.range || (best && d > best.d)) continue;
+        const fs = territoryFor(pv), keep = keepTileOf(pv), sites = new Set(pv.sites.slice(0, pv.siteCount));
+        const castle = castleTiles.get(key(pv.p, pv.q)) ?? [], tile = fs.owners.findIndex((o, i) => o === 255 && i !== keep && !sites.has(i) && !castle.includes(i));
+        if (tile >= 0 && (!best || d < best.d)) best = { pv, fs, tile, d };
+      }
+      if (!best) continue;
+      const ore = H.stores[R.RES.Ore];
+      R.settleAccrual(ore, Math.floor(t));
+      const r = judgeTileClaim({ tile: best.tile, keepTile: keepTileOf(best.pv), owner: 'nobody', nearest: { home: best.d }, owned: mine.tiles, claimsThisTurn: mine.last === b ? 1 : 0, upkeepUnpaid: false, balance: Math.max(0, Math.floor(ore.value / 1000)) });
+      if (!r.ok) continue;
+      ore.value -= r.cost * 1000;
+      best.fs.owners[best.tile] = H.faction; best.fs.since[best.tile] = Math.min(b, best.fs.bell);
+      NPC_LAND.set(id, { tiles: mine.tiles + 1, last: b });
+    }
+  }
+  /** Once a turn: the land's upkeep from the first village's food (settle_upkeep), then the unpaid land's decay. */
+  function settleLand(b, t) {
+    if (!landUpkeep || !ME || LAND.paidTo === null) return;
+    settleLandUpkeep(b, t);
     if (LAND.unpaidSince !== null && b - LAND.unpaidSince >= TERRITORY_V1.decayAfterBells && LAND.lastDecayBell < b && LAND.tiles.size) {
       // the farthest tile returns (farthest province first, then the farthest tile from the village)
       const home = TILE_OFFSETS[ME.tile], far = x => x.distance * 100 + (x.p === ME.p && x.q === ME.q ? hexDistance(TILE_OFFSETS[x.tile].q, TILE_OFFSETS[x.tile].r, home.q, home.r) : 0);
@@ -317,6 +401,75 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     const s = hexBytes(ringSeed);
     return { tile: cands[R.below(R.rand(s, 'frontier/camp/tile', id), cands.length)], troops: 100 + R.below(R.rand(s, 'frontier/camp/troops', id), 301) };
   }
+  // ------------------------------------------------------------------ the demo's NPC camps (`camps`, the walletless demo; democamps.mjs)
+  // (off by default: every other caller's world is what it was. The camps are the program's own Camp records — the clash,
+  //  the camp mask and the Works are untouched —; the demo places them, scales and regrows them, and pays loot)
+  const CAMPS = camps && nations ? createCamps(typeof camps === 'object' ? camps : {}) : null;
+  function createCamps(over) {
+    const rules = Object.freeze({ ...DC.DEMO_CAMPS, ...over });
+    const list = new Map();
+    for (const pv of provinces.values()) {
+      // every province: the day's check never comes (the kernel skips it too: Camp.NEXT_CHECK_DAY), so the demo's rule alone places camps
+      const tile = rules.rings.includes(pv.ring) ? DC.campTile(pv, TILE_OFFSETS, rules) : -1;
+      if (tile < 0) { pv.camp = { tile: pv.camp.tile, state: 0, troops: 0, nextCheckDay: DC.NEVER, gen: pv.camp.gen }; continue; }
+      const troops = DC.campTroops(null, 0, rules);
+      pv.camp = { tile, state: 1, troops, nextCheckDay: DC.NEVER, gen: pv.camp.gen + 1 };
+      list.set(key(pv.p, pv.q), { p: pv.p, q: pv.q, ring: pv.ring, tile, comebacks: 0, clearedBell: null, backAt: null, spawnedBell: null, troops, cleared: 0 });
+    }
+    return { rules, list, posted: null, log: [] };
+  }
+  /** At the start of a province's resolve: the first after the player's village scales every camp by its distance; a cleared camp comes back. */
+  function campsBefore(pv, b, t) {
+    if (!CAMPS) return;
+    if (ME && CAMPS.posted === null) {
+      CAMPS.posted = b;
+      for (const c of CAMPS.list.values()) {
+        const x = provinces.get(key(c.p, c.q));
+        if (x.camp.state !== 1) continue;
+        c.troops = x.camp.troops = DC.campTroops(hexDistance(c.p, c.q, ME.p, ME.q), 0, CAMPS.rules);
+        x.rosterEpoch++;
+      }
+      CAMPS.log.push({ bell: b, kind: 'scaled', home: [ME.p, ME.q] });
+    }
+    const c = CAMPS.list.get(key(pv.p, pv.q));
+    if (!c || pv.camp.state === 1 || c.backAt === null || b < c.backAt) return;
+    // (on its own tile, once nobody stands there and no arrival of this bell or a later one is bound for it)
+    const bound = [...st.slots.values()].flat().some(s => s.p === pv.p && s.q === pv.q && s.bell >= b && s.tile === c.tile);
+    if (bound || pv.entries.some(e => e.state !== ES.FREE && e.tile === c.tile)) return;
+    c.comebacks++;
+    c.troops = DC.campTroops(ME ? hexDistance(c.p, c.q, ME.p, ME.q) : null, c.comebacks, CAMPS.rules);
+    pv.camp = { tile: c.tile, state: 1, troops: c.troops, nextCheckDay: DC.NEVER, gen: pv.camp.gen + 1 };
+    c.backAt = null; c.spawnedBell = b;
+    pv.rosterEpoch++;
+    emit(43, bellOf(t), { p: pv.p, q: pv.q, tile: c.tile, troops: c.troops, day: Math.floor(b / R.BELLS_PER_DAY) });
+    CAMPS.log.push({ bell: b, kind: 'back', p: pv.p, q: pv.q, tile: c.tile, troops: c.troops, comeback: c.comebacks });
+  }
+  /** After a resolve that cleared a camp: the loot into the winner's village (the camp mask's winner, the one the Works go to), and the report says it. */
+  function campsAfter(pv, b, t, ap, ci, before) {
+    if (!CAMPS || !ap.campCleared) return;
+    const c = CAMPS.list.get(key(pv.p, pv.q));
+    if (!c) return;
+    c.clearedBell = b; c.cleared++;
+    c.backAt = CAMPS.rules.regrowBells > 0 ? b + CAMPS.rules.regrowBells : null;
+    const pos = DC.maskWinner(ap.campMask), rec = pos >= 0 ? ci.arrivals[pos] : null, H = rec ? holdingOfHost(BigInt(rec.hostId)) : null;
+    const want = DC.lootOf(before.troops, CAMPS.rules), got = { food: 0, ore: 0, gold: 0 };
+    if (H) for (const [k, r] of Object.entries(DC.LOOT_RES)) {
+      const s = H.stores[r];
+      R.settleAccrual(s, Math.floor(t));
+      const room = Math.max(0, s.cap - s.value);
+      got[k] = Math.floor(Math.min(want[k] * MILLI, room) / MILLI);
+      s.value += got[k] * MILLI;
+    }
+    const rec2 = { v: 1, p: pv.p, q: pv.q, tile: before.tile, bell: b, defenders: before.troops, winner: H ? { nation: H.faction, viewer: H === ME, troops: Math.floor(rec.troops / MILLI), survivors: Math.floor(rec.troopsAfter / MILLI) } : null, loot: got, full: want, backAt: c.backAt };
+    CAMPS.log.push({ kind: 'cleared', ...rec2 });
+    const rep = st.reports.get(`${pv.p},${pv.q},${b}`);
+    if (rep) rep.demoCamp = rec2;
+  }
+  /** What the season record says of the camps (`sample.camps`: the page says a camp's loot from it). */
+  const campsSample = () => ({ v: 1, kind: 'bandit-camps', lootMilli: { ...CAMPS.rules.lootMilli }, regrowBells: CAMPS.rules.regrowBells, regrowBps: CAMPS.rules.regrowBps });
+  /** The camps as the world record and the tests read them. */
+  const campsRecord = () => ({ v: 1, rules: { ...CAMPS.rules }, posted: CAMPS.posted,
+    camps: [...CAMPS.list.values()].map(c => { const x = provinces.get(key(c.p, c.q)).camp; return { p: c.p, q: c.q, ring: c.ring, tile: c.tile, up: x.state === 1, troops: x.state === 1 ? x.troops : 0, loot: x.state === 1 ? DC.lootOf(x.troops, CAMPS.rules) : null, cleared: c.cleared, comebacks: c.comebacks, backAt: c.backAt }; }) });
   const encodeProvince = pv => W.encode('Province', { ...pv, nEntries: pv.entries.filter(e => e.state !== ES.FREE).length, nSitesUsed: pv.siteMirror.filter(m => m.state === 1).length });
 
   // ------------------------------------------------------------------ the log (PS2 records, as the herald pages them)
@@ -408,6 +561,89 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       });
     });
   }
+
+  // ------------------------------------------------------------------ the single-player goal (`goal`, the walletless demo; demogoal.mjs)
+  // (off by default: every other caller's world is what it was. Needs `nations` and `territory`: one AI village per
+  //  nation stands its castle's guard, and a castle's holder is its tile's arrival-control owner)
+  const GOAL = goal && nations && territory ? createGoal(typeof goal === 'object' ? goal : {}) : null;
+  function createGoal(over) {
+    const rules = Object.freeze({ ...G.DEMO_GOAL, ...over });
+    const castles = [];
+    for (let n = 0; n < G.NATIONS; n++) {
+      const pv = ringProvinces(1).map(({ p, q }) => provinces.get(key(p, q))).find(x => x.wedge === n);
+      const tile = pv ? G.castleTile(pv, TILE_OFFSETS) : -1;
+      const H = [...holdings.values()].find(X => X.npc && X.faction === n);
+      if (!pv || tile < 0 || !H) continue;
+      // the castle's guard: a host of the nation's AI village standing on it from the start (the tile is its nation's)
+      const id = hostId({ p: H.p, q: H.q, site: H.site, gen: 0, seq: 30 });
+      put(pv, { id, faction: n, unit: 0, tile, state: ES.ROSTER, troops: rules.guardTroops * MILLI, staminaValue: R.STAMINA_CAP, staminaBell: BELL, dealtBps: R.dealtBps(n, false), readyBell: 30, fromBell: 30 });
+      castles.push({ nation: n, p: pv.p, q: pv.q, tile, guard: String(id) });
+      castleTiles.set(key(pv.p, pv.q), [...(castleTiles.get(key(pv.p, pv.q)) ?? []), tile]);
+    }
+    return { rules, castles, posted: null, player: null, result: null, wave: -1, log: [], hostSeq: new Map() };
+  }
+  /** The castles as the judge reads them now: `[{nation, p, q, tile, holder, since}]`. */
+  const castlesNow = () => GOAL.castles.map(c => { const fs = territoryFor(provinces.get(key(c.p, c.q))); return { ...c, holder: fs.owners[c.tile], since: fs.since[c.tile] ?? 0 }; });
+  const goalProgress = b => G.progressOf({ castles: castlesNow(), bell: b, postedBell: GOAL.posted ?? b, rules: GOAL.rules });
+  /** After the bell's resolve: the first achievement is the game's result (the world goes on; the result stays). */
+  function goalJudge(b, t) {
+    if (!GOAL || GOAL.posted === null || GOAL.result) return;
+    const r = G.resultOf(G.achievementOf(goalProgress(b), b), GOAL.player);
+    if (r) { GOAL.result = { ...r, judgedBell: b, judgedAt: Math.floor(t) }; GOAL.log.push({ bell: b, kind: 'result', ...r }); }
+  }
+  /** The AI nations' wave at bell b (the npc step): one new host a nation, marched on the target demogoal.mjs picks. */
+  function goalWave(b, t) {
+    if (!GOAL || GOAL.posted === null || GOAL.result) return;
+    const k = G.waveAt(b - GOAL.posted, GOAL.rules);
+    if (k === null) return;
+    GOAL.wave = k;
+    const castles = castlesNow(), progress = goalProgress(b), base = G.waveTroops(k, GOAL.rules);
+    // who marches: the leader every wave, and `waveActing` of the other AI nations, taking turns (demogoal.mjs waveTarget)
+    const leader = G.leaderOf(GOAL.player), ais = all().filter(H => H.npc && H.faction !== GOAL.player).sort((a, c) => a.faction - c.faction);
+    const others = ais.filter(H => H.faction !== leader), acting = others.length ? Array.from({ length: Math.min(GOAL.rules.waveActing, others.length) }, (_, i) => others[(k * GOAL.rules.waveActing + i) % others.length]) : [];
+    for (const H of ais.filter(X => X.faction === leader || acting.includes(X))) {
+      const troops = H.faction === leader ? Math.min(GOAL.rules.waveCap, Math.round(base * (10_000 + GOAL.rules.leaderBonusBps) / 10_000)) : base;
+      const home = tileHex(H.p, H.q, H.tile), dist = c => { const h = tileHex(c.p, c.q, c.tile); return hexDistance(h.q, h.r, home.q, home.r); };
+      const strength = c => provinces.get(key(c.p, c.q)).entries.filter(e => e.state === ES.ROSTER && e.tile === c.tile && e.faction === H.faction).reduce((x, e) => x + e.troops, 0);
+      const target = G.waveTarget({ castles, progress, n: H.faction, player: GOAL.player, leader, dist, strength, wave: k });
+      const dests = target.castles.map(c => ({ p: c.p, q: c.q, tile: c.tile }));
+      if (target.kind === 'raid') { const x = raidTile(home); if (x) dests.push(x); }
+      if (!dests.length) { GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, target: target.kind, ok: false, code: 'NoTarget' }); continue; }
+      const pv = provinces.get(key(H.p, H.q)), roster = pv.entries.filter(e => e.state === ES.ROSTER || e.state === ES.MUSTER_PENDING);
+      if (roster.length >= R.PROVINCE_HOST_CAP || roster.filter(e => e.faction === H.faction).length >= R.FACTION_RESIDENT_CAP || !pv.entries.some(e => e.state === ES.FREE) || !H.transit.some(x => !x)) {
+        GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, target: target.kind, dest: dests[0], ok: false, code: 'Full' }); continue;
+      }
+      const seq = 40 + (GOAL.hostSeq.get(H.faction) ?? 0);
+      GOAL.hostSeq.set(H.faction, seq - 39);
+      const id = hostId({ p: H.p, q: H.q, site: H.site, gen: 0, seq });
+      const i = put(pv, { id, faction: H.faction, unit: 0, tile: H.tile, state: ES.ROSTER, troops: troops * MILLI, staminaValue: R.STAMINA_CAP, staminaBell: b, dealtBps: R.dealtBps(H.faction, false), readyBell: b, fromBell: b });
+      pv.rosterEpoch++;
+      // the first destination a march reaches (a castle beyond a march's 32 steps is passed over); none: it stays home
+      let r = null, dest = null;
+      for (const x of dests) { dest = x; r = scriptMarch(H, id, pv, pv.entries[i], x, b, t); if (r.ok || r.code !== 'Path') break; }
+      GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, troops, target: target.kind, dest, ok: r.ok, code: r.code ?? null, arrive: r.arrive ?? null });
+    }
+  }
+  /** A raid with no castle of the player's to take: the player's land nearest the raider, else a free tile beside the player's village. */
+  function raidTile(from) {
+    if (!ME) return null;
+    const d = x => { const h = tileHex(x.p, x.q, x.tile); return hexDistance(h.q, h.r, from.q, from.r); };
+    const land = [...LAND.tiles.values()].map(x => ({ p: x.p, q: x.q, tile: x.tile })).sort((a, c) => d(a) - d(c));
+    if (land.length) return land[0];
+    const pv = provinces.get(key(ME.p, ME.q)), o = TILE_OFFSETS[ME.tile];
+    const free = [...Array(61).keys()].filter(x => passable(pv, x) && siteOfTile(pv, x) < 0 && !(pv.camp.state === 1 && pv.camp.tile === x) && !pv.entries.some(e => e.state !== ES.FREE && e.tile === x))
+      .sort((a, c) => hexDistance(TILE_OFFSETS[a].q, TILE_OFFSETS[a].r, o.q, o.r) - hexDistance(TILE_OFFSETS[c].q, TILE_OFFSETS[c].r, o.q, o.r) || a - c);
+    return free.length ? { p: pv.p, q: pv.q, tile: free[0] } : null;
+  }
+  /** What the page's goal card reads (GET /h/demo/goal): the rules, the castles, every nation's progress, the result. */
+  function goalRecord() {
+    const t = now(), b = bellOf(t);
+    const castles = castlesNow().map(c => ({ nation: c.nation, p: c.p, q: c.q, tile: c.tile, holder: c.holder === 255 ? null : c.holder, since: c.since }));
+    return { v: 1, kind: 'demo-goal', rules: { ...GOAL.rules }, need: G.needOf(castles.length, GOAL.rules, G.mostOwn(castles)), turn: b, turnSecs, posted: GOAL.posted, player: GOAL.player,
+      castles, progress: GOAL.posted === null ? [] : goalProgress(b).map(x => ({ nation: x.nation, held: x.held, own: x.own, captured: x.captured, capturedLong: x.capturedLong, reachAt: x.reachAt, castles: x.castles })),
+      wave: GOAL.wave, nextWave: GOAL.posted === null || GOAL.result ? null : nextWaveBell(b), waveTroops: G.waveTroops(Math.max(0, GOAL.wave + 1), GOAL.rules), leader: GOAL.player === null ? null : G.leaderOf(GOAL.player), result: GOAL.result };
+  }
+  const nextWaveBell = b => { for (let x = b + 1; x < b + 1 + GOAL.rules.graceBells + GOAL.rules.waveEvery + 1; x++) if (G.waveAt(x - GOAL.posted, GOAL.rules) !== null) return x; return null; };
 
   // ------------------------------------------------------------------ arrival slots, per-bell files
   function slotPut(s) {
@@ -663,6 +899,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     return { camp: c ? { tile: c.tile, state: 1, troops: c.troops, nextCheckDay: day + 1, gen: pv.camp.gen + 1 } : { ...pv.camp, nextCheckDay: day + 1 }, spawned: !!c, day };
   }
   function resolveBell(pv, b, t) {
+    campsBefore(pv, b, t);
     const fieldState = territoryFor(pv);
     // GatherClash: each revealed arrival with its host's values after its origin's clash (prog/clash.rs:408-530)
     const recs = new Array(24).fill(null), slots = slotsOf(pv.p, pv.q, b);
@@ -729,6 +966,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       decoded: { fighters: [], engagements: outcome.engagements, fates: ap.fates }, heraldCheck: 'match', builder: 'kernel', recomputedDigest: digest, checkError: null,
       // (what of this resolve the kernel does not export, said in the record itself)
       sample: 'the clash is the rules kernel\'s (resolve_from_inputs); its write-back into the Province is the sample world\'s transcription of the program\'s (frontier-abi clash_model apply, settle_bell)' });
+    campsAfter(pv, b, t, ap, ci, campBefore);
     return close(pv, b, ciAfter);
   }
   /** The bell's own file of the province (immutable from now on, as the herald closes a bell): the Province after it, its arrival slots, its ClashInputs. */
@@ -923,10 +1161,11 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       for (const pv of [...provinces.values()].sort((x, y) => x.p - y.p || x.q - y.q)) if (pv.resolvedNext === b) { resolveBell(pv, b, t); proto?.keeper(pv); }
       settleDepartures(t); settleReturns(t);
       for (const H of all()) if (H.explore && H.explore.bell <= b) settleExplore(H, t);
+      goalJudge(b, t);
     }],
-    ['npc', b => bs(b) + LIVE.NPC_AT, (b, t) => { npcOrders(b, t); proto?.script(b, t); }],
+    ['npc', b => bs(b) + LIVE.NPC_AT, (b, t) => { npcOrders(b, t); proto?.script(b, t); goalWave(b, t); }],
     // (`landUpkeep`: once a turn, after the turn's resolve, as a keeper settles the land's upkeep)
-    ...(landUpkeep ? [['land', b => bs(b) + LIVE.NPC_AT + 10, (b, t) => settleLand(b, t)]] : []),
+    ...(landUpkeep ? [['land', b => bs(b) + LIVE.NPC_AT + 10, (b, t) => { settleLand(b, t); npcClaims(b, t); }]] : []),
   ];
   // what happened before the world starts has happened: each step begins at the first bell whose time is still to come
   for (const [name, at] of STEPS) { let b = LIVE.TURN - 6; while (at(b) <= START) b++; st.next[name] = b; }
@@ -977,6 +1216,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       ME = village({ p: d.p, q: d.q, site: d.site, faction: JOINED.faction, tier: 0, k, state: 2, ticketBell: b, finalTs: t, hostSeq: 0 });
       ME.flags = 2; ME.citizen.flags |= 32; ME.gen = pv.siteMirror[d.site].gen;
       JOINED.flags = ME.citizen.flags; land = true;
+      if (GOAL && GOAL.posted === null) { GOAL.posted = b; GOAL.player = ME.faction; GOAL.log.push({ bell: b, kind: 'posted', player: ME.faction }); }
       emit(17, b, { p: ME.p, q: ME.q, site: ME.site, citizen_tag: VIEWER_TAG, gen: ME.gen, final_ts: t });
       return done();
     }
@@ -1073,7 +1313,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       tombstoned: false, archived: false, resolved: [...st.reports.values()].filter(r => r.bell === b && regionOf(r.province[0], r.province[1]) === region).map(r => r.province) };
   }
   /** What the season record says of the sample world (the hook for the page: the clock's rate, 0 while it stands). */
-  const sampleNow = () => ({ world: 'sample', ...(territory ? { territory: { mode: 'arrival-control', authority: 'local-preview' } } : {}), turnSecs, rate: frozen ? 0 : rate, paused: frozen, seed, simpler: opening ? SIMPLER.filter(x => !x.startsWith('no joining')).concat('first-home and arrival-control are local development rules; no chain transactions or funds') : proto ? [...SIMPLER, ...SIMPLER_CLAIMS] : SIMPLER, ...(stores ? { stores: [...stores] } : {}), ...(proto ? { proto: { claims: proto.season() } } : {}), ...(landUpkeep ? { landUpkeep: true } : {}) });
+  const sampleNow = () => ({ world: 'sample', ...(territory ? { territory: { mode: 'arrival-control', authority: 'local-preview' } } : {}), turnSecs, rate: frozen ? 0 : rate, paused: frozen, seed, simpler: opening ? SIMPLER.filter(x => !x.startsWith('no joining')).concat(landClaim ? ['first-home is a local development rule; land is claimed one tile at a time by territory rule V1 (every province of this map is territory land, the camp tile is the keep tile); no chain transactions or funds'] : 'first-home and arrival-control are local development rules; no chain transactions or funds') : proto ? [...SIMPLER, ...SIMPLER_CLAIMS] : SIMPLER, ...(stores ? { stores: [...stores] } : {}), ...(proto ? { proto: { claims: proto.season() } } : {}), ...(landUpkeep ? { landUpkeep: true } : {}), ...(landClaim ? { landClaim: true } : {}), ...(GOAL ? { goal: { kind: 'flag-castles', perNation: GOAL.rules.perNation, need: G.needOf(GOAL.castles.length, GOAL.rules, G.mostOwn(GOAL.castles)), holdBells: GOAL.rules.holdBells } } : {}) });
 
   return {
     orders, reveals,
@@ -1108,14 +1348,16 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
         me: ME ? { ...of(ME), stores: ME.stores.map(s => Math.floor(R.accrualAt(s, Math.floor(t)) / MILLI)), perHour: ME.stores.map(s => s.rate / MILLI), queue: ME.queue.filter(Boolean).map(q => ({ kind: q.kind, arg: q.arg, doneIn: Math.round(q.doneAt - t) })),
           walls: ME.walls, garrison: Math.floor(provinces.get(key(ME.p, ME.q)).siteMirror[ME.site].garrison / MILLI), explore: ME.explore ? { bell: ME.explore.bell, tiles: ME.explore.tiles.filter(x => x !== NO_TILE) } : null, works: ME.citizen.works, floorLeft: ME.citizen.exploresFloorLeft,
           bucket: Math.floor(ME.citizen.bucketMilli / 1000), quota: st.quota.left, shieldUntilBell: bellFrom(ME.shieldUntil), finalAt: ME.state === 1 ? ME.finalTs : null } : null,
-        neighbours: all().filter(H => H.npc).map(of), ...(territory ? { territory: [...provinces.values()].map(pv => ({ p: pv.p, q: pv.q, ...territoryOf(pv) })) } : {}), records: st.log.length, ...(proto ? { proto: proto.summary() } : {}) };
+        neighbours: all().filter(H => H.npc).map(of), ...(territory ? { territory: [...provinces.values()].map(pv => ({ p: pv.p, q: pv.q, ...territoryOf(pv) })) } : {}), records: st.log.length, ...(proto ? { proto: proto.summary() } : {}),
+        ...(landUpkeep ? { land: { tiles: [...LAND.tiles.values()].map(x => ({ ...x })), claimed: LAND.claimed, unpaidSince: LAND.unpaidSince, upkeepMilliPerHour: landRate(), npc: Object.fromEntries(NPC_LAND) } } : {}),
+        ...(GOAL ? { goal: goalRecord() } : {}) };
     },
     /** The log's records after `after` (decoded names for tests: `{seq, kind, bell, fields}`). */
     records: (after = -1) => { settle(); return st.log.filter(x => x.seq > after).map(x => ({ seq: x.seq, kind: x.kind, bell: x.bell, fields: x.fields })); },
     /** The fake herald while the world is live: `{status, body}`, or null for what the still fixture answers. */
     herald(path, url) {
       let m;
-      if (path === '/h/season') { this.seen(); const c = this.clock(); return answer({ ...seasonRecord(), headSeq: String(c.headSeq), latestUnix: c.latestUnix, latestSlot: c.latestSlot, sample: sampleNow() }); }
+      if (path === '/h/season') { this.seen(); const c = this.clock(); return answer({ ...seasonRecord(), headSeq: String(c.headSeq), latestUnix: c.latestUnix, latestSlot: c.latestSlot, sample: CAMPS ? { ...sampleNow(), camps: campsSample() } : sampleNow() }); }
       settle();
       if ((m = /^\/h\/province\/(-?\d+),(-?\d+)\/(latest|\d+)$/.exec(path))) {
         const pv = provinces.get(key(Number(m[1]), Number(m[2])));
@@ -1131,6 +1373,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       if ((m = /^\/h\/bell\/(\d+)\/region\/(\d+)$/.exec(path))) return answer(bellRegion(Number(m[1]), Number(m[2])));
       if ((m = /^\/h\/me\/(\w+)$/.exec(path)) && m[1] === viewer.wallet) return answer(proto && ME ? { ...me(), proto: { land: proto.me() } } : me());
       if (landUpkeep && (m = /^\/h\/world\/wide\/territory\/player\/(\w+)$/.exec(path))) return answer(landSummary(m[1]));
+      if (GOAL && path === '/h/demo/goal') return answer(goalRecord());
       if (proto && path === '/h/proto/standings') return answer(proto.standings());
       if (proto && path === '/h/proto/preview') return answer(proto.preview(url));
       if (path === '/h/events') {
@@ -1148,6 +1391,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       if (method === 'GET' && path === '/gw/f/relay') return answer({ feePayer: await feePayerName(), blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1000, programId: PROGRAM, quota });
       if (method === 'GET' && path === '/gw/f/quota') return answer({ ...quota, lamportsLeft: '400000000' });
       if (proto && method === 'POST' && path === '/gw/f/proto/land') return answer(proto.route(body, Math.floor(now()), orders));
+      if (landClaim && method === 'POST' && path === '/gw/f/sample/territory') { const r = claimTile(body, now()); orders.push({ name: 'TerritoryClaim', ok: r.ok, code: r.code ?? null, turn: bellOf(now()) }); return answer(r); }
       if (method === 'GET' && path.startsWith('/gw/f/tx/')) {
         const s = st.sent.get(decodeURIComponent(path.slice('/gw/f/tx/'.length)));
         return answer(s && s.at <= wall() ? { state: 'landed', slot: s.slot } : { state: 'unknown' });
@@ -1166,7 +1410,56 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     /** For tests: a province's fields as the world holds them (a copy). */
     province: (p, q) => { settle(); const pv = provinces.get(key(p, q)); return pv ? structuredClone(pv) : null; },
     npcLog: st.npcLog,
+    // (demo-npc-camps; kept apart from the goal's hooks below `proto`, so the two PRs merge without a conflict here)
+    /** The demo's NPC camps (`camps`): their record and log; null when it is off. */
+    camps: CAMPS ? () => { settle(); return campsRecord(); } : null,
+    campsLog: CAMPS ? () => CAMPS.log : null,
+    /**
+     * For tests and headless playtests only (never reached by the page, which signs its orders): the viewer joins
+     * `faction` and places its first village on the first free site of the nation's ring-2 provinces, by the same
+     * startOrder the relay runs after its signature checks; `march(host, dest)` departs one of the viewer's hosts by
+     * the neighbours' own script (sealed, revealed by the keeper).
+     */
+    campsTest: CAMPS ? {
+      join(faction, at = null) {
+        const t = Math.floor(settle()), acc = { wallet: viewer.wallet, citizen: viewer.citizen };
+        const j = startOrder('Join', { faction, session: new Uint8Array(32).fill(0x22), session_expiry: t + 30 * R.DAY }, acc, t);
+        if (!j?.ok) return j;
+        const spot = at ?? ringProvinces(2).filter(({ p, q }) => wedgeOf(p, q) === faction).map(({ p, q }) => provinces.get(key(p, q)))
+          .flatMap(pv => [...Array(pv.siteCount).keys()].filter(s => pv.siteMirror[s].state === 0 && !(pv.camp.state === 1 && pv.sites[s] === pv.camp.tile)).map(site => ({ p: pv.p, q: pv.q, site })))[0];
+        return startOrder('PlaceHome', spot, { ...acc, province: A.of('Province', spot), holding: A.of('Holding', spot) }, t);
+      },
+      march(host, dest) {
+        const t = Math.floor(settle()), b = bellOf(t), at = [...provinces.values()].find(pv => entryOf(pv, host)), e = at && entryOf(at, host);
+        if (!e) return no('NotResident');
+        return scriptMarch(ME, BigInt(host), at, e, dest, b, t);
+      },
+    } : null,
     /** The prototype of the banner rule in this world (claimsworld.mjs), or null when it is off. */
     proto,
+    /** The single-player goal (`goal`): its record (GET /h/demo/goal), its log of waves; null when it is off. */
+    goal: GOAL ? () => { settle(); return goalRecord(); } : null,
+    goalLog: GOAL ? () => GOAL.log : null,
+    /**
+     * For tests and headless playtests only (never reached by the page): the viewer joins `faction` and places its
+     * first village on the first free site of its ring-2 provinces, by the same startOrder the relay runs after the
+     * signature checks; `march(host, dest)` departs one of the viewer's hosts by the neighbours' own script (sealed
+     * and revealed by the keeper, as the neighbours' are).
+     */
+    testPlay: {
+      join(faction, at = null) {
+        const t = Math.floor(settle()), acc = { wallet: viewer.wallet, citizen: viewer.citizen };
+        const j = startOrder('Join', { faction, session: new Uint8Array(32).fill(0x22), session_expiry: t + 30 * R.DAY }, acc, t);
+        if (!j?.ok) return j;
+        const spot = at ?? ringProvinces(2).filter(({ p, q }) => wedgeOf(p, q) === faction).map(({ p, q }) => provinces.get(key(p, q)))
+          .flatMap(pv => [...Array(pv.siteCount).keys()].filter(s => pv.siteMirror[s].state === 0 && !(pv.camp.state === 1 && pv.sites[s] === pv.camp.tile)).map(site => ({ p: pv.p, q: pv.q, site })))[0];
+        return startOrder('PlaceHome', spot, { ...acc, province: A.of('Province', spot), holding: A.of('Holding', spot) }, t);
+      },
+      march(host, dest) {
+        const t = Math.floor(settle()), b = bellOf(t), at = [...provinces.values()].find(pv => entryOf(pv, host)), e = at && entryOf(at, host);
+        if (!e) return no('NotResident');
+        return scriptMarch(ME, BigInt(host), at, e, dest, b, t);
+      },
+    },
   };
 }

@@ -1,6 +1,9 @@
 // Arrival-control development worlds publish tile ownership after resolving
 // combat. This extension never substitutes for a chain account or CQ keep.
 export const territoryEnabled = FS => FS?.sample?.territory?.mode === 'arrival-control';
+// (walletless demo, demo-claim-1: a sample world whose record says `landClaim` takes no land on arrival — land is claimed
+//  one tile at a time by territory rule V1, sampleland.mjs; the map still draws its tile owners from the same read)
+export const landClaimOn = FS => territoryEnabled(FS) && FS?.sample?.landClaim === true;
 const hostIdOf = x => typeof x === 'string' && /^\d{1,20}$/.test(x) && BigInt(x) <= 0xffffffffffffffffn ? x : null;
 
 export function parseTerritory(value) {

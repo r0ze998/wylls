@@ -23,9 +23,11 @@ import { countdown } from '../clock.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
 import { conquestOn } from '../hud/keephand.mjs';
+import { landClaimOn } from '../territory.mjs';
 import { conquestObjective, renderConquestGuide } from './conquestguide.mjs';
 import { turnLine } from '../seasonterms.mjs';
 import { latestVillageOrder, villageRereadOffered } from './villageorders.mjs';
+import { campsOn } from '../democamps.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
@@ -55,7 +57,8 @@ const DO = {
   build: () => L`「村」で農場と伐採場を建てます。`,
   train: () => L`食料・鉱石・金の配分を見ながら、最初の兵を訓練しましょう。`,
   muster: () => L`控えの兵を一つの軍勢にまとめます。編成が反映されると、地図上で動かせます。`,
-  claim: () => L`空き地は到着して確保します。敵の土地は戦いに勝って占領します。`,
+  // (walletless demo, demo-claim-1: a `landClaim` world takes no land on arrival — tiles are claimed with ore)
+  claim: FS => (landClaimOn(FS) ? L`近くの州のマスを、村の画面の「1マス取る」で鉱石を払って1つずつ自分の土地にします。` : L`空き地は到着して確保します。敵の土地は戦いに勝って占領します。`),
   scout: () => L`斥候を訓練して軍勢に編成し、隣の2マスを探索します。`,
   practice: () => L`練習モードで蛮族の野営地を襲ってみます。チェーンには何も送りません。`,
   // (the seal in the one sentence the order card, the legend and the help say: hud/glossary.mjs sealLine)
@@ -70,6 +73,7 @@ const GO_ACT = {
   scout: () => ({ act: 'tab', data: { tab: 'hosts' }, label: L`軍勢を開く` }),
   practice: () => ({ act: 'practice-open', data: {}, label: L`練習を開く` }),
   march: () => ({ act: 'tab', data: { tab: 'hosts' }, label: L`軍勢を開く` }),
+  claim: FS => (landClaimOn(FS) ? { act: 'tab', data: { tab: 'holding' }, label: L`村を開く` } : null),
 };
 const attrs = d => raw(Object.entries(d ?? {}).map(([k, v]) => `data-${String(k).replace(/[^\w-]/g, '')}="${String(v).replace(/[^\w.,:-]/g, '')}"`).join(' '));
 const goButton = (g, c = '') => (g ? html`<button type="button" class="btn ${c}" data-act="${g.act}" ${attrs(g.data)}>${g.label}</button>` : '');
@@ -109,7 +113,7 @@ export function render(FS, { open = true } = {}) {
   const cur = st.steps.find(s => s.id === st.current);
   const n = st.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
   const total = st.steps.length - 1;
-  const body = html`<div class="ck-now"><p>${cur.id === 'join' ? DO.join(FS) : DO[cur.id]()}</p>
+  const body = html`<div class="ck-now"><p>${cur.id === 'join' ? DO.join(FS) : DO[cur.id](FS)}</p>
     ${cur.wait ? html`<p class="muted">${waitText(cur.wait)}</p>` : ''}
     <div class="actions">${cur.id === 'welcome' ? html`<button type="button" class="btn primary" data-act="ob-seen" data-flag="welcome">${L`わかりました`}</button>` : ''}
       ${target && target.step === cur.id ? html`<button type="button" class="btn primary" data-act="ob-go">${goText(target)}</button>`
@@ -124,12 +128,18 @@ export function render(FS, { open = true } = {}) {
 
 
 
+/** The walletless demo's single-player goal (its world record's `sample.goal`): `{need, holdBells}`, or null elsewhere. */
+export function demoGoal(FS) {
+  const g = FS.sample?.demo ? FS.sample?.goal : null;
+  return g && g.kind === 'flag-castles' && Number.isInteger(g.holdBells) ? { need: Number.isInteger(g.need) ? g.need : 3, holdBells: g.holdBells } : null;
+}
+
 /** The arrival-control opening teaches resource allocation, an army and its first held tile. */
 export function arrivalObjective(FS, st = onboardingState(factsOf(FS), FS.ui?.dismissed ?? [], FS.clock ?? null)) {
   if (st.dismissed || st.current === 'done') return null;
   const id = st.current, h = activeHolding(FS), now = FS.chain?.now?.() ?? 0;
   const n = st.steps.filter(s => s.status === 'done' || s.status === 'skipped').length;
-  let title = TITLE[id](), text = id === 'join' ? DO.join(FS) : DO[id](), go = GO_ACT[id]?.(FS) ?? null;
+  let title = TITLE[id](), text = id === 'join' ? DO.join(FS) : DO[id](FS), go = GO_ACT[id]?.(FS) ?? null;
   if (id === 'build' || id === 'train' || id === 'muster') {
     const building = id === 'build' && (h?.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > now);
     const target = guideTarget(FS);
@@ -138,7 +148,11 @@ export function arrivalObjective(FS, st = onboardingState(factsOf(FS), FS.ui?.di
   } else if (id === 'march') {
     title = L`空き地へ最初の進軍`;
     text = L`軍勢を選び、届く範囲の空き地を押します。進軍の費用と到着するターンを確かめて出発しましょう。`;
+    // (the walletless demo's goal, demo-solo-goal: the first march may go straight to a rival nation's flag castle)
+    if (demoGoal(FS)) text = L`軍勢を選び、届く範囲の空き地か、ほかの国の旗の城（左上の目標カードの「ここへ進軍」）を選んで出発しましょう。城を取ると、勝利までの保持の時間が数え始めます。`;
     go = marchObjective(FS);
+    // (walletless demo, demo-npc-camps: the bandit camps on the map pay loot)
+    if (campsOn(FS)) text += L`地図のテントは蛮族の野営地で、数は守り手です。倒すと食料・鉱石・金が手に入ります（見えているマスを押すと戦利品が出ます）。`;
   } else if (id === 'claim') {
     title = L`到着と領土の確保を待つ`;
     go = { act: 'tab', data: { tab: 'territory' }, label: L`領土の変化を見る` };
@@ -149,6 +163,11 @@ export function arrivalObjective(FS, st = onboardingState(factsOf(FS), FS.ui?.di
 function renderArrivalGuide(FS, st, open) {
   if (FS.homeGrant) return '';
   const o = arrivalObjective(FS, st);
+  // (the walletless demo's goal, demo-solo-goal: after the six steps the guide points at the goal itself)
+  const goal = demoGoal(FS);
+  if (!o && goal) return html`<section class="vcard onboarding" data-demo-goal-guide="1"><h3>${L`次は目標：旗の城`}</h3>
+    <p>${L`ほかの国の旗の城を${goal.need}つ取り、それぞれ${goal.holdBells}ターン守り続けると勝ちです。ほかの国も同じ城を狙い、あなたの城と土地を攻めてきます。左上の目標カードに、城と保持の時間が出ています。`}</p>
+    <button type="button" class="btn primary" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></section>`;
   if (!o) return html`<section class="vcard onboarding"><h3>${factsOf(FS).claimed ? L`最初の領土を確保しました` : TITLE.done()}</h3>
     <p>${L`建設と訓練に資源を配分し、次の土地へ軍勢を送りましょう。斥候の探索や村の昇格も続けられます。`}</p>
     <button type="button" class="btn primary" data-act="ob-dismiss">${L`ガイドを閉じる`}</button></section>`;
@@ -225,7 +244,7 @@ export function objectiveModel(FS) {
     : cur.id === 'report' ? (r ? { act: 'report-open', data: { p: r.p, q: r.q, bell: r.bell }, label: L`報告を開く` } : null)
     : GO_ACT[cur.id]?.(FS) ?? null;
   if (territoryEnabled(FS)) return arrivalObjective(FS, st);
-  let title = TITLE[cur.id](), text = cur.id === 'join' ? DO.join(FS) : DO[cur.id]();
+  let title = TITLE[cur.id](), text = cur.id === 'join' ? DO.join(FS) : DO[cur.id](FS);
   if (Number(FS.season?.programVersion ?? 1) >= 2) {
     const h = activeHolding(FS), now = FS.chain?.now?.() ?? 0;
     const building = (h?.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > now);

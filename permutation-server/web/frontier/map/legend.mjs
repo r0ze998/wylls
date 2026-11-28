@@ -15,7 +15,7 @@ import { icon } from '../hud/icons.mjs';
 import { reachSteps } from '../hud/reach.mjs';
 import { MAX_PATH_STEPS } from '../seal.mjs';
 import { DEPART_STAMINA, RULES } from '../fmarch.mjs';
-import { territoryEnabled } from '../territory.mjs';
+import { territoryEnabled, landClaimOn } from '../territory.mjs';
 import { PROTO_LEGEND, protoLegendLine } from './protowords.mjs';
 import { protoLabelText } from './protochip.mjs';
 import { SEA_DRAWN } from './cloudsea.mjs';
@@ -113,9 +113,10 @@ export const fogLegendText = () => L`霧の世界：見えるのは、自分の�
 
 /** The section for the play page's panel: the legend, the line, the way to the whole public world. */
 export function renderSurveyHelp(FS = null) {
-  const control = territoryEnabled(FS);
-  const hosts = control ? HOST_LEGEND.map(x => x.id === 'held' ? { ...x, text: () => L`小さな旗は、軍勢がいま立っている場所です。領地の所有は国の色で示します。軍勢が移動しても、獲得した領地は残ります。` } : x) : HOST_LEGEND;
-  const lines = control ? LINE_LEGEND.map(x => x.id === 'own' ? { ...x, name: () => L`領地の色と境界`, text: () => L`国の色を塗ったマスが、現在その国の領地です。無主地は軍勢の到着後に獲得し、敵の領地は戦いの結果で所有が変わります。いま視界にないマスの所有は表示しません。` } : x) : LINE_LEGEND;
+  const control = territoryEnabled(FS), claim = landClaimOn(FS);
+  // (demo-claim-1: a `landClaim` world takes no land on arrival — the legend says how land is claimed instead)
+  const hosts = control ? HOST_LEGEND.map(x => x.id === 'held' ? { ...x, text: claim ? () => L`小さな旗は、軍勢がいま立っている場所です。領地の所有は国の色で示します。軍勢が着いても土地は増えません。土地は「1マス取る」で取ります。` : () => L`小さな旗は、軍勢がいま立っている場所です。領地の所有は国の色で示します。軍勢が移動しても、獲得した領地は残ります。` } : x) : HOST_LEGEND;
+  const lines = control ? LINE_LEGEND.map(x => x.id === 'own' ? { ...x, name: () => L`領地の色と境界`, text: claim ? () => L`国の色を塗ったマスが、現在その国の領地です。マスは「1マス取る」で1つずつ取ります（鉱石を払い、1ターンに1マス）。いま視界にないマスの所有は表示しません。` : () => L`国の色を塗ったマスが、現在その国の領地です。無主地は軍勢の到着後に獲得し、敵の領地は戦いの結果で所有が変わります。いま視界にないマスの所有は表示しません。` } : x) : LINE_LEGEND;
   return html`<section class="survey-help" id="survey-help" aria-labelledby="survey-help-title"><h3 id="survey-help-title">${L`地図の見かた`}</h3>
     <ul class="survey-legend">${SURVEY_LEGEND.map(x => html`<li><span class="survey-key survey-${x.id}" aria-hidden="true"></span><span class="survey-what"><strong>${x.name()}</strong> ${x.text()}</span></li>`)}</ul>
     <p class="survey-line">${surveyLine(FS)}</p>

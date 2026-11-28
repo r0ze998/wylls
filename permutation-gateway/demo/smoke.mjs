@@ -4,7 +4,7 @@
 //
 //   node smoke.mjs [--dir dist] [--port 0] [--prefix /play/] [--lang en|ja] [--shots DIR] [--loop] [--headed]
 //                  [--origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html] [--mobile] [--act]
-//                  [--pre-join]
+//                  [--pre-join] [--camps [--reload]]
 //
 // --origin: no server; the browser fetches dist/ AT THAT ORIGIN (Playwright routes it, a missing path gets dist/404.html
 // as GitHub Pages answers): the page runs on the real host name, not a loopback one, in a secure context. Every other
@@ -15,6 +15,10 @@
 // --pre-join: stop once the start button is shown; never press it, so nothing is signed (the PR-CI run, owner Q-FDW-1 B,
 // 2026-11-28 08:30). The page still derives the Dev Wallet's PUBLIC key from the sample world's fixed seed (the one
 // approved exception to key-free CI, docs/ci/KEY-FREE-CI.ja.md); every crypto.subtle.sign call is counted and must be 0.
+// --camps (demo-npc-camps): after the village, train 500 Spearmen, form one host and march it on the nearest bandit camp
+// (a map tap on its tile); the clash clears it, the loot reaches the village, the report says it; the camp's tile card
+// says its loot; --reload then reloads the page and the saved world keeps the camps (cleared, comeback turn, loot).
+// --pre-join always checks the camps are on the map (18, the season record's `sample.camps`), signing nothing.
 // Always: no wallet prompt ("connect a wallet", "No wallet found", ウォレットをつなぐ…) at any step, and the page plays
 // as the demo's own Dev Wallet.
 //
@@ -30,6 +34,7 @@ import { parseArgs } from 'node:util';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { serveStatic, TYPES } from './serve.mjs';
+import { hexDistance } from '../../permutation-server/web/frontier/fgeo.mjs';
 
 /** dist/ served at `origin` + `prefix` inside the browser (no socket): `{url, route, offsite, close()}`. */
 function routedHost(origin, prefix) {
@@ -51,8 +56,9 @@ function routedHost(origin, prefix) {
 
 const { values: opt } = parseArgs({ options: {
   dir: { type: 'string', default: new URL('dist', import.meta.url).pathname }, port: { type: 'string', default: '0' }, prefix: { type: 'string', default: '/play/' },
-  lang: { type: 'string', default: 'en' }, shots: { type: 'string' }, loop: { type: 'boolean', default: false }, headed: { type: 'boolean', default: false },
+  lang: { type: 'string', default: 'en' }, shots: { type: 'string' }, loop: { type: 'boolean', default: false }, claim: { type: 'boolean', default: false }, headed: { type: 'boolean', default: false },
   origin: { type: 'string' }, path: { type: 'string', default: '' }, mobile: { type: 'boolean', default: false }, act: { type: 'boolean', default: false }, 'pre-join': { type: 'boolean', default: false },
+  camps: { type: 'boolean', default: false }, reload: { type: 'boolean', default: false },
   width: { type: 'string', default: '1440' }, height: { type: 'string', default: '900' }, budget: { type: 'string', default: '10000' }, nation: { type: 'string', default: '1' },
 } });
 const JA = opt.lang === 'ja';
@@ -204,6 +210,92 @@ const marchTile = (host, at) => order(`march the host to the open tile ${at.tile
   if (!ok) say(`      (the send button stayed disabled after a tap at ${Math.round(xy.x)},${Math.round(xy.y)})`);
   return ok;
 });
+// ------------------------------------------------------------------ the single-tile claim (demo-claim-1, Q-WD-4)
+// The expected numbers are computed here, apart from the page and the world, from the decided rule as frontier-abi states
+// it (TERRITORY_V1: cost 10 ore + 2 % per tile owned, rounded down; upkeep 990 milli-food/h a tile + 480 per province
+// beyond 3 from the home): the card must say exactly these.
+const V1 = { base: 10, bps: 200, flat: 990, perDistance: 480, free: 3 };
+const expectOre = k => V1.base + Math.floor((V1.base * k * V1.bps) / 10_000);
+const expectUpkeep = ds => ds.reduce((a, d) => a + V1.flat + V1.perDistance * Math.max(0, d - V1.free), 0);
+const fmt3 = milli => (milli / 1000).toLocaleString(JA ? 'ja-JP' : 'en-US', { maximumFractionDigits: 3 });
+const cardText = () => page.locator('#hp-own-land').first().innerText({ timeout: 800 }).then(t => t.replace(/\s+/g, ' ').trim()).catch(() => '');
+const horizonText = () => page.locator('#hp-own-land-horizon').first().innerText({ timeout: 800 }).then(t => t.replace(/\s+/g, ' ').trim()).catch(() => '');
+/** The village card with its "Your land" section (a milestone card or a turn banner may sit over the tabs a moment). */
+async function openVillageCard() {
+  for (let i = 0; i < 40; i++) {
+    const close = page.locator('[data-act="mile-close"]');
+    if (await close.count()) await close.first().click({ timeout: 1_000 }).catch(() => {});
+    await tab('holding');
+    if (await page.locator('#hp-land-claim').count()) return true;
+    if (i === 10) say(`      (village card not open yet: ${JSON.stringify(await page.evaluate(() => { const { FS } = globalThis.__wyllsDemo.modules['fstate.mjs']; return { tab: FS.tab, drawer: document.getElementById('panel')?.dataset.drawer, hp: !!document.getElementById('hp-wide'), stores: !!document.querySelector('#panel [data-act="harvest"]') }; }))})`);
+    await sleep(500);
+  }
+  return false;
+}
+/** One claim through the village card: "Claim a tile" on the first open row → the cost → "Claim a tile" in the preview. */
+async function claimOne(k, claimed) {
+  // (a turn banner or the first-march card can sit over the tabs for a few seconds: open the village until its card is there)
+  await openVillageCard();
+  const row = page.locator('#hp-land-claim [data-act="territory-tile"]:not([data-confirm]):not([disabled])').first();
+  for (let i = 0; i < 240 && !(await row.count()); i++) await sleep(250);
+  if (!(await row.count())) { check(false, `claim ${k}: an open "Claim a tile" row on the village card`); await shot(page, `x-claim-${k}-norow`); return null; }
+  const where = { p: Number(await row.getAttribute('data-p')), q: Number(await row.getAttribute('data-q')) };
+  await row.evaluate(el => el.scrollIntoView({ block: 'center' })); await row.click();
+  const pv = page.locator('#hp-tile-preview');
+  await pv.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+  const cost = (await pv.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
+  const d = hexDistance(where.p, where.q, ...(await summary()).me.village.slice(0, 2));
+  const oreWant = expectOre(k - 1), upWant = fmt3(V1.flat + V1.perDistance * Math.max(0, d - V1.free));
+  check(cost.includes(String(oreWant)) && cost.includes(upWant), `claim ${k}: the cost preview for province ${where.p},${where.q} says ${oreWant} ore and ${upWant} food/h: "${cost.slice(0, 140)}"`);
+  if (k === 1) await shot(page, '04a-claim-preview');
+  const oreBefore = (await summary()).me.stores[3];
+  const before = (await summary()).land.tiles.length;
+  await press('#hp-tile-preview [data-act="territory-tile"][data-confirm]');
+  let land = null;
+  for (let i = 0; i < 40; i++) { land = (await summary()).land; if (land.tiles.length > before) break; await sleep(150); }
+  const got = land.tiles.length > before ? land.tiles[land.tiles.length - 1] : null;
+  check(!!got && got.p === where.p && got.q === where.q, `claim ${k}: the world took tile ${got?.tile} of province ${got?.p},${got?.q}`);
+  const oreAfter = (await summary()).me.stores[3];
+  // (whole ore as the summary reads it: the store accrues meanwhile, so the difference is the price ±1)
+  check(Math.abs(oreBefore - oreAfter - oreWant) <= 1, `claim ${k}: ${oreWant} ore paid from the first village (${oreBefore} → ${oreAfter})`);
+  claimed.push(d);
+  const want = [fmt3(expectUpkeep(claimed)), String(expectOre(k)), String(k)];
+  let text = '';
+  for (let i = 0; i < 60; i++) { text = await cardText(); if (want.every(w => text.includes(w)) && new RegExp(`(\\D|^)${k}(\\D|$)`).test(text)) break; await sleep(250); }
+  check(want.every(w => text.includes(w)), `claim ${k}: the card says ${k} tiles, next ${want[1]} ore, upkeep ${want[0]} food/h: "${text}"`);
+  return got;
+}
+async function claimThree() {
+  const claimed = [], horizons = [];
+  let lastTurn = 0;
+  for (let k = 1; k <= 3; k++) {
+    if (k > 1) {
+      // one claim a turn (TERRITORY_V1): a second press in the same turn is refused with the claim's own sentence
+      if (k === 2) {
+        await openVillageCard();
+        const again = page.locator('#hp-land-claim [data-act="territory-tile"]:not([data-confirm]):not([disabled])').first();
+        if (await again.count()) {
+          await again.click(); await press('#hp-tile-preview [data-act="territory-tile"][data-confirm]');
+          await sleep(500);
+          const note = await page.evaluate(async () => { const { FS } = globalThis.__wyllsDemo.modules['fstate.mjs']; return { code: FS.notice?.programCode ?? null, text: typeof FS.notice?.text === 'function' ? FS.notice.text() : FS.notice?.text ?? '' }; });
+          check(note.code === 29, `a second claim in the same turn is refused (program code ${note.code}: "${String(note.text).slice(0, 90)}")`);
+          await shot(page, '04b-claim-turn-limit');
+        }
+      }
+      await untilTurn(lastTurn + 1, 0.1);
+    }
+    lastTurn = (await summary()).turn;
+    await claimOne(k, claimed);
+    let hz = '';
+    for (let i = 0; i < 40 && (!hz || hz === horizons[horizons.length - 1]); i++) { hz = await horizonText(); if (!hz || hz === horizons[horizons.length - 1]) await sleep(250); }
+    horizons.push(hz);
+    check(!!hz && (k === 1 || hz !== horizons[k - 2]), `claim ${k}: the logistics horizon card updated: "${hz.slice(0, 150)}"`);
+  }
+  await page.locator('#hp-land-claim').first().evaluate(el => el.scrollIntoView({ block: 'start' })).catch(() => {});
+  await sleep(300);
+  await shot(page, '04c-claimed-3');
+  return { claimed, horizons };
+}
 const ownTiles = async () => { const s = await summary(); const [p, q] = s.me.village, t = s.territory?.find(x => x.p === p && x.q === q); return t ? t.owners.filter(o => o === s.me.nation).length : 0; };
 async function untilTurn(b, into = 0.35) {
   for (let i = 0; i < 600; i++) {
@@ -221,6 +313,96 @@ async function noWalletPrompt(step) {
   const hit = WALLET_PROMPT.exec(text)?.[0] ?? null;
   const buttons = await page.locator('[data-act="connect"]').count();
   check(!hit && buttons === 0, `${step}: no wallet prompt${hit || buttons ? ` (FOUND "${hit}", ${buttons} connect button(s))` : ''}`);
+}
+
+// ------------------------------------------------------------------ the bandit camps (demo-npc-camps)
+const campsNow = () => page.evaluate(async () => (await globalThis.__wyllsDemo.world()).camps?.() ?? null);
+const campsLog = () => page.evaluate(async () => (await globalThis.__wyllsDemo.world()).campsLog?.() ?? null);
+async function campsOnMap(step) {
+  const c = await campsNow();
+  check(c?.v === 1 && c.camps.length === 18 && c.camps.every(x => x.up), `${step}: 18 bandit camps stand on the map (${c?.camps.filter(x => x.up).length ?? 'none'})`);
+  const rule = await page.evaluate(() => globalThis.__wyllsDemo.modules['fstate.mjs']?.FS?.sample?.camps ?? null);
+  check(rule?.v === 1 && rule.kind === 'bandit-camps' && rule.lootMilli?.ore > 0, `${step}: the page read the camps rule from the world record (${JSON.stringify(rule)})`);
+  return c;
+}
+/** Tap a tile with nothing composed: the tile card (inspect) opens; its text. */
+async function tileCard(at) {
+  await page.keyboard.press('Escape').catch(() => {});
+  await press('[data-act="drawer-close"]', { timeout: 1_500 });
+  const xy = await tileAt(at);
+  await page.mouse.click(xy.x, xy.y);
+  for (let i = 0; i < 30; i++) { const t = await page.locator('section.inspect').first().innerText({ timeout: 500 }).catch(() => ''); if (t) return t.replace(/\s+/g, ' ').trim(); await sleep(200); }
+  return '';
+}
+async function campsPlay(result) {
+  const s = await summary(), [p, q] = s.me.village;
+  await train(0, 500);
+  for (let i = 0; i < 240 && (await summary()).me.state !== 2; i++) await sleep(250);
+  await untilTurn((await summary()).turn, 0.2);
+  // (the camps are scaled by the distance from the village at its first resolve: 300 at home, +200 a province)
+  let camps = null;
+  for (let i = 0; i < 200 && !(camps?.posted); i++) { camps = await campsNow(); if (!camps?.posted) await sleep(250); }
+  const near = camps.camps.filter(c => c.up).sort((a, b) => hexDistance(a.p, a.q, p, q) - hexDistance(b.p, b.q, p, q))[0];
+  check(near && near.p === p && near.q === q && near.troops === 300, `the nearest camp is the village's own province's, 300 defenders (${JSON.stringify(near)})`);
+  // the marker over the camp (camphud.mjs: the page draws a camp only in sight; the demo's camps stand away from villages)
+  await press('[data-act="drawer-close"]', { timeout: 1_500 });
+  await tileAt(near);
+  const marker = await page.locator(`.demo-camp[data-camp="${near.p},${near.q},${near.tile}"]`).first().innerText({ timeout: 3_000 }).catch(() => null);
+  const markers = await page.locator('.demo-camp').count();
+  check(marker !== null && marker.trim() === String(near.troops), `a tent marker with its defenders (${marker?.trim()}) stands over the camp (${markers} markers on screen)`);
+  await shot(page, 'c1-camp-marker');
+  await muster(0, 500);
+  let host = null;
+  for (let i = 0; i < 400 && !host; i++) { const m = (await summary()).me; host = m.hosts.find(h => h.unit === 0 && h.state === 1 && h.troops === 500) ?? null; if (!host) await sleep(250); }
+  check(!!host, 'a host of 500 Spearmen stands in the roster');
+  await untilTurn((await summary()).turn, 0.2);
+  const storesBefore = (await summary()).me.stores;
+  const sent = host && await marchTile(host.id, { p: near.p, q: near.q, tile: near.tile });
+  check(!!sent, 'the march on the camp (a tap on its tile) was accepted');
+  await shot(page, 'c2-march');
+  // a march's destination is in sight (map/survey.mjs SIGHT.destination): the camp's tile card says its defenders and loot
+  await sleep(1500);
+  const card = await tileCard(near);
+  const lootLine = JA ? `倒すと戦利品：食料 ${near.loot.food}・鉱石 ${near.loot.ore}・金 ${near.loot.gold}` : `Loot if beaten: ${near.loot.food} food · ${near.loot.ore} ore · ${near.loot.gold} gold`;
+  check(card.includes(lootLine) && card.includes(String(near.troops)), `the camp's tile card says its defenders and loot: "${card.slice(0, 180)}"`);
+  await shot(page, 'c2b-camp-card');
+  let cleared = null;
+  for (let i = 0; i < 1200 && !cleared; i++) { cleared = (await campsLog())?.find(x => x.kind === 'cleared') ?? null; if (!cleared) await sleep(250); }
+  check(!!cleared && cleared.winner?.viewer === true, `the camp was cleared by the viewer's host (turn ${cleared?.bell}: ${cleared?.winner?.troops} → ${cleared?.winner?.survivors} vs ${cleared?.defenders})`);
+  check(cleared && cleared.loot.ore === near.loot.ore && cleared.loot.food === near.loot.food && cleared.loot.gold === near.loot.gold, `the loot is what the card said (${JSON.stringify(cleared?.loot)})`);
+  const after = (await summary()).me.stores;
+  check(after[3] >= storesBefore[3] + (cleared?.loot.ore ?? 1) - 1 && after[5] >= storesBefore[5] + (cleared?.loot.gold ?? 1) - 1, `the loot reached the village's stores (ore ${storesBefore[3]} → ${after[3]}, gold ${storesBefore[5]} → ${after[5]})`);
+  await sleep(2500);
+  // the report: from the notice, else by the page's own report-open action on the clash's province and turn
+  let opened = await press(`[data-act="report-open"][data-p="${near.p}"][data-q="${near.q}"], #feed [data-act*="report"]`, { timeout: 8_000 });
+  let doc = '';
+  for (let i = 0; i < 40 && !/data-demo-spoils/.test(doc); i++) { doc = await page.locator('#panel').innerHTML().catch(() => ''); if (!/data-demo-spoils/.test(doc)) await sleep(250); }
+  if (!/data-demo-spoils/.test(doc)) {
+    await page.evaluate(([p, q, b]) => { const el = document.createElement('button'); el.dataset.act = 'report-open'; el.dataset.p = p; el.dataset.q = q; el.dataset.bell = b; el.id = 'smoke-report-open'; document.body.append(el); }, [near.p, near.q, cleared?.bell]);
+    opened = await press('#smoke-report-open');
+    for (let i = 0; i < 40 && !/data-demo-spoils/.test(doc); i++) { doc = await page.locator('#panel').innerHTML().catch(() => ''); if (!/data-demo-spoils/.test(doc)) await sleep(250); }
+  }
+  const spoils = await page.locator('[data-demo-spoils]').first().innerText().catch(() => '');
+  const want = JA ? `戦利品：食料 +${cleared?.loot.food}・鉱石 +${cleared?.loot.ore}・金 +${cleared?.loot.gold}` : `Loot: +${cleared?.loot.food} food · +${cleared?.loot.ore} ore · +${cleared?.loot.gold} gold`;
+  check(opened && spoils.replace(/\s+/g, ' ').includes(want), `the battle report shows the loot: "${spoils.replace(/\s+/g, ' ').slice(0, 160)}"`);
+  await shot(page, 'c3-report-spoils');
+  result.camps = { near, cleared, storesBefore, storesAfter: after };
+  if (opt.reload) {
+    const before = await campsNow();
+    await sleep(1500);
+    await page.reload();
+    let me2 = null;
+    for (let i = 0; i < 200 && !me2; i++) { me2 = await summary().catch(() => null).then(s => s?.me ?? null); if (!me2) await sleep(250); }
+    const save = await page.evaluate(() => globalThis.__wyllsDemo.save());
+    check(save.restore === 'resume' && !!me2, `the reload resumed the saved world (${JSON.stringify(save)})`);
+    const again = await campsNow(), log2 = await campsLog();
+    const same = c => c.camps.map(x => [x.p, x.q, x.tile, x.up, x.troops, x.cleared, x.comebacks, x.backAt]);
+    check(JSON.stringify(same(again)) === JSON.stringify(same(before)) && again.posted === before.posted, 'after the reload every camp is as it was (cleared, comeback turn, troops)');
+    check(log2?.some(x => x.kind === 'cleared' && x.bell === cleared?.bell && JSON.stringify(x.loot) === JSON.stringify(cleared?.loot)), 'after the reload the camp\'s clearing and its loot are in the world again');
+    const m2 = (await summary()).me;
+    check(m2.stores[3] >= after[3] - 1, `after the reload the village keeps the loot (ore ${m2.stores[3]})`);
+    await shot(page, 'c4-after-reload');
+  }
 }
 
 // ------------------------------------------------------------------ cold load → the nation picker
@@ -254,6 +436,7 @@ if (opt['pre-join']) {
   check(w?.dev === true, `the guest's wallet is the demo's in-browser test wallet, no extension (${JSON.stringify(w)})`);
   const joined = await page.evaluate(async () => { const FS = globalThis.__wyllsDemo.modules['fstate.mjs']?.FS; return { me: !!(await globalThis.__wyllsDemo.world()).summary().me, session: !!FS?.session, citizen: !!FS?.citizen }; });
   check(!joined.me && !joined.session && !joined.citizen, `not joined: no village, no session key, no citizen (${JSON.stringify(joined)})`);
+  await campsOnMap('pre-join');
 } else {
 const tReady = result.tReady;
 await go.click();
@@ -286,6 +469,7 @@ check(s0.neighbours.length >= 6 && new Set(s0.neighbours.map(n => n.nation)).siz
 
 // ------------------------------------------------------------------ the loop: train → host → camp → battle → report
 result.tVillage = tVillage;
+if (opt.camps) { await campsOnMap('the village'); await campsPlay(result); }
 if (opt.loop) {
   const T = s0.turn;
   say(`  village founded in turn ${T} (${me.state === 1 ? 'provisional' : 'final'})`);
@@ -303,10 +487,9 @@ if (opt.loop) {
   await untilTurn((await summary()).turn, 0.2);
   await shot(page, '03-host');
   const big = hosts.sort((a, b) => b.troops - a.troops)[0]?.id, small = hosts[1]?.id;
-  const tilesBefore = await ownTiles();
-  const field = await openTileNearHome();
-  const sentLand = small && field && await marchTile(small, field);
-  check(!!sentLand, `the march onto open land was accepted (tile ${field?.tile})`);
+  const tilesBefore = (await summary()).land.tiles.length;
+  // (demo-claim-1: the land is claimed one tile at a time with ore — no longer taken by a host's arrival)
+  result.claims = await claimThree();
   const sent = big && await marchCamp(big);
   check(!!sent, 'the march on the camp was accepted');
   await shot(page, '04-march');
@@ -324,9 +507,8 @@ if (opt.loop) {
   const doc = await page.locator('#panel').innerText().catch(() => '');
   check(opened, `the battle report opened from the notice`);
   await shot(page, '06-report');
-  let tilesAfter = await ownTiles();
-  for (let i = 0; i < 240 && tilesAfter <= tilesBefore; i++) { await sleep(250); tilesAfter = await ownTiles(); }
-  check(tilesAfter > tilesBefore, `the nation's land in the home province grew ${tilesBefore} → ${tilesAfter} tiles`);
+  const tilesAfter = (await summary()).land.tiles.length;
+  check(tilesAfter === tilesBefore + 3, `the viewer's land grew by the three claims ${tilesBefore} → ${tilesAfter} tiles (no tile taken on arrival)`);
   await press('[data-act="drawer-close"]', { timeout: 2_000 }).catch(() => {});
   await tab('territory'); await sleep(1500);
   await shot(page, '07-land');
@@ -334,11 +516,11 @@ if (opt.loop) {
   let horizon = '';
   for (let i = 0; i < 120 && !horizon; i++) {
     await tab('holding');
-    horizon = (await page.locator('#hp-land-food-horizon').first().innerText({ timeout: 500 }).catch(() => '')).replace(/\s+/g, ' ').trim();
+    horizon = await horizonText();
     if (!horizon) await sleep(500);
   }
   check(!!horizon, `the land logistics horizon card is on the village card: "${horizon.slice(0, 160)}"`);
-  await page.locator('#hp-land-food-horizon').first().evaluate(el => el.scrollIntoView({ block: 'center' })).catch(() => {});
+  await page.locator('#hp-own-land-horizon').first().evaluate(el => el.scrollIntoView({ block: 'center' })).catch(() => {});
   await sleep(400);
   await shot(page, '08-horizon');
   result.horizon = horizon;
@@ -348,6 +530,17 @@ if (opt.loop) {
   result.camp = s1.camp; result.territory = s1.territory?.find(t => t.p === me.village[0] && t.q === me.village[1]);
   say(`  camp now ${JSON.stringify(s1.camp)}; report text: ${doc.replace(/\s+/g, ' ').slice(0, 200)}`);
 }
+}
+
+// (--claim, without --loop: the village's first toll makes it final, then three claims — demo-claim-1)
+if (opt.claim && !opt.loop) {
+  await tab('holding');
+  await press('[data-act="harvest"]:not([disabled])', { timeout: 15_000 });
+  for (let i = 0; i < 240 && (await summary()).me.state !== 2; i++) await sleep(250);
+  check((await summary()).me.state === 2, 'the village is final after its first toll (Harvest)');
+  const tClaim = Date.now();
+  result.claims = await claimThree();
+  result.claimMs = Date.now() - tClaim;
 }
 
 // ------------------------------------------------------------------ the request log
