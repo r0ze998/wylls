@@ -323,7 +323,8 @@ test('verify-pr272: the wide card and the food ledger blocks carry different ids
   assert.match(String(ownLandHorizonBlock(h, { id: 'hp-land-food-horizon', rate: 1 })), /id="hp-land-food-horizon"/);
   assert.match(web('frontier/screens/holding.mjs'), /id: 'hp-land-food-horizon'/);
   // and the ledger copy stands only where the wide-land card (which carries it under the land line) is not shown
-  assert.match(web('frontier/screens/holding.mjs'), /landPerHour > 0\) && !wideClaimModel\(FS, m\) \? ownLandHorizonBlock\(m\.horizon, \{ id: 'hp-land-food-horizon'/);
+  // (demo-claim-1: nor where the walletless demo's claim card — screens/sampleclaim.mjs, which carries it the same way — is shown)
+  assert.match(web('frontier/screens/holding.mjs'), /landPerHour > 0\) && !wideClaimModel\(FS, m\) && !sampleClaimModel\(FS, m\) \? ownLandHorizonBlock\(m\.horizon, \{ id: 'hp-land-food-horizon'/);
 });
 
 test('verify-pr272: the English horizon texts keep the play screen\'s banned words out (web-frontier-cards BANNED_EN, local-only there)', () => {
