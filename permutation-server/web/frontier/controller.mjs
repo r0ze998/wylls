@@ -2805,6 +2805,26 @@ export const HOME_READ_WAIT_MS = 20_000;
 //  stopped (FS.homeDropped, screens/join.mjs). A press is still of its own context: nothing is joined for another wallet.)
 export const HOME_CONFIRM_AGAIN = 2;
 let homeAgainLeft = HOME_CONFIRM_AGAIN, homeAgainNext = false;
+/** (fix-loop31, LP31 BREAK-2) How many places one confirm tries for the first village when a place is taken under it. */
+export const HOME_SITE_TRIES = 3;
+/** Whether a PlaceHome was refused, before anything was sent, because its place is no longer free (TicketState, 45). */
+export const homeSiteTaken = r => !!r && r.ok === false && r.sent !== true && (Number(r.programCode) === 45 || r.code === 'TicketState');
+/**
+ * (fix-loop31) The first free place for nation `faction` in the page's own reading order (planHomes, as refreshHomes
+ * reads it: the same seed, rotation and pair role), read again now, other than `not`; null for none.
+ */
+async function nextFreeHome(faction, not) {
+  try {
+    FS.overviewsBell = undefined;
+    await refreshOverviews(nowBell());
+    const rotation = FS.homeChoice?.rotation ?? 0;
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: homePlaceOf(FS), ringsOpen: homeRingsOf(FS, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
+      seed: `${homeSeed()}|${rotation}`, rotation, pair: homePairRole(),
+      read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
+    return (result.candidates ?? []).find(h => h.faction === faction && !sameHome(h, not)) ?? null;
+  } catch { return null; }
+}
+
 export async function confirmHome() {
   // (a person's press starts with the whole budget; a press made again by itself carries what is left — pressAgain)
   const again = homeAgainNext ? homeAgainLeft : (homeAgainLeft = HOME_CONFIRM_AGAIN); homeAgainNext = false;
@@ -3024,6 +3044,12 @@ export async function confirmHome() {
       if (mine() && ticketShown()) saveHomePatch({ pending: null });
       return;
     }
+    // (fix-loop31, LP31 BREAK-2: the place can be taken between its check and the PlaceHome — in a `--demo --two` world
+    //  the demo's test participants fill the first player's wedge right after its village, and a second player of the
+    //  same nation picked a site there: refused before sending, Custom(45) TicketState, 「村の申し込みの状態が合いません」.
+    //  A refusal of THAT kind (nothing was sent) takes the next free place of the same reading order and is sent again,
+    //  at most HOME_SITE_TRIES places in all; the person is told why, and nothing is sent twice for one place)
+    for (let tries = 1; ; tries++) {
     const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
       label: () => L`あなたの村を確定しています…`,
       // (local play: the note also carries the scope the PlaceHome was SENT under — wallet, world and relay — given by
@@ -3032,9 +3058,20 @@ export async function confirmHome() {
       // (the chain's own word that it did not land: the note goes, in the record it was written in, if it is still this send's)
       onLost: () => dropHomeNote(run.note, run.sent) });
     if (!mine()) return;
-    if (!placed?.ok) { await refresh(); if (mine() && !FS.homeGrant) error(placed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
+    // (a refusal before sending comes back as nothing — actOnce returns failed(r), which only sets the notice: it is read there)
+    const taken = homeSiteTaken(placed ?? (FS.notice?.ok === false ? FS.notice : null));
+    if (taken && tries < HOME_SITE_TRIES) {
+      busy(() => L`その土地は、いま別の村が先に取りました。空いている別の土地を探しています…`);
+      const next = await nextFreeHome(FS.citizen.faction, site);
+      if (!mine()) return;
+      if (next) { site = next; run.choice.selected = next; saveHomePatch({ selected: next }); pending('placing'); continue; }
+    }
+    // (fix-loop31: every place tried was taken under this confirm — said as that, not as an unconfirmed grant)
+    if (!placed?.ok) { await refresh(); if (mine() && !FS.homeGrant) error(taken ? 'SiteUnavailable' : placed?.code ?? FS.notice?.code ?? 'PlaceFailed', taken ? L`空いている土地が、確定のあいだに別の村で埋まりました。候補を更新して、もう一度押してください。` : L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
     pending('confirming');
     if (!await waitForOwn(() => !!FS.homeGrant, { what: 'home', still: mine })) notShown('home');
+    break;
+    }
   } catch (e) { error(e?.code ?? 'Unavailable', L`参加を完了できませんでした。接続を確認して再試行してください。`); }
   finally {
     run.choice.busy = false; run.choice.pending = null;

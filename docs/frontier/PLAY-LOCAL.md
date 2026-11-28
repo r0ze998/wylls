@@ -319,6 +319,15 @@ scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
   both reach the keep of Province p,q (held by Ember). You play Fjordal and can set out from your village in Province …"
   (fix-lp29-fog-fort, owner 2026-11-28 Q-FL28-1 (b); before, it said "could not be checked … Press again"). Both pages
   name the prepared keep in the guide and the keep list as above.
+  "Already picked" counts the nation the second player has JOINED (pressed "Join …"), even if its village has not
+  landed yet (fix-loop31, LP31 BREAK-2: two players who both pressed Join for Fjordal within a few seconds got the
+  "defend" prediction and then `pair_not_ready`). When the second player has joined and its village has not landed yet,
+  the demo waits for that village (up to 90 s) before it fills the first player's land with test villages
+  (`pair_home_wait` / `pair_home_waited` in the runner log). If the second player's village still cannot reach any keep
+  the first player can, the first player's demo goes on with that keep and `pair_not_ready` says why (before, the demo
+  stopped with "not ready" for both). Should a place still be taken a moment before the village is sent, the page says "Another village took that place a moment ago. Looking for another free place…"
+  and places the village on the next free place by itself (at most 3 places; if all are taken it says so and asks you to
+  refresh the candidates and press again). Before, it showed "The village request is not in the right state."
 - When either presses "End this world…" (a kept world: "Stop this world…") it stops for both. A third person cannot join. `--wide` is for one person.
 
 ## 4. Check the wide land (`--wide`, about 60–90 minutes)
