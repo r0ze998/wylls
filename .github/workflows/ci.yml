@@ -986,6 +986,9 @@ jobs:
           node build.mjs
           node smoke.mjs --lang en --loop
           node smoke.mjs --lang ja --prefix /wylls/
+          # the saved world (reload, damaged/old saves, Start over) and the no-Ed25519 notice (demo-polish-2)
+          node smoke-save.mjs --lang en
+          node smoke-save.mjs --lang ja --only save,crypto
           # fix-demo-wallet-p0: the build GitHub Pages deploys (pages-demo.yml) played AT https://r0ze998.github.io/wylls/
           # (routed in the browser, not a loopback host): a clean browser, both entry URLs, EN + JA, desktop + phone,
           # one order, no wallet prompt, no request off the site. The runs above are on 127.0.0.1, where the page found
