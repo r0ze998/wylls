@@ -7,5 +7,12 @@ import * as fmap from '../../../permutation-server/web/frontier/map/fmap.mjs';
 import * as fgeo from '../../../permutation-server/web/frontier/fgeo.mjs';
 import * as map from '../../../permutation-server/web/map.mjs';
 import '../../../permutation-server/web/frontier/app.mjs';
+import { startGoalHud } from './goalhud.mjs';
 
 if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });
+
+// the demo's single-player goal: its card, the castle flags on the map and the result screen (goalhud.mjs)
+if (globalThis.document) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => startGoalHud(), { once: true });
+  else startGoalHud();
+}
