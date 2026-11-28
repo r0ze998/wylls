@@ -1,7 +1,7 @@
 # How to play the walletless demo
 
 The demo is one web page: **https://r0ze998.github.io/wylls/**. It needs no wallet, no sign-up and no install. Nothing
-is sent to a chain or a server. The real Wylls page plays a small sample world that runs in your browser.
+is sent to a chain or a server. You play a small sample world that runs in your browser, on the real Wylls page.
 Japanese: [PLAY-DEMO.ja.md](PLAY-DEMO.ja.md). How the demo is built and hosted: [permutation-gateway/demo/README.md](../../permutation-gateway/demo/README.md).
 
 Matches main as of 2026-11-29 (through #325). Every number below is read from the code:
@@ -54,7 +54,7 @@ This is the real flag-keeps win condition of the continuous world, made smaller.
 - **Waves.** Then a wave comes every 10 turns: turns 28, 38, 48 and so on after your village. Each wave's host has
   100 troops × 1.12 for every earlier wave (100, 112, 125, 140 …).
 - **The rival leader** is the nation two along from yours. It marches every wave with 20 % more troops. It races you
-  for castles. It takes back its own castle, stops a nation that is one castle short of 3, strengthens what it holds,
+  for castles. It takes back its own castle, stops a nation that has captured 2 or more castles (yours first), strengthens what it holds,
   and otherwise marches on the nearest castle it does not hold.
 - **The other nations.** One more AI nation marches each wave (they take turns). It takes its own castle back, or
   raids you: your castles first, otherwise your land. A raid on land only brings a host to fight yours. Land never
@@ -105,11 +105,11 @@ the fog.
 - **Where.** There is one camp in every ring-1 and ring-2 province (18 camps). Each stands on the passable tile farthest
   from every village site. In ring 1 a camp is at least 3 tiles from the province's centre, where the castle is. The
   map is the same every time.
-- **Defenders.** 300 + 200 for each province between the camp and your first village: 300, 500, 700, 900 or 1,100.
+- **Defenders.** 300 + 200 for each province the camp is away from your first village: 300, 500, 700, 900 or 1,100.
   Before you have a village, every camp has 700.
 - **Fighting.** A camp fights like any battle of the game: march a host onto it. The AI nations never march on a camp,
   and camps never leave their tile.
-- **Loot.** Beat a camp and your first village gets, for each defender the camp had when the battle began, 0.3 food,
+- **Loot.** Beat a camp and the winning host's village (your first village) gets, for each defender the camp had when the battle began, 0.3 food,
   0.1 ore and 0.05 gold. A camp of 300 gives 90 food, 30 ore and 15 gold.
   - Before you march, a camp's tile card (when the camp is in sight) says "Loot if beaten: N food · N ore · N gold".
   - After the battle, the report says "Loot: +N food · +N ore · +N gold".
@@ -162,7 +162,7 @@ march: "Travelers cannot be attacked and never block a march."
 - **Save.** Your world is saved in this browser and survives a reload: "Your progress is saved in this browser, so you
   can reopen the page and carry on." The demo stores the world's inputs (your orders, trades and their times) and replays
   them at load, so the camps, castles, timers and travelers all come back as they were. A long game takes a moment longer
-  to load: about 1.2 s for 300 turns.
+  to load: about 1.2 s for 300 turns (measured in Node; a browser can be slower).
 - **Start over.** "Start over" is on the "Playable demo" tag at the top of the screen. It asks first ("Start the demo
   over? Your village and land will be gone, and this can't be undone.") and then starts a new world.
 - **Play again** on the result screen does the same without the question.
