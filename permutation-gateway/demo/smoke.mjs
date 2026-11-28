@@ -70,11 +70,33 @@ const view = opt.mobile ? { viewport: { width: 390, height: 844 }, isMobile: tru
 const context = await browser.newContext({ ...view, locale: JA ? 'ja-JP' : 'en-US', timezoneId: 'UTC', serviceWorkers: 'block' });
 if (srv.route) await context.route('**/*', srv.route);
 // count every signature the page makes (its Dev Wallet signs in the window: session.mjs keyFromSeed → subtle.sign;
-// workers are not counted); --pre-join requires 0
+// workers are not counted); --pre-join requires 0, except the one load-time test below (owner Q-FDW-2 = A, 2026-11-28),
+// and lets the page hold private keys only from the fixed sample seeds named in docs/ci/KEY-FREE-CI.ja.md
 await context.addInitScript(() => {
-  const S = globalThis.SubtleCrypto?.prototype; if (!S?.sign) return;
-  const sign = S.sign; globalThis.__smokeSigns = 0;
-  S.sign = function (...a) { globalThis.__smokeSigns++; return sign.apply(this, a); };
+  const S = globalThis.SubtleCrypto?.prototype; if (!S?.sign || !S?.importKey) return;
+  // The demo's load-time Ed25519 test (src/boot.mjs cryptoCheck) is counted apart, and only when BOTH match: the key was
+  // imported from the fixed throwaway seed 32 × 0x07 (pkcs8 = 16-byte prefix + seed) and the message is this fixed text.
+  // Any other key or message is an ordinary signature.
+  const PRE = 'Wylls demo preflight', preKeys = new WeakSet();
+  // the fixed seeds a pre-join page may import: 0x07 the load-time test, 0x11 DEV_SEED, 0x22 SESSION_SEED
+  // (permutation-gateway/screens/world.mjs viewer(): public keys only)
+  const SEEDS = { 7: 'preflight', 17: 'dev', 34: 'session' };
+  const bytes = d => { try { return d instanceof ArrayBuffer ? new Uint8Array(d) : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : null; } catch { return null; } };
+  const seedOf = d => { const b = bytes(d); if (!b || b.length !== 48) return null; const s = b.subarray(16); return s.every(x => x === s[0]) ? SEEDS[s[0]] ?? null : null; };
+  const importKey = S.importKey, generateKey = S.generateKey, sign = S.sign;
+  globalThis.__smokeSigns = 0; globalThis.__smokePreflight = 0; globalThis.__smokeOtherKeys = [];
+  S.importKey = async function (...a) {
+    const k = await importKey.apply(this, a);
+    const priv = a[0] === 'pkcs8' || (a[0] === 'jwk' && a[1]?.d != null);
+    if (priv) { const seed = a[0] === 'pkcs8' ? seedOf(a[1]) : null; if (seed === 'preflight') preKeys.add(k); else if (!seed) globalThis.__smokeOtherKeys.push(`importKey ${a[0]}`); }
+    return k;
+  };
+  if (generateKey) S.generateKey = function (...a) { globalThis.__smokeOtherKeys.push(`generateKey ${a[0]?.name ?? a[0]}`); return generateKey.apply(this, a); };
+  S.sign = function (...a) {
+    let txt = null; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(bytes(a[2])); } catch {}
+    if (txt === PRE && preKeys.has(a[1])) globalThis.__smokePreflight++; else globalThis.__smokeSigns++;
+    return sign.apply(this, a);
+  };
 });
 const page = await context.newPage();
 const problems = [], offsite = [], seen = [];
@@ -338,8 +360,15 @@ const chainy = seen.filter(u => { const x = new URL(u); return /devnet|mainnet|s
 check(chainy.length === 0, `no devnet / RPC / herald / relay request over the network (${chainy.slice(0, 3).join(' ')})`);
 check(errors.length === 0, `the in-page world answered every read (${errors.join(' | ')})`);
 check(problems.length === 0, `no console / page / HTTP errors${problems.length ? `: ${[...new Set(problems)].slice(0, 5).join(' | ')}` : ''}`);
-const signs = await demo(() => globalThis.__smokeSigns ?? null);
-if (opt['pre-join']) check(signs === 0, `nothing was signed (${signs} crypto.subtle.sign call(s))`);
+const signs = await demo(() => globalThis.__smokeSigns ?? null), preflight = await demo(() => globalThis.__smokePreflight ?? null);
+const otherKeys = await demo(() => globalThis.__smokeOtherKeys ?? null);
+if (opt['pre-join']) {
+  check(signs === 0, `nothing was signed (${signs} crypto.subtle.sign call(s) besides the load-time Ed25519 test)`);
+  check(preflight === 0 || preflight === 1, `the load-time Ed25519 test (seed 0x07, fixed text) signed at most once (${preflight})`);
+  check(Array.isArray(otherKeys) && otherKeys.length === 0, `no private key but the fixed sample seeds 0x07 / 0x11 / 0x22 (${otherKeys?.slice(0, 3).join(', ') ?? 'not counted'})`);
+}
+result.preflight = preflight;
+result.otherKeys = otherKeys?.length ?? null;
 result.signs = signs;
 result.requests = seen.length;
 if (opt.shots) writeFileSync(`${opt.shots}/${TAGNAME}-result.json`, JSON.stringify({ ...result, fails }, null, 1));
