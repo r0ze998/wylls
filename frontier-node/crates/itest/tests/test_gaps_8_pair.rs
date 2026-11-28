@@ -8,7 +8,8 @@
 //!   `local_free(S1_LOCAL_7D)` season), the keep tile `keep::keep_tile` (the kernel's symmetric tile), the holder
 //!   `home_nation_in` (else the wedge), `keep::try_open_in` and `is_home_heartland` — the chain's ProvinceView;
 //! - the homes: the `--two` pair as the page places it (`home.mjs` planHomes `pair`: one province, the first two sites by
-//!   the shared seed — LP28's layout), or a predicted home for an unplaced B (`predict_home`), or every heartland site (H1);
+//!   the shared seed — LP28's layout), or a predicted home for an unplaced B (`predict_pair_home`, the second role:
+//!   fix-tg8-pair-home, Q-TG8-1 (a)), or every heartland site (H1);
 //! - the choice: `run`'s loop (capture_demo.rs, pinned by its own source tests), built from the same public parts —
 //!   `foreign_keep_candidates` (the first 12), `check_candidate` for the first player, then `pair_b_nation`,
 //!   `province_path` and `route_on` for the second; the first fort both reach is the pair's.
@@ -21,7 +22,7 @@
 use frontier_abi::v2::kernel::keep as kkeep;
 use itest::capture_demo::{
     check_candidate, foreign_keep_candidates, pair_b_nation, pair_role, predict_home,
-    province_path, route_on, ProvinceView, MAX_PATH_PROVINCES,
+    predict_pair_home, province_path, route_on, PairRole, ProvinceView, MAX_PATH_PROVINCES,
 };
 use permutation_rules::frontier::geometry::{home_nation_in, is_home_heartland, ProvinceCoord};
 use permutation_rules::frontier::terrain::{generate_province_in, ProvinceTerrain};
@@ -29,6 +30,8 @@ use sha2::{Digest, Sha256};
 
 const D: u32 = 4; // the ring the demo opens (LP28 / verify-pr299 H2–H6: forts in ring 4)
 const FJORDAL: u8 = 5;
+/// The pair's page seed (`controller.mjs` `homeSeed` `"pair:{seasonAddress}"`, rotation 0) — a placeholder Season here.
+const PAIR_SEED: &str = "pair:SEASON|0";
 
 /// A home: province, site, its tile.
 type Home = ((i32, i32), u8, u8);
@@ -146,6 +149,12 @@ impl World {
             ((p, q), sites[1], t.sites[sites[1] as usize]),
         )
     }
+    /// Where the runner predicts an unplaced pair B (`b_home_for`: [`predict_pair_home`], the second role, pair seed).
+    fn pair_b_home(&self, nation: u8) -> Home {
+        let (pc, site) = predict_pair_home(&self.heartland(nation), PAIR_SEED, PairRole::Second)
+            .expect("a province with two free sites");
+        (pc, site, self.terrain(pc).sites[site as usize])
+    }
     fn home(&self, nation: u8, wallet: &str) -> Home {
         let (pc, site) =
             predict_home(&self.heartland(nation), &format!("{wallet}|0")).expect("a free site");
@@ -173,7 +182,7 @@ fn choose(
     w: &World,
     a: Home,
     a_nation: u8,
-    b_wallet: &str,
+    _b_wallet: &str,
     b_placed: Option<(Home, u8)>,
 ) -> Result<Pair, Vec<String>> {
     let start = (a.0, a.2);
@@ -194,7 +203,7 @@ fn choose(
         };
         let (bh, b_nation) = match b_placed {
             Some((h, n)) => (h, pair_b_nation(Some(n), holder)),
-            None => (w.home(holder, b_wallet), pair_b_nation(None, holder)),
+            None => (w.pair_b_home(holder), pair_b_nation(None, holder)),
         };
         let broute = province_path(bh.0, *target, D)
             .ok_or_else(|| format!("no province path from {:?} to {target:?}", bh.0))
@@ -322,7 +331,7 @@ fn defend_pair_b_not_placed_takes_the_forts_nation_and_reaches_it_on_at_least_tw
             assert_eq!(p.b_nation, p.holder, "B is suggested the fort's nation");
             assert_eq!(pair_role(p.b_nation, p.holder), "defend");
             assert_eq!(
-                w.nation(w.home(p.holder, "B").0),
+                w.nation(w.pair_b_home(p.holder).0),
                 Some(p.holder),
                 "its predicted home is in that nation's heartland"
             );
@@ -370,34 +379,119 @@ fn every_nation_and_every_second_home_of_it_either_gets_a_fort_or_says_why() {
     }
 }
 
-// D-test-gaps-8-1 (found here, NOT fixed: tests only; inbox 2026-11-28 test-gaps-8): for a second player not placed yet,
-// `b_home_for` predicts its home as `predict_home(.., "{wallet}|0")` (the page's choice for ONE player: the wallet's seed,
-// the lowest-hash site). A `--two` pair's page places it otherwise since #130 (verify-pr130, LP6-12): controller.mjs
-// `homeSeed` is `"pair:{season}"` for both roles, and home.mjs `planHomes` with `pair: 'second'` takes the SECOND site of
-// the first province that has two free sites. So on the defend path the fort is chosen for a home B does not get; the
-// runner's `verify_pair` re-check then reads B's real home (`as_predicted: false`, or `pair_not_ready` if that one does
-// not reach the fort). It fails closed. Expected to fail until the owner decides (Q-TG8-1); run with `--ignored`.
+// D-test-gaps-8-1 (found by test-gaps-8; fixed by fix-tg8-pair-home, owner Q-TG8-1 (a) 2026-11-28 09:05): for a second
+// player not placed yet, `b_home_for` predicted its home as `predict_home(.., "{wallet}|0")` (the page's choice for ONE
+// player). A `--two` pair's page places it otherwise since #130 (verify-pr130, LP6-12): controller.mjs `homeSeed` is
+// `"pair:{season}"` for both roles, and home.mjs `planHomes` with `pair: 'second'` takes the SECOND site of the first
+// province that has two free sites — 24 of 36 maps differed. The runner now predicts with `predict_pair_home` (second
+// role, pair seed); this test holds it to the page's pair layout on every seed and nation (36 / 36), and the old
+// one-player prediction still differs (so the test would catch a return to it). The page side is held to the same rule by
+// the shared vector table (`tests/fixtures/pair-home-vectors.json`, run by Rust and by the page's own planHomes).
 #[test]
-#[ignore = "D-test-gaps-8-1: b_home_for predicts an unplaced pair B with its wallet seed, the page uses the pair seed and the second site (Q-TG8-1)"]
 fn an_unplaced_second_players_predicted_home_is_where_the_pairs_page_places_it() {
     let mut differ = vec![];
+    let mut old_rule_differs = 0;
     for seed in SEEDS {
         let w = World::new(seed);
         for nation in 0..6u8 {
-            let runner = predict_home(&w.heartland(nation), "B-wallet|0");
-            let (_, page_b) = w.pair_homes(nation, "pair:SEASON|0");
+            let (page_a, page_b) = w.pair_homes(nation, PAIR_SEED);
+            let runner = predict_pair_home(&w.heartland(nation), PAIR_SEED, PairRole::Second);
             if runner != Some((page_b.0, page_b.1)) {
                 differ.push(format!(
                     "seed {seed} nation {nation}: runner {runner:?}, page {:?}",
                     (page_b.0, page_b.1)
                 ));
             }
+            assert_eq!(
+                predict_pair_home(&w.heartland(nation), PAIR_SEED, PairRole::First),
+                Some((page_a.0, page_a.1)),
+                "seed {seed} nation {nation}: the first role"
+            );
+            if predict_home(&w.heartland(nation), "B-wallet|0") != Some((page_b.0, page_b.1)) {
+                old_rule_differs += 1;
+            }
         }
     }
+    println!("old one-player rule differs on {old_rule_differs} of 36");
+    assert!(
+        old_rule_differs > 0,
+        "the old one-player prediction must miss the pair's page somewhere"
+    );
     assert!(
         differ.is_empty(),
         "{} of 36 differ:\n{}",
         differ.len(),
         differ.join("\n")
+    );
+}
+
+// (fix-tg8-pair-home) The shared vector table: the page's own planHomes (pair first / second and one player) wrote the
+// expectations, and permutation-gateway/test/web-frontier-pair-home-vectors.test.mjs regenerates them through the page and
+// must equal the file. Here the runner's predictions must equal the same file: either side changing alone fails a test.
+#[test]
+fn the_shared_pair_home_vectors_hold_for_the_runner() {
+    let t: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/pair-home-vectors.json")).unwrap();
+    let vecs = t["vectors"].as_array().unwrap();
+    assert!(vecs.len() >= 20, "{} vectors", vecs.len());
+    let home = |v: &serde_json::Value| -> Option<((i32, i32), u8)> {
+        (!v.is_null()).then(|| {
+            (
+                (
+                    v["p"].as_i64().unwrap() as i32,
+                    v["q"].as_i64().unwrap() as i32,
+                ),
+                v["site"].as_u64().unwrap() as u8,
+            )
+        })
+    };
+    let (mut nulls, mut differ_single) = (0, 0);
+    for v in vecs {
+        let provs: Vec<((i32, i32), Vec<u8>)> = v["provinces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| {
+                let free = x["states"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| matches!(s.as_u64(), Some(0) | Some(3)))
+                    .map(|(i, _)| i as u8)
+                    .collect();
+                (
+                    (
+                        x["p"].as_i64().unwrap() as i32,
+                        x["q"].as_i64().unwrap() as i32,
+                    ),
+                    free,
+                )
+            })
+            .collect();
+        let seed = v["seed"].as_str().unwrap();
+        let name = v["name"].as_str().unwrap();
+        let e = &v["expect"];
+        assert_eq!(
+            predict_pair_home(&provs, seed, PairRole::Second),
+            home(&e["second"]),
+            "{name}: second"
+        );
+        assert_eq!(
+            predict_pair_home(&provs, seed, PairRole::First),
+            home(&e["first"]),
+            "{name}: first"
+        );
+        assert_eq!(
+            predict_home(&provs, e["singleSeed"].as_str().unwrap()),
+            home(&e["single"]),
+            "{name}: one player"
+        );
+        nulls += e["second"].is_null() as usize;
+        differ_single += (e["second"] != e["single"]) as usize;
+    }
+    assert!(
+        nulls >= 2 && differ_single >= 10,
+        "{nulls} / {differ_single}"
     );
 }

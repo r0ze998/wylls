@@ -345,9 +345,10 @@ pub fn pair_b_nation(placed: Option<u8>, holder: u8) -> u8 {
     placed.unwrap_or(holder)
 }
 
-/// The page's own first-home choice (`home.mjs` `planHomes` with `controller.mjs`'s seed `"{wallet}|0"`): among the
-/// provinces with free home sites for that nation, innermost ring first, then `hash32("{seed}|{p},{q}")`; in the first
-/// such province, the free site with the lowest `hash32("{seed}|{p},{q},{site}")`. `provinces`: `((p, q), free sites)`.
+/// The page's own first-home choice for ONE player (`home.mjs` `planHomes` without `pair`, `controller.mjs` `homeSeed` =
+/// the wallet: seed `"{wallet}|0"`): among the provinces with free home sites for that nation, innermost ring first, then
+/// `hash32("{seed}|{p},{q}")`; in the first such province, the free site with the lowest `hash32("{seed}|{p},{q},{site}")`.
+/// `provinces`: `((p, q), free sites)`. A `--two` pair's page places otherwise: [`predict_pair_home`].
 pub fn predict_home(provinces: &[((i32, i32), Vec<u8>)], seed: &str) -> Option<((i32, i32), u8)> {
     use frontier_bots::home::hash32;
     let mut cands: Vec<&((i32, i32), Vec<u8>)> = provinces
@@ -366,6 +367,51 @@ pub fn predict_home(provinces: &[((i32, i32), Vec<u8>)], seed: &str) -> Option<(
         .min_by_key(|s| (hash32(&format!("{seed}|{p},{q},{s}")), **s))?;
     Some(((*p, *q), site))
 }
+
+/// A role of the TEST-ONLY `--two` contest pair (the launcher's `pair.role`, `controller.mjs` `homePairRole`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairRole {
+    First,
+    Second,
+}
+
+/// (fix-tg8-pair-home, Q-TG8-1 (a)) The page's first-home choice for a `--two` contest pair's role (verify-pr130, LP6-12):
+/// `controller.mjs` `homeSeed` = `"pair:{seasonAddress}"` for BOTH roles (seed `"pair:{season}|0"`), and `home.mjs`
+/// `planHomes` with `pair` reads the provinces with a free site in [`predict_home`]'s order — at most
+/// [`PAGE_HOME_READS`] of them — and takes the first one that has TWO free sites; its sites in the same hash order, the
+/// first role the first site and the second role the next one. `None`: no such province among those read (the page's
+/// `NoFreeHome`). Pinned to the page by the shared vector table `tests/fixtures/pair-home-vectors.json` (both sides run it).
+pub fn predict_pair_home(
+    provinces: &[((i32, i32), Vec<u8>)],
+    seed: &str,
+    role: PairRole,
+) -> Option<((i32, i32), u8)> {
+    use frontier_bots::home::hash32;
+    let mut cands: Vec<&((i32, i32), Vec<u8>)> = provinces
+        .iter()
+        .filter(|(_, sites)| !sites.is_empty())
+        .collect();
+    cands.sort_by_key(|((p, q), _)| {
+        (
+            ProvinceCoord::new(*p, *q).ring(),
+            hash32(&format!("{seed}|{p},{q}")),
+        )
+    });
+    let ((p, q), sites) = cands
+        .into_iter()
+        .take(PAGE_HOME_READS)
+        .find(|(_, sites)| sites.len() >= 2)?;
+    let mut sites = sites.clone();
+    sites.sort_by_key(|s| (hash32(&format!("{seed}|{p},{q},{s}")), *s));
+    let i = match role {
+        PairRole::First => 0,
+        PairRole::Second => 1,
+    };
+    Some(((*p, *q), sites[i]))
+}
+
+/// `home.mjs` `planHomes`: at most 24 Province reads per plan (one nation: one province per round).
+pub const PAGE_HOME_READS: usize = 24;
 
 /// The shortest province path from `from` to `target` (through provinces below `ring_next`; at most
 /// [`MAX_PATH_PROVINCES`] together with the target), `from` first and the target excluded; `None` when there is none.
@@ -540,8 +586,10 @@ fn free_site(state: &Shared, a: &Addresses, p: i16, q: i16) -> Option<u8> {
 type BHome = ((i32, i32), u8, u8);
 
 /// The second player's home over a fort held by `nation`: its own, if its Citizen already has one (of whatever nation,
-/// [`pair_b_nation`]), else where the page will place it for the fort's nation ([`predict_home`] over the chain's free
-/// sites, seed `"{wallet}|0"`). `((p, q), site, tile)` and the second player's nation.
+/// [`pair_b_nation`]), else where the pair's page will place it for the fort's nation ([`predict_pair_home`] for the
+/// second role over the chain's free sites, seed `"pair:{season}|0"`: Q-TG8-1 (a); before, the one-player
+/// `"{wallet}|0"` choice, which missed the page's site on 24 of 36 test maps). `((p, q), site, tile)` and the second
+/// player's nation.
 fn b_home_for(
     state: &Shared,
     a: &Addresses,
@@ -618,8 +666,9 @@ fn b_home_for(
             }
         }
     }
-    let ((p, q), site) = predict_home(&provs, &format!("{b}|0"))
-        .ok_or_else(|| format!("no free home site for nation {nation}"))?;
+    let ((p, q), site) =
+        predict_pair_home(&provs, &format!("pair:{}|0", a.season), PairRole::Second)
+            .ok_or_else(|| format!("no province with two free home sites for nation {nation}"))?;
     let tile = tiles
         .iter()
         .find(|(x, _)| *x == (p, q))
@@ -630,7 +679,8 @@ fn b_home_for(
 
 /// TEST-ONLY contest pair: once the second player's own PlaceHome has landed and the demo has chosen the fort, both routes
 /// are checked again on the chain's records (A's village tile and B's actual village tile to the keep tile, B playing the
-/// fort's nation). The `pair_ready` line, or why not (`pair_not_ready`). Reads only.
+/// pair's nation `t.b_nation`: the fort's when defending, its own placed one when attacking, #299). The `pair_ready` line,
+/// or why not (`pair_not_ready`). Reads only.
 pub fn verify_pair(
     state: &Shared,
     a: &Addresses,
@@ -1774,6 +1824,18 @@ mod tests {
         assert!(
             b_home.contains("pair_b_nation(Some(h.faction), nation)")
                 && b_home.contains("pair_b_nation(None, nation)")
+        );
+        // (fix-tg8-pair-home, Q-TG8-1 (a)) an unplaced second player is predicted as the pair's page places it: the pair
+        // seed (controller.mjs homeSeed "pair:{seasonAddress}", rotation 0) and the second role (home.mjs planHomes pair)
+        assert!(
+            b_home.contains(
+                r#"predict_pair_home(&provs, &format!("pair:{}|0", a.season), PairRole::Second)"#
+            ),
+            "b_home_for predicts with the pair's rule"
+        );
+        assert!(
+            !b_home.contains("predict_home(&provs"),
+            "not the one-player rule"
         );
         let verify =
             &src[src.find("pub fn verify_pair(").unwrap()..src.find("pub async fn run(").unwrap()];
