@@ -30,7 +30,7 @@ test('the demo\'s words: the tag says "playable demo" and links only an https li
   const app = web('frontier/app.mjs'), join = web('frontier/screens/join.mjs');
   assert.match(app, /const demo = sm\.demo && typeof sm\.demo === 'object' \? sm\.demo : null;/);
   assert.match(app, /const live = demo && \/\^https:\\\/\\\/\/\.test\(String\(demo\.live \?\? ''\)\) \? String\(demo\.live\) : null;/);
-  assert.match(join, /FS\.sample\?\.demo \? L`国を選ぶだけで始められます。/);
+  assert.match(join, /FS\.sample\?\.demo \? \(FS\.sample\.demo\.save\?\.on \? L`国を選ぶだけで始められます。[^`]*保存されます[^`]*` : L`国を選ぶだけで始められます。/);
   for (const ja of ['体験版', '本物の世界へ', 'ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（{0}）。']) assert.ok(EN[ja], `EN for ${ja}`);
   const note = Object.keys(EN).find(k => k.startsWith('国を選ぶだけで始められます。ほかの五つの国'));
   assert.ok(note && /reloading the page starts over/.test(EN[note]));

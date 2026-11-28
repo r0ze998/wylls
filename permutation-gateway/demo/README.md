@@ -46,8 +46,9 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
 - Land is the sample world's arrival-control rule (`screens/territory.mjs`: a host that arrives alone on an open
   tile takes it for its nation), with the real V1 food upkeep (`landUpkeep`): the land logistics horizon card shows.
   It is not the live game's "take 1 tile" claim (Q-WD-4).
-- A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). Reloading starts a new world
-  (same seed); the demo clears its own `ps-*` storage at load and keeps only the language.
+- A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). A reload continues the saved
+  world (see Save / resume below); without a save, or with an old or damaged one, it is a new world (same seed) and the
+  demo clears its own `ps-*` storage at load, keeping only the language.
 - The guest signs with the page's test Dev Wallet (`screens/world.mjs` `storageFor`: the sample world's fixed seed and
   `ps-wallet`, kept in this browser only; it never reaches a chain). The real page offers that wallet only on a loopback
   host (`frontier/config.mjs` `dev`), so `build.mjs` bundles `config.mjs` with `dev` true: the demo offers it on any
@@ -60,9 +61,9 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
 - The season record carries `sample.demo = {live}`: the page's tag says "Playable demo / 体験版" and, only when
   `--live-url https://…` is given, links the live world ("The live world / 本物の世界へ"). There is no default: the
   label promises a world to play, so it must not point at the source repository (Q-WD-1).
-- Hosting: put the demo on an origin that never serves the real page. At load the demo clears every `ps-*` key of
-  its origin's `localStorage` (keeping only `ps-lang`), so on a shared origin it would wipe the real page's saved
-  wallet choice and in-game key.
+- Hosting: put the demo on an origin that never serves the real page. The demo clears every `ps-*` key of
+  its origin's `localStorage` (keeping only `ps-lang`) whenever it starts a fresh world (no save, an old one, or
+  Start over), so on a shared origin it would wipe the real page's saved wallet choice and in-game key.
 
 ## GitHub Pages (https://r0ze998.github.io/wylls/)
 
@@ -73,6 +74,31 @@ Run workflow). It needs no secret. One-time: Settings → Pages → Source = "Gi
 
 Try the Pages layout locally: `node build.mjs --base /wylls/ && node serve.mjs --port 41850 --prefix /wylls/` →
 http://127.0.0.1:41850/wylls/ (`serve.mjs` answers a missing path with `dist/404.html`, as Pages does).
+
+## The saved world, and browsers without Ed25519 (demo-polish-2; owner Q-WD-6, Q-WD-8)
+
+- **Save / resume** (`src/save.mjs`): the world survives a reload. What is kept in `localStorage`
+  (`wylls-demo-save`) is the world's **inputs**, not its state: the clock reading of the page's first read, and every
+  POST the page sent (signed join / orders / reveals, as text) with the world clock reading it was taken at and a
+  digest of the answer. At load the same seeded world is made and the inputs are replayed at their readings; the
+  world is deterministic, so it is the same world (every answer is checked against its digest). The page's own
+  `ps-*` keys (its guest wallet, in-game key, seal book) stay as they are, as in the real game. It is written after
+  every POST, at every turn change and on `pagehide`.
+- **Versions**: `v` (the format) and `world` (sha256 of the built `demo-world.js`, first 16 hex, filled in by
+  `build.mjs`). A save of another format or world build, a damaged one, or one whose replay answers differently
+  starts a fresh world, and the nation picker says so in one line. So a deploy that changes the world bundle starts
+  everyone over; a page-only change does not.
+- **Cost**: the replay catches the world up through every turn, ≈ 4 ms a turn (1.2 s for 300 turns ≈ an hour of
+  play; the fixture encoder's `snake()` was memoized for this). The cold load to the village is ≈ 4 s.
+- **Quota**: past 2 M characters, or when the storage refuses a write, the save is dropped (a reload then starts
+  fresh) and the tag stops offering "Start over" and says a reload starts over. A short session is a few KB.
+- **Start over**: the demo tag's button asks first (`confirm`), then clears the save and the `ps-*` keys and reloads.
+- **No Ed25519** (or not https): the demo tests the browser at load (the `session.mjs` preflight's test: sign and
+  verify with WebCrypto Ed25519). If it fails, the world is made keyless (it shows the picker and signs nothing),
+  nothing is saved or replayed, and the picker shows a notice naming Chrome / Edge 137+, Firefox 129+ and Safari 17+
+  (the versions `session.mjs` states) in place of the join button.
+- `node smoke-save.mjs [--lang en|ja] [--only save,long,bad,reset,crypto] [--port N]`: the Playwright check of all of
+  this (manual key-tests job, like `smoke.mjs`).
 
 ## Build options
 
