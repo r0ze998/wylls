@@ -29,6 +29,24 @@ LINT_LINE = re.compile(
     r'^cargo (fmt( --all| -p [\w-]+)? -- --check'
     r'|clippy --locked( --workspace| -p [\w-]+)?( --features [\w,-]+)? --all-targets -- -D warnings)$')
 
+# The one owner-approved exception (Q-FDW-1 = B, r0ze 2026-11-28 08:30, inbox 2026-11-28-0830-r0ze-fdw1-answer.md;
+# docs/ci/KEY-FREE-CI.ja.md): the walletless demo's browser smoke (permutation-gateway/demo/smoke.mjs) may run in a
+# push/PR job ONLY as `--pre-join`. The page then derives the PUBLIC key of its Dev Wallet from the sample world's fixed
+# seed (permutation-gateway/screens/world.mjs DEV_SEED, 32 × 0x11; no chain, no funds) and stops at the start button.
+# The only signature is the page's load-time Ed25519 test (src/boot.mjs cryptoCheck: throwaway seed 32 × 0x07, fixed
+# text "Wylls demo preflight", at most once per load; Q-FDW-2 = A, r0ze 2026-11-28 11:50): smoke.mjs counts it apart
+# (0 or 1) and requires 0 other signatures and no private key from another seed. Any other smoke.mjs run signs (joining makes
+# a session key, orders are signed): every line that runs smoke.mjs outside key-tests must carry --pre-join and none of
+# --act / --loop.
+# `npm run smoke` / `npm run-script smoke` (permutation-gateway/demo/package.json: "smoke": "node smoke.mjs") and the
+# other demo smokes (smoke-save.mjs joins and signs; it has no --pre-join, so any run of it here fails) count too.
+SMOKE_RUN = re.compile(r'(^|[\s/])smoke(-[\w-]+)?\.mjs(\s|$)|(^|\s)npm (run|run-script) smoke(\s|$)')
+
+def demo_smoke_bad(step):
+    lines = [l.strip() for l in str(step.get('run', '')).splitlines()]
+    runs = [l for l in lines if l and not l.startswith('#') and SMOKE_RUN.search(l)]
+    return [l for l in runs if not re.search(r'(^|\s)--pre-join(\s|$)', l) or re.search(r'(^|\s)--(act|loop)(\s|$)', l)]
+
 def lint_only(step):
     if step.get('uses'):
         return False
@@ -47,6 +65,8 @@ def check(path):
             continue
         for st in job.get('steps') or []:
             text = '\n'.join(str(st.get(k, '')) for k in ('run', 'uses', 'name', 'working-directory'))
+            for l in demo_smoke_bad(st):
+                bad.append(f'{path}: job {name}, step "{st.get("name") or l[:40]}": demo smoke without --pre-join (or with --act/--loop) signs: `{l[:80]}`')
             waived = lint_only(st)
             for pat, why in FORBIDDEN:
                 if waived and pat == r'svm-tests':

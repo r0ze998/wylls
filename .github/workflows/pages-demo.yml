@@ -5,7 +5,9 @@
 # (permutation-gateway/demo, README there). Plain static files: no server, chain,
 # RPC, wallet or secret. Build and checks are the same as the `walletless-demo`
 # job in ci.yml (key-free: no key is generated, derived or signed with here);
-# the Playwright play-through stays in the manual key-tests job (Q-WD-9).
+# ci.yml's walletless-demo job also opens this same build at the real Pages host
+# name before the start button on every PR (Q-FDW-1 = B; only its load-time Ed25519 test signs, Q-FDW-2 = A); the
+# full Playwright play-through stays in the manual key-tests job (Q-WD-9).
 #
 # One-time setup by the repository owner: Settings → Pages → Build and
 # deployment → Source = "GitHub Actions". Until then the deploy job fails
