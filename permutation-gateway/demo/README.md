@@ -10,6 +10,8 @@ node build.mjs            # → dist/ (≈ 43 MiB on disk, ≈ 3,700 files; a co
 node check.mjs            # key-free checks of dist/ (CI runs these)
 node serve.mjs --port 41751 --prefix /play/ --gzip   # try it: http://127.0.0.1:41751/play/ (--gzip: as static hosts send text)
 node smoke.mjs --loop     # Playwright play-through (signs with the page's test Dev Wallet: manual key-tests job only)
+node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html --act [--mobile] [--lang ja]
+                          # the same, AT the Pages host name (routed in the browser): no wallet prompt, one order
 ```
 
 `npm run build:demo` in `permutation-gateway/` does the install, build and check in one go.
@@ -53,6 +55,12 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
   129 and out), the camp's tile stands for the keep's, nothing is signed, and tiles do not change hands in battle.
 - A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). Reloading starts a new world
   (same seed); the demo clears its own `ps-*` storage at load and keeps only the language.
+- The guest signs with the page's test Dev Wallet (`screens/world.mjs` `storageFor`: the sample world's fixed seed and
+  `ps-wallet`, kept in this browser only; it never reaches a chain). The real page offers that wallet only on a loopback
+  host (`frontier/config.mjs` `dev`), so `build.mjs` bundles `config.mjs` with `dev` true: the demo offers it on any
+  host. Before fix-demo-wallet-p0 it did not, and on GitHub Pages the nation picker asked for a wallet ("To begin,
+  connect a wallet first."); every earlier smoke ran on 127.0.0.1 and passed. `smoke.mjs --origin` runs on the real
+  host name; `build.mjs` fails if the `const dev = LOOPBACK(host);` line it replaces moves.
 - The pre-join screen says "Playable demo · no wallet needed / 体験版・ウォレット不要" next to "Choose a nation".
   A demo world does not show the test-world end turn (1,008) while it is ahead (join screen, standings card), and
   hides the map's "Records" button (a demo has no recorded wide world).

@@ -78,11 +78,22 @@ const res = await build({
 // Every chunk sits in frontier/, so a module's `import.meta.url` (its art, css, wasm and worker URLs) is rebased
 // from frontier/ to where the module was: `new URL('map/sprites.mjs', import.meta.url).href` for map/sprites.mjs.
 const FRONTIER = join(WEB, 'frontier');
+let configPatched = 0;
+const CONFIG = join(FRONTIER, 'config.mjs'), DEV_LINE = 'const dev = LOOPBACK(host);', DEMO_DEV_LINE = 'const dev = true; // walletless demo build: the Dev Wallet on any host';
 const rebase = {
   name: 'demo-import-meta',
   setup(b) {
     b.onLoad({ filter: /\.mjs$/ }, async a => {
-      const src = await readFile(a.path, 'utf8');
+      let src = await readFile(a.path, 'utf8');
+      // The demo's guest signs with the page's test Dev Wallet (screens/world.mjs storageFor: its fixed sample seed and
+      // `ps-wallet`); the page offers that wallet only when `cfg.dev`, which config.mjs reads from a loopback hostname.
+      // GitHub Pages is not loopback, so there the page found no wallet and asked for one (fix-demo-wallet-p0): the demo
+      // bundle's config says dev on every host. Only this bundle: the real page's config.mjs is unchanged.
+      if (a.path === CONFIG) {
+        if (!src.includes(DEV_LINE)) throw new Error(`walletless demo: ${DEV_LINE} is no longer in frontier/config.mjs (the demo must offer the Dev Wallet on any host)`);
+        src = src.replace(DEV_LINE, DEMO_DEV_LINE); configPatched++;
+        if (!src.includes('import.meta.url')) return { loader: 'js', contents: src };
+      }
       if (!a.path.startsWith(WEB + '/') || !src.includes('import.meta.url')) return undefined;
       const rel = relative(FRONTIER, a.path).split('\\').join('/');
       return { loader: 'js', contents: src.replaceAll('import.meta.url', `new URL(${JSON.stringify(rel)}, import.meta.url).href`) };
@@ -95,6 +106,7 @@ const pageRes = await build({
   outdir: join(OUT, 'frontier'), entryNames: '[name]', chunkNames: 'chunk-[hash]', outExtension: { '.js': '.mjs' },
   plugins: [rebase], metafile: true, logLevel: 'error',
 });
+if (configPatched !== 1) throw new Error(`walletless demo: frontier/config.mjs was bundled ${configPatched} times with the demo's Dev Wallet line (want once)`);
 // the page's style sheets, minified in place (their url(…) stay relative to the sheet)
 let cssIn = 0, cssOut = 0;
 async function cssWalk(d) {
