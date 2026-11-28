@@ -6,8 +6,9 @@
 
 finish-pr309 N6 proved this rule by hand: `--act` and `npm run smoke` lines were added to the ci.yml step and the checker
 exited 1. Here every case is a small workflow file in a temp dir, and the real checker runs on it (no key, no network,
-no browser). The three `expectedFailure` cases are lines that DO run a signing smoke but pass the checker today
-(D-test-gaps-10-1, inbox 2026-11-28-1524-test-gaps-10-questions.md, Q-TG10-1). They are not fixed here (tests only).
+no browser). The three `gap` cases (D-test-gaps-10-1) were lines that DO run a signing smoke but passed the checker; they
+were `expectedFailure` until Q-TG10-1 = a (r0ze 2026-11-28 19:45) hardened the checker (fix-tg10) and now pass, with the
+fix-tg10 forms below them (same-line other command, variable indirection, `$(…)`, npm flags before `--`).
 """
 import os, subprocess, sys, tempfile, unittest
 
@@ -50,9 +51,14 @@ class DemoSmokeRule(unittest.TestCase):
 
     def test_pre_join_lines_are_allowed(self):
         self.assertAllowed('node smoke.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --path "$entry" --lang "$lang" $view --pre-join')
-        # (a flag followed straight by `;` is not read as --pre-join: a false refusal, the safe side; ci.yml puts it last on its line)
+        # a flag followed straight by `;` is --pre-join too (D-test-gaps-10-3 was a false refusal; fix-tg10 cuts at `;`)
         self.assertAllowed("for v in '' --mobile; do node smoke.mjs --pre-join $v; done")
-        self.assertRefused("for v in '' --mobile; do node smoke.mjs $v --pre-join; done")
+        self.assertAllowed("for v in '' --mobile; do node smoke.mjs $v --pre-join; done")
+        # the real ci.yml loop shape, continued over lines, a quoted name, a trailing comment after the flag
+        self.assertAllowed('for v in \'\' --mobile; do\n  node smoke.mjs --dir dist-pages \\\n    --lang en $v --pre-join\ndone')
+        self.assertAllowed('node "smoke.mjs" --pre-join  # the PR run')
+        self.assertAllowed('npm run smoke -- --pre-join')
+        self.assertAllowed('node smoke.mjs --pre-join --camps --mobile')
         self.assertAllowed('node ./smoke.mjs --pre-join --mobile')
         # a comment line naming the smoke runs nothing
         self.assertAllowed('# node smoke.mjs --act\nnode build.mjs')
@@ -63,11 +69,16 @@ class DemoSmokeRule(unittest.TestCase):
                     'node smoke.mjs --loop --pre-join',
                     'node permutation-gateway/demo/smoke.mjs --act',
                     'npm run smoke',                                    # N6
+                    'node smoke.mjs --pre-join --claim',                # #306 --claim needs a joined player (D-verify-pr315-1)
+                    "node 'smoke.mjs' --lang en",
+                    'node "./demo/smoke.mjs" --pre-join "--act"',
                     'node smoke-save.mjs --lang en',                    # joins and signs; it has no --pre-join
                     'node smoke-save.mjs --pre-join --act',
                     'node build.mjs\nnode smoke.mjs --pre-join\nnode smoke.mjs --act']:
             with self.subTest(run=run):
                 self.assertRefused(run)
+                # the command itself is named (not only the step-wide --act/--loop/--claim scan below)
+                self.assertNotIn('set elsewhere in the step', check(workflow(run))[1])
 
     def test_every_offending_line_is_named(self):
         code, out = check(workflow('node smoke.mjs --act\nnode smoke.mjs --pre-join\nnpm run smoke'))
@@ -84,20 +95,90 @@ class DemoSmokeRule(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn('job key-tests must have exactly', out)
 
-    # ---- D-test-gaps-10-1: lines that run a signing smoke and pass the checker today (found by this test, not fixed)
+    # ---- D-test-gaps-10-1: lines that run a signing smoke and passed the checker before fix-tg10 (Q-TG10-1 = a)
 
-    @unittest.expectedFailure
     def test_gap_backslash_continuation_hides_act(self):
-        # the shell runs `node smoke.mjs --pre-join --act`; the checker reads the two lines apart
+        # the shell runs `node smoke.mjs --pre-join --act`; the checker used to read the two lines apart
         self.assertRefused('node smoke.mjs --pre-join \\\n  --act')
+        self.assertRefused('node smoke.mjs --lang en \\\n  --act \\\n  --pre-join')
+        # and a safe run continued over lines is one command (--pre-join on the next line reaches smoke.mjs)
+        self.assertAllowed('node smoke.mjs --lang en \\\n  --pre-join')
 
-    @unittest.expectedFailure
     def test_gap_quoted_script_name(self):
         self.assertRefused('node "smoke.mjs" --act')
+        self.assertRefused('node "permutation-gateway/demo/smoke.mjs" --lang en')
 
-    @unittest.expectedFailure
     def test_gap_pre_join_only_in_a_trailing_comment(self):
         self.assertRefused('node smoke.mjs --lang en # --pre-join')
+        self.assertRefused('node smoke.mjs --lang en #--pre-join')
+        # a `#` inside a word or quotes is not a comment
+        self.assertAllowed('node smoke.mjs --path "a#b" --pre-join')
+
+    # ---- verify-pr323: package.json's `smoke` script through a runner the name regex did not see
+
+    def test_smoke_script_through_other_runners(self):
+        for run in ['npm --prefix permutation-gateway/demo run smoke',   # npm options before `run`
+                    'npm run --silent smoke',                            # ... or between `run` and the name
+                    'npm rum smoke',                                     # npm's run aliases
+                    'node --run smoke -- --pre-join',                    # Node 22+ runs package.json scripts
+                    'node --run=smoke',
+                    'pnpm smoke --pre-join', 'pnpm -C permutation-gateway/demo smoke',
+                    'yarn smoke --pre-join', 'yarn run smoke', 'bun run smoke']:
+            with self.subTest(run=run):
+                self.assertRefused(run)
+        # npm with options is still fine when --pre-join comes after `--`; words that only say "smoke" are not runs
+        self.assertAllowed('npm --prefix permutation-gateway/demo run smoke -- --pre-join')
+        self.assertAllowed('npm run --silent smoke -- --pre-join')
+        self.assertAllowed('echo smoke\ncargo test smoke\nnpm ci && npm run build')
+
+    # ---- fix-tg10's own bad forms
+
+    def test_flag_in_another_command_on_the_same_line(self):
+        # the old line-wide search saw --pre-join; the shell runs the smoke without it
+        self.assertRefused('node smoke.mjs --lang en; echo --pre-join')
+        self.assertRefused('node smoke.mjs --lang en && echo --pre-join')
+        self.assertRefused('node smoke.mjs --lang en | tee log --pre-join')
+
+    def test_variable_and_env_indirection(self):
+        self.assertRefused('F=--act; node smoke.mjs --pre-join $F')
+        self.assertRefused("for v in '' --act; do node smoke.mjs --pre-join $v; done")
+        self.assertRefused('S=smoke.mjs\nnode $S --lang en')                        # the name through a variable
+        code, out = check(workflow_env('node smoke.mjs --pre-join $EXTRA', step_env={'EXTRA': '--loop'}))
+        self.assertEqual(code, 1, out); self.assertIn('set elsewhere in the step or its env', out)
+        code, out = check(workflow_env('node smoke.mjs --pre-join $EXTRA', job_env={'EXTRA': '--act'}))
+        self.assertEqual(code, 1, out)
+        code, out = check(workflow_env('node smoke.mjs --pre-join $EXTRA', wf_env={'EXTRA': '--claim'}))
+        self.assertEqual(code, 1, out)
+        # an env without a signing flag is fine (ci.yml's BASE / ORIGIN / LIVE_URL)
+        code, out = check(workflow_env('node smoke.mjs --pre-join --origin "$ORIGIN"', step_env={'ORIGIN': 'https://x.github.io'}))
+        self.assertEqual(code, 0, out)
+
+    def test_words_the_checker_cannot_read(self):
+        for run in ['node smoke.mjs --pre-join $(echo --act)',
+                    'node smoke.mjs --pre-join `cat flags`',
+                    'node smoke.mjs --pre-join ${{ inputs.flags }}',
+                    'eval node smoke.mjs --pre-join "$X"',
+                    'xargs node smoke.mjs --pre-join < flags',
+                    'node smoke.mjs --pre-join "unclosed']:
+            with self.subTest(run=run):
+                self.assertRefused(run)
+
+    def test_npm_flags_before_the_double_dash_go_to_npm(self):
+        self.assertRefused('npm run smoke --pre-join')
+        self.assertRefused('npm run-script smoke --pre-join -- --lang en')
+        self.assertRefused('npm run smoke -- --pre-join --act')
+
+
+def workflow_env(run, wf_env=None, job_env=None, step_env=None):
+    import yaml
+    wf = {'on': ['push', 'pull_request'], 'jobs': {'walletless-demo': {'runs-on': 'ubuntu-24.04', 'steps': [{'name': 'smoke', 'run': run}]}}}
+    if wf_env: wf['env'] = wf_env
+    if job_env: wf['jobs']['walletless-demo']['env'] = job_env
+    if step_env: wf['jobs']['walletless-demo']['steps'][0]['env'] = step_env
+    path = os.path.join(TMP, f'w{len(os.listdir(TMP))}.yml')
+    with open(path, 'w', encoding='utf-8') as f:
+        yaml.safe_dump(wf, f)
+    return path
 
 
 if __name__ == '__main__':

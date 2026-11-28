@@ -41,3 +41,40 @@ fn features_reports_this_builds_lane_and_no_mutation() {
         "a mutate-* build says so"
     );
 }
+
+/// Q-TG10-2 = a (r0ze 2026-11-28 19:45; D-test-gaps-10-2 / D-verify-pr313-1; fix-tg10): every `mutate-*` feature in
+/// Cargo.toml is in `verify_core::mutated()`'s list, so a build with any one of them reports itself (`"mutated"` here)
+/// and frontier-verify's own refusal fires. Before fix-tg10 mutate-vr / mutate-vl / mutate-vwl were missing and such a
+/// build answered `"mutated": null`. The next mutate-* feature added to Cargo.toml without the list fails this test.
+#[test]
+fn mutated_lists_every_mutate_feature_in_cargo_toml() {
+    let toml = include_str!("../Cargo.toml");
+    let sec = &toml[toml.find("\n[features]\n").expect("[features]")..];
+    let sec = &sec[1..];
+    let sec = &sec[..sec[1..].find("\n[").map(|i| i + 1).unwrap_or(sec.len())];
+    let cargo: Vec<&str> = sec
+        .lines()
+        .filter_map(|l| l.split_once(" = ").map(|(k, _)| k.trim()))
+        .filter(|k| k.starts_with("mutate-"))
+        .collect();
+    let lib = include_str!("../src/lib.rs");
+    let f = &lib[lib
+        .find("pub fn mutated() -> Option<&'static str> {")
+        .expect("fn mutated")..];
+    let body = &f[f.find("m!(").expect("m!(")..f.find(")\n}").expect("end of m!")];
+    let listed: Vec<&str> = body
+        .split('"')
+        .filter(|w| w.starts_with("mutate-"))
+        .collect();
+    assert!(cargo.len() >= 18, "{cargo:?}");
+    let missing: Vec<&&str> = cargo.iter().filter(|f| !listed.contains(f)).collect();
+    assert!(
+        missing.is_empty(),
+        "mutate-* features not in mutated(): {missing:?}"
+    );
+    let extra: Vec<&&str> = listed.iter().filter(|f| !cargo.contains(f)).collect();
+    assert!(
+        extra.is_empty(),
+        "mutated() names features Cargo.toml lacks: {extra:?}"
+    );
+}

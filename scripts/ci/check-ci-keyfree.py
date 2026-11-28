@@ -5,7 +5,7 @@ start without the manual approval. Read-only; no network.
 
   python3 scripts/ci/check-ci-keyfree.py [.github/workflows/ci.yml ...]
 """
-import re, sys, yaml
+import re, shlex, sys, yaml
 
 FORBIDDEN = [
     (r'svm-tests', 'LiteSVM suite'),
@@ -40,12 +40,97 @@ LINT_LINE = re.compile(
 # --act / --loop.
 # `npm run smoke` / `npm run-script smoke` (permutation-gateway/demo/package.json: "smoke": "node smoke.mjs") and the
 # other demo smokes (smoke-save.mjs joins and signs; it has no --pre-join, so any run of it here fails) count too.
-SMOKE_RUN = re.compile(r'(^|[\s/])smoke(-[\w-]+)?\.mjs(\s|$)|(^|\s)npm (run|run-script) smoke(\s|$)')
+# Q-TG10-1 = a (r0ze 2026-11-28 19:45, inbox 2026-11-28-1524-test-gaps-10-questions.md; fix-tg10): the rule reads the
+# run text the way the shell does, not line by line. `\`-newline continuations are joined, a `# …` comment (at a word
+# start, outside quotes) is dropped to the end of its line, and the text is cut into commands at newlines and at
+# `;` `&` `|` outside quotes. Each command that names a demo smoke is then split into words (quotes removed), so
+# `node "smoke.mjs" --act`, `node smoke.mjs --pre-join \` + `--act`, and `node smoke.mjs --lang en # --pre-join` are
+# runs without --pre-join (or with --act). Also refused (fix-tg10): a smoke command whose words come from somewhere the
+# checker cannot read — `$(…)`, backticks, `<(…)`, `${{ … }}`, eval, xargs — and any --act / --loop / --claim word
+# anywhere in a step that runs a smoke or in the workflow/job/step `env:` values (variable indirection:
+# `F=--act; node smoke.mjs --pre-join $F`). `X=smoke.mjs` counts as naming the smoke (`node $X …`).
+# NOT caught (documented in docs/ci/KEY-FREE-CI.ja.md): a script name or flag built at run time from pieces
+# (`node "${N}.mjs"` with N=smoke; `--$A` with A=act; `F=--a""ct` outside the smoke command — inside it the quotes are
+# removed and --act is seen), flags written to $GITHUB_ENV by
+# another step from computed text, and flags in a file the smoke reads (it reads none today). Review covers those.
+# `npm run smoke` passes flags to smoke.mjs only after `--` (`npm run smoke --pre-join` runs a signing smoke).
+SMOKE_RUN = re.compile(r'(^|[\s/"\'=])smoke(-[\w-]+)?\.mjs(["\']?)(\s|$)|(^|\s)npm (run|run-script) ["\']?smoke["\']?(\s|$)')
+SIGNING_FLAGS = ('--act', '--loop', '--claim')       # each needs a joined player (smoke.mjs); --claim since #306
+SIGNING_FLAG = re.compile(r'(^|[\s=\'"(])--(act|loop|claim)(?=$|[\s\'")=;&|])')
+OPAQUE = re.compile(r'\$\(|`|<\(|\$\{\{|(^|\s)(eval|xargs)(\s|$)')
+# verify-pr323: package.json's `smoke` script reached through a runner the regex above does not see — npm with options
+# before or after `run` (`npm --prefix demo run smoke`, `npm run --silent smoke`), `node --run smoke` (Node 22+), pnpm,
+# yarn, bun. The command's words name a runner and the word `smoke`. npm still counts only words after `--`; any other
+# runner is refused outright (no key-free job uses one).
+RUNNERS = ('npm', 'pnpm', 'yarn', 'bun', 'corepack')
+SMOKE_SCRIPT = re.compile(r'(^|[\s"\'=])smoke(-[\w-]+)?(["\']|\s|$)')
 
-def demo_smoke_bad(step):
-    lines = [l.strip() for l in str(step.get('run', '')).splitlines()]
-    runs = [l for l in lines if l and not l.startswith('#') and SMOKE_RUN.search(l)]
-    return [l for l in runs if not re.search(r'(^|\s)--pre-join(\s|$)', l) or re.search(r'(^|\s)--(act|loop)(\s|$)', l)]
+def runner_smoke(c):
+    ws = words(c)
+    if ws is None:
+        return bool(SMOKE_SCRIPT.search(c) and re.search(r'(^|\s)(npm|pnpm|yarn|bun|corepack|node\s+--run)(\s|=|$)', c))
+    script = any(re.fullmatch(r'smoke(-[\w-]+)?', w) or re.fullmatch(r'--run=smoke(-[\w-]+)?', w) for w in ws)
+    npm_run = 'npm' in ws and any(w in ('run', 'run-script', 'rum', 'urn') for w in ws)    # npm's run aliases
+    return script and (npm_run or any(w in RUNNERS[1:] for w in ws) or any(w == '--run' or w.startswith('--run=') for w in ws))
+
+def shell_commands(text):
+    """The run text cut into commands as sh reads it: continuations joined, comments dropped, split at newline ; & |
+    outside quotes (a parenthesis is kept in the word; the word check strips it)."""
+    out, cur, q, i, n = [], [], None, 0, len(text)
+    def flush():
+        c = ''.join(cur).strip()
+        if c:
+            out.append(c)
+        cur.clear()
+    while i < n:
+        c = text[i]
+        if q == "'":
+            cur.append(c); q = None if c == "'" else q; i += 1; continue
+        if c == '\\' and i + 1 < n:
+            if text[i + 1] == '\n':
+                i += 2; continue                       # a continuation: the next line is the same command
+            cur += [c, text[i + 1]]; i += 2; continue
+        if q == '"':
+            cur.append(c); q = None if c == '"' else q; i += 1; continue
+        if c in '\'"':
+            q = c; cur.append(c); i += 1; continue
+        if c == '#' and (not cur or cur[-1] in ' \t;&|('):
+            while i < n and text[i] != '\n':
+                i += 1                                 # a comment, to the end of the line
+            continue
+        if c in '\n;&|':
+            flush(); i += 1; continue
+        cur.append(c); i += 1
+    flush()
+    return out
+
+def words(cmd):
+    try:
+        ws = shlex.split(cmd, posix=True)
+    except ValueError:
+        return None                                    # unbalanced quotes: unreadable, refused
+    return [w.strip('(){}') for w in ws]
+
+def demo_smoke_bad(step, env_text=''):
+    cmds = shell_commands(str(step.get('run', '')))
+    runs = [c for c in cmds if SMOKE_RUN.search(c) or runner_smoke(c)]
+    bad = []
+    for c in runs:
+        ws = words(c)
+        mjs = ws is not None and any(SMOKE_RUN.search(' ' + w) and w.endswith('.mjs') for w in ws)
+        if ws is not None and not mjs and not 'npm' in ws:
+            bad.append(c)                              # pnpm / yarn / bun / node --run smoke: refused outright
+            continue
+        if ws is not None and 'npm' in ws and not mjs:
+            # `npm run smoke --pre-join` gives --pre-join to npm, not to smoke.mjs: only words after `--` reach it
+            passed = ws[ws.index('--') + 1:] if '--' in ws else []
+        else:
+            passed = ws or []
+        if ws is None or OPAQUE.search(c) or '--pre-join' not in passed or any(f in ws for f in SIGNING_FLAGS):
+            bad.append(c)
+    if runs and not bad and (any(SIGNING_FLAG.search(c) for c in cmds) or SIGNING_FLAG.search(env_text)):
+        bad.append('[--act/--loop/--claim set elsewhere in the step or its env] ' + runs[0])
+    return bad
 
 def lint_only(step):
     if step.get('uses'):
@@ -57,6 +142,7 @@ def lint_only(step):
 def check(path):
     wf = yaml.safe_load(open(path))
     bad = []
+    env_of = lambda d: ' '.join(f'{k}={v}' for k, v in ((d or {}).get('env') or {}).items()) if isinstance((d or {}).get('env'), dict) else str((d or {}).get('env') or '')
     for name, job in (wf.get('jobs') or {}).items():
         manual = (job.get('if') or '').strip() == APPROVED_IF
         if name == 'key-tests':
@@ -65,8 +151,8 @@ def check(path):
             continue
         for st in job.get('steps') or []:
             text = '\n'.join(str(st.get(k, '')) for k in ('run', 'uses', 'name', 'working-directory'))
-            for l in demo_smoke_bad(st):
-                bad.append(f'{path}: job {name}, step "{st.get("name") or l[:40]}": demo smoke without --pre-join (or with --act/--loop) signs: `{l[:80]}`')
+            for l in demo_smoke_bad(st, ' '.join((env_of(wf), env_of(job), env_of(st)))):
+                bad.append(f'{path}: job {name}, step "{st.get("name") or l[:40]}": demo smoke without --pre-join (or with --act/--loop/--claim, or words the checker cannot read) signs: `{l[:120]}`')
             waived = lint_only(st)
             for pat, why in FORBIDDEN:
                 if waived and pat == r'svm-tests':

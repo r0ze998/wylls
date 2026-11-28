@@ -6,8 +6,8 @@
 //   - §2 refusals at start (mutated build, missing binary): exit 2, no data dir, the pull never started;
 //   - O-3: the guard keys on the UNVERIFIABLE severity of V0/UnknownProgramVersion, so the Rust side is pinned to that
 //     severity and that code;
-//   - D-verify-pr313-1: verify_core::mutated() does not list every mutate-* feature. It is pinned as a known gap
-//     (`todo`), and a NEW gap fails the test.
+//   - D-verify-pr313-1: verify_core::mutated() did not list mutate-vr / mutate-vl / mutate-vwl (a `todo` here until
+//     Q-TG10-2 = a, r0ze 2026-11-28 19:45; fixed by fix-tg10). Now every mutate-* feature must be listed.
 // Fake binaries only (POSIX sh scripts in a temp dir). No RPC, no port is opened (the --rpc URL is loopback and the
 // fake pull never connects), no cargo, no key.
 import test from 'node:test';
@@ -204,8 +204,8 @@ const mutatedList = () => {
   const call = fn.slice(fn.indexOf('m!('), fn.indexOf(')\n}'));
   return [...call.matchAll(/"(mutate-[a-z0-9]+)"/g)].map(m => m[1]);
 };
-// D-verify-pr313-1 / D-verify-bin-rebuild-2 (pre-existing): Cargo defines these, mutated() does not report them
-const KNOWN_UNREPORTED = ['mutate-vr', 'mutate-vl', 'mutate-vwl'];
+// D-verify-pr313-1 / D-verify-bin-rebuild-2: mutate-vr / mutate-vl / mutate-vwl were unreported until fix-tg10 (Q-TG10-2 = a)
+const KNOWN_UNREPORTED = [];
 
 test('#313 probe: every feature the probe can report is a real Cargo feature of the verify crate (a typo would read as "built without")', () => {
   const feats = cargoFeatures();
@@ -220,16 +220,16 @@ test('#313 probe: every feature the probe can report is a real Cargo feature of 
   assert.ok(m.indexOf('Some("features")') < m.indexOf('verify_core::mutated()'));
 });
 
-test('#313 mutated(): every name it reports is a Cargo mutate-* feature, and no mutate-* feature is unreported beyond the known three', () => {
+test('#313 mutated(): every name it reports is a Cargo mutate-* feature, and no mutate-* feature is unreported', () => {
   const feats = cargoFeatures().filter(f => f.startsWith('mutate-'));
   const listed = mutatedList();
-  assert.ok(feats.length >= 18 && listed.length >= 15, `${feats.length} / ${listed.length}`);
+  assert.ok(feats.length >= 18 && listed.length >= 18, `${feats.length} / ${listed.length}`);
   for (const f of listed) assert.ok(feats.includes(f), `${f} is a Cargo feature`);
   const unreported = feats.filter(f => !listed.includes(f));
   assert.deepEqual(unreported.filter(f => !KNOWN_UNREPORTED.includes(f)), [], 'a NEW mutate-* feature must be added to mutated() (else its build passes the watch\'s guard)');
 });
 
-test('#313 mutated() reports EVERY mutate-* feature (D-verify-pr313-1: mutate-vr / mutate-vl / mutate-vwl builds say "mutated": null and pass the guard)', { todo: 'D-test-gaps-10-2 / D-verify-pr313-1: not fixed here (tests only); inbox 2026-11-28-1524-test-gaps-10-questions.md Q-TG10-2' }, () => {
+test('#313 mutated() reports EVERY mutate-* feature (D-verify-pr313-1: mutate-vr / mutate-vl / mutate-vwl builds said "mutated": null and passed the guard; fixed by fix-tg10, Q-TG10-2 = a)', () => {
   const feats = cargoFeatures().filter(f => f.startsWith('mutate-'));
   assert.deepEqual(feats.filter(f => !mutatedList().includes(f)), []);
 });
