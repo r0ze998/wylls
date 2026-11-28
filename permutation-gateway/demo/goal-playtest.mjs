@@ -11,18 +11,18 @@ import * as W from '../screens/world.mjs';
 import { createLive } from '../screens/liveworld.mjs';
 import { TILE_OFFSETS, tileHex, hexDistance } from '../../permutation-server/web/frontier/fgeo.mjs';
 
-const { values: opt } = parseArgs({ options: {
+const { values: opt } = parseArgs({ strict: false, args: import.meta.url === `file://${process.argv[1]}` ? process.argv.slice(2) : [], options: {
   games: { type: 'string', default: '6' }, strategy: { type: 'string', default: 'all' }, nation: { type: 'string', default: 'all' },
   turns: { type: 'string', default: '220' }, log: { type: 'boolean', default: false }, set: { type: 'string', default: '' }, json: { type: 'string' },
 } });
 const over = Object.fromEntries(opt.set.split(',').filter(Boolean).map(kv => { const [k, v] = kv.split('='); return [k, Number(v)]; }));
 const TURN_SECS = 12;
-const NAMES = ['Cinder', 'Borealis', 'Verdant', 'Tide', 'Dunmar', 'Aster'];
+const NAMES = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'];
 
-async function game({ nation, strategy, turns }) {
+export async function game({ nation, strategy, turns, set = over }) {
   let real = 1_000_000;
   const live = createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true,
-    turn: TURN_SECS, delay: 3, landMs: 400, wall: () => real, goal: Object.keys(over).length ? over : true });
+    turn: TURN_SECS, delay: 3, landMs: 400, wall: () => real, goal: Object.keys(set).length ? set : true });
   live.seen();
   const step = ms => { real += ms; live.clock(); };
   step(4_000);
@@ -100,17 +100,21 @@ function play(live, s, ord, strategy, st) {
   }
 }
 
-const strategies = opt.strategy === 'all' ? ['active', 'idle'] : opt.strategy.split(',');
-const nations = opt.nation === 'all' ? [0, 1, 2, 3, 4, 5] : opt.nation.split(',').map(Number);
-const out = [];
-let n = 0;
-for (const strategy of strategies) for (const nation of nations) {
-  if (n++ >= Number(opt.games) * strategies.length) break;
-  const t = Date.now();
-  const r = await game({ nation, strategy, turns: Number(opt.turns) });
-  out.push(r);
-  const waves = r.waves.filter(w => w.ok);
-  console.log(`${r.strategy.padEnd(6)} ${r.nation.padEnd(8)} → ${r.result.padEnd(4)} ${r.by ? `(${r.by}) ` : ''}after ${r.turns} turns = ${r.realMin} min; player orders ${r.orders}; castle changes ${r.events.length}; AI wave marches ${waves.length} (raids on player ${waves.filter(w => w.target === 'raid').length}); ${r.progress ?? ''} [${((Date.now() - t) / 1000).toFixed(0)} s]`);
-  if (opt.log) { for (const e of r.events) console.log(`    t+${e.turn}: ${e.castle}'s castle ${e.from} → ${e.to}`); console.log(`    refused ${JSON.stringify(r.refused)}`); }
+if (import.meta.url === `file://${process.argv[1]}`) await main();
+
+async function main() {
+  const strategies = opt.strategy === 'all' ? ['active', 'idle'] : opt.strategy.split(',');
+  const nations = opt.nation === 'all' ? [0, 1, 2, 3, 4, 5] : opt.nation.split(',').map(Number);
+  const out = [];
+  let n = 0;
+  for (const strategy of strategies) for (const nation of nations) {
+    if (n++ >= Number(opt.games) * strategies.length) break;
+    const t = Date.now();
+    const r = await game({ nation, strategy, turns: Number(opt.turns) });
+    out.push(r);
+    const waves = r.waves.filter(w => w.ok);
+    console.log(`${r.strategy.padEnd(6)} ${r.nation.padEnd(8)} → ${r.result.padEnd(4)} ${r.by ? `(${r.by}) ` : ''}after ${r.turns} turns = ${r.realMin} min; player orders ${r.orders}; castle changes ${r.events.length}; AI wave marches ${waves.length} (raids on player ${waves.filter(w => w.target === 'raid').length}); ${r.progress ?? ''} [${((Date.now() - t) / 1000).toFixed(0)} s]`);
+    if (opt.log) { for (const e of r.events) console.log(`    t+${e.turn}: ${e.castle}'s castle ${e.from} → ${e.to}`); console.log(`    refused ${JSON.stringify(r.refused)}`); }
+  }
+  if (opt.json) (await import('node:fs')).writeFileSync(opt.json, JSON.stringify(out, null, 1));
 }
-if (opt.json) (await import('node:fs')).writeFileSync(opt.json, JSON.stringify(out, null, 1));

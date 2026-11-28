@@ -76,7 +76,8 @@ globalThis.document?.addEventListener('click', e => {
   const b = e.target?.closest?.('[data-demo-reset]');
   if (!b) return;
   e.preventDefault();
-  if (globalThis.confirm(b.getAttribute('data-confirm') || 'Start over?')) startOver();
+  // ("Play again" on the goal's result screen: data-demo-reset="now", the game is over — nothing to ask)
+  if (b.getAttribute('data-demo-reset') === 'now' || globalThis.confirm(b.getAttribute('data-confirm') || 'Start over?')) startOver();
 });
 globalThis.addEventListener?.('pagehide', () => SAVER.write());
 globalThis.document?.addEventListener('visibilitychange', () => { if (globalThis.document.visibilityState === 'hidden') SAVER.write(); });
