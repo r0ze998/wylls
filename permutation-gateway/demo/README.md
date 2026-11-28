@@ -46,8 +46,9 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
 - Land is the sample world's arrival-control rule (`screens/territory.mjs`: a host that arrives alone on an open
   tile takes it for its nation), with the real V1 food upkeep (`landUpkeep`): the land logistics horizon card shows.
   It is not the live game's "take 1 tile" claim (Q-WD-4).
-- A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). Reloading starts a new world
-  (same seed); the demo clears its own `ps-*` storage at load and keeps only the language.
+- A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). A reload continues the saved
+  world (see Save / resume below); without a save, or with an old or damaged one, it is a new world (same seed) and the
+  demo clears its own `ps-*` storage at load, keeping only the language.
 - The guest signs with the page's test Dev Wallet (`screens/world.mjs` `storageFor`: the sample world's fixed seed and
   `ps-wallet`, kept in this browser only; it never reaches a chain). The real page offers that wallet only on a loopback
   host (`frontier/config.mjs` `dev`), so `build.mjs` bundles `config.mjs` with `dev` true: the demo offers it on any
