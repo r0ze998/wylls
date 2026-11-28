@@ -176,58 +176,74 @@ enum Judged {
 }
 
 /// How VG takes each transaction's Clock (verifier-clock-fix, Q-W3VWS-1 =
-/// a). The RPC gives a transaction's `blockTime`, not the bank's
-/// `Clock.unix_timestamp` the program read, and on devnet the two differ by
-/// one second in some slots (blockTime one above). The Clock is therefore
-/// read from the transaction's own recorded effects: the pinned program is
-/// run at `blockTime` and at `blockTime − 1`, and the Clock is the one under
-/// which its log lines (the program's records carry the times it stamps),
-/// its program accounts' balances and its error are exactly the chain's.
+/// a; fix-verify-clock, Q-WF2-1). The RPC gives a transaction's
+/// `blockTime`, not the bank's `Clock.unix_timestamp` the program read, and
+/// on devnet the two differ in some slots: blockTime one second above
+/// (world 3 tx#21 and ~340 more), once two seconds above (world 3
+/// tx#13720, slot 527244500: blockTime 1795872970, the program stamped
+/// 1795872968 into its logs and 7 anchors). Never below. The Clock is
+/// therefore read from the transaction's own recorded effects: the pinned
+/// program is run at `blockTime − k` for every k in `0..=`[`CLOCK_LAG_MAX`],
+/// and the Clock is the one under which its log lines (the program's records
+/// carry the times it stamps), its program accounts' balances and its error
+/// are exactly the chain's.
 ///
 /// * One Clock per slot (one bank): once a transaction of a slot decides
 ///   it, every later transaction of the slot is run at that Clock only, and
 ///   every transaction of the slot is dated with it for the other checks
 ///   (V3, V7, VX, … read the derived archive's `block_time`).
-/// * Only those two candidates, and only exact agreement: no tolerance is
-///   applied to any comparison. A transaction no candidate reproduces is
-///   judged at the slot's Clock, else at `blockTime`, as before.
-/// * When both reproduce it and the two runs leave different states (the
+/// * Only those candidates (a window as wide as devnet was seen to lag, no
+///   wider), and only exact agreement: no tolerance is applied to any
+///   comparison. A transaction no candidate reproduces is judged at the
+///   slot's Clock, else at `blockTime`, as before.
+/// * When several reproduce it and their runs leave different states (the
 ///   Clock went into account data the archive does not show: PostBeacon's
 ///   anchor time), the account write decides where the chain recorded it:
 ///   the chain's final state of an account this transaction is the last
-///   writer of shows the Clock it stamped. Otherwise it is taken at
-///   `blockTime` until a later transaction of the same slot decides the
-///   slot's Clock; then its states are re-taken from the other run
-///   (UNVERIFIABLE [`OPEN_CLOCK`] when a later write already replaced
-///   them). Never decided: a later write replaced the stamp and every later
-///   transaction reproduced from the state taken, so the archive is the
-///   program's under that Clock (counted in the `ClockFromEffects` WARN).
+///   writer of shows the Clock it stamped (a candidate whose run it does not
+///   show is out). Otherwise it is taken at the first one left (nearest
+///   `blockTime`) until a later transaction of the same slot decides the
+///   slot's Clock; then its states are re-taken from that Clock's run
+///   (UNVERIFIABLE [`OPEN_CLOCK`] when a later write already replaced them;
+///   FAIL when the slot's Clock is not one that reproduces it). Never
+///   decided: a later write replaced the stamp and every later transaction
+///   reproduced from the state taken, so the archive is the program's under
+///   that Clock (counted in the `ClockFromEffects` WARN).
 ///
 /// What this proves: the archive is what the pinned program produces under
-/// SOME Clock per slot, each `blockTime` or `blockTime − 1` (the RPC's
-/// `blockTime` is no more authenticated than that). The search is greedy
-/// (no back-tracking): a transaction whose state rests on a Clock taken at
-/// `blockTime` that only a much later transaction contradicts FAILs there.
+/// SOME Clock per slot, each `blockTime − k`, 0 ≤ k ≤ [`CLOCK_LAG_MAX`] (the
+/// RPC's `blockTime` is no more authenticated than that). The search is
+/// greedy (no back-tracking): a transaction whose state rests on a Clock
+/// taken nearer `blockTime` that only a much later transaction contradicts
+/// FAILs there.
 ///
 /// An archive with post-states (a local node's, whose recorder stores the
 /// bank's Clock as `block_time`) is not VG's: VX runs it at `block_time`.
 pub struct ClockRule;
 
+/// The most seconds the bank's Clock was seen below the RPC's `blockTime`
+/// ([`ClockRule`]): 2 (world 3 tx#13720, slot 527244500; every other moved
+/// slot of world 3's 13,785 transactions was 1, none was 3 or above, none
+/// was above `blockTime`). Q-WF2-1 (r0ze): widen only on chain evidence; a
+/// larger lag stays a FAIL that stops the watch.
+pub const CLOCK_LAG_MAX: i64 = 2;
+
 /// The detail prefix of an undecided Clock (UNVERIFIABLE).
 pub const OPEN_CLOCK: &str = "the Clock this transaction read is not decided";
 
-/// A transaction both candidate Clocks reproduce, whose two runs leave
+/// A transaction several candidate Clocks reproduce, whose runs leave
 /// different states ([`ClockRule`]): taken at `used` until its slot's Clock
 /// is decided.
 struct Open {
     tx: usize,
     slot: u64,
     used: i64,
-    /// The other candidate Clock.
-    other: i64,
-    /// Each account the two runs leave differently: the state taken (at
-    /// `used`) and the other one (chain lamports in both).
-    accounts: Vec<(Key, Option<Account>, Option<Account>)>,
+    /// The other candidate Clocks that reproduce it.
+    others: Vec<i64>,
+    /// Each account the runs leave differently: the state taken (at
+    /// `used`) and, one per `others`, the other runs' (chain lamports in
+    /// all).
+    accounts: Vec<(Key, Option<Account>, Vec<Option<Account>>)>,
     /// Re-taken at the slot's decided Clock.
     fixed: bool,
     /// A later transaction named one of `accounts` (read or wrote it)
@@ -245,9 +261,10 @@ struct Open {
 pub const UNDECIDED_CLOCK_UNVERIFIABLE: bool = false;
 
 /// The Clock of `slot` is `c` ([`ClockRule`]): every open transaction of the
-/// slot taken at the other Clock gets the other run's states, as long as no
-/// later transaction read or wrote them since (else it stays unfixed,
-/// reported UNVERIFIABLE).
+/// slot taken at another Clock gets `c`'s run's states, as long as no later
+/// transaction read or wrote them since (else it stays unfixed, reported
+/// UNVERIFIABLE) and `c` reproduces it (else it stays unfixed, reported
+/// FAIL).
 fn decide(
     clocks: &mut BTreeMap<u64, i64>,
     open: &mut [Open],
@@ -257,29 +274,54 @@ fn decide(
     c: i64,
 ) {
     clocks.insert(slot, c);
-    for o in open
-        .iter_mut()
-        .filter(|o| o.slot == slot && o.used != c && !o.fixed)
-    {
+    narrow(open, state, derived, slot, &[c]);
+}
+
+/// The Clock of `slot` is one of `set` (nearest `blockTime` first;
+/// fix-verify-clock): every open transaction of the slot taken at a Clock
+/// outside it gets the run of the first Clock of `set` that reproduces it,
+/// as long as no later transaction read or wrote its states since. Fixed
+/// once `set` is one Clock (the slot's decided Clock).
+fn narrow(
+    open: &mut [Open],
+    state: &mut BTreeMap<Key, Option<Account>>,
+    derived: &mut [fclient::ports::TxRecord],
+    slot: u64,
+    set: &[i64],
+) {
+    for o in open.iter_mut().filter(|o| o.slot == slot && !o.fixed) {
+        if set.contains(&o.used) {
+            o.fixed = set.len() == 1;
+            continue;
+        }
         if o.touched {
             continue;
         }
+        let Some(n) = set
+            .iter()
+            .find_map(|c| o.others.iter().position(|x| x == c))
+        else {
+            continue;
+        };
         if o.accounts
             .iter()
             .any(|(k, used, _)| state.get(k) != Some(used))
         {
             continue;
         }
-        for (k, _, other) in &o.accounts {
+        for (k, used, others) in o.accounts.iter_mut() {
+            let other = others[n].clone();
             state.insert(*k, other.clone());
             for (a, p) in derived[o.tx].post.iter_mut() {
                 if a.to_bytes() == *k {
                     *p = other.clone();
                 }
             }
+            // (the run taken before stays one of the others)
+            others[n] = std::mem::replace(used, other);
         }
-        o.used = c;
-        o.fixed = true;
+        o.others[n] = std::mem::replace(&mut o.used, o.others[n]);
+        o.fixed = set.len() == 1;
     }
 }
 
@@ -464,6 +506,10 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
     // [`ClockRule`]: the Clock each slot's transactions decided, and the
     // transactions whose state rests on an undecided one (tx, slot, Clock used).
     let mut clocks: BTreeMap<u64, i64> = hints.clone();
+    // (fix-verify-clock) the Clocks an undecided slot can still have,
+    // nearest blockTime first: what every transaction of it so far
+    // reproduces at.
+    let mut sets: BTreeMap<u64, Vec<i64>> = BTreeMap::new();
     let mut open: Vec<Open> = vec![];
     // The last successful transaction that writes each account (its final
     // state, read from the chain, shows that write).
@@ -675,10 +721,12 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
         // 1795663037, the program logged 1795663036). The Clock is taken
         // from the transaction's own effects instead ([`ClockRule`]).
         let base = rec.block_time;
+        // (fix-verify-clock: once 2 s, tx#13720; [`CLOCK_LAG_MAX`])
         let feasible: Vec<i64> = clocks
             .get(&rec.slot)
             .map(|c| vec![*c])
-            .unwrap_or_else(|| vec![base, base - 1]);
+            .or_else(|| sets.get(&rec.slot).cloned())
+            .unwrap_or_else(|| (0..=CLOCK_LAG_MAX).map(|k| base - k).collect());
         let mut runs: Vec<(i64, crate::reexec::Replayed, Judged)> = vec![];
         let mut refused: Option<String> = None;
         for &t in &feasible {
@@ -735,35 +783,28 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
                 );
                 *k
             }
-            // Both reproduce its logs, balances and error. The states the
-            // two runs leave may still differ (the Clock stamped into
+            // Several reproduce its logs, balances and error. The states
+            // their runs leave may still differ (the Clock stamped into
             // account data: PostBeacon's anchor time); then the chain's
             // final state of an account it is the last writer of decides
-            // (it shows the Clock that last write stamped), else it stays
-            // open until a later transaction of its slot decides the slot.
-            [a, b, ..] => {
-                let (a, b) = (*a, *b);
-                let mut alt: Vec<(Key, Option<Account>, Option<Account>)> = vec![];
-                let mut last: Vec<(Key, usize)> = vec![];
-                for (j, (x, y)) in runs[a]
-                    .1
-                    .accounts
-                    .iter()
-                    .zip(runs[b].1.accounts.iter())
-                    .enumerate()
-                {
-                    if x.1 == Pre::Runtime || !writable[j] || x.3 == y.3 {
-                        continue;
-                    }
-                    alt.push((
-                        x.0,
-                        with_lamports(x.3.clone(), bal.post[j]),
-                        with_lamports(y.3.clone(), bal.post[j]),
-                    ));
-                    if last_writer.get(&x.0) == Some(&i) && input.finals.contains_key(&x.0) {
-                        last.push((x.0, j));
-                    }
-                }
+            // (it shows the Clock that last write stamped: a candidate
+            // whose run it does not show is out), else it stays open until
+            // a later transaction of its slot decides the slot.
+            many => {
+                let a = many[0];
+                // the accounts some two of the runs leave differently
+                let differ = |j: usize, ks: &[usize]| {
+                    let x = &runs[ks[0]].1.accounts[j];
+                    x.1 != Pre::Runtime
+                        && writable[j]
+                        && ks[1..].iter().any(|&k| runs[k].1.accounts[j].3 != x.3)
+                };
+                let n = runs[a].1.accounts.len();
+                let last: Vec<(Key, usize)> = (0..n)
+                    .filter(|&j| differ(j, many))
+                    .map(|j| (runs[a].1.accounts[j].0, j))
+                    .filter(|(k, _)| last_writer.get(k) == Some(&i) && input.finals.contains_key(k))
+                    .collect();
                 let shows = |k: usize| {
                     last.iter().all(|(key, j)| {
                         let f = input.finals.get(key).cloned().flatten();
@@ -775,32 +816,57 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
                         }
                     })
                 };
-                // (a failed transaction leaves no state: nothing to decide)
-                if !ok || (alt.is_empty() && runs[a].1.err == runs[b].1.err) {
-                    a
-                } else if !last.is_empty() && shows(a) != shows(b) {
-                    let k = if shows(a) { a } else { b };
+                let showing: Vec<usize> = many.iter().copied().filter(|&k| shows(k)).collect();
+                // (none shows it: every candidate stays; the final states FAIL)
+                let cands: Vec<usize> = if last.is_empty() || showing.is_empty() {
+                    many.to_vec()
+                } else {
+                    showing
+                };
+                let alt: Vec<(Key, Option<Account>, Vec<Option<Account>>)> = (0..n)
+                    .filter(|&j| cands.len() > 1 && differ(j, &cands))
+                    .map(|j| {
+                        let at =
+                            |k: usize| with_lamports(runs[k].1.accounts[j].3.clone(), bal.post[j]);
+                        (
+                            runs[a].1.accounts[j].0,
+                            at(cands[0]),
+                            cands[1..].iter().map(|&k| at(k)).collect(),
+                        )
+                    })
+                    .collect();
+                let same_err = cands.iter().all(|&k| runs[k].1.err == runs[cands[0]].1.err);
+                let set: Vec<i64> = cands.iter().map(|&k| runs[k].0).collect();
+                if set.len() == 1 {
                     decide(
                         &mut clocks,
                         &mut open,
                         &mut state,
                         &mut derived.txs,
                         rec.slot,
-                        runs[k].0,
+                        set[0],
                     );
-                    k
                 } else {
-                    open.push(Open {
-                        tx: i,
-                        slot: rec.slot,
-                        used: runs[a].0,
-                        other: runs[b].0,
-                        accounts: alt,
-                        fixed: false,
-                        touched: false,
-                    });
-                    a
+                    // fix-verify-clock: the slot's Clock is one of these;
+                    // every later transaction of the slot is run at them
+                    // only, and open ones taken outside them are re-taken.
+                    sets.insert(rec.slot, set.clone());
+                    narrow(&mut open, &mut state, &mut derived.txs, rec.slot, &set);
+                    // (a failed transaction leaves no state: nothing to
+                    // re-take)
+                    if ok && !(alt.is_empty() && same_err) {
+                        open.push(Open {
+                            tx: i,
+                            slot: rec.slot,
+                            used: set[0],
+                            others: set[1..].to_vec(),
+                            accounts: alt,
+                            fixed: false,
+                            touched: false,
+                        });
+                    }
                 }
+                cands[0]
             }
         };
         let (_, r, judged0) = runs.swap_remove(pick);
@@ -845,9 +911,18 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
     }
     // [`ClockRule`]: every transaction of a decided slot is dated with the
     // slot's Clock in the derived archive (the other checks read it).
+    // (fix-verify-clock) An undecided slot every transaction of which
+    // reproduces only below blockTime is dated with the nearest Clock left.
     let mut moved: BTreeMap<u64, (i64, i64, usize)> = BTreeMap::new();
+    let mut nearest: BTreeSet<u64> = BTreeSet::new();
     for (i, rec) in input.txs.iter().enumerate() {
-        if let Some(&c) = clocks.get(&rec.slot) {
+        let c = clocks.get(&rec.slot).copied().or_else(|| {
+            sets.get(&rec.slot).map(|s| {
+                nearest.insert(rec.slot);
+                s[0]
+            })
+        });
+        if let Some(c) = c {
             if c != rec.block_time {
                 derived.txs[i].block_time = c;
                 let e = moved.entry(rec.slot).or_insert((rec.block_time, c, 0));
@@ -856,24 +931,52 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
         }
     }
     let mut undecided = 0usize;
+    let mut below = 0usize;
     let mut more: BTreeMap<u64, i64> = BTreeMap::new();
     for o in &open {
-        match clocks.get(&o.slot) {
-            // Never decided in this pass: the chain's final state of an
-            // account it stamped, unwritten since at the stamped bytes,
-            // shows the other run's bytes: the next pass runs the slot at
-            // the other Clock.
-            None if o.accounts.iter().any(|(k, used, other)| {
-                survives(state.get(k).cloned().flatten(), used, other, input.finals.get(k))
-            }) =>
-            {
-                more.insert(o.slot, o.other);
+        // Never decided in this pass: the chain's final state of an account
+        // it stamped, unwritten since at the stamped bytes, shows another
+        // run's bytes: the next pass runs the slot at that Clock.
+        let set = sets.get(&o.slot);
+        let shown = || {
+            (0..o.others.len()).find(|&n| {
+                set.is_none_or(|s| s.contains(&o.others[n]))
+                    && o.accounts.iter().any(|(k, used, others)| {
+                        survives(
+                            state.get(k).cloned().flatten(),
+                            used,
+                            &others[n],
+                            input.finals.get(k),
+                        )
+                    })
+            })
+        };
+        // (an undecided slot whose Clocks left do not include the one it
+        // was taken at: as if decided at the nearest)
+        let eff = clocks
+            .get(&o.slot)
+            .copied()
+            .or_else(|| set.filter(|s| !s.contains(&o.used)).map(|s| s[0]));
+        // (whether a run of it other than the one taken is still possible)
+        let other_possible = eff.is_some_and(|c| {
+            o.others.iter().any(|x| match clocks.get(&o.slot) {
+                Some(_) => *x == c,
+                None => set.is_some_and(|s| s.contains(x)),
+            })
+        });
+        match eff.as_ref() {
+            None if shown().is_some() => {
+                let n = shown().expect("checked");
+                more.insert(o.slot, o.others[n]);
             }
             // Never decided: nothing the chain recorded shows the Clock it
             // stamped (a later write replaced it, and every later
             // transaction reproduced from the state taken at `used`).
             None => {
                 undecided += 1;
+                if o.used != input.txs[o.tx].block_time {
+                    below += 1;
+                }
                 if UNDECIDED_CLOCK_UNVERIFIABLE {
                     out.findings.push(finding(
                         Severity::Unverifiable,
@@ -881,13 +984,34 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
                         Some(o.tx),
                         input,
                         format!(
-                            "{OPEN_CLOCK}: both {} and {} reproduce it and nothing the chain recorded shows which one it stamped (Q-VCF-2)",
-                            o.used, o.other
+                            "{OPEN_CLOCK}: each of {} reproduces it and nothing the chain recorded shows which one it stamped (Q-VCF-2)",
+                            std::iter::once(o.used)
+                                .chain(o.others.iter().copied())
+                                .map(|c| c.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         ),
                     ));
                 }
             }
             Some(c) if *c == o.used => {}
+            // (fix-verify-clock) the slot's Clock is not one that reproduces
+            // it: no one Clock of the slot reproduces the slot.
+            Some(c) if !other_possible => out.findings.push(finding(
+                Severity::Fail,
+                REEXEC_MISMATCH,
+                Some(o.tx),
+                input,
+                format!(
+                    "another transaction of slot {} decides the slot's Clock to be {c}, but it reproduces the chain's record only at {} (one Clock per slot)",
+                    o.slot,
+                    std::iter::once(o.used)
+                        .chain(o.others.iter().copied())
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )),
             Some(c) => out.findings.push(finding(
                 Severity::Unverifiable,
                 MISSING_DATA,
@@ -909,13 +1033,46 @@ fn derive_pass(input: &Input, hints: &BTreeMap<u64, i64>) -> (Derived, BTreeMap<
             .next()
             .map(|(s, m)| format!("; first: slot {s} blockTime {} → Clock {}", m.0, m.1))
             .unwrap_or_default();
+        // (fix-verify-clock: the text is the earlier one when every moved
+        // slot moved by 1 and every undecided stamp was taken at blockTime)
+        let (ns, nt) = moved
+            .iter()
+            .filter(|(s, _)| nearest.contains(s))
+            .fold((0, 0), |(a, b), (_, m)| (a + 1, b + m.2));
+        let first = if ns == 0 {
+            first
+        } else {
+            format!("{first}; {nt} transaction(s) in {ns} of those slot(s) reproduce at more than one Clock below blockTime and at no other: dated at the nearest")
+        };
+        let mut by_lag: BTreeMap<i64, (usize, usize)> = BTreeMap::new();
+        for m in moved.values() {
+            let e = by_lag.entry(m.0 - m.1).or_default();
+            e.0 += 1;
+            e.1 += m.2;
+        }
+        let at = if by_lag.keys().all(|&k| k == 1) {
+            "blockTime − 1".to_string()
+        } else {
+            by_lag
+                .iter()
+                .map(|(k, (sl, t))| format!("blockTime − {k} ({t} in {sl} slot(s))"))
+                .collect::<Vec<_>>()
+                .join(" or ")
+        };
+        let taken = if below == 0 {
+            "taken at blockTime".to_string()
+        } else {
+            format!(
+                "taken at the Clock nearest blockTime that reproduces it ({below} of them below blockTime)"
+            )
+        };
         out.findings.push(finding(
             Severity::Warn,
             CLOCK_FROM_EFFECTS,
             None,
             input,
             format!(
-                "Clock from the transactions' effects, not the RPC's blockTime: {txs} transaction(s) in {} slot(s) re-executed at blockTime − 1, the only Clock of their slot that reproduces the program's recorded logs, balances, errors and final states (one Clock per slot){first}; {undecided} transaction(s) stamped a Clock nothing the chain recorded decides (a later write replaced it and every later transaction reproduced): taken at blockTime",
+                "Clock from the transactions' effects, not the RPC's blockTime: {txs} transaction(s) in {} slot(s) re-executed at {at}, the only Clock of their slot that reproduces the program's recorded logs, balances, errors and final states (one Clock per slot){first}; {undecided} transaction(s) stamped a Clock nothing the chain recorded decides (a later write replaced it and every later transaction reproduced): {taken}",
                 moved.len(),
             ),
         ));
@@ -1017,8 +1174,8 @@ mod clock_rule {
             tx: 0,
             slot: 5,
             used: 100,
-            other: 99,
-            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            others: vec![99],
+            accounts: vec![(k, acc(0x10), vec![acc(0x0f)])],
             fixed: false,
             touched: false,
         }];
@@ -1039,8 +1196,8 @@ mod clock_rule {
             tx: 0,
             slot: 5,
             used: 100,
-            other: 99,
-            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            others: vec![99],
+            accounts: vec![(k, acc(0x10), vec![acc(0x0f)])],
             fixed: false,
             touched: false,
         }];
@@ -1067,8 +1224,8 @@ mod clock_rule {
             tx: 0,
             slot: 5,
             used: 100,
-            other: 99,
-            accounts: vec![(k, acc(0x10), acc(0x0f))],
+            others: vec![99],
+            accounts: vec![(k, acc(0x10), vec![acc(0x0f)])],
             fixed: false,
             touched: true,
         }];
@@ -1078,6 +1235,83 @@ mod clock_rule {
         assert!(!open[0].fixed && open[0].used == 100);
         assert_eq!(state.get(&k), Some(&acc(0x10)));
         assert_eq!(inp[0].post[0].1, acc(0x10));
+    }
+
+    #[test]
+    fn a_decided_clock_re_takes_the_matching_one_of_several_runs() {
+        // fix-verify-clock: three candidates; the slot's Clock picks its own
+        // run's state, not another's.
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        inp[0].post = vec![(Address::new_from_array(k), acc(0x10))];
+        let mut state = BTreeMap::from([(k, acc(0x10))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            others: vec![99, 98],
+            accounts: vec![(k, acc(0x10), vec![acc(0x0f), acc(0x0e)])],
+            fixed: false,
+            touched: false,
+        }];
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 98);
+        assert!(open[0].fixed && open[0].used == 98);
+        assert_eq!(state.get(&k), Some(&acc(0x0e)));
+        assert_eq!(inp[0].post[0].1, acc(0x0e));
+    }
+
+    #[test]
+    fn a_narrowed_slot_re_takes_the_nearest_clock_left_and_stays_open() {
+        // fix-verify-clock (world 3 tx#1284's shape): a later transaction of
+        // the slot reproduces only at 99 or 98, so the run taken at 100 is
+        // out: re-taken at 99 (nearest), still open between 99 and 98.
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        inp[0].post = vec![(Address::new_from_array(k), acc(0x10))];
+        let mut state = BTreeMap::from([(k, acc(0x10))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            others: vec![99, 98],
+            accounts: vec![(k, acc(0x10), vec![acc(0x0f), acc(0x0e)])],
+            fixed: false,
+            touched: false,
+        }];
+        narrow(&mut open, &mut state, &mut inp, 5, &[99, 98]);
+        assert!(!open[0].fixed && open[0].used == 99);
+        assert_eq!(open[0].others, vec![100, 98]);
+        assert_eq!(state.get(&k), Some(&acc(0x0f)));
+        assert_eq!(inp[0].post[0].1, acc(0x0f));
+        // then decided at 98: re-taken again, fixed
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 98);
+        assert!(open[0].fixed && open[0].used == 98);
+        assert_eq!(state.get(&k), Some(&acc(0x0e)));
+    }
+
+    #[test]
+    fn a_decided_clock_that_does_not_reproduce_it_re_takes_nothing() {
+        // The slot's Clock is none of the runs that reproduce it: its state
+        // stays (reported FAIL at the end of the pass).
+        let k = [7u8; 32];
+        let mut inp = one_tx();
+        let mut state = BTreeMap::from([(k, acc(0x10))]);
+        let mut open = vec![Open {
+            tx: 0,
+            slot: 5,
+            used: 100,
+            others: vec![99],
+            accounts: vec![(k, acc(0x10), vec![acc(0x0f)])],
+            fixed: false,
+            touched: false,
+        }];
+        let mut clocks = BTreeMap::new();
+        decide(&mut clocks, &mut open, &mut state, &mut inp, 5, 98);
+        assert_eq!(clocks.get(&5), Some(&98));
+        assert!(!open[0].fixed && open[0].used == 100);
+        assert_eq!(state.get(&k), Some(&acc(0x10)));
     }
 
     #[test]

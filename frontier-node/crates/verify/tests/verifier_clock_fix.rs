@@ -6,6 +6,9 @@
 //! bank's `Clock.unix_timestamp` the program read (world 3 tx#21: blockTime
 //! 1795663037, the program logged 1795663036), and a replay at `blockTime`
 //! then logged one differing byte and cascaded into ~900 FAIL findings.
+//! fix-verify-clock (Q-WF2-1): once two seconds (world 3 tx#13720, slot
+//! 527244500; `fixtures/verify/world3-tx13720-clock.json`), so the
+//! candidates are `blockTime − k`, 0 ≤ k ≤ `genesis::CLOCK_LAG_MAX` = 2.
 //! These tests take the honest playable-lane recording of
 //! `playable_genesis.rs` (made in LiteSVM, where `block_time` IS the Clock),
 //! serve it as a public RPC does (no post-states) and move `blockTime` the
@@ -69,12 +72,16 @@ fn clock_sensitive() -> Vec<usize> {
         .collect()
 }
 
+use verify_core::genesis::CLOCK_LAG_MAX;
+
 #[test]
 fn the_fixture_is_clock_sensitive() {
     // Deliberate-break baseline: without the rule (a replay at blockTime)
-    // the shifted archive is what devnet showed. A Clock two seconds off is
-    // outside the rule and must FAIL exactly as before: no tolerance.
-    let r = verify_core::verify(&shifted(2));
+    // the shifted archive is what devnet showed. A Clock three seconds off
+    // (one beyond CLOCK_LAG_MAX) is outside the rule and must FAIL exactly
+    // as before: no tolerance.
+    assert_eq!(CLOCK_LAG_MAX, 2);
+    let r = verify_core::verify(&shifted(CLOCK_LAG_MAX + 1));
     assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
     assert!(
         r.findings
@@ -149,8 +156,8 @@ fn the_derived_archive_carries_the_clock_the_program_read() {
 
 #[test]
 fn a_block_time_below_the_clock_is_not_a_candidate() {
-    // Devnet showed blockTime = Clock + 1 only; blockTime − 1 is the one
-    // other candidate. A Clock above blockTime is never tried.
+    // Devnet showed blockTime = Clock + 1 or + 2 only; blockTime − 1 and
+    // − 2 are the other candidates. A Clock above blockTime is never tried.
     let r = verify_core::verify(&shifted(-1));
     assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
     // verify-pr266: VG itself refuses it (a Clock-sensitive transaction no
@@ -275,4 +282,191 @@ fn an_undecided_stamp_is_counted_even_when_no_slot_moved() {
         .and_then(|s| s.parse().ok())
         .expect("a count");
     assert!(n > 0, "{w}");
+}
+
+fn clock_warn(r: &Report) -> String {
+    let w: Vec<_> = r
+        .findings
+        .iter()
+        .filter(|f| f.code == "ClockFromEffects")
+        .collect();
+    assert_eq!(w.len(), 1, "{:#?}", show(r));
+    assert_eq!(w[0].severity, Severity::Warn);
+    assert_eq!(w[0].check, "VG");
+    w[0].detail.clone()
+}
+
+#[test]
+fn a_block_time_two_seconds_above_the_clock_passes_by_the_programs_effects() {
+    // fix-verify-clock: world 3 tx#13720 (blockTime 1795872970, the program
+    // stamped 1795872968).
+    let r = verify_core::verify(&shifted(2));
+    assert_eq!(r.verdict, Verdict::Pass, "{:#?}", show(&r));
+    let w = clock_warn(&r);
+    assert!(w.contains("re-executed at blockTime − 2 ("), "{w}");
+    assert!(!w.contains("blockTime − 1"), "{w}");
+    // every Clock-sensitive slot is dated with the recorded Clock again
+    let rec = common::fixture(FIXTURE);
+    let derived = verify_core::genesis::derive(&shifted(2))
+        .input
+        .expect("VG ran");
+    for i in clock_sensitive() {
+        assert_eq!(derived.txs[i].block_time, rec.txs[i].block_time, "tx#{i}");
+    }
+}
+
+#[test]
+fn the_one_second_warn_text_is_unchanged() {
+    // The earlier WARN wording stays byte-for-byte when every moved slot
+    // moved by one second (the watch's earlier reports stay comparable).
+    let w = clock_warn(&verify_core::verify(&shifted(1)));
+    assert!(
+        w.contains("slot(s) re-executed at blockTime − 1, the only Clock"),
+        "{w}"
+    );
+    assert!(w.ends_with(": taken at blockTime"), "{w}");
+}
+
+#[test]
+fn slots_one_and_two_seconds_behind_in_one_archive_pass() {
+    // Each slot has its own Clock: some one second, some two behind.
+    let mut inp = rpc_shaped();
+    let slots: Vec<u64> = {
+        let mut v: Vec<u64> = inp.txs.iter().map(|t| t.slot).collect();
+        v.dedup();
+        v
+    };
+    for t in inp.txs.iter_mut() {
+        let n = slots.iter().position(|s| *s == t.slot).unwrap();
+        t.block_time += if n % 2 == 0 { 1 } else { 2 };
+    }
+    let r = verify_core::verify(&inp);
+    assert_eq!(r.verdict, Verdict::Pass, "{:#?}", show(&r));
+    let w = clock_warn(&r);
+    assert!(
+        w.contains("blockTime − 1 (") && w.contains(" or blockTime − 2 ("),
+        "{w}"
+    );
+}
+
+/// The first Clock-sensitive transaction that logs PS2 records carrying its
+/// Clock (tx#13720's kind) and is the only transaction of its slot.
+fn lone_anchor_post(inp: &Input) -> usize {
+    clock_sensitive()
+        .into_iter()
+        .find(|&i| {
+            let t = &inp.txs[i];
+            // (like tx#13720's, its PS2 records carry the Clock)
+            t.err.is_none()
+                && t.logs.iter().any(|l| {
+                    l.strip_prefix("Program data: ")
+                        .filter(|d| d.starts_with("UFMy"))
+                        .map(|d| {
+                            use base64::Engine as _;
+                            let raw: Vec<u8> = d
+                                .split(' ')
+                                .flat_map(|x| {
+                                    base64::engine::general_purpose::STANDARD
+                                        .decode(x)
+                                        .unwrap_or_default()
+                                })
+                                .collect();
+                            raw.windows(8).any(|w| w == t.block_time.to_le_bytes())
+                        })
+                        .unwrap_or(false)
+                })
+                && inp.txs.iter().filter(|u| u.slot == t.slot).count() == 1
+        })
+        .expect("a lone PS2 transaction in its slot")
+}
+
+#[test]
+fn tx13720_shape_a_lone_anchor_post_two_seconds_behind() {
+    // Regression (world 3 tx#13720): one anchor post alone in its slot, its
+    // blockTime two seconds above the Clock it stamped, every other slot
+    // exact. Before the fix: VG ReExecMismatch (log line), CQ1/VG final
+    // anchor data, V3 SeedRoundRule. Now: PASS, dated at the stamped Clock.
+    let honest = rpc_shaped();
+    let i = lone_anchor_post(&honest);
+    let at = |d: i64| {
+        let mut inp = honest.clone();
+        inp.txs[i].block_time += d;
+        inp
+    };
+    let r = verify_core::verify(&at(2));
+    assert_eq!(r.verdict, Verdict::Pass, "tx#{i}: {:#?}", show(&r));
+    assert!(
+        !r.findings
+            .iter()
+            .any(|f| f.code == "SeedRoundRule" || f.fail()),
+        "{:#?}",
+        show(&r)
+    );
+    let w = clock_warn(&r);
+    assert!(
+        w.contains("1 transaction(s) in 1 slot(s) re-executed at blockTime − 2 (1 in 1 slot(s))"),
+        "{w}"
+    );
+    let derived = verify_core::genesis::derive(&at(2)).input.expect("VG ran");
+    assert_eq!(derived.txs[i].block_time, honest.txs[i].block_time);
+    // one second further is outside the window: the same FAIL as before
+    let r = verify_core::verify(&at(CLOCK_LAG_MAX + 1));
+    assert_eq!(r.verdict, Verdict::Fail, "{:#?}", show(&r));
+    assert!(
+        r.findings.iter().any(|f| f.fail()
+            && f.check == "VG"
+            && f.code == "ReExecMismatch"
+            && f.entity == format!("tx#{i}")),
+        "{:#?}",
+        show(&r)
+    );
+}
+
+#[test]
+fn the_devnet_evidence_is_two_seconds_and_the_window_is_no_wider() {
+    // `fixtures/verify/world3-tx13720-clock.json`: the chain's own record of
+    // tx#13720. Every PS2 record and every anchor it wrote carry
+    // blockTime − 2, none blockTime or blockTime − 1: the lag was 2, and
+    // CLOCK_LAG_MAX is exactly the largest lag the chain showed.
+    use base64::Engine as _;
+    let p = common::fixtures_dir().join("world3-tx13720-clock.json");
+    let j: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&p).expect("fixture")).expect("json");
+    let bt = j["block_time"].as_i64().unwrap();
+    let slot = j["slot"].as_u64().unwrap();
+    assert_eq!((bt, slot), (1795872970, 527244500));
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let has = |raw: &[u8], t: i64| raw.windows(8).any(|w| w == t.to_le_bytes());
+    let mut records = 0;
+    for l in j["logs"].as_array().unwrap() {
+        let Some(d) = l.as_str().unwrap().strip_prefix("Program data: ") else {
+            continue;
+        };
+        let raw: Vec<u8> = d
+            .split(' ')
+            .flat_map(|x| b64.decode(x).expect("base64"))
+            .collect();
+        if raw.starts_with(b"PS2") {
+            records += 1;
+            assert!(has(&raw, bt - 2), "{l}");
+            assert!(!has(&raw, bt) && !has(&raw, bt - 1), "{l}");
+        }
+    }
+    assert_eq!(records, 7);
+    let anchors = j["anchor_finals"].as_array().unwrap();
+    assert_eq!(anchors.len(), 7);
+    let mut lag = 0;
+    for a in anchors {
+        let raw = b64.decode(a["data_base64"].as_str().unwrap()).unwrap();
+        assert_eq!(&raw[..8], b"PSF1ANCH");
+        let t = i64::from_le_bytes(raw[32..40].try_into().unwrap());
+        let s = u64::from_le_bytes(raw[40..48].try_into().unwrap());
+        assert_eq!(s, slot);
+        lag = lag.max(bt - t);
+    }
+    assert_eq!(lag, 2);
+    assert_eq!(
+        CLOCK_LAG_MAX, lag,
+        "the window is the chain's evidence, no wider"
+    );
 }
