@@ -18,7 +18,8 @@ test('the app gives the keep board its own herald reader for the battle reports'
   assert.doesNotMatch(app, /mountKeepBoard\(\{ map \}\);/, 'no mount without it');
   const mount = src('map/keepmount.mjs');
   assert.match(mount, /export function mountKeepBoard\(\{ map, state = \(\) => FS, clash = null \} = \{\}\) \{/);
-  assert.match(mount, /const own = mountOwnClash\(\{ state, enabled: fs => keepFeedOf\(fs\)\.enabled, clash \}\);/);
+  // (fix-loop32: on a conquest season and in a sample world's territory — map/keepmount.mjs ownClashOn)
+  assert.match(mount, /const own = mountOwnClash\(\{ state, enabled: ownClashOn, clash \}\);/);
   // the watch uses a given reader as is; only without one does it build its own (tests and pages that have no app reader)
   const own = src('map/ownclash.mjs');
   assert.match(own, /const read = clash \?\? \(\(p, q, bell\) => \{ herald = herald \?\? createHerald\(\{ base: config\(\)\.herald \}\); return herald\.clash\(p, q, bell\); \}\);/);

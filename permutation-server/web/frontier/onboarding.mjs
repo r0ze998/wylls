@@ -27,6 +27,33 @@ export const STEPS = Object.freeze(['welcome', 'join', 'build', 'scout', 'practi
 //  newcomer plays now — program version 2, and the sample world's territory preview — and are left as they were)
 export const HOME_STEPS = Object.freeze(['join', 'build', 'scout', 'march', 'report', 'done']);
 export const ARRIVAL_STEPS = Object.freeze(['join', 'build', 'train', 'muster', 'march', 'claim', 'done']);
+/**
+ * (fix-loop32, LP32 BREAK-3; r0ze's demo spec 2026-11-28 item 6 "the existing 6-step guide should point at this goal")
+ * The walletless demo's goal world: the sixth step is taking a flag castle, not claiming a tile (the village card still
+ * offers "Claim a tile"). The guide stood on 「領土の変化を見る」 for a whole game that was won or lost by castles.
+ */
+export const GOAL_STEPS = Object.freeze(['join', 'build', 'train', 'muster', 'march', 'castle', 'done']);
+
+/**
+ * The walletless demo's flag castles (its world record's `sample.goal.castles`: `[{nation, p, q, tile}]`), or null
+ * elsewhere — and in a demo world that does not list them (the six steps are then ARRIVAL_STEPS, as before).
+ */
+export function demoCastles(FS) {
+  const g = FS?.sample?.demo ? FS.sample.goal : null;
+  return g?.kind === 'flag-castles' && Array.isArray(g.castles) && g.castles.length ? g.castles : null;
+}
+/**
+ * Whether the viewer's nation holds a flag castle of another nation now (its tile's arrival-control owner): the world
+ * record's own `holder` of the castle where it says one (verify-pr327: the page stops reading a castle's province once no
+ * host of the viewer's is left there, so a castle lost in the clash that killed the last of them stayed "held" in the
+ * page's copy of that province and the step never came back), else the page's reading of the province.
+ */
+export function holdsRivalCastle(FS, castles = demoCastles(FS)) {
+  const me = FS?.citizen?.faction;
+  if (!castles || !Number.isInteger(me)) return false;
+  const holderOf = c => ('holder' in c ? c.holder : FS.provinces?.get?.(`${c.p},${c.q}`)?.sampleTerritory?.owners?.[c.tile]);
+  return castles.some(c => c.nation !== me && holderOf(c) === me);
+}
 /** Local flags (in ps-fui `dismissed`). */
 export const FLAG = Object.freeze({
   dismissed: 'onboarding',
@@ -63,7 +90,8 @@ export function factsOf(FS) {
   // (demo-claim-1: in a `landClaim` world the step is done by a claimed tile — the viewer's territory summary)
   const claimed = landClaimOn(FS) ? Number(FS.ownLand?.player?.tiles ?? 0) > 0 : territoryEnabled(FS) && (FS.holdings ?? []).some(h => [...(FS.provinces?.values?.() ?? [])].some(env =>
     [...(env.sampleTerritory?.history ?? []), ...(env.sampleTerritory?.changes ?? [])].some(change => capturedBy(change, h, FS.citizen?.faction))));
-  return { arrivalControl: territoryEnabled(FS), trainedCombat, ownCombatHost, claimed, citizen: FS.citizen ?? null, stage: FS.land?.stage ?? (FS.citizen ? 'joined' : 'none'), holding, scoutHost, marches: FS.marches ?? [], programVersion: Number(FS.season?.programVersion ?? 1), now: FS.chain?.now?.() ?? 0 };
+  const castles = territoryEnabled(FS) ? demoCastles(FS) : null;
+  return { arrivalControl: territoryEnabled(FS), goalCastles: !!castles, castle: !!castles && holdsRivalCastle(FS, castles), trainedCombat, ownCombatHost, claimed, citizen: FS.citizen ?? null, stage: FS.land?.stage ?? (FS.citizen ? 'joined' : 'none'), holding, scoutHost, marches: FS.marches ?? [], programVersion: Number(FS.season?.programVersion ?? 1), now: FS.chain?.now?.() ?? 0 };
 }
 
 /**
@@ -98,7 +126,7 @@ export function onboardingState(facts, flags = [], clock = null) {
   const c = facts.citizen, h = facts.holding;
   const stage = facts.stage ?? 'none';
   const instant = facts.programVersion >= 2 || facts.arrivalControl;
-  const stepIds = facts.arrivalControl ? ARRIVAL_STEPS : instant ? HOME_STEPS : STEPS;
+  const stepIds = facts.arrivalControl ? (facts.goalCastles ? GOAL_STEPS : ARRIVAL_STEPS) : instant ? HOME_STEPS : STEPS;
   const resolved = (facts.marches ?? []).some(m => m.facts?.pipeline === 'resolved');
   const done = {
     welcome: f.has(FLAG.welcome) || !!c,
@@ -109,6 +137,8 @@ export function onboardingState(facts, flags = [], clock = null) {
     train: !!facts.trainedCombat || hasMarched(c, h),
     muster: !!facts.ownCombatHost || hasMarched(c, h),
     claim: !!facts.claimed,
+    // (a flag castle of another nation held by the viewer's nation now: lost again, the step is the guide's step again)
+    castle: !!facts.castle,
     march: hasMarched(c, h),
     report: f.has(FLAG.report),
   };

@@ -31,7 +31,9 @@ export function startCampHud(doc = globalThis.document) {
   doc.head.appendChild(style);
   const layer = doc.createElement('div');
   layer.id = 'demo-camps';
-  doc.body.appendChild(layer);
+  // (fix-loop32, LP32 BREAK-7: the map's markers live in the page's own <main id="frontier">, the stacking context of the map
+  //  and the HUD: from <body> their z-index 2 put them over everything in it — the right drawer, its report, the notices)
+  (doc.getElementById('frontier') ?? doc.body).appendChild(layer);
   let map = null, last = [];
   // the page's map instance (its draw is wrapped once to learn it, as the goal card's flags do; the wraps chain)
   const P = FrontierMap.prototype, draw = P.draw;

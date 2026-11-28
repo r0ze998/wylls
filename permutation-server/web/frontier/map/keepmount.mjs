@@ -34,6 +34,15 @@ import { fogNow, viewKeeps } from './fog.mjs';
 
 const int = Number.isInteger;
 
+/**
+ * (fix-loop32, LP32 BREAK-1) Whether the clashes of the viewer's own hosts where they STAND are watched (map/ownclash.mjs):
+ * on a conquest season, as the keeps are, and in a sample world with arrival-control territory (the walletless demo),
+ * where the keep board is off but hosts hold tiles — the flag castles — and are attacked there. Before, the watch
+ * followed the keep board alone, and a demo player's castle host was attacked, pushed back and lost its castle with no
+ * notice and no line in "your clash reports".
+ */
+export const ownClashOn = fs => conquestEnabled(fs?.season) || territoryEnabled(fs);
+
 /** The page's part of the keeps' records, for the map: `{enabled, events, viewer, bell}`. */
 export function keepFeedOf(fs) {
   const enabled = conquestEnabled(fs?.season) && !territoryEnabled(fs);
@@ -103,10 +112,12 @@ export function mountKeepBoard({ map, state = () => FS, clash = null } = {}) {
   // the clashes of the viewer's own host where it stands (map/ownclash.mjs): only on a conquest season, as the keeps are
   // (`clash`: the page's own herald reader (app.mjs, the checked `cfg.herald`). Without it the watch built a second reader
   //  from the page's origin: in a local-play world that is the launcher, and every report read was a 404 there, 2026-11-14)
-  const own = mountOwnClash({ state, enabled: fs => keepFeedOf(fs).enabled, clash });
+  // (fix-loop32: and in a sample world's territory, ownClashOn)
+  const own = mountOwnClash({ state, enabled: ownClashOn, clash });
   const sync = () => {
     const fs = state(), feed = keepFeedOf(fs);
-    if (feed.enabled) { try { autoPanDefault(fs); own.sync(); } catch (e) { globalThis.console?.warn?.('frontier own clash:', e); } }
+    if (feed.enabled) { try { autoPanDefault(fs); } catch (e) { globalThis.console?.warn?.('frontier own clash:', e); } }
+    if (ownClashOn(fs)) { try { own.sync(); } catch (e) { globalThis.console?.warn?.('frontier own clash:', e); } }
     // the default reach: only until the page lights its own (`map.setKeepReach`)
     if (!map.keeps?.reachOwn) {
       const h = feed.enabled ? handHostOf(fs) : null;
