@@ -1,4 +1,4 @@
-// The guide on a conquest season (program version 3): seven steps from the
+// The guide on a conquest season (program version 3): eight steps from the
 // first village to a province taken, each ticked from the records the page
 // holds and from nothing else —
 //   1 the first village      the viewer's Holding
@@ -9,7 +9,8 @@
 //                            anywhere —, or the step was skipped. Its report is the first battle the viewer checks.
 //   5 build                  the Holding's queue or its production above the base (done while the first march walks;
 //                            a building does not pass the steps before it: reach ignores it)
-//   6 march on a keep        a march of the viewer to a province whose keep another nation holds, or
+//   6 march on a keep        a march of the viewer to the tile of a keep another nation holds (verify-pr320: a march
+//                            row with no tile, by its province; a camp elsewhere in that province is not it), or
 //                            a host of the viewer standing on such a keep's tile; a march whose turn is
 //                            resolved with no host left on the tile and no contest is turned back, and
 //                            the step is current again (it says so, and what the keeps take)
