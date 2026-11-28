@@ -27,11 +27,13 @@
 // --incremental [--chunk N] (default off; verify-local-source): the pull archives every N (default 100) new
 // transactions as it goes and takes each one's balances from the same getTransaction (≈ 1 getTransaction per new
 // transaction instead of 2; same devnet source, same judge input). Off = the pull exactly as before.
+// Start check (verify-bin-rebuild): `VERIFY_BIN features` must report `playable-lane` (and no mutate-*), else the watch
+// refuses to start (exit 2, nothing pulled): a judge without the lane FAILs every playable-lane season (74f60922).
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { DEFAULTS, QUICKNET_PK, checkRpc, classify, gapMsFor, logLine, nextDelayMin, summarizeReport } from './verify-watch-lib.mjs';
+import { DEFAULTS, QUICKNET_PK, checkRpc, checkVerifierFeatures, classify, gapMsFor, logLine, nextDelayMin, summarizeReport } from './verify-watch-lib.mjs';
 
 const KEEP_REPORTS = 48;
 
@@ -174,6 +176,8 @@ async function cycle(o) {
 
 async function main() {
   const o = parseArgs(process.argv.slice(2));
+  const feat = checkVerifierFeatures(await run(o.verifyBin, ['features']));
+  if (!feat.ok) { console.error(`verify-watch: refusing to start: --verify-bin ${o.verifyBin}: ${feat.why}`); process.exit(2); }
   mkdirSync(o.data, { recursive: true });
   lock(o.data);
   if (o.pinned) {
