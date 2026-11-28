@@ -489,6 +489,10 @@ test('LP31-1 a nation-mate\'s capture (an AI of the same nation) does not finish
   // a march order to that province the page was answered "no" for never went: still not the viewer's capture
   const refused = { ...marched, orders: [{ ...marched.orders[0], state: 'refused' }] };
   assert.equal(conquestGuide(refused).facts.captured, null);
+  // (verify-pr320) a march to ANOTHER tile of that province (a camp there) was no part in the keep's capture
+  const camp = { ...marched, orders: [{ ...marched.orders[0], dest: { p: 4, q: -1, tile: kt + 7 } }] };
+  assert.equal(conquestGuide(camp).facts.captured, null, 'a march to another tile of the keep\'s province');
+  assert.notEqual(conquestGuide(camp).current, 'done');
   setLang('en');
   assert.doesNotMatch(plain(renderConquestGuide(mate)), /Guide: /, 'a step of the guide, not its end');
   assert.match(plain(renderConquestGuide(marched)), /^ ?Guide: /);

@@ -108,7 +108,10 @@ export function conquestFacts(FS) {
   //  and not answered "no"), or its own clash, was at that province. Before, any capture by the nation did: in a
   //  `--demo --ai N` world an AI nation-mate took a keep and every step read done before the player had marched, so the
   //  capture demo's "March on the demo keep" step never showed)
-  const at = (x, e) => !!x && x.p === e.p && x.q === e.q;
+  // (verify-pr320: on the keep's own TILE where both are known — a march to a camp or a clash at a village elsewhere in
+  //  the province of a keep a nation-mate took is not a part in that capture)
+  const keepTile = e => keeps.find(k => k.p === e.p && k.q === e.q)?.tile;
+  const at = (x, e) => !!x && x.p === e.p && x.q === e.q && (!int(x.tile) || !int(keepTile(e)) || x.tile === keepTile(e));
   const tookPart = e => at(standing, e) || (FS.marches ?? []).some(m => at(m?.dest, e))
     || (FS.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused' && at(o.dest, e)) || (FS.ownClashes ?? []).some(c => at(c, e));
   const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f && tookPart(e)).at(-1) ?? null;
