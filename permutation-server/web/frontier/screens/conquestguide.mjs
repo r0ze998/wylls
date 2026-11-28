@@ -1,4 +1,4 @@
-// The guide on a conquest season (program version 3): seven steps from the
+// The guide on a conquest season (program version 3): eight steps from the
 // first village to a province taken, each ticked from the records the page
 // holds and from nothing else —
 //   1 the first village      the viewer's Holding
@@ -9,14 +9,15 @@
 //                            anywhere —, or the step was skipped. Its report is the first battle the viewer checks.
 //   5 build                  the Holding's queue or its production above the base (done while the first march walks;
 //                            a building does not pass the steps before it: reach ignores it)
-//   6 march on a keep        a march of the viewer to a province whose keep another nation holds, or
+//   6 march on a keep        a march of the viewer to the tile of a keep another nation holds (verify-pr320: a march
+//                            row with no tile, by its province; a camp elsewhere in that province is not it), or
 //                            a host of the viewer standing on such a keep's tile; a march whose turn is
 //                            resolved with no host left on the tile and no contest is turned back, and
 //                            the step is current again (it says so, and what the keeps take)
 //   7 hold it for 72 turns   that keep's record names the viewer's nation as the contender, the keep being one the
 //                            viewer's own host stands on or own march is bound for: its count
-//   8 the capture            a capture record (keep_taken) to the viewer's nation, or the keep's holder
-//                            is now the viewer's nation after its contest
+//   8 the capture            a capture record (keep_taken) to the viewer's nation of a keep the viewer took part in
+//                            (its host on the keep's tile, its march or its clash there) — not a nation-mate's capture
 // One "next thing" at a time (UX design 7.4, 11.11): the current step's sentence and its one press, which
 // opens the thing the step needs (the village's card, the host's list of keeps, the keep).
 import { html, raw } from '../../util.mjs';
@@ -75,7 +76,10 @@ export function conquestFacts(FS) {
   // contest there was turned back (the first turn decides it): it no longer counts as "marched" — the guide goes back
   // to the march and says so (seen in the UI check of 2026-10-26: a first march of 100 spearmen on a keep of 100 was
   // pushed home, and the guide kept saying "hold the keep's tile for 72 turns" until the march was settled)
-  const keepOf = m => (m?.dest ? keeps.find(k => k.p === m.dest.p && k.q === m.dest.q && foreign(k)) ?? null : null);
+  // (verify-pr320: on the keep's own tile where the march names one — a march on a barbarian camp in a province that
+  //  also has a keep ticked 「砦へ進軍」 and skipped the capture demo's "March on the demo keep" step, live in a
+  //  `--demo --ai 2` world: camp at 0,1 tile 36, keep at tile 18)
+  const keepOf = m => (m?.dest ? keeps.find(k => k.p === m.dest.p && k.q === m.dest.q && foreign(k) && (!int(m.dest.tile) || !int(k.tile) || k.tile === m.dest.tile)) ?? null : null);
   const turnedBack = m => {
     const k = keepOf(m);
     return !!k && m.facts?.pipeline === 'resolved' && !(standing && standing.p === k.p && standing.q === k.q) && !(int(f) && k.contender === f);
@@ -103,7 +107,18 @@ export function conquestFacts(FS) {
   // whose own march was turned back — read "hold the keep's tile for 72 turns" (the live check of 2026-10-26)
   const mine = k => int(f) && k.contender === f;
   const contest = [standing, revealed, sealed].find(k => k && mine(k)) ?? null;
-  const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f).at(-1) ?? null;
+  // (fix-loop31, LP31 BREAK-1: a capture counts for the viewer's guide only where the viewer took part — its own host
+  //  stands on that keep's tile (the garrison a capture leaves), or a march of its (on the list, or sealed by this page
+  //  and not answered "no"), or its own clash, was at that province. Before, any capture by the nation did: in a
+  //  `--demo --ai N` world an AI nation-mate took a keep and every step read done before the player had marched, so the
+  //  capture demo's "March on the demo keep" step never showed)
+  // (verify-pr320: on the keep's own TILE where both are known — a march to a camp or a clash at a village elsewhere in
+  //  the province of a keep a nation-mate took is not a part in that capture)
+  const keepTile = e => keeps.find(k => k.p === e.p && k.q === e.q)?.tile;
+  const at = (x, e) => !!x && x.p === e.p && x.q === e.q && (!int(x.tile) || !int(keepTile(e)) || x.tile === keepTile(e));
+  const tookPart = e => at(standing, e) || (FS.marches ?? []).some(m => at(m?.dest, e))
+    || (FS.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused' && at(o.dest, e)) || (FS.ownClashes ?? []).some(c => at(c, e));
+  const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f && tookPart(e)).at(-1) ?? null;
   const target = contest ?? standing ?? revealed ?? sealed ?? null;
   // (round 46, seen in live33: a host out on a march is in no province record the page holds until its arrival is read;
   // the guide then counted no host and fell back to "build" (1/7) mid-march. The viewer's own march list says a host
