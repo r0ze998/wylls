@@ -201,7 +201,7 @@ test('the talk: 2-4 lines a traveler, English and Japanese, never "season", neve
   }
   // the rules they teach are the demo's (code wins): troops cost food, ore and gold; a claim costs ore; a turn is 600 s
   const R = await import('../screens/rules.mjs');
-  assert.deepEqual(R.TROOP_COST_PER_100.length, 3);
+  for (let u = 0; u <= R.SCOUT; u++) { const c = R.trainCost(u, 100); if (c) assert.ok(c[R.RES.Food] > 0 && c[R.RES.Ore] > 0 && c[R.RES.Gold] > 0, `unit ${u}: food, ore and gold`); }
   assert.equal(R.BELL_SECS, 600);
   const { TERRITORY_V1 } = await import('../../permutation-server/web/frontier/flocalplay-territory.mjs');
   assert.equal(TERRITORY_V1.costResource, R.RES.Ore);

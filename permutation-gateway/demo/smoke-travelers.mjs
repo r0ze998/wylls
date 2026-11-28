@@ -54,14 +54,18 @@ await context.addInitScript(() => {
   const S = globalThis.SubtleCrypto?.prototype; if (!S?.sign || !S?.importKey) return;
   const PRE = 'Wylls demo preflight', preKeys = new WeakSet();
   const bytes = d => { try { return d instanceof ArrayBuffer ? new Uint8Array(d) : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : null; } catch { return null; } };
-  const importKey = S.importKey, sign = S.sign;
-  globalThis.__smokeSigns = 0; globalThis.__smokePreflight = 0;
+  // the fixed seeds a pre-join page may import (smoke.mjs): 0x07 the load-time test, 0x11 DEV_SEED, 0x22 SESSION_SEED
+  const SEEDS = { 7: 'preflight', 17: 'dev', 34: 'session' };
+  const seedOf = d => { const b = bytes(d); if (!b || b.length !== 48) return null; const x = b.subarray(16); return x.every(y => y === x[0]) ? SEEDS[x[0]] ?? null : null; };
+  const importKey = S.importKey, generateKey = S.generateKey, sign = S.sign;
+  globalThis.__smokeSigns = 0; globalThis.__smokePreflight = 0; globalThis.__smokeOtherKeys = [];
   S.importKey = async function (...a) {
     const k = await importKey.apply(this, a);
-    const b = a[0] === 'pkcs8' ? bytes(a[1]) : null;
-    if (b && b.length === 48 && b.subarray(16).every(x => x === 7)) preKeys.add(k);
+    const priv = a[0] === 'pkcs8' || (a[0] === 'jwk' && a[1]?.d != null);
+    if (priv) { const seed = a[0] === 'pkcs8' ? seedOf(a[1]) : null; if (seed === 'preflight') preKeys.add(k); else if (!seed) globalThis.__smokeOtherKeys.push(`importKey ${a[0]}`); }
     return k;
   };
+  if (generateKey) S.generateKey = function (...a) { globalThis.__smokeOtherKeys.push(`generateKey ${a[0]?.name ?? a[0]}`); return generateKey.apply(this, a); };
   S.sign = function (...a) {
     let txt = null; try { txt = new TextDecoder('utf-8', { fatal: true }).decode(bytes(a[2])); } catch {}
     if (txt === PRE && preKeys.has(a[1])) globalThis.__smokePreflight++; else globalThis.__smokeSigns++;
@@ -131,8 +135,9 @@ await click('#demo-trav-panel [data-dt="close"]');
 check(await page.locator('#demo-trav-panel').isHidden(), 'Close hides the panel');
 
 if (opt['pre-join']) {
-  const s = await page.evaluate(() => [globalThis.__smokeSigns, globalThis.__smokePreflight]);
+  const s = await page.evaluate(() => [globalThis.__smokeSigns, globalThis.__smokePreflight, globalThis.__smokeOtherKeys]);
   check(s[0] === 0 && s[1] <= 1, `nothing signed but the load-time preflight (other ${s[0]}, preflight ${s[1]})`);
+  check(s[2].length === 0, `no private key but the fixed sample seeds (${s[2].join(', ') || 'none'})`);
 } else {
   // ---------------------------------------------------------------- join, then trade with a visiting traveler
   await page.locator('[data-act="pick-faction"]').nth(Number(opt.nation)).click();

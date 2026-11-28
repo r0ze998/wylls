@@ -925,6 +925,10 @@ jobs:
           for entry in '' frontier/index.html; do for lang in en ja; do for view in '' --mobile; do
             node smoke.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --path "$entry" --lang "$lang" $view --pre-join
           done; done; done
+          # the travelers (demo-npc-merchants): markers, the panel, Talk and its saved section, no trade before joining;
+          # --pre-join: the start button is never pressed, only the load-time Ed25519 test signs (counted as smoke.mjs does)
+          node smoke-travelers.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --lang en --pre-join
+          node smoke-travelers.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --lang ja --mobile --pre-join
 
   key-tests:
     name: Key-using tests (manual, owner-approved only)
@@ -1022,3 +1026,6 @@ jobs:
           for entry in '' frontier/index.html; do for lang in en ja; do for view in '' --mobile; do
             node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path "$entry" --lang "$lang" $view --act
           done; done; done
+          # the travelers played through (demo-npc-merchants): join, trade with a visiting traveler to its limit, reload
+          node smoke-travelers.mjs --lang en
+          node smoke-travelers.mjs --lang ja --mobile
