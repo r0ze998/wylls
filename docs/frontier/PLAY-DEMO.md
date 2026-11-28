@@ -4,7 +4,7 @@ The demo is one web page: **https://r0ze998.github.io/wylls/**. It needs no wall
 is sent to a chain or a server. You play a small sample world that runs in your browser, on the real Wylls page.
 Japanese: [PLAY-DEMO.ja.md](PLAY-DEMO.ja.md). How the demo is built and hosted: [permutation-gateway/demo/README.md](../../permutation-gateway/demo/README.md).
 
-Matches main as of 2026-11-29 (through #325). Every number below is read from the code:
+Matches main as of 2026-11-29 (through #325 and #324). Every number below is read from the code:
 
 - `DEMO_GOAL` in `permutation-gateway/screens/demogoal.mjs`;
 - `DEMO_CAMPS` in `permutation-server/web/frontier/democamps.mjs`;
@@ -43,7 +43,8 @@ This is the real flag-keeps win condition of the continuous world, made smaller.
   - the rival leader: "Rival (nation): k/3", with "— wins in N turns if nothing changes" when its castles are enough;
   - "Next AI attack wave in N turns (about N troops a host)".
 
-  While a host of yours can march, each castle row has **"March here"**.
+  While you are choosing where a host marches (Hosts → march a host), each castle of another nation that you do not
+  hold has **"March here"**.
 - **The end.** A result screen says "Victory" or "Defeat" and how long the game took ("Time: … (N turns, … on the demo
   clock)"). "Play again" starts a new world at once. "Keep looking" closes the screen and leaves the finished world on
   the map.
@@ -59,7 +60,7 @@ This is the real flag-keeps win condition of the continuous world, made smaller.
 - **The other nations.** One more AI nation marches each wave (they take turns). It takes its own castle back, or
   raids you: your castles first, otherwise your land. A raid on land only brings a host to fight yours. Land never
   changes hands by marching.
-- **Your own nation's AI village** only defends.
+- **Your own nation's AI village** sends no wave. Its 110 troops stand on your nation's castle.
 - **Late escalation** (#325). The wave at turn 128 after your village is the last on the 10-turn rhythm; it is the
   first wave at or after turn 120. After it:
   - waves come every 5 turns (turns 133, 138 …);
@@ -73,7 +74,7 @@ This is the real flag-keeps win condition of the continuous world, made smaller.
 
 ## 3. The guide
 
-The guide is in the side drawer as "Guide n/6: …". Its six steps:
+The guide is in the side drawer as "Guide n/6: …" (n counts the steps already done, so the last step reads 5/6). Its six steps:
 
 1. **"Nation and village"**: press "Choose a nation", pick one and press "Join (nation)". The pick screen says "Pick a
    nation to start. To win, hold 3 flag castles of other nations for 20 turns each, before a rival nation does."
@@ -127,7 +128,7 @@ Land is the live game's single-tile claim (#306). Press **"Claim a tile"** on th
 nearby province yours at once. The price is 10 ore plus 2 % for each tile you already own, and you can claim one tile a
 turn. You can claim in provinces up to 3 away from your first village, from a province where you own a tile, or from a
 province with a village of your nation. Every tile costs food upkeep from your first village each turn: 0.99 food a game
-hour for each tile, plus 0.48 for each province beyond 3 from your villages. One turn is 10 game minutes. If the upkeep
+hour for each tile, plus 0.48 for each province beyond 3 from your first village. One turn is 10 game minutes. If the upkeep
 cannot be paid you cannot claim more. 24 turns later your farthest tiles start being let go, one a turn. The village
 card's land lines and the logistics horizon follow every claim. Only castle tiles change hands by battle.
 
@@ -197,7 +198,7 @@ Nothing is saved or replayed then.
   The marches, battles, buildings, training and the tile claim are the real game's rules, computed by the same
   `frontier.wasm`.
 - **No "Records" view.** The map's "Records" button is hidden. The sample world does have a last turn for orders, as
-  every test world does, but the page does not show it while it is ahead (about 1,008 turns, 3 h 20 min of play: a game normally ends with
+  every test world does, but the page does not show it while it is ahead (turn 1,008; the demo opens at turn 42, so about 965 turns, 3 h 13 min of play, are left: a game normally ends with
   the result screen long before).
 - **Not decided yet** (open owner questions, so these may change):
   - Q-LP32-1: whether camps should matter more for the goal;

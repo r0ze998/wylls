@@ -118,8 +118,9 @@ value; no in-game key is made).”
      step 1). #303: when the program refuses a muster or march at once, main's toast names that muster or march and its
      “Try again” sends it again; on the devnet page the toast can still repeat the words of your previous send.
      #320: on main, a defender's notice counts only the troops a retreat really lost (no number when the page cannot
-     know them) and lists that clash under “Your clash reports”; and when your village's place is taken a moment before
-     it is sent, main tries the next free place by itself (at most 3 places). The devnet page does neither.
+     know them) and lists that clash under “Your clash reports”; and when a heartland village is refused before
+     anything is sent because its place was just taken, main tries the next free place by itself (at most 3 places).
+     The devnet page's code has neither.
    The devnet page gets those only with a later page or herald update, and none is decided yet.
 
 Good to know:

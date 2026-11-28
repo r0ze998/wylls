@@ -51,7 +51,7 @@ or march the program refuses at once now names itself, and its "Try again" sends
 Train: for example "The host has not been ordered to form up yet." (#303; before, the toast repeated the last send's
 words, such as "Nothing has been trained yet."). #295, #296, #300, #313 change the keeper, health check and verifier;
 #297, #304, #312, #315, #322 and #323 are tests; #317 is an off-by-default plan. The **walletless demo** (#301, #302,
-#305–#309, #314, #316, #318, #319, #321, #325) is a separate page in your browser, not a `play-local.sh` world:
+#305–#309, #314, #316, #318, #319, #321, #324, #325) is a separate page in your browser, not a `play-local.sh` world:
 how to play it is [PLAY-DEMO.md](PLAY-DEMO.md).
 The devnet playable version: [PLAY-DEVNET.md](PLAY-DEVNET.md) (player land there: §7).
 
