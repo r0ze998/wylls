@@ -82,7 +82,16 @@ jobs:
           python3 scripts/ci/check-ci-keyfree.py .github/workflows/ci.yml .github/workflows/pages-demo.yml
       # (test-gaps-10: the checker's walletless-demo smoke rule on small workflow files; #309, finish-pr309 N6)
       - name: Key-free checker, demo smoke rule (temp workflow files; no browser)
-        run: python3 scripts/tests/test_ci_keyfree_demo_smoke.py
+        run: |
+          python3 scripts/tests/test_ci_keyfree_demo_smoke.py
+          # (test-gaps-13: more shell forms, every workflow file, and the forms that still pass, as expected failures)
+          python3 scripts/tests/test_ci_keyfree_shell_forms.py
+      # test-gaps-13: the features merged OFF (⑪(b) declarative-effects #317, ⑥ chain link #329) are named and enabled
+      # only where allowed, and every job that builds what ships poisons their sources first (scripts/ci/flag-off.py).
+      - name: Flag-off guard (static rules and its own tests)
+        run: |
+          python3 scripts/ci/flag-off.py check
+          python3 scripts/tests/test_flag_off.py
       - name: Local play kit (scripts/play-local.sh) arguments and refusals (no build, no world)
         run: python3 -I scripts/tests/test_play_local.py
 
@@ -122,6 +131,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchains
         # The root, crate and svm-tests rust-toolchain.toml files select them;
         # rustup may not auto-install, so both are installed explicitly.
@@ -333,6 +345,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchains
         run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
       - uses: actions/cache@v4
@@ -386,6 +401,17 @@ jobs:
         run: |
           cargo test --locked -p permutation-frontier --features wide-world-experimental --lib -- map_growth_runtime_tests::wide_land::territory_tests proc::wide::territory:: --test-threads=1
           cargo test --locked -p frontier-abi --features world-index-experimental --lib -- world_index::territory world_index::rules world_index::land
+      # test-gaps-13: the .so itself is built only in key-tests, so here each feature set scripts/build-frontier*.sh hand
+      # to cargo-build-sbf is type-checked on the poisoned tree (rights-test-beacon = rights-experimental,test-beacon).
+      - name: "Flag-off: every program feature set the build scripts ship compiles without the flag-off sources"
+        run: |
+          for f in \
+            trace oracle test-beacon custody-preview nft-experimental rights-experimental,test-beacon \
+            devnet-playable-sbf localnet-expedition-sbf localnet-conquest-sbf localnet-nft-sbf localnet-land-sbf localnet-coexist-sbf
+          do
+            echo "== $f"
+            cargo check --locked -p permutation-frontier --lib --features "$f"
+          done
       # Moved to key-tests: the SBF v2 builds (twice; Prize for cross-program
       # tests) and the LiteSVM suite G1-G13.
       # The LiteSVM harness itself (67k lines of tests) was formatted and linted
@@ -465,6 +491,8 @@ jobs:
           # ⑪(b) declarative effects, first local slice (Lock/Release + replay); its parity with the ext-kernel
           # prototype runs in workstreams/11-extensions/ext-kernel (tests/kernel_slice.rs)
           cargo test --locked -p permutation-rules --features declarative-effects effects
+          # (test-gaps-13: the ruleset hash goldens are the same with the flag on)
+          cargo test --locked -p permutation-rules --features declarative-effects --test frontier_shared ruleset_hash
           # (test-gaps-2: includes capacity::custody_address_vectors_tests — the ⑨ pool/job, ⑩ lot and ② grant addresses
           #  with their generation, and the two lanes, written to frontier-abi/vectors/custody-addresses.txt and checked
           #  current; the page's builders replay the file in web-frontier-custody-test-gaps / -rights-test-gaps)
@@ -475,12 +503,22 @@ jobs:
           # ②+⑨+⑩ coexist (workstream 4 rev 8): the one registry, and the combined build on S1 (0x3005)
           cargo test --locked -p frontier-abi --lib --features capacity-preview,land-preview,conquest-dispatch-experimental,feature-coexist feature_registry
           cargo test --locked -p permutation-frontier --lib --features coexist-experimental -- --test-threads=1
+      # test-gaps-13: the positive control of the flag-off guard (last step: it poisons the tree). With the flag on, the
+      # poison must stop the build; with it off, the same crate builds.
+      - name: "Flag-off guard bites: a flag-on build stops on the poison"
+        run: |
+          python3 scripts/ci/flag-off.py poison rust
+          python3 scripts/ci/flag-off.py poison-bites cargo check --locked -p permutation-rules --features declarative-effects
+          cargo check --locked -p permutation-rules
 
   frontier-node:
     name: Frontier M1 off-chain workspace (keeper, herald, verifier, localnet)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchain (frontier-node/rust-toolchain.toml pins 1.95.0)
         run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt,clippy
       - uses: actions/cache@v4
@@ -699,6 +737,9 @@ jobs:
       BUILD_WASM_KEEP: ${{ github.workspace }}/wasm-built
     steps:
       - uses: actions/checkout@v7
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       # The wasm32 target is installed on the CI runner only; the local
       # machine waits for owner decision O-M1-12 (PENDING-OWNER there).
       - name: Rust toolchain and wasm32 target
@@ -749,6 +790,9 @@ jobs:
       BUILD_WASM_KEEP: ${{ github.workspace }}/wasm-built
     steps:
       - uses: actions/checkout@v7
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchain and wasm32 target
         run: |
           rustup toolchain install 1.95.0 --profile minimal
@@ -776,6 +820,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchains
         run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
       - uses: actions/cache@v4
@@ -816,6 +863,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchain
         run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
       - name: Format, lints and tests
@@ -860,7 +910,7 @@ jobs:
             (cd "$d" && cargo fmt -- --check && cargo clippy --locked --all-targets -- -D warnings)
           done
           echo "== workstreams/11-extensions/ext-kernel: ⑪(b) kernel slice parity (permutation-rules declarative-effects)"
-          (cd workstreams/11-extensions/ext-kernel && cargo test --locked --test kernel_slice --test kernel_slice_random)
+          (cd workstreams/11-extensions/ext-kernel && cargo test --locked --test kernel_slice --test kernel_slice_random --test kernel_slice_gaps_13)
           echo "== workstreams/10-custody/adapter-09/with-bridge10 (format only)"
           (cd workstreams/10-custody/adapter-09/with-bridge10 && cargo fmt -- --check)
 
@@ -904,6 +954,15 @@ jobs:
           npm ci --ignore-scripts
           node build.mjs
           node check.mjs
+      # test-gaps-13: the same bundle again with the flag-off sources (⑪(b) #317, ⑥ chain link #329) poisoned: byte for
+      # byte the one above, and no poison in it. The Pages-host bundle below is then built from the poisoned tree too.
+      - name: Flag-off sources poisoned; the demo bundle is byte-identical
+        run: |
+          python3 scripts/ci/flag-off.py poison rust js
+          cd permutation-gateway/demo
+          node build.mjs --out dist-flag-off
+          python3 ../../scripts/ci/flag-off.py same-tree dist dist-flag-off
+          rm -rf dist-flag-off
       - name: Keep the bundle (download it to try the demo from any static host)
         uses: actions/upload-artifact@v4
         with:
@@ -947,6 +1006,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # test-gaps-13: what this job builds must not read a feature merged OFF (#317, #329): scripts/ci/flag-off.py
+      - name: Flag-off sources poisoned (everything below must build and hash without them)
+        run: python3 scripts/ci/flag-off.py poison rust
       - name: Rust toolchains
         run: rustup toolchain install 1.89.0 1.95.0 --profile minimal --component rustfmt,clippy
       - uses: actions/setup-node@v7
