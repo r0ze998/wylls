@@ -43,7 +43,7 @@ So the **first** on-chain piece is the publication record. It is independent of 
 | PDA per (authority, target) holding a commitment | OtterSec verified builds — https://github.com/otter-sec/otter-verify (`seeds = [PDA_SEED, authority, program]` → `BuildParams { commit, … }`) | a commit hash + metadata, updatable in place by the signer | ◎ for the entry (status, newest); in-place update is wrong for versions |
 | immutable name@version → content hash | EthPM — https://github.com/ethpm/ethpm-spec (registry: name + version → content-addressed manifest URI) | name, version, content hash; versions never rewritten | ◎ for versions |
 
-**Chosen:** EthPM's immutable `name@version → content hash` for version accounts + otter-verify's "PDA per author/target, signer = author" for the entry; the JSON stays off chain (Metaplex-style), but bound by hash (unlike Metaplex). This is also exactly what `registry.mjs` already does in memory, so no ⑥ semantics change.
+**Recommended (a proposal, not decided — the off-chain JSON is Q-6CL-3, the separate registry is Q-6CL-2):** EthPM's immutable `name@version → content hash` for version accounts + otter-verify's "PDA per author/target, signer = author" for the entry; the JSON stays off chain (Metaplex-style), but bound by hash (unlike Metaplex). This is also exactly what `registry.mjs` already does in memory, so no ⑥ semantics change.
 
 ## 3. The planned on-chain shape (proposal; needs r0ze OK + world-4 scope)
 
@@ -107,7 +107,7 @@ Accounts follow the v2 conventions of `frontier-abi` (8-byte magic, season id u6
 | verifier native rules C1–C3 from the log | no | slice 4 (local) |
 | `CreationRecord` handler on `0xEF`, accounts, errors, records, version bit, in a **localnet-only lane** | **yes** | slice 5 — **needs r0ze OK + world-4 scope (Q-6CL-1)** |
 | devnet world 4 | yes | upgrade + new world; r0ze's confirmation, SOL |
-| adoption / run requests on chain | yes (if ever) | not planned for world 4 (Q-6CL-5) |
+| adoption / run requests on chain | yes (if ever) | not planned for world 4 (recommendation in §1; no owner decision, and not one of Q-6CL-1..7) |
 | execution of ⑥ plans in the game | no new instruction; needs ④ sending (Q4) | blocked on r0ze (Q4) |
 
 ## 5. Slice 1 (this PR) — local, behind a flag, off by default
