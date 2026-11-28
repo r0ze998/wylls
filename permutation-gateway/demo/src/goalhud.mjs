@@ -39,6 +39,7 @@ export const TEXT = {
     rival: (n, k, need, left) => `Rival ${n}: ${k}/${need}${left !== null ? ` — wins in ${left} turns if nothing changes` : ''}`,
     others: 'Other nations',
     wave: (t, troops) => `Next AI attack wave in ${t} turns (about ${troops} troops a host)`,
+    late: every => `The AI waves now come every ${every} turns and grow faster each time.`,
     fold: 'Fold', unfold: 'Show',
     won: 'Victory', lost: 'Defeat',
     wonText: (need, hold) => `Your nation held ${need} rival flag castles for ${hold} turns each.`,
@@ -66,6 +67,7 @@ export const TEXT = {
     rival: (n, k, need, left) => `ライバル ${n}：${k}/${need}${left !== null ? `（このままだと${left}ターン後に勝利）` : ''}`,
     others: 'ほかの国',
     wave: (t, troops) => `次の AI の攻撃の波まで ${t} ターン（1軍勢 約${troops}兵）`,
+    late: every => `AI の波は ${every} ターンごとになり、毎回より大きくなります。`,
     fold: 'たたむ', unfold: 'ひらく',
     won: '勝利', lost: '敗北',
     wonText: (need, hold) => `あなたの国が、ほかの国の旗の城を${need}つ、それぞれ${hold}ターン守り切りました。`,
@@ -97,7 +99,7 @@ export function cardModel(g) {
     .map(x => ({ nation: x.nation, captured: x.captured, left: x.reachAt !== null ? Math.max(0, x.reachAt - g.turn) : null, leader: x.nation === g.leader }))
     .sort((a, b) => (a.left ?? 1e9) - (b.left ?? 1e9) || b.captured - a.captured) : [];
   return { posted, need: g.need, hold: g.rules.holdBells, captured: me?.captured ?? 0, capturedLong: me?.capturedLong ?? 0, left: me?.reachAt !== null && me?.reachAt !== undefined ? Math.max(0, me.reachAt - g.turn) : null,
-    castles, rivals, nextWave: g.nextWave !== null && g.nextWave !== undefined ? Math.max(0, g.nextWave - g.turn) : null, waveTroops: g.waveTroops, result: g.result, player: g.player, turnSecs: g.turnSecs, posted_: g.posted };
+    castles, rivals, nextWave: g.nextWave !== null && g.nextWave !== undefined ? Math.max(0, g.nextWave - g.turn) : null, waveTroops: g.waveTroops, late: g.late === true && g.nextWave !== null && g.nextWave !== undefined ? (g.rules.lateEvery ?? null) : null, result: g.result, player: g.player, turnSecs: g.turnSecs, posted_: g.posted };
 }
 
 const CSS = `
@@ -198,7 +200,7 @@ export function startGoalHud(doc = globalThis.document) {
       }).join('');
       const rivals = m.rivals.slice(0, 3).map(r => `<p class="dg-rival">${esc(t.rival(nationName(r.nation), r.captured, m.need, r.left))}</p>`).join('');
       body = `<p class="dg-rule">${esc(t.rule(m.need, m.hold))}</p><p class="dg-me" data-dg-me="${m.captured}">${esc(t.yours(m.captured, m.need))}</p><ul>${items}</ul>${rivals}
-        ${m.nextWave !== null ? `<p class="dg-muted">${esc(t.wave(m.nextWave, m.waveTroops))}</p>` : ''}${composing ? '' : `<p class="dg-muted">${esc(t.howto)}</p>`}`;
+        ${m.nextWave !== null ? `<p class="dg-muted">${esc(t.wave(m.nextWave, m.waveTroops))}</p>` : ''}${m.late ? `<p class="dg-muted">${esc(t.late(m.late))}</p>` : ''}${composing ? '' : `<p class="dg-muted">${esc(t.howto)}</p>`}`;
     }
     const folded = card.classList.contains('folded');
     const head = `<header>${flagSvg(m.player ?? null).replace('width="26" height="30"', 'width="16" height="19"')}<span>${esc(t.title)}</span><span class="dg-pill">${m.posted ? esc(t.pill(m.captured, m.need)) : ''}</span><button type="button" data-dg="fold">${esc(folded ? t.unfold : t.fold)}</button></header>`;
