@@ -31,7 +31,7 @@ import { keepArrival } from '../hud/rulebook.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { hostRows } from './host.mjs';
 import { cardHead } from './parts.mjs';
-import { viewKeeps, fogNow } from '../map/fog.mjs';
+import { guideKeeps, fogNow } from '../map/fog.mjs';
 import { holdingModel } from './holding.mjs';
 import { worldContinues } from '../clock.mjs';
 import { turnsLine } from '../seasonterms.mjs';
@@ -53,7 +53,9 @@ export const CONQUEST_STEPS = Object.freeze(['village', 'train', 'muster', 'camp
 const SIDE_STEPS = new Set(['build']);
 const int = Number.isInteger;
 
-const keepsOf = FS => (FS.conquest?.keeps instanceof Map ? [...viewKeeps(FS.conquest.keeps).values()] : []);
+// (fix-lp29-fog-fort, owner 2026-11-28 Q-LP29-1 (b): the guide's keeps — map/fog.mjs guideKeeps: the fog's, plus the capture
+//  demo's prepared fort under the fog, named without its defenders; every other world reads exactly the fog's)
+const keepsOf = FS => (FS.conquest?.keeps instanceof Map ? [...guideKeeps(FS.conquest.keeps).values()] : []);
 
 /**
  * What the records say of the viewer on the way to a province: `{village, built, trained, host, marched, holding:
@@ -155,6 +157,40 @@ function bestOdds(FS, r) {
   if (!t) return null;
   const o = arrivalOdds(FS, r, t);
   return o && o.odds in rank ? { odds: o.odds, need: o.need, troops: t.troops } : null;
+}
+
+/**
+ * (fix-lp29-fog-fort, Q-LP29-1 (b)) The row of the capture demo's prepared fort in host `r`'s own list of keeps it can
+ * reach (keepsModel: map/fog.mjs guideKeeps lets that one keep through the fog, marked `demoFort`), or null — always
+ * null in a world that is not a capture demo, and while the list is not read or the fort is not within this host's reach.
+ */
+export function demoFortRow(FS, r) {
+  let km = null;
+  try { km = keepsModel(FS, r); } catch { return null; }
+  if (km.state === 'ready') return km.rows.find(x => x.demoFort && !x.defend) ?? null;
+  // (the host's list is computed while a host has the hand — app.mjs syncKeepLights —: before that the fort is named from
+  //  the guide's keeps alone, without a distance; its press opens the march order, which plans the route itself)
+  if (km.state !== 'loading') return null;
+  const k = keepsOf(FS).find(x => x.demoFort && int(x.holder) && x.holder !== FS.citizen?.faction && !x.heartland);
+  return k ? { p: k.p, q: k.q, tile: k.tile, holder: k.holder, name: provinceName(FS, k.p, k.q, { own: false }), hexes: null, troops: k.fog === 'demo' || !Number.isFinite(Number(k.troops)) ? null : Number(k.troops), odds: null, demoFort: true, ...(k.fog === 'demo' ? { fogged: true } : {}) } : null;
+}
+
+/**
+ * The march step's sentence and press for the demo's prepared fort `x` (a `demoFortRow`): its name, holder and distance;
+ * under the fog no defender count (and no odds: they would tell it); in sight its count and odds as the list says them —
+ * too few troops for it, the troops to add. The press opens that keep's march order for host `r` (one tap, as its row).
+ */
+export function demoFortStep(FS, r, x, back = '') {
+  const where = Number.isFinite(x.hexes) ? L`${x.name}の砦（${factionName(x.holder)}が保持、${fmtNum(x.hexes)} マス先）` : L`${x.name}の砦（${factionName(x.holder)}が保持）`;
+  const march = { act: 'cq-march', data: { host: String(r.id), p: x.p, q: x.q, tile: x.tile }, label: L`デモの砦へ進軍` };
+  if (x.fogged) return { text: L`${back}このデモの目標は${where}です。霧の中なので守備兵の数は見えません。下のボタンで、この砦への進軍の命令が開きます（封をするまで何も送られません）。`, go: march };
+  const odds = x.odds?.odds;
+  if (odds && odds !== 'good' && odds in { even: 1, poor: 1 }) {
+    const chance = odds === 'even' ? L`いまの軍勢では、この砦の勝ち目は五分です。` : L`いまの軍勢では、この砦の勝ち目は低いです。`;
+    const need = x.odds.need ? L`${unitCount(UNIT_ORDER[r.unit], x.odds.need)} ほどにしてから進軍すると、運が悪くても砦のマスに残れます。` : '';
+    return { text: L`${back}このデモの目標は${where}で、守備兵は ${fmtNum(x.troops ?? 0)} です。${chance}${need}`, go: { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` } };
+  }
+  return { text: L`${back}このデモの目標は${where}で、守備兵は ${fmtNum(x.troops ?? 0)} です。命令に封をして出発すると、到着のターンに戦いが決まります。`, go: march };
 }
 
 /** (fix-loop6, LP6-4) The host's own list of reachable keeps has been read and holds none (keepsModel 'ready', 0 rows). */
@@ -471,7 +507,11 @@ export function conquestObjective(FS) {
     const ready = rows.find(r => !waitOf(FS, r)) ?? null, wait = ready ? null : hostWaits(FS)[0] ?? null;
     const back = x.repelled ? L`前の進軍は${provinceName(FS, x.repelled.p, x.repelled.q, { own: false })}の砦のマスに残れず、村へ押し戻されました。` : '';
     const best = ready ? bestOdds(FS, ready) : null;
-    if (ready && !marchOpenFor(FS)) {
+    // (fix-lp29-fog-fort, owner r0ze 2026-11-28 Q-LP29-1 (b): in a capture demo the keep the demo prepared, as this host's
+    //  own list has it — named even under the fog, without its defenders there; its row's march is the guide's one press)
+    const demo = ready && marchOpenFor(FS) ? demoFortRow(FS, ready) : null;
+    if (demo) ({ text, go } = demoFortStep(FS, ready, demo, back));
+    else if (ready && !marchOpenFor(FS)) {
       // this page cannot send a march in this world (hud/firststeps.mjs marchOpenFor): never point at a press that
       // cannot work. Say so plainly, without promising when, and set a goal the page can take: troops toward the keep
       const t = keepTarget(FS), troops = Math.floor(Number(ready.troops)) || 0;

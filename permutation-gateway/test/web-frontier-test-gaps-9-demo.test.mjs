@@ -337,3 +337,31 @@ test('#307 the demo build says dev on any host (the Pages host included) — the
     assert.deepEqual(rb, ra);
   }
 });
+
+// ------------------------------------------------------------------ #311 × #307: the demo-fort exception never on the Pages demo
+// (#311 fix-lp29-fog-fort lets the guide and the keep list name a TEST-ONLY capture demo's prepared fort under the fog; the
+//  page asks the launcher for it only in a launcher world. #307 made the Pages demo's config say dev on any host, and
+//  local play is entered only when dev — so what keeps the exception off the Pages demo is localPlayRequested's own
+//  loopback check. verify-pr311 #14 saw 0 /local-play/* requests in a browser; this is that rule, on every PR.)
+test('#311 the Pages demo (dev on any host since #307) never enters local play — so never asks for the demo fort — even with ?localPlay=1; a loopback page still does', async () => {
+  const { localPlayRequested } = await import('../../permutation-server/web/frontier/flocalplay.mjs');
+  const build = readFileSync(new URL('../demo/build.mjs', HERE), 'utf8');
+  const cfgSrc = readFileSync(new URL('frontier/config.mjs', WEB), 'utf8');
+  const line = name => new RegExp(`${name} = '([^']+)'`).exec(build)[1];
+  const demo = await import(`data:text/javascript,${encodeURIComponent(cfgSrc.replace(line('DEV_LINE'), line('DEMO_DEV_LINE')))}`);
+  for (const href of ['https://r0ze998.github.io/wylls/frontier/index.html?localPlay=1', 'https://r0ze998.github.io/wylls/?localPlay=1&lang=ja', 'http://r0ze998.github.io/wylls/?localPlay=1']) {
+    const loc = new URL(href), cfg = demo.config(loc, null);
+    assert.equal(cfg.dev, true, href);
+    assert.equal(localPlayRequested(cfg, loc), false, `${href}: no local play, so no launcher and no demo-fort asks`);
+  }
+  const loop = new URL('http://127.0.0.1:41610/frontier/?localPlay=1');
+  assert.equal(localPlayRequested(demo.config(loop, null), loop), true, 'a loopback launcher page still enters local play');
+  assert.equal(localPlayRequested(demo.config(new URL('http://127.0.0.1:41610/frontier/'), null), new URL('http://127.0.0.1:41610/frontier/')), false, 'and only when asked');
+  // the asks start in one place only: a launcher world that stated a demo clock (flocalplay.mjs), and the fog reads the fort only from fdemofort
+  const web = f => readFileSync(new URL(`frontier/${f}`, WEB), 'utf8');
+  const callers = ['flocalplay.mjs', 'controller.mjs', 'app.mjs', 'map/fog.mjs'].filter(f => /startDemoFortAsks\(/.test(web(f)));
+  assert.deepEqual(callers, ['flocalplay.mjs']);
+  assert.equal(web('flocalplay.mjs').split('startDemoFortAsks(').length, 2, 'one call');
+  assert.match(web('flocalplay.mjs'), /if \(launcher && claimedDemo !== null\) \{ const asked = handle\.address; startDemoFortAsks\(/);
+  assert.doesNotMatch(readFileSync(new URL('../demo/src/boot.mjs', HERE), 'utf8'), /local-play|demoFort/i, 'the Pages demo world answers no launcher route');
+});

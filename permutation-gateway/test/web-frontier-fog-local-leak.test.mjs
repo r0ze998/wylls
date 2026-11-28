@@ -156,7 +156,9 @@ test('the page\'s wiring: every surface that shows the map reads the fogged copi
   assert.ok(app.includes('if (!fogWorld) try { wideModeRef = mountWideMode('), 'the recorded world\'s sheet is not offered under the fog');
   assert.ok(app.includes('caravans: s1Memo.marks.caravans.filter(c => c.own || (seen(c.from) && seen(c.to)))'), 'S1 marks');
   // the keep lists and the incoming warnings
-  assert.equal(ctl.split('keeps: viewKeeps(cq.keeps)').length - 1, 2, 'both reach lists');
+  // (fix-lp29-fog-fort, owner 2026-11-28 Q-LP29-1 (b): both reach lists read guideKeeps = viewKeeps plus the capture demo's
+  //  prepared fort only — web-frontier-fix-lp29-fog-fort.test.mjs; in every other world exactly viewKeeps)
+  assert.equal(ctl.split('keeps: guideKeeps(cq.keeps)').length - 1, 2, 'both reach lists');
   assert.ok(ctl.includes('if (fog.on) FS.incoming = fog.incoming(FS.incoming, { nowBell: nowBell(), departures });'));
   assert.ok(km.includes('const keeps = viewKeeps(cq.keeps);'));
   assert.ok(feed.includes('viewClash({ p: e.p, q: e.q, keepTile: keepTileIn(FS.overviews, e.p, e.q), mine: !!e.side })'), 'keep news (verify-pr117: the keep tile, not any tile)');

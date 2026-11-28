@@ -29,6 +29,7 @@ import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
 import { openKeyStore, walletScope, openSealedBook, forgetLocalPlayKeys, PERSIST_PAGE_WORD } from './flocalplay-keystore.mjs';
 import { useLocalMarchStorage } from './flocalplay-march.mjs';
 import { onLocalLane, selectLocalLane, lanePair, laneOfVersion, COEXIST_LANE, COEXIST_LANE_WORD } from './flocalplay-lane.mjs';
+import { demoFortView, setDemoFort, startDemoFortAsks } from './fdemofort.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
 export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
@@ -471,6 +472,10 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
       const asked = handle.address, at = base;
       confirmWorldEnd({ expiry: claimedEnd, origin: at, wallet: asked, request, notice: session, now, still: () => !handle.destroyed && handle.address === asked && state.herald === at }).catch(() => {});
     }
+    // (fix-lp29-fog-fort, owner r0ze 2026-11-28 09:05, Q-LP29-1 (b): a TEST-ONLY capture demo world only — the fort the demo
+    //  prepared, so the guide and the keep list may name it under the fog (fdemofort.mjs). Asked a bounded number of
+    //  times, spaced, until the demo has chosen it (some minutes after the first village); never on any other page)
+    if (launcher && claimedDemo !== null) { const asked = handle.address; startDemoFortAsks({ ask: () => checkDemoFort(asked, { herald: base, expiry: claimedEnd }), set: setDemoFort }); }
     const cfgOut = { ...cfg, herald: base, relay: `${base}/gw`, devWallet: false, localPlay: playedAs };
     // (B5: a launcher world's page may ask whether its world still runs — `localPlayWorldCheck(cfg)`, by this very object)
     if (launcher) worldChecks.set(cfgOut, checkWorld);
@@ -547,6 +552,16 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const result = await askLauncher('/local-play/pair', { wallet }, 'LauncherPairFailed');
     if (!handle || handle.destroyed || handle.address !== wallet || state.herald !== scope.herald) return null;
     return result.ok ? pairGuideView(result.body, state.pairRole, scope, now()) : { state: 'unavailable' };
+  };
+  // TEST-ONLY capture demo: the fort the demo prepared (fix-lp29-fog-fort), checked again on this page (`demoFortView`: mode,
+  // the world this page verified at its start, every number); `{state: 'stop'}` once the page is another wallet, lost its
+  // key, or the launcher says this world is gone or no demo. Nothing is signed or sent.
+  const checkDemoFort = async (wallet, scope) => {
+    if (!launcher || !handle || handle.destroyed || handle.address !== wallet || state.herald !== scope?.herald) return { state: 'stop' };
+    const result = await askLauncher('/local-play/demo-fort', { wallet }, 'LauncherDemoFortFailed');
+    if (!handle || handle.destroyed || handle.address !== wallet || state.herald !== scope.herald) return { state: 'stop' };
+    if (!result.ok && (result.launcher === 'WorldNotFound' || result.launcher === 'NotADemo')) return { state: 'stop' };
+    return result.ok ? demoFortView(result.body, scope, now()) : { state: 'unavailable' };
   };
   // The worlds the launcher runs now, on the player's own press of the panel's key (never before a press): so a world
   // left by an earlier page can be ended, and a new one started, without first meeting the limit.
