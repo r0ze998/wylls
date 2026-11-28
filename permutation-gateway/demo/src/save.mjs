@@ -19,6 +19,11 @@
 //
 // The record is versioned twice: `v` (this format) and `world` (a hash of the world bundle, made at build time:
 // build.mjs). A save from another format or another world build is old: it is dropped and the world starts fresh.
+//
+// Sections (demo-npc-merchants): what the PAGE keeps that is no input of the world (the travelers' talk: which line
+// each traveler says next) rides in `sections: {<name>: {v, ...}}` — each section carries its own version, and a
+// reader takes only the sections (and versions) it knows. A save without `sections` (written before them) is still
+// this format; a reader that knows no sections ignores the field. Nothing in a section is replayed or checked.
 export const SAVE_KEY = 'wylls-demo-save';
 export const SAVE_V = 1;
 /** Above this many characters the save is given up (localStorage holds about 5 M characters per origin, shared). */
@@ -117,6 +122,11 @@ export async function replay(live, save, clock) {
  */
 export function createRecorder({ storage, worldId, clock, from = null, maxChars = MAX_CHARS }) {
   const events = from ? [...from.events] : [];
+  // (the page's own sections: kept as they were read, written with every save; a damaged field is dropped)
+  const sections = {};
+  if (from?.sections && typeof from.sections === 'object' && !Array.isArray(from.sections)) {
+    for (const [k, x] of Object.entries(from.sections)) if (x && typeof x === 'object' && !Array.isArray(x) && Number.isInteger(x.v)) sections[k] = x;
+  }
   let seenDone = events.some(e => e.k === 'seen');
   let on = !!storage, why = storage ? null : 'unavailable', lastTurn = null, stopped = false;
   let chain = Promise.resolve();
@@ -128,7 +138,7 @@ export function createRecorder({ storage, worldId, clock, from = null, maxChars 
   }
   function write() {
     if (!on || stopped) return false;
-    const text = JSON.stringify({ v: SAVE_V, world: worldId, w: Math.floor(clock.wall()), savedAt: Date.now(), events });
+    const text = JSON.stringify({ v: SAVE_V, world: worldId, w: Math.floor(clock.wall()), savedAt: Date.now(), events, ...(Object.keys(sections).length ? { sections } : {}) });
     if (text.length > maxChars) return fail('full');
     try { storage.setItem(SAVE_KEY, text); return true; } catch (e) { return fail(/quota/i.test(String(e?.name ?? '') + String(e?.message ?? '')) || e?.code === 22 ? 'full' : 'unavailable'); }
   }
@@ -159,6 +169,14 @@ export function createRecorder({ storage, worldId, clock, from = null, maxChars 
       return out;
     },
     tick(turn) { if (turn !== lastTurn) { lastTurn = turn; write(); } },
+    /** A section of the page's own (`{v, ...}`, a JSON object with an integer version), or null. */
+    section: name => (Object.hasOwn(sections, name) ? structuredClone(sections[name]) : null),
+    /** Keep a section (written at once). A value that is not `{v: integer, ...}` is refused (false). */
+    setSection(name, value) {
+      if (typeof name !== 'string' || !value || typeof value !== 'object' || Array.isArray(value) || !Number.isInteger(value.v)) return false;
+      try { sections[name] = JSON.parse(JSON.stringify(value)); } catch { return false; }
+      return write();
+    },
     write,
     /** Stop writing and leave the save as it is (a browser that cannot replay it: `why` says why). */
     disable(reason) { on = false; why = String(reason); },

@@ -21,7 +21,7 @@ import { createClock, createRecorder, readSave, replay } from '../demo/src/save.
 
 const TURN = 12, MS = TURN * 1000;
 // the page's world (demo/src/boot.mjs createLive options; pinned by web-frontier-test-gaps-11-demo-goal-camps test 1)
-const PAGE = { stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, camps: true, goal: true, turn: TURN, delay: 3, landMs: 400 };
+const PAGE = { stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, travelers: true, camps: true, goal: true, turn: TURN, delay: 3, landMs: 400 };
 const json = v => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? `${x}n` : x instanceof Uint8Array ? Array.from(x) : x instanceof Set ? [...x] : x));
 const hash = v => createHash('sha256').update(json(v)).digest('hex');
 const memory = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: k => { m.delete(k); } }; };
@@ -32,7 +32,7 @@ function worldState(live) {
   const provinces = (s.territory ?? []).map(t => live.province(t.p, t.q));
   return {
     summary: s, land: live.testPlay.land(), provinces,
-    goal: live.goal?.() ?? null, goalLog: live.goalLog?.() ?? null, camps: live.camps?.() ?? null, campsLog: live.campsLog?.() ?? null,
+    goal: live.goal?.() ?? null, goalLog: live.goalLog?.() ?? null, camps: live.camps?.() ?? null, campsLog: live.campsLog?.() ?? null, travelers: live.travelers?.() ?? null, travelLog: live.travelLog?.() ?? null,
     season: live.herald('/h/season', new URL('http://x/h/season')),
   };
 }
