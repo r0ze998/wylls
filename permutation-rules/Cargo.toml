@@ -45,7 +45,8 @@ territory-preview = []
 # vocabulary (Require/Set/Add + the core effects Lock/Release) interpreted
 # over the caller's own Holding, and the verifier-side replay. Off by
 # default: no default-build code, vector, hash input or budget changes; no
-# program links it (an on-chain use needs r0ze's OK and a world-4 decision).
+# program links it (owner Q-11B-1 = A: world 4, Lock/Release only; any
+# program build or deploy still needs r0ze's OK).
 declarative-effects = []
 
 # On Solana, hash with the runtime's sol_sha256 syscall (bit-identical, far

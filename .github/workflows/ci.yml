@@ -860,7 +860,7 @@ jobs:
             (cd "$d" && cargo fmt -- --check && cargo clippy --locked --all-targets -- -D warnings)
           done
           echo "== workstreams/11-extensions/ext-kernel: ⑪(b) kernel slice parity (permutation-rules declarative-effects)"
-          (cd workstreams/11-extensions/ext-kernel && cargo test --locked --test kernel_slice)
+          (cd workstreams/11-extensions/ext-kernel && cargo test --locked --test kernel_slice --test kernel_slice_random)
           echo "== workstreams/10-custody/adapter-09/with-bridge10 (format only)"
           (cd workstreams/10-custody/adapter-09/with-bridge10 && cargo fmt -- --check)
 

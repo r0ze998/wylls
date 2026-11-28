@@ -13,7 +13,7 @@
 //!   (`Holding::credit`; ext-kernel's `Refund`, op 0x05);
 //!
 //! and the state ops they need to be useful (`Require` 0x01, `Set` 0x02,
-//! `Add` 0x03). ext-kernel's `Burn` (0x06, owner question D2) and `Emit`
+//! `Add` 0x03). ext-kernel's `Burn` (0x06; no Burn in v1, owner Q-11B-2 = A) and `Emit`
 //! (0x07) are NOT in the slice: a body naming them is `NotInSlice`, never
 //! run. There is no branch, loop, call out, mint, randomness or read of any
 //! account but the caller's instance and Holding, so one run is at most
