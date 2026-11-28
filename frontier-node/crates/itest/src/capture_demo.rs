@@ -586,7 +586,7 @@ fn free_site(state: &Shared, a: &Addresses, p: i16, q: i16) -> Option<u8> {
 type BHome = ((i32, i32), u8, u8);
 
 /// The second player's home over a fort held by `nation`: its own, if its Citizen already has one (of whatever nation,
-/// [`pair_b_nation`]), else where the pair's page will place it for the fort's nation ([`predict_pair_home`] for the
+/// [`pair_b_nation`]), else (fix-loop31: for the nation its Join chose, when it has joined; the fort's otherwise) where the pair's page will place it for the fort's nation ([`predict_pair_home`] for the
 /// second role over the chain's free sites, seed `"pair:{season}|0"`: Q-TG8-1 (a); before, the one-player
 /// `"{wallet}|0"` choice, which missed the page's site on 24 of 36 test maps). `((p, q), site, tile)` and the second
 /// player's nation.
@@ -634,6 +634,16 @@ fn b_home_for(
             ));
         }
     }
+    // (fix-loop31, LP31 BREAK-2) joined and not placed yet: the nation the second player's own Join chose (the page
+    // places its village for that nation, never for another). Before, an unplaced second player was always predicted
+    // for the fort's nation ("defend"): two players who both picked Fjordal at once got `pair_not_ready "the second
+    // player plays nation 5, the pair's is 4"` once B's village landed.
+    let joined = c
+        .account(&a.citizen(b))
+        .and_then(|acc| crate::natural_play::joined(&acc.data, b))
+        .map(|(f, _)| f)
+        .filter(|f| *f <= 5);
+    let pn = joined.unwrap_or(nation);
     let clock = lk::season_clock(&c, a)?;
     let bell = clock.bell_at(c.unix_timestamp()).unwrap_or(0);
     let mut provs: Vec<((i32, i32), Vec<u8>)> = vec![];
@@ -643,7 +653,7 @@ fn b_home_for(
             for q in -ring..=ring {
                 let pc = ProvinceCoord::new(p, q);
                 if pc.ring() as i32 != ring
-                    || home_nation(pc, cq.placement, cq.heartland_max_ring, seed) != Some(nation)
+                    || home_nation(pc, cq.placement, cq.heartland_max_ring, seed) != Some(pn)
                 {
                     continue;
                 }
@@ -655,7 +665,7 @@ fn b_home_for(
                 };
                 let sites = frontier_bots::home::home_sites(
                     &pv,
-                    nation,
+                    pn,
                     bell,
                     rings,
                     Some(cq.heartland_max_ring as u16),
@@ -668,13 +678,17 @@ fn b_home_for(
     }
     let ((p, q), site) =
         predict_pair_home(&provs, &format!("pair:{}|0", a.season), PairRole::Second)
-            .ok_or_else(|| format!("no province with two free home sites for nation {nation}"))?;
+            .ok_or_else(|| format!("no province with two free home sites for nation {pn}"))?;
     let tile = tiles
         .iter()
         .find(|(x, _)| *x == (p, q))
         .map(|(_, t)| t[site as usize])
         .ok_or("the predicted site's tile")?;
-    Ok((((p, q), site, tile), pair_b_nation(None, nation)))
+    let b_nation = match joined {
+        Some(f) => pair_b_nation(Some(f), nation),
+        None => pair_b_nation(None, nation),
+    };
+    Ok((((p, q), site, tile), b_nation))
 }
 
 /// TEST-ONLY contest pair: once the second player's own PlaceHome has landed and the demo has chosen the fort, both routes
@@ -1837,6 +1851,23 @@ mod tests {
             !b_home.contains("predict_home(&provs"),
             "not the one-player rule"
         );
+        // (fix-loop31, LP31 BREAK-2) joined, not placed: the nation of its own Join (both Fjordal → attack), predicted
+        // for that nation's provinces; never the fort's nation over the Join's
+        assert!(
+            b_home.contains("crate::natural_play::joined(&acc.data, b)")
+                && b_home.contains("Some(f) => pair_b_nation(Some(f), nation)")
+                && b_home.contains("let pn = joined.unwrap_or(nation);")
+                && b_home.contains("!= Some(pn)")
+                && !b_home.contains("!= Some(nation)"),
+            "an unplaced second player keeps the nation it joined"
+        );
+        for holder in 0..5u8 {
+            assert_eq!(
+                pair_role(pair_b_nation(Some(5), holder), holder),
+                "attack",
+                "both Fjordal: the pair attacks"
+            );
+        }
         let verify =
             &src[src.find("pub fn verify_pair(").unwrap()..src.find("pub async fn run(").unwrap()];
         assert!(

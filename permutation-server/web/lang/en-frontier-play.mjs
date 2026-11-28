@@ -202,6 +202,8 @@ export default {
   '参加済みの国の土地を選んでください。': 'Choose land within the nation you have joined.',
   'この土地は現在選べません。候補を更新して別の土地を選んでください。': 'This land is no longer available. Refresh the candidates and choose another site.',
   'あなたの村を確定しています…': 'Confirming your village…',
+  'その土地は、いま別の村が先に取りました。空いている別の土地を探しています…': 'Another village took that place a moment ago. Looking for another free place…',
+  '空いている土地が、確定のあいだに別の村で埋まりました。候補を更新して、もう一度押してください。': 'The free places were taken by other villages while yours was being confirmed. Refresh the candidates and press again.',
   '土地の確定を確認できませんでした。再確認するか、候補を更新してください。': 'The land grant could not be confirmed. Check again or refresh the candidates.',
   '参加を完了できませんでした。接続を確認して再試行してください。': 'Joining could not be completed. Check your connection and try again.',
   'ここが、あなたの村です。': 'This is your village.',

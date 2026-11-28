@@ -34,6 +34,7 @@ import { createHerald } from '../herald.mjs';
 import { config } from '../config.mjs';
 import { bus as pageBus } from '../fx/bus.mjs';
 import { battleScene, BATTLE_SPEEDS, PHASE } from '../people/battle.mjs';
+import { troopsOf } from '../fmarch.mjs';
 import { noticeProvince } from '../hud/place.mjs';
 import { said } from '../hud/words.mjs';
 
@@ -95,16 +96,42 @@ export function ownClashText(fs, { p, q, bell }, part) {
 }
 
 /**
+ * (fix-loop31, LP31 BREAK-3) What was left of one of the viewer's own rows `s` of a scene: the herald's recomputed fate
+ * of that fighter where the report has one (`fighters`: the report's `decoded.fighters`, given only when its
+ * `heraldCheck` is "match" — the chain's own outcome), else the scene's. A host that RETREATED from the tile is not in
+ * the roster of a Province read a few turns later (it went home: OP_LEAVE, its troops back in the village's reserve),
+ * and the scene counts it as fallen: the defender's notice read 「452 兵を失いました」 for a retreat whose report says
+ * 68 / 452. Without the herald's fates, a row the scene says fell in a Province read later than the turn right after
+ * the clash is not known (no number is said).
+ */
+export function ownRowAfter(s, { bell, after = null, fighters = null } = {}) {
+  const f = (fighters ?? []).find(x => String(x?.id) === String(s.id) && !!x.arrival === (s.kind === 'arrival'));
+  if (f && Number.isFinite(Number(f.troops))) return { ...s, after: Math.min(troopsOf(Number(f.troops)), s.before), fate: f.fate ?? s.fate };
+  const late = !!after && int(after.resolvedNext) && int(bell) && after.resolvedNext > bell + 1;
+  return late && s.after === 0 && s.kind !== 'arrival' ? { ...s, after: null, fate: null } : s;
+}
+
+/**
  * The notification of such a clash, or null when the record is not one of them: `{id: 'cl:P,Q,bell', kind: 'battle',
  * bell, p, q, tile, battle: {p, q, bell}, text, residents}` (the id and the shape of hud/feed.mjs's own `cl:` line, so
  * that the two are one line wherever both are made). `report`: the herald's clash report (`inputs_b64`,
  * `province_before_b64`); `after`: the Province after that turn, or null when the page does not have it yet.
  */
-export function ownClashItem(fs, { p, q, bell, inputs, before, after }) {
+export function ownClashItem(fs, { p, q, bell, inputs, before, after, fighters = null }) {
   const scene = battleScene({ p, q, bell, inputs, before, after });
-  const part = scene ? ownPart(fs, scene) : null;
-  if (!part) return null;
+  const found = scene ? ownPart(fs, scene) : null;
+  if (!found) return null;
+  const part = { ...found, me: found.me.map(s => ownRowAfter(s, { bell, after, fighters })) };
   return { id: `cl:${p},${q},${bell}`, kind: 'battle', bell: fs?.nowBell ?? bell, p, q, tile: part.tile, battle: { p, q, bell }, ...said(() => ownClashText(fs, { p, q, bell }, part)), residents: !!scene.residents };
+}
+
+/** How many of the viewer's own clashes the page keeps (hud/feed.mjs OWN_CLASHES_MAX). */
+const OWN_CLASHES_KEEP = 24;
+/** `list` (the page's `ownClashes`, newest first) with clash `c` `{p, q, tile, bell}` — once. */
+export function withOwnClash(list, c) {
+  const out = [...(list ?? [])];
+  if (!out.some(x => x.p === c.p && x.q === c.q && x.bell === c.bell)) out.push(c);
+  return out.sort((a, b) => b.bell - a.bell).slice(0, OWN_CLASHES_KEEP);
 }
 
 /** The CLASH records of the log the page has read that had an engagement: `[{p, q, bell}]`. */
@@ -178,7 +205,9 @@ export function mountOwnClash({ state = () => FS, enabled = () => true, bus = pa
         // (what was lost is told from the province after the turn: asked again until the page has read it. A clash with
         // arrivals can be told without it in the end: who came is in the record's own inputs)
         ready = !!after || (tries >= RETRIES && (r.inputs.arrivals ?? []).some(a => a.present === 1 || a.present === true));
-        if (ready) item = ownClashItem(state(), { ...c, inputs: r.inputs, before, after });
+        // (fix-loop31: the herald's fates of the fighters, where its recompute matched the chain's outcome digest)
+        const fighters = r.report?.heraldCheck === 'match' && Array.isArray(r.report?.decoded?.fighters) ? r.report.decoded.fighters : null;
+        if (ready) item = ownClashItem(state(), { ...c, inputs: r.inputs, before, after, fighters });
       }
     } catch (e) { globalThis.console?.warn?.('frontier own clash:', e); }
     if (!ready && tries < RETRIES) { later(() => { consider(c, tries + 1); }, RETRY_MS); return false; }
@@ -188,6 +217,10 @@ export function mountOwnClash({ state = () => FS, enabled = () => true, bus = pa
     const f = state(), speed = BATTLE_SPEEDS[f.ui?.battleFx ?? 'normal'] || 0;
     // (the notifications' own list, as app.mjs keeps it: newest first, one line an id)
     if (!(f.feed ?? []).some(x => x.id === item.id)) f.feed = [{ ...item, at: Date.now() }, ...(f.feed ?? [])].slice(0, FEED_KEEP);
+    // (fix-loop31, LP31 BREAK-3: the clash is the viewer's own — it goes on its list of clash reports too, as a march's
+    //  resolved clash does: hud/feed.mjs ownClashesFrom. A host that stood on its own nation's keep and fought there as a
+    //  resident had its report only behind this notice's 報告)
+    f.ownClashes = withOwnClash(f.ownClashes, { p: c.p, q: c.q, tile: item.tile ?? null, bell: c.bell });
     camera.set(key, speed > 0 && !!f.ui?.autoPan);
     bus.emit('feed', { turn: f.nowBell ?? item.bell, fresh: [{ ...item, faction: f.citizen?.faction ?? null,
       ...(speed > 0 ? { scene: (item.residents ? PHASE.end - PHASE.deploy : PHASE.end) / speed, focus: !!f.ui?.autoPan } : {}) }] });

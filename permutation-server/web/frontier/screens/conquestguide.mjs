@@ -15,8 +15,8 @@
 //                            the step is current again (it says so, and what the keeps take)
 //   7 hold it for 72 turns   that keep's record names the viewer's nation as the contender, the keep being one the
 //                            viewer's own host stands on or own march is bound for: its count
-//   8 the capture            a capture record (keep_taken) to the viewer's nation, or the keep's holder
-//                            is now the viewer's nation after its contest
+//   8 the capture            a capture record (keep_taken) to the viewer's nation of a keep the viewer took part in
+//                            (its host on the keep's tile, its march or its clash there) — not a nation-mate's capture
 // One "next thing" at a time (UX design 7.4, 11.11): the current step's sentence and its one press, which
 // opens the thing the step needs (the village's card, the host's list of keeps, the keep).
 import { html, raw } from '../../util.mjs';
@@ -103,7 +103,15 @@ export function conquestFacts(FS) {
   // whose own march was turned back — read "hold the keep's tile for 72 turns" (the live check of 2026-10-26)
   const mine = k => int(f) && k.contender === f;
   const contest = [standing, revealed, sealed].find(k => k && mine(k)) ?? null;
-  const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f).at(-1) ?? null;
+  // (fix-loop31, LP31 BREAK-1: a capture counts for the viewer's guide only where the viewer took part — its own host
+  //  stands on that keep's tile (the garrison a capture leaves), or a march of its (on the list, or sealed by this page
+  //  and not answered "no"), or its own clash, was at that province. Before, any capture by the nation did: in a
+  //  `--demo --ai N` world an AI nation-mate took a keep and every step read done before the player had marched, so the
+  //  capture demo's "March on the demo keep" step never showed)
+  const at = (x, e) => !!x && x.p === e.p && x.q === e.q;
+  const tookPart = e => at(standing, e) || (FS.marches ?? []).some(m => at(m?.dest, e))
+    || (FS.orders ?? []).some(o => o?.kind === 'march' && o.state !== 'refused' && at(o.dest, e)) || (FS.ownClashes ?? []).some(c => at(c, e));
+  const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f && tookPart(e)).at(-1) ?? null;
   const target = contest ?? standing ?? revealed ?? sealed ?? null;
   // (round 46, seen in live33: a host out on a march is in no province record the page holds until its arrival is read;
   // the guide then counted no host and fell back to "build" (1/7) mid-march. The viewer's own march list says a host

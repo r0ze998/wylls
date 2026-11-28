@@ -307,7 +307,10 @@ test('the guide on a conquest season: eight steps to a province, march first (pt
   assert.equal(conquestGuide(later('expired')).current, 'march', 'held, then expired: no march went');
   assert.notEqual(conquestGuide(later('landed')).current, 'march', 'held, then landed: marched');
   // the capture record: every step is done
+  // (fix-loop31: the viewer's own host is the keep's garrison — a capture of the viewer's, not only of its nation)
   const taken = fs({ bell: 92 }); taken.conquest.events = [{ seq: '10696', kind: 'keep_taken', bell: 83, p: 4, q: -1, from: 5, to: 0, troops: 241 }];
+  taken.provinces.set('4,-1', { province: { p: 4, q: -1, resolvedNext: 92, entries: [entry({ tile: kt })], ticketCohorts: [] } });
+  taken.provinces.get('2,0').province.entries = [];
   assert.equal(conquestGuide(taken).current, 'done');
   assert.equal(conquestObjective(taken), null);
   assert.match(plain(renderConquestGuide(taken)), /第83ターンに、あなたの国（アステル）が州 4,-1 を奪いました。/);
@@ -467,4 +470,27 @@ test('LP6-10: the nation\'s keeps another nation is taking are listed even when 
   setLang('en');
   try { const e = plain(renderReach({ ...s, conquest: { ...s.conquest, reach: { key: 'k', ok: true, home: false, rows: [], unreachable: [] } } })); assert.match(e, /has been taking it since turn 12/); assert.doesNotMatch(e, CJK); }
   finally { setLang('ja'); }
+});
+
+// ------------------------------------------------------------------ fix-loop31 (LP31 BREAK-1)
+test('LP31-1 a nation-mate\'s capture (an AI of the same nation) does not finish the viewer\'s guide; the viewer\'s own capture does', () => {
+  const ev = [{ seq: '10696', kind: 'keep_taken', bell: 83, p: 4, q: -1, from: 5, to: 0, troops: 241 }];
+  // the viewer: a ready host at home, never marched on a keep; an AI of its nation took the keep of 4,-1
+  const mate = fs({ bell: 92 }); mate.conquest.events = ev;
+  assert.equal(conquestGuide(mate).facts.captured, null, 'not the viewer\'s capture');
+  assert.notEqual(conquestGuide(mate).current, 'done');
+  assert.equal(conquestGuide(mate).steps.find(x => x.id === 'march').status === 'done', false, 'the march step is not done (the demo keep\'s step can show)');
+  assert.notEqual(conquestObjective(mate), null);
+  // the viewer's own march to that province (sealed by this page), or its garrison on the keep's tile: its capture
+  const kt = mate.conquest.keeps.get('4,-1').tile;
+  const marched = { ...fs({ bell: 92 }), orders: [{ id: 'o1', kind: 'march', name: 'Depart', dest: { p: 4, q: -1, tile: kt }, state: 'accepted' }] };
+  marched.conquest.events = ev;
+  assert.equal(conquestGuide(marched).current, 'done');
+  // a march order to that province the page was answered "no" for never went: still not the viewer's capture
+  const refused = { ...marched, orders: [{ ...marched.orders[0], state: 'refused' }] };
+  assert.equal(conquestGuide(refused).facts.captured, null);
+  setLang('en');
+  assert.doesNotMatch(plain(renderConquestGuide(mate)), /Guide: /, 'a step of the guide, not its end');
+  assert.match(plain(renderConquestGuide(marched)), /^ ?Guide: /);
+  assert.doesNotMatch(plain(renderConquestGuide(mate)), CJK);
 });
