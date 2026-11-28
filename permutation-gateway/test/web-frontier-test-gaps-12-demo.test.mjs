@@ -12,8 +12,8 @@
 // key is generated, derived, imported or used; the approved demo sample keys are not needed. The goal card (#321) runs
 // against a stand-in document (plain objects: no browser, no network).
 //
-// #324 is not merged when this file lands: its tests here need the world's `testPlay.land()` (the raw land records
-// #324 adds) and say SKIP until it is there.
+// #324 is merged (999399e91): its tests here use the world's `testPlay.land()` (the raw land records #324 adds) and
+// run; they would say SKIP only on a tree without it (verify-pr330).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
