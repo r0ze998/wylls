@@ -4,11 +4,13 @@
 // key (the keyless viewer; the player's orders go through the world's own instructions: liveworld `order` and
 // `testPlay`). Prints one line per game and, with --log, the castles' changes and the waves.
 //
-//   node goal-playtest.mjs [--games 5] [--strategy active|human|normal|slow|idle|turtle|all] [--nation 0..5|all] [--turns 200]
+//   node goal-playtest.mjs [--games 5] [--strategy active|human|normal|slow|thin|careful|idle|turtle|all] [--nation 0..5|all] [--turns 200]
 //                          [--seeds 1,2,3] [--log] [--set key=value,...]   (DEMO_GOAL overrides, e.g. --set holdBells=12,waveEvery=6)
 // 'normal' and 'slow' are human-paced players (demo-goal-polish-1): they start late (picking a nation, reading the guide),
 // look at the game only every few turns (jittered by --seeds), do at most 3 orders a look and attack the NEAREST castle
 // they outnumber (not the best one). The game length is tuned on 'normal' (target 15–20 min = 75–100 turns at 12 s).
+// 'thin' and 'careful' (demo-dgp1-waves, Q-DGP-1) play at the 'normal' pace but keep 150 troops on a castle they took,
+// or twice the card's "next wave ≈ N" (the late AI waves are tuned so that no game of the three is left without a result).
 import { parseArgs } from 'node:util';
 import * as W from '../screens/world.mjs';
 import { createLive } from '../screens/liveworld.mjs';
@@ -23,7 +25,9 @@ const TURN_SECS = 12;
 const NAMES = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'];
 
 /** The human-paced players' timing: [first look (turns after the village), [min, max] turns between two looks]. */
-export const PACE = { normal: [12, [3, 6]], slow: [18, [5, 8]] };
+export const PACE = { normal: [12, [3, 6]], slow: [18, [5, 8]], thin: [12, [3, 6]], careful: [12, [3, 6]] };
+/** The troops a human-paced player keeps on each castle it took, from the card's next wave (default: × 1.25). */
+const GUARD = { thin: () => 150, careful: w => Math.max(150, Math.round(w * 2)) };
 
 export async function game({ nation, strategy, turns, set = over, seed = 1 }) {
   let real = 1_000_000;
@@ -101,7 +105,7 @@ function play(live, s, ord, strategy, st) {
   // defend: a castle of ours with fewer than 150 of ours standing and nothing on its way; then attack what we outnumber
   // (a human-paced player reads the card's "next wave: about N troops a host" and keeps that much and a quarter more on
   //  each castle it took)
-  const guard = pace ? Math.max(150, Math.round((g.waveTroops ?? 0) * 1.25)) : 150;
+  const guard = GUARD[strategy] ? GUARD[strategy](g.waveTroops ?? 0) : pace ? Math.max(150, Math.round((g.waveTroops ?? 0) * 1.25)) : 150;
   const defend = g.castles.filter(c => c.holder === mine && c.nation !== mine && ours(c) < guard && !coming(c));
   const attack = g.castles.filter(c => c.nation !== mine && c.holder !== mine && !coming(c) && !st.far.has(`${c.p},${c.q}`)).sort((a, c) => d(a) - d(c));
   const send = (h, c) => {

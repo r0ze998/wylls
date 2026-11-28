@@ -187,8 +187,11 @@ compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `D
   only captured castles (never your own nation's), each from when it was taken, a capture resets that castle's timer.
   Need = half of the 6 castles (the real `needOf`) = half of the 5 rivals' rounded up.
 - **Lose**: an AI nation meets the same rule first (a same-turn tie is your win).
-- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave, capped at
-  2,000): the rival leader (two nations along from yours) every wave, +20 % troops, racing for castles (retake its own,
+- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave); from turn 120
+  (Q-DGP-1 (c): the AI only, so that every game ends) a wave every 5 turns, ×1.2 a wave (capped at 30,000), a wave host
+  left at home marches again with the next wave, and the other AI nations no longer take their castles back from the
+  leader (the card says "The AI waves now come every 5 turns…"). The rival leader (two nations along from yours)
+  marches every wave, +20 % troops, racing for castles (retake its own,
   stop a nation one castle short, hold what it has, capture the nearest); one more AI nation a wave (they take turns)
   takes its own castle back or raids you (your castles, else your land: a raid on land only brings a host there to fight
   yours, since land never changes hands by marching). Your own nation's AI village only defends.
