@@ -49,8 +49,10 @@
   - 2026-11-28 追加（**owner が承認した、鍵の規則の例外**。この段だけに限ります。上の fmt/clippy の扱いは、鍵を使わない段を pattern から外すもので、鍵の利用を認めるものではありません）：
     - 段：`walletless-demo` job の「Walletless demo at the real Pages host, pre-join」。体験版（`permutation-gateway/demo/smoke.mjs --pre-join`）を、Pages と同じ build で、本物の Pages のホスト名のまま headless Chromium で開きます。
     - 理由：#307 の P0（GitHub Pages では「ウォレットをつなぎます」が出たのに、127.0.0.1 の試験はすべて通った）を、PR ごとに捕まえるためです。
-    - 例外 1（公開鍵の導出。Q-FDW-1 = B、r0ze 2026-11-28 08:30、`wylls-grok-state/inbox/2026-11-28-0830-r0ze-fdw1-answer.md`）：体験版の Dev Wallet の**固定の見本の seed**（`permutation-gateway/screens/world.mjs` の `DEV_SEED`、0x11 が 32 byte）。ページはこの seed から**公開鍵を導出するだけ**です（`session.mjs` の `keyFromSeed`）。チェーンにも資金にもつながりません。
-      - 同じ `viewer()` は、ゲーム内の見本の鍵 `SESSION_SEED`（0x22 が 32 byte）の公開鍵も導出します（署名はしません）。08:30 の承認の文面は Dev Wallet の鍵だけを名指ししているので、これも含むかを r0ze に確認中です（`wylls-grok-state/inbox/2026-11-28-1300-finish-pr309-questions.md`、Q-FDW-3）。
+    - 例外 1（公開鍵の導出。Q-FDW-1 = B、r0ze 2026-11-28 08:30、`wylls-grok-state/inbox/2026-11-28-0830-r0ze-fdw1-answer.md`。範囲は Q-FDW-3 = A、r0ze 2026-11-28 13:14、`wylls-grok-state/inbox/2026-11-28-1314-r0ze-watch-answer.md`。問いは `wylls-grok-state/inbox/2026-11-28-1300-finish-pr309-questions.md`）：体験版の**固定の見本の seed 2 つ**です。
+      - Dev Wallet の鍵 `DEV_SEED`（`permutation-gateway/screens/world.mjs`、0x11 が 32 byte）
+      - ゲーム内の見本の鍵 `SESSION_SEED`（同じファイル、0x22 が 32 byte）
+      - ページ（同じファイルの `viewer()`）は、この 2 つの seed から**公開鍵を導出するだけ**です（`session.mjs` の `keyFromSeed`）。開始前にどちらの鍵でも署名はしません。チェーンにも資金にもつながりません。
     - 例外 2（読み込み時の自己テストの署名。Q-FDW-2 = A、r0ze 2026-11-28 11:50、`wylls-grok-state/inbox/2026-11-28-1150-r0ze-fdw2-answer.md`）：`permutation-gateway/demo/src/boot.mjs` の `cryptoCheck()` が、**使い捨ての固定の seed（0x07 が 32 byte）**から鍵を作り、**固定の文 `Wylls demo preflight`** に **1 回だけ**署名して検証します（ブラウザが Ed25519 で署名できるかの確認。#308 から）。ページの読み込み 1 回につき多くて 1 回です。外へは何も送らず、チェーン・ウォレット・資金のどれにもつながりません。
     - それ以外の署名はしません：国を選び、開始ボタンが出たところで止めます（押しません）。参加（session 鍵）・命令・戦いの通し試験は、これまでどおり `key-tests` だけです。
     - smoke.mjs の数え方（`--pre-join`）：`crypto.subtle.sign` の呼び出しのうち、**文がちょうど `Wylls demo preflight` で、かつ鍵が 0x07 の seed から import されたもの**だけを自己テストとして別に数え、0 か 1 でなければ失敗します。それ以外の署名は 1 回でもあれば失敗します。秘密鍵の import は seed が 0x07・0x11・0x22 のものだけを認め、ほかの seed・秘密鍵の JWK・`generateKey` が 1 回でもあれば失敗します。
