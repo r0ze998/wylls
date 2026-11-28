@@ -471,9 +471,18 @@ pub fn settlers_needed(occupied: u32, open: u32, theta_bps: u64) -> u32 {
 
 /// (fix-loop27) How many times the demo's fold may start from part 0 when a part comes back `FoldStale`.
 pub const FOLD_TRIES: u32 = 4;
+/// (fix-loop31) How long the demo waits for a joined second player's village before it fills land (real seconds).
+pub const PAIR_HOME_WAIT: Duration = Duration::from_secs(90);
 
 /// (fix-loop27) Whether a FoldOccupancy outcome is the program's FoldStale refusal (44): a part landed with that error.
 /// Only a landed refusal counts — an `Unknown` outcome is never retried.
+/// (fix-loop31) Whether a PlaceHome was refused TicketState (45) — its site taken a moment before — and nothing landed.
+pub fn is_site_taken(sent: &Sent) -> bool {
+    matches!(sent, Sent::Failed(e) if e.contains(&format!("(code Some({}))", fclient::abi::err::TICKET_STATE)))
+}
+/// (fix-loop31) How many sites one test participant's PlaceHome tries when the one it read is taken under it.
+pub const PLACE_TRIES: u32 = 4;
+
 pub fn is_fold_stale(sent: &Sent) -> bool {
     matches!(sent, Sent::Failed(e) if e.contains(&format!("(code Some({}))", fclient::abi::err::FOLD_STALE)))
 }
@@ -776,6 +785,44 @@ pub async fn run(
     out: impl Fn(Value),
 ) -> Result<(), String> {
     let mut settlers = 0u32;
+    // (fix-loop31, LP31 BREAK-2) a `--two` pair whose second player has JOINED and whose village has not landed yet: its
+    // PlaceHome is waited for (at most PAIR_HOME_WAIT, the natural clock) before the demo fills the first player's wedge
+    // with test villages — two players who picked one nation within seconds had the second's chosen site taken by the
+    // fill (refused 45, TicketState) and its village then placed far away. A second player that has not joined is not
+    // waited for (the page suggests the fort's nation once the fort is chosen).
+    if let Some((b, _)) = &pair {
+        let pending = |st: &Shared| {
+            let c = lock(st);
+            c.account(&a.citizen(b)).is_some_and(|acc| {
+                crate::natural_play::joined(&acc.data, b).is_some()
+                    && acc
+                        .data
+                        .get(C::FLAGS)
+                        .is_some_and(|f| f & C::FLAG_HOME_GRANTED == 0)
+            })
+        };
+        if pending(&state) {
+            out(line(
+                "pair_home_wait",
+                scale,
+                0,
+                json!({"wait_s": PAIR_HOME_WAIT.as_secs()}),
+            ));
+            let until = std::time::Instant::now() + PAIR_HOME_WAIT;
+            while pending(&state) && std::time::Instant::now() < until {
+                if *stop.borrow() {
+                    return Err("stopped".into());
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            out(line(
+                "pair_home_waited",
+                scale,
+                0,
+                json!({"placed": !pending(&state)}),
+            ));
+        }
+    }
     out(line(
         "started",
         scale,
@@ -894,25 +941,53 @@ pub async fn run(
             .await?;
             let (f, sh) = crate::natural_play::joined(&bytes(&state, &a.citizen(&w))?, &w)
                 .ok_or("the test participant did not join")?;
-            let site = free_site(&state, &a, fp, fq).ok_or("the site was taken")?;
-            send(
-                &state,
-                &k,
-                ix::place_home(
-                    &a,
-                    &fclient::ix::Player {
-                        actor: w,
-                        payer: w,
-                        wallet: w,
-                    },
-                    ix::Site { p: fp, q: fq, site },
-                    f,
-                    sh,
-                ),
-                "test participant PlaceHome",
-                &mut stop,
-            )
-            .await?;
+            // (fix-loop31, LP31 BREAK-2) a person's village may land on the very site between its read and this send (a
+            // `--two` second player of the first player's nation): refused TicketState (45) before landing, nothing
+            // landed — the next free site of the wedge is taken, at most PLACE_TRIES times. Anything else stops as before.
+            let mut tries = 0u32;
+            loop {
+                tries += 1;
+                let (fp, fq, site) = fill
+                    .iter()
+                    .filter(|h| h.2 == nation)
+                    .find_map(|h| free_site(&state, &a, h.0, h.1).map(|s| (h.0, h.1, s)))
+                    .ok_or_else(|| format!("no free site left in wedge {wh}"))?;
+                let sent = submit_and_wait(
+                    &state,
+                    &k,
+                    ix::place_home(
+                        &a,
+                        &fclient::ix::Player {
+                            actor: w,
+                            payer: w,
+                            wallet: w,
+                        },
+                        ix::Site { p: fp, q: fq, site },
+                        f,
+                        sh,
+                    ),
+                    "test participant PlaceHome",
+                    Duration::from_secs(60),
+                    &mut stop,
+                )
+                .await;
+                match sent {
+                    Sent::Landed(_) => break,
+                    s if is_site_taken(&s) && tries < PLACE_TRIES => {
+                        out(line(
+                            "place_retry",
+                            scale,
+                            settlers,
+                            json!({"p": fp, "q": fq, "site": site, "try": tries}),
+                        ));
+                    }
+                    other => {
+                        return Err(format!(
+                            "test participant PlaceHome: {other:?} (not resent)"
+                        ))
+                    }
+                }
+            }
             settlers += 1;
         }
     }
@@ -1053,6 +1128,8 @@ pub async fn run(
     let mut opened = vec![];
     let mut refused = vec![];
     let mut chosen = None;
+    // (fix-loop31, LP31 BREAK-2) a fort the first player reaches whose only refusal is the second player's predicted route
+    let mut pair_fallback: Option<(PairTarget, usize)> = None;
     for (path, target) in cands.iter().take(12) {
         let mut refused_open = None;
         for p in path.iter().skip(1).chain(std::iter::once(target)) {
@@ -1127,6 +1204,21 @@ pub async fn run(
                                 }
                                 Err(why) => {
                                     refused.push(json!({"p": target.0, "q": target.1, "why": format!("second player: {why}")}));
+                                    // (fix-loop31: kept as the fort of last resort — the first player's demo goes on, and
+                                    //  the pair's own check says why the second player cannot reach it)
+                                    pair_fallback.get_or_insert((
+                                        PairTarget {
+                                            target: *target,
+                                            keep_tile,
+                                            nation: holder,
+                                            b_nation,
+                                            a_start: start,
+                                            a_steps: route.len(),
+                                            b_home: bh,
+                                            b_steps: 0,
+                                        },
+                                        route.len(),
+                                    ));
                                     continue;
                                 }
                             }
@@ -1141,6 +1233,16 @@ pub async fn run(
                 break;
             }
             Err(why) => refused.push(json!({"p": target.0, "q": target.1, "why": why})),
+        }
+    }
+    // (fix-loop31, LP31 BREAK-2: a second player's predicted village that reaches no fort — joined for the first player's
+    //  nation after the demo filled that nation's nearby land — no longer stops the FIRST player's demo: the first fort
+    //  it reaches is taken, and `pair_not_ready` names the second player's own reason once its village is read)
+    if chosen.is_none() {
+        if let (Some((t, steps)), Some((_, slot))) = (pair_fallback.take(), &pair) {
+            let keep = view(t.target).and_then(|v| v.keep);
+            chosen = Some((t.target, steps, keep));
+            *slot.lock().unwrap() = Some(t);
         }
     }
     let Some((target, steps, Some((holder, tile, _)))) = chosen else {
@@ -1861,6 +1963,31 @@ mod tests {
                 && !b_home.contains("!= Some(nation)"),
             "an unplaced second player keeps the nation it joined"
         );
+        // (fix-loop31) a joined, unplaced second player's village is waited for before the fill, bounded; and its
+        // predicted route never stops the first player's demo (the fort of last resort, then the pair's own check)
+        let run_src =
+            &src[src.find("pub async fn run(").unwrap()..src.find("#[cfg(test)]").unwrap()];
+        let wait_at = run_src.find("\"pair_home_wait\"").expect("the wait line");
+        assert!(
+            wait_at < run_src.find("\"started\"").unwrap(),
+            "waited for before the demo starts filling"
+        );
+        assert!(run_src.contains("std::time::Instant::now() + PAIR_HOME_WAIT"));
+        assert!(PAIR_HOME_WAIT.as_secs() > 0 && PAIR_HOME_WAIT.as_secs() <= 120);
+        assert!(run_src.contains(
+            "if let (Some((t, steps)), Some((_, slot))) = (pair_fallback.take(), &pair) {"
+        ));
+        // (fix-loop31, live: the second player's village landed on the fill's site → the fill re-picks in its nation)
+        assert!(run_src.contains("s if is_site_taken(&s) && tries < PLACE_TRIES => {"));
+        assert!(run_src.contains(".filter(|h| h.2 == nation)"));
+        assert!(is_site_taken(&Sent::Failed(
+            "x failed: InstructionError(4, Custom(45)) (code Some(45)) [..]".into()
+        )));
+        assert!(!is_site_taken(&Sent::Failed("(code Some(44))".into())));
+        assert!(!is_site_taken(&Sent::Unknown {
+            signature: "s".into(),
+            why: "w".into()
+        }));
         for holder in 0..5u8 {
             assert_eq!(
                 pair_role(pair_b_nation(Some(5), holder), holder),

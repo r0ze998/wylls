@@ -79,10 +79,15 @@ test('LP31-2 a first village whose place was taken under the confirm (refused 45
   assert.equal(homeSiteTaken({ ok: false, code: 'LocalActRejected', programCode: 52 }), false, 'AlreadyDone is not a taken place');
   assert.equal(homeSiteTaken({ ok: true }), false);
   assert.equal(homeSiteTaken(null), false);
+  // (live, fix-loop31 world C: act() answers a refusal before sending with NOTHING — actOnce returns failed(r), which
+  //  only writes FS.notice — so the confirm reads the refusal from the notice; the notice failed() writes is this shape)
+  assert.equal(homeSiteTaken({ ok: false, code: 'LocalActRejected', programCode: 45, text: null }), true);
+  assert.match(CTL, /const failed = r => \{[\s\S]*?return setNotice\(\{ ok: false, \.\.\.r, text: r\?\.text \?\? null \}\);/, 'failed() writes the refusal on FS.notice');
+  assert.match(CTL, /if \(!r\.ok\) \{ code = r\.code \?\? null; return failed\(r\); \}/, 'actOnce answers a refusal with failed(r)');
   assert.ok(HOME_SITE_TRIES >= 2 && HOME_SITE_TRIES <= 5, 'a few places, never an endless loop');
   const ch = fnOf('export async function confirmHome() {');
   inOrder(ch, 'for (let tries = 1; ; tries++) {', "const placed = await act('PlaceHome', { v: { holding: site,", 'if (!mine()) return;',
-    'const taken = homeSiteTaken(placed);', 'if (taken && tries < HOME_SITE_TRIES) {', 'const next = await nextFreeHome(FS.citizen.faction, site);', 'if (!mine()) return;',
+    'const taken = homeSiteTaken(placed ?? (FS.notice?.ok === false ? FS.notice : null));', 'if (taken && tries < HOME_SITE_TRIES) {', 'const next = await nextFreeHome(FS.citizen.faction, site);', 'if (!mine()) return;',
     'if (next) { site = next; run.choice.selected = next; saveHomePatch({ selected: next }); pending(\'placing\'); continue; }',
     "if (!placed?.ok) { await refresh(); if (mine() && !FS.homeGrant) error(taken ? 'SiteUnavailable'", "pending('confirming');", 'break;');
   // the next place: the page's own reading order (pair role included), read again, never the refused place

@@ -3058,7 +3058,8 @@ export async function confirmHome() {
       // (the chain's own word that it did not land: the note goes, in the record it was written in, if it is still this send's)
       onLost: () => dropHomeNote(run.note, run.sent) });
     if (!mine()) return;
-    const taken = homeSiteTaken(placed);
+    // (a refusal before sending comes back as nothing — actOnce returns failed(r), which only sets the notice: it is read there)
+    const taken = homeSiteTaken(placed ?? (FS.notice?.ok === false ? FS.notice : null));
     if (taken && tries < HOME_SITE_TRIES) {
       busy(() => L`その土地は、いま別の村が先に取りました。空いている別の土地を探しています…`);
       const next = await nextFreeHome(FS.citizen.faction, site);
