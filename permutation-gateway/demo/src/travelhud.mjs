@@ -121,7 +121,9 @@ export function startTravelHud(doc = globalThis.document) {
   doc.head.appendChild(style);
   const marks = doc.createElement('div');
   marks.id = 'demo-travelers';
-  doc.body.appendChild(marks);
+  // (fix-loop32, LP32 BREAK-7: the map's markers live in the page's own <main id="frontier">, the stacking context of the map
+  //  and the HUD: from <body> their z-index 2 put them over everything in it — the right drawer, its report, the notices)
+  (doc.getElementById('frontier') ?? doc.body).appendChild(marks);
   const list = doc.createElement('button');
   list.type = 'button'; list.id = 'demo-trav-list'; list.hidden = true; list.dataset.dt = 'list';
   doc.body.appendChild(list);

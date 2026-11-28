@@ -26,7 +26,7 @@
 import { COLORS, FLATTEN, RADIUS, hexPoints, polygon, project, shade } from '../../map.mjs';
 import { PROVINCE_TILES, locate, provinceCentre, ringOf, ringProvinces, tileHex, wedgeOf } from '../fgeo.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
-import { NATION_DARK, nationPale } from '../palette.mjs';
+import { NATION_DARK, NATION_ON, nationPale } from '../palette.mjs';
 import { majorityOwner } from '../herald.mjs';
 import { paintPeople, PEOPLE_FRAME_MS, zoomBoost } from '../people/crowds.mjs';
 import { activitiesFor } from '../people/activity.mjs';
@@ -1754,12 +1754,15 @@ export class SpriteArt {
       const k = 1 / zoom, w = 44 * k, h = 15 * k;
       const x = g.cx - w / 2 + i * (w + 3 * k), y = figures ? g.cy - RADIUS * 0.95 - h : g.cy + 4 * k;
       const fill = FACTION_COLORS[g.f] ?? '#8a8f86';
+      // (fix-loop32, LP32 BREAK-6: the words on the flag in the nation's own "on" colour — Ember's white flag read
+      //  "⚔375" ivory on near-white, palette.mjs NATION_ON; the other five keep ivory or their dark ink)
+      const on = NATION_ON[g.f] ?? '#fffaf0';
       // (a flag stands upright over its hex whatever the board's tilt: map/tilt.mjs)
       upright(ctx, g.cx, g.cy, () => {
       ctx.beginPath(); ctx.roundRect?.(x - 1.5 * k, y - 1.5 * k, w + 3 * k, h + 7 * k, 6 * k); ctx.fillStyle = '#1a1d22'; ctx.fill();
       ctx.beginPath(); ctx.roundRect?.(x, y, w, h, 5 * k); ctx.fillStyle = fill; ctx.fill();
-      if (g.arriving) { ctx.setLineDash([3 * k, 2 * k]); ctx.strokeStyle = '#fffaf0'; ctx.lineWidth = 1.2 * k; ctx.stroke(); ctx.setLineDash([]); }
-      ctx.fillStyle = '#fffaf0'; ctx.font = `700 ${12 * k}px system-ui, sans-serif`;
+      if (g.arriving) { ctx.setLineDash([3 * k, 2 * k]); ctx.strokeStyle = on; ctx.lineWidth = 1.2 * k; ctx.stroke(); ctx.setLineDash([]); }
+      ctx.fillStyle = on; ctx.font = `700 ${12 * k}px system-ui, sans-serif`;
       const t = g.troops <= 0 ? '?' : g.troops >= 1000 ? `${(g.troops / 1000).toFixed(g.troops >= 10000 ? 0 : 1)}k` : String(g.troops);
       ctx.fillText(`\u2694${t}`, x + w / 2 - (g.n > 1 ? 5 * k : 0), y + h / 2 + 0.5 * k);
       // more than one host: their number in a small dot at the flag's corner (never read as part of the troops)

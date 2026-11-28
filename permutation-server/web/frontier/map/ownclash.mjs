@@ -23,8 +23,8 @@
 // that clash is new (app.mjs autoBattles); for these scenes that start is
 // called off here (`battle:ask`), or the scene would play twice.
 //
-// It is mounted with the keeps (map/keepmount.mjs), so it runs only where a
-// map is and only on a conquest season. It sends no order.
+// It is mounted with the keeps (map/keepmount.mjs), so it runs only where a map is, on a conquest season and (fix-loop32)
+// in a sample world's arrival-control territory (the walletless demo: map/keepmount.mjs ownClashOn). It sends no order.
 import { FS, invalidate } from '../fstate.mjs';
 import { L, fmtNum } from '../../lang.mjs';
 import { hostParts } from '../faddr.mjs';

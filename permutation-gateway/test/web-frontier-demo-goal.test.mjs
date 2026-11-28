@@ -108,7 +108,10 @@ test('the world: six flag castles, one in each nation\'s ring-1 province, guarde
     assert.deepEqual(guard.map(e => [e.faction, e.troops]), [[k.nation, G.DEMO_GOAL.guardTroops * 1000]], 'one guard of its nation');
   }
   assert.equal(g.need, 3); assert.equal(g.posted, null); assert.deepEqual(g.progress, []); assert.equal(g.result, null);
-  assert.deepEqual(live.herald('/h/season', new URL('http://x/h/season')).body.sample.goal, { kind: 'flag-castles', perNation: 1, need: 3, holdBells: G.DEMO_GOAL.holdBells });
+  assert.deepEqual(live.herald('/h/season', new URL('http://x/h/season')).body.sample.goal, { kind: 'flag-castles', perNation: 1, need: 3, holdBells: G.DEMO_GOAL.holdBells,
+    // (fix-loop32: the castles' places, for the guide's sixth step — web/frontier/onboarding.mjs GOAL_STEPS)
+    castles: g.castles.map(k => ({ nation: k.nation, p: k.p, q: k.q, tile: k.tile, holder: k.holder })) });
+  // (verify-pr327: each castle's holder is the world's, as the goal card reads it)
   assert.equal(live.herald('/h/demo/goal', new URL('http://x/h/demo/goal')).body.kind, 'demo-goal');
   const off = await world({ wall: hand().wall, goal: false });
   assert.equal(off.goal, null); assert.equal(off.summary().goal, undefined);
