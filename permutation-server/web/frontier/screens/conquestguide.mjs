@@ -75,7 +75,10 @@ export function conquestFacts(FS) {
   // contest there was turned back (the first turn decides it): it no longer counts as "marched" — the guide goes back
   // to the march and says so (seen in the UI check of 2026-10-26: a first march of 100 spearmen on a keep of 100 was
   // pushed home, and the guide kept saying "hold the keep's tile for 72 turns" until the march was settled)
-  const keepOf = m => (m?.dest ? keeps.find(k => k.p === m.dest.p && k.q === m.dest.q && foreign(k)) ?? null : null);
+  // (verify-pr320: on the keep's own tile where the march names one — a march on a barbarian camp in a province that
+  //  also has a keep ticked 「砦へ進軍」 and skipped the capture demo's "March on the demo keep" step, live in a
+  //  `--demo --ai 2` world: camp at 0,1 tile 36, keep at tile 18)
+  const keepOf = m => (m?.dest ? keeps.find(k => k.p === m.dest.p && k.q === m.dest.q && foreign(k) && (!int(m.dest.tile) || !int(k.tile) || k.tile === m.dest.tile)) ?? null : null);
   const turnedBack = m => {
     const k = keepOf(m);
     return !!k && m.facts?.pipeline === 'resolved' && !(standing && standing.p === k.p && standing.q === k.q) && !(int(f) && k.contender === f);

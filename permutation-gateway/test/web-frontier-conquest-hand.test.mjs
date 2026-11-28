@@ -498,3 +498,13 @@ test('LP31-1 a nation-mate\'s capture (an AI of the same nation) does not finish
   assert.match(plain(renderConquestGuide(marched)), /^ ?Guide: /);
   assert.doesNotMatch(plain(renderConquestGuide(mate)), CJK);
 });
+
+test('verify-pr320: a march on another tile of a keep\'s province (a barbarian camp there) is not a march on the keep', () => {
+  const s = fs({ bell: 60 })  // (the keep is Fjordal's (5) before turn 84: foreign to the viewer);
+  const kt = s.conquest.keeps.get('4,-1').tile;
+  const march = tile => ({ ...s, marches: [{ facts: { pipeline: 'revealing', nowBell: 60 }, dest: { p: 4, q: -1, tile }, entry: null, transit: { slot: 0, state: 1, hostId: 1n, arriveBell: 63 } }] });
+  const marched = x => conquestGuide(x).facts.marched;
+  assert.equal(marched(march(kt)), true, 'a march on the keep\'s own tile');
+  assert.equal(marched(march(kt + 7)), false, 'a march on a camp in the same province');
+  assert.equal(marched(march(undefined)), true, 'a march row without a tile is still read by its province');
+});

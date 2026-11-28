@@ -474,8 +474,6 @@ pub const FOLD_TRIES: u32 = 4;
 /// (fix-loop31) How long the demo waits for a joined second player's village before it fills land (real seconds).
 pub const PAIR_HOME_WAIT: Duration = Duration::from_secs(90);
 
-/// (fix-loop27) Whether a FoldOccupancy outcome is the program's FoldStale refusal (44): a part landed with that error.
-/// Only a landed refusal counts — an `Unknown` outcome is never retried.
 /// (fix-loop31) Whether a PlaceHome was refused TicketState (45) — its site taken a moment before — and nothing landed.
 pub fn is_site_taken(sent: &Sent) -> bool {
     matches!(sent, Sent::Failed(e) if e.contains(&format!("(code Some({}))", fclient::abi::err::TICKET_STATE)))
@@ -483,6 +481,8 @@ pub fn is_site_taken(sent: &Sent) -> bool {
 /// (fix-loop31) How many sites one test participant's PlaceHome tries when the one it read is taken under it.
 pub const PLACE_TRIES: u32 = 4;
 
+/// (fix-loop27) Whether a FoldOccupancy outcome is the program's FoldStale refusal (44): a part landed with that error.
+/// Only a landed refusal counts — an `Unknown` outcome is never retried.
 pub fn is_fold_stale(sent: &Sent) -> bool {
     matches!(sent, Sent::Failed(e) if e.contains(&format!("(code Some({}))", fclient::abi::err::FOLD_STALE)))
 }
