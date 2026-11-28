@@ -26,7 +26,7 @@ import { createClock, createRecorder, readSave, replay } from '../demo/src/save.
 const src = f => readFileSync(new URL(f, import.meta.url), 'utf8');
 const TURN = 12, MS = TURN * 1000;
 // the page's world: boot.mjs's createLive options (test 1 pins them), build.mjs's defaults turn 12 s, delay 3 s, land 400 ms
-const PAGE = { stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, camps: true, goal: true, turn: TURN, delay: 3, landMs: 400 };
+const PAGE = { stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, travelers: true, camps: true, goal: true, turn: TURN, delay: 3, landMs: 400 };
 const pageWorld = async (wall, extra = {}) => createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, ...PAGE, wall, ...extra });
 const hexD = (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
 /** JSON with BigInts and byte arrays as text (a state hash's input). */
@@ -72,8 +72,9 @@ test('1 the world in these tests is the page\'s: boot.mjs makes it with landClai
   const line = src('../demo/src/boot.mjs').split('\n').find(l => l.includes('const live = createLive({'));
   assert.ok(line, 'boot.mjs makes the world in one createLive line');
   const opts = Object.fromEntries([...line.matchAll(/(\w+): (true|false|'[^']*'|DEMO\.\w+)/g)].map(m => [m[1], m[2]]));
-  // (every option these tests set, with the page's value; an option a later PR adds — e.g. #318's travelers — may join it)
-  const want = { stage: "'none'", opening: 'true', territory: 'true', nations: 'true', landUpkeep: 'true', landClaim: 'true', camps: 'true', goal: 'true', turn: 'DEMO.turnSecs', delay: 'DEMO.delaySecs', landMs: 'DEMO.landMs' };
+  // (every option these tests set, with the page's value; #318's travelers are on in the page, so they are on here too;
+  //  an option a later PR adds may join it)
+  const want = { stage: "'none'", opening: 'true', territory: 'true', nations: 'true', landUpkeep: 'true', landClaim: 'true', travelers: 'true', camps: 'true', goal: 'true', turn: 'DEMO.turnSecs', delay: 'DEMO.delaySecs', landMs: 'DEMO.landMs' };
   for (const [k, v] of Object.entries(want)) assert.equal(opts[k], v, `boot.mjs createLive ${k}`);
   assert.deepEqual(Object.keys(PAGE).sort(), Object.keys(want).sort(), 'PAGE is these options');
   assert.match(src('../demo/build.mjs'), /turn: \{ type: 'string', default: '12' \}, delay: \{ type: 'string', default: '3' \}, 'land-ms': \{ type: 'string', default: '400' \}/);
@@ -138,8 +139,8 @@ test('3 #316 the hold timer in the world: a castle lost resets it (captured 0), 
 });
 
 test('4 #316 an idle player of EVERY nation: the AI never takes a castle in the grace, never wins before posted + grace + hold; it loses to the leader; the record agrees with the real judge every turn', async () => {
-  // X = grace + hold game turns (with the Q-DSG-5 defaults 28 + 15 = 43, 8.6 min at 12 s a turn; read from DEMO_GOAL,
-  // so a tuning PR such as #321's hold 20 moves X with it)
+  // X = grace + hold game turns (since #321: 28 + 20 = 48, 9.6 min at 12 s a turn; read from DEMO_GOAL, so a tuning PR
+  // moves X with it)
   assert.ok(G.DEMO_GOAL.graceBells >= 1 && G.DEMO_GOAL.holdBells >= 1 && G.DEMO_GOAL.perNation === 1);
   const earliest = G.DEMO_GOAL.graceBells + G.DEMO_GOAL.holdBells;
   for (let n = 0; n < G.NATIONS; n++) {
