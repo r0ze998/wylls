@@ -14,5 +14,12 @@ if (globalThis.document) {
   else startCampHud();
 }
 import '../../../permutation-server/web/frontier/app.mjs';
+import { startGoalHud } from './goalhud.mjs';
 
 if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });
+
+// the demo's single-player goal: its card, the castle flags on the map and the result screen (goalhud.mjs)
+if (globalThis.document) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => startGoalHud(), { once: true });
+  else startGoalHud();
+}

@@ -149,3 +149,31 @@ http://127.0.0.1:41850/wylls/ (`serve.mjs` answers a missing path with `dist/404
 serves it at whatever missing URL was asked for, so its link must be absolute); it sends the player to the demo.
 Every other file stays relative and works under any prefix. `dist/.nojekyll` is always written (the page has files
 named `_*.mjs`, which a Jekyll pass would drop).
+
+## The goal: win or lose (demo-solo-goal; owner 2026-11-28 14:32, Option A "本番の縮小版")
+
+The demo is a complete single-player game: the real flag-keeps win condition (`src/frontier/world-goals.mjs`),
+compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `DEMO_GOAL` there.
+
+- **Flag castles**: one per nation (6), each on the tile nearest the centre of the nation's ring-1 province, guarded
+  from the start by 110 troops of the nation's AI village. A castle's holder is its tile's arrival-control owner (a lone
+  surviving host of one nation after a resolve takes it; leaving does not give it up).
+- **Win**: hold **3** castles of other nations, each for **15 turns** (3 min at 12 s a turn), as the real rule counts:
+  only captured castles (never your own nation's), each from when it was taken, a capture resets that castle's timer.
+  Need = half of the 6 castles (the real `needOf`) = half of the 5 rivals' rounded up.
+- **Lose**: an AI nation meets the same rule first (a same-turn tie is your win).
+- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave, capped at
+  2,000): the rival leader (two nations along from yours) every wave, +20 % troops, racing for castles (retake its own,
+  stop a nation one castle short, hold what it has, capture the nearest); one more AI nation a wave (they take turns)
+  takes its own castle back or raids you (your castles, else your land). Your own nation's AI village only defends.
+- **On the page** (`src/goalhud.mjs`, bundled into the page): the goal card at the top left (castles, holders, hold
+  timers, rivals, the next wave; "March here" on a castle while a march is open), a pennant over each castle on the map,
+  and the result screen (Victory / Defeat, the time, Play again = Start over without the question). The guide's march
+  step and its last card point at the goal. EN and JA; never "season".
+- **Save**: nothing new is saved — the castles, holders and timers come back with the replayed world (#308).
+- `node goal-playtest.mjs [--strategy active,human,idle,turtle] [--set holdBells=15,...]`: headless games in Node
+  (the same world and kernel, a scripted player) — the tuning tool.
+- `node smoke-goal.mjs --path win|lose [--lang ja] [--fast 4] [--reload] [--url https://r0ze998.github.io/wylls/]`:
+  Playwright, at the Pages host name, played to the result screen through the page's controls (manual key-tests job:
+  the page signs with its test Dev Wallet). `--fast` steps the demo's clock (`__wyllsDemo.skip`, the clock the save
+  reads) while no march of yours is out; `--reload` reloads mid-hold and checks every castle and timer.

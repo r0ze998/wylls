@@ -40,6 +40,8 @@ export function createClock(realNow = () => Date.now()) {
     thaw() { if (depth > 0 && --depth === 0) release(); },
     /** The replay: hold the clock at `w` (until `release`). */
     set(w) { held = w; },
+    /** Move the clock on by `ms` (a test's fast-forward: the save reads this same clock, so a reload replays it). */
+    skip(ms) { if (held === null && Number.isFinite(ms) && ms > 0) offset += ms; },
     release,
     get held() { return held !== null; },
   };
