@@ -198,7 +198,11 @@ compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `D
 - **On the page** (`src/goalhud.mjs`, bundled into the page): the goal card at the top left (castles, holders, hold
   timers, rivals, the next wave; "March here" on a castle while a march is open), a pennant over each castle on the map,
   and the result screen (Victory / Defeat, the time, Play again = Start over without the question). The guide's march
-  step and its last card point at the goal. EN and JA; never "season".
+  step and its last card point at the goal, and its sixth step is "Take a flag castle" (the world lists the castles in
+  `sample.goal.castles`; claiming a tile stays on the village card — fix-loop32). A clash of a host of yours where it
+  stands (a castle you hold, attacked) is told as a notice and listed under "Your clash reports", as on a conquest
+  world (`web/frontier/map/keepmount.mjs ownClashOn`). The castle, camp and traveler markers live in the page's
+  `<main>`, under the drawers. EN and JA; never "season".
 - **Save**: nothing new is saved — the castles, holders and timers come back with the replayed world (#308).
 - `node goal-playtest.mjs [--strategy active,human,idle,turtle] [--set holdBells=15,...]`: headless games in Node
   (the same world and kernel, a scripted player) — the tuning tool.

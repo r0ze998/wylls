@@ -398,9 +398,14 @@ export function outcomeRows(args, outcome, mine = () => false) {
   }
   const gres = new Map(outcome.garrisons.map(g => [String(g.id), g]));
   for (const g of args.garrisons) {
-    const r = gres.get(String(g.id));
-    rows.push({ id: String(g.id), kind: g.faction === NEUTRAL ? 'camp' : 'garrison', faction: g.faction, before: troopsOf(g.troops), after: r ? troopsOf(r.troops) : null,
-      posture: g.posture, walls: g.walls, tile: g.tile, fate: r && r.troops === 0 && g.troops > 0 ? 'Destroyed' : null, mine: !!mine(g.id) });
+    const r = gres.get(String(g.id)), camp = g.faction === NEUTRAL;
+    // (fix-loop32, LP32 BREAK-4: a camp is cleared when no troops are left OR the attackers hold its tile — the
+    //  program's write-back, frontier-abi clash_model.rs `whole == 0 || gr.attackers_hold`, and the sample world's
+    //  screens/rules.mjs. The record's rows say 500 → 0 and 勝利 for such a camp; the recomputed rows said the camp
+    //  stayed with what its garrison had left, and the verified report flipped to 持ちこたえた)
+    const cleared = !!r && g.troops > 0 && (r.troops === 0 || (camp && !!r.attackersHold));
+    rows.push({ id: String(g.id), kind: camp ? 'camp' : 'garrison', faction: g.faction, before: troopsOf(g.troops), after: r ? (camp && cleared ? 0 : troopsOf(r.troops)) : null,
+      posture: g.posture, walls: g.walls, tile: g.tile, fate: cleared ? 'Destroyed' : null, mine: !!mine(g.id) });
   }
   return rows.sort((a, b) => a.faction - b.faction || ['garrison', 'camp', 'resident', 'arrival'].indexOf(a.kind) - ['garrison', 'camp', 'resident', 'arrival'].indexOf(b.kind));
 }
@@ -432,7 +437,8 @@ export function rowsWithOutcome(rows, outcome, before = null) {
     const id = r.keep ? String(KEEP_GARRISON_ID_BASE - big(before?.keep?.gen)) : r.kind === 'camp' ? String(CAMP_ID_BASE - big(before?.camp?.gen)) : String(r.id);
     const g = garrisons.get(id);
     if (!g) return r;
-    const left = Math.min(troopsOf(g.troops), r.before);
+    // (fix-loop32: a camp whose tile the attackers hold is cleared, as in outcomeRows)
+    const left = r.kind === 'camp' && g.attackersHold ? 0 : Math.min(troopsOf(g.troops), r.before);
     return { ...r, after: left, fate: left === 0 && r.before > 0 ? 'Destroyed' : r.fate };
   });
 }

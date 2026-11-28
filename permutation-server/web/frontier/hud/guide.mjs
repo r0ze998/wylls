@@ -61,7 +61,7 @@ export function guideTarget(FS) {
     const building = (h.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > (FS.chain?.now?.() ?? 0));
     const kind = step === 'build' && building ? 'train' : step;
     if (kind === 'train' || kind === 'muster') return { step, kind, p: h.p, q: h.q, tile: h.tile };
-    if (step === 'march' || step === 'claim') return null;
+    if (step === 'march' || step === 'claim' || step === 'castle') return null;
   }
   if (step === 'build') return { step, kind: 'build', p: h.p, q: h.q, tile: h.tile };
   if (step === 'scout') return { step, kind: 'scout', p: h.p, q: h.q, tile: h.tile };
