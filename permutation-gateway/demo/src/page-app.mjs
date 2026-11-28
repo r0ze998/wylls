@@ -15,11 +15,14 @@ if (globalThis.document) {
 }
 import '../../../permutation-server/web/frontier/app.mjs';
 import { startGoalHud } from './goalhud.mjs';
+import { startTravelHud } from './travelhud.mjs';
 
 if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });
 
-// the demo's single-player goal: its card, the castle flags on the map and the result screen (goalhud.mjs)
+// the demo's single-player goal (its card, the castle flags on the map and the result screen: goalhud.mjs) and its
+// travelers (their markers on the map, the list and the talk / trade panel: travelhud.mjs)
 if (globalThis.document) {
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => startGoalHud(), { once: true });
-  else startGoalHud();
+  const start = () => { startGoalHud(); startTravelHud(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
 }
