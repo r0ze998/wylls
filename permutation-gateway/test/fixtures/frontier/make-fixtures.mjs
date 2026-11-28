@@ -46,10 +46,15 @@ function writeScalar(dv, o, ty, v) {
     default: throw new Error(`scalar ${ty}`);
   }
 }
-const snake = name => name.replace(/[A-Z]/g, c => `_${c}`).toUpperCase();
+// (memoized: the sample world encodes every province each turn, and this regexp was most of its time — demo-polish-2)
+const SNAKE = new Map();
+const snake = name => { let s = SNAKE.get(name); if (s === undefined) { s = name.replace(/[A-Z]/g, c => `_${c}`).toUpperCase(); SNAKE.set(name, s); } return s; };
+const FIELD_INDEX = new WeakMap();
+/** A layout's fields by name (the first of a name wins, as `find` did). */
+const fieldIndex = fields => { let m = FIELD_INDEX.get(fields); if (!m) { m = new Map(); for (const x of fields) if (!m.has(x[0])) m.set(x[0], x); FIELD_INDEX.set(fields, m); } return m; };
 function writeFields(bytes, dv, base, fields, values) {
   for (const [key, v] of Object.entries(values)) {
-    const f = fields.find(x => x[0] === snake(key));
+    const f = fieldIndex(fields).get(snake(key));
     if (!f) throw new Error(`no field ${key}`);
     const [, off, len, ty] = f;
     const o = base + off;

@@ -52,7 +52,8 @@ test('a phone holds only the short line to the foot: with the wallet list it lie
   assert.ok(flow.index>held.index&&!css.slice(held.index,flow.index).includes('\n}\n'),'in the same phone block as the held rule');
   assert.equal(css.split('.nation-confirm:has(.nc-wallet)').length-1,1,'one exception, no other rule on that condition');
   // the condition is the markup's: .nc-wallet exists exactly when no wallet is connected
-  assert.match(join,/\$\{FS\.wallet \? html`<button type="button" class="btn primary nc-btn"[\s\S]*?: html`<div class="nc-wallet">/);
+  // (demo-polish-2: in the walletless demo, a browser without Ed25519 gets its notice in the button's place first)
+  assert.match(join,/\$\{demoCrypto \? demoCryptoNotice\(demoCrypto\) : FS\.wallet \? html`<button type="button" class="btn primary nc-btn"[\s\S]*?: html`<div class="nc-wallet">/);
 });
 
 test('the markup these rules are written for',()=>{
