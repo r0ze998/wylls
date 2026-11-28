@@ -4,7 +4,7 @@ The demo is one web page: **https://r0ze998.github.io/wylls/**. It needs no wall
 is sent to a chain or a server. You play a small sample world that runs in your browser, on the real Wylls page.
 Japanese: [PLAY-DEMO.ja.md](PLAY-DEMO.ja.md). How the demo is built and hosted: [permutation-gateway/demo/README.md](../../permutation-gateway/demo/README.md).
 
-Matches main as of 2026-11-29 (through #325 and #324). Every number below is read from the code:
+Matches main as of 2026-11-29 (through #325, #324 and #327). Every number below is read from the code:
 
 - `DEMO_GOAL` in `permutation-gateway/screens/demogoal.mjs`;
 - `DEMO_CAMPS` in `permutation-server/web/frontier/democamps.mjs`;
@@ -85,13 +85,12 @@ The guide is in the side drawer as "Guide n/6: …" (n counts the steps already 
    flag castle ("March here" on the goal card, top left). Once you take a castle, its hold toward victory starts
    counting." The same step also explains the camps: "The tents on the map are barbarian camps, with their defenders:
    beat one for food, ore and gold (press a camp in sight to see its loot)."
-6. **Claim a tile.** The step's heading is "Waiting for arrival and the claim", and its button is "View territory
-   changes". In the demo, though, the step is done only by **claiming a tile**: "Claim a tile" on the village screen.
-   A host's arrival takes no land (§5). Until you claim one, the guide stays on this step, even through a won game
-   (loop-play32 BREAK-3). No guide step tells you to march on a castle; the goal card does ("To attack: Hosts → march
-   a host, then press "March here" on a castle.").
+6. **"Take a flag castle"** (#327): "March a host on another nation's flag castle and take it ("March here" on the goal
+   card, top left). Once you take a castle, its hold time toward the win starts." The step is done while your nation
+   holds a flag castle of another nation, and it comes back if you lose that castle and hold no other. Claiming a tile
+   is no longer a guide step: "Claim a tile" stays on the village screen (§5).
 
-After step 6 the guide shows "Next, the goal: the flag castles": "Take 3 flag castles of other nations and hold each for
+While step 6 is done the guide shows "Next, the goal: the flag castles": "Take 3 flag castles of other nations and hold each for
 20 turns to win. The other nations want the same castles and will attack the castles you capture. They also send hosts
 onto your land, but marching never takes land. The goal card at the top left shows the castles and their hold times."
 
@@ -203,16 +202,11 @@ Nothing is saved or replayed then.
 - **Not decided yet** (open owner questions, so these may change):
   - Q-LP32-1: whether camps should matter more for the goal;
   - Q-LP32-2: the traders' trade size;
-  - Q-LP32-3: what you are told when a rival nears 3 castles, or when your castle is attacked or lost. Today there is
-    no toast or notice for either. Only the goal card changes: its rival line, and the castle row's holder ("held by
-    (nation)"). The Defeat screen can be the first news;
+  - Q-LP32-3: what you are told when a rival nears 3 castles, or when your castle is attacked or lost. Today (#327) a
+    clash of a host of yours where it stands, such as on a castle you hold, gives a toast and a notice and is listed
+    under "Your clash reports". The notice tells the clash and, when the page knows them, your losses; it does not
+    say that the castle was lost. Nothing tells you that a rival nears 3 castles: only the goal card's rival line changes;
   - Q-V325-1/2: whether a comeback should still be possible after turn 128, and the win rate of careful players.
-- **Known rough edges** (loop-play32; draft #327, fix-loop32, is not merged, so they are still there):
-  - a camp beaten by holding the field can read as won in the battle report and then "Held: the enemy is still on the
-    field too" after "Verify in this browser" (the camp is gone and the loot is paid either way);
-  - Ember's (the white nation's) troop label on the map is hard to read;
-  - the castle pennants and traveler markers draw over the side drawer;
-  - when the turn changes while the march order card is open, "Seal and depart" can answer "Time has moved on: the host
-    now arrives on turn N (until a moment ago it was turn M)." instead of sending: the host has not left, so press again.
-
-  The texts of #327 are not described here.
+- **Known rough edge** (loop-play32): when the turn changes while the march order card is open, "Seal and depart" can
+  answer "Time has moved on: the host now arrives on turn N (until a moment ago it was turn M)." instead of sending:
+  the host has not left, so press again.
