@@ -356,8 +356,12 @@ function renderSampleTag() {
   const demo = sm.demo && typeof sm.demo === 'object' ? sm.demo : null;
   const live = demo && /^https:\/\//.test(String(demo.live ?? '')) ? String(demo.live) : null;
   if (demo) {
-    const long = L`ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（${pace}）。`;
-    setHtmlIfChanged(el, html`${icon('info')}<span>${L`体験版`}</span><span class="sample-pace">${pace}</span>${live ? html`<a class="sample-live" href="${live}" target="_blank" rel="noopener">${L`本物の世界へ`}</a>` : ''}`);
+    // (demo-polish-2, Q-WD-6: the world is saved in this browser; "Start over" — handled by the demo's world script,
+    //  which asks first — clears it. Without storage the tag says a reload starts over, as before)
+    const saved = !!demo.save?.on;
+    const long = saved ? L`ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。進み具合はこのブラウザに保存され、ページを開き直すと続きから遊べます。時間表示はゲーム内の時間です（${pace}）。` : L`ブラウザの中だけで動く体験版です。ウォレットも登録もいりません。ページを開き直すと最初からになります。時間表示はゲーム内の時間です（${pace}）。`;
+    const reset = saved ? html`<button type="button" class="sample-reset" data-demo-reset="1" data-confirm="${L`体験版を最初からやり直しますか？ 村も土地も消え、元には戻せません。`}">${L`最初から`}</button>` : '';
+    setHtmlIfChanged(el, html`${icon('info')}<span>${L`体験版`}</span><span class="sample-pace">${pace}</span>${live ? html`<a class="sample-live" href="${live}" target="_blank" rel="noopener">${L`本物の世界へ`}</a>` : ''}${reset}`);
     if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }
     // (the map's "Records" button opens the recorded wide world, which a demo world never has: verify-pr301 F2)
     const records = document.querySelector('.wide-btn[data-map="wide"]');
