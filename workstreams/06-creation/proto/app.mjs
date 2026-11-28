@@ -21,10 +21,20 @@ import { TYPES, placeKindsOf } from "../src/types.mjs";
 import { TRIGGERS } from "../src/catalog.mjs";
 import { compare } from "../src/semver.mjs";
 import { DEMO_SEEDS, PEOPLE, demoWorld, editForkForRiver, frontSupply, giveUseLot, mineDelivery } from "../src/scenario.mjs";
+import { chainLinkEnabled } from "../src/chainlink/flag.mjs";
+import { LocalChain } from "../src/chainlink/localchain.mjs";
+import { LinkedRegistry } from "../src/chainlink/linked.mjs";
+import { crossCheck, readCatalog } from "../src/chainlink/catalog.mjs";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const STORE = "wylls06-creation-proto";
+// ⑥ chain link, slice 1 (off by default: ?chainlink=1 or localStorage wylls.creation.chainlink = "1").
+// Its state is kept under its own key, so the page's own store is unchanged when the flag is off.
+const CHAIN_LINK = chainLinkEnabled({ search: location.search, storage: globalThis.localStorage });
+const CHAIN_STORE = "wylls06-creation-proto-chain";
+let chain = null;
+const linked = () => new LinkedRegistry(registry, chain);
 
 const keys = {};
 const pubs = {};
@@ -35,6 +45,7 @@ let registry, ledger, adoptions, world, signlog, plans, nonce;
 
 function save() {
   try { localStorage.setItem(STORE, JSON.stringify({ registry: registry.toJSON(), ledger: ledger.toJSON(), adoptions: adoptions.toJSON(), world, signlog, plans, nonce })); } catch { /* private window: state stays in memory */ }
+  if (chain) try { localStorage.setItem(CHAIN_STORE, JSON.stringify(chain.toJSON())); } catch { /* private window */ }
 }
 
 function load() {
@@ -47,11 +58,17 @@ function load() {
   signlog = saved?.signlog ?? [];
   plans = saved?.plans ?? {}; // signed plans the users adopted, by hash (needed to run them)
   nonce = saved?.nonce ?? 0;
+  if (CHAIN_LINK) {
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(CHAIN_STORE) ?? "null"); } catch { c = null; }
+    chain = new LocalChain(c);
+  }
 }
 
 function resetAll() {
-  try { localStorage.removeItem(STORE); } catch { /* ignore */ }
+  try { localStorage.removeItem(STORE); localStorage.removeItem(CHAIN_STORE); } catch { /* ignore */ }
   registry = new Registry();
+  chain = CHAIN_LINK ? new LocalChain() : null;
   ledger = new Ledger();
   adoptions = new AdoptionBook();
   world = bindIdentities(demoWorld(), pubs);
@@ -86,7 +103,7 @@ function showTab(name) {
   for (const s of document.querySelectorAll(".tab")) s.hidden = s.id !== `tab-${name}`;
   if (name === "list") renderList();
   if (name === "use") renderUse();
-  if (name === "world") renderWorld();
+  if (name === "world") { renderWorld(); renderChain(); }
 }
 
 // ------------------------------------------------------------------ make
@@ -223,11 +240,12 @@ async function publishDraft() {
     return;
   }
   const env = await signManifest(m, myKey(`定義 ${m.name}@${m.version} を公開`));
-  const r = await registry.publish(env, { features: world.features, today: world.today });
+  const r = await linked().publish(env, { features: world.features, today: world.today }, { signer: pubs[state.actor] });
   save();
   if (!r.ok) { out.innerHTML = `<p>公開できませんでした。</p>${r.findings.filter((f) => f.severity === "error").map(findingHtml).join("")}`; return; }
   state.selected = r.ref;
-  out.innerHTML = findingHtml({ severity: "ok", code: "PUBLISHED", path: "", message: `ローカルの一覧へ公開した：${m.name}@${m.version}（ハッシュ ${r.ref.hash.slice(0, 16)}…）。このブラウザの外には出ていない。` }) + `<button id="goto-list">一覧で見る</button>`;
+  const onChain = r.chain ? ` チェーンの記録（ローカルの模擬）にも書いた：slot ${r.chain.slot}。` : "";
+  out.innerHTML = findingHtml({ severity: "ok", code: "PUBLISHED", path: "", message: `ローカルの一覧へ公開した：${m.name}@${m.version}（ハッシュ ${r.ref.hash.slice(0, 16)}…）。このブラウザの外には出ていない。${onChain}` }) + `<button id="goto-list">一覧で見る</button>`;
   $("goto-list").addEventListener("click", () => showTab("list"));
 }
 
@@ -283,7 +301,7 @@ function renderEntry() {
       const ref = { author: e.author, name: e.name };
       const seq = registry.statusSeq(ref);
       const sig = await signStatus(ref, status, seq, myKey(`${e.name} を「${STATUSES[status]}」にする`));
-      const r = await registry.setStatus(ref, status, seq, sig, world.today);
+      const r = await linked().setStatus(ref, status, seq, sig, world.today, { signer: pubs[state.actor] });
       save();
       $("entry-status").innerHTML = r.ok ? findingHtml({ severity: "ok", code: "STATUS", path: "", message: `${STATUSES[status]}にした` }) : r.findings.map(findingHtml).join("");
       if (r.ok) renderList();
@@ -498,12 +516,39 @@ function paperHtml(m, facts) {
     + `<div class="note"><h3>作者の説明（作者が書いたもの。機械は確かめていない）</h3><p>${esc(p.authorNote ?? "なし")}</p></div>`;
 }
 
+// ------------------------------------------------------------------ chain link (flag)
+
+const CROSS_JA = {
+  ENTRY_NOT_ON_CHAIN: "一覧にあるがチェーンの記録にない（旗を立てる前に公開したもの）",
+  ENTRY_NOT_OFF_CHAIN: "チェーンの記録にあるが一覧にない",
+  STATUS_DIFFERS: "状態が違う",
+  SEQ_DIFFERS: "状態の番号が違う",
+  VERSION_NOT_ON_CHAIN: "この版はチェーンの記録にない",
+  VERSION_NOT_OFF_CHAIN: "この版は一覧にない",
+  HASH_DIFFERS: "内容ハッシュが違う（一覧の中身はチェーンの記録と合わない）",
+  VERSION_WITHOUT_ENTRY: "版の記録だけがあり、名前の記録がない",
+};
+
+function renderChain() {
+  const box = $("chainlink-box");
+  if (!box) return;
+  box.hidden = !chain;
+  if (!chain) return;
+  const { entries } = readCatalog(chain);
+  const diffs = crossCheck(registry.toJSON(), chain);
+  const rows = entries.map((e) => `<tr data-chain-entry="${esc(e.name)}"><td><code>${esc(e.name)}</code><br><small>${esc(personName(whoIs(e.author)))}</small></td><td>${esc(STATUSES[e.status])}<br><small>番号 ${esc(e.statusSeq)}・slot ${esc(e.statusSlot)}</small></td><td>${e.versions.map((v) => `${esc(v.version)} <code>${esc(v.hash.slice(0, 10))}…</code>${v.derivedFromHash ? ` <small>元 <code>${esc(v.derivedFromHash.slice(0, 10))}…</code></small>` : ""}`).join("<br>")}</td></tr>`).join("");
+  $("chainlink").innerHTML = `<p><span class="badge mock">模擬</span> どのチェーンにも送っていない。world 4 の program が持つ予定の口座の形（PSF6CENT・PSF6CVER）を、このブラウザの中だけで書いたもの。slot ${esc(chain.data.slot)}。</p>`
+    + (rows ? `<div class="scroll"><table><tr><th>名前・作者</th><th>状態</th><th>版・内容ハッシュ</th></tr>${rows}</table></div>` : "<p>まだありません。</p>")
+    + `<p id="chainlink-check">${diffs.length ? `一覧との食い違い ${diffs.length} 件：</p><ul>${diffs.map((d) => `<li>${esc(d.name)}${d.version ? `@${esc(d.version)}` : ""}：${esc(CROSS_JA[d.code] ?? d.code)}</li>`).join("")}</ul>` : "一覧と一致（名前・版・内容ハッシュ・状態・番号）。</p>"}`;
+}
+
 function renderAll() {
   renderActors();
   checkDraft();
   renderList();
   renderUse();
   renderWorld();
+  renderChain();
 }
 
 // ------------------------------------------------------------------ start

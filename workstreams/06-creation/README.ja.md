@@ -1,5 +1,7 @@
 # ⑥ 住人が仕組みを作り、公開し、他の人が使い直す
 
+> **状況 2026-11-29（main `e3b7055d5` から、コードが正）：** チェーンにつなぐ計画（Q6-1 A、world 3 が動いているので着手）を [docs/design/creation/item6-chainlink-plan.md](../../docs/design/creation/item6-chainlink-plan.md) に書いた。最初の切片は**ローカルだけ・旗は既定で無効**（`src/chainlink/`、ページは `?chainlink=1`）：公開の記録を計画した口座の形で「チェーンの代わり」に書き、ページが読み戻して一覧と照らし合わせる。program・devnet は触っていない。program の変更は r0ze さんの OK と world 4 の判断待ち（Q-6CL-1〜7）。下の「テストの結果」の件数は古い（今は 233 件、226 通過・7 skip、鍵なし CI は 127 件）。
+
 > **状況 2026-11-19（main `1d6c0039`、コードが正）：** JS の試作のまま。遊べるゲームからは呼ばれない。下の 11-18 の確認のうち「J8 が 1 件失敗」「CI の job は無い」は古い：PR #51 で J8 を直し、CI に `creation06` を足した（`.github/workflows/ci.yml:254`）。最初の devnet には要らない。未マージの PR は無い。全体の表は [台帳](../../docs/integration/CLAUDE-WORKSTREAMS-1-20-LEDGER-20261116.md) の「Status 2026-11-19 JST」。下の本文は当時の記録で、書き換えていない。
 
 **基準：** 共通基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（PR #22 の統合候補の祖先。main 統合済み・CI 全成功とは扱わない）。ブランチ `claude/wylls-creation-publishing-reuse-31aiyj`。成果物はこのフォルダだけにあり、共通コア・他担当の仕様・共有 UI・CI は変更していない。

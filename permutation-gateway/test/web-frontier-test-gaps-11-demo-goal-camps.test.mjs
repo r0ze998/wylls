@@ -275,11 +275,6 @@ test('7 #319 + #316 a camp scaled by distance from the player\'s village: every 
   assert.equal(inCastleProvince, 6);
 });
 
-/** The land as read, the since of the viewer's village tile left out (D-test-gaps-11-2). */
-function homeSinceMasked(territory, meJson) {
-  const me = JSON.parse(meJson);
-  return territory.map(t => (t.p === me.village[0] && t.q === me.village[1] ? { ...t, since: t.since.map((x, i) => (i === me.tile ? 'masked' : x)) } : t));
-}
 /**
  * The scripted session of test 8 (a camp cleared, a castle taken, the AI's waves), on a hand clock from the world's
  * start. `poll`: read the world between the inputs like the page does (every 2–7 s: the goal card, the camps, the
@@ -325,8 +320,8 @@ test('8 goal + camps save → reload: the same inputs at the same clock readings
   assert.ok(a[3].goalLog.some(x => x.kind === 'wave' && x.ok), 'the AI waves marched');
   for (let k = 0; k < A.marks.length; k++) {
     for (const f of ['goal', 'goalLog', 'camps', 'campsLog', 'me']) assert.equal(B.marks[k][f], A.marks[k][f], `checkpoint ${k}: the same ${f}`);
-    // the land too, but for the one field that follows the read cadence (the viewer's village tile's since: D-test-gaps-11-2, test 9)
-    assert.equal(json(homeSinceMasked(B.marks[k].territory, B.marks[k].me)), json(homeSinceMasked(A.marks[k].territory, A.marks[k].me)), `checkpoint ${k}: the same land`);
+    // the land too, every tile's since included (D-test-gaps-11-2, fixed by fix-tg11-since: test 9)
+    assert.equal(json(B.marks[k].territory), json(A.marks[k].territory), `checkpoint ${k}: the same land`);
   }
   // save.mjs's own replay of the page world (keyless: its POSTs are refused, deterministically): the goal and camps
   // records after a reload are the ones before it
@@ -350,15 +345,12 @@ test('8 goal + camps save → reload: the same inputs at the same clock readings
   assert.equal(state(two), want, 'the reloaded page world has the same castles, guards, camps and logs');
 });
 
-// D-test-gaps-11-2 (found here; behaviour NOT changed, Q-TG11-1 to r0ze): the world's land depends on WHEN it is first
-// read. liveworld.mjs `territoryFor` makes a province's territory lazily, at its first read (createTerritory(pv): every
-// standing home is a starting position, `since` = the last resolved bell). The page polls every few seconds, so the
-// player's province is made before the join with the AI homes only, and the next resolve stamps the new village tile
-// with ITS bell (41 here; territory.mjs resolveTerritory → settleHomeTerritory). A replay reads nothing until after the
-// join, so the territory is made with the village already in it: since = the bell before (40). The reloaded world differs
-// from the played one by one bell in that tile's since (traced; evidence/test-gaps-11). Since 2026-10-12 (9ed6fe40, the
-// territory preview), not #316/#319: the same happens with goal and camps off. Expected to fail until answered.
-test('D-test-gaps-11-2: the village tile\'s since does not depend on how often the page reads the world', { todo: 'Q-TG11-1: liveworld territoryFor makes a territory at its first read, so the village tile\'s since follows the read cadence' }, async () => {
+// D-test-gaps-11-2 (found by test-gaps-11; fixed by fix-tg11-since, owner Q-TG11-1 (a) 2026-11-28 21:05): the world's
+// land once depended on WHEN it was first read (liveworld.mjs `territoryFor` made a province's record at its first read,
+// and a read granted a new village its tile). Every record is now made with the world and a read writes nothing, so the
+// village tile's since is the same (41 here) whether the page polls or a replay reads nothing between its inputs.
+// More seeds and a save.mjs reload: web-frontier-fix-tg11-since.test.mjs.
+test('9 D-test-gaps-11-2: the village tile\'s since does not depend on how often the page reads the world', async () => {
   for (const extra of [{}, { goal: false, camps: false }]) {
     const A = await scripted(true, extra), B = await scripted(false, extra);
     for (let k = 0; k < A.marks.length; k++) assert.equal(json(B.marks[k].territory), json(A.marks[k].territory), `${json(extra)} checkpoint ${k}`);
