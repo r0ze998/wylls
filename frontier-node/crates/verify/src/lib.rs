@@ -104,6 +104,9 @@ pub fn mutated() -> Option<&'static str> {
         "mutate-v11",
         "mutate-v12",
         "mutate-v13",
+        "mutate-vr",
+        "mutate-vl",
+        "mutate-vwl",
         "mutate-vx",
         "mutate-vg",
         "mutate-vs"
