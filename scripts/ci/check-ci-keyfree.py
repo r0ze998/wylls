@@ -58,6 +58,20 @@ SMOKE_RUN = re.compile(r'(^|[\s/"\'=])smoke(-[\w-]+)?\.mjs(["\']?)(\s|$)|(^|\s)n
 SIGNING_FLAGS = ('--act', '--loop', '--claim')       # each needs a joined player (smoke.mjs); --claim since #306
 SIGNING_FLAG = re.compile(r'(^|[\s=\'"(])--(act|loop|claim)(?=$|[\s\'")=;&|])')
 OPAQUE = re.compile(r'\$\(|`|<\(|\$\{\{|(^|\s)(eval|xargs)(\s|$)')
+# verify-pr323: package.json's `smoke` script reached through a runner the regex above does not see — npm with options
+# before or after `run` (`npm --prefix demo run smoke`, `npm run --silent smoke`), `node --run smoke` (Node 22+), pnpm,
+# yarn, bun. The command's words name a runner and the word `smoke`. npm still counts only words after `--`; any other
+# runner is refused outright (no key-free job uses one).
+RUNNERS = ('npm', 'pnpm', 'yarn', 'bun', 'corepack')
+SMOKE_SCRIPT = re.compile(r'(^|[\s"\'=])smoke(-[\w-]+)?(["\']|\s|$)')
+
+def runner_smoke(c):
+    ws = words(c)
+    if ws is None:
+        return bool(SMOKE_SCRIPT.search(c) and re.search(r'(^|\s)(npm|pnpm|yarn|bun|corepack|node\s+--run)(\s|=|$)', c))
+    script = any(re.fullmatch(r'smoke(-[\w-]+)?', w) or re.fullmatch(r'--run=smoke(-[\w-]+)?', w) for w in ws)
+    npm_run = 'npm' in ws and any(w in ('run', 'run-script', 'rum', 'urn') for w in ws)    # npm's run aliases
+    return script and (npm_run or any(w in RUNNERS[1:] for w in ws) or any(w == '--run' or w.startswith('--run=') for w in ws))
 
 def shell_commands(text):
     """The run text cut into commands as sh reads it: continuations joined, comments dropped, split at newline ; & |
@@ -99,11 +113,15 @@ def words(cmd):
 
 def demo_smoke_bad(step, env_text=''):
     cmds = shell_commands(str(step.get('run', '')))
-    runs = [c for c in cmds if SMOKE_RUN.search(c)]
+    runs = [c for c in cmds if SMOKE_RUN.search(c) or runner_smoke(c)]
     bad = []
     for c in runs:
         ws = words(c)
-        if ws is not None and 'npm' in ws and not any(SMOKE_RUN.search(' ' + w) and w.endswith('.mjs') for w in ws):
+        mjs = ws is not None and any(SMOKE_RUN.search(' ' + w) and w.endswith('.mjs') for w in ws)
+        if ws is not None and not mjs and not 'npm' in ws:
+            bad.append(c)                              # pnpm / yarn / bun / node --run smoke: refused outright
+            continue
+        if ws is not None and 'npm' in ws and not mjs:
             # `npm run smoke --pre-join` gives --pre-join to npm, not to smoke.mjs: only words after `--` reach it
             passed = ws[ws.index('--') + 1:] if '--' in ws else []
         else:

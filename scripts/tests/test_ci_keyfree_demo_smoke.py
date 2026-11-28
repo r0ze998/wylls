@@ -114,6 +114,23 @@ class DemoSmokeRule(unittest.TestCase):
         # a `#` inside a word or quotes is not a comment
         self.assertAllowed('node smoke.mjs --path "a#b" --pre-join')
 
+    # ---- verify-pr323: package.json's `smoke` script through a runner the name regex did not see
+
+    def test_smoke_script_through_other_runners(self):
+        for run in ['npm --prefix permutation-gateway/demo run smoke',   # npm options before `run`
+                    'npm run --silent smoke',                            # ... or between `run` and the name
+                    'npm rum smoke',                                     # npm's run aliases
+                    'node --run smoke -- --pre-join',                    # Node 22+ runs package.json scripts
+                    'node --run=smoke',
+                    'pnpm smoke --pre-join', 'pnpm -C permutation-gateway/demo smoke',
+                    'yarn smoke --pre-join', 'yarn run smoke', 'bun run smoke']:
+            with self.subTest(run=run):
+                self.assertRefused(run)
+        # npm with options is still fine when --pre-join comes after `--`; words that only say "smoke" are not runs
+        self.assertAllowed('npm --prefix permutation-gateway/demo run smoke -- --pre-join')
+        self.assertAllowed('npm run --silent smoke -- --pre-join')
+        self.assertAllowed('echo smoke\ncargo test smoke\nnpm ci && npm run build')
+
     # ---- fix-tg10's own bad forms
 
     def test_flag_in_another_command_on_the_same_line(self):
