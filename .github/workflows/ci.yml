@@ -905,11 +905,13 @@ jobs:
       # The bundle pages-demo.yml deploys, built the same way, opened AT the real Pages host name (Playwright routes
       # dist-pages/ there: no server, no socket, every other request refused and counted) in a clean headless Chromium:
       # both entry URLs × EN/JA × desktop/phone, pick a nation → the start button shows → no wallet prompt anywhere, no
-      # request off the site, 0 signatures. The start button is NOT pressed (--pre-join): nothing is signed. The one
-      # approved exception to key-free CI: the page derives its Dev Wallet's PUBLIC key from the sample world's fixed seed
-      # (docs/ci/KEY-FREE-CI.ja.md; check-ci-keyfree.py refuses any other smoke.mjs run here). The full play-through
-      # (join, orders, battle) stays in key-tests.
-      - name: Walletless demo at the real Pages host, pre-join (Playwright; nothing signed)
+      # request off the site. The start button is NOT pressed (--pre-join). The owner-approved exception to key-free CI
+      # (docs/ci/KEY-FREE-CI.ja.md): the page derives the PUBLIC keys of the sample world's fixed seeds (Q-FDW-1 = B), and
+      # its load-time Ed25519 test signs the fixed text "Wylls demo preflight" once with the throwaway seed 32 x 0x07
+      # (src/boot.mjs cryptoCheck; Q-FDW-2 = A, r0ze 2026-11-28 11:50). smoke.mjs counts that test apart (must be 0 or 1),
+      # fails on any other signature and on any private key from another seed; check-ci-keyfree.py refuses any other
+      # smoke.mjs run here. The full play-through (join, orders, battle) stays in key-tests.
+      - name: Walletless demo at the real Pages host, pre-join (Playwright; only the load-time Ed25519 test signs)
         working-directory: permutation-gateway/demo
         env:
           BASE: /${{ github.event.repository.name }}/

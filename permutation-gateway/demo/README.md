@@ -12,7 +12,7 @@ node serve.mjs --port 41751 --prefix /play/ --gzip   # try it: http://127.0.0.1:
 node smoke.mjs --loop     # Playwright play-through (signs with the page's test Dev Wallet: manual key-tests job only)
 node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html --act [--mobile] [--lang ja]
                           # the same, AT the Pages host name (routed in the browser): no wallet prompt, one order
-node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --pre-join   # stops at the start button, signs nothing: runs on every PR (ci.yml walletless-demo, Q-FDW-1)
+node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --pre-join   # stops at the start button; only the load-time Ed25519 test (seed 0x07, fixed text) signs, once: runs on every PR (ci.yml walletless-demo, Q-FDW-1/2)
 ```
 
 `npm run build:demo` in `permutation-gateway/` does the install, build and check in one go.

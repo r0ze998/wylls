@@ -32,8 +32,10 @@ LINT_LINE = re.compile(
 # The one owner-approved exception (Q-FDW-1 = B, r0ze 2026-11-28 08:30, inbox 2026-11-28-0830-r0ze-fdw1-answer.md;
 # docs/ci/KEY-FREE-CI.ja.md): the walletless demo's browser smoke (permutation-gateway/demo/smoke.mjs) may run in a
 # push/PR job ONLY as `--pre-join`. The page then derives the PUBLIC key of its Dev Wallet from the sample world's fixed
-# seed (permutation-gateway/screens/world.mjs DEV_SEED, 32 × 0x11; no chain, no funds) and stops at the start button:
-# nothing is signed (smoke.mjs counts crypto.subtle.sign and requires 0). Any other smoke.mjs run signs (joining makes
+# seed (permutation-gateway/screens/world.mjs DEV_SEED, 32 × 0x11; no chain, no funds) and stops at the start button.
+# The only signature is the page's load-time Ed25519 test (src/boot.mjs cryptoCheck: throwaway seed 32 × 0x07, fixed
+# text "Wylls demo preflight", at most once per load; Q-FDW-2 = A, r0ze 2026-11-28 11:50): smoke.mjs counts it apart
+# (0 or 1) and requires 0 other signatures and no private key from another seed. Any other smoke.mjs run signs (joining makes
 # a session key, orders are signed): every line that runs smoke.mjs outside key-tests must carry --pre-join and none of
 # --act / --loop.
 # `npm run smoke` / `npm run-script smoke` (permutation-gateway/demo/package.json: "smoke": "node smoke.mjs") and the
