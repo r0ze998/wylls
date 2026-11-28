@@ -35,10 +35,16 @@ export const DEMO_GOAL = Object.freeze({
   graceBells: 28,
   /** Turns between two waves. */
   waveEvery: 10,
-  /** A wave host's troops: base × (1 + growth)^wave, capped. */
+  /** A wave host's troops: base × (1 + growth)^wave, then × (1 + late growth) a wave from turn `lateFromBells`, capped. */
   waveBase: 100,
   waveGrowthBps: 1_200,
-  waveCap: 2_000,
+  /** Q-DGP-1 (c), owner r0ze 2026-11-28 21:05: the AI only — waves at or after this game turn grow faster, so that a
+   *  game with a thin defence still ends (the AI wins); the judged rule (castles, hold, result) is unchanged. */
+  lateFromBells: 120,
+  /** Turns between two late waves (`waveEvery` before). */
+  lateEvery: 5,
+  lateGrowthBps: 2_000,
+  waveCap: 30_000,
   /** AI nations that march in a wave besides the leader (they take turns). */
   waveActing: 1,
   /** The leader (the rival nation to beat: it marches every wave) gets this much more troops. */
@@ -108,11 +114,30 @@ export function resultOf(achievement, playerNation) {
   return { state: achievement.nations.includes(playerNation) ? 'won' : 'lost', bell: achievement.bell, nations: [...achievement.nations] };
 }
 
-/** A wave host's troops (whole troops). */
-export const waveTroops = (wave, rules = DEMO_GOAL) => Math.min(rules.waveCap, Math.round(rules.waveBase * ((10_000 + rules.waveGrowthBps) / 10_000) ** Math.max(0, wave)));
+/** The first wave of the late phase: the first wave at or after game turn `lateFromBells` (null: no late phase). */
+export const lateWave = (rules = DEMO_GOAL) => Number.isInteger(rules.lateFromBells) && rules.lateFromBells >= 0
+  ? Math.max(0, Math.ceil((rules.lateFromBells - rules.graceBells) / rules.waveEvery)) : null;
+
+/**
+ * A wave host's troops (whole troops): base × (1 + growth)^wave until the late phase, then × (1 + late growth) a wave
+ * from there, capped. A pure function of the wave number (itself of the turn since the posting): a save's replay
+ * (save.mjs) makes the same waves, and the card's "next wave ≈ N" is this for the next wave.
+ */
+export function waveTroops(wave, rules = DEMO_GOAL) {
+  const k = Math.max(0, wave), L = lateWave(rules), early = L === null ? k : Math.min(k, L), late = L === null ? 0 : Math.max(0, k - L);
+  return Math.min(rules.waveCap, Math.round(rules.waveBase * ((10_000 + rules.waveGrowthBps) / 10_000) ** early * ((10_000 + (rules.lateGrowthBps ?? 0)) / 10_000) ** late));
+}
+
+/** The game turn of wave `k` (grace, grace + every, …; from the late phase every `lateEvery`). */
+export function waveBell(k, rules = DEMO_GOAL) {
+  const L = lateWave(rules);
+  return L === null || k <= L ? rules.graceBells + k * rules.waveEvery : rules.graceBells + L * rules.waveEvery + (k - L) * (rules.lateEvery ?? rules.waveEvery);
+}
 
 /** The wave number due at game turn `g` (turns since the posting), or null: waves at grace, grace + every, … */
 export function waveAt(g, rules = DEMO_GOAL) {
+  const L = lateWave(rules), g0 = L === null ? Infinity : rules.graceBells + L * rules.waveEvery;
+  if (g >= g0) { const e = rules.lateEvery ?? rules.waveEvery; return (g - g0) % e === 0 ? L + (g - g0) / e : null; }
   if (g < rules.graceBells || (g - rules.graceBells) % rules.waveEvery !== 0) return null;
   return (g - rules.graceBells) / rules.waveEvery;
 }
@@ -129,13 +154,15 @@ export function waveAt(g, rules = DEMO_GOAL) {
  *                      with the fewest of its troops standing on it (`strength(castle)`);
  *     4. 'capture'     the castles not held by it, nearest its village first (the player's nation's first on a tie);
  *   the OTHERS (skirmishers: they do not race, they take back what is theirs and press the player):
- *     1. 'retake'      their own castle, when another nation holds it;
+ *     1. 'retake'      their own castle, when another nation holds it (from the late phase, not from the leader);
  *     2. 'raid'        the player's castles (nearest first), else the player's land (castle null).
  * `progress`: progressOf; `n`: the AI nation; `player`: the player's nation; `dist(castle)`: from the AI's village.
  */
-export function waveTarget({ castles, progress, n, player, leader, dist, strength = () => 0, wave = 0 }) {
-  const own = castles.find(c => c.nation === n);
-  if (own && own.holder !== n) return { kind: 'retake', castles: [own] };
+export function waveTarget({ castles, progress, n, player, leader, dist, strength = () => 0, wave = 0, rules = DEMO_GOAL }) {
+  const own = castles.find(c => c.nation === n), L = lateWave(rules), late = L !== null && wave >= L;
+  // (in the late phase a skirmisher leaves its castle to the leader: else they take turns breaking each other's hold and
+  //  a game with a thin defence never ends — Q-DGP-1)
+  if (own && own.holder !== n && !(late && n !== leader && own.holder === leader)) return { kind: 'retake', castles: [own] };
   if (n !== leader) {
     const theirs = castles.filter(c => c.holder === player).sort((a, b) => dist(a) - dist(b));
     return { kind: 'raid', castles: theirs };
@@ -144,7 +171,9 @@ export function waveTarget({ castles, progress, n, player, leader, dist, strengt
   const close = progress.filter(x => x.nation !== n && need > 0 && x.captured >= need - 1 && x.captured > 0).sort((a, b) => (a.nation === player ? -1 : b.nation === player ? 1 : a.nation - b.nation));
   for (const x of close) {
     const c = [...x.castles].sort((a, b) => a.longAt - b.longAt)[0];
-    if (c) return { kind: 'stop-rival', castles: [castles.find(k => k.p === c.p && k.q === c.q && k.tile === c.tile)] };
+    // (then the castles a 'capture' would try: a stop-rival target beyond a march's reach no longer wastes the wave —
+    //  D-demo-goal-polish-1-3; the world takes the first destination a march reaches)
+    if (c) { const k0 = castles.find(k => k.p === c.p && k.q === c.q && k.tile === c.tile); return { kind: 'stop-rival', castles: [k0, ...openOf(castles, n, player, dist).filter(k => k !== k0)] }; }
   }
   // holding the race: with the need in hand every wave strengthens the weakest castle it captured; one short of it,
   // every other wave does (the victims take their castles back one by one otherwise, and nobody ever wins)
@@ -153,6 +182,8 @@ export function waveTarget({ castles, progress, n, player, leader, dist, strengt
     const held = castles.filter(c => c.holder === n && c.nation !== n).sort((a, b) => strength(a) - strength(b) || dist(a) - dist(b));
     if (held.length) return { kind: 'reinforce', castles: [held[0]] };
   }
-  const open = castles.filter(c => c.holder !== n).sort((a, b) => dist(a) - dist(b) || (a.holder === player ? -1 : b.holder === player ? 1 : 0));
+  const open = openOf(castles, n, player, dist);
   return { kind: open.length ? 'capture' : 'none', castles: open };
 }
+/** The castles a leader's 'capture' tries: not held by it, nearest first (the player's on a tie). */
+const openOf = (castles, n, player, dist) => castles.filter(c => c.holder !== n).sort((a, b) => dist(a) - dist(b) || (a.holder === player ? -1 : b.holder === player ? 1 : 0));

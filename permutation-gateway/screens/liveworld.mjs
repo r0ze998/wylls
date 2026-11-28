@@ -580,7 +580,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       castles.push({ nation: n, p: pv.p, q: pv.q, tile, guard: String(id) });
       castleTiles.set(key(pv.p, pv.q), [...(castleTiles.get(key(pv.p, pv.q)) ?? []), tile]);
     }
-    return { rules, castles, posted: null, player: null, result: null, wave: -1, log: [], hostSeq: new Map() };
+    return { rules, castles, posted: null, player: null, result: null, wave: -1, log: [], hostSeq: new Map(), waveIds: new Set() };
   }
   /** The castles as the judge reads them now: `[{nation, p, q, tile, holder, since}]`. */
   const castlesNow = () => GOAL.castles.map(c => { const fs = territoryFor(provinces.get(key(c.p, c.q))); return { ...c, holder: fs.owners[c.tile], since: fs.since[c.tile] ?? 0 }; });
@@ -605,23 +605,33 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       const troops = H.faction === leader ? Math.min(GOAL.rules.waveCap, Math.round(base * (10_000 + GOAL.rules.leaderBonusBps) / 10_000)) : base;
       const home = tileHex(H.p, H.q, H.tile), dist = c => { const h = tileHex(c.p, c.q, c.tile); return hexDistance(h.q, h.r, home.q, home.r); };
       const strength = c => provinces.get(key(c.p, c.q)).entries.filter(e => e.state === ES.ROSTER && e.tile === c.tile && e.faction === H.faction).reduce((x, e) => x + e.troops, 0);
-      const target = G.waveTarget({ castles, progress, n: H.faction, player: GOAL.player, leader, dist, strength, wave: k });
+      const target = G.waveTarget({ castles, progress, n: H.faction, player: GOAL.player, leader, dist, strength, wave: k, rules: GOAL.rules });
       const dests = target.castles.map(c => ({ p: c.p, q: c.q, tile: c.tile }));
       if (target.kind === 'raid') { const x = raidTile(home); if (x) dests.push(x); }
       if (!dests.length) { GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, target: target.kind, ok: false, code: 'NoTarget' }); continue; }
       const pv = provinces.get(key(H.p, H.q)), roster = pv.entries.filter(e => e.state === ES.ROSTER || e.state === ES.MUSTER_PENDING);
-      if (roster.length >= R.PROVINCE_HOST_CAP || roster.filter(e => e.faction === H.faction).length >= R.FACTION_RESIDENT_CAP || !pv.entries.some(e => e.state === ES.FREE) || !H.transit.some(x => !x)) {
-        GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, target: target.kind, dest: dests[0], ok: false, code: 'Full' }); continue;
+      // a wave host left at home (no destination reached) is the next wave's: it is brought up to the wave's troops and
+      // marches again (the home's host slots never fill up with idle waves — Q-DGP-1)
+      const idle = pv.entries.findIndex(e => e.state === ES.ROSTER && GOAL.waveIds.has(String(e.id)) && e.tile === H.tile && !inTransit(H, e.id));
+      let i = idle, id = idle >= 0 ? pv.entries[idle].id : null;
+      if (idle >= 0) {
+        const e = pv.entries[idle];
+        if (e.troops < troops * MILLI) { e.troops = troops * MILLI; e.staminaValue = R.STAMINA_CAP; e.staminaBell = b; pv.rosterEpoch++; }
+      } else {
+        if (roster.length >= R.PROVINCE_HOST_CAP || roster.filter(e => e.faction === H.faction).length >= R.FACTION_RESIDENT_CAP || !pv.entries.some(e => e.state === ES.FREE) || !H.transit.some(x => !x)) {
+          GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, target: target.kind, dest: dests[0], ok: false, code: 'Full' }); continue;
+        }
+        const seq = 40 + (GOAL.hostSeq.get(H.faction) ?? 0);
+        GOAL.hostSeq.set(H.faction, seq - 39);
+        id = hostId({ p: H.p, q: H.q, site: H.site, gen: 0, seq });
+        GOAL.waveIds.add(String(id));
+        i = put(pv, { id, faction: H.faction, unit: 0, tile: H.tile, state: ES.ROSTER, troops: troops * MILLI, staminaValue: R.STAMINA_CAP, staminaBell: b, dealtBps: R.dealtBps(H.faction, false), readyBell: b, fromBell: b });
+        pv.rosterEpoch++;
       }
-      const seq = 40 + (GOAL.hostSeq.get(H.faction) ?? 0);
-      GOAL.hostSeq.set(H.faction, seq - 39);
-      const id = hostId({ p: H.p, q: H.q, site: H.site, gen: 0, seq });
-      const i = put(pv, { id, faction: H.faction, unit: 0, tile: H.tile, state: ES.ROSTER, troops: troops * MILLI, staminaValue: R.STAMINA_CAP, staminaBell: b, dealtBps: R.dealtBps(H.faction, false), readyBell: b, fromBell: b });
-      pv.rosterEpoch++;
       // the first destination a march reaches (a castle beyond a march's 32 steps is passed over); none: it stays home
       let r = null, dest = null;
       for (const x of dests) { dest = x; r = scriptMarch(H, id, pv, pv.entries[i], x, b, t); if (r.ok || r.code !== 'Path') break; }
-      GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, troops, target: target.kind, dest, ok: r.ok, code: r.code ?? null, arrive: r.arrive ?? null });
+      GOAL.log.push({ bell: b, kind: 'wave', nation: H.faction, wave: k, troops, target: target.kind, dest, ok: r.ok, code: r.code ?? null, arrive: r.arrive ?? null, ...(idle >= 0 ? { reused: true } : {}) });
     }
   }
   /** A raid with no castle of the player's to take: the player's land nearest the raider, else a free tile beside the player's village. */
@@ -641,9 +651,13 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     const castles = castlesNow().map(c => ({ nation: c.nation, p: c.p, q: c.q, tile: c.tile, holder: c.holder === 255 ? null : c.holder, since: c.since }));
     return { v: 1, kind: 'demo-goal', rules: { ...GOAL.rules }, need: G.needOf(castles.length, GOAL.rules, G.mostOwn(castles)), turn: b, turnSecs, posted: GOAL.posted, player: GOAL.player,
       castles, progress: GOAL.posted === null ? [] : goalProgress(b).map(x => ({ nation: x.nation, held: x.held, own: x.own, captured: x.captured, capturedLong: x.capturedLong, reachAt: x.reachAt, castles: x.castles })),
-      wave: GOAL.wave, nextWave: GOAL.posted === null || GOAL.result ? null : nextWaveBell(b), waveTroops: G.waveTroops(Math.max(0, GOAL.wave + 1), GOAL.rules), leader: GOAL.player === null ? null : G.leaderOf(GOAL.player), result: GOAL.result };
+      wave: GOAL.wave, nextWave: GOAL.posted === null || GOAL.result ? null : nextWaveBell(b), waveTroops: G.waveTroops(nextWaveNo(b), GOAL.rules), late: GOAL.posted !== null && G.lateWave(GOAL.rules) !== null && nextWaveNo(b) > G.lateWave(GOAL.rules), leader: GOAL.player === null ? null : G.leaderOf(GOAL.player), result: GOAL.result };
   }
-  const nextWaveBell = b => { for (let x = b + 1; x < b + 1 + GOAL.rules.graceBells + GOAL.rules.waveEvery + 1; x++) if (G.waveAt(x - GOAL.posted, GOAL.rules) !== null) return x; return null; };
+  // the next wave not yet sent: this bell's own until its npc step has run (demo-dgp1-waves: in that part of a wave's
+  // bell the card named the wave after it, with this one's troops). The card's "next wave in N turns, about M troops a
+  // host" is that wave's bell and troops.
+  const nextWaveBell = b => { for (let x = b; x < b + 1 + GOAL.rules.graceBells + 2 * GOAL.rules.waveEvery + 1; x++) { const k = G.waveAt(x - GOAL.posted, GOAL.rules); if (k !== null && k > GOAL.wave) return x; } return null; };
+  const nextWaveNo = b => { const x = GOAL.posted === null ? null : nextWaveBell(b); return x === null ? Math.max(0, GOAL.wave + 1) : G.waveAt(x - GOAL.posted, GOAL.rules); };
 
   // ------------------------------------------------------------------ arrival slots, per-bell files
   function slotPut(s) {
