@@ -42,11 +42,17 @@ export function demoCastles(FS) {
   const g = FS?.sample?.demo ? FS.sample.goal : null;
   return g?.kind === 'flag-castles' && Array.isArray(g.castles) && g.castles.length ? g.castles : null;
 }
-/** Whether the viewer's nation holds a flag castle of another nation now (its tile's arrival-control owner). */
+/**
+ * Whether the viewer's nation holds a flag castle of another nation now (its tile's arrival-control owner): the world
+ * record's own `holder` of the castle where it says one (verify-pr327: the page stops reading a castle's province once no
+ * host of the viewer's is left there, so a castle lost in the clash that killed the last of them stayed "held" in the
+ * page's copy of that province and the step never came back), else the page's reading of the province.
+ */
 export function holdsRivalCastle(FS, castles = demoCastles(FS)) {
   const me = FS?.citizen?.faction;
   if (!castles || !Number.isInteger(me)) return false;
-  return castles.some(c => c.nation !== me && FS.provinces?.get?.(`${c.p},${c.q}`)?.sampleTerritory?.owners?.[c.tile] === me);
+  const holderOf = c => ('holder' in c ? c.holder : FS.provinces?.get?.(`${c.p},${c.q}`)?.sampleTerritory?.owners?.[c.tile]);
+  return castles.some(c => c.nation !== me && holderOf(c) === me);
 }
 /** Local flags (in ps-fui `dismissed`). */
 export const FLAG = Object.freeze({

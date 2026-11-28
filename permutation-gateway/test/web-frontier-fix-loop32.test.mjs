@@ -55,6 +55,21 @@ test('BREAK-3 the demo\'s goal world: six steps, the sixth is "Take a flag castl
   assert.equal(stage(fs).current, 'castle');
 });
 
+test('verify-pr327: the castle step follows the world record\'s holder, not a stale reading of the castle\'s province', () => {
+  // the page stops reading a castle's province once no host of the viewer's is left there: its copy still says "held"
+  const fs = world({ holder: 0 });
+  assert.equal(holdsRivalCastle(fs), true, 'without holders in the record, the province reading as before');
+  fs.sample.goal = { ...fs.sample.goal, castles: CASTLES.map(c => ({ ...c, holder: c.nation === 2 ? 4 : c.nation })) };
+  assert.equal(holdsRivalCastle(fs), false, 'the record says Cinder\'s castle is Ember\'s now: lost');
+  assert.equal(stage(fs).current, 'castle', 'and the step is the guide\'s step again');
+  fs.sample.goal = { ...fs.sample.goal, castles: CASTLES.map(c => ({ ...c, holder: c.nation === 2 ? 0 : c.nation })) };
+  fs.provinces.get('-1,1').sampleTerritory.owners = owners(2);
+  assert.equal(holdsRivalCastle(fs), true, 'taken: the record says so before the page reads the province again');
+  assert.equal(stage(fs).complete, true);
+  fs.sample.goal = { ...fs.sample.goal, castles: CASTLES.map(c => ({ ...c, holder: c.nation === 2 ? null : c.nation })) };
+  assert.equal(holdsRivalCastle(fs), false, 'no holder: not held');
+});
+
 test('BREAK-3 the castle step\'s card, pill and button: EN and JA, it marches (the composer or the hosts), never "season"; elsewhere the claim step as before', () => {
   const fs = world();
   setLang('ja');
