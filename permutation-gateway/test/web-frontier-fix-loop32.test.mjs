@@ -142,6 +142,10 @@ test('BREAK-7 the demo\'s map markers (castle flags, camps, travelers) go in the
     assert.doesNotMatch(s, new RegExp(`doc\\.body\\.appendChild\\(${id}\\);`), f);
   }
   assert.match(read('../../permutation-server/web/frontier/index.html'), /<main id="frontier">/);
-  assert.match(read('../demo/src/goalhud.mjs'), /body\[data-doc="wide"\] #demo-goal,body\[data-doc="stage"\] #demo-goal\{visibility:hidden\}/);
+  // (only under a wide document — the report, a practice battle: hud/drawer.mjs WIDE. The nation picker is a 'stage'
+  //  document, and the goal card stands beside it: hiding it there was caught by the Pages-host play, picker check)
+  const hud = read('../demo/src/goalhud.mjs');
+  assert.match(hud, /body\[data-doc="wide"\] #demo-goal\{visibility:hidden\}/);
+  assert.doesNotMatch(hud, /data-doc="stage"/);
   assert.ok(L);
 });

@@ -137,7 +137,7 @@ const CSS = `
 #demo-result .dr-acts{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
 #demo-result button{border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer;border:1px solid #1d2a26;background:#fff}
 #demo-result button.primary{background:#1f4d44;color:#fff;border-color:#1f4d44}
-body[data-doc="wide"] #demo-goal,body[data-doc="stage"] #demo-goal{visibility:hidden}
+body[data-doc="wide"] #demo-goal{visibility:hidden}
 @media (max-width:700px){#demo-goal{top:150px;left:8px;width:calc(100vw - 80px);max-height:52vh}#demo-goal.folded{width:auto;max-width:calc(100vw - 80px)}}
 `;
 
