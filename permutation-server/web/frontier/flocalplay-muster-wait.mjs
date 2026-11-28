@@ -57,6 +57,16 @@ export function musterPress({ problems, nearEnd, settleCodes }) {
 }
 
 /**
+ * What the page remembers as "the action sent" (`FS.lastAct`, app.mjs retryLast / hud/status.mjs UNSENT) for a muster sent
+ * from the card's confirm — at once or by its waiting send: the muster itself, with the exact unit, troops and tile sent.
+ * (fix-loop29, loop-play29 BREAK-1: the confirm's own press `muster-send-wait` is not one of the page's sends, so a muster it
+ *  sent AT ONCE and the program refused (NotResident at the turn change) was told as the earlier Train — 「訓練はまだされて
+ *  いません」 / "Nothing has been trained yet." — and its "Try again" trained 100 Spearmen. verify-pr98 had fixed this only
+ *  for the waiting send.)
+ */
+export const musterLastAct = draft => ({ kind: 'act', name: 'muster', data: { unit: String(draft.unit), troops: String(draft.troops), tile: String(draft.tile) } });
+
+/**
  * The world and key frozen with a waiting send (controller.mjs musterIdentity): `scope` (flocalplay-act.mjs localActScope:
  * wallet, program, Season, relay), the runner's world `instance`, and the page's `herald`, `localPlay` and `signer` objects
  * (compared by identity: a new connection, a restarted world or a new key makes new ones), and the `wallet` address.

@@ -33,7 +33,7 @@ import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch, destOpenOf } from './screens/march.mjs';
 import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver, SETTLE_CODES, provinceLag, PENDING_LAG_TURNS, settleNow } from './flocalplay-pending.mjs';
-import { musterIntentOf, nearTurnEnd, musterPress, sameWorld as sameMusterIdentity, sameHolding, stillSame as musterStill } from './flocalplay-muster-wait.mjs';
+import { musterIntentOf, nearTurnEnd, musterPress, sameWorld as sameMusterIdentity, sameHolding, stillSame as musterStill, musterLastAct } from './flocalplay-muster-wait.mjs';
 import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
@@ -3357,6 +3357,8 @@ export function localSyncTick(t = Date.now()) {
 // press arms the waiting send instead (sent once when every check passes in the next turn, or withdrawn and told — e.g.
 // when the arrival turn moved with the turn). It lowers the chance of a refusal; the program's check still decides.
 const marchNearEnd = () => nearTurnEnd({ genesisTs: FS.clock?.genesisTs, nowTs: now(), bellSecs: BELL_SECS, rate: FS.chain?.accelerated ? Number(FS.chain.rate) : 1 });
+/** `FS.lastAct` for a march sent from the card's own wait press, at once or by its waiting send: the card's march (app.mjs retryLast → ACTIONS['march-send']). */
+const MARCH_LAST_ACT = () => ({ kind: 'act', name: 'march-send', data: {} });
 function armMarchWait() {
   const c = FS.compose;
   // (a march of this host sent earlier whose outcome is not known — the march's gate is closed then (LocalMarchHeld) —:
@@ -3366,8 +3368,11 @@ function armMarchWait() {
   // (devnet: an earlier march of this host with an unknown outcome — nothing is armed; the card says it is held)
   if (!localPlay && devnetHeldNow(c)) return;
   const { problems, intent } = marchNow(c);
-  // ready now, and not at the turn's very end: this press is an ordinary press
-  if (problems.length === 0 && !marchNearEnd()) return sendTheMarch();
+  // ready now, and not at the turn's very end: this press is an ordinary press — and the page remembers it as the march
+  // (fix-loop29 audit, the same gap as loop-play29 BREAK-1: `march-send-wait` is not one of app.mjs SENDS, so a march sent
+  //  AT ONCE from here and refused offered "Try again" for the earlier act FS.lastAct still held — a Train, a Muster —, and
+  //  on a devnet page its toast named that act too. The waiting send — pendingDriver.send — already named the march.)
+  if (problems.length === 0 && !marchNearEnd()) { FS.lastAct = MARCH_LAST_ACT(); return sendTheMarch(); }
   if (problems.length > 0 && !pendable(problems)) return;
   const p = armPending({ intent, nowBell: nowBell() });
   if (!p || !pendingDriver.arm(c, p)) return;
@@ -3447,7 +3452,7 @@ const musterDriver = createPendingDriver({
     if (why) { setNotice({ busy: false, text: MUSTER_WITHDRAWN[why](), unsent: 'muster', retry: false }); return null; }
     // (verify-pr98 BREAK-1: a refusal names the muster, and "try again" is this muster — not the earlier act in FS.lastAct
     //  (seen: a refused waiting muster said 「訓練はまだされていません」 and its retry sent the Train form again))
-    FS.lastAct = { kind: 'act', name: 'muster', data: { unit: String(card.draft.unit), troops: String(card.draft.troops), tile: String(card.draft.tile) } };
+    FS.lastAct = musterLastAct(card.draft);
     invalidate('panel');
     return musterOrder(card.draft.unit, card.draft.troops, card.draft.tile, card.holding);
   },
@@ -3465,7 +3470,10 @@ function armMusterWait() {
   if (!n.open || !n.intent || !n.identity) return;
   const press = musterPress({ problems: n.problems, nearEnd: musterNearEnd(), settleCodes: SETTLE_CODES });
   // ready now, and not at the turn's very end: this press is an ordinary press (for the card's own village)
-  if (press === 'send') return musterOrder(n.draft.unit, n.draft.troops, n.draft.tile, n.holding);
+  // (fix-loop29, loop-play29 BREAK-1: this send names the muster too — its refusal says the muster, and "Try again" sends
+  //  this muster, never the earlier act FS.lastAct still held: seen live, a refused immediate muster said 「訓練はまだされて
+  //  いません」 and its retry trained 100 Spearmen)
+  if (press === 'send') { FS.lastAct = musterLastAct(n.draft); return musterOrder(n.draft.unit, n.draft.troops, n.draft.tile, n.holding); }
   if (press !== 'wait' || musterHeld()) return;
   const p = armPending({ intent: n.intent, nowBell: nowBell() });
   const card = Object.freeze({ intent: n.intent, identity: n.identity, holding: Object.freeze({ p: n.holding.p, q: n.holding.q, site: n.holding.site, gen: n.holding.gen ?? null, tile: n.holding.tile }), draft: Object.freeze({ ...n.draft }) });
