@@ -118,11 +118,11 @@ compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `D
 - **Flag castles**: one per nation (6), each on the tile nearest the centre of the nation's ring-1 province, guarded
   from the start by 110 troops of the nation's AI village. A castle's holder is its tile's arrival-control owner (a lone
   surviving host of one nation after a resolve takes it; leaving does not give it up).
-- **Win**: hold **3** castles of other nations, each for **20 turns** (4 min at 12 s a turn), as the real rule counts:
+- **Win**: hold **3** castles of other nations, each for **15 turns** (3 min at 12 s a turn), as the real rule counts:
   only captured castles (never your own nation's), each from when it was taken, a capture resets that castle's timer.
   Need = half of the 6 castles (the real `needOf`) = half of the 5 rivals' rounded up.
 - **Lose**: an AI nation meets the same rule first (a same-turn tie is your win).
-- **The AI**: 24 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave, capped at
+- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave, capped at
   2,000): the rival leader (two nations along from yours) every wave, +20 % troops, racing for castles (retake its own,
   stop a nation one castle short, hold what it has, capture the nearest); one more AI nation a wave (they take turns)
   takes its own castle back or raids you (your castles, else your land). Your own nation's AI village only defends.

@@ -157,7 +157,8 @@ check(start?.g.posted !== null && start?.g.player === Number(opt.nation), `joine
 await sleep(2500);
 await noWalletPrompt('the village');
 const card = (await page.locator('#demo-goal').innerText()).replace(/\s+/g, ' ');
-check(/3/.test(card) && (JA ? /20ターン/.test(card) : /20 turns/.test(card)), `the goal card states the goal: "${card.slice(0, 160)}"`);
+const H = start.g.rules.holdBells;
+check(/3/.test(card) && card.includes(JA ? `${H}ターン` : `${H} turns`), `the goal card states the goal (3 castles, ${H} turns): "${card.slice(0, 160)}"`);
 check((await page.locator('#demo-goal li[data-castle]').count()) === 6, 'the goal card lists the six flag castles');
 await shot(page, '02-village');
 

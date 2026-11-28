@@ -69,6 +69,7 @@ test('win and loss: the player\'s nation reaching the goal is a win, another nat
   assert.deepEqual(G.resultOf({ bell: 90, nations: [1] }, 1), { state: 'won', bell: 90, nations: [1] });
   assert.deepEqual(G.resultOf({ bell: 88, nations: [3] }, 1), { state: 'lost', bell: 88, nations: [3] });
   assert.deepEqual(G.resultOf({ bell: 90, nations: [1, 3] }, 1), { state: 'won', bell: 90, nations: [1, 3] });
+  assert.deepEqual(G.resultOf({ bell: 90, nations: [0, 1] }, 1), { state: 'won', bell: 90, nations: [0, 1] }, 'a tie with a nation before yours too');
   assert.equal(G.resultOf(null, 1), null);
 });
 

@@ -15,7 +15,7 @@
 //     local worlds' round 1 draws only ring-1 keeps), so need = 3 — "half of all" and "half of the rivals' 5" agree;
 //   - the castle is the tile nearest the province's centre that a host can stand on; its holder is the tile's
 //     arrival-control owner (screens/territory.mjs: after a resolve, a lone surviving host of one nation takes it);
-//   - holdBells 20 turns (12 s a turn: 4 min of real time, 3 h 20 of the demo clock) instead of 144 (24 h);
+//   - holdBells 15 turns (12 s a turn: 3 min of real time, 2 h 30 of the demo clock) instead of 144 (24 h);
 //   - the round is posted when the player's first village is placed (no AI can start holding before the player plays).
 // A player's LOSS is an AI nation reaching the same goal first (Q-DSG-2); a same-bell tie is the player's win.
 
@@ -28,11 +28,11 @@ export const DEMO_GOAL = Object.freeze({
   /** null: half of the flags rounded up, capped at k − most own (world-goals.mjs needOf). */
   need: null,
   /** Turns a captured castle must be held (real: 144 = 24 h). */
-  holdBells: 20,
+  holdBells: 15,
   /** The troops of a castle's starting guard (a host of the nation's AI village standing on it). */
   guardTroops: 110,
   /** Turns after the player's first village before the AI nations start their waves. */
-  graceBells: 24,
+  graceBells: 28,
   /** Turns between two waves. */
   waveEvery: 10,
   /** A wave host's troops: base × (1 + growth)^wave, capped. */
