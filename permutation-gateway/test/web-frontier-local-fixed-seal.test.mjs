@@ -67,7 +67,7 @@ test('the main button is the same handler as before, which looks again at the pr
   // (re-pinned 2026-11-21 to 0f626c0d of 2026-11-19, "a runner rejection is not sent, held marches are re-checked": a press
   //  at the turn's very end waits instead of sending into the change; a held march is ASKED ABOUT — one read, nothing sent —
   //  where the press used to do nothing; web-frontier-march-held / web-frontier-local-march-pending test the behaviour)
-  assert.match(arm, /if \(problems\.length === 0 && !marchNearEnd\(\)\) return sendTheMarch\(\);/, 'ready, and not at the turn\'s very end: the ordinary single send');
+  assert.match(arm, /if \(problems\.length === 0 && !marchNearEnd\(\)\) \{ FS\.lastAct = MARCH_LAST_ACT\(\); return sendTheMarch\(\); \}/, 'ready, and not at the turn\'s very end: the ordinary single send (named as the march: fix-loop29)');
   assert.doesNotMatch(arm, /if \(problems\.length === 0\) return sendTheMarch\(\);/);
   assert.equal(arm.split('sendTheMarch(').length - 1, 1, 'the one send in the handler');
   assert.match(arm, /if \(c && !c\.sending && !c\.pending && !pendingDriver\.armed && localPlay && heldNow\(c\)\) return askHeldMarches\(c\.host\?\.id \?\? null, \{ told: true \}\);/, 'a held march: asked about, nothing sent');

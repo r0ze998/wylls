@@ -80,7 +80,7 @@ test('the controller: armed only on local play\'s test march with a known world 
   // problem never arms; ready but in the turn's last moments arms the wait (the muster's nearTurnEnd guard)
   assert.match(c, /if \(c && !c\.sending && !c\.pending && !pendingDriver\.armed && localPlay && heldNow\(c\)\) return askHeldMarches\(/, 'never armed past an unknown outcome');
   assert.match(c, /if \(problems\.length > 0 && !pendable\(problems\)\) return;/, 'never armed past a non-settling problem');
-  assert.match(c, /if \(problems\.length === 0 && !marchNearEnd\(\)\) return sendTheMarch\(\);/, 'ready and not at the turn end: an ordinary press');
+  assert.match(c, /if \(problems\.length === 0 && !marchNearEnd\(\)\) \{ FS\.lastAct = MARCH_LAST_ACT\(\); return sendTheMarch\(\); \}/, 'ready and not at the turn end: an ordinary press (named as the march: fix-loop29)');
   assert.match(c, /return loadEnvelope\(card\.origin\.p, card\.origin\.q, 'latest', still\)\.then\(/, 'the read is the ordinary read-only province read');
   assert.match(c, /const still = \(\) => herald === h0 && localPlay === lp0 && \(FS\.wallet\?\.address \?\? null\) === w0 && FS\.wallet\?\.destroyed !== true && pendingDriver\.armed === card;/, 'applied only for the same herald, world, live key and armed card');
   // a stale answer is dropped BEFORE anything is applied
@@ -318,7 +318,9 @@ test('verify-pr98 BREAK-1: both drivers look with settleNow, and their send name
   assert.match(c, /return \{ \.\.\.now, problems: settleNow\(now\.problems, origin, nowBell\(\)\), nowBell: nowBell\(\),/);
   assert.match(c, /return \{ intent: n\.intent, problems: settleNow\(n\.problems, province, nowBell\(\)\), nowBell: nowBell\(\),/);
   assert.match(c, /send: card => \{ card\.pending = null; FS\.lastAct = \{ kind: 'act', name: 'march-send', data: \{\} \}; return sendTheMarch\(\); \},/);
-  assert.match(c, /FS\.lastAct = \{ kind: 'act', name: 'muster', data: \{ unit: String\(card\.draft\.unit\), troops: String\(card\.draft\.troops\), tile: String\(card\.draft\.tile\) \} \};\n    invalidate\('panel'\);\n    return musterOrder\(/);
+  // (fix-loop29: the muster's lastAct is one shared helper — flocalplay-muster-wait.mjs musterLastAct — for both the waiting
+  //  send and the immediate one)
+  assert.match(c, /FS\.lastAct = musterLastAct\(card\.draft\);\n    invalidate\('panel'\);\n    return musterOrder\(/);
   // (the retry runs ACTIONS[FS.lastAct.name](data): both names are the page's own direct sends)
   assert.match(c, /  muster: d => musterOrder\(num\(d\.unit\), num\(d\.troops\), d\.tile === undefined \|\| d\.tile === '' \? null : num\(d\.tile\)\),/);
   assert.match(c, /  'march-send': \(\) => sendTheMarch\(\),/);
