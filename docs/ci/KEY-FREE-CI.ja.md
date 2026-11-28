@@ -51,7 +51,7 @@
     - 鍵：体験版の Dev Wallet の**固定の見本の seed**（`permutation-gateway/screens/world.mjs` の `DEV_SEED`、0x11 が 32 byte）。ページはこの seed から**公開鍵を導出するだけ**です（`session.mjs` の `keyFromSeed`）。チェーンにも資金にもつながりません。
     - 理由：#307 の P0（GitHub Pages では「ウォレットをつなぎます」が出たのに、127.0.0.1 の試験はすべて通った）を、PR ごとに捕まえるためです。
     - 署名はしません：国を選び、開始ボタンが出たところで止めます（押しません）。smoke.mjs は `crypto.subtle.sign` の呼び出しを数え、0 でなければ失敗します。参加（session 鍵）・命令・戦いの通し試験は、これまでどおり `key-tests` だけです。
-    - 機械的な検査：`check-ci-keyfree.py` は、`key-tests` 以外の job で `smoke.mjs` を動かす行に `--pre-join` がない、または `--act`・`--loop` があると失敗します。
+    - 機械的な検査：`check-ci-keyfree.py` は、`key-tests` 以外の job で `smoke.mjs`（または `npm run smoke`）を動かす行に `--pre-join` がない、または `--act`・`--loop` があると失敗します。
   - 現状の ci.yml では 14 件、提案では 0 件です。
 - **Node の試験**：`scripts/ci/node-keyfree.sh` で動かします。仕組みは三段です。
   1. 一覧 `scripts/ci/node-key-tests.txt`（98 件。`scripts/ci/scan-node-key-tests.mjs` が、ファイルと、それが import する test helper を辿って作った 87 件と、guard が実行中に止めた 11 件）にあるファイルは動かしません。
