@@ -23,3 +23,8 @@ frontier-abi = { path = "../../../frontier-abi" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+
+[dev-dependencies]
+# tests/kernel_slice.rs: the rules kernel's ⑪(b) slice (`frontier::effects`)
+# against this prototype's interpreter on the ops they share.
+permutation-rules = { path = "../../../permutation-rules", features = ["declarative-effects"] }

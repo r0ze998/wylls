@@ -1315,15 +1315,17 @@ fn ruleset_hash_binds_versions_and_catalog() {
     // ruleset hash until a build gives it a version (named here, not
     // hidden): workstream 09's capacity rules (until workstream 4 gives a
     // capacity build its version), the "Standing Ground" land preview and
-    // the player-territory preview (owner Q-2; every number still open).
+    // the player-territory preview (owner Q-2; every number still open)
+    // and the ⑪(b) declarative-effects slice (no program links it).
     // Each must appear exactly once, behind exactly its feature, and in no
     // version list.
-    let previews: [(&str, &str); 3] = [
+    let previews: [(&str, &str); 4] = [
         (r#"#[cfg(feature = "capacity-preview")]"#, "capacity"),
         (r#"#[cfg(feature = "land-preview")]"#, "land"),
         (r#"#[cfg(feature = "territory-preview")]"#, "territory"),
+        (r#"#[cfg(feature = "declarative-effects")]"#, "effects"),
     ];
-    let mut previews_seen = [0usize; 3];
+    let mut previews_seen = [0usize; 4];
     let mut modules = 0;
     let mut previous = "";
     for line in src.lines() {
@@ -1350,7 +1352,11 @@ fn ruleset_hash_binds_versions_and_catalog() {
         }
         previous = line;
     }
-    assert_eq!(previews_seen, [1, 1, 1], "each preview module exactly once");
+    assert_eq!(
+        previews_seen,
+        [1, 1, 1, 1],
+        "each preview module exactly once"
+    );
     assert_eq!(modules + 1, names.len(), "one entry per module + frontier");
     // Golden value: a change to any bound constant or table changes it on
     // purpose (update here, in frontier-abi and in the notes). Moved from
