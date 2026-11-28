@@ -76,7 +76,8 @@ globalThis.document?.addEventListener('click', e => {
   const b = e.target?.closest?.('[data-demo-reset]');
   if (!b) return;
   e.preventDefault();
-  if (globalThis.confirm(b.getAttribute('data-confirm') || 'Start over?')) startOver();
+  // ("Play again" on the goal's result screen: data-demo-reset="now", the game is over — nothing to ask)
+  if (b.getAttribute('data-demo-reset') === 'now' || globalThis.confirm(b.getAttribute('data-confirm') || 'Start over?')) startOver();
 });
 globalThis.addEventListener?.('pagehide', () => SAVER.write());
 globalThis.document?.addEventListener('visibilitychange', () => { if (globalThis.document.visibilityState === 'hidden') SAVER.write(); });
@@ -101,7 +102,7 @@ function world() {
     await initKernel(new URL('wasm/frontier.wasm', import.meta.url).href, realFetch);
     const v = await W.viewer({ keyless: NO_KEYS });
     W.setLiveStorage(true);
-    const live = createLive({ viewer: v, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, travelers: true, turn: DEMO.turnSecs, delay: DEMO.delaySecs, landMs: DEMO.landMs });
+    const live = createLive({ viewer: v, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, travelers: true, goal: true, turn: DEMO.turnSecs, delay: DEMO.delaySecs, landMs: DEMO.landMs });
     return { v, live };
   })();
   return made;
@@ -208,6 +209,7 @@ globalThis.fetch = async function demoFetch(input, init = {}) {
 
 // (tests and the curious: what the world answered, what was refused; the world itself for a summary)
 // (modules: the page bundle's own module instances, filled by src/page-app.mjs for tests; see there)
+// (skip: tests fast-forward the world's clock — the save's own clock, so a reload replays it; nothing else calls it)
 // (sections: the page's own parts of the save that are no world input — the travelers' talk (src/travelhud.mjs); save.mjs)
-globalThis.__wyllsDemo = Object.freeze({ log, world: () => ready().then(x => x.live), config: DEMO, modules: {}, save: () => ({ ...SAVER.state(), restore: RESTORE, key: SAVE_KEY, world: WORLD_ID }),
+globalThis.__wyllsDemo = Object.freeze({ log, world: () => ready().then(x => x.live), config: DEMO, modules: {}, skip: ms => CLOCK.skip(ms), save: () => ({ ...SAVER.state(), restore: RESTORE, key: SAVE_KEY, world: WORLD_ID }),
   section: Object.freeze({ get: name => SAVER.section(name), set: (name, value) => SAVER.setSection(name, value) }) });

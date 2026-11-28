@@ -172,7 +172,9 @@ test('the demo boot: reads answered only after the replay; every POST through th
   assert.match(boot, /const \{ v, live \} = await ready\(\);/);
   assert.match(boot, /if \(method === 'POST'\) return \(await SAVER\.post\(method, path, bodyText \?\? null, \(\) => live\.relay\(method, path, body\)\)\) \?\? stillRelay\(v, path, method\);/);
   assert.match(boot, /if \(path === '\/h\/season'\) SAVER\.seen\(live\);/);
-  assert.match(boot, /if \(globalThis\.confirm\(b\.getAttribute\('data-confirm'\) \|\| 'Start over\?'\)\) startOver\(\);/);
+  // (demo-solo-goal: the result screen's "Play again" — data-demo-reset="now" — starts over without the question; the tag's
+  //  Start over still asks)
+  assert.match(boot, /if \(b\.getAttribute\('data-demo-reset'\) === 'now' \|\| globalThis\.confirm\(b\.getAttribute\('data-confirm'\) \|\| 'Start over\?'\)\) startOver\(\);/);
   assert.match(boot, /if \(FOUND\.status !== 'resume' \|\| NO_KEYS\) return x;/);
   assert.match(boot, /try \{ await replay\(x\.live, FOUND\.save, CLOCK\); \} catch \(e\) \{\n\s+log\.errors\.push\(`save: \$\{e\?\.message \?\? e\}`\);\n\s+startOver\('failed'\);/);
   assert.match(boot, /const v = await W\.viewer\(\{ keyless: NO_KEYS \}\);/);

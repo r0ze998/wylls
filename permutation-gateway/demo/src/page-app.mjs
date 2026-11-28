@@ -7,12 +7,15 @@ import * as fmap from '../../../permutation-server/web/frontier/map/fmap.mjs';
 import * as fgeo from '../../../permutation-server/web/frontier/fgeo.mjs';
 import * as map from '../../../permutation-server/web/map.mjs';
 import '../../../permutation-server/web/frontier/app.mjs';
+import { startGoalHud } from './goalhud.mjs';
 import { startTravelHud } from './travelhud.mjs';
 
 if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });
 
-// the demo's travelers: their markers on the map, the list and the talk / trade panel (travelhud.mjs)
+// the demo's single-player goal (its card, the castle flags on the map and the result screen: goalhud.mjs) and its
+// travelers (their markers on the map, the list and the talk / trade panel: travelhud.mjs)
 if (globalThis.document) {
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => startTravelHud(), { once: true });
-  else startTravelHud();
+  const start = () => { startGoalHud(); startTravelHud(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
 }
