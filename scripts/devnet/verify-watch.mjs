@@ -19,7 +19,7 @@
 // UNVERIFIABLE even with FAIL findings: the watch reads the findings); 2 bad arguments, another watch holds DIR's
 // lock, or a refused RPC.
 // --pull-bin defaults to --verify-bin (the pull subcommand needs a frontier-verify built from this branch or later;
-// the judge may be an older build, e.g. the devnet run dir's).
+// the judge must answer `features` with playable-lane, so it is a build with the probe or later — see the start check).
 // RPC: loopback always; https://api.devnet.solana.com only with --devnet; nothing else (checkRpc).
 // Owner questions Q-W3VW-1..4 are flags (defaults = the safe choice): --max-rps (default 1), --every MIN,
 // --keep-on-fail (default: the first FAIL stops the loop, exit 1; with it the loop goes on and exits 1 at --until),
