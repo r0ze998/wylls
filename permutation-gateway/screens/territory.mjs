@@ -47,7 +47,11 @@ export function settleHomeTerritory(state, pv, bell = state.bell) {
  * faction there. Retreating, destroyed, in-transit and civilian hosts never
  * claim land. Leaving a captured field does not surrender it.
  */
-export function resolveTerritory(state, pv, bell, { battleTiles = [], arrivedHostIds = [], withdrawnHostIds = [] } = {}) {
+// (`arrival: false` — the walletless demo's `landClaim` world, demo-claim-1: no field changes hands by arrival or battle;
+//  land is claimed, one tile at a time, by the real rule — web/frontier/sampleland.mjs. Villages still hold their tiles.
+//  `arrival: [tiles]` — only those tiles change hands by arrival or battle: the demo's flag castles, verify-pr316, which
+//  are taken by conquest as the real game's flag keeps are, never claimed)
+export function resolveTerritory(state, pv, bell, { battleTiles = [], arrivedHostIds = [], withdrawnHostIds = [], arrival = true } = {}) {
   if (!Number.isInteger(bell) || bell < 0) throw new Error('territory: invalid bell');
   if (bell <= state.bell) return territorySnapshot(state);
   if (bell !== state.bell + 1) throw new Error('territory: unresolved bell gap');
@@ -59,7 +63,8 @@ export function resolveTerritory(state, pv, bell, { battleTiles = [], arrivedHos
   }
   state.changes = [];
   settleHomeTerritory(state, pv, bell);
-  for (const [t, sides] of at) {
+  const by = arrival === true ? [...at] : Array.isArray(arrival) ? [...at].filter(([t]) => arrival.includes(t)) : [];
+  for (const [t, sides] of by) {
     // A surviving army that was pushed onto another tile did not order an
     // expansion there. It must make a successful march before claiming again.
     if (!pv.entries.some(e => standing(e, bell) && e.tile === t && !state.withdrawn.has(String(e.id)))) continue;

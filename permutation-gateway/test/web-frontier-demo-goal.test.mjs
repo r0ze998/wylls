@@ -14,7 +14,7 @@ import EN from '../../permutation-server/web/lang/en-frontier-play.mjs';
 import { createClock } from '../demo/src/save.mjs';
 
 const src = f => readFileSync(new URL(f, import.meta.url), 'utf8');
-const world = async ({ wall, goal = true, ...opts } = {}) => createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true,
+const world = async ({ wall, goal = true, ...opts } = {}) => createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true,
   turn: 12, delay: 3, landMs: 400, wall, goal, ...opts });
 const hand = () => { let real = 1_000_000; return { wall: () => real, move: ms => { real += ms; } }; };
 /** A world joined by the keyless viewer as `nation`, its clock at mid-turn. */
@@ -178,4 +178,18 @@ test('the demo clock\'s skip (a test\'s fast-forward): moves the clock the save 
   c.freeze(); c.skip(9_999); assert.equal(c.wall(), 12_500, 'held: no skip'); c.thaw();
   c.skip(-5); c.skip(NaN); assert.equal(c.wall(), 12_500);
   assert.match(src('../demo/src/boot.mjs'), /skip: ms => CLOCK\.skip\(ms\),/);
+});
+
+test('the page\'s world (`landClaim`, #306): the flag castles still change hands by conquest; no other tile changes by arrival (verify-pr316)', async () => {
+  // (merging #306 into this PR first turned arrival off everywhere, castles too: 0 castle changes, no win, no loss)
+  assert.match(src('../demo/src/boot.mjs'), /createLive\(\{[^}]*landClaim: true[^}]*goal: true/, 'the page makes the claim world with the goal');
+  const { live, turns } = await joined(2);
+  const castles = new Set(live.goal().castles.map(k => `${k.p},${k.q},${k.tile}`));
+  let res = null, n = 0;
+  while (!res && n++ < 200) { turns(1); res = live.goal().result; }
+  assert.ok(res, 'an idle player still loses');
+  const moved = live.summary().territory.flatMap(t => t.history.filter(c => c.reason === 'arrival' || c.reason === 'battle').map(c => `${t.p},${t.q},${c.tile}`));
+  assert.ok(moved.length >= 3, `castles changed hands (${moved.length})`);
+  assert.deepEqual(moved.filter(k => !castles.has(k)), [], 'only castle tiles change by arrival or battle');
+  assert.ok(live.goal().castles.some(k => k.holder !== k.nation), 'a castle is held by another nation');
 });

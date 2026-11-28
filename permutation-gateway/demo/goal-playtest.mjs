@@ -21,7 +21,7 @@ const NAMES = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'];
 
 export async function game({ nation, strategy, turns, set = over }) {
   let real = 1_000_000;
-  const live = createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true,
+  const live = createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true,
     turn: TURN_SECS, delay: 3, landMs: 400, wall: () => real, goal: Object.keys(set).length ? set : true });
   live.seen();
   const step = ms => { real += ms; live.clock(); };

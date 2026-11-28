@@ -42,11 +42,18 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
 
 ## The world
 
-- `createLive({opening, territory, nations})`: the guest picks one of six nations and gets a first village at
-  once; every nation has an AI village (`nations`), and they march into the guest's province and take land.
-- Land is the sample world's arrival-control rule (`screens/territory.mjs`: a host that arrives alone on an open
-  tile takes it for its nation), with the real V1 food upkeep (`landUpkeep`): the land logistics horizon card shows.
-  It is not the live game's "take 1 tile" claim (Q-WD-4).
+- `createLive({opening, territory, nations, landUpkeep, landClaim})`: the guest picks one of six nations and gets a
+  first village at once; every nation has an AI village (`nations`) that marches into the guest's province.
+- Land is the live game's single-tile claim (`landClaim`, demo-claim-1, Q-WD-4): no tile is taken on arrival. The
+  village card's "Your land / あなたの土地" card (`web/frontier/screens/sampleclaim.mjs`, built from the real card's
+  parts) lists the provinces in reach; "Claim a tile" shows the cost (ore, and the tile's food upkeep), the
+  preview's own "Claim a tile" claims at once. The judge is the kernel's (`web/frontier/sampleland.mjs`:
+  frontier-abi `judge_claim` + permutation-rules `may_claim` through `territory-rules.mjs`, numbers TERRITORY_V1:
+  10 ore + 2 % per tile owned, reach 3 from the home / an own tile / the nation's land, one a turn, none while
+  upkeep is unpaid). The real V1 food upkeep (`landUpkeep`) is paid from the first village, and the land
+  logistics horizon on the card follows every claim. The other nations' villages claim too, by the same judge.
+  Simpler than the program: every province of the demo map (rings 0–2) is territory land (the program's is ring
+  129 and out), the camp's tile stands for the keep's, nothing is signed, and tiles do not change hands in battle.
 - A turn lasts 12 s (`--turn`), the first turn begins 3 s after load (`--delay`). A reload continues the saved
   world (see Save / resume below); without a save, or with an old or damaged one, it is a new world (same seed) and the
   demo clears its own `ps-*` storage at load, keeping only the language.
