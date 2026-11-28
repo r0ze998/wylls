@@ -450,6 +450,7 @@ jobs:
         run: |
           cargo clippy --locked -p permutation-rules --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-rules --features std,territory-preview --all-targets -- -D warnings
+          cargo clippy --locked -p permutation-rules --features declarative-effects --all-targets -- -D warnings
           cargo clippy --locked -p frontier-abi --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features capacity-preview --all-targets -- -D warnings
           cargo clippy --locked -p permutation-frontier --features custody-preview --all-targets -- -D warnings
@@ -461,6 +462,9 @@ jobs:
           cargo test --locked -p permutation-rules --features capacity-preview
           # territory preview (owner Q-2): the kernel and its committed vectors (the page/AI copy checks the same file)
           cargo test --locked -p permutation-rules --features territory-preview territory
+          # ⑪(b) declarative effects, first local slice (Lock/Release + replay); its parity with the ext-kernel
+          # prototype runs in workstreams/11-extensions/ext-kernel (tests/kernel_slice.rs)
+          cargo test --locked -p permutation-rules --features declarative-effects effects
           # (test-gaps-2: includes capacity::custody_address_vectors_tests — the ⑨ pool/job, ⑩ lot and ② grant addresses
           #  with their generation, and the two lanes, written to frontier-abi/vectors/custody-addresses.txt and checked
           #  current; the page's builders replay the file in web-frontier-custody-test-gaps / -rights-test-gaps)
@@ -855,6 +859,8 @@ jobs:
             echo "== $d"
             (cd "$d" && cargo fmt -- --check && cargo clippy --locked --all-targets -- -D warnings)
           done
+          echo "== workstreams/11-extensions/ext-kernel: ⑪(b) kernel slice parity (permutation-rules declarative-effects)"
+          (cd workstreams/11-extensions/ext-kernel && cargo test --locked --test kernel_slice --test kernel_slice_random)
           echo "== workstreams/10-custody/adapter-09/with-bridge10 (format only)"
           (cd workstreams/10-custody/adapter-09/with-bridge10 && cargo fmt -- --check)
 
@@ -928,6 +934,10 @@ jobs:
           for entry in '' frontier/index.html; do for lang in en ja; do for view in '' --mobile; do
             node smoke.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --path "$entry" --lang "$lang" $view --pre-join
           done; done; done
+          # the travelers (demo-npc-merchants): markers, the panel, Talk and its saved section, no trade before joining;
+          # --pre-join: the start button is never pressed, only the load-time Ed25519 test signs (counted as smoke.mjs does)
+          node smoke-travelers.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --lang en --pre-join
+          node smoke-travelers.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --lang ja --mobile --pre-join
 
   key-tests:
     name: Key-using tests (manual, owner-approved only)
@@ -1025,3 +1035,6 @@ jobs:
           for entry in '' frontier/index.html; do for lang in en ja; do for view in '' --mobile; do
             node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path "$entry" --lang "$lang" $view --act
           done; done; done
+          # the travelers played through (demo-npc-merchants): join, trade with a visiting traveler to its limit, reload
+          node smoke-travelers.mjs --lang en
+          node smoke-travelers.mjs --lang ja --mobile

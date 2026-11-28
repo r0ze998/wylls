@@ -141,6 +141,30 @@ http://127.0.0.1:41850/wylls/ (`serve.mjs` answers a missing path with `dist/404
 - `node smoke-save.mjs [--lang en|ja] [--only save,long,bad,reset,crypto] [--port N]`: the Playwright check of all of
   this (manual key-tests job, like `smoke.mjs`).
 
+## Travelers (demo-npc-merchants; owner r0ze 2026-11-28 16:21, NPCs part 2)
+
+Three travelers walk the map (`screens/travelers.mjs`, the world option `travelers`; the page side is
+`src/travelhud.mjs`, bundled into the page): Tamsin (the outer ring), Odo (the inner ring), Lio (the AI villages).
+
+- **Walk**: a fixed loop of stops, by the shortest path over passable tiles of rings 0–2, 3 tiles a turn, 2 turns of
+  rest at each stop. Where a traveler stands is a function of the turn (no state, no randomness), so a reload puts it
+  back. A traveler is in no province's roster: it never blocks or meets a march, and it cannot be attacked (v1).
+- **Visit**: a traveler within 1 province of the player's village is visiting; one unbroken run of such turns is one
+  visit, with its own rates and limit.
+- **Trade**: food ↔ ore in lots of 10 ore, at most 3 lots a visit (bought + sold). A lot costs 30 food to buy and brings
+  18 to sell, moved together by ±4 a visit (seeded by the traveler and the visit's first turn; Odo leans cheaper and Lio dearer, by
+  one step). Buying is always dearer than selling. The page sends POST `/gw/f/sample/trade`
+  `{traveler, side, lots}` to the in-page world: a world input, saved and replayed like every order.
+- **Talk**: three short lines a traveler (EN + JA) about the demo's own rules. Which line comes next is kept in the
+  save's own section `sections.travelers = {v: 1, talk}` (`src/save.mjs`: optional, versioned sections a reader
+  ignores when it does not know them; nothing in them is replayed).
+- The page: a marker on each traveler (a ring when it is visiting), a "Travelers" button (bottom left) listing all of
+  them, and a panel (Talk / Trade). GET `/h/demo/travelers` answers the record the panel reads.
+- `node travelers-playtest.mjs [--grid]`: the headless playtest the numbers came from (every ring-2 home, 100 turns ≈ a
+  20-minute game). `node smoke-travelers.mjs [--lang ja] [--mobile] [--pre-join]`: the Playwright check at the real
+  Pages host name (pre-join: talk only, nothing signed but the load-time preflight; otherwise join, trade to the limit,
+  reload).
+
 ## Build options
 
 `node build.mjs [--out dist] [--live-url https://…] [--base /wylls/] [--turn 12] [--delay 3] [--land-ms 400]`
