@@ -164,3 +164,21 @@ test('a read shows a home not yet resolved as the record will grant it, without 
   assert.equal(t.owners[me.tile], me.nation);
   assert.equal(resolveTerritory(t, pv, b0 + 1).since[me.tile], b0);
 });
+
+test('verify-pr324: the village\'s own tile cannot be claimed before the resolve that records it (Owned, as before the fix), read or not', async () => {
+  for (const look of [false, true]) {
+    let real = 1_000_000;
+    const live = createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, ...PAGE, wall: () => real });
+    real += 900; live.seen(); real += 3_100;
+    if (look) live.summary();
+    assert.equal(live.testPlay.join(1).ok, true);
+    real += 200;
+    if (look) live.summary();
+    const me = live.summary().me, k = `${me.village[0]},${me.village[1]}`, before = live.testPlay.land()[k];
+    assert.notEqual(before.owners[me.tile], me.nation, 'the record does not hold the village yet (the window this test is about)');
+    const a = await live.relay('POST', '/gw/f/sample/territory', { p: me.village[0], q: me.village[1], tile: me.tile }), r = a?.body ?? a;
+    assert.equal(r.ok, false, json(r));
+    assert.equal(r.refused, 'Owned', json(r));
+    assert.equal(json(live.testPlay.land()[k]), json(before), 'the refused claim wrote nothing');
+  }
+});

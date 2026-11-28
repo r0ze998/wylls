@@ -302,7 +302,9 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     if (LAND.paidTo !== null) settleLandUpkeep(b, t);
     const ore = ME.stores[R.RES.Ore];
     R.settleAccrual(ore, Math.floor(t));
-    const o = Number.isInteger(tile) && tile >= 0 && tile < 61 ? fs.owners[tile] : 255;
+    // (verify-pr324: the owner as a read shows it — a village placed since the last resolve holds its tile already, as
+    //  before fix-tg11-since, so its tile is 'Owned', not free; it depends on the province only, not on the reads)
+    const o = Number.isInteger(tile) && tile >= 0 && tile < 61 ? territoryOf(pv).owners[tile] : 255;
     const owner = LAND.tiles.has(k) ? 'claimer' : o === 255 ? 'nobody' : 'other';
     const r = judgeTileClaim({ tile, keepTile: keepTileOf(pv), owner, nearest, owned: LAND.tiles.size, claimsThisTurn: LAND.lastClaimBell === b ? LAND.claimsInBell : 0,
       upkeepUnpaid: LAND.unpaidSince !== null, balance: Math.max(0, Math.floor(ore.value / 1000)) });
