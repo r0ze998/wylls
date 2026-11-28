@@ -50,6 +50,37 @@ const rebased = new Set();
 for (const f of bundled) for (const m of (await readFile(join(D, 'frontier', f), 'utf8')).matchAll(/new URL\("([\w./-]+\.mjs)",import\.meta\.url\)/g)) rebased.add(m[1]);
 const missing = []; for (const r of rebased) { try { await stat(join(D, 'frontier', r)); } catch { missing.push(r); } }
 check(rebased.size >= 10 && rebased.has('map/sprites.mjs') && missing.length === 0, `the page bundle rebases import.meta.url to its modules (${rebased.size} modules${missing.length ? `; missing: ${missing.join(' ')}` : ''})`);
+// (test-gaps-9, #307 fix-demo-wallet-p0) the page bundle's config says `dev` on ANY host, the GitHub Pages host
+// included: the guest's Dev Wallet is offered only when cfg.dev, and the real config.mjs says dev on loopback hosts only
+// (every earlier check ran on 127.0.0.1, where both agree). The bundled config() is found by its signature, run here with
+// the real loopback rule for its helper, and asked at the Pages address and elsewhere. No browser, no key.
+{
+  const LOOPBACK = h => h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h.endsWith('.localhost');
+  const found = [];
+  for (const f of bundled) {
+    const s = await readFile(join(D, 'frontier', f), 'utf8');
+    for (const m of s.matchAll(/function ([\w$]+)\(([\w$]+)=globalThis\.location,([\w$]+)=globalThis\.document\)\{/g)) {
+      let depth = 0, i = m.index + m[0].length - 1;
+      for (; i < s.length; i++) { if (s[i] === '{') depth++; else if (s[i] === '}' && --depth === 0) break; }
+      const text = s.slice(m.index, i + 1);
+      if (text.includes('/gw`') && text.includes('devWallet')) found.push({ f, name: m[1], text });
+    }
+  }
+  let ok = found.length === 1, why = `${found.length} bundled config() found`;
+  if (ok) {
+    const { name, text } = found[0];
+    const helper = text.match(/&&([\w$]+)\([\w$]+\.hostname\)/)?.[1];
+    try {
+      const config = new Function(helper ?? '_unused', `${text}\nreturn ${name};`)(LOOPBACK);
+      const at = href => { const u = new URL(href); return config({ origin: u.origin, hostname: u.hostname, href }, null); };
+      const pages = at('https://r0ze998.github.io/wylls/frontier/index.html'), other = at('https://example.org/x/'), loop = at('http://127.0.0.1:8080/');
+      const off = at('https://r0ze998.github.io/wylls/?devWallet=off'), remote = at('https://r0ze998.github.io/wylls/?herald=https://evil.example');
+      ok = !!helper && pages.dev === true && other.dev === true && loop.dev === true && off.devWallet === false && remote.herald === 'https://r0ze998.github.io' && pages.relay === 'https://r0ze998.github.io/gw';
+      why = `in ${found[0].f}: dev at r0ze998.github.io ${pages.dev}, elsewhere ${other.dev}, loopback ${loop.dev}; ?devWallet=off ${off.devWallet}; remote ?herald= kept ${remote.herald}`;
+    } catch (e) { ok = false; why = `the bundled config() did not run: ${e.message}`; }
+  }
+  check(ok, `the page bundle offers the Dev Wallet on any host (#307): ${why}`);
+}
 const world = await readFile(join(D, 'frontier', 'demo-world.js'), 'utf8');
 const worldBytes = (await stat(join(D, 'frontier', 'demo-world.js'))).size;
 // (demo-polish-2: the save's world version is filled in by build.mjs — a save is replayed only by the build that wrote it)
