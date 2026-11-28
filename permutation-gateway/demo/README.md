@@ -73,6 +73,39 @@ It works from any static host and any path prefix (`/`, `/play/`, `/wylls/`). It
   its origin's `localStorage` (keeping only `ps-lang`) whenever it starts a fresh world (no save, an old one, or
   Start over), so on a shared origin it would wipe the real page's saved wallet choice and in-game key.
 
+## Bandit camps (demo-npc-camps)
+
+`createLive({camps: true})` (boot.mjs turns it on; off for every other caller): bandit camps ("Barbarian camp" /
+「蛮族の野営地」, the page's own word) that a player marches on and beats for loot. The rule's numbers are
+`DEMO_CAMPS` in `permutation-server/web/frontier/democamps.mjs` (pure; the world and the page read the same file).
+
+- **They are the program's camps**: the Province's one Camp record, a neutral garrison in the clash the page's
+  `frontier.wasm` resolves, cleared when an arrival beats it (`camp_mask`; the program's 10 Works go to the winner as
+  before). Nothing of the march or the clash is new. The program's day check (camp.rs `place`: chance ½ a game day,
+  100–400 troops, ring 2 only) is switched off by `NEXT_CHECK_DAY` = 0xffffffff (the kernel then skips it too).
+- **Placement**: one camp in every ring-1 and ring-2 province (18), on the passable tile farthest from every village
+  site (taken or free; ≥ 3 tiles on this map), in ring 1 at least 3 tiles from the centre (the flag castle's place);
+  ties by a fixed hash. Deterministic: the same map every time.
+- **Defenders**: 300 + 200 per province between the camp and the player's first village (300 / 500 / 700 / 900 /
+  1,100), set at the first resolve after the village is placed (700 before it).
+- **Loot** (the demo's; the program pays only Works): food 0.3, ore 0.1, gold 0.05 per defender the camp had when the
+  clash that cleared it began, into the winner's first village (a full store takes less). A camp of 300 pays 90 food,
+  30 ore, 15 gold — enough to train about 150 Spearmen. The battle report shows it (`demoCamp` on the clash record).
+- **Comeback**: 20 turns after it is cleared, on the same tile, once no host stands there and no arrival is bound for
+  it, 20 % stronger each time (cap 1,500). A host left on the tile keeps it away.
+- **On the page**: a tent marker with the defenders over every standing camp, also under the fog (`src/camphud.mjs`;
+  the page draws a camp only in sight); the tile card says the camp and "Loot if beaten: …"; the guide's march step says
+  what the tents are. The AI nations never march on a camp (Q-NPC-1), and camps never leave their tile (Q-NPC-2).
+- **Save**: nothing new is saved. The save is the world's inputs, replayed (below); the camps are part of the
+  deterministic world, so a reload makes them again — cleared, comeback turn, loot and all (`smoke.mjs --camps --reload`).
+- `node camps-playtest.mjs [--nation all] [--turns 75] [--strategy hunter,reckless,none] [--ratio 0.9] [--chunk 500]
+  [--set baseTroops=…,perProvince=…,lootMilli=f:o:g,regrowBells=…]`: headless games in Node (the numbers'
+  playtests: reports/demo-npc-camps.md).
+- `node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html --camps --reload
+  [--lang ja]`: the browser play-through (train, form a host, march on the nearest camp, the report's loot, reload);
+  it signs with the page's test Dev Wallet like `--loop` (manual key-tests job). `--pre-join` checks the camps are on
+  the map and signs nothing.
+
 ## GitHub Pages (https://r0ze998.github.io/wylls/)
 
 `.github/workflows/pages-demo.yml` builds `dist/` with `--base /<repo>/` and deploys it with `actions/deploy-pages`
