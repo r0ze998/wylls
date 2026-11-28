@@ -298,7 +298,8 @@ export function keepsModel(FS, r) {
       // (a row of the viewer's own contested keep: going there defends it; the odds against its own garrison mean nothing)
       ...(x.defend ? { defend: true } : {}),
       // (fix-lp29-fog-fort: the capture demo's prepared fort — marked; under the fog (`fog: 'demo'`) its count is not known)
-      ...(k.demoFort ? { demoFort: true, ...(k.fog === 'demo' ? { fogged: true } : {}) } : {}),
+      //  (verify-pr311: not on a DEFEND row — the defender's own keep is no march target; the defend pair stays as it was)
+      ...(k.demoFort && !x.defend ? { demoFort: true, ...(k.fog === 'demo' ? { fogged: true } : {}) } : {}),
       odds: !x.defend && troops !== null ? arrivalOdds(FS, r, { p: x.p, q: x.q, tile: x.tile, troops, arrive: arrivalTurn(FS, x.route.secs) }) : null };
   });
   return { state: 'ready', wait, rows, unreachable: hr.unreachable.length };
@@ -329,8 +330,8 @@ export function renderKeepsPop(FS, model, { head }) {
   const row = x => html`<li><button type="button" class="kh-row kh-n${x.holder}${x.defend ? ' kh-row-defend' : ''}${off ? ' off' : ''}" data-act="cq-march" data-host="${r.id}" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile}" data-keep-row="${x.key}" ${raw(off ? 'aria-disabled="true"' : '')}
       aria-label="${rowLabel(x)}">
     <span class="kh-row-band" aria-hidden="true"></span>
-    <span class="kh-row-where">${crest(x.holder, 26)}<span class="kh-row-names"><strong class="kh-row-name">${x.name}${x.demoFort ? html` <span class="kh-row-demo">${L`デモの目標`}</span>` : ''}</strong><span class="kh-row-holder">${x.defend ? L`あなたの国が保持` : L`${factionName(x.holder)}が保持`} · <span class="kh-coords">${x.coords}</span></span></span></span>
-    <span class="kh-fig kh-fig-def">${icon('shield')}<span class="kh-fig-v num">${x.troops === null ? '—' : fmtNum(x.troops)}</span><span class="kh-fig-k">${x.fogged ? L`守備兵（霧の中）` : L`守備兵`}</span></span>
+    <span class="kh-row-where">${crest(x.holder, 26)}<span class="kh-row-names"><strong class="kh-row-name">${x.demoFort ? html`<span class="kh-row-demo">${L`デモの目標`}</span> ` : ''}${x.name}</strong><span class="kh-row-holder">${x.defend ? L`あなたの国が保持` : L`${factionName(x.holder)}が保持`} · <span class="kh-coords">${x.coords}</span></span></span></span>
+    <span class="kh-fig kh-fig-def${x.fogged ? ' kh-fig-fog' : ''}">${icon('shield')}<span class="kh-fig-v num">${x.troops === null ? '—' : fmtNum(x.troops)}</span><span class="kh-fig-k">${x.fogged ? L`守備兵（霧の中）` : L`守備兵`}</span></span>
     ${x.defend ? html`<span class="kh-fig kh-fig-odds kh-odds-defend">${icon('shield')}<span class="kh-fig-v">${L`守りに向かう`}</span><span class="kh-fig-k">${L`マスに残れば占拠を止めます`}</span></span>`
       : html`<span class="kh-fig kh-fig-odds kh-odds-${x.odds?.odds ?? 'none'}">${icon('swords')}<span class="kh-fig-v">${odds(x)?.word ?? '—'}</span><span class="kh-fig-k">${odds(x)?.line ?? L`勝ち目`}</span></span>`}
     <span class="kh-fig kh-fig-arr">${icon('bell')}<span class="kh-fig-v num">${x.arrive === null ? '—' : off ? L`+${fmtNum(Math.max(1, x.arrive - (FS.nowBell ?? 0)))} ターン` : L`ターン ${fmtNum(x.arrive)}`}</span><span class="kh-fig-k">${L`到着（${fmtNum(x.hexes)} マス）`}</span></span>

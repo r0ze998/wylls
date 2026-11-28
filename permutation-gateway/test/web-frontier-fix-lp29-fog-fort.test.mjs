@@ -124,6 +124,11 @@ test('the keep list: the fogged prepared fort is a row marked "Demo target", def
   setLang('ja');
   const ja = String(KH.renderKeepsPop(s, model, { head }));
   assert.match(ja, /<span class="kh-row-demo">デモの目標<\/span>/);
+  // (verify-pr311: the tag comes BEFORE the name — after it, the name's ellipsis cut it away at 1280 px — and the fogged
+  //  defenders label may wrap: `kh-fig-fog`, conquest-hand.css)
+  assert.match(ja, /<strong class="kh-row-name"><span class="kh-row-demo">デモの目標<\/span> /);
+  assert.match(ja, /class="kh-fig kh-fig-def kh-fig-fog"/);
+  assert.match(readFileSync(new URL('../../permutation-server/web/frontier/conquest-hand.css', import.meta.url), 'utf8'), /\.kh-fig-fog \.kh-fig-k \{ white-space: normal; \}/);
   assert.match(ja, /aria-label="デモの目標、[^"]*の砦へ進軍：エンバーが保持、霧の中なので守備兵は見えません、到着はターン /);
   assert.match(ja, /守備兵（霧の中）/);
   assert.doesNotMatch(plain(ja), /\b100\b/, 'the 100 defenders are not on the card');
@@ -142,6 +147,19 @@ test('the keep list: the fogged prepared fort is a row marked "Demo target", def
   assert.equal(r2.troops, 100); assert.equal(r2.demoFort, true); assert.equal(r2.fogged, undefined); assert.ok(r2.odds);
   setLang('ja');
   assert.match(String(KH.renderKeepsPop(s2, { host: hostRow(s2), name: '軍勢' }, { head })), /aria-label="デモの目標、[^"]*の砦へ進軍：エンバーが保持、守備兵 100、/);
+});
+
+test('the keep list of the DEFENDER (a defend pair): its own contested keep — the prepared fort — is a defend row as before, with no "Demo target" mark (verify-pr311)', () => {
+  DF.setDemoFort(READY); fogOn({ seeFort: true });
+  const contested = () => new Map([[`${FORT.p},${FORT.q}`, { ...FORT, holder: 0, contender: 4, progress: 2 }]]);
+  const base = world({ conquest: { status: 'ready', keeps: contested(), events: [] } });
+  const s = { ...base, conquest: { ...base.conquest, keeps: F.guideKeeps(contested()), hostReach: { host: String(HID), ok: true, rows: [{ ...reachRow({ ...FORT, holder: 0 }), defend: true }], unreachable: [] } } };
+  assert.equal(F.guideKeeps(contested()).get(`${FORT.p},${FORT.q}`)?.demoFort, true, 'the fort itself is the demo\'s');
+  const km = KH.keepsModel(s, hostRow(s));
+  assert.equal(km.rows.length, 1); assert.equal(km.rows[0].defend, true);
+  assert.equal(km.rows[0].demoFort, undefined, 'no demo mark on a defend row'); assert.equal(km.rows[0].fogged, undefined);
+  for (const lang of ['ja', 'en']) { setLang(lang); assert.doesNotMatch(String(KH.renderKeepsPop(s, { host: hostRow(s), name: 'x' }, { head: t => t })), /kh-row-demo|デモの目標|Demo target/); }
+  setLang('ja');
 });
 
 test('the keep list in a world that is NOT a demo: the fogged keeps stay out, as before (no row, no mark)', () => {

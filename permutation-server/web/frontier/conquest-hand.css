@@ -42,8 +42,10 @@
 .kh-row-where { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .kh-row-names { display: grid; min-width: 0; }
 .kh-row-name { font: 700 15px/1.25 var(--display); letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* (fix-lp29-fog-fort) the capture demo's prepared fort: a small tag after the province name */
-.kh-row-demo { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--hud-ink-2, #555); color: #fff; font-size: var(--t1); font-weight: 600; vertical-align: 1px; }
+/* (fix-lp29-fog-fort) the capture demo's prepared fort: a small tag BEFORE the province name (verify-pr311: after it, the
+   name's ellipsis cut the tag away at 1280 px, EN and JA alike); its fogged defenders label may wrap, as the odds' does */
+.kh-row-demo { display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 8px; background: var(--hud-ink-2, #555); color: #fff; font-size: var(--t1); font-weight: 600; vertical-align: 1px; }
+.kh-fig-fog .kh-fig-k { white-space: normal; }
 .kh-row-holder { color: var(--hud-ink-2); font-size: var(--t1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kh-coords { opacity: .8; }
 .kh-fig { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; align-items: center; min-width: 0; }
