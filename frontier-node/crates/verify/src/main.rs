@@ -8,6 +8,7 @@
 //! frontier-verify pull --program ID --season N --rpc URL --data DIR [--rpc-min-gap-ms N (default 1000)]
 //!                      [--settle-tries N] [--skip-no-program-ix] [--ruleset HEX]
 //!                      (read-only: archive the new transactions, write DIR/finals.json; src/pull.rs)
+//! frontier-verify features   (one JSON line: this build's lane features and mutate-* if any; exit 0)
 //!
 //! options: --test-key | --quicknet-pk HEX   the pinned drand key (default: quicknet)
 //!          --ruleset HEX                    expected ruleset hash (default: this build's)
@@ -89,7 +90,32 @@ fn usage(msg: &str) -> ! {
     std::process::exit(verify_core::EXIT_UNVERIFIABLE);
 }
 
+/// `frontier-verify features`: what this build can judge, for a caller that must not use a misbuilt judge
+/// (verify-bin-rebuild: the watch refuses a binary without `playable-lane`, which 0x4804 needs). Answered before the
+/// mutated-build refusal, so a `mutate-*` build reports itself instead of exiting.
+fn features_json() -> String {
+    macro_rules! on {
+        ($($f:literal),*) => {{ let mut v: Vec<&str> = vec![]; $( if cfg!(feature = $f) { v.push($f); } )* v }};
+    }
+    let features = on!(
+        "playable-lane",
+        "wide-world-experimental",
+        "wide-economy-experimental"
+    );
+    serde_json::json!({
+        "bin": "frontier-verify",
+        "version": env!("CARGO_PKG_VERSION"),
+        "features": features,
+        "mutated": verify_core::mutated(),
+    })
+    .to_string()
+}
+
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("features") {
+        println!("{}", features_json());
+        return;
+    }
     // A `mutate-*` build has a check disabled (the checks of the checks):
     // it never passes for the verifier (wave-5 review of W5-D).
     if let Some(m) = verify_core::mutated() {

@@ -19,7 +19,7 @@
 // UNVERIFIABLE even with FAIL findings: the watch reads the findings); 2 bad arguments, another watch holds DIR's
 // lock, or a refused RPC.
 // --pull-bin defaults to --verify-bin (the pull subcommand needs a frontier-verify built from this branch or later;
-// the judge may be an older build, e.g. the devnet run dir's).
+// the judge must answer `features` with playable-lane, so it is a build with the probe or later — see the start check).
 // RPC: loopback always; https://api.devnet.solana.com only with --devnet; nothing else (checkRpc).
 // Owner questions Q-W3VW-1..4 are flags (defaults = the safe choice): --max-rps (default 1), --every MIN,
 // --keep-on-fail (default: the first FAIL stops the loop, exit 1; with it the loop goes on and exits 1 at --until),
@@ -27,11 +27,13 @@
 // --incremental [--chunk N] (default off; verify-local-source): the pull archives every N (default 100) new
 // transactions as it goes and takes each one's balances from the same getTransaction (≈ 1 getTransaction per new
 // transaction instead of 2; same devnet source, same judge input). Off = the pull exactly as before.
+// Start check (verify-bin-rebuild): `VERIFY_BIN features` must report `playable-lane` (and no mutate-*), else the watch
+// refuses to start (exit 2, nothing pulled): a judge without the lane FAILs every playable-lane season (74f60922).
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, openSync, closeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { DEFAULTS, QUICKNET_PK, checkRpc, classify, gapMsFor, logLine, nextDelayMin, summarizeReport } from './verify-watch-lib.mjs';
+import { DEFAULTS, QUICKNET_PK, checkRpc, checkVerifierFeatures, classify, gapMsFor, logLine, nextDelayMin, summarizeReport } from './verify-watch-lib.mjs';
 
 const KEEP_REPORTS = 48;
 
@@ -174,6 +176,8 @@ async function cycle(o) {
 
 async function main() {
   const o = parseArgs(process.argv.slice(2));
+  const feat = checkVerifierFeatures(await run(o.verifyBin, ['features']));
+  if (!feat.ok) { console.error(`verify-watch: refusing to start: --verify-bin ${o.verifyBin}: ${feat.why}`); process.exit(2); }
   mkdirSync(o.data, { recursive: true });
   lock(o.data);
   if (o.pinned) {
