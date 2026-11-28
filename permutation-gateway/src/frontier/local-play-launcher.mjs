@@ -206,23 +206,47 @@ export function pairTargetSummary(lines) {
   const pq = v => int(v, -1000, 1000);
   const pair = ready.pair, fort = Array.isArray(ready.new_ring_reachable) && ready.new_ring_reachable.length === 1 ? ready.new_ring_reachable[0] : null;
   const home = pair?.second_player_home;
+  // (fix-lp29-fog-fort, owner 2026-11-28 Q-FL28-1 → Q-LP29-1 (b): the runner's `second_player_role` (#299) — 'defend' (the
+  //  second player plays the fort's nation; a line without the field is read so, as before) or 'attack': both players
+  //  contest a fort of a THIRD nation, the second player's nation already chosen — the same as the first's, or another)
+  const role = pair?.second_player_role === undefined || pair?.second_player_role === 'defend' ? 'defend' : pair?.second_player_role === 'attack' ? 'attack' : null;
+  const sides = role === 'defend' ? ready.player_nation !== pair?.second_player_nation && fort?.keep_holder === pair?.second_player_nation
+    : role === 'attack' && int(fort?.keep_holder, 0, 5) && fort.keep_holder !== pair?.second_player_nation && fort.keep_holder !== ready.player_nation;
   const ok = pair && typeof pair === 'object' && fort && typeof fort === 'object' && home && typeof home === 'object'
-    && int(pair.second_player_nation, 0, 5) && int(ready.player_nation, 0, 5) && ready.player_nation !== pair.second_player_nation
+    && int(pair.second_player_nation, 0, 5) && int(ready.player_nation, 0, 5) && sides
     && pq(home.p) && pq(home.q) && int(home.site, 0, 255) && int(home.tile, 0, 60)
-    && pq(fort.p) && pq(fort.q) && int(fort.keep_tile, 0, 60) && fort.keep_holder === pair.second_player_nation
+    && pq(fort.p) && pq(fort.q) && int(fort.keep_tile, 0, 60)
     && int(pair.second_player_route_steps, 1, 32);
   if (!ok) return { state: 'invalid' };
   const check = all.filter(v => v.schema === PAIR_LINE && (v.pair_step === 'pair_ready' || v.pair_step === 'pair_not_ready')).at(-1);
-  const base = { nation: pair.second_player_nation, opponentNation: ready.player_nation, fort: { p: fort.p, q: fort.q, tile: fort.keep_tile } };
+  const base = { nation: pair.second_player_nation, opponentNation: ready.player_nation, fort: { p: fort.p, q: fort.q, tile: fort.keep_tile }, ...(role === 'attack' ? { role, holder: fort.keep_holder } : {}) };
   if (!check) return { state: 'predicted', ...base, home: { p: home.p, q: home.q, site: home.site, tile: home.tile } };
   if (check.pair_step === 'pair_not_ready') return { state: 'not_ready', ...base, home: { p: home.p, q: home.q, site: home.site, tile: home.tile } };
   // (ready: the runner's own re-check, every field, and it must be about the same fort and nation)
   const t = check.target, h = check.second_home;
-  const checked = t && typeof t === 'object' && h && typeof h === 'object' && t.p === fort.p && t.q === fort.q && t.keep_tile === fort.keep_tile && t.holder === pair.second_player_nation
+  const checked = t && typeof t === 'object' && h && typeof h === 'object' && t.p === fort.p && t.q === fort.q && t.keep_tile === fort.keep_tile && t.holder === fort.keep_holder
+    && (check.second_role === undefined || check.second_role === role)
     && pq(h.p) && pq(h.q) && int(h.site, 0, 255) && int(h.tile, 0, 60) && int(check.second_steps, 1, 32) && int(check.first_steps, 1, 32) && typeof check.as_predicted === 'boolean';
   if (!checked) return { state: 'invalid' };
   return { state: 'ready', ...base, home: { p: h.p, q: h.q, site: h.site, tile: h.tile } };
 }
+/**
+ * (fix-lp29-fog-fort, owner r0ze 2026-11-28 09:05, Q-LP29-1 (b)) TEST-ONLY capture demo: the fort the demo PREPARED — its
+ * province and keep tile and the nation that held it when chosen — from the demo's ready line (`new_ring_reachable`, exactly
+ * one), so the page's guide and keep list may name it under the fog (screens/demofort.mjs). Numbers only, every field
+ * checked; no defender count (the page shows that only once the tile is in sight). `{state: 'pending'}` before the ready
+ * line, `{state: 'ready', fort: {p, q, tile}, holder}`, anything else `{state: 'invalid'}` (fail closed).
+ */
+export function demoFortSummary(lines) {
+  const ready = (Array.isArray(lines) ? lines : []).filter(v => v && typeof v === 'object' && v.test_only === true && v.schema === DEMO_LINE && v.demo_step === 'ready').at(-1);
+  if (!ready) return { state: 'pending' };
+  const int = (v, lo, hi) => Number.isSafeInteger(v) && v >= lo && v <= hi;
+  const fort = Array.isArray(ready.new_ring_reachable) && ready.new_ring_reachable.length === 1 ? ready.new_ring_reachable[0] : null;
+  if (!fort || typeof fort !== 'object' || !int(fort.p, -1000, 1000) || !int(fort.q, -1000, 1000) || !int(fort.keep_tile, 0, 60) || !int(fort.keep_holder, 0, 5)
+    || !int(ready.player_nation, 0, 5) || fort.keep_holder === ready.player_nation) return { state: 'invalid' };
+  return { state: 'ready', fort: { p: fort.p, q: fort.q, tile: fort.keep_tile }, holder: fort.keep_holder };
+}
+export const DEMO_FORT_MODE = 'capture-demo-fort-v1';
 /** One call of this world's own runner's JSON-RPC (loopback, the port this launcher gave it): its result. */
 // (fix-loop7, D-verify-pr136-2: a world's runner guards its time control — frontier_pause / resume / setScale / hold /
 //  release — with a per-world token that only this launcher holds: given to the runner process alone, in its environment
@@ -789,6 +813,7 @@ export class WorldManager {
       record.goals = world.goals ?? null;
       record.pairHerald = opts.second ? (world.pair?.second === opts.second && typeof world.pair.herald === 'string' ? world.pair.herald : null) : null;
       record.pairView = opts.second && typeof world.pairView === 'function' ? world.pairView : null;
+      record.demoFort = typeof world.demoFort === 'function' ? world.demoFort : null;
       if (opts.second && record.pairHerald === null) { await world.stop(); throw fault('PairNotReady', 503); }
       record.externalHerald = new Map(Object.entries(world.external ?? {}));
       if ((opts.external ?? []).some(a => typeof record.externalHerald.get(a) !== 'string')) { await world.stop(); throw fault('ExternalResidentsNotReady', 503); }
@@ -840,6 +865,25 @@ export class WorldManager {
     const herald = role === 'second' ? record.pairHerald : record.herald;
     if (typeof herald !== 'string' || !record.expiry) throw fault('WorldNotFound', 404);
     return { pair: { mode: CONTEST_PAIR_MODE, role, target, world: { herald, expiry: record.expiry } } };
+  }
+  /**
+   * (fix-lp29-fog-fort, Q-LP29-1 (b)) TEST-ONLY capture demo: the fort the demo prepared (`demoFortSummary`), for the
+   * world's own address (or the second address of its pair) while it runs; `{demoFort: {mode, target, world}}`. A world
+   * that is not a capture demo, any other address, a world still starting or ending: refused. Nothing is changed by asking.
+   */
+  async demoFort(wallet) {
+    if (!validWallet(wallet)) throw fault('InvalidWallet');
+    if (!this.config.captureDemo) throw fault('NotADemo', 404);
+    const second = this.pairOf.has(wallet), first = second ? this.pairOf.get(wallet) : wallet;
+    const record = this.worlds.get(first);
+    if (!record || record.stopping || !record.herald) throw fault('WorldNotFound', 404);
+    if (!record.demoFort) throw fault('NotADemo', 404);
+    const target = await record.demoFort();
+    if (this.worlds.get(first) !== record || record.stopping) throw fault('WorldNotFound', 404);
+    if (!target || typeof target !== 'object') throw fault('DemoFortUnavailable', 503);
+    const herald = second ? record.pairHerald : record.herald;
+    if (typeof herald !== 'string' || !record.expiry) throw fault('WorldNotFound', 404);
+    return { demoFort: { mode: DEMO_FORT_MODE, target, world: { herald, expiry: record.expiry } } };
   }
   /**
    * End one world, named by its public address. Only a world of this manager, and only this one: the others go on.
@@ -1386,7 +1430,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const keeper = async () => { try { return keeperSummary([...(await keeperLines()).values()]); } catch { return null; } };
     // (TEST-ONLY contest pair: the fort and nations the two players meet over, read only when a player asks)
     const pairView = second !== null ? async () => { try { return pairTargetSummary(await runnerLines(dir)); } catch { return null; } } : null;
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(coop ? { coop } : {}), ...(goals ? { goals } : {}), ...(external ? { external: external.heralds } : {}), ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(c.coexist === true ? { lane: COEXIST_LANE_WORD } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}),
+    // (fix-lp29-fog-fort: the capture demo's prepared fort, read only when a page asks; once ready it never changes, so it
+    //  is kept and runner.out is not read again)
+    let fortSeen = null;
+    const demoFort = demo !== null ? async () => { if (fortSeen) return fortSeen; try { const v = demoFortSummary(await runnerLines(dir)); if (v.state === 'ready') fortSeen = v; return v; } catch { return null; } } : null;
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(coop ? { coop } : {}), ...(goals ? { goals } : {}), ...(external ? { external: external.heralds } : {}), ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(c.coexist === true ? { lane: COEXIST_LANE_WORD } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(demoFort ? { demoFort } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}),
       ...(wide ? { wideLand: { scale: c.wideScale ?? 1, targets: wideTargetsOf(meta) } } : {}),
       // (fix-loop16, owner 2026-11-25 12:04 Q-LP16-4 (a): the NATIONS that have an operator AI resident, for the nation
       //  picker's mark — nation numbers only: no wallet, no village, nothing that says which resident is an AI. With
@@ -1414,7 +1462,7 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
     try {
       if (!allowedHosts.has(req.headers.host) || !['127.0.0.1', '::ffff:127.0.0.1', '::1'].includes(req.socket.remoteAddress)) throw fault('HostDenied', 403);
       const url = new URL(req.url, `http://${req.headers.host}`);
-      if (url.pathname === '/local-play/start' || url.pathname === '/local-play/stop' || url.pathname === '/local-play/worlds' || url.pathname === '/local-play/keeper' || url.pathname === '/local-play/pair') {
+      if (url.pathname === '/local-play/start' || url.pathname === '/local-play/stop' || url.pathname === '/local-play/worlds' || url.pathname === '/local-play/keeper' || url.pathname === '/local-play/pair' || url.pathname === '/local-play/demo-fort') {
         if (req.method !== 'POST') throw fault('MethodNotAllowed', 405);
         if (req.headers.origin !== `http://${req.headers.host}` || req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw fault('OriginDenied', 403);
         const body = (await readBody(req, 256)).toString('utf8');
@@ -1432,6 +1480,7 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
         const wallet = parseStart(parsed);
         if (url.pathname === '/local-play/keeper') return answer(res, 200, await manager.keeper(wallet));
         if (url.pathname === '/local-play/pair') return answer(res, 200, await manager.pair(wallet));
+        if (url.pathname === '/local-play/demo-fort') return answer(res, 200, await manager.demoFort(wallet));
         return answer(res, 200, await manager.start(wallet));
       }
       // (TEST-ONLY `--world-goals`: the goals judge of one live world, read only — local-play-world-goals.mjs)

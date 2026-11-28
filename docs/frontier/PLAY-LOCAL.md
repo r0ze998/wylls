@@ -176,7 +176,7 @@ the **"While you wait"** panel (bottom left, above the to-do tab; step 7).
    there was found". A `--wide` rim village whose camps in sight are all out of reach gets "No camp in reach yet: no barbarian
    camp in sight is within this host's reach (one march goes at most 4 provinces and 32 tiles). Meanwhile, try a practice
    battle …" and "Fight a practice clash".
-   **The one fog exception** (fix-loop25, owner decision 2026-11-27, Q-PM2-1 (a); code: hud/firstbattle.mjs ownProvinceOf): the guide may name the barbarian camp of a
+   **The first fog exception** (fix-loop25, owner decision 2026-11-27, Q-PM2-1 (a); code: hud/firstbattle.mjs ownProvinceOf): the guide may name the barbarian camp of a
    province where **you have a village of your own** even when its tile is under the fog (a rim village sees only 4–6 tiles
    around itself, and its only camp in reach often stands further out in the same province). Only that province: a camp in a
    neighbouring province, or in a province where only a nation-mate has a village, stays unnamed while it is under the fog.
@@ -283,6 +283,16 @@ Good to know:
   "(nation) began contesting the keep of province P,Q / Your nation is defending". "Nation & territory" lists it under "Keeps of your nation that another nation is taking … Defend", also when no host of yours can reach that keep (it then adds "None of your hosts can reach it now."; #130). Only the middle province (0,0) is "Ring 0 (centre, no province)": never
   a destination or a road. A first village can only stand in ring 2 or further out.
 - **Because of the fog, the keep list shows only the other nations' keeps you can see** (§5). "No other nation's keep you have seen is within this host's reach now." is not a defect.
+- **The second fog exception: the capture demo's prepared keep** (`--demo`, `--demo --two` only; fix-lp29-fog-fort, owner
+  decision 2026-11-28, Q-LP29-1 (b); code: fdemofort.mjs, map/fog.mjs guideKeeps). Some minutes after your first village the
+  demo opens a ring and prepares one keep of another nation your march can reach. The page asks the launcher for it
+  (`/local-play/demo-fort`, every 15 s, at most 30 minutes, until the demo has chosen it). From then on the keep list
+  ("March on a keep") has that keep as a row tagged **"Demo target"**, with its name and distance, and the guide's march
+  step says "This demo's target is the keep of (place) (held by (nation), N tiles away). It is in the fog, so its defenders
+  are not shown." Its button "March on the demo keep" opens the march order on that keep: no blank tile to guess. Under
+  the fog the row's defenders read "—" ("defenders (in the fog)") and it gives no odds; once the keep is in sight its
+  defenders and odds show as for any keep. The map, the minimap and the keep panel stay fogged. Kept, plain and wide worlds,
+  devnet and the walletless Pages demo have no prepared keep and no such exception.
 - In a 1× kept world you can see sieges but hardly a capture (72 turns = 12 hours). Check captures with `--demo` or
   `--wide`.
 
@@ -302,6 +312,13 @@ scripts/play-local.sh --demo --two     # the 15-minute capture demo for two
 3. With both there, one world starts; each picks a nation and places a village.
 - `--resume` brings the same two back (`--two` is not needed). Open it in the same browser at the same address as before.
 - A kept world started for one person cannot become a two-person world later (start a new one with `--fresh --two`).
+- In `--demo --two` the demo's roles (#299): if the second player has not picked a nation yet, the demo suggests the
+  nation that holds the prepared keep, and "Check the nation and keep for the two-player contest" says the first player's
+  army heads for it and that you can defend it (role "defend"). If both had already picked (for example both Fjordal), both
+  attack the same keep (role "attack"), and the same button says "Two-player test: you and the other player (Fjordal) can
+  both reach the keep of Province p,q (held by Ember). You play Fjordal and can set out from your village in Province …"
+  (fix-lp29-fog-fort, owner 2026-11-28 Q-FL28-1 (b); before, it said "could not be checked … Press again"). Both pages
+  name the prepared keep in the guide and the keep list as above.
 - When either presses "End this world…" (a kept world: "Stop this world…") it stops for both. A third person cannot join. `--wide` is for one person.
 
 ## 4. Check the wide land (`--wide`, about 60–90 minutes)
