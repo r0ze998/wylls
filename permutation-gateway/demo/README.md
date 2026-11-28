@@ -3,6 +3,9 @@
 One URL, no wallet, no sign-up, no server, no chain: the real Wylls page plays a
 sample world that runs inside the browser.
 
+**How to play it** (the goal, the guide, camps, travelers, saving — for players): [docs/frontier/PLAY-DEMO.md](../../docs/frontier/PLAY-DEMO.md)
+(日本語: [PLAY-DEMO.ja.md](../../docs/frontier/PLAY-DEMO.ja.md)). This file is for building and hosting it.
+
 ```sh
 cd permutation-gateway/demo
 npm ci --ignore-scripts
@@ -187,8 +190,8 @@ compressed (`screens/demogoal.mjs`, liveworld option `goal`). Every number is `D
   only captured castles (never your own nation's), each from when it was taken, a capture resets that castle's timer.
   Need = half of the 6 castles (the real `needOf`) = half of the 5 rivals' rounded up.
 - **Lose**: an AI nation meets the same rule first (a same-turn tie is your win).
-- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave); from turn 120
-  (Q-DGP-1 (c): the AI only, so that every game ends) a wave every 5 turns, ×1.2 a wave (capped at 30,000), a wave host
+- **The AI**: 28 turns of grace after your village, then a wave every 10 turns (100 troops ×1.12 a wave); after the first wave at or after turn 120
+  (`lateWave`: the wave of turn 128; Q-DGP-1 (c): the AI only, so that every game ends) a wave every 5 turns (133, 138, …), ×1.2 a wave (capped at 30,000), a wave host
   left at home marches again with the next wave, and the other AI nations no longer take their castles back from the
   leader (the card says "The AI waves now come every 5 turns…"). The rival leader (two nations along from yours)
   marches every wave, +20 % troops, racing for castles (retake its own,

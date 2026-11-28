@@ -4,6 +4,7 @@ The playable version of Wylls (villages, marches, keep capture, the wide land) w
 2026-11-23. **Its world was created on 2026-11-26 and you can join it now** (the title page says “World no. 3”).
 Devnet is a test network: the SOL used here has no value and no real money is involved.
 Japanese: [PLAY-DEVNET.ja.md](PLAY-DEVNET.ja.md). To play on your own Mac only, see [PLAY-LOCAL.md](PLAY-LOCAL.md).
+The walletless demo in your browser (no wallet, no devnet, one player against the AI) is a different page: [PLAY-DEMO.md](PLAY-DEMO.md). Nothing in it is on the devnet page.
 
 | | |
 |---|---|
@@ -111,7 +112,11 @@ value; no in-game key is made).”
      upkeep). And while the land is already unpaid, a payment that pays it (the one now due or a later one) is still told as “This payment will
      leave the land unpaid.” on the devnet card. Also after that day, #293: when the village has under 10 ore and the
      next tile costs more, the devnet card still says “You have less than 10 ore, so "Claim a tile" cannot be pressed
-     for now.” (main names the next tile's price, [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 2).
+     for now.” (main names the next tile's price, [PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1 step 2). #298: when the land
+     is unpaid and food production now covers the upkeep, main's card and “While you wait” panel say which payment pays
+     it and that the production then supports the land; the devnet page does not ([PLAY-LOCAL.md](PLAY-LOCAL.md) §4.1
+     step 1). #303: when the program refuses a muster or march at once, main's toast names that muster or march and its
+     “Try again” sends it again; on the devnet page the toast can still repeat the words of your previous send.
    The devnet page gets those only with a later page or herald update, and none is decided yet.
 
 Good to know:
