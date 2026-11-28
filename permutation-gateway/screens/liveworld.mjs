@@ -85,6 +85,7 @@ import { buildClashArgs, resolveArgs, decodeClashOut, campId } from '../../permu
 import { settleUpkeep } from '../../permutation-server/web/frontier/landhorizon.mjs';
 import { TERRITORY_V1, territoryPlayerAddress, citizenTagOf, claimCostV1 } from '../../permutation-server/web/frontier/flocalplay-territory.mjs';
 import { judgeTileClaim, keepTileOf, nationVillageIn, provinceDistance, tileUpkeepV1 } from '../../permutation-server/web/frontier/sampleland.mjs';
+import * as TV from './travelers.mjs';
 
 const { GENESIS_TS, BELL, LATEST_UNIX, LATEST_SLOT, HOME, CAMP_TILE, HOSTS, PROGRAM, SEASON_ID } = W;
 const { ES, OP, TS, TF, QK, FATE, OUTCOME, NO_BELL, NO_TILE, MILLI } = R;
@@ -188,7 +189,7 @@ const REFUSED_TEXT = Object.freeze({
 /** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
 export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
 
-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false, landUpkeep = false, landClaim = false } = {}) {
+export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, nations = false, landUpkeep = false, landClaim = false, travelers = false } = {}) {
   // (`landClaim` plays on the land of `landUpkeep`)
   if (landClaim) landUpkeep = true;
   const K = kernel();
@@ -486,6 +487,42 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
         st.npc.push({ id, H, out: true, at: LIVE.TURN + (ni === 0 && hi === 1 ? -1 : 2 + 2 * ni + pick(3, 'npc', ni, hi)) });
       });
     });
+  }
+
+  // ------------------------------------------------------------------ the travelers (`travelers`, the walletless demo; travelers.mjs)
+  // (off by default: every other caller's world is what it was. A traveler is no host: it is in no roster, so it never
+  //  meets, blocks or is attacked by a march. Where it is is a function of the turn; the world keeps only the trades)
+  const TRAVEL = travelers ? createTravel() : null;
+  function createTravel() {
+    const list = TV.planTravelers({ passable: (p, q, t) => { const pv = provinces.get(key(p, q)); return !!pv && passable(pv, t); }, villages: [...holdings.values()].filter(H => H.npc).map(H => ({ p: H.p, q: H.q, tile: H.tile })) });
+    return { list, used: new Map(), log: [] };
+  }
+  const travelHome = () => (ME && ME.state === 2 ? { p: ME.p, q: ME.q } : null);
+  /** What the page's travelers read (GET /h/demo/travelers): every traveler where it is this turn, its visit, rates and lots left. */
+  function travelRecord() {
+    const t = now(), b = bellOf(t), home = travelHome();
+    return { v: 1, kind: 'demo-travelers', rules: { ...TV.TRAVELERS_V1 }, turn: b, into: Math.max(0, Math.min(1, (t - bs(b)) / 600)), turnSecs, home,
+      travelers: TRAVEL.list.map(x => { const v = home ? TV.visitAt(x.loop, x.offset, b, home) : null; return TV.travelerView(x, b, home, v === null ? 0 : TRAVEL.used.get(`${x.id}:${v}`) ?? 0, seed); }) };
+  }
+  /** A trade with a traveler (POST /gw/f/sample/trade `{traveler, side: 'buy'|'sell', lots}`): food ↔ ore at the visit's rates, within its limit. */
+  function travelTrade(body, t) {
+    const b = bellOf(t), x = TRAVEL.list.find(y => y.id === body?.traveler), home = travelHome();
+    const no = code => ({ ok: false, code, turn: b });
+    if (!home) return no(ME ? 'NotFinal' : 'NoVillage');
+    if (!x) return no('BadData');
+    const visit = TV.visitAt(x.loop, x.offset, b, home);
+    if (visit === null) return no('Away');
+    if (landUpkeep && LAND.paidTo !== null) settleLandUpkeep(b, t);
+    const food = ME.stores[R.RES.Food], ore = ME.stores[R.RES.Ore];
+    R.settleAccrual(food, Math.floor(t)); R.settleAccrual(ore, Math.floor(t));
+    const k = `${x.id}:${visit}`, used = TRAVEL.used.get(k) ?? 0, rates = TV.ratesOf(x, visit, seed);
+    const r = TV.judgeTrade({ side: body?.side, lots: body?.lots ?? 1, used, food: Math.floor(food.value / MILLI), ore: Math.floor(ore.value / MILLI), cap: Math.floor(Math.min(food.cap, ore.cap) / MILLI), rates });
+    if (!r.ok) return { ...r, turn: b, used, left: TV.TRAVELERS_V1.lotsPerVisit - used };
+    food.value += r.food * MILLI; ore.value += r.ore * MILLI;
+    TRAVEL.used.set(k, used + (body.lots ?? 1));
+    TRAVEL.log.push({ bell: b, traveler: x.id, visit, side: body.side, lots: body.lots ?? 1, food: r.food, ore: r.ore });
+    return { ok: true, traveler: x.id, side: body.side, food: r.food, ore: r.ore, rates, used: used + (body.lots ?? 1), left: TV.TRAVELERS_V1.lotsPerVisit - used - (body.lots ?? 1), turn: b,
+      stores: { food: Math.floor(food.value / MILLI), ore: Math.floor(ore.value / MILLI) } };
   }
 
   // ------------------------------------------------------------------ arrival slots, per-bell files
@@ -1211,6 +1248,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       if ((m = /^\/h\/bell\/(\d+)\/region\/(\d+)$/.exec(path))) return answer(bellRegion(Number(m[1]), Number(m[2])));
       if ((m = /^\/h\/me\/(\w+)$/.exec(path)) && m[1] === viewer.wallet) return answer(proto && ME ? { ...me(), proto: { land: proto.me() } } : me());
       if (landUpkeep && (m = /^\/h\/world\/wide\/territory\/player\/(\w+)$/.exec(path))) return answer(landSummary(m[1]));
+      if (TRAVEL && path === '/h/demo/travelers') return answer(travelRecord());
       if (proto && path === '/h/proto/standings') return answer(proto.standings());
       if (proto && path === '/h/proto/preview') return answer(proto.preview(url));
       if (path === '/h/events') {
@@ -1228,6 +1266,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
       if (method === 'GET' && path === '/gw/f/relay') return answer({ feePayer: await feePayerName(), blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1000, programId: PROGRAM, quota });
       if (method === 'GET' && path === '/gw/f/quota') return answer({ ...quota, lamportsLeft: '400000000' });
       if (proto && method === 'POST' && path === '/gw/f/proto/land') return answer(proto.route(body, Math.floor(now()), orders));
+      if (TRAVEL && method === 'POST' && path === '/gw/f/sample/trade') { const r = travelTrade(body, now()); orders.push({ name: 'TravelerTrade', ok: r.ok, code: r.code ?? null, turn: bellOf(now()) }); return answer(r); }
       if (landClaim && method === 'POST' && path === '/gw/f/sample/territory') { const r = claimTile(body, now()); orders.push({ name: 'TerritoryClaim', ok: r.ok, code: r.code ?? null, turn: bellOf(now()) }); return answer(r); }
       if (method === 'GET' && path.startsWith('/gw/f/tx/')) {
         const s = st.sent.get(decodeURIComponent(path.slice('/gw/f/tx/'.length)));
@@ -1245,6 +1284,9 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     settleExploreNow() { return settleExplore(ME, Math.floor(settle())); },
     settleTransitNow(slot) { return settleTransit(ME, slot, Math.floor(settle())); },
     /** For tests: a province's fields as the world holds them (a copy). */
+    /** The travelers (`travelers`): their record (GET /h/demo/travelers) and the trades taken; null when it is off. */
+    travelers: TRAVEL ? () => { settle(); return travelRecord(); } : null,
+    travelLog: TRAVEL ? () => TRAVEL.log : null,
     province: (p, q) => { settle(); const pv = provinces.get(key(p, q)); return pv ? structuredClone(pv) : null; },
     npcLog: st.npcLog,
     /** The prototype of the banner rule in this world (claimsworld.mjs), or null when it is off. */
