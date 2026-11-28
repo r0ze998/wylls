@@ -11,6 +11,7 @@ import * as G from '../screens/demogoal.mjs';
 import * as REAL from '../src/frontier/world-goals.mjs';
 import { ringOf, wedgeOf } from '../../permutation-server/web/frontier/fgeo.mjs';
 import EN from '../../permutation-server/web/lang/en-frontier-play.mjs';
+import { createClock } from '../demo/src/save.mjs';
 
 const src = f => readFileSync(new URL(f, import.meta.url), 'utf8');
 const world = async ({ wall, goal = true, ...opts } = {}) => createLive({ viewer: await W.viewer({ keyless: true }), keyless: true, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true,
@@ -166,4 +167,14 @@ test('the page: the guide points at the goal in a demo world only; the card and 
   for (const k of ['won', 'lost', 'again', 'time', 'rule', 'pick', 'march']) assert.ok(/\ben: \{/.test(text) && text.split(`${k}:`).length >= 3, `EN and JA for ${k}`);
   assert.match(src('../demo/src/boot.mjs'), /if \(b\.getAttribute\('data-demo-reset'\) === 'now' \|\| globalThis\.confirm\(/, 'Play again starts over without the question');
   assert.match(src('../demo/src/boot.mjs'), /goal: true, turn: DEMO\.turnSecs/, 'the demo world plays the goal');
+});
+
+test('the demo clock\'s skip (a test\'s fast-forward): moves the clock the save reads; never while a POST holds it', () => {
+  let real = 0;
+  const c = createClock(() => real);
+  real = 500; c.skip(12_000);
+  assert.equal(c.wall(), 12_500);
+  c.freeze(); c.skip(9_999); assert.equal(c.wall(), 12_500, 'held: no skip'); c.thaw();
+  c.skip(-5); c.skip(NaN); assert.equal(c.wall(), 12_500);
+  assert.match(src('../demo/src/boot.mjs'), /skip: ms => CLOCK\.skip\(ms\),/);
 });

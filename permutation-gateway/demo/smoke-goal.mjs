@@ -9,7 +9,8 @@
 //       card's "March here" on a rival castle, seal and send — until the result screen says Victory.
 // lose  join and do nothing: the AI nations' waves reach the goal first — until the result screen says Defeat.
 // --fast N  the waits run N times faster: while no march of the player's is out it steps the world's clock a turn at a
-//           time (__wyllsDemo.world().advance(), the sample world's own test step) instead of waiting 12 s. 1 = real time.
+//           time (__wyllsDemo.skip: the demo's clock, the one its save reads, so --reload replays it) instead of waiting 12 s.
+//           1 = real time.
 // --reload  once the player's nation holds a captured castle (win) or a rival does (lose), reload the page mid-hold:
 //           the castles, their holders and every hold timer must be what they were (the save, #308).
 // --url     play a LIVE deployment instead of dist/ (the independent verifier's run on GitHub Pages).
@@ -133,7 +134,7 @@ async function wait(turns = 1) {
     const out = await page.evaluate(async () => ((await globalThis.__wyllsDemo.world()).summary().me?.marches.length ?? 0) > 0);
     if (FAST <= 1 || out) { await sleep(12_000); continue; }
     await sleep(12_000 / FAST);
-    await page.evaluate(async () => { (await globalThis.__wyllsDemo.world()).advance(); });
+    await page.evaluate(() => globalThis.__wyllsDemo.skip(12_000));
   }
 }
 const castlesText = g => g.castles.map(c => `${c.nation}:${c.holder ?? '-'}@${c.since}`).join(' ');
@@ -162,7 +163,7 @@ await shot(page, '02-village');
 
 // ------------------------------------------------------------------ play
 const deadline = Date.now() + Number(opt.minutes) * 60_000;
-let reloaded = !opt.reload, result = null, built = 0, marches = 0;
+let reloaded = !opt.reload, result = null, built = 0, tries = 0, marches = 0;
 const dest = new Map();
 while (Date.now() < deadline) {
   const { s, g } = await W();
@@ -186,7 +187,8 @@ while (Date.now() < deadline) {
   }
   if (WIN && me) {
     // the economy and the army, through the village drawer: a farm and an ore mine first, then Spearmen
-    if (built < 2) { const item = built === 0 ? 0 : 3; if (await order(`build ${item === 0 ? 'a farm' : 'an ore mine'}`, 'Build', async () => { await tab('holding'); await unfold('v-build'); return press(`#hp-build [data-item="${item}"], [data-act="build"][data-item="${item}"], form#hp-build button[value="${item}"]`, { timeout: 4_000 }); })) built++; else built = 2; }
+    // (an ore mine first: ore pays for Spearmen; then a farm. A build the page will not take now is tried again next turn, 6 times at most)
+    if (built < 2 && tries++ < 6) { const item = built === 0 ? 3 : 0; if (await order(`build ${item === 0 ? 'a farm' : 'an ore mine'}`, 'Build', async () => { await tab('holding'); await unfold('v-build'); return press(`#hp-build [data-act="build"][data-item="${item}"]:not([disabled])`, { timeout: 3_000 }); })) built++; }
     const food = me.stores[0], ore = me.stores[3], gold = me.stores[5];
     const can = Math.floor(Math.min(food / 60, ore / 20, gold / 10)) * 100;
     if (can >= 200) await train(Math.min(can, 1000));

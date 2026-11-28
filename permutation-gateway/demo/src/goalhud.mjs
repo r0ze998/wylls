@@ -132,7 +132,7 @@ const CSS = `
 #demo-result .dr-acts{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
 #demo-result button{border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer;border:1px solid #1d2a26;background:#fff}
 #demo-result button.primary{background:#1f4d44;color:#fff;border-color:#1f4d44}
-@media (max-width:700px){#demo-goal{top:auto;bottom:150px;left:8px;width:calc(100vw - 16px);max-height:45vh}}
+@media (max-width:700px){#demo-goal{top:150px;left:8px;width:calc(100vw - 80px);max-height:52vh}#demo-goal.folded{width:auto;max-width:calc(100vw - 80px)}}
 `;
 
 function flagSvg(n) {
@@ -215,7 +215,8 @@ export function startGoalHud(doc = globalThis.document) {
     const m = cardModel(g), out = [];
     for (const c of m.castles) {
       const h = tileHex(c.p, c.q, c.tile), w = project(h.q, h.r), s = map.project(w.x, w.y);
-      if (!s || !Number.isFinite(s.x) || s.x < -40 || s.y < -40 || s.x > innerWidth + 40 || s.y > innerHeight + 40) continue;
+      // (not under the page's top bar, nor off screen)
+      if (!s || !Number.isFinite(s.x) || s.x < 0 || s.y < 132 || s.x > innerWidth || s.y > innerHeight) continue;
       const label = c.counting && !c.long ? `${c.held}/${m.hold}` : c.long ? '✓' : '';
       out.push(`<div class="demo-castle" data-castle="${c.nation}" style="left:${Math.round(s.x)}px;top:${Math.round(s.y)}px">${flagSvg(c.holder)}${label ? `<span>${esc(label)}</span>` : ''}</div>`);
     }

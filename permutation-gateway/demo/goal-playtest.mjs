@@ -4,7 +4,7 @@
 // key (the keyless viewer; the player's orders go through the world's own instructions: liveworld `order` and
 // `testPlay`). Prints one line per game and, with --log, the castles' changes and the waves.
 //
-//   node goal-playtest.mjs [--games 5] [--strategy active|idle|turtle|all] [--nation 0..5|all] [--turns 200] [--log]
+//   node goal-playtest.mjs [--games 5] [--strategy active|human|idle|turtle|all] [--nation 0..5|all] [--turns 200] [--log]
 //                          [--set key=value,...]   (DEMO_GOAL overrides, e.g. --set holdBells=12,waveEvery=6)
 import { parseArgs } from 'node:util';
 import * as W from '../screens/world.mjs';
@@ -31,7 +31,7 @@ export async function game({ nation, strategy, turns, set = over }) {
   const start = live.summary(), T0 = start.turn, t0 = real;
   const events = [];
   let lastHolders = null, orders = 0, refused = {};
-  const pst = { quota: 38, used: 0, day1: 144, built: new Set(), dest: new Map(), far: new Set() };
+  const pst = { quota: 38, used: 0, day1: 144, built: new Set(), dest: new Map(), far: new Set(), t0: T0 };
   const me = () => live.summary().me;
   const ord = (name, d, pv) => { const r = live.order(name, d, pv); if (r.ok) orders++; else refused[`${name}:${r.code}`] = (refused[`${name}:${r.code}`] ?? 0) + 1; return r; };
   for (let k = 0; k < turns; k++) {
@@ -62,6 +62,8 @@ function play(live, s, ord, strategy, st) {
   const quota = () => st.quota + (b >= st.day1 ? 40 : 0) - st.used;
   const go = (name, d, pv) => { if (quota() < 1) return { ok: false, code: 'Quota' }; const r = ord(name, d, pv); if (r.ok) st.used++; return r; };
   if (strategy === 'idle') return;
+  // 'human': a first-time player — starts 6 turns late (reading the page) and acts every third turn
+  if (strategy === 'human' && (b - st.t0 < 6 || (b - st.t0) % 3 !== 0)) return;
   for (const [i, item] of [0, 3, 0].entries()) if (!st.built.has(i) && go('Build', { item }, { p: m.village[0], q: m.village[1] }).ok) st.built.add(i);
   // train: the most Spearmen the stores pay for (a hundred at a time), when at least 200 are affordable
   for (const n of [1000, 800, 600, 400, 300, 200]) if (go('Train', { unit: 0, n }, null).ok) break;

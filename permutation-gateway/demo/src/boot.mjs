@@ -209,4 +209,5 @@ globalThis.fetch = async function demoFetch(input, init = {}) {
 
 // (tests and the curious: what the world answered, what was refused; the world itself for a summary)
 // (modules: the page bundle's own module instances, filled by src/page-app.mjs for tests; see there)
-globalThis.__wyllsDemo = Object.freeze({ log, world: () => ready().then(x => x.live), config: DEMO, modules: {}, save: () => ({ ...SAVER.state(), restore: RESTORE, key: SAVE_KEY, world: WORLD_ID }) });
+// (skip: tests fast-forward the world's clock — the save's own clock, so a reload replays it; nothing else calls it)
+globalThis.__wyllsDemo = Object.freeze({ log, world: () => ready().then(x => x.live), config: DEMO, modules: {}, skip: ms => CLOCK.skip(ms), save: () => ({ ...SAVER.state(), restore: RESTORE, key: SAVE_KEY, world: WORLD_ID }) });

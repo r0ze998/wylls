@@ -32,7 +32,7 @@ export const DEMO_GOAL = Object.freeze({
   /** The troops of a castle's starting guard (a host of the nation's AI village standing on it). */
   guardTroops: 110,
   /** Turns after the player's first village before the AI nations start their waves. */
-  graceBells: 20,
+  graceBells: 24,
   /** Turns between two waves. */
   waveEvery: 10,
   /** A wave host's troops: base × (1 + growth)^wave, capped. */
@@ -42,7 +42,7 @@ export const DEMO_GOAL = Object.freeze({
   /** AI nations that march in a wave besides the leader (they take turns). */
   waveActing: 1,
   /** The leader (the rival nation to beat: it marches every wave) gets this much more troops. */
-  leaderBonusBps: 3_000,
+  leaderBonusBps: 2_000,
 });
 
 /** The rival leader for a player of nation `player`: two nations along (a neighbour's neighbour), never the player's own. */
