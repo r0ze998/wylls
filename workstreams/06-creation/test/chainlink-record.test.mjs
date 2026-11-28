@@ -19,6 +19,8 @@ import { contentHash } from "../src/canonical.mjs";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
+// versionSeed("aa"×32, "river-supply", "1.2.3"), computed independently with Python hashlib (verify-pr329).
+const KNOWN_VERSION_SEED = "cv12f157e3a1f50c52735281c57d8ccb";
 const H1 = "1".repeat(64);
 const H2 = "2".repeat(64);
 
@@ -89,6 +91,26 @@ test("seeds fit a with-seed address (≤ 32 chars) and separate authors, names a
   // Rent the author would lock per account at the default rent (6,960 lamports per byte incl. the 128 B overhead).
   assert.equal(rentExempt(ENTRY.SIZE), 2_115_840);
   assert.equal(rentExempt(VERSION.SIZE), 2_227_200);
+});
+
+test("a version seed hashes the whole entry key: names sharing 3 bytes of it do not share version accounts (verify-pr329)", () => {
+  // Birthday-grind two names of one author whose entry keys share their first 3 bytes
+  // (the earlier draft's version seed kept only those 3 bytes, so these two collided).
+  const seen = new Map();
+  let pair = null;
+  for (let i = 0; i < 200_000 && !pair; i++) {
+    const n = `n${i.toString(36).padStart(4, "0")}`;
+    const p3 = entrySeed(A, n).slice(2, 8);
+    if (seen.has(p3)) pair = [seen.get(p3), n];
+    else seen.set(p3, n);
+  }
+  assert.ok(pair, "found two names sharing 3 entry-key bytes");
+  assert.notEqual(versionSeed(A, pair[0], "1.0.0"), versionSeed(A, pair[1], "1.0.0"));
+  const c = new LocalChain({ seasonId: 3, slot: 0, accounts: {}, log: [] });
+  assert.equal(c.publish({ signer: A, author: A, name: pair[0], version: "1.0.0", hash: H1 }).ok, true);
+  assert.equal(c.publish({ signer: A, author: A, name: pair[1], version: "1.0.0", hash: H1 }).ok, true);
+  // Known answer (for slice 2's Rust parity test).
+  assert.equal(versionSeed("aa".repeat(32), "river-supply", "1.2.3"), KNOWN_VERSION_SEED);
 });
 
 test("local chain: publish writes the version once, updates the entry, and logs a record", () => {

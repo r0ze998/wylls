@@ -261,7 +261,11 @@ export function decodeRecord(bytes) {
  * with-seed address of the world's Season PDA can carry it): 15 raw bytes.
  * The entry's raw key is the first 15 bytes of
  * sha256("wylls.creation.entry/1" ‖ author ‖ name); a version's is the
- * first 3 of that, then major, minor and patch as u32 LE.
+ * first 15 bytes of sha256("wylls.creation.version/1" ‖ that whole 32-byte
+ * entry hash ‖ major ‖ minor ‖ patch as u32 LE). (verify-pr329: an earlier
+ * draft kept only 3 bytes of the entry hash, so anyone could grind a name of
+ * their own whose 3 bytes match a victim's and take the victim's version
+ * accounts first; 120 hashed bits make that infeasible.)
  *
  * Locally the seed itself is the address (`local:<seed>`): the real address
  * needs the Season PDA and the program id, which a world-4 build defines.
@@ -280,12 +284,15 @@ export function entrySeed(author, name) {
 }
 
 export function versionSeed(author, name, version) {
-  const raw = new Uint8Array(15);
-  raw.set(entryKey(author, name).subarray(0, 3), 0);
-  const v = new DataView(raw.buffer);
+  const pre = utf8("wylls.creation.version/1");
+  const buf = new Uint8Array(pre.length + 32 + 12);
+  buf.set(pre, 0);
+  buf.set(entryKey(author, name), pre.length);
+  const v = new DataView(buf.buffer);
   const [a, b, c] = versionTriple(version);
-  v.setUint32(3, a, true); v.setUint32(7, b, true); v.setUint32(11, c, true);
-  return VERSION.SEED_TAG + toHex(raw);
+  const at = pre.length + 32;
+  v.setUint32(at, a, true); v.setUint32(at + 4, b, true); v.setUint32(at + 8, c, true);
+  return VERSION.SEED_TAG + toHex(sha256(buf).subarray(0, 15));
 }
 
 export const LOCAL_ADDRESS_PREFIX = "local:";

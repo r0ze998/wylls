@@ -58,7 +58,7 @@ Accounts follow the v2 conventions of `frontier-abi` (8-byte magic, season id u6
 | 16 | layout version u16 = 1 | |
 | 18 | status u8 | 0 listed, 1 suspended, 2 withdrawn |
 | 19 | name_len u8, 20 name [40] | `[a-z0-9][a-z0-9-]{2,39}` |
-| 60 | status_seq u32 | = registry `statusLog.length` (publishes count) |
+| 60 | status_seq u32 | = registry `statusLog.length` (publishes + status changes) |
 | 64 | author [32] | the wallet that must sign |
 | 96 | version_count u32 | |
 | 100 | newest major/minor/patch u32 ×3 | |
@@ -67,7 +67,24 @@ Accounts follow the v2 conventions of `frontier-abi` (8-byte magic, season id u6
 | 160 | status_day u32 | Q6-3 decides what a "day" is (bell-day recommended) |
 | 164 | reserved [12] | zero |
 
-**CreationVersion** `PSF6CVER`, seed `cv`‖hex(entry key[0..3] ‖ major ‖ minor ‖ patch), 192 B (rent-exempt 2,227,200 lamports), written once: season_id, layout version, name, flags (bit 0 = derived), version triple, author, **content hash** (SHA-256 of ⑥'s canonical JSON, `src/canonical.mjs`), derived_from content hash, published slot/day.
+**CreationVersion** `PSF6CVER`, seed `cv`‖hex(sha256("wylls.creation.version/1" ‖ entry hash (all 32 bytes) ‖ major ‖ minor ‖ patch as u32 LE)[0..15]), 192 B (rent-exempt 2,227,200 lamports), written once:
+
+| off | field | |
+|---|---|---|
+| 0 | magic `PSF6CVER` | |
+| 8 | season_id u64 | |
+| 16 | layout version u16 = 1 | |
+| 18 | name_len u8 | |
+| 19 | flags u8 | bit 0 = derived_from set; other bits zero |
+| 20 | major / minor / patch u32 ×3 | |
+| 32 | author [32] | |
+| 64 | name [40] | zero padded |
+| 104 | **content hash** [32] | SHA-256 of ⑥'s canonical JSON (`src/canonical.mjs`) |
+| 136 | derived_from content hash [32] | zero unless flag bit 0 |
+| 168 | published_slot u64, 176 published_day u32 | |
+| 180 | reserved [12] | zero |
+
+(verify-pr329: the first draft's version seed was `cv`‖hex(entry hash[0..3] ‖ major ‖ minor ‖ patch). Only 24 bits named the entry, so anyone could grind a name of their own whose 3 bytes match a victim's (about 2^24 hashes, 100 s in Node) and take the victim's version accounts first. That attack was shown in the stand-in. All 32 bytes are now hashed and 120 bits kept.)
 
 **Instruction** (one tag, sub-op byte): `CreationRecord` — `0 Publish { name, version, content_hash, derived_from? }`, `1 SetStatus { name, status, seq }`. Program checks only what it owns: signer = author, version account absent, version > entry newest, seq = entry status_seq. Definition validation, dependencies and bump size stay off chain (the program cannot parse ⑥ JSON, and must not).
 

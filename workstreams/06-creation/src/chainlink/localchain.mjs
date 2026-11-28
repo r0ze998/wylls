@@ -1,6 +1,7 @@
 /**
  * ⑥ chain link, slice 1: a LOCAL stand-in for the two planned instructions
- * (CreationPublish, CreationSetStatus) and their accounts (record.mjs).
+ * (CreationPublish, CreationSetStatus; on chain one instruction `CreationRecord`
+ * with sub-op 0 / 1, per the plan §3) and their accounts (record.mjs).
  * It enforces what the program would enforce on its own accounts, nothing
  * more: the signer is the author, a version is written once and must be
  * newer than the entry's newest, a status change names the entry's current
