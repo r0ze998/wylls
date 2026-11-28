@@ -2846,4 +2846,11 @@ export default {
   '{0}このデモの目標は{1}で、守備兵は {2} です。命令に封をして出発すると、到着のターンに戦いが決まります。': '{0}This demo\'s target is {1}, with {2} defenders. Seal the order and set out: the battle is decided on the arrival turn.',
   '二人用の試験：あなたと相手（{0}）は、どちらも 州 {1},{2} の砦（{3} が保持）に届きます。あなたは {4} として、州 {5},{6} の村から向かえます。': 'Two-player test: you and the other player ({0}) can both reach the keep of Province {1},{2} (held by {3}). You play {4} and can set out from your village in Province {5},{6}.',
   '二人の道を、世界の記録で確かめました。': 'Both routes were checked on the world\'s records.',
+  // (walletless demo, demo-npc-camps: the bandit camps' loot — tile card, battle report, guide)
+  '倒すと戦利品：食料 {0}・鉱石 {1}・金 {2}': 'Loot if beaten: {0} food · {1} ore · {2} gold',
+  '戦利品：食料 +{0}・鉱石 +{1}・金 +{2}': 'Loot: +{0} food · +{1} ore · +{2} gold',
+  '村の蔵がいっぱいの分は受け取れませんでした。': 'What did not fit in your village\'s full stores was left behind. ',
+  '村の蔵に入りました。': 'It went into your village\'s stores. ',
+  '野営地はターン {0} 以降、そのマスが空いていれば、もっと強くなって戻ってきます。': 'From turn {0}, once nobody stands on its tile, the camp comes back stronger.',
+  '地図のテントは蛮族の野営地で、数は守り手です。倒すと食料・鉱石・金が手に入ります（見えているマスを押すと戦利品が出ます）。': ' The tents on the map are barbarian camps, with their defenders: beat one for food, ore and gold (press a camp in sight to see its loot).',
 };

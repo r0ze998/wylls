@@ -27,6 +27,7 @@ import { landClaimOn } from '../territory.mjs';
 import { conquestObjective, renderConquestGuide } from './conquestguide.mjs';
 import { turnLine } from '../seasonterms.mjs';
 import { latestVillageOrder, villageRereadOffered } from './villageorders.mjs';
+import { campsOn } from '../democamps.mjs';
 
 const TITLE = {
   welcome: () => L`ようこそ`,
@@ -142,6 +143,8 @@ export function arrivalObjective(FS, st = onboardingState(factsOf(FS), FS.ui?.di
     title = L`空き地へ最初の進軍`;
     text = L`軍勢を選び、届く範囲の空き地を押します。進軍の費用と到着するターンを確かめて出発しましょう。`;
     go = marchObjective(FS);
+    // (walletless demo, demo-npc-camps: the bandit camps on the map pay loot)
+    if (campsOn(FS)) text += L`地図のテントは蛮族の野営地で、数は守り手です。倒すと食料・鉱石・金が手に入ります（見えているマスを押すと戦利品が出ます）。`;
   } else if (id === 'claim') {
     title = L`到着と領土の確保を待つ`;
     go = { act: 'tab', data: { tab: 'territory' }, label: L`領土の変化を見る` };

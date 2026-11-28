@@ -9,3 +9,10 @@ import * as map from '../../../permutation-server/web/map.mjs';
 import '../../../permutation-server/web/frontier/app.mjs';
 
 if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });
+
+// the demo's bandit camps: a tent and its defenders over every standing camp (camphud.mjs, demo-npc-camps)
+import { startCampHud } from './camphud.mjs';
+if (globalThis.document) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => startCampHud(), { once: true });
+  else startCampHud();
+}

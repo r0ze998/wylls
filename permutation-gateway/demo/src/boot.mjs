@@ -101,7 +101,7 @@ function world() {
     await initKernel(new URL('wasm/frontier.wasm', import.meta.url).href, realFetch);
     const v = await W.viewer({ keyless: NO_KEYS });
     W.setLiveStorage(true);
-    const live = createLive({ viewer: v, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, turn: DEMO.turnSecs, delay: DEMO.delaySecs, landMs: DEMO.landMs });
+    const live = createLive({ viewer: v, stage: 'none', opening: true, territory: true, nations: true, landUpkeep: true, landClaim: true, camps: true, turn: DEMO.turnSecs, delay: DEMO.delaySecs, landMs: DEMO.landMs });
     return { v, live };
   })();
   return made;
