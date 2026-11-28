@@ -63,6 +63,33 @@ export function summarizeReport(rep) {
   return out;
 }
 
+/**
+ * The judge's build features the watch needs (verify-bin-rebuild): world 3 runs program version 0x4804, which only a
+ * frontier-verify built with `--features verify/playable-lane` implements (VG/VX/VL/VWL/VW1). A default build reports
+ * V0/UnknownProgramVersion and, with no VG, thousands of FAIL findings that are the verifier's, not the chain's
+ * (watch-fail-investigate, 2026-11-28: 74f60922 → FAIL ×7986).
+ */
+export const REQUIRED_FEATURES = Object.freeze(['playable-lane']);
+
+/**
+ * `frontier-verify features` → may the watch use this binary as its judge? The probe prints one JSON line
+ * `{"bin":"frontier-verify","version":…,"features":[…],"mutated":null|"mutate-…"}`; a binary older than the probe
+ * exits 2 with "unknown argument features" and is refused too (its features cannot be known).
+ */
+export function checkVerifierFeatures({ code, stdout, stderr } = {}, required = REQUIRED_FEATURES) {
+  const rebuild = `rebuild with \`cargo build --release --locked -p verify --features ${required.map(f => `verify/${f}`).join(',')} --bin frontier-verify\``;
+  let p = null;
+  try { p = JSON.parse(String(stdout ?? '').trim().split('\n').pop()); } catch { /* not the probe */ }
+  if (code !== 0 || !p || !Array.isArray(p.features)) {
+    const said = String(stderr ?? stdout ?? '').trim().split('\n')[0]?.slice(0, 160) ?? '';
+    return { ok: false, why: `the verify binary does not report its build features (\`features\` probe exit ${code}${said ? `: ${said}` : ''}); it predates the probe or is not frontier-verify — ${rebuild}` };
+  }
+  if (p.mutated) return { ok: false, why: `the verify binary is a MUTATED build (${p.mutated}): a check is disabled — ${rebuild}` };
+  const missing = required.filter(f => !p.features.includes(f));
+  if (missing.length) return { ok: false, why: `the verify binary was built without ${missing.join(', ')} (it reports [${p.features.join(', ')}]): it cannot judge the playable lane (0x4804 → UnknownProgramVersion, every VG/VX/VL/VWL check missing) — ${rebuild}` };
+  return { ok: true, features: p.features, version: p.version ?? null };
+}
+
 const codes = m => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}×${n}`).join(',');
 
 /**
@@ -73,7 +100,8 @@ const codes = m => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
  *   PASS / UNVERIFIABLE — the verifier's verdict, no FAIL finding (UNVERIFIABLE is normal over a public RPC);
  *   RACE    — the verifier FAILed but a transaction landed at/before the finals' slot (finals ahead of the archive);
  *   REPIN   — the deployed program is not the pinned .so: not judged (re-pin after a sanctioned upgrade);
- *   ERROR   — the pull or the judge could not run (RPC down, 429 storm, binary missing): nothing judged.
+ *   ERROR   — the pull or the judge could not run (RPC down, 429 storm, binary missing), or the judge reported
+ *             V0/UnknownProgramVersion (a misbuilt judge, e.g. without the playable-lane feature): nothing judged.
  */
 export function classify({ pull, verify, pinnedSha256 = null }) {
   if (!pull || pull.ok === false) return { level: 'ERROR', exit: 0, why: `pull: ${pull?.error ?? 'no summary'}` };
@@ -84,6 +112,9 @@ export function classify({ pull, verify, pinnedSha256 = null }) {
   if (!verify) return { level: 'ERROR', exit: 0, why: 'judge did not run' };
   if (verify.code !== 0 && verify.code !== 1 && verify.code !== 2) return { level: 'ERROR', exit: 0, why: `judge exit ${verify.code}` };
   const s = verify.summary ?? summarizeReport(null);
+  // The judge does not implement the program's version: its FAIL findings are the verifier's gap, not the chain's
+  // (watch-fail-investigate D-2). Nothing was judged.
+  if (s.unvCodes['V0/UnknownProgramVersion']) return { level: 'ERROR', exit: 0, why: `misbuilt judge: V0/UnknownProgramVersion (the verify binary lacks the program's lane; ${s.fail} FAIL findings not counted)` };
   if (verify.code === 1 || s.verdict === 'FAIL' || s.fail > 0) {
     if (pull.finals && pull.finals.consistent === false) return { level: 'RACE', exit: 0, why: `FAIL on an inconsistent snapshot (${codes(s.failCodes)})` };
     return { level: 'FAIL', exit: 1, why: codes(s.failCodes) || 'verdict FAIL' };
