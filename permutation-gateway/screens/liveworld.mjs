@@ -1319,8 +1319,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     /** For tests: a province's fields as the world holds them (a copy). */
     province: (p, q) => { settle(); const pv = provinces.get(key(p, q)); return pv ? structuredClone(pv) : null; },
     npcLog: st.npcLog,
-    /** The prototype of the banner rule in this world (claimsworld.mjs), or null when it is off. */
-    proto,
+    // (demo-npc-camps; kept apart from the goal's hooks below `proto`, so the two PRs merge without a conflict here)
     /** The demo's NPC camps (`camps`): their record and log; null when it is off. */
     camps: CAMPS ? () => { settle(); return campsRecord(); } : null,
     campsLog: CAMPS ? () => CAMPS.log : null,
@@ -1336,7 +1335,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
         const j = startOrder('Join', { faction, session: new Uint8Array(32).fill(0x22), session_expiry: t + 30 * R.DAY }, acc, t);
         if (!j?.ok) return j;
         const spot = at ?? ringProvinces(2).filter(({ p, q }) => wedgeOf(p, q) === faction).map(({ p, q }) => provinces.get(key(p, q)))
-          .flatMap(pv => [...Array(pv.siteCount).keys()].filter(s => pv.siteMirror[s].state === 0).map(site => ({ p: pv.p, q: pv.q, site })))[0];
+          .flatMap(pv => [...Array(pv.siteCount).keys()].filter(s => pv.siteMirror[s].state === 0 && !(pv.camp.state === 1 && pv.sites[s] === pv.camp.tile)).map(site => ({ p: pv.p, q: pv.q, site })))[0];
         return startOrder('PlaceHome', spot, { ...acc, province: A.of('Province', spot), holding: A.of('Holding', spot) }, t);
       },
       march(host, dest) {
@@ -1345,5 +1344,7 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
         return scriptMarch(ME, BigInt(host), at, e, dest, b, t);
       },
     } : null,
+    /** The prototype of the banner rule in this world (claimsworld.mjs), or null when it is off. */
+    proto,
   };
 }

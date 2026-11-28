@@ -6,13 +6,13 @@ import * as fstate from '../../../permutation-server/web/frontier/fstate.mjs';
 import * as fmap from '../../../permutation-server/web/frontier/map/fmap.mjs';
 import * as fgeo from '../../../permutation-server/web/frontier/fgeo.mjs';
 import * as map from '../../../permutation-server/web/map.mjs';
-import '../../../permutation-server/web/frontier/app.mjs';
-
-if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });
-
-// the demo's bandit camps: a tent and its defenders over every standing camp (camphud.mjs, demo-npc-camps)
+// the demo's bandit camps: a tent and its defenders over every standing camp (camphud.mjs, demo-npc-camps; before the
+// app's import line, apart from the goal card's lines after it, so the two PRs merge without a conflict here)
 import { startCampHud } from './camphud.mjs';
 if (globalThis.document) {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => startCampHud(), { once: true });
   else startCampHud();
 }
+import '../../../permutation-server/web/frontier/app.mjs';
+
+if (globalThis.__wyllsDemo?.modules) Object.assign(globalThis.__wyllsDemo.modules, { 'fstate.mjs': fstate, 'map/fmap.mjs': fmap, 'fgeo.mjs': fgeo, '../map.mjs': map });

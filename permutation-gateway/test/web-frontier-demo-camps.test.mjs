@@ -205,5 +205,5 @@ test('the page: the tile card\'s loot chip, the report\'s spoils, the guide line
 
 test('the demo turns it on: boot.mjs makes the world with `camps: true`', () => {
   const boot = readFileSync(new URL('../demo/src/boot.mjs', import.meta.url), 'utf8');
-  assert.match(boot, /landClaim: true, camps: true, turn: DEMO\.turnSecs/);
+  assert.match(boot, /const live = createLive\(\{ viewer: v, stage: 'none', opening: true, [^\n]*\bcamps: true\b[^\n]*\}\);/);
 });
