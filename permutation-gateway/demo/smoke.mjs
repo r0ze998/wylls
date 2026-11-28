@@ -4,6 +4,7 @@
 //
 //   node smoke.mjs [--dir dist] [--port 0] [--prefix /play/] [--lang en|ja] [--shots DIR] [--loop] [--headed]
 //                  [--origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html] [--mobile] [--act]
+//                  [--pre-join]
 //
 // --origin: no server; the browser fetches dist/ AT THAT ORIGIN (Playwright routes it, a missing path gets dist/404.html
 // as GitHub Pages answers): the page runs on the real host name, not a loopback one, in a secure context. Every other
@@ -11,6 +12,9 @@
 // run was on 127.0.0.1, where the page offers its test Dev Wallet by the loopback host name; GitHub Pages is not one).
 // --path: the entry under the prefix ('' = the prefix itself, which redirects to frontier/index.html).
 // --mobile: a phone viewport (390×844, touch). --act: after the village, one order (train) must be accepted.
+// --pre-join: stop once the start button is shown; never press it, so nothing is signed (the PR-CI run, owner Q-FDW-1 B,
+// 2026-11-28 08:30). The page still derives the Dev Wallet's PUBLIC key from the sample world's fixed seed (the one
+// approved exception to key-free CI, docs/ci/KEY-FREE-CI.ja.md); every crypto.subtle.sign call is counted and must be 0.
 // Always: no wallet prompt ("connect a wallet", "No wallet found", ウォレットをつなぐ…) at any step, and the page plays
 // as the demo's own Dev Wallet.
 //
@@ -48,7 +52,7 @@ function routedHost(origin, prefix) {
 const { values: opt } = parseArgs({ options: {
   dir: { type: 'string', default: new URL('dist', import.meta.url).pathname }, port: { type: 'string', default: '0' }, prefix: { type: 'string', default: '/play/' },
   lang: { type: 'string', default: 'en' }, shots: { type: 'string' }, loop: { type: 'boolean', default: false }, headed: { type: 'boolean', default: false },
-  origin: { type: 'string' }, path: { type: 'string', default: '' }, mobile: { type: 'boolean', default: false }, act: { type: 'boolean', default: false },
+  origin: { type: 'string' }, path: { type: 'string', default: '' }, mobile: { type: 'boolean', default: false }, act: { type: 'boolean', default: false }, 'pre-join': { type: 'boolean', default: false },
   width: { type: 'string', default: '1440' }, height: { type: 'string', default: '900' }, budget: { type: 'string', default: '10000' }, nation: { type: 'string', default: '1' },
 } });
 const JA = opt.lang === 'ja';
@@ -65,6 +69,13 @@ const browser = await chromium.launch({ headless: !opt.headed });
 const view = opt.mobile ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : { viewport: { width: Number(opt.width), height: Number(opt.height) } };
 const context = await browser.newContext({ ...view, locale: JA ? 'ja-JP' : 'en-US', timezoneId: 'UTC', serviceWorkers: 'block' });
 if (srv.route) await context.route('**/*', srv.route);
+// count every signature the page makes (its Dev Wallet signs in the window: session.mjs keyFromSeed → subtle.sign;
+// workers are not counted); --pre-join requires 0
+await context.addInitScript(() => {
+  const S = globalThis.SubtleCrypto?.prototype; if (!S?.sign) return;
+  const sign = S.sign; globalThis.__smokeSigns = 0;
+  S.sign = function (...a) { globalThis.__smokeSigns++; return sign.apply(this, a); };
+});
 const page = await context.newPage();
 const problems = [], offsite = [], seen = [];
 page.on('pageerror', e => problems.push(`page error: ${e.message}`));
@@ -211,7 +222,18 @@ const go = page.locator('[data-stable="join-go"]:not([disabled])').first();
 const goSeen = await go.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
 await noWalletPrompt('a nation picked');
 if (!goSeen) { await shot(page, 'x-no-start-button'); check(false, 'the start button appears once a nation is picked'); await browser.close(); say(`\n${fails.length} check(s) failed`); process.exit(1); }
-const tReady = Date.now() - t0;
+const result = { tPicker, tReady: Date.now() - t0 };
+if (opt['pre-join']) {
+  check(true, 'the start button appears once a nation is picked (not pressed: --pre-join)');
+  await shot(page, '02-start-button');
+  await sleep(1000);
+  await noWalletPrompt('a nation picked, 1 s later');
+  const w = await page.evaluate(() => { const w = globalThis.__wyllsDemo.modules['fstate.mjs']?.FS?.wallet; return w ? { name: w.name, dev: !!w.dev } : null; });
+  check(w?.dev === true, `the guest's wallet is the demo's in-browser test wallet, no extension (${JSON.stringify(w)})`);
+  const joined = await page.evaluate(async () => { const FS = globalThis.__wyllsDemo.modules['fstate.mjs']?.FS; return { me: !!(await globalThis.__wyllsDemo.world()).summary().me, session: !!FS?.session, citizen: !!FS?.citizen }; });
+  check(!joined.me && !joined.session && !joined.citizen, `not joined: no village, no session key, no citizen (${JSON.stringify(joined)})`);
+} else {
+const tReady = result.tReady;
 await go.click();
 let me = null;
 for (let i = 0; i < 160 && !me; i++) { await sleep(250); me = (await summary()).me; }
@@ -241,7 +263,7 @@ const s0 = await summary();
 check(s0.neighbours.length >= 6 && new Set(s0.neighbours.map(n => n.nation)).size === 6, `all six nations have a village on the map (${s0.neighbours.map(n => n.nation).join(',')})`);
 
 // ------------------------------------------------------------------ the loop: train → host → camp → battle → report
-const result = { tPicker, tReady, tVillage };
+result.tVillage = tVillage;
 if (opt.loop) {
   const T = s0.turn;
   say(`  village founded in turn ${T} (${me.state === 1 ? 'provisional' : 'final'})`);
@@ -304,6 +326,7 @@ if (opt.loop) {
   result.camp = s1.camp; result.territory = s1.territory?.find(t => t.p === me.village[0] && t.q === me.village[1]);
   say(`  camp now ${JSON.stringify(s1.camp)}; report text: ${doc.replace(/\s+/g, ' ').slice(0, 200)}`);
 }
+}
 
 // ------------------------------------------------------------------ the request log
 const blocked = await demo(() => globalThis.__wyllsDemo.log.blocked);
@@ -315,6 +338,9 @@ const chainy = seen.filter(u => { const x = new URL(u); return /devnet|mainnet|s
 check(chainy.length === 0, `no devnet / RPC / herald / relay request over the network (${chainy.slice(0, 3).join(' ')})`);
 check(errors.length === 0, `the in-page world answered every read (${errors.join(' | ')})`);
 check(problems.length === 0, `no console / page / HTTP errors${problems.length ? `: ${[...new Set(problems)].slice(0, 5).join(' | ')}` : ''}`);
+const signs = await demo(() => globalThis.__smokeSigns ?? null);
+if (opt['pre-join']) check(signs === 0, `nothing was signed (${signs} crypto.subtle.sign call(s))`);
+result.signs = signs;
 result.requests = seen.length;
 if (opt.shots) writeFileSync(`${opt.shots}/${TAGNAME}-result.json`, JSON.stringify({ ...result, fails }, null, 1));
 say(JSON.stringify(result));

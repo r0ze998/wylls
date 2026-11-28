@@ -880,9 +880,9 @@ jobs:
   # the jobs above. Never started by a push or a pull request.
   walletless-demo:
     # The walletless static demo (permutation-gateway/demo): the real page + the screens sample world in the browser.
-    # Key-free here: build the bundle and check it without a browser. Its Playwright play-through signs with the page's
-    # test Dev Wallet in the browser, so it runs only in the manual key-tests job below.
-    name: Walletless demo bundle (build + key-free checks)
+    # Key-free here: build the bundle and check it, then the pre-join browser check below (signs nothing). Its full
+    # Playwright play-through signs with the page's test Dev Wallet in the browser, so it runs only in key-tests.
+    name: Walletless demo bundle (build + key-free checks + pre-join browser check)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -901,6 +901,28 @@ jobs:
           name: walletless-demo
           path: permutation-gateway/demo/dist
           retention-days: 7
+      # Q-FDW-1 = B (r0ze 2026-11-28 08:30; the P0 of #307: GitHub Pages asked for a wallet, every 127.0.0.1 run passed).
+      # The bundle pages-demo.yml deploys, built the same way, opened AT the real Pages host name (Playwright routes
+      # dist-pages/ there: no server, no socket, every other request refused and counted) in a clean headless Chromium:
+      # both entry URLs × EN/JA × desktop/phone, pick a nation → the start button shows → no wallet prompt anywhere, no
+      # request off the site, 0 signatures. The start button is NOT pressed (--pre-join): nothing is signed. The one
+      # approved exception to key-free CI: the page derives its Dev Wallet's PUBLIC key from the sample world's fixed seed
+      # (docs/ci/KEY-FREE-CI.ja.md; check-ci-keyfree.py refuses any other smoke.mjs run here). The full play-through
+      # (join, orders, battle) stays in key-tests.
+      - name: Walletless demo at the real Pages host, pre-join (Playwright; nothing signed)
+        working-directory: permutation-gateway/demo
+        env:
+          BASE: /${{ github.event.repository.name }}/
+          LIVE_URL: ${{ vars.DEMO_LIVE_URL }}
+          ORIGIN: https://${{ github.repository_owner }}.github.io
+        timeout-minutes: 5
+        run: |
+          npx playwright-core install --with-deps chromium
+          node build.mjs --out dist-pages --base "$BASE" --live-url "$LIVE_URL"
+          node check.mjs --dir dist-pages
+          for entry in '' frontier/index.html; do for lang in en ja; do for view in '' --mobile; do
+            node smoke.mjs --dir dist-pages --origin "$ORIGIN" --prefix "$BASE" --path "$entry" --lang "$lang" $view --pre-join
+          done; done; done
 
   key-tests:
     name: Key-using tests (manual, owner-approved only)

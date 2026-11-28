@@ -11,6 +11,7 @@ node check.mjs            # key-free checks of dist/ (CI runs these)
 node serve.mjs --port 41751 --prefix /play/ --gzip   # try it: http://127.0.0.1:41751/play/ (--gzip: as static hosts send text)
 node smoke.mjs --loop     # Playwright play-through (signs with the page's test Dev Wallet: manual key-tests job only)
 node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --path frontier/index.html --act [--mobile] [--lang ja]
+node smoke.mjs --origin https://r0ze998.github.io --prefix /wylls/ --pre-join   # stops at the start button, signs nothing: runs on every PR (ci.yml walletless-demo, Q-FDW-1)
                           # the same, AT the Pages host name (routed in the browser): no wallet prompt, one order
 ```
 
