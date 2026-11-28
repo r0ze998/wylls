@@ -36,8 +36,9 @@ LINT_LINE = re.compile(
 # nothing is signed (smoke.mjs counts crypto.subtle.sign and requires 0). Any other smoke.mjs run signs (joining makes
 # a session key, orders are signed): every line that runs smoke.mjs outside key-tests must carry --pre-join and none of
 # --act / --loop.
-# `npm run smoke` / `npm run-script smoke` (permutation-gateway/demo/package.json: "smoke": "node smoke.mjs") count too.
-SMOKE_RUN = re.compile(r'(^|[\s/])smoke\.mjs(\s|$)|(^|\s)npm (run|run-script) smoke(\s|$)')
+# `npm run smoke` / `npm run-script smoke` (permutation-gateway/demo/package.json: "smoke": "node smoke.mjs") and the
+# other demo smokes (smoke-save.mjs joins and signs; it has no --pre-join, so any run of it here fails) count too.
+SMOKE_RUN = re.compile(r'(^|[\s/])smoke(-[\w-]+)?\.mjs(\s|$)|(^|\s)npm (run|run-script) smoke(\s|$)')
 
 def demo_smoke_bad(step):
     lines = [l.strip() for l in str(step.get('run', '')).splitlines()]
