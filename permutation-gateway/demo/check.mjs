@@ -52,6 +52,8 @@ const missing = []; for (const r of rebased) { try { await stat(join(D, 'frontie
 check(rebased.size >= 10 && rebased.has('map/sprites.mjs') && missing.length === 0, `the page bundle rebases import.meta.url to its modules (${rebased.size} modules${missing.length ? `; missing: ${missing.join(' ')}` : ''})`);
 const world = await readFile(join(D, 'frontier', 'demo-world.js'), 'utf8');
 const worldBytes = (await stat(join(D, 'frontier', 'demo-world.js'))).size;
+// (demo-polish-2: the save's world version is filled in by build.mjs — a save is replayed only by the build that wrote it)
+check(/worldId:"[0-9a-f]{16}"/.test(world) && !world.includes('demo-world-id-to-be-filled'), 'the world bundle carries its save version (16-hex world id)');
 check(worldBytes < 1048576, `world bundle ${(worldBytes / 1024).toFixed(0)} KiB (< 1,024 KiB)`);
 check(eagerBytes + worldBytes <= Number(opt['max-js-kib']) * 1024, `first-load script ${((eagerBytes + worldBytes) / 1024).toFixed(0)} KiB: page bundle ${eager.size} files ${(eagerBytes / 1024).toFixed(0)} KiB + world (≤ ${opt['max-js-kib']} KiB)`);
 const endpoints = world.match(/https?:\/\/[a-z0-9.-]+(?::\d+)?/gi) ?? [];
