@@ -94,13 +94,16 @@ import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps, provinceInReach } from './fkeepreach.mjs';
 import { campInBounds } from './hud/firstbattle.mjs';
 // the local test world's fog of war (map/fog.mjs): the keep lists and the incoming warnings show only what was seen
-import { fogNow, viewKeeps, viewTile } from './map/fog.mjs';
+import { fogNow, viewTile, guideKeeps } from './map/fog.mjs';
+// (fix-lp29-fog-fort, Q-LP29-1 (b): the TEST-ONLY capture demo's prepared fort, once its launcher named it: the lists ask again)
+import { onDemoFort } from './fdemofort.mjs';
 import * as fprize from './fprize.mjs';
 import { instantHomeEnabled, heartlandFull, noFreeHome, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, homePlaceOf, homeRingsOf, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
 import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
 
+onDemoFort(() => invalidate('rail', 'panel'));
 const SESSION_DAYS = 30 * 86_400;
 /** Local play (flocalplay.mjs): `{address}` once its gate verified a herald for the page's memory-only wallet, else null. */
 let localPlay = null;
@@ -2319,7 +2322,7 @@ export function wantKeepReach() {
   if (!cq?.control || !conquestEnabled(FS.season) || !Number.isInteger(FS.citizen?.faction)) return false;
   const { home, origins } = reachOrigins(FS);
   if (!origins.length) return false;
-  const args = { keeps: viewKeeps(cq.keeps), origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
+  const args = { keeps: guideKeeps(cq.keeps), origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
     seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })), blocked: palisadeHexes(FS) };
   const key = reachKey(args);
   if (cq.reach?.key === key) return false;
@@ -2347,7 +2350,7 @@ export function wantHostReach(hostId) {
   const r = hostRow(hostId);
   if (!r) return false;
   const origins = [{ p: r.p, q: r.q, tile: r.tile, unit: r.unit, host: String(r.id), troops: r.troops }];
-  const args = { keeps: viewKeeps(cq.keeps), origins, home: false, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
+  const args = { keeps: guideKeeps(cq.keeps), origins, home: false, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
     seeds: (FS.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), blocked: palisadeHexes(FS) };
   const key = `h:${r.id}|${reachKey(args)}`;
   if (cq.hostReach?.key === key) return false;

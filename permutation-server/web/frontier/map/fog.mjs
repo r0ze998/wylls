@@ -27,6 +27,7 @@
 // The fog's mode is `fogModeOf(FS)`: 'local' | 'devnet' | null.
 import { L2, L3, SIGHT, browserStorage, keyHex } from './survey.mjs';
 import { PROVINCE_RADIUS, PROVINCE_TILES, TILE_OFFSETS, locate, provinceCentre } from '../fgeo.mjs';
+import { demoFortNow } from '../fdemofort.mjs';
 
 /** THE switch of the local test world's fog of war (one constant; false turns every mask here off in local worlds). */
 export const LOCAL_FOG = true;
@@ -450,6 +451,28 @@ export const resetFogNow = () => { current = null; };
 export const viewOverviews = fs => { const f = fogNow(); return f.on && f.overviews ? f.overviews : fs?.overviews; };
 /** The keeps a surface that SHOWS them reads (FS.conquest.keeps, fogged under the fog). */
 export const viewKeeps = keeps => { const f = fogNow(); return f.on ? f.keeps(keeps) : keeps; };
+/**
+ * (fix-lp29-fog-fort, owner r0ze 2026-11-28 09:05, Q-LP29-1 (b)) The keeps the GUIDE and the KEEP LIST read: `viewKeeps`,
+ * plus the one demo exception — the capture demo's prepared fort (fdemofort.mjs `demoFortNow`, set only on a launcher
+ * capture-demo page from the launcher's checked answer; null everywhere else, so every other world reads exactly
+ * `viewKeeps`). The fort is marked `demoFort: true`. In sight (or seen before) it is the fog's own entry, count included;
+ * out of sight it is named by its position and the holder the demo chose it for, with NO defender count (`troops` absent),
+ * no contest and `fog: 'demo'`. It passes only when the page's own records hold that province's keep on the same tile.
+ * The map, the minimap, the keep panel and every other surface keep reading `viewKeeps`: nothing is drawn under the fog.
+ */
+let guideCache = { viewed: null, raw: null, fort: null, out: null };
+export const guideKeeps = keeps => {
+  const viewed = viewKeeps(keeps), fort = demoFortNow();
+  if (!fort || !(keeps instanceof Map) || !(viewed instanceof Map)) return viewed;
+  const key = `${fort.p},${fort.q}`, k = keeps.get(key);
+  if (!k || k.tile !== fort.tile) return viewed;
+  if (guideCache.viewed === viewed && guideCache.raw === k && guideCache.fort === fort) return guideCache.out;
+  const out = new Map(viewed), shown = viewed.get(key);
+  out.set(key, shown ? { ...shown, demoFort: true }
+    : { p: k.p, q: k.q, tile: k.tile, holder: fort.holder, heartland: !!k.heartland, ...(int(k.consolidatedUntil) ? { consolidatedUntil: k.consolidatedUntil } : {}), asOfBell: null, fog: 'demo', demoFort: true });
+  guideCache = { viewed, raw: k, fort, out };
+  return out;
+};
 /** Whether a clash (report, replay, scene) of `{p, q, keepTile, mine}` may be offered (always, without fog). */
 export const viewClash = x => { const f = fogNow(); return !f.on || !f.clashSeen || f.clashSeen(x); };
 /**
